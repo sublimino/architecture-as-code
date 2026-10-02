@@ -1469,10 +1469,14 @@ func TestAcceptance_PartialContainment_EveryPlaneInTurn(t *testing.T) {
 		{PlaneMesh, func(_ *testing.T, c *k8sFleetClient) { c.meshClient = &failingMeshClient{} }},
 		{PlaneAdmission, func(_ *testing.T, c *k8sFleetClient) { c.admissionClient = &failingAdmissionClient{} }},
 		{PlaneFreeze, func(_ *testing.T, c *k8sFleetClient) {
-			// The freeze plane writes the pod state label. Pointing the client
-			// at an empty clientset makes that write fail while every other
-			// plane keeps its own healthy client.
-			c.clientset = fake.NewSimpleClientset()
+			// The freeze plane writes the pod state label. Failing only the pod
+			// PATCH makes that write fail while the pod stays readable, so the
+			// credential planes still observe the subject from its
+			// ServiceAccount. (An empty clientset would also blind the identity
+			// lookup and cap bao and spire at partial.)
+			fk := fake.NewSimpleClientset(agentPod("agent-cardvault", "active", nil))
+			failOn(fk, "patch", injectedPatchFault)
+			c.clientset = fk
 		}},
 	}
 

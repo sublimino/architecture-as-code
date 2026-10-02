@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kusari-liveness-lab
+  labels:
+    app.kubernetes.io/part-of: stun-liveness-lab
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e1-agent
+  namespace: kusari-liveness-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e1-agent}
+  template:
+    metadata:
+      labels: {app: e1-agent}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: agent
+        image: kusari-agent:latest
+        imagePullPolicy: Never
+        ports:
+        - {name: http, containerPort: 8080}
+        livenessProbe:
+          httpGet: {path: /healthz, port: http}
+          periodSeconds: 15
+          failureThreshold: 3
+          timeoutSeconds: 1
+          successThreshold: 1
+        readinessProbe:
+          httpGet: {path: /healthz, port: http}
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 1
+          successThreshold: 1
+        resources:
+          limits: {cpu: 100m, memory: 64Mi}
+          requests: {cpu: 10m, memory: 16Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts:
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - {name: tmp, emptyDir: {}}

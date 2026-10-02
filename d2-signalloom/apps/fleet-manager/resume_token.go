@@ -855,6 +855,7 @@ func EnforceResumeWithAttestation(ctx context.Context, req ResumeRequest, regist
 		AgentID:   req.AgentID,
 		Namespace: req.Namespace,
 	}
+	var gitopsResult *PlaneResult
 
 	// 1. Verify token structure, signatures, validity window, and policy constraints
 	if err := VerifyResumeToken(req.Token, target, registry, policy, now); err != nil {
@@ -906,7 +907,21 @@ func EnforceResumeWithAttestation(ctx context.Context, req ResumeRequest, regist
 			resp.CredentialsRotated = true
 		}
 
-		// 4. Unfreeze the agent pod (set pod state back to active/running)
+		// 4. Resume GitOps reconciliation before the unfreeze, as Recover does.
+		// A failure here does not block the governed resume: the operators
+		// approved an unfreeze, and a workload Flux cannot reconcile is an
+		// operational gap, not a containment gap. It is reported, never
+		// swallowed, in resp.Error and in the attested plane evidence.
+		if gp, ok := client.(GitOpsPlane); ok {
+			pr := gp.ResumeGitOps(ctx, req.Namespace, req.AgentID)
+			gitopsResult = &pr
+			if pr.Outcome != OutcomeContained {
+				slog.Warn("gitops plane did not fully resume reconciliation on governed resume",
+					"agent_id", req.AgentID, "outcome", pr.Outcome, "error", pr.Error)
+			}
+		}
+
+		// 5. Unfreeze the agent pod (set pod state back to active/running)
 		if err := client.SetPodState(ctx, req.Namespace, req.AgentID, StateRunning); err != nil {
 			resp.Error = fmt.Sprintf("failed to unfreeze pod state: %v", err)
 			resp.LatencyMs = time.Since(start).Milliseconds()
@@ -917,6 +932,10 @@ func EnforceResumeWithAttestation(ctx context.Context, req ResumeRequest, regist
 	resp.Success = true
 	resp.ProcessesResumed = 1
 	resp.LatencyMs = time.Since(start).Milliseconds()
+	if gitopsResult != nil && gitopsResult.Outcome != OutcomeContained {
+		resp.Error = fmt.Sprintf("resumed, but gitops reconcile annotation not fully removed (%s): %s",
+			gitopsResult.Outcome, gitopsResult.Error)
+	}
 
 	// 5. Cryptographic Attestation (SLER-P5-1)
 	if attEngine != nil {
@@ -938,9 +957,7 @@ func EnforceResumeWithAttestation(ctx context.Context, req ResumeRequest, regist
 			Execution: attestation.ExecutionEvidence{
 				OverallOutcome: "contained",
 				TotalLatencyMs: resp.LatencyMs,
-				Planes: []attestation.PlaneExecutionEvidence{
-					{Plane: "freeze", Outcome: "contained", LatencyMs: resp.LatencyMs},
-				},
+				Planes:         resumePlaneEvidence(resp.LatencyMs, gitopsResult),
 			},
 			GovernanceResume: attestation.GovernanceResumeEvidence{
 				TokenID:               req.Token.TokenID,
@@ -993,4 +1010,22 @@ func EnforceResumeWithAttestation(ctx context.Context, req ResumeRequest, regist
 		"attested_record_digest", "")
 
 	return resp, nil
+}
+
+// resumePlaneEvidence is the attested plane list for a governed resume: the
+// freeze plane, plus the gitops plane when the client has one.
+func resumePlaneEvidence(latencyMs int64, gitops *PlaneResult) []attestation.PlaneExecutionEvidence {
+	ev := []attestation.PlaneExecutionEvidence{
+		{Plane: "freeze", Outcome: "contained", LatencyMs: latencyMs},
+	}
+	if gitops != nil {
+		ev = append(ev, attestation.PlaneExecutionEvidence{
+			Plane:     string(gitops.Plane),
+			Outcome:   string(gitops.Outcome),
+			LatencyMs: gitops.LatencyMs,
+			Error:     gitops.Error,
+			Details:   gitops.Details,
+		})
+	}
+	return ev
 }

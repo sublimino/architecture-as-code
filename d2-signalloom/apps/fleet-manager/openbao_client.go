@@ -32,6 +32,11 @@ const (
 
 	// DefaultBreakerCooldown is the wait period before moving from Open to Half-Open.
 	DefaultBreakerCooldown = 5 * time.Second
+
+	// DefaultOpenBaoTokenFile is where the openbao-agent sidecar sinks the
+	// fleet-manager token (base/deployment.yaml). It was previously read once at
+	// startup; it is now the default BAO_TOKEN_FILE and is re-read per request.
+	DefaultOpenBaoTokenFile = "/var/run/secrets/openbao/token"
 )
 
 // Sentinel errors for OpenBao client operations.
@@ -148,8 +153,14 @@ type RevokeAuditLogEntry struct {
 
 // OpenBaoConfig encapsulates settings for constructing an OpenBaoClient.
 type OpenBaoConfig struct {
-	Address             string
-	Token               string
+	Address string
+	// Token is a static token. When set it wins over TokenFile.
+	Token string
+	// TokenFile is re-read on EVERY request when Token is empty. The sidecar
+	// writes the file after this process starts and replaces it on each
+	// re-auth, so a value captured at construction is either empty for the
+	// life of the process or expired five minutes in.
+	TokenFile           string
 	Timeout             time.Duration
 	WorstCaseResidualMs int64
 	BreakerMaxFailures  int
@@ -168,16 +179,15 @@ func OpenBaoConfigFromEnv() OpenBaoConfig {
 	if token == "" {
 		token = os.Getenv("VAULT_TOKEN")
 	}
-	if token == "" {
-		// Read from serviceaccount token path if present
-		if tokenBytes, err := os.ReadFile("/var/run/secrets/openbao/token"); err == nil {
-			token = strings.TrimSpace(string(tokenBytes))
-		}
+	tokenFile := os.Getenv("BAO_TOKEN_FILE")
+	if tokenFile == "" {
+		tokenFile = DefaultOpenBaoTokenFile
 	}
 
 	return OpenBaoConfig{
 		Address:             addr,
 		Token:               token,
+		TokenFile:           tokenFile,
 		Timeout:             DefaultOpenBaoTimeout,
 		WorstCaseResidualMs: DefaultWorstCaseResidualMs,
 		BreakerMaxFailures:  DefaultBreakerMaxFailures,
@@ -191,6 +201,7 @@ func OpenBaoConfigFromEnv() OpenBaoConfig {
 type OpenBaoClient struct {
 	address             string
 	token               string
+	tokenFile           string
 	httpClient          *http.Client
 	breaker             *CircuitBreaker
 	worstCaseResidualMs int64
@@ -215,8 +226,9 @@ func NewOpenBaoClient(cfg OpenBaoConfig) *OpenBaoClient {
 	}
 
 	return &OpenBaoClient{
-		address: strings.TrimRight(cfg.Address, "/"),
-		token:   cfg.Token,
+		address:   strings.TrimRight(cfg.Address, "/"),
+		token:     cfg.Token,
+		tokenFile: cfg.TokenFile,
 		httpClient: &http.Client{
 			Timeout: cfg.Timeout,
 		},
@@ -225,6 +237,29 @@ func NewOpenBaoClient(cfg OpenBaoConfig) *OpenBaoClient {
 		logWriter:           cfg.LogWriter,
 		now:                 time.Now,
 	}
+}
+
+// currentToken returns the static token, else the trimmed content of the token
+// file read now. An unreadable or empty file yields "" and the request goes out
+// unauthenticated, which OpenBao answers 403: the plane reports Unavailable
+// rather than pretending.
+func (c *OpenBaoClient) currentToken() string {
+	if c.token != "" {
+		return c.token
+	}
+	if c.tokenFile == "" {
+		return ""
+	}
+	data, err := os.ReadFile(c.tokenFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// TokenConfigured reports whether a request made now would carry a token.
+func (c *OpenBaoClient) TokenConfigured() bool {
+	return c.currentToken() != ""
 }
 
 // emitAuditLog formats and writes a structured audit log entry.
@@ -262,8 +297,8 @@ func (c *OpenBaoClient) executeRequest(ctx context.Context, method, path string,
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("X-Vault-Token", c.token)
+	if token := c.currentToken(); token != "" {
+		req.Header.Set("X-Vault-Token", token)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -294,7 +329,10 @@ func (c *OpenBaoClient) executeRequest(ctx context.Context, method, path string,
 	// Handle 400 / 404 idempotent errors
 	respStr := strings.ToLower(string(respBody))
 	if resp.StatusCode == http.StatusNotFound ||
-		(resp.StatusCode == http.StatusBadRequest && (strings.Contains(respStr, "lease not found") || strings.Contains(respStr, "invalid lease"))) {
+		(resp.StatusCode == http.StatusBadRequest && (strings.Contains(respStr, "lease not found") || strings.Contains(respStr, "invalid lease") ||
+			// lookup-accessor / revoke-accessor on a token that has already
+			// expired: the same idempotent "already gone" answer.
+			strings.Contains(respStr, "invalid accessor"))) {
 		c.breaker.RecordResult(ErrLeaseNotFound)
 		return resp.StatusCode, respBody, ErrLeaseNotFound
 	}
@@ -408,6 +446,114 @@ func (c *OpenBaoClient) RenewSelf(ctx context.Context, increment string) error {
 	}
 	_, _, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/renew-self", payload)
 	return err
+}
+
+// ActiveTokensBySubject enumerates every live token accessor and counts them by
+// SPIFFE subject. Read-only: LIST auth/token/accessors (needs list+sudo) then
+// lookup-accessor per key, which returns metadata, never the token itself.
+//
+// The subject is meta.sub when the JWT role maps it (signalloom-agent-generic
+// sets claim_mappings sub=sub), otherwise the SPIFFE ID embedded in
+// display_name, which OpenBao forms as "<mount>-<user_claim value>" (e.g.
+// "jwt-payments-spiffe://..."). Tokens with neither (root, bootstrap) are not
+// agent tokens and are not counted.
+//
+// Any failure other than an accessor expiring mid-scan returns (nil, err): a
+// partial count is not a count, and the consistency check must report the plane
+// as unqueried rather than under-report live credentials as zero.
+func (c *OpenBaoClient) ActiveTokensBySubject(ctx context.Context) (map[string]int, error) {
+	tokens, err := c.tokenSubjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for _, tok := range tokens {
+		counts[tok.subject]++
+	}
+	return counts, nil
+}
+
+// RevokeTokensBySubject revokes, by accessor, every live token whose SPIFFE
+// subject is exactly spiffeID (subject derived as in ActiveTokensBySubject).
+// It returns how many it revoked. An accessor that expired mid-scan is already
+// gone and is not counted. Any other failure stops and returns the error with
+// the count so far: the caller must not report the plane contained while a
+// matching token may still be live.
+func (c *OpenBaoClient) RevokeTokensBySubject(ctx context.Context, spiffeID string) (int, error) {
+	tokens, err := c.tokenSubjects(ctx)
+	if err != nil {
+		return 0, err
+	}
+	revoked := 0
+	for _, tok := range tokens {
+		if tok.subject != spiffeID {
+			continue
+		}
+		_, _, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/revoke-accessor", map[string]any{"accessor": tok.accessor})
+		if errors.Is(err, ErrLeaseNotFound) {
+			continue
+		}
+		if err != nil {
+			return revoked, fmt.Errorf("revoke token accessor for %s: %w", spiffeID, err)
+		}
+		revoked++
+	}
+	return revoked, nil
+}
+
+type tokenSubject struct {
+	accessor string
+	subject  string
+}
+
+// tokenSubjects lists every live accessor and resolves its SPIFFE subject.
+// Tokens with no SPIFFE subject (root, bootstrap) are omitted.
+func (c *OpenBaoClient) tokenSubjects(ctx context.Context) ([]tokenSubject, error) {
+	_, body, err := c.executeRequest(ctx, http.MethodGet, "/v1/auth/token/accessors?list=true", nil)
+	if errors.Is(err, ErrLeaseNotFound) {
+		return nil, nil // LIST answers 404 when there are no keys
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list token accessors: %w", err)
+	}
+	var list struct {
+		Data struct {
+			Keys []string `json:"keys"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		return nil, fmt.Errorf("%w: decode accessor list: %v", ErrEnforcementUnavailable, err)
+	}
+
+	var out []tokenSubject
+	for _, accessor := range list.Data.Keys {
+		_, body, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/lookup-accessor", map[string]any{"accessor": accessor})
+		if errors.Is(err, ErrLeaseNotFound) {
+			continue // expired between LIST and lookup
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lookup token accessor: %w", err)
+		}
+		var lookup struct {
+			Data struct {
+				DisplayName string            `json:"display_name"`
+				Meta        map[string]string `json:"meta"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &lookup); err != nil {
+			return nil, fmt.Errorf("%w: decode accessor lookup: %v", ErrEnforcementUnavailable, err)
+		}
+		subject := lookup.Data.Meta["sub"]
+		if subject == "" {
+			if i := strings.Index(lookup.Data.DisplayName, "spiffe://"); i >= 0 {
+				subject = lookup.Data.DisplayName[i:]
+			}
+		}
+		if subject != "" {
+			out = append(out, tokenSubject{accessor: accessor, subject: subject})
+		}
+	}
+	return out, nil
 }
 
 // Health checks OpenBao server readiness via GET /v1/sys/health.

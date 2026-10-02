@@ -1,0 +1,4 @@
+pod=e1-agent-66bf787859-k98pj slice=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod09d1a66b_5428_4a81_9b59_144430a833b9.slice
+FREEZE_T0=22:41:23.663167727
+THAW_T=22:45:18.357340028
+READY_AT=22:45:20.576448012

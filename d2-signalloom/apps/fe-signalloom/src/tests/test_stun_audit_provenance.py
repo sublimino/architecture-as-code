@@ -1,26 +1,21 @@
-"""No field of a stun's audit row may originate from the client.
+"""No field of a stun's audit row may originate from the client -- except ``reason``.
 
 ``test_agent_stun.py`` asserts that the row is written, attributable and
 readable. This file asserts something narrower and, for an audit trail, prior:
 where each field came from.
 
-The stun endpoint was shaped as a recording service. Its request model said so
-in its own docstring -- "context the dashboard supplies when it records a stun"
--- and the browser duly supplied ``agent_name``, ``reason`` and the ``outcome``
-itself, which the handler copied into ``detail`` and returned as though the
-server had established them. An audit row assembled from the narrative of the
-party being audited is not evidence of anything; it is that party's account,
-stored somewhere authoritative-looking. The transaction around it was
-impeccable, which is what made it dangerous.
+The stun endpoint was once shaped as a recording service. The browser supplied
+``agent_name``, ``reason`` and the ``outcome`` itself, which the handler copied
+into ``detail`` and returned as though the server had established them. An
+audit row assembled from the narrative of the party being audited is not
+evidence of anything.
 
-These assertions are deliberately written to hold whichever way the endpoint
-is reshaped -- whether it performs the cluster action itself and audits what it
-observed, or records only what it can verify and drops the narrative. In both
-designs the client-supplied value must not appear in the row. So each test
-sends a value a caller could author and asserts it is nowhere in what was
-persisted, rather than asserting a particular rejection mechanism. A 422 and a
-silent drop both satisfy the invariant; a value that survives satisfies
-neither.
+One field has since come back, deliberately. The stun now drives
+fleet-manager's containment cascade, which needs the operator's justification,
+so ``{"reason": "..."}`` is a required body. It is recorded as exactly what it
+is -- a statement by the authenticated ``actor`` under ``detail.reason`` -- and
+nowhere else. Every other field a caller might author is refused with a 422 and
+leaves no row, which is asserted directly rather than inferred from absence.
 """
 from __future__ import annotations
 
@@ -93,11 +88,16 @@ class _FakeProxy:
 
     def __init__(self) -> None:
         self.observation = api_compat._ClusterStunObservation(
-            observed=True, outcome="stunned", namespace="fe-signalloom",
-            proxy_status=200, error=None,
+            observed=True,
+            overall_outcome="contained",
+            fleet_agent_id="agent-under-test",
+            fleet_manager_status=200,
+            error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
-    async def __call__(self, agent_id: str) -> Any:
+    async def __call__(self, agent_id: str, reason: str) -> Any:
         return self.observation
 
 
@@ -136,7 +136,11 @@ def client(monkeypatch: pytest.MonkeyPatch, proxy: _FakeProxy) -> TestClient:
         api_compat.reset_tenant_state(TENANT)
 
 
+STUN_REASON = "operator isolated the agent pending review"
+
+
 def _stun(client: TestClient, **body: Any) -> Any:
+    body.setdefault("reason", STUN_REASON)
     return client.post(f"/api/agents/{AGENT_ID}/stun", json=body, headers=_bearer())
 
 
@@ -172,63 +176,48 @@ def test_a_row_was_written_at_all(client: TestClient) -> None:
     row. If this test fails, the rest of the file is not testing provenance --
     it is testing that a stun failed -- and its passes mean nothing.
     """
-    response = _stun(client, reason=CLIENT_AUTHORED)
+    response = _stun(client)
 
     assert response.status_code == 200, response.text
     assert len(_recorded_stuns(client)) == 1
 
 
-def test_a_client_supplied_reason_never_reaches_the_row(client: TestClient) -> None:
-    """``reason`` was the narrative field, defaulted to a server string.
+def test_the_client_supplied_reason_is_recorded_only_as_reason(client: TestClient) -> None:
+    """The operator's justification lands in ``reason`` and nowhere else.
 
-    The handler read ``req.reason or "operator-initiated stun"``, so the row's
-    account of *why* an agent was cut off came from the caller whenever the
-    caller cared to supply one.
+    If it leaked into ``agent_name``, ``actor`` or an outcome field, the caller
+    would be authoring a finding rather than stating a reason.
     """
-    _stun(client, reason=CLIENT_AUTHORED)
+    response = _stun(client, reason=CLIENT_AUTHORED)
 
-    assert CLIENT_AUTHORED not in _persisted_text(client)
+    assert response.status_code == 200, response.text
+    row = _recorded_stuns(client)[0]
+    assert row["detail"]["reason"] == CLIENT_AUTHORED
+    assert row["actor"] == SUBJECT
+    without_reason = dict(row, detail={k: v for k, v in row["detail"].items() if k != "reason"})
+    assert CLIENT_AUTHORED not in repr(without_reason)
 
 
-def test_a_client_supplied_outcome_never_reaches_the_row(client: TestClient) -> None:
-    """The worst of the four: the client stating the result of the action.
+@pytest.mark.parametrize("field", ["outcome", "overall_outcome", "agent_name", "namespace", "actor", "planes"])
+def test_any_other_client_field_is_refused_and_leaves_no_row(client: TestClient, field: str) -> None:
+    """Refused, not silently dropped, so a client learns its field is not taken.
 
-    Nothing server-side ever checked it. A caller could report a successful
-    stun of an agent that was never touched, and the row would carry it under
-    a field named ``outcome``.
+    ``outcome`` is the worst of these: the client stating the result of the
+    action. ``agent_name`` would let a request rename the subject of its own
+    record; ``actor`` would let it claim someone else did it.
     """
-    _stun(client, outcome=CLIENT_AUTHORED)
+    response = _stun(client, **{field: CLIENT_AUTHORED})
 
-    assert CLIENT_AUTHORED not in _persisted_text(client)
-
-
-def test_a_client_supplied_agent_name_never_reaches_the_row(client: TestClient) -> None:
-    """The registry knows the agent's name; the caller merely asserts one.
-
-    ``req.agent_name or (row and row["name"])`` preferred the caller's value
-    over the database's, so a request could rename the subject of its own
-    audit record.
-    """
-    _stun(client, agent_name=CLIENT_AUTHORED)
-
-    assert CLIENT_AUTHORED not in _persisted_text(client)
-
-
-def test_a_client_supplied_namespace_never_reaches_the_row(client: TestClient) -> None:
-    """Where the workload lives is observable server-side or not at all."""
-    _stun(client, namespace=CLIENT_AUTHORED)
-
+    assert response.status_code == 422, response.text
+    assert field in response.json()["error"]["message"]
+    assert _recorded_stuns(client) == []
     assert CLIENT_AUTHORED not in _persisted_text(client)
 
 
 def test_the_actor_is_the_token_subject(client: TestClient) -> None:
-    """Asserted positively, and the positive control for the test below.
-
-    "actor is not the client's value" passes against any other hardcoded
-    string, including the ``demo-actor`` constant that makes several fixture
-    rows unattributable.
-    """
-    response = client.post(f"/api/agents/{AGENT_ID}/stun", headers=_bearer())
+    """Asserted positively: "is not the client's value" passes against any
+    other hardcoded string, including a ``demo-actor`` constant."""
+    response = _stun(client)
 
     assert response.status_code == 200, response.text
     recorded = _recorded_stuns(client)
@@ -236,31 +225,21 @@ def test_the_actor_is_the_token_subject(client: TestClient) -> None:
     assert recorded[0]["actor"] == SUBJECT
 
 
-def test_a_body_that_names_an_actor_cannot_set_one(client: TestClient) -> None:
-    """The identity field, which no request has ever been allowed to author.
-
-    Stated as "appears nowhere persisted" rather than as a status code, so it
-    holds whether the endpoint refuses the field or ignores it.
-    """
-    _stun(client, actor=CLIENT_AUTHORED)
-
-    assert CLIENT_AUTHORED not in _persisted_text(client)
-
-
-def test_a_stun_with_no_body_records_the_same_fields_as_one_with_a_body(
-    client: TestClient,
-) -> None:
-    """The row must not be shaped by what the caller chose to say.
-
-    If a body changes which fields the row carries, then the body is still
-    steering the record even when none of its values survive verbatim.
-    """
+def test_a_stun_with_no_body_is_refused_and_leaves_no_row(client: TestClient) -> None:
     bare = client.post(f"/api/agents/{AGENT_ID}/stun", headers=_bearer())
-    assert bare.status_code == 200, bare.text
-    bare_keys = set(_recorded_stuns(client)[0]["detail"])
+
+    assert bare.status_code == 422, bare.text
+    assert "reason" in bare.json()["error"]["message"]
+    assert _recorded_stuns(client) == []
+
+
+def test_the_reason_does_not_change_which_fields_the_row_carries(client: TestClient) -> None:
+    """The row must not be shaped by what the caller chose to say."""
+    _stun(client, reason="first reason")
+    first_keys = set(_recorded_stuns(client)[0]["detail"])
 
     api_compat.reset_tenant_state(TENANT)
-    _stun(client, reason=CLIENT_AUTHORED, outcome=CLIENT_AUTHORED)
-    with_body_keys = set(_recorded_stuns(client)[0]["detail"])
+    _stun(client, reason="a completely different and much longer second reason")
+    second_keys = set(_recorded_stuns(client)[0]["detail"])
 
-    assert bare_keys == with_body_keys
+    assert first_keys == second_keys

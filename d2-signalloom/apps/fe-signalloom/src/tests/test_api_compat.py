@@ -1065,11 +1065,9 @@ def test_operational_inventory_response_envelope_and_models(client, monkeypatch)
                             "node": "node-1",
                             "phase": "Running",
                             "pod_uid": "uid-12345",
-                            "cgroup_frozen": False,
-                            "cgroup_state": "thawed",
-                            "tc_drop_active": False,
-                            "traffic_control_state": "allow",
-                            "ebpf_active": True,
+                            # The stun-sentinel annotation, as discovery carries it.
+                            "kernel_state": "running",
+                            "kernel_observed_at": "2026-09-07T09:00:00Z",
                         }
                     ]
                 },
@@ -1087,8 +1085,11 @@ def test_operational_inventory_response_envelope_and_models(client, monkeypatch)
     assert agent["runtime"]["framework"] == "LangChain"
     assert agent["responsibility"]["assignment_status"] in ("unassigned", "registry_unlinked")
     assert agent["assessment_summary"]["status"] == "not_assessed"
+    # cgroup_state comes from the sentinel annotation; the annotation says
+    # nothing about traffic control, so that stays unknown.
     assert agent["kernel_telemetry"]["cgroup_state"] == "thawed"
-    assert agent["kernel_telemetry"]["traffic_control_state"] == "allow"
+    assert agent["kernel_telemetry"]["source"] == "sentinel-annotation"
+    assert agent["kernel_telemetry"]["traffic_control_state"] == "unknown"
 
 
 def test_capabilities_workload_scoped_discovery(client, monkeypatch):
@@ -1640,7 +1641,7 @@ def test_tab3_access_containment_tracks_models_and_telemetry(client, monkeypatch
     assert "containment" in op_state
     assert op_state["containment"]["process_freeze"] in ("active", "inactive", "requested", "unsupported")
     assert op_state["containment"]["network_isolation"] in ("active", "inactive", "requested", "unsupported")
-    assert op_state["containment"]["credential_revocation"] in ("active", "inactive", "requested", "unsupported")
+    assert op_state["containment"]["credential_revocation"] in ("active", "inactive", "requested", "unsupported", "unknown")
 
 
 def test_tab3_capabilities_workload_scoped_rbac_and_invariants(client, monkeypatch):
@@ -2244,13 +2245,15 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
     async def mock_get_pool():
         return None
 
-    async def _stun_succeeds(_agent_id: str) -> api_compat._ClusterStunObservation:
+    async def _stun_succeeds(_agent_id: str, _reason: str) -> api_compat._ClusterStunObservation:
         return api_compat._ClusterStunObservation(
             observed=True,
-            outcome="stunned",
-            namespace="fe-signalloom",
-            proxy_status=200,
+            overall_outcome="contained",
+            fleet_agent_id="agent-under-test",
+            fleet_manager_status=200,
             error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
     monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
@@ -2262,19 +2265,18 @@ def test_post_agent_stun_returns_sentinel_containment_feedback(client, monkeypat
         agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
         api_compat._AGENTS["tenant-a"][agent_id]["lifecycle_state"] = "active"
 
-    res = client.post(f"/api/agents/{agent_id}/stun", headers=bearer(token_for("alice")))
+    res = client.post(
+        f"/api/agents/{agent_id}/stun",
+        json={"reason": "sentinel containment probe"},
+        headers=bearer(token_for("alice")),
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["agent_id"] == agent_id
-    assert "sentinel_telemetry" in data
-    assert data["sentinel_telemetry"] is not None
-    telem = data["sentinel_telemetry"]
-    assert telem["cgroup_state"] == "frozen"
-    assert telem["traffic_control_state"] == "drop"
-    assert telem["sentinel_ack"] is True
-    assert telem["sentinel_ack_id"] == f"ack-{agent_id}-ebpf-sentinel"
-    assert telem["sentinel_drop_count"] == 142
-    assert telem["containment_probe_state"] == "confirmed"
+    # The freeze plane carried no details, so there is nothing to report and
+    # the response says so. It used to assert a hard-coded frozen cgroup and
+    # sentinel_drop_count=142 that no probe had observed.
+    assert data["sentinel_telemetry"] == {"source": "unavailable"}
 
 
 def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, monkeypatch):
@@ -2325,11 +2327,14 @@ def test_get_agent_detail_returns_sentinel_telemetry_side_effect_free(client, mo
     assert data["id"] == "agent-stunned-001"
     assert data["kernel_telemetry"] is not None
     telem = data["kernel_telemetry"]
-    assert telem["cgroup_state"] == "frozen"
-    assert telem["traffic_control_state"] == "drop"
-    assert telem["sentinel_ack"] is True
-    assert telem["containment_probe_state"] == "confirmed"
-    assert telem["sentinel_drop_count"] == 142
+    # A stun record with no sentinel annotation is a request, not an
+    # observation: nothing may claim the cgroup froze or packets dropped.
+    assert telem["cgroup_state"] == "unknown"
+    assert telem["source"] == "unavailable"
+    assert telem["traffic_control_state"] == "unknown"
+    assert telem["sentinel_ack"] is False
+    assert telem["containment_probe_state"] == "unconfirmed"
+    assert telem["sentinel_drop_count"] is None
     assert len(executed_writes) == 0
 
 

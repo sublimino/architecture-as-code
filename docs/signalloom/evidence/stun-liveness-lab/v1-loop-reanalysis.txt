@@ -1,0 +1,5 @@
+e3-ingress-loop.log: v1-OK=52 of which gap>0.9s (masked timeouts)=0
+e3-egress-loop.log: v1-OK=49 of which gap>0.9s (masked timeouts)=0
+e3-restore-ingress-loop.log: v1-OK=59 of which gap>0.9s (masked timeouts)=0
+e3-restore-egress-loop.log: v1-OK=59 of which gap>0.9s (masked timeouts)=0
+e5-ingress-loop.log: v1-OK=21 of which gap>0.9s (masked timeouts)=5

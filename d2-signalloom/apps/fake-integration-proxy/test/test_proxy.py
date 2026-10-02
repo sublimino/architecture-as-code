@@ -379,6 +379,54 @@ class AgentDiscoveryTest(AgentNamespaceTestCase):
         self.assertIn(AGENTS_NAMESPACE, body["namespace"])
 
 
+class KernelFreezeDiscoveryTest(AgentNamespaceTestCase):
+    """The stun-sentinel publishes the cgroup freezer truth as two pod
+    annotations. Discovery must carry them verbatim: a pod frozen in the kernel
+    with no stun label otherwise renders as an idle, healthy agent."""
+
+    FROZEN = "signalloom.io/kernel-frozen"
+    OBSERVED = "signalloom.io/kernel-observed-at"
+
+    def _agent(self, **annotations):
+        pod = agent_pod("agent-sir-lancelot", AGENTS_NAMESPACE)
+        pod["metadata"]["annotations"].update(annotations)
+        self.install({AGENTS_NAMESPACE: [pod]})
+        return self.request("GET", "/agents")[1]["agents"][0]
+
+    def test_frozen_annotation_maps_to_frozen_with_observation_time(self):
+        agent = self._agent(**{self.FROZEN: "true", self.OBSERVED: "2026-09-07T10:00:00Z"})
+        self.assertEqual("frozen", agent["kernel_state"])
+        self.assertEqual("2026-09-07T10:00:00Z", agent["kernel_observed_at"])
+
+    def test_false_annotation_maps_to_running(self):
+        agent = self._agent(**{self.FROZEN: "false", self.OBSERVED: "2026-09-29T10:00:00Z"})
+        self.assertEqual("running", agent["kernel_state"])
+        self.assertEqual("2026-09-29T10:00:00Z", agent["kernel_observed_at"])
+
+    def test_absent_annotations_are_unknown_not_running(self):
+        agent = self._agent()
+        self.assertEqual("unknown", agent["kernel_state"])
+        self.assertIsNone(agent["kernel_observed_at"])
+
+    def test_unrecognised_annotation_value_is_unknown(self):
+        agent = self._agent(**{self.FROZEN: "maybe"})
+        self.assertEqual("unknown", agent["kernel_state"])
+
+    def test_kernel_state_is_never_inferred_from_the_stun_label(self):
+        pod = agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True, state="stunned")
+        pod["metadata"]["annotations"]["signalloom.ai/stunned-at"] = "2026-09-01T00:00:00Z"
+        self.install({FLUX_NAMESPACE: [pod]})
+        agent = self.request("GET", "/agents")[1]["agents"][0]
+        self.assertEqual("unknown", agent["kernel_state"])
+
+    def test_a_kagent_cr_has_no_kernel_to_observe(self):
+        cr = {"metadata": {"name": "k-agent", "namespace": AGENTS_NAMESPACE,
+                           "labels": {"signalloom.ai/agent": "true"}}, "spec": {}}
+        agent = server._agent_from_kagent_cr(cr)
+        self.assertEqual("unknown", agent["kernel_state"])
+        self.assertIsNone(agent["kernel_observed_at"])
+
+
 class KagentCrDiscoveryTest(AgentNamespaceTestCase):
     """An agent has two carriers: a pod, and an Agent.kagent.dev CR.
 
@@ -523,14 +571,6 @@ class KagentCrDiscoveryTest(AgentNamespaceTestCase):
         # empty pod_spec is the fabrication, whatever verdict comes back.
         self.assertEqual([], fake.evaluations)
 
-    def test_stunning_a_cr_backed_agent_patches_nothing(self):
-        fake = self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
-            kagent_cr("kagent-network-auditor", AGENTS_NAMESPACE),
-        ]})
-        status, _ = self.request("POST", "/agents/kagent-network-auditor/stun")
-        self.assertEqual(404, status)
-        self.assertEqual([], fake.patched_urls)
-
     def test_the_cr_list_is_requested_for_every_discovery_namespace(self):
         fake = self.install({})
         self.request("GET", "/agents")
@@ -538,7 +578,7 @@ class KagentCrDiscoveryTest(AgentNamespaceTestCase):
 
 
 class AgentActionNamespaceTest(AgentNamespaceTestCase):
-    """Compliance and stun must follow the agent to whichever namespace holds it."""
+    """Compliance must follow the agent to whichever namespace holds it."""
 
     def test_compliance_resolves_the_namespace_without_a_hint(self):
         fake = self.install({FLUX_NAMESPACE: [agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)]})
@@ -562,36 +602,64 @@ class AgentActionNamespaceTest(AgentNamespaceTestCase):
         self.assertEqual(404, status)
         self.assertIn("agent-missing", body["error"])
 
-    def test_stun_patches_the_pod_in_its_resolved_namespace(self):
-        fake = self.install({FLUX_NAMESPACE: [agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)]})
-        status, body = self.request("POST", "/agents/agent-cardvault/stun")
-        self.assertEqual(200, status)
-        self.assertEqual("stunned", body["state"])
-        self.assertEqual(FLUX_NAMESPACE, body["namespace"])
-        self.assertIn(f"/namespaces/{FLUX_NAMESPACE}/pods/agent-cardvault", fake.patched_urls[0])
-
-    def test_stun_honours_an_explicit_namespace_hint(self):
-        fake = self.install({
-            AGENTS_NAMESPACE: [agent_pod("agent-cardvault", AGENTS_NAMESPACE, supercred=True)],
-            FLUX_NAMESPACE: [agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)],
-        })
-        status, body = self.request("POST", f"/agents/agent-cardvault/stun?namespace={AGENTS_NAMESPACE}")
-        self.assertEqual(200, status)
-        self.assertEqual(AGENTS_NAMESPACE, body["namespace"])
-        self.assertIn(f"/namespaces/{AGENTS_NAMESPACE}/pods/agent-cardvault", fake.patched_urls[0])
-
-    def test_stun_reports_not_found_when_no_namespace_holds_the_agent(self):
-        self.install({AGENTS_NAMESPACE: []})
-        status, body = self.request("POST", "/agents/agent-missing/stun")
-        self.assertEqual(404, status)
-        self.assertIn("agent-missing", body["error"])
-
     def test_an_unknown_namespace_hint_is_ignored_rather_than_trusted(self):
         fake = self.install({FLUX_NAMESPACE: [agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)]})
         status, body = self.request("GET", "/agents/agent-cardvault/compliance?namespace=kube-system")
         self.assertEqual(200, status)
         self.assertEqual(FLUX_NAMESPACE, fake.evaluations[0]["namespace"])
         self.assertNotIn("kube-system", json.dumps(body))
+
+
+class StunMovedToFleetManagerTest(AgentNamespaceTestCase):
+    """The proxy no longer stuns anything; the cascade lives in fleet-manager.
+
+    Its old handler relabelled the pod with a hard-coded reason and replied
+    that credentials were revoked while revoking none. A caller that still
+    reaches it is told where the real action lives and nothing is patched.
+    """
+
+    GONE = {
+        "error": "stun moved to the fleet-manager cascade",
+        "use": "POST /api/agents/{id}/stun on fe-signalloom",
+    }
+
+    def test_stun_answers_410_with_the_new_route(self):
+        fake = self.install({FLUX_NAMESPACE: [agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)]})
+        status, body = self.request("POST", "/agents/agent-cardvault/stun")
+        self.assertEqual(410, status)
+        self.assertEqual(self.GONE, body)
+        self.assertEqual([], fake.patched_urls)
+
+    def test_a_namespace_hint_does_not_revive_the_patch(self):
+        fake = self.install({AGENTS_NAMESPACE: [agent_pod("agent-cardvault", AGENTS_NAMESPACE, supercred=True)]})
+        status, body = self.request("POST", f"/agents/agent-cardvault/stun?namespace={AGENTS_NAMESPACE}")
+        self.assertEqual(410, status)
+        self.assertEqual(self.GONE, body)
+        self.assertEqual([], fake.patched_urls)
+
+    def test_an_unknown_agent_is_also_gone_not_looked_up(self):
+        fake = self.install({AGENTS_NAMESPACE: []})
+        status, body = self.request("POST", "/agents/agent-missing/stun")
+        self.assertEqual(410, status)
+        self.assertEqual(self.GONE, body)
+        self.assertEqual([], fake.listed_namespaces)
+        self.assertEqual([], fake.patched_urls)
+
+    def test_a_cr_backed_agent_is_gone_and_unpatched(self):
+        fake = self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-network-auditor", AGENTS_NAMESPACE),
+        ]})
+        status, _ = self.request("POST", "/agents/kagent-network-auditor/stun")
+        self.assertEqual(410, status)
+        self.assertEqual([], fake.patched_urls)
+
+    def test_the_fabricated_stun_strings_are_gone_from_the_proxy(self):
+        # Assembled from parts so this assertion is not itself a hit.
+        fabricated = ["credentials " + "revoked", "compliance-failure: " + "securityContext not set"]
+        with open(server.__file__, encoding="utf-8") as handle:
+            source = handle.read()
+        for phrase in fabricated:
+            self.assertNotIn(phrase, source)
 
 
 # ─── Network tests (netassert) ────────────────────────────────────────────────

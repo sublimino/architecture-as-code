@@ -10,11 +10,13 @@ import ButtonWait from '../components/ButtonWait'
 import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
+import StunReasonForm from '../components/StunReasonForm'
+import { PlaneOutcomeTable, StunOverallHeadline, planeContained } from '../components/StunPlanes'
 import { StatCard } from '../components/DashKit'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import type { AuditEventResponse, StunAgentResponse } from '../types/api'
+import type { AuditEventResponse, PlaneResult, StunAgentResponse } from '../types/api'
 import { isDemoMode } from '../api/demoMode'
 import {
   discoverSuperCredAgents,
@@ -59,7 +61,12 @@ interface RuntimeAgent {
 
 // ─── Credential Lifecycle Types ─────────────────────────────────────────────
 
-type CredentialStatus = 'pending' | 'issued' | 'active' | 'rotated' | 'revoked' | 'expired'
+type CredentialStatus =
+  | 'pending' | 'issued' | 'active' | 'rotated' | 'revoked' | 'expired'
+  // Revocation attempted, plane did not report contained: may still be live.
+  | 'revocation_failed'
+  // No plane evidence either way.
+  | 'unknown'
 
 interface CredentialRecord {
   id: string
@@ -68,6 +75,8 @@ interface CredentialRecord {
   issued_at: string | null
   expires_at: string | null
   revoked_at: string | null
+  /** Why the status is not plain revoked: the plane's error, or the missing evidence. */
+  plane_note?: string
   issuer: string
   scope: string
   rotation_count: number
@@ -96,18 +105,67 @@ function agentPath(agent: RuntimeAgent, suffix: string): string {
   return agent.namespace ? `${base}?namespace=${encodeURIComponent(agent.namespace)}` : base
 }
 
-// ─── Fake lifecycle data for demo enrichment ────────────────────────────────
+/**
+ * Whether the relayed "credentials revoked" style wording may be shown: the
+ * overall outcome and both credential planes must say contained.
+ */
+function stunFullyContained(result: StunAgentResponse): boolean {
+  return result.overall_outcome === 'contained'
+    && planeContained(result.planes, 'bao')
+    && planeContained(result.planes, 'spire')
+}
 
-function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
+// ─── Credential inventory: fixture rows, observed revocation status ─────────
+//
+// The rows themselves are FIXTURE: ids, issuers, scopes, issue and expiry
+// times and rotation counts are hardcoded demo enrichment, not read from SPIRE
+// or OpenBao. What is not fixture is whether the identity and lease rows say
+// "revoked": that comes only from the matching plane (spire, bao) in the last
+// stun result this page received for the agent. Contained is revoked; any
+// other outcome is revocation_failed with the plane's error; no report at all
+// is unknown. The agent's state being "stunned" is not evidence that a
+// credential died, and used to be the only thing this read.
+
+type RevocationView = Pick<CredentialRecord, 'status' | 'revoked_at' | 'plane_note'>
+
+function revocationFromPlane(
+  planeName: 'spire' | 'bao',
+  planes: PlaneResult[] | null,
+  fallbackAt: string,
+): RevocationView {
+  const plane = planes?.find(p => p.plane === planeName)
+  if (!plane) {
+    return {
+      status: 'unknown',
+      revoked_at: null,
+      plane_note: planes
+        ? `No ${planeName} plane in the last stun report.`
+        : `No ${planeName} plane report from a stun on this page.`,
+    }
+  }
+  if (plane.outcome === 'contained') {
+    return { status: 'revoked', revoked_at: plane.timestamp || fallbackAt }
+  }
+  return {
+    status: 'revocation_failed',
+    revoked_at: null,
+    plane_note: `Still active: ${plane.error ?? `${planeName} reported ${plane.outcome}`}`,
+  }
+}
+
+function buildCredentialRecords(agent: RuntimeAgent, planes: PlaneResult[] | null): CredentialRecord[] {
   const isStunned = agent.state === 'stunned'
+  const stunnedAt = agent.stunned_at ?? '2026-01-01T00:01:00Z'
+  const live: RevocationView = { status: 'active', revoked_at: null }
+  const spiffe = isStunned ? revocationFromPlane('spire', planes, stunnedAt) : live
+  const openbao = isStunned ? revocationFromPlane('bao', planes, stunnedAt) : live
   return [
     {
       id: `cred-${agent.id}-spiffe`,
       agent_id: agent.id,
-      status: isStunned ? 'revoked' : 'active',
+      ...spiffe,
       issued_at: '2026-01-01T00:00:02Z',
       expires_at: '2026-01-01T01:00:02Z',
-      revoked_at: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
       issuer: 'spire-server.spire-system',
       scope: 'spiffe://signalloom.ai/agent/cardvault',
       rotation_count: 0,
@@ -115,10 +173,9 @@ function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
     {
       id: `cred-${agent.id}-openbao`,
       agent_id: agent.id,
-      status: isStunned ? 'revoked' : 'active',
+      ...openbao,
       issued_at: '2026-01-01T00:00:03Z',
       expires_at: '2026-01-01T00:05:03Z',
-      revoked_at: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
       issuer: 'openbao.openbao-system',
       scope: 'database/creds/cardvault-readonly',
       rotation_count: 2,
@@ -237,7 +294,7 @@ const COMPLIANCE_COLUMNS: Column<ComplianceResult>[] = [
 
 /** Lifecycle order, so the chips keep one order regardless of what the data holds. */
 const CREDENTIAL_STATUS_ORDER: CredentialStatus[] = [
-  'pending', 'issued', 'active', 'rotated', 'revoked', 'expired',
+  'pending', 'issued', 'active', 'rotated', 'revocation_failed', 'revoked', 'expired', 'unknown',
 ]
 
 /** Which compliance rows to show. `all` first, then the two verdicts. */
@@ -406,6 +463,9 @@ export default function SuperCredPage() {
   const [stunResult, setStunResult] = useState<StunAgentResponse | null>(null)
   const [stunLoading, setStunLoading] = useState(false)
   const [stunEvent, setStunEvent] = useState<AuditEventResponse | null>(null)
+  // The agent whose stun is awaiting a reason. Pressing Stun Agent opens the
+  // confirm step; nothing is sent until the operator has said why.
+  const [stunTarget, setStunTarget] = useState<RuntimeAgent | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Which row the in-flight scan or stun belongs to. `scanLoading` and
   // `stunLoading` are page-wide (they disable every row's buttons), so
@@ -480,7 +540,7 @@ export default function SuperCredPage() {
   // exist to report. That is also why the partial-failure branch is gone rather
   // than merely unused: with one call there is no state in which the agent is
   // isolated but unrecorded, so a banner claiming otherwise could only mislead.
-  const stunAgent = useCallback(async (agent: RuntimeAgent) => {
+  const stunAgent = useCallback(async (agent: RuntimeAgent, reason: string) => {
     setStunLoading(true)
     setBusyAgentId(agent.id)
     setStunResult(null)
@@ -488,7 +548,7 @@ export default function SuperCredPage() {
     setError(null)
     try {
       const token = await getAccessTokenSilently()
-      const data = await api.agents.stun(token, agent.id)
+      const data = await api.agents.stun(token, agent.id, reason)
       setStunResult(data)
       setStunEvent(data.event ?? null)
 
@@ -546,8 +606,13 @@ export default function SuperCredPage() {
   // Derive lifecycle and credential data from the first supercred agent
   const activeAgent = agents[0] ?? null
   const credentialRecords = useMemo(
-    () => (activeAgent ? buildCredentialRecords(activeAgent) : []),
-    [activeAgent],
+    () => (activeAgent
+      ? buildCredentialRecords(
+        activeAgent,
+        stunResult && stunResult.agent_id === activeAgent.id ? stunResult.planes ?? [] : null,
+      )
+      : []),
+    [activeAgent, stunResult],
   )
 
   // Chip counts are read off the FULL record set, never the filtered one: a
@@ -918,7 +983,7 @@ export default function SuperCredPage() {
                             minWidth: ROW_BUTTON_W,
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           }}
-                          onClick={() => stunAgent(agent)}
+                          onClick={() => setStunTarget(agent)}
                           disabled={stunLoading}
                         >
                           {stunLoading && busyAgentId === agent.id
@@ -937,6 +1002,19 @@ export default function SuperCredPage() {
               )}
             />
           </div>
+        )}
+        {stunTarget && (
+          <StunReasonForm
+            key={stunTarget.id}
+            agentName={stunTarget.name}
+            busy={stunLoading}
+            onCancel={() => setStunTarget(null)}
+            onConfirm={reason => {
+              const agent = stunTarget
+              setStunTarget(null)
+              void stunAgent(agent, reason)
+            }}
+          />
         )}
         {/* Idle, not empty. LoadingState's fourth phase exists for exactly this
             distinction and it is the one this card must never lose: "we have
@@ -1062,6 +1140,14 @@ export default function SuperCredPage() {
                     variant="credential"
                     testId={`credential-status-${cred.id}`}
                   />
+                  {cred.plane_note && (
+                    <div
+                      data-testid={`credential-plane-note-${cred.id}`}
+                      style={{ fontSize: 10, color: 'var(--text)', marginTop: 3, maxWidth: 220 }}
+                    >
+                      {cred.plane_note}
+                    </div>
+                  )}
                 </td>
                 <td style={{ ...DataTable.td, fontSize: 10, color: 'var(--muted)' }}>{cred.issued_at ?? '-'}</td>
                 <td style={{ ...DataTable.td, fontSize: 10, color: 'var(--muted)' }}>{cred.expires_at ?? '-'}</td>
@@ -1179,39 +1265,62 @@ export default function SuperCredPage() {
           border: '1px solid color-mix(in srgb, var(--error) 40%, transparent)',
           background: 'color-mix(in srgb, var(--error) 5%, transparent)',
         }}>
-          {/* The heading is --text and the red is carried by the border and the
-              fill. --error at 15px is 3.03:1 on --surface in Dark, under AA,
-              and this is the one heading in the demo that the back of the room
-              has to be able to read. Same trade the Design System page made for
-              its "Simulated" tag. */}
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>Agent Stunned</h2>
-          {/* The proxy's own wording when it gave one, otherwise composed from
-              the lifecycle fields the response always carries. Read from
+          {/* The headline is the server's overall_outcome, never a fixed
+              "Agent Stunned": a partial stun leaves a live lease or SVID
+              behind, and a heading that read as success over it is the most
+              dangerous sentence this page could print. The heading text stays
+              --text; the colour rides on the outcome tag. */}
+          <StunOverallHeadline outcome={stunResult.overall_outcome} />
+          {/* The proxy's own wording is relayed only when the planes back it:
+              overall contained AND bao AND spire contained. Otherwise it is
+              replaced by a sentence composed from the lifecycle fields, which
+              claims only the state change the server committed. Read from
               `proxy` rather than the top level because that is where relayed
-              claims live: see StunProxyReport. Display text, so composing it
-              is fine; what must never be composed here is the audit record,
-              and that arrives whole in `event` below. */}
-          <p style={{ fontSize: 13, marginBottom: 4 }}>
-            {stunResult.proxy?.message
-              ?? `Agent ${stunResult.agent_id} isolated: ${stunResult.from_state} → ${stunResult.to_state}`}
+              claims live: see StunProxyReport. */}
+          <p data-testid="stun-result-summary" style={{ fontSize: 13, marginBottom: 4 }}>
+            {stunFullyContained(stunResult)
+              ? (stunResult.proxy?.message
+                ?? `Agent ${stunResult.agent_id} isolated: ${stunResult.from_state} → ${stunResult.to_state}`)
+              : `Agent ${stunResult.agent_id} moved ${stunResult.from_state} → ${stunResult.to_state}; containment is ${stunResult.overall_outcome || 'unreported'}, see each plane below.`}
           </p>
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Stunned at: {stunResult.stunned_at}</p>
+          <p data-testid="stun-result-reason" style={{ fontSize: 12, marginBottom: 4 }}>
+            <strong>Reason:</strong> {stunResult.reason}
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+            Stunned at: {stunResult.stunned_at}
+            {stunResult.fleet_manager_status !== null && stunResult.fleet_manager_status !== undefined
+              && <> · fleet manager HTTP {stunResult.fleet_manager_status}</>}
+          </p>
+          <PlaneOutcomeTable planes={stunResult.planes ?? []} />
           <div data-testid="supercred-stun-actions" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <strong>Automated actions taken:</strong>
+              <strong>Automated actions confirmed:</strong>
               <HelpHint label="What these four actions mean" tone="var(--error)" testId="supercred-stun-actions-help">
                 A lease is a credential OpenBao issued with an expiry; revoking it invalidates it now rather than at expiry. Blocking SVID rotation stops the agent renewing the identity everything downstream checks. Deny-all egress stops it opening new connections. The observed, probe-by-probe version of these steps is the Credential Lifecycle card above, which runs a command per step and shows you the output.
               </HelpHint>
             </span>
+            {/* Each claim is printed only when its plane reported contained.
+                These used to be four unconditional lines, which on a partial
+                stun announced a revoked lease the server had just reported as
+                still live. */}
             <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-              <li>OpenBao dynamic lease revoked</li>
-              <li>SPIFFE SVID rotation blocked</li>
-              <li>Agent network policy set to deny-all egress</li>
-              <li>Incident logged to audit trail</li>
+              {planeContained(stunResult.planes, 'bao') && <li>OpenBao dynamic lease revoked</li>}
+              {planeContained(stunResult.planes, 'spire') && <li>SPIFFE SVID rotation blocked</li>}
+              {planeContained(stunResult.planes, 'mesh') && <li>Agent network policy set to deny-all egress</li>}
+              {stunEvent && <li>Incident logged to audit trail</li>}
             </ul>
+            {!planeContained(stunResult.planes, 'bao') && !planeContained(stunResult.planes, 'spire')
+              && !planeContained(stunResult.planes, 'mesh') && (
+              <p data-testid="supercred-stun-actions-none" style={{ margin: '4px 0 0' }}>
+                No credential or network containment was confirmed by the platform.
+              </p>
+            )}
           </div>
 
-          {/* Real-time Sentinel Kernel Containment Telemetry */}
+          {/* Real-time Sentinel Kernel Containment Telemetry. Its figures read
+              FROZEN and ACTIVE, so it renders only when the freeze plane
+              actually reported contained. */}
+          {planeContained(stunResult.planes, 'freeze') && (
           <div
             data-testid="supercred-sentinel-telemetry"
             style={{
@@ -1255,6 +1364,7 @@ export default function SuperCredPage() {
               </div>
             </div>
           </div>
+          )}
 
           {stunEvent && (
             <div data-testid="supercred-stun-event" style={{

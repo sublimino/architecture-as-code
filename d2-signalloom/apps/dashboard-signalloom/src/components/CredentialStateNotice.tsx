@@ -63,6 +63,20 @@ export default function CredentialStateNotice({
   // credentials, which is not the same as saying they are fine.
   if (!credentialState) return null
 
+  // Revocation was suggested (stun, revoked lifecycle) but not evidenced by
+  // the credential planes: neither "active" nor "revoked" is true to say.
+  if (credentialState.status === 'unknown') {
+    return (
+      <span
+        style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}
+        data-testid="credential-state-unknown"
+        title="No stun audit record shows the bao and spire credential planes contained"
+      >
+        Credential state unknown
+      </span>
+    )
+  }
+
   if (credentialState.status !== 'revoked') {
     return (
       <span

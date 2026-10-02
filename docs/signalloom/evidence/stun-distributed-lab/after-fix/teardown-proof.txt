@@ -1,0 +1,12 @@
+teardown_start 23:59:59.542360541
+Deleting cluster "osramp-dist" ...
+Deleted nodes: ["osramp-dist-control-plane" "osramp-dist-worker" "osramp-dist-worker2"]
+teardown_end 00:00:03.077314000
+$ kind get clusters
+osramp
+osramp-scaffold
+$ docker ps -a --filter name=osramp-dist -q | wc -l
+0
+current-context: kind-osramp
+worktree /tmp/kusari-e2e/w6-sentinel-src removed
+0 worktree entries for w6-sentinel-src

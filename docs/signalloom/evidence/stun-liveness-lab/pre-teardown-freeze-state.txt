@@ -1,0 +1,11 @@
+client pod_slice_freeze=0
+ cri-containerd-57c80139254=0 cri-containerd-daa0c3a4450=0
+e2-agent-5464646c5b-mvlwx pod_slice_freeze=0
+ cri-containerd-09f3c77fba6=0 cri-containerd-0c757d960cb=0 cri-containerd-65be6cb6699=0
+e3-agent-5798757f69-q9r59 pod_slice_freeze=0
+ cri-containerd-5974d5c9351=0 cri-containerd-80cf5a1c487=0 cri-containerd-fee2f78ac6e=0
+e4-agent-7c867d4d88-h65pk pod_slice_freeze=0
+ cri-containerd-22b58d065b6=0 cri-containerd-5888705d7fb=0
+e5-agent-6cc5c479b9-s9ltg pod_slice_freeze=0
+ cri-containerd-24a82b7289f=0 cri-containerd-84b6a2127fe=0 cri-containerd-df9a0742dac=0
+frozen cgroups under kubepods (whole node): 3

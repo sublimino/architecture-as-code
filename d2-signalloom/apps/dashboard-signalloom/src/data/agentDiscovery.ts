@@ -64,11 +64,11 @@ export type AgentLabelKey = keyof typeof AGENT_LABELS
 
 export interface SentinelKernelTelemetry {
   /** Whether the cgroup is currently frozen via cgroup.freeze (atomic kernel suspension). */
-  cgroup_frozen: boolean
-  /** Cgroup freeze state: 'frozen' | 'thawed' | 'none'. */
-  cgroup_state: 'frozen' | 'thawed' | 'none'
-  /** Whether TC matchall packet drop filter is active on the veth interface. */
-  tc_drop_active: boolean
+  cgroup_frozen?: boolean | null
+  /** Cgroup freeze state; 'unknown' when no sentinel annotation was observed. */
+  cgroup_state: 'frozen' | 'thawed' | 'none' | 'unknown'
+  /** Whether TC matchall packet drop filter is active; null when unobserved. */
+  tc_drop_active?: boolean | null
   /** Containment reaction latency in milliseconds (e.g. API watch + freeze write + TC attach). */
   containment_latency_ms?: number | null
   /** Cgroup v2 path on node if resolved. */
@@ -80,6 +80,7 @@ export interface SentinelKernelTelemetry {
   sentinel_drop_count?: number
   sentinel_last_ack_at?: string | null
   containment_probe_state?: 'confirmed' | 'pending' | 'unconfirmed'
+  source?: 'sentinel-annotation' | 'unavailable' | null
 }
 
 // ─── Discovery record ───────────────────────────────────────────────────────
@@ -132,6 +133,9 @@ export interface ProxyAgentRecord {
   created_at?: string | null
   /** Real-time kernel telemetry if emitted by Sentinel proxy. */
   kernel_telemetry?: SentinelKernelTelemetry | null
+  /** Kernel freezer state from the stun-sentinel annotation, via discovery. */
+  kernel_state?: 'frozen' | 'running' | 'unknown' | null
+  kernel_observed_at?: string | null
   /** Labels surfaced by the proxy from pod/CR metadata. */
   labels?: Record<string, string> | null
   /** Annotations surfaced by the proxy. */
@@ -177,7 +181,6 @@ export function proxyRecordToDiscovery(
   const sa = raw.service_account ?? raw.name ?? raw.id ?? 'unknown'
   const labels = raw.labels ?? {}
   const state = raw.state ?? labels[AGENT_LABELS.state] ?? null
-  const isStunned = state === 'stunned'
 
   // Normalize framework across orthogonal schema and substrate hints
   const framework =
@@ -209,11 +212,14 @@ export function proxyRecordToDiscovery(
     'default'
 
   // Normalize Sentinel kernel containment telemetry
+  // Only the sentinel annotation (carried as kernel_state) says whether the
+  // cgroup is frozen. The stun label is a request and implies nothing here.
   const kernelTelemetry: SentinelKernelTelemetry = raw.kernel_telemetry ?? {
-    cgroup_frozen: isStunned,
-    cgroup_state: isStunned ? 'frozen' : 'thawed',
-    tc_drop_active: isStunned,
-    containment_latency_ms: isStunned ? 42 : null,
+    cgroup_frozen: raw.kernel_state === 'frozen' ? true : raw.kernel_state === 'running' ? false : null,
+    cgroup_state: raw.kernel_state === 'frozen' ? 'frozen' : raw.kernel_state === 'running' ? 'thawed' : 'unknown',
+    tc_drop_active: null,
+    containment_latency_ms: null,
+    source: raw.kernel_state === 'frozen' || raw.kernel_state === 'running' ? 'sentinel-annotation' : 'unavailable',
   }
 
   return {
@@ -236,8 +242,8 @@ export function proxyRecordToDiscovery(
 
 /** Helper to check if an agent is contained by the kernel freezer / TC drop. */
 export function isKernelContained(agent: { state?: string | null; kernel_telemetry?: SentinelKernelTelemetry | null }): boolean {
+  // Kernel containment is an observation; a stunned label alone is not one.
   return (
-    agent.state === 'stunned' ||
     agent.kernel_telemetry?.cgroup_frozen === true ||
     agent.kernel_telemetry?.tc_drop_active === true
   )

@@ -76,7 +76,8 @@ data:
       prod-deploy-gate
       agent-cardvault
       nono-containment-probe
-      signalloom-stun-sentinel
+      # SA of DaemonSet stun-sentinel (not the directory name).
+      stun-sentinel
       kagent-k8s-reader
       kagent-commit-summariser
       kagent-security-analyst
@@ -88,6 +89,15 @@ data:
       agent-nono-evidenced
       agent-standard-baseline
       kusari-agent
+    )
+
+    # Control-plane workloads OUTSIDE the agent namespace that exchange a JWT-SVID
+    # for an OpenBao token, as "namespace:serviceaccount". No pod-label selector:
+    # they are not swarm agents, so the stun sentinel must never discover them.
+    # fleet-manager -> OpenBao role fleet-manager
+    # (configs/base/openbao-fleet-manager-bootstrap.yaml).
+    CONTROL_PLANE=(
+      fe-signalloom:fleet-manager
     )
 
     # One derivation of the server call, so nothing below can disagree about
@@ -126,6 +136,22 @@ data:
         -dns "${sa}.${AGENT_NAMESPACE}.svc.cluster.local"
     done
 
+    for pair in "${CONTROL_PLANE[@]}"; do
+      ns="${pair%%:*}"; sa="${pair#*:}"
+      id="$(printf 'spiffe://%s/ns/%s/sa/%s' "$TRUST_DOMAIN" "$ns" "$sa")"
+      existing="$(spire entry show -spiffeID "$id")"
+      if grep -Fq "$id" <<<"$existing"; then
+        echo "--- Already registered: ${id}"
+        continue
+      fi
+      echo "--- Registering control-plane identity: ${id}"
+      spire entry create \
+        -spiffeID "$id" \
+        -parentID "$PARENT_ID" \
+        -selector "k8s:ns:${ns}" \
+        -selector "k8s:sa:${sa}"
+    done
+
     # ── Assert the OUTCOME, not the exit code ────────────────────────────────
     #
     # Every command above already fails the Job under errexit. This is a
@@ -139,14 +165,18 @@ data:
       id="$(spiffe_id_for "$sa")"
       grep -Fq "$id" <<<"$shown" || missing+=("$id")
     done
+    for pair in "${CONTROL_PLANE[@]}"; do
+      id="$(printf 'spiffe://%s/ns/%s/sa/%s' "$TRUST_DOMAIN" "${pair%%:*}" "${pair#*:}")"
+      grep -Fq "$id" <<<"$shown" || missing+=("$id")
+    done
     if ((${#missing[@]} > 0)); then
       printf 'FAILED: %d of %d swarm entries are absent after registration:\n' \
-        "${#missing[@]}" "${#AGENTS[@]}" >&2
+        "${#missing[@]}" "$((${#AGENTS[@]} + ${#CONTROL_PLANE[@]}))" >&2
       printf '  %s\n' "${missing[@]}" >&2
       printf 'The agent swarm has no SPIFFE identities; every SVID fetch will fail.\n' >&2
       exit 1
     fi
-    printf 'OK: all %d swarm entries present.\n' "${#AGENTS[@]}"
+    printf 'OK: all %d swarm entries present.\n' "$((${#AGENTS[@]} + ${#CONTROL_PLANE[@]}))"
 ---
 apiVersion: batch/v1
 kind: Job

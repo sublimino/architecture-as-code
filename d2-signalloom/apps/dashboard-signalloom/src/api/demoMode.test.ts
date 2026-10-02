@@ -93,8 +93,9 @@ describe('demo mode', () => {
   it('renders fixtures even though every HTTP call fails', async () => {
     setDemoMode(true)
     const agents = await api.agents.list('tok')
-    expect(agents.total).toBe(6)
-    expect(agents.agents).toHaveLength(6)
+    // Six registry agents plus the kernel split-brain fixture (agent-sir-lancelot).
+    expect(agents.total).toBe(7)
+    expect(agents.agents).toHaveLength(7)
     expect(agents.agents[0].compliance_summary.passing).toBe(10)
 
     const summary = await api.compliance.summary('tok')
@@ -303,7 +304,7 @@ describe('demo mode', () => {
     expect(created.id).toBe('tenant-demo:agent-budget-bot')
     expect(createdDuplicate.id).toBe('tenant-demo:agent-budget-bot-2')
     expect(createdDuplicate.id).not.toBe(created.id)
-    expect(listed.total).toBe(8)
+    expect(listed.total).toBe(9)
     expect(listed.agents.map((agent) => agent.id)).toEqual(
       expect.arrayContaining([created.id, createdDuplicate.id]),
     )

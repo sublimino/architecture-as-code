@@ -13,7 +13,9 @@ import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import { StatCard, Section } from '../components/DashKit'
-import type { AgentState, FleetTopology as FleetTopologyData } from '../api/fleetApi'
+import type { AgentState, FleetStunResult, FleetTopology as FleetTopologyData } from '../api/fleetApi'
+import StunReasonForm from '../components/StunReasonForm'
+import { PlaneOutcomeTable, StunOverallHeadline } from '../components/StunPlanes'
 import {
   fetchFleetTopology,
   deployFleet,
@@ -215,6 +217,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   // Stun target.
   const [stunTarget, setStunTarget] = useState('agent-cardvault')
+  // The agent whose stun is waiting on a reason, and the last cascade report.
+  // fleet-manager refuses a stun with no body, and records the reason on the
+  // stun-reason annotations, so nothing is sent until the operator says why.
+  const [stunConfirmFor, setStunConfirmFor] = useState<string | null>(null)
+  const [stunResult, setStunResult] = useState<FleetStunResult | null>(null)
 
   // Roster filters. Presentation state only: it narrows an array that is
   // already in memory and never reaches the fleet manager.
@@ -296,27 +303,38 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     }
   }, [getAccessTokenSilently, loadTopology])
 
-  const handleStun = useCallback(async () => {
+  // Opens the confirm step. From the diagram it names the node that was
+  // clicked, which the old handler ignored in favour of the dropdown.
+  const requestStun = useCallback((agentId?: string) => {
+    if (agentId) setStunTarget(agentId)
+    setStunConfirmFor(agentId ?? stunTarget)
+  }, [stunTarget])
+
+  const performStun = useCallback(async (agentId: string, reason: string) => {
     setStunLoading(true)
     setStunError(null)
+    setStunResult(null)
     try {
       const token = await getAccessTokenSilently()
-      const event = await stunFleetAgent(stunTarget, token)
+      const result = await stunFleetAgent(agentId, token, reason)
       setStunLoaded(true)
-      // Trigger cascade animation.
-      setCascadeInProgress(event.affectedIds)
+      setStunResult(result)
+      // Trigger cascade animation. fleet-manager spells it affected_agents;
+      // affectedIds is the older CascadeEvent spelling.
+      setCascadeInProgress(result.affected_agents ?? result.affectedIds ?? [])
       void loadTopology()
     } catch (err) {
       setStunError(err instanceof Error ? err.message : 'Stun failed')
     } finally {
       setStunLoading(false)
     }
-  }, [getAccessTokenSilently, stunTarget, loadTopology])
+  }, [getAccessTokenSilently, loadTopology])
 
   const handleRecover = useCallback(async () => {
     setRecoverLoading(true)
     setRecoverError(null)
     setCascadeInProgress([])
+    setStunResult(null)
     try {
       const token = await getAccessTokenSilently()
       await recoverFleet(token)
@@ -333,6 +351,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setResetLoading(true)
     setResetError(null)
     setCascadeInProgress([])
+    setStunResult(null)
     try {
       const token = await getAccessTokenSilently()
       await resetFleet(token)
@@ -658,7 +677,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               agents={agents}
               edges={topology?.edges ?? []}
               cascadeInProgress={cascadeInProgress}
-              onStun={showControls ? handleStun : undefined}
+              onStun={showControls ? requestStun : undefined}
               onRecover={showControls ? handleRecover : undefined}
             />
           </div>
@@ -801,7 +820,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 </select>
                 <button
                   data-testid="fleet-stun-btn"
-                  onClick={handleStun}
+                  onClick={() => requestStun()}
                   disabled={stunLoading}
                   className="btn btn-danger"
                   style={{ minWidth: STUN_BUTTON_W, whiteSpace: 'nowrap', justifyContent: 'center' }}
@@ -812,12 +831,34 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   Revokes the selected agent’s credentials and marks it stunned, then does the same to every agent that depends on it. That spreading failure is the cascade drawn on the left. The pods keep running; they simply cannot authenticate any more. Recover fleet puts it back.
                 </HelpHint>
               </div>
+              {stunConfirmFor && (
+                <StunReasonForm
+                  key={stunConfirmFor}
+                  agentName={agents.find(a => a.id === stunConfirmFor)?.name ?? stunConfirmFor}
+                  busy={stunLoading}
+                  onCancel={() => setStunConfirmFor(null)}
+                  onConfirm={reason => {
+                    const agentId = stunConfirmFor
+                    setStunConfirmFor(null)
+                    void performStun(agentId, reason)
+                  }}
+                />
+              )}
               <LoadingState
                 status={loadPhase({ loading: stunLoading, error: stunError, loaded: stunLoaded })}
                 label="stun"
                 error={stunError}
                 testId="fleet-stun-status"
               />
+              {/* The cascade's own verdict and per-plane record. 404 and 500
+                  arrive here too, as reports, so a failed plane is shown
+                  rather than collapsed into an error string. */}
+              {stunResult && (
+                <div data-testid="fleet-stun-result">
+                  <StunOverallHeadline outcome={stunResult.overall_outcome} />
+                  <PlaneOutcomeTable planes={stunResult.planes ?? []} />
+                </div>
+              )}
 
               {/* Recover */}
               <div style={CONTROL_ROW}>

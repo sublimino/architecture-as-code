@@ -256,6 +256,13 @@ func (c *k8sFleetClient) GetPodState(ctx context.Context, namespace, agentID str
 // The patch is idempotent: re-applying the same state is a no-op for the API
 // server and returns nil, which is what makes containment safe to retry.
 func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, state string) error {
+	return c.SetPodStateWithReason(ctx, namespace, agentID, state, "")
+}
+
+// SetPodStateWithReason is SetPodState with a caller-supplied stun reason. An
+// empty reason means StunReason. The reason is only written on a stun; any
+// other state blanks it, exactly as before.
+func (c *k8sFleetClient) SetPodStateWithReason(ctx context.Context, namespace, agentID, state, reason string) error {
 	seq := c.degraded.nextSeq()
 	pod, err := c.resolvePod(ctx, namespace, agentID)
 	if err != nil {
@@ -274,7 +281,10 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	stunReason := ""
 	if stunning {
 		containmentMode = ContainmentModeFrozen
-		stunReason = StunReason
+		stunReason = reason
+		if stunReason == "" {
+			stunReason = StunReason
+		}
 
 		// Preserve an existing containment timestamp rather than restamping it.
 		//
@@ -323,6 +333,130 @@ func (c *k8sFleetClient) SetPodState(ctx context.Context, namespace, agentID, st
 	classified := classifyAPIError("set_pod_state", TargetRef{AgentID: agentID, Namespace: c.namespaceOrDefault(namespace)}, patchErr)
 	c.record(seq, PlaneFreeze, namespace, agentID, "set_pod_state", classified)
 	return classified
+}
+
+// SuspendGitOps annotates the agent's pod and its owning Deployment with
+// kustomize.toolkit.fluxcd.io/reconcile=disabled so Flux cannot reconcile a
+// contained workload back to its declared state.
+func (c *k8sFleetClient) SuspendGitOps(ctx context.Context, namespace, agentID string) PlaneResult {
+	return c.setFluxReconcile(ctx, namespace, agentID, true)
+}
+
+// ResumeGitOps removes the annotation SuspendGitOps wrote. Removing an absent
+// annotation is a no-op, so this is safe on a pod that was never suspended.
+func (c *k8sFleetClient) ResumeGitOps(ctx context.Context, namespace, agentID string) PlaneResult {
+	return c.setFluxReconcile(ctx, namespace, agentID, false)
+}
+
+// setFluxReconcile writes or removes the Flux annotation on the pod and, when
+// the pod is owned through a ReplicaSet by a Deployment, on that Deployment.
+//
+// Only object metadata is patched. Touching spec.template would roll the
+// Deployment and replace the frozen pod, which undoes the containment this
+// plane exists to protect.
+//
+// The verdict is honest per object: both written is contained, one written is
+// partial, none written is unavailable. A pod with no Deployment owner is not a
+// failure; the pod is annotated and Details says what the owner was.
+func (c *k8sFleetClient) setFluxReconcile(ctx context.Context, namespace, agentID string, disable bool) PlaneResult {
+	start := c.now()
+	namespace = c.namespaceOrDefault(namespace)
+	action := "enable_reconcile"
+	var value any // nil in a JSON merge patch deletes the key
+	if disable {
+		action = "disable_reconcile"
+		value = FluxReconcileDisabled
+	}
+	res := PlaneResult{
+		Plane:     PlaneGitOps,
+		Timestamp: start.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"agent_id":   agentID,
+			"action":     action,
+			"pod":        "",
+			"deployment": "",
+			"annotation": FluxReconcileAnnotation + "=" + FluxReconcileDisabled,
+		},
+	}
+	finish := func(outcome PlaneOutcome, errs []string) PlaneResult {
+		res.Outcome = outcome
+		res.Error = strings.Join(errs, "; ")
+		res.LatencyMs = c.now().Sub(start).Milliseconds()
+		return res
+	}
+
+	pod, err := c.resolvePod(ctx, namespace, agentID)
+	if err != nil {
+		return finish(OutcomeUnavailable, []string{err.Error()})
+	}
+	res.Details["pod"] = pod.Name
+
+	body, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{"annotations": map[string]any{FluxReconcileAnnotation: value}},
+	})
+	if err != nil {
+		return finish(OutcomeUnavailable, []string{"marshal gitops patch: " + err.Error()})
+	}
+	opts := metav1.PatchOptions{FieldManager: PodPatchFieldManager}
+
+	var errs []string
+	written, wanted := 0, 1
+	if _, err := c.clientset.CoreV1().Pods(namespace).Patch(ctx, pod.Name, types.MergePatchType, body, opts); err != nil {
+		errs = append(errs, fmt.Sprintf("patch pod %s/%s: %v", namespace, pod.Name, err))
+	} else {
+		written++
+	}
+
+	deployment, ownerKind, note, err := c.owningDeployment(ctx, namespace, pod)
+	res.Details["owner_kind"] = ownerKind
+	if note != "" {
+		res.Details["note"] = note
+	}
+	switch {
+	case err != nil:
+		wanted++
+		errs = append(errs, err.Error())
+	case deployment != "":
+		wanted++
+		res.Details["deployment"] = deployment
+		if _, err := c.clientset.AppsV1().Deployments(namespace).Patch(ctx, deployment, types.MergePatchType, body, opts); err != nil {
+			errs = append(errs, fmt.Sprintf("patch deployment %s/%s: %v", namespace, deployment, err))
+		} else {
+			written++
+		}
+	}
+
+	switch {
+	case written == wanted:
+		return finish(OutcomeContained, errs)
+	case written > 0:
+		return finish(OutcomePartial, errs)
+	default:
+		return finish(OutcomeUnavailable, errs)
+	}
+}
+
+// owningDeployment walks pod -> ReplicaSet -> Deployment through controller
+// owner references. It returns an empty name, with a note, when the chain does
+// not end in a Deployment. That is a fact about the workload, not an error.
+// An error means the chain could not be read.
+func (c *k8sFleetClient) owningDeployment(ctx context.Context, namespace string, pod *corev1.Pod) (name, ownerKind, note string, err error) {
+	ref := metav1.GetControllerOf(pod)
+	if ref == nil {
+		return "", "none", "pod has no controller; only the pod is annotated", nil
+	}
+	if ref.Kind != "ReplicaSet" {
+		return "", ref.Kind, fmt.Sprintf("owner is %s/%s, not a Deployment; only the pod is annotated", ref.Kind, ref.Name), nil
+	}
+	rs, err := c.clientset.AppsV1().ReplicaSets(namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+	if err != nil {
+		return "", "ReplicaSet", "", fmt.Errorf("get replicaset %s/%s: %v", namespace, ref.Name, err)
+	}
+	rsRef := metav1.GetControllerOf(rs)
+	if rsRef == nil || rsRef.Kind != "Deployment" {
+		return "", "ReplicaSet", fmt.Sprintf("replicaset %s has no Deployment owner; only the pod is annotated", rs.Name), nil
+	}
+	return rsRef.Name, "Deployment", "", nil
 }
 
 // Worst-case residual-exposure bounds for the SPIRE plane, in milliseconds.
@@ -376,10 +510,22 @@ func (c *k8sFleetClient) revokeCredentialsIdempotencyKey(agentID string) string 
 // ErrEnforcementUnavailable so callers keep the fail-closed contract. A partial
 // containment is representable: the []PlaneResult carries the per-plane truth
 // even when the aggregate error is set.
+//
+// It acts in the client's default namespace. The cascade calls
+// RevokeCredentialsPlanesIn with the target's DAG namespace instead.
 func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID string) ([]PlaneResult, error) {
+	return c.RevokeCredentialsPlanesIn(ctx, "", agentID)
+}
+
+// RevokeCredentialsPlanesIn is RevokeCredentialsPlanes for an agent in a
+// given namespace ("" means the default). The namespace decides where the
+// agent's pod, and so its ServiceAccount subject, is looked up; using the
+// default for an agent the DAG places elsewhere derived an identity the agent
+// does not hold.
+func (c *k8sFleetClient) RevokeCredentialsPlanesIn(ctx context.Context, namespace, agentID string) ([]PlaneResult, error) {
 	seq := c.degraded.nextSeq()
-	namespace := c.defaultNamespace
-	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	namespace = c.namespaceOrDefault(namespace)
+	identity := c.resolveIdentity(ctx, namespace, agentID)
 	idempotencyKey := c.revokeCredentialsIdempotencyKey(agentID)
 
 	if c.spireClient == nil && c.baoClient == nil {
@@ -402,7 +548,7 @@ func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID st
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			spireRes, spireErr = c.revokeSpirePlane(ctx, namespace, agentID, spiffeID, idempotencyKey, startedAt)
+			spireRes, spireErr = c.revokeSpireForIdentity(ctx, namespace, agentID, identity, idempotencyKey, startedAt)
 		}()
 	}
 
@@ -410,7 +556,7 @@ func (c *k8sFleetClient) RevokeCredentialsPlanes(ctx context.Context, agentID st
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			baoRes, baoErr = c.revokeBaoPlane(ctx, namespace, agentID, idempotencyKey)
+			baoRes, baoErr = c.revokeBaoPlaneFor(ctx, namespace, agentID, idempotencyKey, identity)
 		}()
 	}
 
@@ -501,22 +647,41 @@ func (c *k8sFleetClient) revokeSpirePlane(ctx context.Context, namespace, agentI
 // key is now threaded through; the previous implementation passed "" here, so a
 // retry was indistinguishable from a fresh decision on this plane while the
 // SPIRE plane saw a stable key.
+//
+// Two calls, and the plane is Contained only when BOTH succeed:
+//  1. lease revoke (RevokeAgentCredentials), as before;
+//  2. RevokeTokensBySubject: every live token whose SPIFFE subject is this
+//     agent's, revoked by accessor. Before this, step 1 alone reported
+//     Contained while the agent's JWT-login tokens stayed usable until their
+//     5m TTL. Step 2 runs even when step 1 failed: killing the tokens is still
+//     containment, and the outcome stays non-contained either way.
+//
+// The subject uses the same derivation as RevokeCredentialsPlanes' SPIRE
+// eviction (namespace + agent id as the service account), so both planes target
+// one identity.
 func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID, idempotencyKey string) (*PlaneResult, error) {
-	planeRes, err := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
-	if err != nil {
-		if planeRes == nil {
-			planeRes = &PlaneResult{
-				Plane:     PlaneBao,
-				Outcome:   OutcomeUnavailable,
-				Timestamp: c.now().UTC().Format(time.RFC3339Nano),
-				Details: map[string]any{
-					"idempotency_key":        idempotencyKey,
-					"worst_case_residual_ms": DefaultWorstCaseResidualMs,
-				},
-			}
+	return c.revokeBaoPlaneFor(ctx, namespace, agentID, idempotencyKey, c.resolveIdentity(ctx, namespace, agentID))
+}
+
+// revokeBaoPlaneFor is revokeBaoPlane against an already-resolved identity.
+//
+// The lease revoke is keyed by agent id, not by subject, so it runs even when
+// the identity guard refuses. The token revoke is keyed by subject and is
+// skipped on a refusal: revoking .../sa/default kills every workload's tokens.
+// The guard's verdict is applied last, so a refusal reports unavailable and a
+// caveat caps the plane at partial.
+func (c *k8sFleetClient) revokeBaoPlaneFor(ctx context.Context, namespace, agentID, idempotencyKey string, identity agentIdentity) (*PlaneResult, error) {
+	planeRes, leaseErr := c.baoClient.RevokeAgentCredentials(ctx, namespace, agentID, idempotencyKey)
+	if planeRes == nil {
+		planeRes = &PlaneResult{
+			Plane:     PlaneBao,
+			Outcome:   OutcomeUnavailable,
+			Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+			Details: map[string]any{
+				"idempotency_key":        idempotencyKey,
+				"worst_case_residual_ms": DefaultWorstCaseResidualMs,
+			},
 		}
-		planeRes.Error = err.Error()
-		return planeRes, err
 	}
 	if planeRes.Details == nil {
 		planeRes.Details = map[string]any{}
@@ -527,9 +692,41 @@ func (c *k8sFleetClient) revokeBaoPlane(ctx context.Context, namespace, agentID,
 	planeRes.Details["residual_provenance"] = "config-derived (token_ttl = token_max_ttl = 5m)"
 	planeRes.Details["invalidates_issued_credentials"] = false
 
-	if planeRes.Outcome == OutcomeUnavailable {
-		resErr := fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
-		return planeRes, resErr
+	leasesRevoked, _ := planeRes.Details["revoked_leases"].(int)
+	planeRes.Details["leases_revoked"] = leasesRevoked
+
+	var (
+		tokensRevoked int
+		tokenErr      error
+	)
+	if identity.Refusal == "" {
+		tokensRevoked, tokenErr = c.baoClient.RevokeTokensBySubject(ctx, identity.Subject)
+	} else {
+		planeRes.Details["token_revoke"] = "refused"
+	}
+	planeRes.Details["tokens_revoked"] = tokensRevoked
+
+	var failures []string
+	if leaseErr != nil {
+		failures = append(failures, "lease revoke: "+leaseErr.Error())
+	} else if planeRes.Outcome == OutcomeUnavailable {
+		failures = append(failures, "lease revoke: "+planeRes.Error)
+	}
+	if tokenErr != nil {
+		failures = append(failures, "token revoke: "+tokenErr.Error())
+		if planeRes.Outcome == OutcomeContained {
+			// Leases gone, tokens possibly live: partial, never contained.
+			planeRes.Outcome = OutcomePartial
+		}
+	}
+	if len(failures) > 0 {
+		planeRes.Error = strings.Join(failures, "; ")
+	}
+	if guardErr := identity.apply(planeRes); guardErr != nil {
+		return planeRes, guardErr
+	}
+	if len(failures) > 0 {
+		return planeRes, fmt.Errorf("%w: %s", ErrEnforcementUnavailable, planeRes.Error)
 	}
 	return planeRes, nil
 }
@@ -576,7 +773,22 @@ func (c *k8sFleetClient) RevokeCredentials(ctx context.Context, agentID string) 
 func (c *k8sFleetClient) EvictSpireEntry(ctx context.Context, namespace, agentID string) (*SpireEvictionResponse, error) {
 	seq := c.degraded.nextSeq()
 	namespace = c.namespaceOrDefault(namespace)
-	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	identity := c.resolveIdentity(ctx, namespace, agentID)
+	spiffeID := identity.Subject
+
+	if identity.Refusal != "" {
+		err := fmt.Errorf("evict_spire_entry %s/%s: %w: %s",
+			namespace, agentID, ErrEnforcementUnavailable, identity.Refusal)
+		c.record(seq, PlaneSpire, namespace, agentID, "evict_spire_entry", err)
+		return &SpireEvictionResponse{
+			SchemaVersion: CurrentSchemaVersion,
+			AgentID:       agentID,
+			Plane:         PlaneSpire,
+			Outcome:       OutcomeUnavailable,
+			Error:         identity.Refusal,
+			Timestamp:     c.now().UTC().Format(time.RFC3339),
+		}, err
+	}
 
 	if c.spireClient == nil {
 		err := fmt.Errorf("evict_spire_entry %s/%s: %w: SPIRE client unconfigured (SLER-P2-2)",
@@ -813,7 +1025,7 @@ func (c *k8sFleetClient) RestoreCredentialsPlanes(ctx context.Context, namespace
 	if idempotencyKey == "" {
 		idempotencyKey = fmt.Sprintf("restore-%s-%d", agentID, c.now().UnixNano())
 	}
-	spiffeID := fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID)
+	spiffeID, subjectSource := c.agentSubject(ctx, namespace, agentID)
 
 	if c.spireClient == nil && c.baoClient == nil {
 		err := fmt.Errorf("restore_credentials %s/%s: %w: no credential plane configured",
@@ -836,6 +1048,7 @@ func (c *k8sFleetClient) RestoreCredentialsPlanes(ctx context.Context, namespace
 		go func() {
 			defer wg.Done()
 			spireRes, spireErr = c.restoreSpirePlane(ctx, namespace, agentID, spiffeID, idempotencyKey, startedAt)
+			stampSubject(spireRes, spiffeID, subjectSource)
 		}()
 	}
 
@@ -993,10 +1206,11 @@ func (c *k8sFleetClient) ContainAllPlanes(ctx context.Context, namespace, agentI
 		idempotencyKey = fmt.Sprintf("contain-all-%s-%d", agentID, c.now().UnixNano())
 	}
 	decisionID := fmt.Sprintf("dec-%s-%d", agentID, c.now().UnixNano())
+	identity := c.resolveIdentity(ctx, namespace, agentID)
 	target := TargetRef{
 		AgentID:   agentID,
 		Namespace: namespace,
-		SPIFFEID:  fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, agentID),
+		SPIFFEID:  identity.Subject,
 	}
 	reason := ContainmentReason{
 		Code:                  "MANUAL_CONTAINMENT",
@@ -1066,7 +1280,7 @@ func (c *k8sFleetClient) ContainAllPlanes(ctx context.Context, namespace, agentI
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		res, err := c.revokeBaoPlane(ctx, namespace, agentID, idempotencyKey)
+		res, err := c.revokeBaoPlaneFor(ctx, namespace, agentID, idempotencyKey, identity)
 		addResult(res, err)
 	}()
 
@@ -1074,7 +1288,7 @@ func (c *k8sFleetClient) ContainAllPlanes(ctx context.Context, namespace, agentI
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		res, err := c.revokeSpirePlane(ctx, namespace, agentID, target.SPIFFEID, idempotencyKey, startedAt)
+		res, err := c.revokeSpireForIdentity(ctx, namespace, agentID, identity, idempotencyKey, startedAt)
 		addResult(res, err)
 	}()
 
@@ -1110,3 +1324,204 @@ func (c *k8sFleetClient) IsDegraded(namespace, agentID string) bool {
 	return c.degraded.isDegraded(c.namespaceOrDefault(namespace), agentID)
 }
 
+// Subject sources recorded in PlaneResult details.
+const (
+	subjectSourcePod     = "pod"
+	subjectSourceDerived = "derived"
+)
+
+// agentSubject returns the SPIFFE ID the agent actually holds, and where it
+// came from. The ServiceAccount segment is the pod's spec.serviceAccountName
+// (resolved with the same name-then-agent-name-selector lookup as every other
+// pod operation). Only when the pod cannot be read does it fall back to
+// agentNameFromID(agentID).
+//
+// The raw DAG id is never used: Kusari's id is agent-kusari-agent and its
+// ServiceAccount kusari-agent, so the old derivation made token revocation,
+// SPIRE eviction and re-entry all target an identity nothing holds while
+// reporting success.
+func (c *k8sFleetClient) agentSubject(ctx context.Context, namespace, agentID string) (string, string) {
+	namespace = c.namespaceOrDefault(namespace)
+	sa, source := agentNameFromID(agentID), subjectSourceDerived
+	if pod, err := c.resolvePod(ctx, namespace, agentID); err == nil && pod.Spec.ServiceAccountName != "" {
+		sa, source = pod.Spec.ServiceAccountName, subjectSourcePod
+	}
+	return fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, sa), source
+}
+
+// stampSubject records which identity a plane acted on.
+func stampSubject(res *PlaneResult, subject, source string) {
+	if res == nil {
+		return
+	}
+	if res.Details == nil {
+		res.Details = map[string]any{}
+	}
+	res.Details["subject"] = subject
+	res.Details["subject_source"] = source
+}
+
+// ResolvePodName names the pod an agent id resolves to, using the same
+// name-then-agent-name-selector lookup as every enforcement operation.
+func (c *k8sFleetClient) ResolvePodName(ctx context.Context, namespace, agentID string) (string, error) {
+	pod, err := c.resolvePod(ctx, namespace, agentID)
+	if err != nil {
+		return "", err
+	}
+	return pod.Name, nil
+}
+
+// Identity guard messages. They are part of the wire (PlaneResult.error), so
+// they are constants rather than inline strings.
+const (
+	identityDerivedCaveat = "identity derived, not observed"
+	sharedDefaultRefusal  = "refusing to act on shared ServiceAccount default"
+)
+
+// agentIdentity is the subject a credential plane acts on, plus the verdict on
+// whether acting on it is safe.
+//
+// Refusal non-empty means the subject-scoped actions (token revoke by subject,
+// SPIRE eviction) must not run at all: the subject is held by workloads other
+// than this agent. Caveats non-empty means the action runs but can neither be
+// shown to have hit this agent nor only this agent, so the plane is capped at
+// partial.
+type agentIdentity struct {
+	Subject        string
+	Source         string
+	ServiceAccount string
+	Refusal        string
+	Caveats        []string
+}
+
+// resolveIdentity reads the agent's pod once and decides whether its SPIFFE
+// subject is safe to revoke.
+//
+//   - pod unreadable: the subject is derived from the agent id and may match
+//     nothing, so a zero-token revoke would read as contained. Caveat.
+//   - ServiceAccount `default`: every workload without its own SA holds the
+//     same subject. Refusal.
+//   - ServiceAccount also used by pods outside this agent's workload (a pod
+//     with a different controller owner): revoking hits them too. Caveat
+//     naming the count. Replicas of the same ReplicaSet share the SA
+//     legitimately and are not counted.
+func (c *k8sFleetClient) resolveIdentity(ctx context.Context, namespace, agentID string) agentIdentity {
+	namespace = c.namespaceOrDefault(namespace)
+	id := agentIdentity{ServiceAccount: agentNameFromID(agentID), Source: subjectSourceDerived}
+	pod, err := c.resolvePod(ctx, namespace, agentID)
+	if err == nil && pod.Spec.ServiceAccountName != "" {
+		id.ServiceAccount, id.Source = pod.Spec.ServiceAccountName, subjectSourcePod
+	}
+	id.Subject = fmt.Sprintf("spiffe://signalloom.demo/ns/%s/sa/%s", namespace, id.ServiceAccount)
+
+	switch {
+	case id.Source == subjectSourceDerived:
+		id.Caveats = append(id.Caveats, identityDerivedCaveat)
+	case id.ServiceAccount == "default":
+		id.Refusal = sharedDefaultRefusal
+	default:
+		others, listErr := c.otherPodsOnServiceAccount(ctx, namespace, pod)
+		switch {
+		case listErr != nil:
+			id.Caveats = append(id.Caveats, fmt.Sprintf(
+				"could not verify ServiceAccount %s is exclusive to this agent: %v", id.ServiceAccount, listErr))
+		case others > 0:
+			id.Caveats = append(id.Caveats, fmt.Sprintf(
+				"ServiceAccount %s is shared by %d other pods in namespace %s; revoking its subject also hits them",
+				id.ServiceAccount, others, namespace))
+		}
+	}
+	return id
+}
+
+// otherPodsOnServiceAccount counts pods in the namespace that run as the target
+// pod's ServiceAccount but belong to a different workload (different
+// controller owner, or no owner and a different name).
+func (c *k8sFleetClient) otherPodsOnServiceAccount(ctx context.Context, namespace string, target *corev1.Pod) (int, error) {
+	list, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return 0, err
+	}
+	owner := metav1.GetControllerOf(target)
+	others := 0
+	for i := range list.Items {
+		p := &list.Items[i]
+		if p.Spec.ServiceAccountName != target.Spec.ServiceAccountName || p.Name == target.Name {
+			continue
+		}
+		if o := metav1.GetControllerOf(p); owner != nil && o != nil && o.UID == owner.UID {
+			continue
+		}
+		others++
+	}
+	return others, nil
+}
+
+// apply stamps the subject on a plane result and enforces the verdict: a
+// refusal forces unavailable, a caveat caps contained at partial. Either way
+// the reason is appended to the plane error and a non-nil error is returned so
+// callers keep the fail-closed contract.
+func (id agentIdentity) apply(res *PlaneResult) error {
+	if res == nil {
+		return nil
+	}
+	stampSubject(res, id.Subject, id.Source)
+	var reasons []string
+	switch {
+	case id.Refusal != "":
+		res.Outcome = OutcomeUnavailable
+		reasons = []string{id.Refusal}
+	case len(id.Caveats) > 0:
+		if res.Outcome == OutcomeContained {
+			res.Outcome = OutcomePartial
+		}
+		reasons = id.Caveats
+	default:
+		return nil
+	}
+	msg := strings.Join(reasons, "; ")
+	if res.Error == "" {
+		res.Error = msg
+	} else {
+		res.Error = msg + "; " + res.Error
+	}
+	return fmt.Errorf("%w: %s", ErrEnforcementUnavailable, res.Error)
+}
+
+// revokeSpireForIdentity evicts the agent's SPIRE entries unless the identity
+// guard refuses, then applies the guard's verdict to the result.
+func (c *k8sFleetClient) revokeSpireForIdentity(ctx context.Context, namespace, agentID string, id agentIdentity, idempotencyKey string, startedAt time.Time) (*PlaneResult, error) {
+	if id.Refusal != "" {
+		res := &PlaneResult{
+			Plane:     PlaneSpire,
+			Outcome:   OutcomeUnavailable,
+			Timestamp: c.now().UTC().Format(time.RFC3339Nano),
+			Details: map[string]any{
+				"idempotency_key": idempotencyKey,
+				"namespace":       namespace,
+				"entries_evicted": 0,
+			},
+		}
+		return res, id.apply(res)
+	}
+	res, err := c.revokeSpirePlane(ctx, namespace, agentID, id.Subject, idempotencyKey, startedAt)
+	if guardErr := id.apply(res); err == nil {
+		err = guardErr
+	}
+	return res, err
+}
+
+// LookupAgentPod reads one pod by name from the agent namespace. A NotFound
+// is reported as found=false with a nil error; any other API failure is
+// returned so the caller can say the lookup failed rather than that the pod
+// is absent.
+func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, bool, error) {
+	pod, err := c.clientset.CoreV1().Pods(c.defaultNamespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return pod.Labels, true, nil
+}

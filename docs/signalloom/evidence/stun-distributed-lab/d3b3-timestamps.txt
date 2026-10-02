@@ -1,0 +1,4 @@
+delete_issued 23:37:12.672844237
+replacement_bound 23:37:12.770697672 kusari-agent-59679655c4-5g9bb e19bb445-8271-4fc8-8d79-f74b4e997a37 osramp-dist-worker2
+observation_end 23:37:27.876758113
+ready_condition False

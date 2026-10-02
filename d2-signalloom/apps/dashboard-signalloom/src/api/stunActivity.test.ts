@@ -22,6 +22,9 @@ import { setDemoMode } from './demoMode'
 import { clearDemoActivity, demoActivityEvents } from './demoActivity'
 
 const TOKEN = 'test-token'
+// Operator input, not a claim about what happened: the server requires it
+// (422 without it) and records it alongside the actor it read off the token.
+const REASON = 'exfiltration to unknown host'
 
 beforeEach(() => {
   clearDemoActivity()
@@ -39,7 +42,7 @@ describe('stun activity — demo mode', () => {
   })
 
   it('resolves a fixture rather than issuing HTTP', async () => {
-    const res = await api.agents.stun(TOKEN, 'agent-cardvault')
+    const res = await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
     expect(request).not.toHaveBeenCalled()
     expect(res.agent_id).toBe('agent-cardvault')
     expect(res.to_state).toBe('suspended')
@@ -47,16 +50,16 @@ describe('stun activity — demo mode', () => {
   })
 
   it('records an event carrying timestamp, agent id, action, actor and outcome', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
 
     const [event] = demoActivityEvents()
     expect(event.event_type).toBe('agent.stunned')
     expect(event.agent_id).toBe('agent-cardvault')
     expect(event.agent_name).toBe('Cardvault Agent')
     expect(event.actor).toMatch(/\S/)
-    // Authored by the fixture standing in for the server, not echoed from the
-    // request — STUN_BODY no longer has an `outcome` to echo.
-    expect(event.detail).toMatchObject({ outcome: 'stunned', reason: 'operator-initiated stun' })
+    // `outcome` is authored by the fixture standing in for the server. The
+    // reason is the operator's own input, which the server records verbatim.
+    expect(event.detail).toMatchObject({ outcome: 'stunned', reason: REASON })
     expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false)
   })
 
@@ -64,7 +67,7 @@ describe('stun activity — demo mode', () => {
     const before = await api.audit(TOKEN, { page: 1, limit: 50 })
     const baseline = before.total
 
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
 
     const after = await api.audit(TOKEN, { page: 1, limit: 50 })
     expect(after.total).toBe(baseline + 1)
@@ -73,8 +76,25 @@ describe('stun activity — demo mode', () => {
     expect(after.events[0].agent_id).toBe('agent-cardvault')
   })
 
+  it('answers with a per-plane report, and a realistic partial one', async () => {
+    const res = await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
+    expect(res.reason).toBe(REASON)
+    expect(res.overall_outcome).toBe('partial')
+    expect(res.planes.map(p => p.plane)).toEqual(['freeze', 'bao', 'spire', 'mesh', 'admission', 'gitops'])
+    // Partial means at least one plane did not contain, or the overall word lies.
+    expect(res.planes.some(p => p.outcome !== 'contained')).toBe(true)
+    for (const p of res.planes) expect(Number.isNaN(Date.parse(p.timestamp))).toBe(false)
+    // The audit event carries the same planes the Audit Trail strip reads.
+    expect(res.event.detail).toMatchObject({ overall_outcome: 'partial', planes: res.planes })
+  })
+
+  it('refuses a stun with no reason, as the server does', async () => {
+    await expect(api.agents.stun(TOKEN, 'agent-cardvault', '   ')).rejects.toThrow(/reason/i)
+    expect(demoActivityEvents()).toEqual([])
+  })
+
   it('keeps the pre-existing fixture events alongside the recorded one', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
     const after = await api.audit(TOKEN, { page: 1, limit: 50 })
     expect(after.events.map(e => e.event_type)).toContain('agent.registered')
   })
@@ -86,7 +106,7 @@ describe('stun activity — live mode', () => {
   })
 
   it('POSTs to the fe-signalloom stun endpoint that performs and records the stun', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
 
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -96,18 +116,17 @@ describe('stun activity — live mode', () => {
     )
   })
 
-  it('sends no body, so nothing about the event originates in the browser', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+  it('sends the operator reason as the whole JSON body, and nothing else', async () => {
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
 
-    // Asserted on the resolved config rather than via `not.objectContaining`:
-    // the point is that `data` is absent, and an inequality against some
-    // known-bad body would pass the moment a different one was introduced.
+    // Exact equality, not objectContaining: the reason is operator input the
+    // server requires, and nothing that narrates an outcome may ride along.
     const [config] = request.mock.calls[0] as [{ data?: unknown }]
-    expect(config.data).toBeUndefined()
+    expect(config.data).toEqual({ reason: REASON })
   })
 
   it('carries the bearer token so the audit row is attributed to the tenant', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
 
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -117,7 +136,7 @@ describe('stun activity — live mode', () => {
   })
 
   it('records nothing in the demo log — the backend owns the live trace', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault')
+    await api.agents.stun(TOKEN, 'agent-cardvault', REASON)
 
     expect(demoActivityEvents()).toEqual([])
   })

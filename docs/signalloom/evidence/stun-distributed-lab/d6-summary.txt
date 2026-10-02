@@ -1,0 +1,6 @@
+== osramp-dist-worker (pod/stun-sentinel-69qqd) lines for B's pod kusari-agent-59679655c4-fbsvn: total=44
+     44 "error":"resolve cgroup: resolve cgroup for pod \
+{"timestamp":"2026-09-29T22:38:10.485136648Z","event":"reconcile_failed","pod":"kusari-agent-59679655c4-fbsvn","namespace":"fe-signalloom-agents","uid":"e35aade2-e5be-4be8-b2b2-7326e8f5822b","error":"resolve cgroup: resolve cgroup for pod \"e35aade2-e5be-4be8-b2b2-7326e8f5822b\": cgroup: freezer path not found: pod e35aade2-e5be
+== osramp-dist-control-plane (pod/stun-sentinel-kwsp4) lines for B's pod kusari-agent-59679655c4-fbsvn: total=45
+     45 "error":"resolve cgroup: resolve cgroup for pod \
+{"timestamp":"2026-09-29T22:38:10.486610126Z","event":"reconcile_failed","pod":"kusari-agent-59679655c4-fbsvn","namespace":"fe-signalloom-agents","uid":"e35aade2-e5be-4be8-b2b2-7326e8f5822b","error":"resolve cgroup: resolve cgroup for pod \"e35aade2-e5be-4be8-b2b2-7326e8f5822b\": cgroup: freezer path not found: pod e35aade2-e5be

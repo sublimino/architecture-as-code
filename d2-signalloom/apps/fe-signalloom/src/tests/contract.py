@@ -51,7 +51,10 @@ class AgentCreateRequest(BaseModel):
 class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["active", "revoked"]
+    # "revoked" only on evidence (the last stun's bao and spire planes both
+    # contained, or the registry's credential_revoked flag); "unknown" when
+    # a stun or revoked lifecycle suggests it but nothing evidences it.
+    status: Literal["active", "revoked", "unknown"]
     reason: str | None = None
     revoked_at: str | None = None
     revoked_by: str | None = None
@@ -64,7 +67,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_state: Literal["frozen", "thawed", "none", "unknown"] = "thawed"
     tc_drop_active: bool = False
     traffic_control_state: Literal["drop", "allow", "unknown"] = "allow"
-    ebpf_active: bool = False
+    ebpf_active: bool | None = False
     ebpf_program_attached: bool | None = None
     observed_at: str | None = None
     last_observed_at: str | None = None
@@ -72,6 +75,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_path: str | None = None
     veth_interface: str | None = None
     sentinel_ack: bool = False
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
     sentinel_ack_id: str | None = None
     sentinel_drop_count: int | None = None
     sentinel_last_ack_at: str | None = None
@@ -127,7 +131,15 @@ class ContainmentMeasures(BaseModel):
 
     process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported", "unknown"] = "inactive"
+    # Whether process_freeze / network_isolation rest on an observation
+    # (sentinel annotation or discovered traffic-control data). None for
+    # producers that predate the field.
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
+    # Where credential_revocation came from: the last agent.stunned audit
+    # row's bao/spire planes, the registry's credential_revoked flag, or
+    # nothing. None for producers that predate the field.
+    credential_source: Literal["stun-audit", "registry", "unavailable"] | None = None
 
 
 class OperationalStateMetadata(BaseModel):
@@ -224,6 +236,9 @@ class AgentResponse(BaseModel):
     created_at: str | None
     credential_state: AgentCredentialState | None = None
     kernel_telemetry: SentinelKernelTelemetry | None = None
+    kernel_state: Literal["frozen", "running", "unknown"] | None = None
+    kernel_observed_at: str | None = None
+    split_brain: list[str] | None = None
 
     # Workload / Kubernetes preserved discovery fields
     namespace: str | None = None

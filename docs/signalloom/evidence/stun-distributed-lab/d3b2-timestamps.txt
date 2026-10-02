@@ -1,0 +1,5 @@
+delete_issued 23:36:47.118048849
+replacement_seen 23:36:47.205569507 kusari-agent-59679655c4-t7mtk 3686b039-b058-48ef-9a9f-88a1b40a240f 
+replacement_labels {"app":"kusari-agent","pod-template-hash":"59679655c4","signalloom.ai/agent":"true"}
+observation_end 23:37:02.268056202
+ready_condition {"lastProbeTime":null,"lastTransitionTime":"2026-09-29T22:36:47Z","message":"containers with unready status: [agent]","observedGeneration":1,"reason":"ContainersNotReady","status":"False","type":"Ready"}

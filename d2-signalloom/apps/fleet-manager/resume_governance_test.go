@@ -452,6 +452,7 @@ func TestHandleResume_HTTPEndpoint(t *testing.T) {
 	client := newResumeFleetClient(t, spire, bao.URL)
 
 	srv := &server{
+		dag:          mustBuildTestDAG(t),
 		keyRegistry:  reg,
 		resumePolicy: policy,
 		replayLedger: ledger,
@@ -529,7 +530,7 @@ func TestHandleResume_HTTPEndpoint(t *testing.T) {
 	mismatchBody, _ := json.Marshal(ResumeRequest{
 		SchemaVersion:  FrozenSchemaVersion,
 		IdempotencyKey: "http-idem-mismatch",
-		AgentID:        "different-agent",
+		AgentID:        "agent-cardvault", // a real DAG agent the token is not bound to
 		Namespace:      token.Namespace,
 		Token:          token,
 	})

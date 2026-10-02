@@ -66,23 +66,22 @@ TRUST_TOPOLOGY_URL = os.environ.get(
     "TRUST_TOPOLOGY_URL",
     "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/trust-topology",
 )
-#: Base for ``POST {base}/{agent_id}/stun`` on the SuperCred proxy.
+#: Base URL of fleet-manager, which owns the stun containment cascade.
 #:
-#: The fifth of these constants and the last endpoint to join them. The stun
-#: used to be issued by the BROWSER, straight at /supercred-api/, with this API
-#: called afterwards to write down what the browser said had happened. Calling
-#: it from here instead is not a new capability -- the same pod already reaches
-#: the same service on the same port for discovery, crypto proofs, network
-#: tests and trust topology, and `network_tests_scan` already POSTs to it.
+#: ``POST {FLEET_MANAGER_URL}/api/v1/fleet/stun/{fleet_agent_id}`` isolates an
+#: agent on every enforcement plane and answers with a ``CascadeResult`` that
+#: reports each plane's outcome. The stun used to go to fake-integration-proxy,
+#: which relabelled the pod with a canned reason and claimed a credential
+#: revocation it never performed; that endpoint now answers 410.
 #:
-#: An empty value means this deployment has no proxy, which is a real state for
-#: a laptop demo and never a cluster one. The stun then records an outcome of
-#: ``simulated`` with ``cluster_action_observed: false``, so the row says
-#: plainly that nothing was watched rather than implying something was. The
-#: default is the real path; simulation has to be asked for.
-SUPERCRED_STUN_BASE_URL = os.environ.get(
-    "SUPERCRED_STUN_BASE_URL",
-    "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/agents",
+#: An empty value means this deployment has no fleet-manager, which is a real
+#: state for a laptop demo and never a cluster one. The stun then records an
+#: ``overall_outcome`` of ``simulated`` with ``observed: false``, so the row
+#: says plainly that nothing was watched. The default is the real in-cluster
+#: service; simulation has to be asked for.
+FLEET_MANAGER_URL = os.environ.get(
+    "FLEET_MANAGER_URL",
+    "http://fleet-manager.fe-signalloom.svc.cluster.local:8082",
 )
 
 # ---------------------------------------------------------------------------
@@ -125,7 +124,10 @@ class AgentCreateRequest(BaseModel):
 class AgentCredentialState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["active", "revoked"]
+    # "revoked" only on evidence (the last stun's bao and spire planes both
+    # contained, or the registry's credential_revoked flag); "unknown" when
+    # a stun or revoked lifecycle suggests it but nothing evidences it.
+    status: Literal["active", "revoked", "unknown"]
     reason: str | None = None
     revoked_at: str | None = None
     revoked_by: str | None = None
@@ -138,7 +140,7 @@ class SentinelKernelTelemetry(BaseModel):
     cgroup_state: Literal["frozen", "thawed", "none", "unknown"] = "thawed"
     tc_drop_active: bool = False
     traffic_control_state: Literal["drop", "allow", "unknown"] | None = None
-    ebpf_active: bool = False
+    ebpf_active: bool | None = False
     ebpf_program_attached: bool | None = None
     containment_latency_ms: float | None = None
     cgroup_path: str | None = None
@@ -150,6 +152,9 @@ class SentinelKernelTelemetry(BaseModel):
     sentinel_drop_count: int | None = None
     sentinel_last_ack_at: str | None = None
     containment_probe_state: Literal["confirmed", "pending", "unconfirmed"] = "unconfirmed"
+    # Where cgroup_state came from. None for producers that predate the field
+    # (the stun response); the agent mappers always set it.
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
 
 
 class RuntimeMetadata(BaseModel):
@@ -201,7 +206,15 @@ class ContainmentMeasures(BaseModel):
 
     process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
     network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "inactive"
+    credential_revocation: Literal["active", "inactive", "requested", "unsupported", "unknown"] = "inactive"
+    # Whether process_freeze / network_isolation rest on an observation
+    # (sentinel annotation or discovered traffic-control data). None for
+    # producers that predate the field.
+    source: Literal["sentinel-annotation", "unavailable"] | None = None
+    # Where credential_revocation came from: the last agent.stunned audit
+    # row's bao/spire planes, the registry's credential_revoked flag, or
+    # nothing. None for producers that predate the field.
+    credential_source: Literal["stun-audit", "registry", "unavailable"] | None = None
 
 
 class OperationalStateMetadata(BaseModel):
@@ -298,6 +311,11 @@ class AgentResponse(BaseModel):
     created_at: str | None
     credential_state: AgentCredentialState | None = None
     kernel_telemetry: SentinelKernelTelemetry | None = None
+    # Kernel freezer truth observed by the stun-sentinel (pod annotations,
+    # carried by discovery). Never derived from lifecycle or stun fields.
+    kernel_state: Literal["frozen", "running", "unknown"] = "unknown"
+    kernel_observed_at: str | None = None
+    split_brain: list[str] = Field(default_factory=list)
 
     # Workload / Kubernetes preserved discovery fields
     namespace: str | None = None
@@ -829,53 +847,92 @@ class AuditListResponse(BaseModel):
 # of embedding it is that the caller sees the exact row that was written rather
 # than a paraphrase of it.
 #
-# ``StunAgentRequest`` used to stand here. It was the clearest statement of the
-# defect anywhere in this file, because it said what it was doing out loud:
-# "context the dashboard supplies when it records a stun". The browser sent
-# ``agent_name``, ``namespace``, ``reason`` and -- worst of the four --
-# ``outcome``, the result of an action nothing server-side had checked. The
-# handler copied all of it into ``detail`` and returned it as though the server
-# had established it. A row assembled from the account of the party being
-# audited is not evidence; it is that party's story, filed somewhere
-# authoritative-looking.
+# The body carries exactly one field, and it is the only thing a caller may
+# contribute to the row. An earlier ``StunAgentRequest`` let the browser send
+# ``agent_name``, ``namespace`` and -- worst of all -- ``outcome``, which the
+# handler copied into the audit row as though the server had established it.
+# Those stay impossible: ``extra="forbid"`` refuses them with a 422 rather than
+# silently dropping them, so a client that still sends them finds out.
 #
-# There is no request model now because there is nothing a caller may
-# contribute. The endpoint performs the cluster action itself and records what
-# it observed, so every field of the row has a server-side source: identity
-# from the token, target from the path, prior state from this database, outcome
-# and namespace from the proxy's own response. A body sent by an older client
-# is ignored rather than rejected -- deliberately, so a dashboard mid-rollout
-# degrades to "its values stop being recorded" rather than "every stun 422s".
+# ``reason`` is different in kind. It is the operator's justification for
+# cutting an agent off, it is only knowable from the operator, and fleet-manager
+# needs it to annotate what it contains. It is recorded as exactly that: a
+# statement by the authenticated ``actor`` on the same row, never as a finding.
+STUN_REASON_MAX_LENGTH = 256
+
+
+class StunAgentRequest(BaseModel):
+    """The operator's stated reason for isolating an agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _reason_is_a_string(cls, value: Any) -> Any:
+        # mode="before" so a number is refused rather than coerced to "42".
+        if not isinstance(value, str):
+            raise ValueError("reason must be a string")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_printable_and_bounded(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reason must not be empty")
+        if len(value) > STUN_REASON_MAX_LENGTH:
+            raise ValueError(f"reason must be at most {STUN_REASON_MAX_LENGTH} characters")
+        # isprintable() refuses newlines, tabs, NUL and other control and
+        # format characters, which would otherwise reach a pod annotation and
+        # a log line verbatim.
+        if not value.isprintable():
+            raise ValueError("reason must contain only printable characters")
+        return value
+
+
+class PlaneResult(BaseModel):
+    """One enforcement plane's result, as fleet-manager reported it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plane: str
+    #: fleet-manager's word for this plane: ``contained``, ``failed``, ...
+    outcome: str
+    error: str | None = None
+    timestamp: str | None = None
+    latency_ms: float | None = None
+    details: dict[str, Any] | None = None
+
+
 class ProxyStunReport(BaseModel):
-    """What the SuperCred proxy said, kept apart from what we established.
+    """What fleet-manager said, kept apart from what we established.
+
+    The field is still called ``proxy`` because dashboards already read it;
+    the party behind it is now fleet-manager, not fake-integration-proxy.
 
     Nested rather than flattened alongside the first-party fields, and the
-    reason is the principle rather than taste. This whole change exists so a
-    reader can tell which assertions the writer checked and which came from
-    elsewhere. Flattening merges "fe-signalloom read this under FOR UPDATE"
-    with "the proxy told us this" into one namespace and nobody downstream can
-    separate them again -- which is the property deleting ``reason`` and
-    ``outcome`` from the request was meant to restore. Nesting makes provenance
-    structural instead of tribal knowledge.
-
-    Two practical consequences in its favour: the proxy's payload can change
-    shape without colliding with a first-party field name, and when the proxy
-    later writes its own audit row about the same act, the two are visibly
-    distinct claims rather than one silently overwriting the other.
+    reason is the principle rather than taste. A reader must be able to tell
+    which assertions the writer checked and which came from elsewhere.
+    Flattening merges "fe-signalloom read this under FOR UPDATE" with
+    "fleet-manager told us this" into one namespace and nobody downstream can
+    separate them again. The top-level ``overall_outcome`` and ``planes`` on
+    the response are copies of what is here, lifted for the dashboard.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    #: False only where no proxy is configured at all -- a laptop demo, never a
-    #: cluster. Every other value here was watched by this process.
+    #: False only where no fleet-manager is configured at all -- a laptop demo,
+    #: never a cluster. Every other value here was watched by this process.
     observed: bool
-    #: The proxy's own word for what it did, or "failed", or "simulated".
+    #: Same as the response's ``overall_outcome``.
     outcome: str
+    #: fleet-manager does not report a namespace; kept for response stability.
     namespace: str | None
+    #: fleet-manager's HTTP status, or None when no response was received.
     status: int | None
     error: str | None
-    #: The proxy's response verbatim, carrying `state`, `stunned_at` and
-    #: `message`, so the dashboard has what it needs without calling the proxy.
+    #: fleet-manager's CascadeResult verbatim, or {} when there was none.
     payload: dict[str, Any]
 
 
@@ -887,9 +944,25 @@ class StunAgentResponse(BaseModel):
     to_state: str
     actor: str
     stunned_at: str
+    #: The operator's justification, from the request body.
+    reason: str
+    #: fleet-manager's ``overall_outcome`` (``contained``, ``partial``), or
+    #: ``simulated`` when no fleet-manager is configured.
+    overall_outcome: str
+    #: fleet-manager's HTTP status; None in simulated mode.
+    fleet_manager_status: int | None
+    #: Every plane fleet-manager reported, including the ones that failed.
+    planes: list[PlaneResult]
     proxy: ProxyStunReport
     event: AuditEventResponse
-    sentinel_telemetry: SentinelKernelTelemetry | None = None
+    #: The freeze plane's own ``details``, tagged ``source:
+    #: "fleet-manager.freeze"``; ``{"source": "unavailable"}`` when it gave
+    #: none; None when no fleet-manager was asked. Never synthesised.
+    sentinel_telemetry: dict[str, Any] | None = None
+    #: Set when the answer needs saying in words: in simulated mode, that
+    #: nothing was isolated and lifecycle state was not changed. Not called
+    #: ``message``: that was the proxy's field and must not reappear at top level.
+    notice: str | None = None
 
 
 class ComplianceSummaryResponse(BaseModel):
@@ -1917,10 +1990,195 @@ def _canonical_lifecycle_state(
 map_to_canonical_lifecycle = _canonical_lifecycle_state
 
 
+KERNEL_FROZEN_WITHOUT_STUN = "kernel frozen without stun record"
+STUN_WITHOUT_KERNEL_FREEZE = "stun record without kernel freeze"
+
+
+def _kernel_view(discovered: dict[str, Any] | None, stunned: bool) -> dict[str, Any]:
+    """Kernel freezer state from discovery, and where it contradicts the stun record.
+
+    ``kernel_state`` is taken only from discovery's ``kernel_state`` field, which
+    the proxy reads from the stun-sentinel's cgroup annotations. Lifecycle state,
+    ``stunned_at`` and ``kernel_telemetry`` are control-plane claims about what
+    should have happened; none of them is evidence of what the kernel did, so
+    none of them can produce "frozen" here. Anything unrecognised is "unknown",
+    and unknown never raises a split brain in either direction.
+    """
+    raw = (discovered or {}).get("kernel_state")
+    kernel_state = raw if raw in ("frozen", "running") else "unknown"
+    observed = (discovered or {}).get("kernel_observed_at")
+    split_brain: list[str] = []
+    if kernel_state == "frozen" and not stunned:
+        split_brain.append(KERNEL_FROZEN_WITHOUT_STUN)
+    elif kernel_state == "running" and stunned:
+        split_brain.append(STUN_WITHOUT_KERNEL_FREEZE)
+    return {
+        "kernel_state": kernel_state,
+        "kernel_observed_at": observed if isinstance(observed, str) and observed else None,
+        "split_brain": split_brain,
+    }
+
+
+CREDENTIAL_PLANES = ("bao", "spire")
+
+
+def _stun_index_from_rows(rows: list[Any]) -> dict[str, dict[str, Any]]:
+    """Index agent.stunned audit details by every identifier a row carries.
+
+    ``rows`` must be newest first; the first row seen for a key wins. A row is
+    keyed by its agent_id (a registry UUID in DB mode, the caller's identifier
+    in memory mode), its agent_name, and detail.agent_ref (the caller's
+    identifier when it did not resolve to a registry row).
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        get = row.get if isinstance(row, dict) else (lambda k, r=row: r[k])
+        detail = get("detail")
+        if isinstance(detail, str):
+            try:
+                detail = json.loads(detail)
+            except ValueError:
+                continue
+        if not isinstance(detail, dict):
+            continue
+        for key in (get("agent_id"), get("agent_name"), detail.get("agent_ref")):
+            if key:
+                index.setdefault(str(key), detail)
+    return index
+
+
+async def _latest_stun_index(tenant_id: str, pool: Any) -> dict[str, dict[str, Any]]:
+    """Latest agent.stunned detail per agent for this tenant.
+
+    A read failure yields an empty index, which the mappers report as
+    credential_revocation "unknown" with source "unavailable": the honest
+    reading when the audit cannot be consulted.
+    """
+    if pool is None:
+        with _STORE_LOCK:
+            events = [e for e in _AUDIT_EVENTS.get(tenant_id, []) if e.get("event_type") == "agent.stunned"]
+        return _stun_index_from_rows(list(reversed(events)))
+    try:
+        rows = await pool.fetch(
+            """SELECT agent_id, agent_name, detail FROM audit_events
+                WHERE tenant_id = $1 AND event_type = 'agent.stunned'
+             ORDER BY timestamp DESC LIMIT 500""",
+            tenant_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported as unknown, not raised
+        logger.warning("stun audit unavailable for credential revocation: %s", exc)
+        return {}
+    try:
+        return _stun_index_from_rows([
+            {"agent_id": str(r["agent_id"]) if r["agent_id"] else None, "agent_name": r["agent_name"], "detail": r["detail"]}
+            for r in rows
+        ])
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning("stun audit rows unreadable for credential revocation: %s", exc)
+        return {}
+
+
+def _stun_detail_for(index: dict[str, dict[str, Any]], *keys: Any) -> dict[str, Any] | None:
+    for key in keys:
+        if key and str(key) in index:
+            return index[str(key)]
+    return None
+
+
+def _credential_revocation(stun_detail: dict[str, Any] | None, cred_revoked: bool) -> dict[str, Any]:
+    """credential_revocation from recorded outcomes, never from the lifecycle.
+
+    active: the registry's credential_revoked flag, or the last stun's bao
+    and spire planes both "contained". requested: a stun row exists but either
+    plane is partial, unavailable, not_found or missing. unknown: no row.
+    """
+    if cred_revoked:
+        return {"credential_revocation": "active", "credential_source": "registry"}
+    if stun_detail is None:
+        return {"credential_revocation": "unknown", "credential_source": "unavailable"}
+    planes = stun_detail.get("planes")
+    outcomes = {
+        p.get("plane"): p.get("outcome")
+        for p in (planes if isinstance(planes, list) else [])
+        if isinstance(p, dict)
+    }
+    contained = all(outcomes.get(plane) == "contained" for plane in CREDENTIAL_PLANES)
+    return {
+        "credential_revocation": "active" if contained else "requested",
+        "credential_source": "stun-audit",
+    }
+
+
+def _containment_observations(
+    kernel: dict[str, Any],
+    discovered: dict[str, Any] | None,
+    containment_requested: bool,
+) -> dict[str, Any]:
+    """process_freeze and network_isolation from observations only.
+
+    "active" needs an observation: kernel_state frozen for the freeze, a
+    discovered traffic_control_state of "drop" for isolation. A stun or
+    suspension without one is "requested", never "active".
+    """
+    tc = (discovered or {}).get("traffic_control_state")
+    frozen = kernel["kernel_state"] == "frozen"
+    dropping = tc == "drop"
+
+    def measure(observed: bool) -> str:
+        return "active" if observed else ("requested" if containment_requested else "inactive")
+
+    observed_any = kernel["kernel_state"] != "unknown" or tc in ("drop", "allow")
+    return {
+        "process_freeze": measure(frozen),
+        "network_isolation": measure(dropping),
+        "source": "sentinel-annotation" if observed_any else "unavailable",
+    }
+
+
+def _kernel_telemetry(
+    kernel: dict[str, Any],
+    containment_requested: bool,
+    discovered: dict[str, Any] | None = None,
+) -> SentinelKernelTelemetry | None:
+    """Sentinel telemetry built only from observations.
+
+    cgroup_state mirrors kernel_state (frozen, thawed, unknown).
+    traffic_control_state and sentinel_drop_count are taken from discovered
+    data when it carries them and are otherwise unknown and None; neither is
+    ever filled in from the lifecycle or from each other. eBPF attachment and
+    ACKs have no source yet and stay unset. Returns None when there is no
+    observation and no containment request to report against.
+    """
+    disc = discovered or {}
+    tc_raw = disc.get("traffic_control_state")
+    tc_state = tc_raw if tc_raw in ("drop", "allow") else "unknown"
+    drop_raw = disc.get("sentinel_drop_count")
+    drop_count = drop_raw if isinstance(drop_raw, int) and not isinstance(drop_raw, bool) else None
+    kernel_state = kernel["kernel_state"]
+    if kernel_state == "unknown" and not containment_requested and tc_state == "unknown" and drop_count is None:
+        return None
+    observed = kernel["kernel_observed_at"]
+    return SentinelKernelTelemetry(
+        cgroup_frozen=kernel_state == "frozen",
+        cgroup_state={"frozen": "frozen", "running": "thawed"}.get(kernel_state, "unknown"),
+        tc_drop_active=tc_state == "drop",
+        traffic_control_state=tc_state,
+        sentinel_drop_count=drop_count,
+        ebpf_active=None,
+        ebpf_program_attached=None,
+        observed_at=observed,
+        last_observed_at=observed,
+        sentinel_ack=False,
+        containment_probe_state="confirmed" if kernel_state == "frozen" else "unconfirmed",
+        source="unavailable" if kernel_state == "unknown" else "sentinel-annotation",
+    )
+
+
 def _agent_response_from_row(
     row: asyncpg.Record | dict[str, Any],
     compliance: ComplianceSummaryInline | dict[str, Any],
     discovered_overlay: dict[str, Any] | None = None,
+    stun_detail: dict[str, Any] | None = None,
 ) -> AgentResponse:
     """Build an enriched AgentResponse from a DB row + pre-computed compliance summary and optional discovered overlay."""
     if isinstance(compliance, dict):
@@ -2024,18 +2282,21 @@ def _agent_response_from_row(
         assignment_status="assigned" if owner else "unassigned",
     )
 
+    # is_frozen is the stun record / lifecycle: a request for containment,
+    # not evidence of it. Observations decide "active" below.
     is_frozen = (stunned_at is not None) or (disc_state in ("stunned", "frozen")) or (canonical_state == "Suspended") or (raw_lifecycle_state in ("suspended", "stunned"))
-    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if canonical_state == "Suspended" else "inactive")
-    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
+    row_containment = _containment_observations(
+        _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended"), discovered_overlay, is_frozen,
+    )
     cred_revoked = row.get("credential_revoked") if isinstance(row, dict) else (row["credential_revoked"] if "credential_revoked" in row else False)
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if (cred_revoked or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned")) else "inactive"
+    row_credentials = _credential_revocation(stun_detail, bool(cred_revoked))
 
+    kernel = _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended")
     operational_state = OperationalStateMetadata(
-        runtime_status="running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded"),
+        runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
         containment=ContainmentMeasures(
-            process_freeze=process_freeze,
-            network_isolation=network_isolation,
-            credential_revocation=credential_revocation,
+            **row_containment,
+            **row_credentials,
         ),
     )
 
@@ -2054,6 +2315,8 @@ def _agent_response_from_row(
         level=attention_level,
         highest_issue=f"{compliance.failing} failing controls" if compliance.failing > 0 else None,
     )
+    if kernel["split_brain"]:
+        attention = AttentionMetadata(level="critical", highest_issue=kernel["split_brain"][0])
 
     timestamps = TimestampsMetadata(
         created_at=created_at,
@@ -2063,29 +2326,20 @@ def _agent_response_from_row(
     )
 
     cred_state = None
-    if stunned_at or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned") or cred_revoked:
+    if row_credentials["credential_revocation"] == "active" or stunned_at or canonical_state == "Revoked" or raw_lifecycle_state in ("revoked", "stunned") or stun_detail is not None:
         rev_reason = row.get("revocation_reason") if isinstance(row, dict) else (row["revocation_reason"] if "revocation_reason" in row else None)
+        revoked = row_credentials["credential_revocation"] == "active"
         cred_state = AgentCredentialState(
-            status="revoked",
+            status="revoked" if revoked else "unknown",
             reason=stun_reason or rev_reason or ("Agent revoked under governance policy" if canonical_state == "Revoked" else None),
-            revoked_at=stunned_at or last_transition_at,
+            revoked_at=(stunned_at or last_transition_at) if revoked else None,
         )
 
-    telemetry = None
-    if is_frozen or canonical_state == "Suspended":
-        telemetry = SentinelKernelTelemetry(
-            cgroup_state="frozen",
-            traffic_control_state="drop",
-            ebpf_active=True,
-            ebpf_program_attached=True,
-            observed_at=stunned_at or last_transition_at,
-            last_observed_at=stunned_at or last_transition_at,
-            sentinel_ack=True,
-            sentinel_ack_id=f"ack-{row_id}-ebpf-sentinel",
-            sentinel_drop_count=142,
-            sentinel_last_ack_at=stunned_at or last_transition_at,
-            containment_probe_state="confirmed",
-        )
+    telemetry = _kernel_telemetry(
+        _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended"),
+        containment_requested=is_frozen or canonical_state == "Suspended",
+        discovered=discovered_overlay,
+    )
 
     origin_metadata = OriginVerificationMetadata(
         verified=True,
@@ -2116,6 +2370,7 @@ def _agent_response_from_row(
         created_at=created_at,
         credential_state=cred_state,
         kernel_telemetry=telemetry,
+        **kernel,
         namespace=disc_ns,
         service_account=sa,
         node=node,
@@ -2140,6 +2395,7 @@ def _agent_response_from_discovered(
     tenant_id: str,
     record_class: Literal["registered", "discovered", "resolved", "fixture"] = "discovered",
     is_registry_linked: bool = False,
+    stun_detail: dict[str, Any] | None = None,
 ) -> AgentResponse:
     """Build an enriched AgentResponse from a discovered Kubernetes workload."""
     discovered_id = str(discovered.get("id"))
@@ -2220,17 +2476,23 @@ def _agent_response_from_discovered(
         assignment_status="registry_unlinked" if not is_registry_linked else "unassigned",
     )
 
+    # A stun record or stunned/suspended label requests containment; only
+    # observations (kernel_state, discovered TC) make it "active".
     is_frozen = (stunned_at is not None) or (state in ("stunned", "frozen"))
-    process_freeze: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else ("requested" if state == "suspended" else "inactive")
-    network_isolation: Literal["active", "inactive", "requested", "unsupported"] = "active" if is_frozen else "inactive"
-    credential_revocation: Literal["active", "inactive", "requested", "unsupported"] = "active" if state in ("revoked", "stunned") else "inactive"
+    disc_containment = _containment_observations(
+        _kernel_view(discovered, stunned=is_frozen or state == "suspended"), discovered, is_frozen or state == "suspended",
+    )
+    disc_credentials = _credential_revocation(stun_detail, False)
 
+    kernel = _kernel_view(
+        discovered,
+        stunned=stunned_at is not None or state in ("stunned", "suspended", "frozen"),
+    )
     operational_state = OperationalStateMetadata(
-        runtime_status="running" if (phase == "Running" or state in ("ready", "active", "idle")) else "unknown",
+        runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or state in ("ready", "active", "idle")) else "unknown"),
         containment=ContainmentMeasures(
-            process_freeze=process_freeze,
-            network_isolation=network_isolation,
-            credential_revocation=credential_revocation,
+            **disc_containment,
+            **disc_credentials,
         ),
     )
 
@@ -2251,6 +2513,8 @@ def _agent_response_from_discovered(
         level=attention_level,
         highest_issue=discovered.get("highest_issue") or (f"Agent state is {lifecycle_st}" if attention_level != "none" else None),
     )
+    if kernel["split_brain"]:
+        attention = AttentionMetadata(level="critical", highest_issue=kernel["split_brain"][0])
 
     timestamps = TimestampsMetadata(
         created_at=created_at,
@@ -2260,49 +2524,19 @@ def _agent_response_from_discovered(
     )
 
     cred_state = None
-    if stunned_at or state in ("revoked", "stunned"):
+    if disc_credentials["credential_revocation"] == "active" or stunned_at or state in ("revoked", "stunned") or stun_detail is not None:
+        revoked = disc_credentials["credential_revocation"] == "active"
         cred_state = AgentCredentialState(
-            status="revoked",
+            status="revoked" if revoked else "unknown",
             reason=stun_reason,
-            revoked_at=stunned_at,
+            revoked_at=stunned_at if revoked else None,
         )
 
-    telemetry = None
-    if is_frozen or discovered.get("cgroup_state") or discovered.get("cgroup_frozen") is not None or discovered.get("traffic_control_state"):
-        cgroup_st = discovered.get("cgroup_state") or ("frozen" if (is_frozen or discovered.get("cgroup_frozen")) else "thawed")
-        tc_st = discovered.get("traffic_control_state") or ("drop" if (is_frozen or discovered.get("tc_drop_active")) else "allow")
-        ebpf_act = discovered.get("ebpf_active", True if is_frozen else False)
-        probe_st: Literal["confirmed", "pending", "unconfirmed"] = "confirmed" if (cgroup_st == "frozen" or tc_st == "drop") else ("pending" if is_frozen else "unconfirmed")
-        ack = True if (cgroup_st == "frozen" or tc_st == "drop") else discovered.get("sentinel_ack", False)
-        drop_cnt = discovered.get("sentinel_drop_count") if discovered.get("sentinel_drop_count") is not None else (142 if tc_st == "drop" else 0)
-        obs_time = discovered.get("observed_at") or stunned_at or created_at
-        telemetry = SentinelKernelTelemetry(
-            cgroup_state=cgroup_st,
-            traffic_control_state=tc_st,
-            ebpf_active=ebpf_act,
-            ebpf_program_attached=discovered.get("ebpf_program_attached", True if ebpf_act else None),
-            observed_at=obs_time,
-            last_observed_at=discovered.get("last_observed_at") or obs_time,
-            sentinel_ack=ack,
-            sentinel_ack_id=discovered.get("sentinel_ack_id") or (f"ack-{discovered_id}-ebpf-sentinel" if ack else None),
-            sentinel_drop_count=drop_cnt,
-            sentinel_last_ack_at=discovered.get("sentinel_last_ack_at") or (obs_time if ack else None),
-            containment_probe_state=probe_st,
-        )
-    elif is_frozen:
-        telemetry = SentinelKernelTelemetry(
-            cgroup_state="frozen",
-            traffic_control_state="drop",
-            ebpf_active=True,
-            ebpf_program_attached=True,
-            observed_at=stunned_at,
-            last_observed_at=stunned_at,
-            sentinel_ack=True,
-            sentinel_ack_id=f"ack-{discovered_id}-ebpf-sentinel",
-            sentinel_drop_count=142,
-            sentinel_last_ack_at=stunned_at,
-            containment_probe_state="confirmed",
-        )
+    telemetry = _kernel_telemetry(
+        _kernel_view(discovered, stunned=is_frozen or state in ("stunned", "suspended", "frozen")),
+        containment_requested=is_frozen,
+        discovered=discovered,
+    )
 
     origin_verified = bool(spiffe_id)
     origin_metadata = OriginVerificationMetadata(
@@ -2343,6 +2577,7 @@ def _agent_response_from_discovered(
         created_at=created_at,
         credential_state=cred_state,
         kernel_telemetry=telemetry,
+        **kernel,
         namespace=disc_ns,
         service_account=sa,
         node=node,
@@ -3303,6 +3538,7 @@ async def agents(
     pg_msg: str | None = None
 
     pool = await _get_pool()
+    stun_index = await _latest_stun_index(tenant_id, pool)
     if pool is None:
         # Fixture mode: pure discovered workloads
         for disc in raw_discovered:
@@ -3312,6 +3548,7 @@ async def agents(
                     tenant_id=tenant_id,
                     record_class="discovered",
                     is_registry_linked=False,
+                    stun_detail=_stun_detail_for(stun_index, disc.get("id"), disc.get("name")),
                 )
             )
         with _STORE_LOCK:
@@ -3346,14 +3583,23 @@ async def agents(
 
             if matched_row is not None:
                 compliance = await _compliance_summary_for_agent(pool, matched_row["id"])
-                all_records.append(_agent_response_from_row(matched_row, compliance, discovered_overlay=disc))
+                all_records.append(_agent_response_from_row(
+                    matched_row, compliance, discovered_overlay=disc,
+                    stun_detail=_stun_detail_for(stun_index, matched_row["id"], matched_row["name"], disc_id, disc_name),
+                ))
             else:
-                all_records.append(_agent_response_from_discovered(disc, tenant_id=tenant_id, record_class="discovered", is_registry_linked=False))
+                all_records.append(_agent_response_from_discovered(
+                    disc, tenant_id=tenant_id, record_class="discovered", is_registry_linked=False,
+                    stun_detail=_stun_detail_for(stun_index, disc_id, disc_name),
+                ))
 
         # Remaining DB records
         for row in unmatched_db.values():
             compliance = await _compliance_summary_for_agent(pool, row["id"])
-            all_records.append(_agent_response_from_row(row, compliance, discovered_overlay=None))
+            all_records.append(_agent_response_from_row(
+                row, compliance, discovered_overlay=None,
+                stun_detail=_stun_detail_for(stun_index, row["id"], row["name"]),
+            ))
 
     # Compute meta counts before filtering/pagination
     total_records = len(all_records)
@@ -4508,6 +4754,10 @@ async def get_agent(
         pass
 
     pool = await _get_pool()
+    stun_index = await _latest_stun_index(tenant_id, pool)
+    disc_keys = (
+        (discovered_match.get("id"), discovered_match.get("name")) if discovered_match is not None else ()
+    )
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -4519,13 +4769,17 @@ async def get_agent(
                         break
         if agent is not None:
             compliance = agent.get("compliance_summary") or _default_compliance_summary()
-            return _agent_response_from_row(agent, compliance, discovered_overlay=discovered_match)
+            return _agent_response_from_row(
+                agent, compliance, discovered_overlay=discovered_match,
+                stun_detail=_stun_detail_for(stun_index, agent.get("id"), agent.get("name"), agent_id, *disc_keys),
+            )
         if discovered_match is not None:
             return _agent_response_from_discovered(
                 discovered_match,
                 tenant_id=tenant_id,
                 record_class="discovered",
                 is_registry_linked=False,
+                stun_detail=_stun_detail_for(stun_index, *disc_keys, agent_id),
             )
         raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
 
@@ -4540,7 +4794,10 @@ async def get_agent(
         )
     if row is not None:
         compliance = await _compliance_summary_for_agent(pool, row["id"])
-        return _agent_response_from_row(row, compliance, discovered_overlay=discovered_match)
+        return _agent_response_from_row(
+            row, compliance, discovered_overlay=discovered_match,
+            stun_detail=_stun_detail_for(stun_index, row["id"], row["name"], agent_id, *disc_keys),
+        )
 
     if discovered_match is not None:
         return _agent_response_from_discovered(
@@ -4548,6 +4805,7 @@ async def get_agent(
             tenant_id=tenant_id,
             record_class="discovered",
             is_registry_linked=False,
+            stun_detail=_stun_detail_for(stun_index, *disc_keys, agent_id),
         )
 
     raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
@@ -4658,229 +4916,501 @@ async def transition_agent(
 
 STUNNED_LIFECYCLE_STATE = "suspended"
 
-#: What the API itself saw when it asked the proxy to isolate an agent.
+#: What the API itself saw when it asked fleet-manager to isolate an agent.
 #:
 #: ``observed`` is the field that keeps the audit row honest. It is False only
-#: when no proxy is configured at all; every other path -- success, refusal,
-#: timeout -- is something this process watched happen and may therefore
-#: report as fact.
-@dataclass
+#: when no fleet-manager is configured at all; every other path -- contained,
+#: partial, refused, unreachable -- is something this process watched happen
+#: and may therefore report as fact.
+@dataclass(frozen=True)
 class _ClusterStunObservation:
     observed: bool
-    outcome: str
-    namespace: str | None
-    proxy_status: int | None
-    error: str | None
-    #: The proxy's response verbatim, so the dashboard can read `state`,
-    #: `stunned_at` and `message` without calling the proxy itself. Kept whole
-    #: rather than unpacked: it is one party's payload and it stays in one
-    #: place, which is the same reason it is nested in the response.
+    #: fleet-manager's ``overall_outcome`` when it gave a usable one, else this
+    #: process's name for what went wrong: ``not_found``, ``error``,
+    #: ``unreachable``, ``invalid_response``, ``unexpected_status``, or
+    #: ``simulated`` when there is no fleet-manager to ask.
+    overall_outcome: str
+    #: The id fleet-manager was asked about. See ``_fleet_agent_id``.
+    fleet_agent_id: str
+    fleet_manager_status: int | None = None
+    error: str | None = None
+    #: One ``PlaneResult``-shaped dict per plane fleet-manager reported, in its
+    #: order. Kept on failure paths too, so an operator can see which broke.
+    planes: list[dict[str, Any]] = field(default_factory=list)
+    #: fleet-manager's CascadeResult verbatim, or {} when there was none.
     payload: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def acted(self) -> bool:
+        """Whether the agent may be recorded as isolated.
 
-async def _perform_cluster_stun(agent_id: str) -> _ClusterStunObservation:
-    """Ask the SuperCred proxy to isolate the agent, and watch what happens.
+        The ``freeze`` plane decides, not fleet-manager's summary word.
+        fleet-manager calls "bao revoked the lease, freeze failed" ``partial``,
+        and treating every ``partial`` as success suspended agents whose
+        workload was still running. So: ``overall_outcome`` must be
+        ``contained`` or ``partial`` AND every ``freeze`` plane reported must
+        be ``contained``. No freeze plane at all fails closed. ``partial``
+        with the freeze held is a success whose failing planes travel with
+        the answer rather than being hidden by it.
 
-    This is the half that used to belong to the browser. The proxy relabels the
-    pod and revokes the OpenBao lease; issuing the call from here rather than
-    from a tab is what turns the audit row from a transcript of someone else's
-    claim into a record of something this process did.
+        Only the TARGET's freeze decides (``_target_freeze_failure``). A
+        downstream cascade target that failed to freeze makes the stun
+        ``partial``, with that plane visible, not a failure.
+        """
+        if not self.observed:
+            # Simulated: nothing was asked, so nothing was isolated. It is
+            # answered 200 (see ``simulated``) but may never move lifecycle.
+            return False
+        return (
+            self.overall_outcome in _STUN_CONTAINED_OUTCOMES
+            and _target_freeze_failure(self.planes, self.target_ids, self.target_count) is None
+        )
 
-    It also authenticates the action for the first time. The proxy performs no
-    authentication of its own -- its only access control is a NetworkPolicy --
-    and the dashboard's ``/supercred-api/`` nginx block deliberately does not
-    forward ``Authorization``, unlike the ``/demo-api/`` block below it. Every
-    stun the demo has ever issued was therefore unauthenticated. Routed through
-    this endpoint it is gated on a validated Dex token.
+    @property
+    def simulated(self) -> bool:
+        """No fleet-manager configured: answered 200, recorded, changes nothing."""
+        return not self.observed and self.overall_outcome == "simulated"
+
+    @property
+    def target_ids(self) -> frozenset[str]:
+        """The ids that name the stun's target: the id sent, and the DAG id
+        fleet-manager resolved it to (``target_agent``)."""
+        ids = {self.fleet_agent_id}
+        if isinstance(self.payload.get("target_agent"), str) and self.payload["target_agent"]:
+            ids.add(self.payload["target_agent"])
+        return frozenset(ids)
+
+    @property
+    def target_count(self) -> int:
+        targets = self.payload.get("targets")
+        return len(targets) if isinstance(targets, list) else 0
+
+
+#: fleet-manager summary outcomes that MAY mean the agent was isolated. Never
+#: sufficient on their own: ``_freeze_failure`` must also find the freeze held.
+_STUN_CONTAINED_OUTCOMES = frozenset({"contained", "partial"})
+#: The plane that actually stops the workload. Every other plane (bao, spire,
+#: mesh, admission, gitops) cuts off something the workload uses; only a
+#: frozen cgroup means it is not running.
+_FREEZE_PLANE = "freeze"
+
+
+def _freeze_failure(planes: list[dict[str, Any]]) -> str | None:
+    """Why the freeze plane does not show the agent frozen, or None if it does.
+
+    Every ``freeze`` entry must be ``contained``: fleet-manager reports one per
+    target, and one unfrozen target is a running workload. Absence is a
+    failure, never a pass -- a cascade that does not mention the freeze has
+    not shown one happened.
+    """
+    freezes = [plane for plane in planes if plane.get("plane") == _FREEZE_PLANE]
+    if not freezes:
+        return "no freeze plane in fleet-manager's CascadeResult, so the freeze is unconfirmed (failing closed)"
+    failed = [plane for plane in freezes if plane.get("outcome") != "contained"]
+    if not failed:
+        return None
+    return "; ".join(
+        f"freeze plane {plane.get('outcome')}: {plane.get('error') or 'no error given'}" for plane in failed
+    )[:_FLEET_ERROR_TEXT_LIMIT * 2]
+
+
+def _pod_stem(pod: str) -> str:
+    """``agent-cardvault-bb57657-jlf8w`` -> ``agent-cardvault``: a Deployment
+    pod name minus its ReplicaSet and pod hash segments."""
+    parts = pod.rsplit("-", 2)
+    return parts[0] if len(parts) == 3 else pod
+
+
+def _plane_target(plane: dict[str, Any], target_ids: frozenset[str]) -> bool | None:
+    """Whether this plane is about the target: True, False, or None when the
+    plane does not say whose it is.
+
+    ``details.agent_id`` decides when present. Otherwise ``details.pod``
+    belongs to the target when it is the id sent, is a target id, or is a
+    pod of one (``<target>-<rs>-<pod>``).
+    """
+    details = plane.get("details") or {}
+    agent_id = details.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        return agent_id in target_ids
+    pod = details.get("pod")
+    if isinstance(pod, str) and pod:
+        return pod in target_ids or _pod_stem(pod) in target_ids
+    return None
+
+
+def _target_freeze_planes(
+    planes: list[dict[str, Any]], target_ids: frozenset[str], target_count: int,
+) -> list[dict[str, Any]]:
+    """The freeze plane(s) about the target.
+
+    Attributed planes are matched by ``_plane_target``. An unattributed
+    freeze is taken as the target's only when it cannot be anyone else's:
+    it is the sole freeze plane and fleet-manager reported at most one
+    target. Anything else is not guessed at, so it cannot count.
+    """
+    freezes = [plane for plane in planes if plane.get("plane") == _FREEZE_PLANE]
+    matched = [plane for plane in freezes if _plane_target(plane, target_ids)]
+    if matched:
+        return matched
+    if len(freezes) == 1 and target_count <= 1 and _plane_target(freezes[0], target_ids) is None:
+        return freezes
+    return []
+
+
+def _target_freeze_failure(
+    planes: list[dict[str, Any]], target_ids: frozenset[str], target_count: int,
+) -> str | None:
+    """Why the TARGET's freeze does not show it frozen, or None if it does.
+
+    Every freeze plane attributed to the target must be ``contained``. No
+    freeze plane for the target fails closed: a cascade that does not show
+    the target frozen has not shown it was isolated. Other targets' freeze
+    planes do not decide this; they make the stun ``partial``.
+    """
+    mine = _target_freeze_planes(planes, target_ids, target_count)
+    if not mine:
+        if not any(plane.get("plane") == _FREEZE_PLANE for plane in planes):
+            return _freeze_failure(planes)
+        return (
+            f"no freeze plane for the target ({', '.join(sorted(target_ids))}) in fleet-manager's "
+            "CascadeResult, so its freeze is unconfirmed (failing closed)"
+        )
+    return _freeze_failure(mine)
+
+
+def _sentinel_telemetry(observation: _ClusterStunObservation) -> dict[str, Any] | None:
+    """What the freeze plane reported about the workload, and nothing invented.
+
+    This used to be a hard-coded ``cgroup_state=frozen``, ``ebpf_active=True``,
+    ``sentinel_drop_count=142`` on every acted stun -- a kernel observation no
+    one made. Now: None when no fleet-manager was asked (simulated); the
+    freeze plane's ``details`` verbatim, tagged ``source:
+    fleet-manager.freeze``, when it carried any; otherwise ``{"source":
+    "unavailable"}``. ``source`` is set last so a details key cannot claim a
+    different provenance.
+    """
+    if not observation.observed:
+        return None
+    for plane in _target_freeze_planes(observation.planes, observation.target_ids, observation.target_count):
+        if plane.get("details"):
+            return {**plane["details"], "source": "fleet-manager.freeze"}
+    return {"source": "unavailable"}
+#: fleet-manager answers 200 when every plane contained, 207 when some did.
+_FLEET_STUN_SUCCESS_STATUSES = frozenset({200, 207})
+_FLEET_STUN_TIMEOUT_SECONDS = 10.0
+_FLEET_ERROR_TEXT_LIMIT = 200
+
+
+def _fleet_agent_id(agent_ref: str) -> str:
+    """The id fleet-manager is asked about: the caller's id, unchanged.
+
+    The dashboard posts pod names (``cardvault-7d9f8b6c4-x2k9q``), not the
+    ``agent-<stem>`` DAG ids. This function used to prepend ``agent-`` to
+    anything lacking it, which turned every pod name into an id nothing
+    knows. fleet-manager now resolves pod names and stems to DAG nodes
+    itself and lists the candidates it tried in its 404 body, so resolution
+    lives in one place -- the service that owns the DAG -- and is not
+    guessed at here.
+
+    An id fleet-manager cannot resolve is answered 404 naming what it tried,
+    an honest refusal rather than a lookup that might isolate the wrong
+    workload. Kept as a function, and stored on the audit row as
+    ``fleet_agent_id`` beside ``agent_ref``, so the row still says which id
+    was sent.
+    """
+    return agent_ref
+
+
+def _fleet_stun_url(fleet_agent_id: str) -> str:
+    # `safe=""` so an id can never escape its path segment: agent ids arrive
+    # from the caller, so this is attacker-adjacent input reaching a URL.
+    base = FLEET_MANAGER_URL.rstrip("/")
+    return f"{base}/api/v1/fleet/stun/{quote(fleet_agent_id, safe='')}"
+
+
+def _plane_result(raw: Any) -> dict[str, Any] | None:
+    """One plane from fleet-manager, or None when it is not a plane at all.
+
+    ``plane`` and ``outcome`` are required, because a plane with no name or no
+    outcome says nothing an operator can act on. The optional fields are kept
+    when they have the documented type and dropped to None otherwise, so one
+    odd ``latency_ms`` does not discard the whole cascade.
+    """
+    if not isinstance(raw, dict):
+        return None
+    plane, outcome = raw.get("plane"), raw.get("outcome")
+    if not isinstance(plane, str) or not plane or not isinstance(outcome, str) or not outcome:
+        return None
+    error = raw.get("error")
+    latency = raw.get("latency_ms")
+    return PlaneResult(
+        plane=plane,
+        outcome=outcome,
+        error=None if error is None else str(error),
+        timestamp=raw["timestamp"] if isinstance(raw.get("timestamp"), str) else None,
+        latency_ms=latency if isinstance(latency, (int, float)) and not isinstance(latency, bool) else None,
+        details=raw["details"] if isinstance(raw.get("details"), dict) else None,
+    ).model_dump()
+
+
+def _parse_cascade(body: Any) -> tuple[str, list[dict[str, Any]]] | None:
+    """``(overall_outcome, planes)`` from a CascadeResult, or None if malformed."""
+    if not isinstance(body, dict):
+        return None
+    overall, raw_planes = body.get("overall_outcome"), body.get("planes")
+    if not isinstance(overall, str) or not overall or not isinstance(raw_planes, list):
+        return None
+    planes = [_plane_result(raw) for raw in raw_planes]
+    if any(plane is None for plane in planes):
+        return None
+    return overall, [plane for plane in planes if plane is not None]
+
+
+def _fleet_error_text(body: Any, response: httpx.Response) -> str:
+    if isinstance(body, dict) and isinstance(body.get("error"), str) and body["error"]:
+        return body["error"][:_FLEET_ERROR_TEXT_LIMIT]
+    return response.text[:_FLEET_ERROR_TEXT_LIMIT] or f"HTTP {response.status_code}"
+
+
+async def _perform_cluster_stun(fleet_agent_id: str, reason: str) -> _ClusterStunObservation:
+    """Ask fleet-manager to run the stun cascade, and watch what happens.
+
+    ``POST {FLEET_MANAGER_URL}/api/v1/fleet/stun/{fleet_agent_id}`` with body
+    ``{"agent_id": fleet_agent_id, "reason": reason}`` and a 10 s timeout.
+    fleet-manager answers 200 (contained), 207 (partial), 404 (unknown agent)
+    or 500, with a CascadeResult naming each plane's outcome.
+
+    Nothing about the answer is trusted by status code alone: a 200 or 207
+    whose body is not a well-formed CascadeResult, or whose
+    ``overall_outcome`` is not ``contained`` or ``partial``, is a failure.
 
     Errors are returned rather than raised so the caller can audit the failure
     before deciding what to answer. An attempted isolation that failed is a
     security-relevant fact and must reach the trail; raising here would lose it.
     """
-    if not SUPERCRED_STUN_BASE_URL:
+    if not FLEET_MANAGER_URL:
         return _ClusterStunObservation(
-            observed=False, outcome="simulated", namespace=None,
-            proxy_status=None, error=None,
+            observed=False, overall_outcome="simulated", fleet_agent_id=fleet_agent_id,
         )
 
-    # `safe=""` so a pod name can never escape its path segment. SuperCred
-    # agent ids arrive from the caller and are pod names, not UUIDs, so this is
-    # attacker-adjacent input reaching a URL.
-    url = f"{SUPERCRED_STUN_BASE_URL}/{quote(agent_id, safe='')}/stun"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(url)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(_FLEET_STUN_TIMEOUT_SECONDS)) as client:
+            response = await client.post(
+                _fleet_stun_url(fleet_agent_id),
+                json={"agent_id": fleet_agent_id, "reason": reason},
+            )
     except httpx.HTTPError as exc:
-        logger.warning("stun: SuperCred proxy unreachable", exc_info=True)
+        logger.warning("stun: fleet-manager unreachable", exc_info=True)
         return _ClusterStunObservation(
-            observed=True, outcome="failed", namespace=None,
-            proxy_status=None, error=str(exc),
+            observed=True, overall_outcome="unreachable", fleet_agent_id=fleet_agent_id,
+            error=f"{type(exc).__name__}: {exc}"[:_FLEET_ERROR_TEXT_LIMIT],
         )
 
-    if response.status_code >= 400:
-        return _ClusterStunObservation(
-            observed=True, outcome="failed", namespace=None,
-            proxy_status=response.status_code, error=response.text[:200],
-        )
-
+    status = response.status_code
     try:
-        payload = response.json()
+        body: Any = response.json()
     except ValueError:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
+        body = None
+    payload = body if isinstance(body, dict) else {}
+    parsed = _parse_cascade(body)
+    planes = parsed[1] if parsed is not None else []
 
-    return _ClusterStunObservation(
-        observed=True,
-        # The proxy's own word for what it did. Defaulted only because a 2xx
-        # with no state field still means it acted; the default names the
-        # action, not an assumption about the cluster.
-        outcome=str(payload.get("state") or "stunned"),
-        namespace=payload.get("namespace"),
-        proxy_status=response.status_code,
-        error=None,
-        payload=payload,
-    )
+    def _observed(overall_outcome: str, error: str | None) -> _ClusterStunObservation:
+        return _ClusterStunObservation(
+            observed=True, overall_outcome=overall_outcome, fleet_agent_id=fleet_agent_id,
+            fleet_manager_status=status, error=error, planes=planes, payload=payload,
+        )
+
+    if status in _FLEET_STUN_SUCCESS_STATUSES:
+        if parsed is None:
+            return _observed(
+                "invalid_response",
+                f"fleet-manager answered HTTP {status} without a well-formed CascadeResult, "
+                "so the freeze plane is unconfirmed (failing closed)",
+            )
+        overall = parsed[0]
+        if overall in _STUN_CONTAINED_OUTCOMES:
+            target_ids = frozenset({fleet_agent_id} | (
+                {payload["target_agent"]} if isinstance(payload.get("target_agent"), str) and payload["target_agent"] else set()
+            ))
+            targets = payload.get("targets")
+            failure = _target_freeze_failure(planes, target_ids, len(targets) if isinstance(targets, list) else 0)
+            # A "contained" summary with any plane not contained is partial:
+            # a downstream target that did not freeze is not hidden by it.
+            if failure is None and overall == "contained" and any(p.get("outcome") != "contained" for p in planes):
+                overall = "partial"
+            return _observed(overall, failure)
+        return _observed(overall, f"fleet-manager reported overall_outcome={overall!r}")
+    if status == 404:
+        error = _fleet_error_text(body, response)
+        tried = body.get("tried") if isinstance(body, dict) else None
+        if isinstance(tried, list) and tried:
+            error = f"{error}; tried {', '.join(str(candidate) for candidate in tried)}"
+        return _observed("not_found", error[:_FLEET_ERROR_TEXT_LIMIT * 2])
+    if status >= 400:
+        # A failure status cannot be outvoted by a body claiming containment.
+        overall = parsed[0] if parsed is not None and parsed[0] not in _STUN_CONTAINED_OUTCOMES else "error"
+        return _observed(overall, _fleet_error_text(body, response))
+    return _observed("unexpected_status", f"fleet-manager answered HTTP {status}")
+
+
+_SIMULATED_STUN_MESSAGE = (
+    "Stun simulated: FLEET_MANAGER_URL is empty, so no fleet-manager was asked. "
+    "The agent was not isolated and its lifecycle state was not changed."
+)
+
+
+def _stun_notice(observation: _ClusterStunObservation) -> str | None:
+    return _SIMULATED_STUN_MESSAGE if observation.simulated else None
 
 
 def _proxy_report(observation: _ClusterStunObservation) -> ProxyStunReport:
-    """The proxy half of the response, built in one place so it cannot drift.
+    """The fleet-manager half of the response, built in one place.
 
-    Mirrors the ``detail["proxy"]`` block exactly: the row and the caller's
-    copy of it must not be able to disagree about what the proxy said.
+    Mirrors the audit row's fleet-manager fields exactly: the row and the
+    caller's copy of it must not be able to disagree about what was said.
     """
     return ProxyStunReport(
         observed=observation.observed,
-        outcome=observation.outcome,
-        namespace=observation.namespace,
-        status=observation.proxy_status,
+        outcome=observation.overall_outcome,
+        namespace=None,
+        status=observation.fleet_manager_status,
         error=observation.error,
         payload=observation.payload,
     )
 
 
-def _raise_if_stun_failed(observation: _ClusterStunObservation) -> None:
+def _raise_if_stun_failed(observation: _ClusterStunObservation, stun_attempt_id: str) -> None:
     """Turn an observed failure into the caller's answer, after it is recorded.
 
     Called only once the audit row is committed. A stun that did not take must
     not return 200 -- the operator would believe an agent was cut off when it
     is still authenticating -- but the record of the attempt is the thing that
-    must survive, so the error is raised last.
+    must survive, so the error is raised last and names the row it left.
 
-    The proxy's 404 is passed through as a 404: "no such pod" is the caller's
-    problem and a distinct one from "the proxy is broken".
+    fleet-manager's 404 is passed through as a 404: "no such agent" is the
+    caller's problem and a distinct one from "fleet-manager is broken".
     """
-    if observation.outcome != "failed":
+    if observation.acted or observation.simulated:
         return
-    detail = observation.error or "the SuperCred proxy could not be reached"
-    if observation.proxy_status == 404:
-        raise APIError(404, "not_found", f"Agent not found in the cluster: {detail}")
+    detail = observation.error or f"overall_outcome={observation.overall_outcome}"
+    reference = f"audit reference stun_attempt_id={stun_attempt_id}"
+    if observation.fleet_manager_status == 404:
+        raise APIError(
+            404, "not_found",
+            f"fleet-manager does not know agent {observation.fleet_agent_id!r}; {reference}. {detail}",
+        )
     raise APIError(
         502, "cluster_action_failed",
-        f"The agent was not isolated; the attempt is on the audit trail. {detail}",
+        f"The agent was not isolated ({observation.overall_outcome}); {reference}. {detail}",
     )
+
+
+async def _read_stun_request(request: Request) -> StunAgentRequest:
+    """Parse and validate the stun body, with a message that names the problem.
+
+    Parsed here rather than as a FastAPI body parameter because the app's
+    ``RequestValidationError`` handler answers every validation failure with an
+    opaque "Request is invalid", and an operator whose stun was refused needs
+    to be told that ``reason`` is what was missing or wrong.
+    """
+    expected = 'expected a JSON body {"reason": "<1-256 printable characters>"}'
+    raw = await request.body()
+    if not raw.strip():
+        raise APIError(422, "invalid_request", f"Invalid stun request: reason is required; {expected}")
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise APIError(422, "invalid_request", f"Invalid stun request: body is not JSON; {expected}") from None
+    try:
+        return StunAgentRequest.model_validate(data)
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc']) or 'body'}: {error['msg']}"
+            for error in exc.errors()
+        )
+        raise APIError(422, "invalid_request", f"Invalid stun request: {problems}; {expected}") from None
 
 
 @router.post("/agents/{agent_id}/stun", response_model=StunAgentResponse, responses=ERROR_RESPONSES)
 async def stun_agent(
     agent_id: str,
+    request: Request,
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> StunAgentResponse:
-    """Isolate an agent, and record what was observed doing so.
+    """Isolate an agent through fleet-manager, and record what each plane did.
 
-    This endpoint used to *record* a stun rather than perform one. The browser
-    POSTed to the SuperCred proxy, then called here with its account of what
-    had just happened -- ``agent_name``, ``namespace``, ``reason`` and
-    ``outcome`` -- and this handler wrote that account down. Andy's rule is
-    that an audit event is a side effect of the action the API itself performs:
-    never content the client supplies, never a record of an action performed
-    elsewhere, never written by a browser. That was all three at once.
+    Body: ``{"reason": "<1..256 printable characters>"}``, required. Anything
+    else in the body is refused with a 422, so a caller can never author the
+    outcome, the namespace, the agent's name or the actor on the row.
 
-    So the call moved here. The proxy still owns the cluster-side action --
-    relabelling the pod, revoking the OpenBao lease -- but this process is now
-    the one that asks for it and the one that sees the answer, which is what
-    makes the row a side effect rather than a transcript.
+    The action is fleet-manager's stun cascade,
+    ``POST {FLEET_MANAGER_URL}/api/v1/fleet/stun/{fleet_agent_id}``, which
+    reports one result per enforcement plane. The id is mapped by
+    ``_fleet_agent_id``. It replaced a call to fake-integration-proxy that
+    relabelled the pod with a canned reason and claimed a credential revocation
+    it never performed.
 
-    Three things fall out of that, and the third is the one worth having:
+    Answers, and what is recorded for each. Every case writes the audit row
+    first, carrying ``reason``, ``overall_outcome``, ``planes``,
+    ``fleet_manager_status`` and a ``stun_attempt_id``:
 
-    * Every field of the row has a server-side source. Identity from the token,
-      target from the path, prior state from a ``FOR UPDATE`` read in this
-      database, outcome and namespace from the proxy's own response.
-    * No new reachability was needed. This pod already calls the same service
-      on the same port for discovery, crypto proofs, network tests and trust
-      topology; ``allow-portal-dependencies`` covers it with no podSelector,
-      and a live check from the running pod returns 200.
-    * The stun becomes authenticated. The proxy performs no authentication of
-      its own, and the dashboard's ``/supercred-api/`` nginx block does not
-      forward ``Authorization``, so every stun the demo has issued has been
-      unauthenticated. This route is gated on a validated Dex token. (The
-      browser's direct path to the proxy still exists and still is not; closing
-      it is an nginx and dashboard change, not this one.)
+    * 200 contained, freeze plane contained -> 200, ``agent.stunned``.
+    * 207 partial, freeze plane contained -> 200 with ``overall_outcome:
+      "partial"``, ``agent.stunned``; the failing planes are in ``planes``
+      with their errors, never summarised away.
+    * Any freeze plane not ``contained``, or no freeze plane at all -> 502
+      ``cluster_action_failed`` naming the freeze error, registry unchanged.
+    * Every non-success case is recorded as ``agent.stun_failed``.
+    * 404 -> 404, naming the ``stun_attempt_id`` of the row it left.
+    * 500, unreachable, timeout, a malformed body, or a 2xx whose
+      ``overall_outcome`` is not ``contained``/``partial`` -> 502, likewise.
+    * ``FLEET_MANAGER_URL=""`` -> 200 with ``overall_outcome: "simulated"``,
+      ``proxy.observed: false``, ``to_state: "unchanged"``, a ``notice``
+      saying nothing was isolated, and an ``agent.stun_simulated`` row. No
+      call is made and lifecycle state never moves: nothing that did not
+      happen may change it.
 
-    Ordering, precisely, because it cannot be made atomic. The proxy is called
-    first, because an outcome cannot be recorded before it is observed. The
-    registry ``UPDATE`` and the ``audit_events`` insert then share one
-    ``_write`` transaction, so a rejected audit row still takes the state change
-    with it -- but by then the cluster has already moved. That gap is
-    irreducible in any observe-then-record design and is stated here rather
-    than papered over: the previous version of this comment claimed a guarantee
-    that held only on one branch, and someone checking the invariant found a
-    comment telling them it was fine.
+    Ordering, precisely, because it cannot be made atomic. fleet-manager is
+    called first, because an outcome cannot be recorded before it is
+    observed. The registry ``UPDATE`` and the ``audit_events`` insert then
+    share one ``_write`` transaction, so a rejected audit row still takes the
+    state change with it -- but by then the cluster has already moved. That
+    gap is irreducible in any observe-then-record design.
 
-    A failed cluster action is audited too, with ``outcome: "failed"``, and
-    then surfaced as an error. An attempted isolation that did not take is
-    precisely the kind of fact an audit trail exists for, and the registry is
-    deliberately NOT marked suspended in that case -- claiming an agent is
-    isolated when the relabel failed would be the same fabrication in a new
-    place.
+    The registry is moved to ``suspended`` only when the id resolves to a row
+    and ``observation.acted``: the target's freeze plane held. A
+    failed cascade, including a ``partial`` whose freeze failed, leaves it
+    unchanged:
+    claiming an agent is isolated when containment failed would be a
+    fabrication.
 
     ``agent_id`` is deliberately not required to resolve to a registry row.
-    SuperCred agent ids are Kubernetes pod names, so the interesting case --
-    isolating a workload the registry has never seen -- is precisely the one a
-    UUID lookup would drop. When the id does resolve, the state change and the
-    event commit together; when it does not, the event is still written, with
-    the raw id preserved in ``detail.agent_ref``.
-
-    That second case must record what was *observed*, not what was intended.
-    It previously recorded ``from_state: "active"`` and
-    ``to_state: "suspended"`` for an id that resolved to nothing: no row was
-    read, so no prior state was known, and no ``UPDATE`` ran, so no new state
-    was reached. The row asserted a transition between two states of which
-    neither had been seen. The transaction around it was impeccable, which is
-    what made it dangerous -- a fabricated payload that reads as trustworthy is
-    worse than a missing row, because a missing row prompts the question and
-    this one answered it wrongly.
-
-    It was also the only branch the demo ever took: the instructor panel posts
-    the literal id ``agent-cardvault``, which is not a UUID.
-
-    So the payload now separates the three claims that were being conflated:
-    ``requested_state`` is what the caller asked for, ``from_state`` is what
-    was read (or ``"unknown"``), and ``to_state`` is what the registry holds
-    afterwards (or ``"unchanged"``). ``registry_match`` says plainly which of
-    the two shapes a reader is looking at.
-
-    What this endpoint still cannot tell you is whether the *cluster* action
-    succeeded -- the relabel and the lease revocation belong to the SuperCred
-    proxy, which reports back to nobody. ``requested_state`` is therefore a
-    record of intent, and deliberately not named as an outcome.
+    Agent ids here are usually pod-name stems like ``agent-cardvault``, which
+    the registry never holds. The row then records ``from_state: "unknown"``
+    and ``to_state: "unchanged"``: no state was read and none was written, and
+    the raw id is kept in ``detail.agent_ref``. ``requested_state`` records
+    intent separately from what was reached.
     """
     tenant_id = principal.tenant
     now = _now_iso()
 
-    # The action, before anything is written. Its result is the only source for
-    # `outcome` and `namespace` -- both of which the caller used to supply.
-    observation = await _perform_cluster_stun(agent_id)
-    #: Server-authored, and a constant rather than a message: it records how the
-    #: isolation was initiated, which this process knows, and says nothing about
-    #: why, which it does not. The proxy writes its own reason annotation onto
-    #: the pod; reading it back would be a second call and a second claim.
-    reason = "operator-initiated stun via governance API"
-    outcome = observation.outcome
-    # Only a stun this process watched succeed may move the registry. A failed
-    # relabel that still marked the agent suspended would leave the database
-    # asserting an isolation that never happened.
-    acted = observation.outcome != "failed"
+    # Validated before anything is called or written: a refused request must
+    # neither reach fleet-manager nor leave a row.
+    reason = (await _read_stun_request(request)).reason
+    fleet_agent_id = _fleet_agent_id(agent_id)
+    #: Cited in the error an operator sees on a failed stun, so they can find
+    #: the row it left. Needed because the pooled insert returns no event id.
+    stun_attempt_id = uuid.uuid4().hex
+
+    # The action, before anything is written. Its result is the only source
+    # for the outcome and the planes.
+    observation = await _perform_cluster_stun(fleet_agent_id, reason)
+    # Only a cascade this process watched contain the agent may move the
+    # registry. A failed cascade that still marked the agent suspended would
+    # leave the database asserting an isolation that never happened.
+    acted = observation.acted
     pool = await _require_pool("Stunning an agent")
 
     def _detail(from_state: str, *, registry_match: bool) -> dict[str, Any]:
@@ -4895,7 +5425,17 @@ async def stun_agent(
             # endpoint is wired -- and when the proxy later writes its own row
             # about the same act, the two are separable claims rather than one
             # quietly overwriting the other.
+            # The operator's justification, from the request body. A
+            # statement by `actor`, recorded as theirs -- not a finding.
             "reason": reason,
+            "stun_attempt_id": stun_attempt_id,
+            "fleet_agent_id": observation.fleet_agent_id,
+            # fleet-manager's account, lifted to the top level so the row can
+            # be read without knowing the response shape. Also under `proxy`.
+            "overall_outcome": observation.overall_outcome,
+            "fleet_manager_status": observation.fleet_manager_status,
+            "fleet_manager_error": observation.error,
+            "planes": [dict(plane) for plane in observation.planes],
             "from_state": from_state,
             # What the registry holds after this call. Two ways for nothing to
             # have moved, and both must say "unchanged": no row to update, or a
@@ -4920,9 +5460,9 @@ async def stun_agent(
             "agent_ref": agent_id,
             "proxy": {
                 "observed": observation.observed,
-                "outcome": outcome,
-                "namespace": observation.namespace,
-                "status": observation.proxy_status,
+                "outcome": observation.overall_outcome,
+                "namespace": None,
+                "status": observation.fleet_manager_status,
                 "error": observation.error,
             },
         }
@@ -4949,22 +5489,11 @@ async def stun_agent(
                 agent["last_transition_by"] = principal.actor
         detail = _detail(from_state, registry_match=registry_match)
         event = _record_memory_audit(
-            tenant_id, "agent.stunned", agent_id, agent_name, principal.actor, detail,
+            tenant_id, "agent.stunned" if acted else ("agent.stun_simulated" if observation.simulated else "agent.stun_failed"),
+            agent_id, agent_name, principal.actor, detail,
         )
-        _raise_if_stun_failed(observation)
-        sentinel_telem = SentinelKernelTelemetry(
-            cgroup_state="frozen" if acted else "thawed",
-            traffic_control_state="drop" if acted else "allow",
-            ebpf_active=True,
-            ebpf_program_attached=True,
-            observed_at=now,
-            last_observed_at=now,
-            sentinel_ack=acted,
-            sentinel_ack_id=f"ack-{agent_id}-ebpf-sentinel" if acted else None,
-            sentinel_drop_count=142 if acted else 0,
-            sentinel_last_ack_at=now if acted else None,
-            containment_probe_state="confirmed" if acted else "pending",
-        )
+        _raise_if_stun_failed(observation, stun_attempt_id)
+        sentinel_telem = _sentinel_telemetry(observation)
         return StunAgentResponse(
             agent_id=agent_id,
             from_state=from_state,
@@ -4973,9 +5502,14 @@ async def stun_agent(
             to_state=detail["to_state"],
             actor=principal.actor,
             stunned_at=now,
+            reason=reason,
+            overall_outcome=observation.overall_outcome,
+            fleet_manager_status=observation.fleet_manager_status,
+            planes=[PlaneResult(**plane) for plane in observation.planes],
             proxy=_proxy_report(observation),
             event=AuditEventResponse(**event),
             sentinel_telemetry=sentinel_telem,
+            notice=_stun_notice(observation),
         )
 
     agent_uuid = _try_uuid(agent_id)
@@ -5021,28 +5555,16 @@ async def stun_agent(
 
         detail = _detail(from_state, registry_match=registry_match)
         await _audit_log(
-            conn, tenant_id, "agent.stunned", agent_id, agent_name, principal.actor,
-            detail,
+            conn, tenant_id, "agent.stunned" if acted else ("agent.stun_simulated" if observation.simulated else "agent.stun_failed"),
+            agent_id, agent_name, principal.actor, detail,
         )
 
     # After the commit, never before: the failure has to reach the trail first.
     # Raising at the point of failure would have answered the caller sooner and
     # left no record of the attempt, which is the wrong half to optimise.
-    _raise_if_stun_failed(observation)
+    _raise_if_stun_failed(observation, stun_attempt_id)
 
-    sentinel_telem = SentinelKernelTelemetry(
-        cgroup_state="frozen" if acted else "thawed",
-        traffic_control_state="drop" if acted else "allow",
-        ebpf_active=True,
-        ebpf_program_attached=True,
-        observed_at=now,
-        last_observed_at=now,
-        sentinel_ack=acted,
-        sentinel_ack_id=f"ack-{agent_id}-ebpf-sentinel" if acted else None,
-        sentinel_drop_count=142 if acted else 0,
-        sentinel_last_ack_at=now if acted else None,
-        containment_probe_state="confirmed" if acted else "pending",
-    )
+    sentinel_telem = _sentinel_telemetry(observation)
 
     return StunAgentResponse(
         agent_id=agent_id,
@@ -5052,6 +5574,10 @@ async def stun_agent(
         to_state=detail["to_state"],
         actor=principal.actor,
         stunned_at=now,
+        reason=reason,
+        overall_outcome=observation.overall_outcome,
+        fleet_manager_status=observation.fleet_manager_status,
+        planes=[PlaneResult(**plane) for plane in observation.planes],
         proxy=_proxy_report(observation),
         # audit_events.id is generated server-side and the insert does not
         # return it; the row the caller sees is otherwise the row that was
@@ -5059,13 +5585,15 @@ async def stun_agent(
         event=AuditEventResponse(
             id=f"{tenant_id}:audit-pending",
             timestamp=now,
-            event_type="agent.stunned",
+            # Only acted or simulated reach here: every failure raised above.
+            event_type="agent.stunned" if acted else "agent.stun_simulated",
             agent_id=agent_id,
             agent_name=agent_name,
             actor=principal.actor,
             detail=detail,
         ),
         sentinel_telemetry=sentinel_telem,
+        notice=_stun_notice(observation),
     )
 
 
@@ -7582,6 +8110,24 @@ class DiscoveryWorkloadModel(BaseModel):
     recommendations: ControlRecommendationsModel = Field(default_factory=ControlRecommendationsModel)
     control_recommendations: ControlRecommendationsModel = Field(default_factory=ControlRecommendationsModel)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Same kernel view as AgentResponse; see _kernel_view.
+    kernel_state: Literal["frozen", "running", "unknown"] = "unknown"
+    kernel_observed_at: str | None = None
+    split_brain: list[str] = Field(default_factory=list)
+
+
+_STUNNED_LIFECYCLE_STATES = ("suspended", "stunned", "frozen")
+
+
+def _discovered_by_key(discovered: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Index discovery records by pod id and by name, pod id winning."""
+    index: dict[str, dict[str, Any]] = {}
+    for d in discovered:
+        if d.get("name") is not None:
+            index.setdefault(str(d["name"]), d)
+    for d in discovered:
+        index[str(d["id"])] = d
+    return index
 
 
 class DiscoveryWorkloadsSummaryModel(BaseModel):
@@ -7737,6 +8283,7 @@ async def list_discovery_workloads(
 
         # 2. Local K8s (unlinked pods / agent discovery)
         if enabled_connectors.get("local_k8s", True):
+            discovered_index = _discovered_by_key(await _fetch_discovered_agents())
             agent_rows = await pool.fetch(
                 """SELECT ar.id, ar.name, ar.lifecycle_state, ar.owner, ar.model_name, ar.created_at,
                           ar.config,
@@ -7782,6 +8329,10 @@ async def list_discovery_workloads(
                             "cluster_id": "cluster-local",
                             "claim_id": r["claim_id"],
                         },
+                        **_kernel_view(
+                            discovered_index.get(str(r["id"])) or discovered_index.get(str(r["name"])),
+                            stunned=lc in _STUNNED_LIFECYCLE_STATES,
+                        ),
                     )
                 )
 
@@ -7924,6 +8475,7 @@ async def list_discovery_workloads(
 
         # 2. Local K8s
         if enabled_connectors.get("local_k8s", True):
+            discovered_index = _discovered_by_key(await _fetch_discovered_agents())
             with _STORE_LOCK:
                 agents_map = _AGENTS.get(tenant_id, {})
                 for ag_id, ag in agents_map.items():
@@ -7954,6 +8506,10 @@ async def list_discovery_workloads(
                             recommendations=recs,
                             control_recommendations=recs,
                             metadata={"namespace": ns, "cluster_id": "cluster-local"},
+                            **_kernel_view(
+                                discovered_index.get(str(ag_id)) or discovered_index.get(str(ag.get("name"))),
+                                stunned=lc in _STUNNED_LIFECYCLE_STATES,
+                            ),
                         )
                     )
 

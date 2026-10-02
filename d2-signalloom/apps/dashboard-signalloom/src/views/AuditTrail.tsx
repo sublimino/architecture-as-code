@@ -18,6 +18,7 @@ import EmptyState from '../components/EmptyState'
 import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 import AuditDetailDrawer from '../components/AuditDetailDrawer'
+import { PlaneStrip, planesFromDetail } from '../components/StunPlanes'
 
 // Watched by the demo audience in a second window: see api/pollInterval.ts.
 //
@@ -56,7 +57,7 @@ const LIMIT = 50
 // CHECK constraint, or tests/test_audit_event_types.py fails.
 const EVENT_TYPES = [
   // Emitted by the API today.
-  'agent.created', 'agent.transitioned', 'agent.stunned',
+  'agent.created', 'agent.transitioned', 'agent.stunned', 'agent.stun_failed', 'agent.stun_simulated',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged',
   'compliance.reassess_requested', 'compliance.scan_completed',
@@ -94,6 +95,8 @@ const EVENT_COLORS: Record<string, string> = {
   // Enforcement and trust withdrawal are the most severe actions the platform
   // takes on its own, so they carry the error colour.
   'agent.stunned': 'var(--error)',
+  'agent.stun_failed': 'var(--error)',
+  'agent.stun_simulated': 'var(--cyan)', // routine: nothing was enforced, the taxonomy has no muted bucket
   'agent.credential_revoked': 'var(--error)',
   'agent.created': 'var(--teal)',
   'agent.transitioned': 'var(--violet)',
@@ -948,6 +951,22 @@ export default function AuditTrail() {
                       {Object.keys(ev.detail ?? {}).length > 0 ? JSON.stringify(ev.detail) : '{}'}
                     </code>
                   </button>
+                  {/* Read out of the verbatim payload, not added to it: the
+                      reason the operator gave and, for a stun, which planes
+                      contained. The JSON above stays the record. */}
+                  {typeof ev.detail?.reason === 'string' && ev.detail.reason && (
+                    <div
+                      data-testid={`audit-reason-${ev.id}`}
+                      style={{ fontSize: 11, color: 'var(--text)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={ev.detail.reason}
+                    >
+                      Reason: {ev.detail.reason}
+                    </div>
+                  )}
+                  {(() => {
+                    const planes = planesFromDetail(ev.detail)
+                    return planes ? <PlaneStrip planes={planes} testId={`audit-planes-${ev.id}`} /> : null
+                  })()}
                 </td>
               </tr>
             )}

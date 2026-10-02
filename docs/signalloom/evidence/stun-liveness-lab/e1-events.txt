@@ -1,0 +1,12 @@
+FIRST                  LAST                   COUNT   REASON              MSG
+2026-09-29T21:40:48Z   2026-09-29T21:40:48Z   1       Scheduled           Successfully assigned kusari-liveness-lab/e1-agent-66bf787859-k98pj to osramp-control-plane
+2026-09-29T21:40:48Z   2026-09-29T21:40:48Z   1       SuccessfulCreate    Created pod: e1-agent-66bf787859-k98pj
+2026-09-29T21:40:48Z   2026-09-29T21:40:48Z   1       ScalingReplicaSet   Scaled up replica set e1-agent-66bf787859 from 0 to 1
+2026-09-29T21:40:49Z   2026-09-29T21:40:49Z   1       Started             Container started
+2026-09-29T21:41:34Z   2026-09-29T21:42:04Z   3       Unhealthy           Liveness probe failed: Get "http://10.0.0.121:8080/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-09-29T21:42:04Z   2026-09-29T21:42:04Z   1       Killing             Container agent failed liveness probe, will be restarted
+2026-09-29T21:41:26Z   2026-09-29T21:42:30Z   15      Unhealthy           Readiness probe failed: Get "http://10.0.0.121:8080/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-09-29T21:42:34Z   2026-09-29T21:42:34Z   1       Unhealthy           Readiness probe failed: Get "http://10.0.0.121:8080/healthz": read tcp 10.0.0.77:45544->10.0.0.121:8080: read: connection reset by peer
+2026-09-29T21:40:49Z   2026-09-29T21:42:59Z   6       Unhealthy           Readiness probe failed: Get "http://10.0.0.121:8080/healthz": dial tcp 10.0.0.121:8080: connect: connection refused
+2026-09-29T21:40:48Z   2026-09-29T21:44:35Z   3       Pulled              Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:40:49Z   2026-09-29T21:44:35Z   3       Created             Container created

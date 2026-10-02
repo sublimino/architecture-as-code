@@ -68,13 +68,15 @@ class _FakeProxy:
     def __init__(self) -> None:
         self.observation = api_compat._ClusterStunObservation(
             observed=True,
-            outcome="stunned",
-            namespace="fe-signalloom-agents",
-            proxy_status=200,
+            overall_outcome="contained",
+            fleet_agent_id="agent-under-test",
+            fleet_manager_status=200,
             error=None,
+            # The freeze plane is what makes a stun an isolation.
+            planes=[{"plane": "freeze", "outcome": "contained"}],
         )
 
-    async def __call__(self, agent_id: str) -> Any:
+    async def __call__(self, agent_id: str, reason: str) -> Any:
         return self.observation
 
 
@@ -114,7 +116,7 @@ def test_stunning_synthetic_agent_is_retrievable_by_agent_filter(client: TestCli
     agent_id = "agent-cardvault"
 
     # 1. Stun the synthetic agent
-    stun_resp = client.post(f"/api/agents/{agent_id}/stun", headers=_bearer())
+    stun_resp = client.post(f"/api/agents/{agent_id}/stun", json={"reason": "agent-ref probe"}, headers=_bearer())
     assert stun_resp.status_code == 200, stun_resp.text
     event_payload = stun_resp.json()["event"]
     assert event_payload["event_type"] == "agent.stunned"
@@ -135,8 +137,8 @@ def test_stunning_synthetic_agent_is_retrievable_by_agent_filter(client: TestCli
 
 def test_audit_filter_by_agent_does_not_leak_unrelated_synthetic_agents(client: TestClient) -> None:
     """Filtering by agent-cardvault must not return events for another synthetic agent."""
-    client.post("/api/agents/agent-cardvault/stun", headers=_bearer())
-    client.post("/api/agents/agent-other/stun", headers=_bearer())
+    client.post("/api/agents/agent-cardvault/stun", json={"reason": "agent-ref probe"}, headers=_bearer())
+    client.post("/api/agents/agent-other/stun", json={"reason": "agent-ref probe"}, headers=_bearer())
 
     # Query for agent-cardvault only
     resp = client.get("/api/audit?agent=agent-cardvault", headers=_bearer())

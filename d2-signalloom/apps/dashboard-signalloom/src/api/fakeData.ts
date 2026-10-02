@@ -36,7 +36,7 @@ import type {
   DiscoveryWorkloadsResponse,
 } from '../types/api'
 
-import type { StunAgentResponse } from '../types/api'
+import type { PlaneResult, StunAgentResponse } from '../types/api'
 import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
 import { WEAVE_ROUTES } from './fakeWeaveData'
 import { FAIR_ROUTES } from './fakeFairData'
@@ -201,6 +201,42 @@ export const claimedDossierAgentFixture: AgentResponse = {
   },
 }
 
+/**
+ * A kernel-frozen pod with no stun record, shaped like the live
+ * `agent-sir-lancelot`: the lifecycle label still says idle while the
+ * stun-sentinel has observed `cgroup.events frozen 1` for 22 days (relative to
+ * the demo clock). The dashboard must render the split brain, never "idle".
+ */
+export const splitBrainFrozenAgentFixture: AgentResponse = {
+  ...claimableDossierAgentFixture,
+  id: 'agent-sir-lancelot',
+  name: 'agent-sir-lancelot',
+  type: 'custom',
+  lifecycle_state: 'idle',
+  state: 'idle',
+  model_name: 'openai/gpt-4o',
+  runtime: {
+    ...claimableDossierAgentFixture.runtime!,
+    pod_name: 'agent-sir-lancelot',
+    pod_uid: 'demo-sir-lancelot-pod-uid',
+    service_account: 'agent-sir-lancelot',
+    framework: 'custom',
+    model: 'openai/gpt-4o',
+  },
+  kernel_state: 'frozen',
+  kernel_observed_at: '2026-07-05T12:00:00Z',
+  split_brain: ['kernel frozen without stun record'],
+  operational_state: {
+    runtime_status: 'stopped',
+    containment: {
+      process_freeze: 'inactive',
+      network_isolation: 'inactive',
+      credential_revocation: 'inactive',
+    },
+  },
+  attention: { level: 'critical', highest_issue: 'kernel frozen without stun record' },
+}
+
 function buildInitialAgents(): DemoAgentRecord[] {
   return [
     { agent: agent('agent-inventory', 'Inventory Agent', 'active', 'limited'), activeCredentialCount: 1 },
@@ -209,6 +245,7 @@ function buildInitialAgents(): DemoAgentRecord[] {
     { agent: agent('agent-remediation', 'Remediation Agent', 'active', 'high', { failing: 0, passing: 12, posture_score: 95 }), activeCredentialCount: 1 },
     { agent: agent('agent-scanner', 'Vulnerability Scanner', 'suspended', 'limited', { failing: 3, passing: 7, posture_score: 42, type: 'COTS', owner: 'security-team' }), activeCredentialCount: 0 },
     { agent: agent('agent-reporter', 'Compliance Reporter', 'active', 'minimal', { failing: 1, passing: 9, posture_score: 78, type: 'Custom' }), activeCredentialCount: 1 },
+    { agent: splitBrainFrozenAgentFixture, activeCredentialCount: 0 },
   ]
 }
 
@@ -670,19 +707,60 @@ const DEMO_ACTOR = 'demo-operator'
 /**
  * POST /agents/{id}/stun: record the event, then answer as the API would.
  *
- * The narrative half of the detail (`reason`, `outcome`) is authored here, not
- * read off the request, because that is what the real endpoint does. It used
- * to be `req.outcome ?? 'stunned'`, which quietly made this fixture a worse
- * liar than the backend it stands in for: whatever the browser claimed came
- * straight back as though the platform had observed it. A demo whose audit
- * trail echoes the client teaches exactly the wrong thing about the product.
+ * `outcome` and the per-plane report are authored here, not read off the
+ * request, because that is what the real endpoint does. It used to be
+ * `req.outcome ?? 'stunned'`, which quietly made this fixture a worse liar than
+ * the backend it stands in for: whatever the browser claimed came straight
+ * back as though the platform had observed it.
+ *
+ * The one request field it does read is `reason`: the operator's stated
+ * intent, which the server requires and records verbatim. Missing or out of
+ * range, the fixture refuses the stun as the server's 422 does, and records
+ * nothing.
  */
-function stunFixture(path: string): StunAgentResponse {
+function stunReasonFrom(body: unknown): string {
+  const raw = (body as { reason?: unknown } | undefined)?.reason
+  const reason = typeof raw === 'string' ? raw.trim() : ''
+  if (reason.length < 1 || reason.length > 256) {
+    throw new Error('422: reason is required (1 to 256 characters)')
+  }
+  return reason
+}
+
+/**
+ * A realistic partial: the agent is frozen, its lease revoked and its egress
+ * cut, but one of its two SVIDs is still inside its TTL and no Flux object owns
+ * it, so there is nothing for gitops to suspend. Partial rather than contained
+ * on purpose, so demo mode exercises the path the UI must never render as
+ * success.
+ */
+function demoStunPlanes(at: string): PlaneResult[] {
+  return [
+    { plane: 'freeze', outcome: 'contained', timestamp: at, latency_ms: 38, details: { cgroup: 'frozen', pids: 3 } },
+    { plane: 'bao', outcome: 'contained', timestamp: at, latency_ms: 112, details: { leases_revoked: 2 } },
+    {
+      plane: 'spire', outcome: 'partial', timestamp: at, latency_ms: 247,
+      error: 'entry deleted; 1 of 2 SVIDs still within TTL',
+      details: { entries_deleted: 1, svid_ttl_remaining_s: 212 },
+    },
+    { plane: 'mesh', outcome: 'contained', timestamp: at, latency_ms: 64, details: { policy: 'deny-all-egress' } },
+    { plane: 'admission', outcome: 'contained', timestamp: at, latency_ms: 21, details: { label: 'supercred.io/stunned' } },
+    {
+      plane: 'gitops', outcome: 'not_found', timestamp: at, latency_ms: 17,
+      error: 'no Kustomization or HelmRelease owns this workload',
+    },
+  ]
+}
+
+function stunFixture(path: string, body: unknown): StunAgentResponse {
   const agentId = path.split('/')[2]
-  // Every field is sourced here, none from the request: the endpoint takes no
-  // body. Identity comes from the simulated cluster, which is demo mode's stand
-  // -in for the proxy the live endpoint asks.
+  const reason = stunReasonFrom(body)
+  // Identity comes from the simulated cluster, which is demo mode's stand-in
+  // for the proxy the live endpoint asks.
   const identity = simulatedAgentIdentity(agentId)
+  const at = new Date().toISOString()
+  const planes = demoStunPlanes(at)
+  const overall = 'partial'
   const event = recordDemoActivity({
     event_type: 'agent.stunned',
     agent_id: agentId,
@@ -690,7 +768,9 @@ function stunFixture(path: string): StunAgentResponse {
     actor: DEMO_ACTOR,
     detail: {
       outcome: 'stunned',
-      reason: 'operator-initiated stun',
+      reason,
+      overall_outcome: overall,
+      planes,
       namespace: identity?.namespace ?? null,
       from_state: 'active',
       to_state: 'suspended',
@@ -698,19 +778,22 @@ function stunFixture(path: string): StunAgentResponse {
   })
   return {
     agent_id: agentId,
+    reason,
+    overall_outcome: overall,
+    fleet_manager_status: 200,
+    planes,
     from_state: 'active',
     to_state: 'suspended',
     actor: DEMO_ACTOR,
     stunned_at: event.timestamp,
     event,
     // Kept in the same nested shape the live endpoint uses, so demo and live
-    // render through one path. Flattening it here would make demo mode the
-    // only place where a relayed claim is indistinguishable from a first-party
-    // one, which is the exact distinction the nesting exists to preserve.
+    // render through one path. Worded to match the planes above: the lease is
+    // revoked, the SVID is not yet fully dead.
     proxy: {
       state: 'stunned',
       stunned_at: event.timestamp,
-      message: `Agent ${agentId} stunned: credentials revoked, state marked as stunned`,
+      message: `Agent ${agentId} stunned: lease revoked, SVID revocation incomplete`,
     },
   }
 }
@@ -1390,7 +1473,7 @@ const ROUTES: Match[] = [
   // which replaced this branch's static fixtures. The stun route below exists only
   // on feat/supercred-stun-timeline; resolving this hunk to either side alone
   // would have silently dropped one of the two features.
-  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p) => stunFixture(p) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p, body) => stunFixture(p, body) },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/compliance\/[^/]+\/reassess$/), data: () => reassessment },

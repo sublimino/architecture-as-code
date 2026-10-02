@@ -19,6 +19,8 @@ spec:
       labels:
         app.kubernetes.io/name: fleet-manager
         app.kubernetes.io/component: supercred-demo
+        # Admits this pod to OpenBao :8200 through inf-bao/allow-bao-spire-and-portal.
+        bao.controlplane.io/consumer: fleet-manager
     spec:
       serviceAccountName: fleet-manager
       automountServiceAccountToken: true
@@ -55,6 +57,19 @@ spec:
             # scoped to. Used when a fleet-config entry omits its own namespace.
             - name: AGENT_NAMESPACE
               value: "fe-signalloom-agents"
+            # OpenBao credential plane. The token is NOT static: the openbao-agent
+            # sidecar below logs in as role fleet-manager with this pod's SPIFFE
+            # JWT-SVID and sinks a 5m token to BAO_TOKEN_FILE, which the client
+            # re-reads on every request. Without this the bao plane sent no token,
+            # got 403, and every stun reported bao Unavailable.
+            - name: BAO_ADDR
+              value: "http://openbao.inf-bao.svc.cluster.local:8200"
+            - name: BAO_TOKEN_FILE
+              value: /var/run/secrets/openbao/token
+            # Cross-plane consistency reconciler period (consistency.go). "0"
+            # disables it; GET /api/v1/fleet/consistency/{id} works regardless.
+            - name: CONSISTENCY_INTERVAL
+              value: "60s"
           startupProbe:
             httpGet:
               path: /health
@@ -84,7 +99,101 @@ spec:
             - name: fleet-config
               mountPath: /etc/fleet
               readOnly: true
+            - name: openbao-token
+              mountPath: /var/run/secrets/openbao
+              readOnly: true
+        # Fetches this pod's JWT-SVID (audience openbao) from the SPIRE agent and
+        # writes it atomically for the openbao-agent jwt method. The SVID TTL is
+        # minutes, so it is refreshed every 60s; write-then-rename means the
+        # agent never reads a half-written file.
+        - name: jwt-svid
+          image: signalloom-spire-helper:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                if /usr/local/bin/signalloom-spire-proof write --audience openbao \
+                     --socket /run/spire/sockets/agent.sock \
+                     --output /var/run/secrets/spiffe/jwt.tmp; then
+                  mv -f /var/run/secrets/spiffe/jwt.tmp /var/run/secrets/spiffe/jwt
+                else
+                  echo "jwt-svid: fetch failed; keeping previous SVID" >&2
+                fi
+                sleep 60
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: spire-sockets
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: spiffe-jwt
+              mountPath: /var/run/secrets/spiffe
+        # openbao-agent sidecar, per infra/agent-swarm/openbao-agent-sidecar.yaml,
+        # authenticating as OpenBao role fleet-manager (bound to
+        # spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager). It renews
+        # and re-authenticates the token and sinks it to the shared emptyDir.
+        - name: openbao-agent
+          image: openbao/openbao:2.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - agent
+            - -config=/etc/openbao/agent.hcl
+          env:
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: openbao-agent-config
+              mountPath: /etc/openbao
+              readOnly: true
+            - name: spiffe-jwt
+              mountPath: /var/run/secrets/spiffe
+              readOnly: true
+            - name: openbao-token
+              mountPath: /var/run/secrets/openbao
+            - name: openbao-agent-tmp
+              mountPath: /tmp
       volumes:
         - name: fleet-config
           configMap:
             name: fleet-config
+        - name: openbao-agent-config
+          configMap:
+            name: fleet-manager-openbao-config
+        - name: spire-sockets
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+        - name: spiffe-jwt
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: openbao-token
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: openbao-agent-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi

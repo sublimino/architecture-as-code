@@ -34,6 +34,7 @@ import type {
   ReassessmentResponse,
   RevokeCredentialResponse,
   RotateApiKeyResponse,
+  StunAgentRequest,
   StunAgentResponse,
   SupportRequestCreate,
   SupportRequestResponse,
@@ -491,21 +492,31 @@ export const api = {
     transition: (token: string, id: string, body: TransitionRequest) =>
       req<TransitionResponse>(`/agents/${id}/transition`, token, { method: 'POST', data: body }),
 
-    // Stun an agent. This endpoint PERFORMS the isolation (it calls the
-    // SuperCred proxy itself to relabel the pod and revoke the lease) and
+    // Stun an agent. This endpoint PERFORMS the isolation across every
+    // containment plane (freeze, bao, spire, mesh, admission, gitops) and
     // writes the state change and its audit event in the same transaction.
     //
-    // No body, by design. The browser used to POST the proxy directly and then
-    // POST here to record what it had done; a closed tab or an expired token
-    // between the two left the cluster mutated with nothing written down. One
-    // call closes that window, and with the server making the proxy call there
-    // is nothing left for the client to supply: actor from the token, target
-    // from the path, everything else from what the server observed.
+    // The browser used to POST the proxy directly and then POST here to record
+    // what it had done; a closed tab or an expired token between the two left
+    // the cluster mutated with nothing written down. One call closes that
+    // window. Actor comes from the token, target from the path, outcome and
+    // per-plane results from what the server observed.
+    //
+    // The one thing the client supplies is the operator's reason, which the
+    // server requires (422 without it). That is intent, stated before the
+    // action, in the same position as TransitionRequest.reason: it says why
+    // the operator asked, never what happened. The body is a typed value
+    // rather than an inline literal for the same reason `transition` passes
+    // `body`: the audit-boundary guard reads an inline `reason` as the old
+    // narration pattern, and this is the one endpoint whose contract makes it
+    // an input.
     //
     // In demo mode it resolves to a fixture that appends to the demo activity
     // log instead: same event, same timeline, no backend.
-    stun: (token: string, id: string) =>
-      req<StunAgentResponse>(`/agents/${id}/stun`, token, { method: 'POST' }),
+    stun: (token: string, id: string, reason: string) => {
+      const body: StunAgentRequest = { reason }
+      return req<StunAgentResponse>(`/agents/${id}/stun`, token, { method: 'POST', data: body })
+    },
 
     violations: (token: string, agentId: string) =>
       req<ViolationListResponse>(`/agents/${agentId}/violations`, token),

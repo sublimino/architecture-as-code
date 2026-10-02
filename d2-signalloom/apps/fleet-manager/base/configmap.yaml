@@ -81,3 +81,17 @@ data:
         gracePeriod: 0h
         dependencies: [agent-cardvault, agent-txn-pipeline, agent-llm-classifier, agent-api-gateway]
         namespace: fe-signalloom-agents
+      # Kusari pilot agent. The id must be agent-kusari-agent: fleet-manager
+      # strips the agent- prefix and selects pods on
+      # signalloom.ai/agent-name=kusari-agent, which is the live pod's label
+      # (the pod itself is named agent-kusari-<rs-hash>-<suffix>, so the
+      # by-name lookup misses and the selector fallback resolves it).
+      - id: agent-kusari-agent
+        name: Kusari Agent
+        type: supply-chain
+        team: kusari
+        trustProfile: low
+        riskClass: high
+        gracePeriod: 0h
+        dependencies: []
+        namespace: fe-signalloom-agents

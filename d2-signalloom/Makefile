@@ -239,35 +239,52 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 # narrower context fails on the first COPY. Broken since that unification; the
 # image had to be built by hand.
 #
-# THE TAG IS THE SOURCE COMMIT, never a hand-picked version. `v0.2.0` was
-# reused for about seven different builds and side-loaded each time, so the
-# tag said nothing about the code inside and a node replacement or image GC
-# left ImagePullBackOff with no way to rebuild "the same" image. The tag is
-# now the 12-hex commit that last changed the image's inputs (the two
-# directories the Dockerfile COPYs), and a build refuses uncommitted inputs,
-# so one tag can only ever name one source tree.
+# THE TAG IS THE SOURCE FINGERPRINT, never a hand-picked version. `v0.2.0`
+# was reused for about seven different builds and side-loaded each time, so
+# the tag said nothing about the code inside and a node replacement or image
+# GC left ImagePullBackOff with no way to rebuild "the same" image. The tag is
+# now `src-` + 12 hex of scripts/lib/source-id.sh's fingerprint: a
+# deterministic tar of exactly the paths the Dockerfile COPYs, the estate's
+# one definition of "which source tree is this image" (signal-ingest also
+# tags src-<content digest>, but over its `go list -deps` inputs and with 16
+# hex). It tracks content, so a rebase or merge that rewrites commit
+# hashes does not move it, and an edit to any COPYd file does. A build refuses
+# uncommitted or untracked inputs, so a published tag is reproducible from git.
 #
 # Two references, one tag:
 #   canonical  ghcr.io/...             the base daemonset.yaml, for a remote cluster
 #   zot        zot.registry.svc...     the kind overlays; the in-cluster registry every
 #                                      other estate image is published to
 # test/sentinel-image-provenance.bats renders both overlays and fails when
-# the deployed tag is mutable or is not the current source commit.
+# the deployed tag is mutable or is not the current source fingerprint.
 SENTINEL_IMAGE_INPUTS := apps/stun-sentinel apps/signalloom-stun-sentinel
+SENTINEL_DOCKERFILE := signalloom-stun-sentinel/Dockerfile
 SENTINEL_IMAGE_CANONICAL ?= ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
 SENTINEL_IMAGE_ZOT ?= zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel
 # The host-side address of the same zot repository (scripts/push-local-image.sh
 # port-forwards svc/zot to localhost:5001).
 SENTINEL_IMAGE_PUSH ?= localhost:5001/acme/images/signalloom/apps/stun-sentinel
 SENTINEL_DAEMONSET := infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml
+# test/p6-teardown-preflight.bats checks every workload pins its catalogued
+# image, so the pin rewrites the stun-sentinel row too (and only that row).
+SENTINEL_CATALOG := ../test/fixtures/cold-start-manifests.tsv
 CLUSTER_NAME ?= osramp
 
-.PHONY: sentinel-image-source-commit sentinel-image-tag sentinel-image-pin sentinel-image-publish
+.PHONY: sentinel-image-source-id sentinel-image-tag sentinel-image-pin sentinel-image-publish
 
-# rev-list, not log: plumbing ignores log.showSignature and friends, so the
-# output is exactly one hash whatever the user's git config.
-sentinel-image-source-commit: ## Print the commit that last changed the sentinel image's inputs (no cleanliness check).
-	@c=$$(git rev-list -1 HEAD -- $(SENTINEL_IMAGE_INPUTS)) && [ -n "$$c" ] && printf '%s\n' "$${c:0:12}"
+# The build context is apps/, so source-id.sh's COPY paths are relative to it.
+# Its workload table assumes a context-relative Dockerfile only for context
+# "."; the two primitives below are the shared hashing, called with this
+# image's own context. A COPY of a missing path is refused, never hashed away.
+sentinel-image-source-id: ## Print the sentinel image tag, src-<12 hex> of the files the Dockerfile COPYs (no cleanliness check).
+	@source ../scripts/lib/source-id.sh || exit 2; \
+	mapfile -t paths < <(source_id_copied_paths apps/$(SENTINEL_DOCKERFILE) $(SENTINEL_DOCKERFILE)); \
+	[ "$${#paths[@]}" -gt 0 ] || { echo "sentinel-image-source-id: no COPY sources in apps/$(SENTINEL_DOCKERFILE)" >&2; exit 2; }; \
+	for p in "$${paths[@]}"; do \
+		[ -e "apps/$$p" ] || { echo "sentinel-image-source-id: the Dockerfile COPYs $$p, which does not exist" >&2; exit 2; }; \
+	done; \
+	id=$$(source_id_hash_paths apps "$${paths[@]}") && [ -n "$$id" ] || { echo "sentinel-image-source-id: empty fingerprint" >&2; exit 2; }; \
+	printf 'src-%s\n' "$${id:0:12}"
 
 sentinel-image-tag: ## Print the immutable sentinel image tag; refuses when the image's inputs have uncommitted changes.
 	@dirty=$$(git status --porcelain --untracked-files=all -- $(SENTINEL_IMAGE_INPUTS)); \
@@ -275,22 +292,25 @@ sentinel-image-tag: ## Print the immutable sentinel image tag; refuses when the 
 		echo "sentinel-image-tag: refusing a -dirty build; uncommitted changes in the image inputs:" >&2; \
 		printf '%s\n' "$$dirty" >&2; exit 1; \
 	fi; \
-	$(MAKE) -s --no-print-directory sentinel-image-source-commit
+	$(MAKE) -s --no-print-directory sentinel-image-source-id
 
-swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image, tagged with its source commit.
+swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image, tagged with its source fingerprint.
 	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
 	echo "building $(SENTINEL_IMAGE_ZOT):$$tag"; \
 	docker build -t $(SENTINEL_IMAGE_ZOT):$$tag \
 		-t $(SENTINEL_IMAGE_CANONICAL):$$tag \
 		-f apps/signalloom-stun-sentinel/Dockerfile apps/
 
-sentinel-image-pin: ## Point the base DaemonSet (and so both overlays) at the current source-commit tag.
+sentinel-image-pin: ## Point the base DaemonSet (and so both overlays) at the current source-fingerprint tag.
 	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
 	perl -pi -e 's#^(\s*image: \Q$(SENTINEL_IMAGE_CANONICAL)\E:)\S+#$${1}'"$$tag"'#' $(SENTINEL_DAEMONSET); \
 	grep -q "image: $(SENTINEL_IMAGE_CANONICAL):$$tag" $(SENTINEL_DAEMONSET) || { echo "sentinel-image-pin: $(SENTINEL_DAEMONSET) was not updated" >&2; exit 1; }; \
-	echo "pinned $(SENTINEL_DAEMONSET) to :$$tag"
+	perl -pi -e 's#^(stun-sentinel\t(?:[^\t]*\t){2})\Q$(SENTINEL_IMAGE_CANONICAL)\E:[^\t]+#$${1}$(SENTINEL_IMAGE_CANONICAL):'"$$tag"'#' $(SENTINEL_CATALOG); \
+	awk -F'\t' -v want="$(SENTINEL_IMAGE_CANONICAL):$$tag" '$$1 == "stun-sentinel" { found = 1; if ($$4 != want) exit 1 } END { exit !found }' $(SENTINEL_CATALOG) \
+		|| { echo "sentinel-image-pin: the stun-sentinel row of $(SENTINEL_CATALOG) was not updated" >&2; exit 1; }; \
+	echo "pinned $(SENTINEL_DAEMONSET) and the $(SENTINEL_CATALOG) stun-sentinel row to :$$tag"
 
-sentinel-image-publish: swarm-stun-sentinel-image ## Load the source-commit image onto kind CLUSTER_NAME and publish it to zot (cluster required).
+sentinel-image-publish: swarm-stun-sentinel-image ## Load the source-fingerprint image onto kind CLUSTER_NAME and publish it to zot (cluster required).
 	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
 	CLUSTER_NAME=$(CLUSTER_NAME) ../scripts/kind-load-verified.sh $(SENTINEL_IMAGE_ZOT):$$tag && \
 	../scripts/push-local-image.sh $(SENTINEL_IMAGE_ZOT):$$tag $(SENTINEL_IMAGE_PUSH):$$tag

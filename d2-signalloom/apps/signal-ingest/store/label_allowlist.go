@@ -8,6 +8,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 )
 
@@ -102,6 +103,55 @@ var defaultLabelAllowList = map[string]struct{}{
 	"attestation":      {},
 	"signature_algo":   {},
 	"schema":           {},
+
+	// stun-sentinel kernel observations (review M4). These are the correlator's wire keys
+	// (apps/stun-sentinel/pkg/correlator/ingest.go toIngest); `namespace` and `severity` were
+	// already above. Without them a frostdb-tagged signal-ingest refused every sentinel POST.
+	// The correlator no longer forwards pod labels, so this is the whole of its key space.
+	//
+	// syscall, direct_reaction: event classification from closed vocabularies
+	// (sys_enter_openat, cgroup_frozen). No person.
+	"syscall":         {},
+	"direct_reaction": {},
+	// pod_name, tenant_id: workload topology, the same class as `pod` and the tenancy every
+	// segment is already scoped by. A pod name is chosen by a deployer, not a natural person.
+	"pod_name":  {},
+	"tenant_id": {},
+	// cgroup_path: the kubelet slice of the attributed pod (kubepods-…-pod<uid>.slice). It
+	// carries a pod UID, which is topology. The sentinel attributes events to pods only.
+	"cgroup_path": {},
+	// target: the file the workload opened. ADMITTED WITH A VALUE CONTROL, unlike every other
+	// key: a path is named by whoever owns the file system, and one under a home directory names
+	// an account (/home/alice/.ssh/id_rsa). The user component is replaced in Append by
+	// labelValueRedactors below before any Arrow record is built, so a username never reaches a
+	// signed segment. Refusing the key would have cost the one fact the containment evidence
+	// needs (which sensitive file was opened); pseudonymising the whole path would have made
+	// /etc/passwd and /etc/shadow unreadable to an operator for no privacy gain.
+	"target": {},
+}
+
+// labelValueRedactors are applied to a label VALUE at the Append chokepoint, for the keys whose
+// values can name a person. Keys absent here keep their values verbatim (see the limit stated on
+// defaultLabelAllowList). An entry here without a matching allow-list key is dead.
+var labelValueRedactors = map[string]func(string) string{
+	"target": redactHomeDirectoryUser,
+}
+
+// homeDirectoryUser matches the account component of a home directory anywhere in a path, so a
+// host-mounted prefix (/host/home/…, /var/home/…) is covered too. `/homework` is not a home root.
+var homeDirectoryUser = regexp.MustCompile(`(^|/)(home|Users)/[^/]+`)
+
+// redactHomeDirectoryUser replaces the account name in every home-directory component of p.
+func redactHomeDirectoryUser(p string) string {
+	return homeDirectoryUser.ReplaceAllString(p, "${1}${2}/[REDACTED_USER]")
+}
+
+// redactLabelValue returns the value a segment may hold for key.
+func redactLabelValue(key, value string) string {
+	if redact, ok := labelValueRedactors[key]; ok {
+		return redact(value)
+	}
+	return value
 }
 
 // DefaultLabelAllowList returns a copy of the built-in allow-list.

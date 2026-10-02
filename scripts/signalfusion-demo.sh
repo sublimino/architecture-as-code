@@ -22,6 +22,9 @@ NAMESPACE_INFRA="${NAMESPACE_INFRA:-inf-signalloom}"
 SIGNAL_INGEST_SVC="${SIGNAL_INGEST_SVC:-signal-ingest}"
 SIGNAL_INGEST_PORT="${SIGNAL_INGEST_PORT:-8082}"
 SIGNAL_INGEST_LOCAL_PORT="${SIGNAL_INGEST_LOCAL_PORT:-18082}"
+# This demo's own named static key (scripts/sldc-ingest-bearer.sh --key signalfusion-demo).
+INGEST_KEY_NAMESPACE="${INGEST_KEY_NAMESPACE:-fe-signalloom}"
+INGEST_KEY_SECRET="${INGEST_KEY_SECRET:-signal-ingest-key-signalfusion-demo}"
 
 # ─── Narration ────────────────────────────────────────────────────────────────
 # Same timestamp design as supercred-demo.sh: UTC with Z, seconds not ms,
@@ -66,7 +69,9 @@ start_port_forward() {
   kubectl -n "$NAMESPACE_INFRA" port-forward "svc/${SIGNAL_INGEST_SVC}" \
     "${SIGNAL_INGEST_LOCAL_PORT}:${SIGNAL_INGEST_PORT}" >/dev/null 2>&1 &
   PF_PID=$!
-  wait_reachable "http://localhost:${SIGNAL_INGEST_LOCAL_PORT}/healthz" 30 \
+  # A TCP check, not /healthz: every signal-ingest route is authenticated, and
+  # a liveness probe does not need the key.
+  wait_tcp localhost "${SIGNAL_INGEST_LOCAL_PORT}" 30 \
     || fail "signal-ingest port-forward not reachable"
 }
 
@@ -77,7 +82,36 @@ stop_port_forward() {
   fi
 }
 
-trap 'stop_port_forward' EXIT
+# ─── signal-ingest key ────────────────────────────────────────────────────────
+# signal-ingest authenticates every route. The demo presents its own named
+# static key, read from SIGNAL_INGEST_KEY_FILE (the in-cluster runner mounts
+# its Secret there) or, on an operator's machine, from the issuer Secret. The
+# key reaches curl only as a header FILE (-H @file), so it is never in argv
+# (/proc/<pid>/cmdline) and never printed; the file is removed on exit.
+INGEST_HEADER_FILE=""
+
+load_ingest_key() {
+  local key=""
+  if [ -n "${SIGNAL_INGEST_KEY_FILE:-}" ]; then
+    [ -r "$SIGNAL_INGEST_KEY_FILE" ] \
+      || fail "SIGNAL_INGEST_KEY_FILE ${SIGNAL_INGEST_KEY_FILE} is not readable"
+    key=$(cat "$SIGNAL_INGEST_KEY_FILE")
+  else
+    key=$(kubectl -n "$INGEST_KEY_NAMESPACE" get secret "$INGEST_KEY_SECRET" \
+      -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d 2>/dev/null) || key=""
+  fi
+  [ -n "$key" ] || fail "no signal-ingest key: set SIGNAL_INGEST_KEY_FILE, or mint ${INGEST_KEY_NAMESPACE}/${INGEST_KEY_SECRET} with scripts/sldc-ingest-bearer.sh --key signalfusion-demo"
+  INGEST_HEADER_FILE=$(mktemp "${TMPDIR:-/tmp}/sfdemo-auth.XXXXXX")
+  chmod 600 "$INGEST_HEADER_FILE"
+  printf 'Authorization: Bearer %s\n' "$key" >"$INGEST_HEADER_FILE"
+}
+
+cleanup() {
+  stop_port_forward
+  [ -z "$INGEST_HEADER_FILE" ] || rm -f "$INGEST_HEADER_FILE"
+}
+
+trap 'cleanup' EXIT
 
 # ─── API helpers ──────────────────────────────────────────────────────────────
 
@@ -89,13 +123,14 @@ INGEST_URL="${SIGNAL_INGEST_URL:-http://localhost:${SIGNAL_INGEST_LOCAL_PORT}}"
 api_post() {
   local path="$1"; shift
   curl -sS --fail -X POST "${INGEST_URL}${path}" \
+    -H @"$INGEST_HEADER_FILE" \
     -H 'Content-Type: application/json' \
     "$@"
 }
 
 api_get() {
   local path="$1"; shift
-  curl -sS --fail "${INGEST_URL}${path}" "$@"
+  curl -sS --fail -H @"$INGEST_HEADER_FILE" "${INGEST_URL}${path}" "$@"
 }
 
 # ─── Preflight checks ────────────────────────────────────────────────────────
@@ -119,7 +154,9 @@ preflight_signal_ingest() {
   # none in this namespace, so the API-server form would fail preflight on a
   # signal-ingest that is up and answering.
   if [ -n "${SIGNAL_INGEST_URL:-}" ]; then
-    wait_reachable "${INGEST_URL}/healthz" 60 \
+    # Authenticated: every signal-ingest route, /healthz included, needs the key.
+    _wait_retry 60 "reachable ${INGEST_URL}/healthz" \
+      "curl -fsS --max-time ${WAIT_ATTEMPT_TIMEOUT:-10} -o /dev/null -H @'${INGEST_HEADER_FILE}' '${INGEST_URL}/healthz'" \
       || fail "signal-ingest not reachable at ${INGEST_URL} — ensure the signal-ingest service is running"
     ok "signal-ingest reachable at ${INGEST_URL}"
     return 0
@@ -596,6 +633,10 @@ run_all() {
   demo_3
   ok "full Signal Fusion demo complete"
 }
+
+case "${1:-}" in
+  1|2|3|all) load_ingest_key ;;
+esac
 
 case "${1:-}" in
   1) demo_1 ;;

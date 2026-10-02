@@ -4,12 +4,15 @@
 package correlator
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -144,6 +147,22 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	}
 	if got["syscall"] != SyscallNameOpenat || got["tenant_id"] != "kusari" {
 		t.Fatalf("a pod label overrode a sentinel key: %v", got)
+	}
+}
+
+// signal-ingest redacts labels.target at Append, but the stored id was
+// "<ns>/<pod>:<ts>:<syscall>:<target>", so a home-directory username reached
+// the store through the id. The id now carries a digest of the target.
+func TestObservationIDCarriesATargetDigestNotThePath(t *testing.T) {
+	o := sampleObservation()
+	o.Target = "/home/alice/.ssh/id_rsa"
+	id := o.toIngest().ID
+	if strings.Contains(id, "alice") || strings.Contains(id, o.Target) || strings.Contains(id, "/home/") {
+		t.Fatalf("observation id carries the raw target path: %q", id)
+	}
+	sum := sha256.Sum256([]byte(o.Target))
+	if want := hex.EncodeToString(sum[:])[:16]; !strings.HasSuffix(id, ":"+want) {
+		t.Fatalf("id %q does not end in the target digest %q", id, want)
 	}
 }
 

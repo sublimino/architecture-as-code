@@ -349,7 +349,7 @@ func main() {
 
 		freezeMgr := newCorrelatorFreezeManager(freezer)
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr, correlator.WithCgroupRoot(cfg.CgroupRoot))
-		go reportCorrelatorStats(ctx, probeMgr.Stats, 30*time.Second)
+		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})
 		}
@@ -362,21 +362,32 @@ func main() {
 // change. The correlator itself has no logger, and on a live node a provoked
 // sensitive read once produced no observation with nothing to say which stage
 // dropped it. One line per interval, only on change, keeps it quiet at rest.
-func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, every time.Duration) {
+//
+// ringbuf_drops is the kernel's own count of events it could not reserve ring
+// space for. Without it a provoked event lost in the kernel left every
+// user-space counter unchanged (review M6).
+func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, drops func() (uint64, error), every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	var last correlator.Stats
+	var lastDrops uint64
+	first := true
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			s := stats()
-			if s == last {
+			d, err := drops()
+			if !first && s == last && d == lastDrops && err == nil {
 				continue
 			}
-			last = s
-			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stats", Details: map[string]interface{}{"stats": s}})
+			first, last, lastDrops = false, s, d
+			details := map[string]interface{}{"stats": s, "ringbuf_drops": d}
+			if err != nil {
+				details["ringbuf_drops_error"] = err.Error()
+			}
+			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stats", Details: details})
 		}
 	}
 }

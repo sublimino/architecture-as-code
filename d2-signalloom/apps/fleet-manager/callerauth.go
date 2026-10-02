@@ -67,6 +67,8 @@ type callerKey struct {
 
 type callerKeys struct {
 	keys []callerKey
+	// disabled names callers that have scopes but no key in this process.
+	disabled []string
 }
 
 // loadCallerKeys reads every FLEET_MANAGER_KEY_<NAME> from environ. Any defect
@@ -114,13 +116,17 @@ func loadCallerKeys(environ []string) (*callerKeys, error) {
 		seen[digest] = name
 		ck.keys = append(ck.keys, callerKey{name: name, digest: digest, scopes: scopes})
 	}
+	// Scopes are plain manifest values and keys are optional Secret refs, so a
+	// caller whose Secret key is absent is disabled, not a reason to refuse
+	// every other caller. It is named so the gap is visible.
 	for k := range env {
 		if base, ok := strings.CutSuffix(k, "_SCOPES"); ok {
 			if _, has := env[base]; !has {
-				return nil, fmt.Errorf("%s is set but %s is not", k, base)
+				ck.disabled = append(ck.disabled, strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(base, callerKeyEnvPrefix), "_", "-")))
 			}
 		}
 	}
+	sort.Strings(ck.disabled)
 	return ck, nil
 }
 

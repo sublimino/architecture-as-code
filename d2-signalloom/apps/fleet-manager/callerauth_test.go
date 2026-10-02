@@ -179,17 +179,34 @@ func TestADuplicateSentinelStunIsIdempotent(t *testing.T) {
 
 func TestCallerKeyConfigurationDefectsAreRefused(t *testing.T) {
 	for name, env := range map[string][]string{
-		"no scopes":          {"FLEET_MANAGER_KEY_A=" + sentinelKey},
-		"empty scopes":       {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES= "},
-		"unknown scope":      {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES=stun,admin"},
-		"short key":          {"FLEET_MANAGER_KEY_A=short", "FLEET_MANAGER_KEY_A_SCOPES=stun"},
-		"shared key":         {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES=stun", "FLEET_MANAGER_KEY_B=" + sentinelKey, "FLEET_MANAGER_KEY_B_SCOPES=recover"},
-		"scopes without key": {"FLEET_MANAGER_KEY_A_SCOPES=stun"},
+		"no scopes":     {"FLEET_MANAGER_KEY_A=" + sentinelKey},
+		"empty scopes":  {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES= "},
+		"unknown scope": {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES=stun,admin"},
+		"short key":     {"FLEET_MANAGER_KEY_A=short", "FLEET_MANAGER_KEY_A_SCOPES=stun"},
+		"shared key":    {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES=stun", "FLEET_MANAGER_KEY_B=" + sentinelKey, "FLEET_MANAGER_KEY_B_SCOPES=recover"},
 	} {
 		if _, err := loadCallerKeys(env); err == nil {
 			t.Errorf("%s: accepted; want a configuration error", name)
 		} else if strings.Contains(err.Error(), sentinelKey) {
 			t.Errorf("%s: the error leaks the key: %v", name, err)
 		}
+	}
+}
+
+func TestACallerWithoutItsSecretIsDisabledNotEveryCaller(t *testing.T) {
+	keys, err := loadCallerKeys([]string{
+		"FLEET_MANAGER_KEY_STUN_SENTINEL=" + sentinelKey, "FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES=stun",
+		"FLEET_MANAGER_KEY_OPERATOR_SCOPES=recover", // its optional Secret is absent
+	})
+	if err != nil {
+		t.Fatalf("one absent Secret refused every caller: %v", err)
+	}
+	if len(keys.keys) != 1 || keys.keys[0].name != "stun-sentinel" || len(keys.disabled) != 1 || keys.disabled[0] != "operator" {
+		t.Fatalf("keys %+v disabled %v; want stun-sentinel live and operator disabled", keys.keys, keys.disabled)
+	}
+	s := newTestServer(t)
+	s.callerKeys = keys
+	if w := call(t, s.routes(), http.MethodPost, "/api/v1/fleet/recover", "{}", "Bearer "); w.Code != http.StatusUnauthorized {
+		t.Fatalf("a disabled caller's route answered %d without a key; want 401", w.Code)
 	}
 }

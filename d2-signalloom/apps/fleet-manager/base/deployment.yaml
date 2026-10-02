@@ -70,6 +70,40 @@ spec:
             # disables it; GET /api/v1/fleet/consistency/{id} works regardless.
             - name: CONSISTENCY_INTERVAL
               value: "60s"
+            # Caller keys (callerauth.go). Every mutating route needs
+            # "Authorization: Bearer <key>" for a caller granted that route's
+            # scope; there is no anonymous mode. Keys live in Secret
+            # fleet-manager-caller-keys, created at bootstrap by
+            # scripts/fleet-manager-caller-keys.sh: never committed, never in
+            # argv, never in a ConfigMap. Each key ref is OPTIONAL so a missing
+            # one disables that caller (logged) instead of stopping the pod and
+            # with it break-glass; the scopes below are the least each needs.
+            - name: FLEET_MANAGER_KEY_STUN_SENTINEL
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: stun-sentinel
+                  optional: true
+            - name: FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES
+              value: "stun"
+            - name: FLEET_MANAGER_KEY_FE_SIGNALLOOM
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: fe-signalloom
+                  optional: true
+            - name: FLEET_MANAGER_KEY_FE_SIGNALLOOM_SCOPES
+              value: "stun"
+            # The operator break-glass key: the only caller that may /recover
+            # (which thaws every stunned agent) or /reset.
+            - name: FLEET_MANAGER_KEY_OPERATOR
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: operator
+                  optional: true
+            - name: FLEET_MANAGER_KEY_OPERATOR_SCOPES
+              value: "stun,resume,recover,deploy,scan,reset"
           startupProbe:
             httpGet:
               path: /health

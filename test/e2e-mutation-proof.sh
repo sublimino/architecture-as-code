@@ -191,9 +191,13 @@ case "${ARGS}" in
       # tenant. A lexical sort orders ".123Z" before ".1Z", so only a
       # genuinely chronological "first detection" passes the baseline
       # (independent review L1, 2026-10-02).
+      # The id, raw_evidence_ref and description carry the target's 16-hex
+      # SHA-256 digest, never the path (correlator ingest.go targetDigest):
+      # signal-ingest redacts labels.target only, so the path rides there alone.
       obs() { # ts tenant target
-          printf '{"id":"stun-sentinel:%s","timestamp":"%s","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat%s","labels":{"syscall":"sys_enter_openat","target":"%s","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","severity":"CRITICAL","direct_reaction":"cgroup_frozen","cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"description":"sys_enter_openat %s"}' \
-              "$1" "$1" "$3" "$3" "$2" "${POD}" "${UID_//-/_}" "$3"
+          local d; d="$(printf '%s' "$3" | sha256sum | cut -c1-16)"
+          printf '{"id":"stun-sentinel:fe-signalloom-agents/%s:%s:sys_enter_openat:%s","timestamp":"%s","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat/%s","labels":{"syscall":"sys_enter_openat","target":"%s","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","severity":"CRITICAL","direct_reaction":"cgroup_frozen","cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"description":"sys_enter_openat target %s by fe-signalloom-agents/%s"}' \
+              "${POD}" "$1" "${d}" "$1" "${d}" "$3" "$2" "${POD}" "${UID_//-/_}" "${d}" "${POD}"
       }
       # The real store answers an UNBOUNDED query with its oldest rows, so a
       # suite that forgets ?after= only ever sees yesterday's feed.

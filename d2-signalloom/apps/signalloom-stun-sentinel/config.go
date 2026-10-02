@@ -14,6 +14,13 @@ type Config struct {
 	WatchNamespace string `json:"watch_namespace"`
 	FreezeToken    string `json:"freeze_token,omitempty"`
 	ResumeToken    string `json:"resume_token,omitempty"`
+	// TenantMap is the operator's workload->tenant attribution
+	// (correlator.ParseTenantMap syntax). Never derived from pod labels.
+	TenantMap string `json:"tenant_map,omitempty"`
+	// IngestToken is the signal-ingest bearer. Environment only
+	// (SIGNAL_INGEST_TOKEN, from a Secret): a flag would put it in argv,
+	// readable from /proc/<pid>/cmdline. Never serialised.
+	IngestToken string `json:"-"`
 }
 
 // parseConfig parses command-line flags and environment variables with the following precedence:
@@ -29,6 +36,7 @@ func parseConfig(args []string) *Config {
 	watchNamespaceFlag := fs.String("watch-namespace", "", "Kubernetes namespace to watch for agent pods")
 	freezeTokenFlag := fs.String("freeze-token", "", "Governance freeze token")
 	resumeTokenFlag := fs.String("resume-token", "", "Governance resume token")
+	tenantMapFlag := fs.String("tenant-map", "", "Workload tenant attribution: comma-separated namespace[/serviceAccount]=tenant")
 
 	_ = fs.Parse(args)
 
@@ -78,6 +86,14 @@ func parseConfig(args []string) *Config {
 	} else {
 		cfg.ResumeToken = os.Getenv("STUN_RESUME_TOKEN")
 	}
+
+	if *tenantMapFlag != "" {
+		cfg.TenantMap = *tenantMapFlag
+	} else {
+		cfg.TenantMap = os.Getenv("SENTINEL_TENANT_MAP")
+	}
+
+	cfg.IngestToken = strings.TrimSpace(os.Getenv("SIGNAL_INGEST_TOKEN"))
 
 	return cfg
 }

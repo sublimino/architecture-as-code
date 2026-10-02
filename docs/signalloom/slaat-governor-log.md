@@ -338,3 +338,27 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
 - **Diagnostic State**: `kanban-check.sh doctor` reports `doc=clean`, zero exceptions.
 - **Review Ledger**: Synchronized across principal repository and integration branch at `840870a2`.
 
+---
+
+## 16. Milestone Completion: SLAAT-P2-PRE (985de) [DONE] & Ready SLAAT-P2-1 (5e3be)
+
+- **Timestamp**: 2026-10-02T06:12:00Z
+- **Completed Card**: `SLAAT-P2-PRE` (`985de`) [DONE]
+  - Task: Phase 2 Pre-Flight Check & Remediation Triage.
+  - Deliverables: 8 files (+933 lines) committed at `4f9916e1` and merged into `refs/heads/integration/slaat-whole-system-adversarial`:
+    - `ci-evidence/slaat-p2-pre-repro-network-isolation.json` (32 records, 10 fails matching Phase 1 findings)
+    - `ci-evidence/slaat-p2-pre-repro-openbao-acls.json` (11 records, confirms policy boundaries)
+    - `ci-evidence/slaat-p2-pre-repro-spiffe.json` (reproduces SPIFFE-F1 32-day JWT TTL)
+    - `ci-evidence/slaat-p2-pre-repro-sentinel-evasion.json` (reproduces SENTINEL-F1 syscall blindness)
+    - `docs/slaat/p2-pre/preflight-env.json` (toolchain versions: bats 1.13.0, go 1.26.2, pytest 9.1.1, uv 0.5.10, kubectl v1.36.0, bun 1.4.0)
+    - `docs/slaat/p2-pre/remediation-dependency-map.md` (complete 24-finding remediation mapping across P2-1 through P2-4)
+    - `docs/slaat/p2-pre/toolchain-checklist.md` (build and test execution baseline)
+  - Integration Merge: Commit `dc6c94f7` incorporates all sanitized deliverables into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=7`: P1-PRE, P1-1, P1-2, P1-3, P1-4, P1-GOV, P2-PRE).
+- **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
+- **Next Ready Card**: `SLAAT-P2-1` (`5e3be`) [READY]
+  - Task: Ingress Route Protection & Network Microsegmentation Fixes.
+  - Purpose: Harden Envoy Gateway routing, seal unauthenticated bypass paths, and tighten NetworkPolicy rules.
+
+

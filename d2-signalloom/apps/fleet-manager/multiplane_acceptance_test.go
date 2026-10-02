@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,9 +69,11 @@ import (
 // the matching is too broad and every coverage result below is worthless.
 const acceptanceCoverageProbe EnforcementPlane = "__acceptance-coverage-probe__"
 
-// acceptanceRuntimeLedger is where each run appends its own wall-clock cost, so
-// a gradual creep across many small additions is visible before the suite
-// becomes impractical to run on every CI change.
+// acceptanceRuntimeLedger is the committed timing history: a run appends its
+// wall-clock cost here only with SLER_WRITE_EVIDENCE=1, so a gradual creep
+// across many small additions can be recorded deliberately. An ordinary run
+// writes to a per-test temporary ledger instead, because a test must never
+// mutate a tracked file (every gate run used to leave this one dirty).
 const acceptanceRuntimeLedger = "docs/signalloom/evidence/sler-p6-3-acceptance-runtime.jsonl"
 
 // acceptanceRuntimeCeilingMs is the practical-for-CI budget for the whole
@@ -1184,21 +1187,26 @@ func normaliseScenarioName(s string) string {
 // Runtime ledger — so creep is visible before it becomes impractical
 // ─────────────────────────────────────────────────────────────────────────────
 
-// recordAcceptanceRuntime appends one scenario timing to the ledger.
+// recordAcceptanceRuntime appends one scenario timing to the ledger and returns
+// the ledger path it wrote: the committed one under SLER_WRITE_EVIDENCE=1,
+// otherwise a file in this test's temporary directory.
 //
 // A write failure is a WARNING, never a test failure: the ledger is
 // observability, and a read-only CI filesystem must not turn an otherwise
 // passing acceptance run red. The ceiling assertion below does not depend on the
 // ledger being writable.
-func recordAcceptanceRuntime(t *testing.T, scenarioID string, elapsed time.Duration) {
+func recordAcceptanceRuntime(t *testing.T, scenarioID string, elapsed time.Duration) string {
 	t.Helper()
 	t.Logf("scenario %s took %v", scenarioID, elapsed)
 
-	path := filepath.Join(findRepoRoot(t), acceptanceRuntimeLedger)
+	path := filepath.Join(t.TempDir(), filepath.Base(acceptanceRuntimeLedger))
+	if os.Getenv("SLER_WRITE_EVIDENCE") == "1" {
+		path = filepath.Join(findRepoRoot(t), acceptanceRuntimeLedger)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Logf("WARN: acceptance runtime ledger directory %s is not writable (%v); "+
 			"timing history will not be recorded for this run", filepath.Dir(path), err)
-		return
+		return path
 	}
 
 	line, err := json.Marshal(map[string]any{
@@ -1210,19 +1218,20 @@ func recordAcceptanceRuntime(t *testing.T, scenarioID string, elapsed time.Durat
 	})
 	if err != nil {
 		t.Logf("WARN: could not encode runtime ledger entry: %v", err)
-		return
+		return path
 	}
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Logf("WARN: acceptance runtime ledger %s is not writable (%v); "+
 			"timing history will not be recorded for this run", path, err)
-		return
+		return path
 	}
 	defer f.Close()
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		t.Logf("WARN: writing to the runtime ledger failed: %v", err)
 	}
+	return path
 }
 
 // TestAcceptance_RuntimeIsPracticalForCI measures the whole acceptance corpus in
@@ -1257,11 +1266,32 @@ func TestAcceptance_RuntimeIsPracticalForCI(t *testing.T) {
 	}
 }
 
+// TestAcceptance_RuntimeLedgerLeavesTheCommittedEvidenceAlone pins that an
+// ordinary `go test` run never writes the tracked evidence file: every gate run
+// used to append to it and leave the tree dirty.
+func TestAcceptance_RuntimeLedgerLeavesTheCommittedEvidenceAlone(t *testing.T) {
+	t.Setenv("SLER_WRITE_EVIDENCE", "")
+	committed := filepath.Join(findRepoRoot(t), acceptanceRuntimeLedger)
+	before, err := os.ReadFile(committed)
+	if err != nil {
+		t.Fatalf("reading the committed ledger %s: %v", committed, err)
+	}
+
+	recordAcceptanceRuntime(t, "acc-committed-untouched", 1*time.Millisecond)
+
+	after, err := os.ReadFile(committed)
+	if err != nil {
+		t.Fatalf("reading the committed ledger %s: %v", committed, err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("recordAcceptanceRuntime appended to the tracked %s without SLER_WRITE_EVIDENCE=1", acceptanceRuntimeLedger)
+	}
+}
+
 // TestAcceptance_RuntimeLedgerIsWritten proves the ledger mechanism is real and
 // not a no-op that the WARN path silently swallows on every run.
 func TestAcceptance_RuntimeLedgerIsWritten(t *testing.T) {
-	path := filepath.Join(findRepoRoot(t), acceptanceRuntimeLedger)
-	recordAcceptanceRuntime(t, "acc-ledger-selftest", 1*time.Millisecond)
+	path := recordAcceptanceRuntime(t, "acc-ledger-selftest", 1*time.Millisecond)
 
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -420,7 +420,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 #### Errata — SLAAT-P2-PRE (preflight)
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-10-02 06:04:25+01:00
-**Last Updated:** 2026-10-02 06:13:00+01:00
+**Last Updated:** 2026-10-02 06:06:31+01:00
 **Status:** pass
 **Commit:** `4f9916e19ac8f5266d9129095d10244d582e0fe7`
 

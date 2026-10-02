@@ -19,10 +19,6 @@ const deployedAuthConfigPath = "../deploy/jwt-auth-config.yaml"
 
 const deployedAuthConfigMapName = "signal-ingest-jwt-auth"
 
-// expiryAnnotation makes the credential's deadline visible in the cluster, so
-// `kubectl get cm -o yaml` answers "when does this go away" without reading Go.
-const expiryAnnotation = "signalloom.ai/expires"
-
 type deployedConfigMap struct {
 	Metadata struct {
 		Name        string            `yaml:"name"`
@@ -92,20 +88,6 @@ func loadShippedStaticKeys(t *testing.T) []StaticBearerConfig {
 	return keys
 }
 
-// TestStaticKeysShippedExpiryMatchesSunset stops the code constant and the deployed manifest from
-// drifting apart: a key whose YAML says one date and whose gate says another has no real deadline.
-func TestStaticKeysShippedExpiryMatchesSunset(t *testing.T) {
-	sunset, _ := time.Parse(time.DateOnly, StaticBearerSunset)
-	for _, k := range loadShippedStaticKeys(t) {
-		if !k.ExpiresAt.Equal(sunset) {
-			t.Errorf("key %s expires %s, want StaticBearerSunset %s", k.Name, k.ExpiresAt.Format(time.DateOnly), StaticBearerSunset)
-		}
-	}
-	if got := loadDeployedAuthConfigMap(t).Metadata.Annotations[expiryAnnotation]; got != StaticBearerSunset {
-		t.Errorf("%s annotation = %q, want StaticBearerSunset %q", expiryAnnotation, got, StaticBearerSunset)
-	}
-}
-
 // TestStaticBearerTokenIsNotInTheShippedManifest: key values are credentials, so they live in
 // per-key Secrets (minted by scripts/sldc-ingest-bearer.sh), never in a ConfigMap and never in git.
 func TestStaticBearerTokenIsNotInTheShippedManifest(t *testing.T) {
@@ -170,7 +152,7 @@ func TestStaticBearerDeployedConfigIsMarkedTemporary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"TEMPORARY", StaticBearerSunset, "JWT-SVID"} {
+	for _, want := range []string{"TEMPORARY", "90 days", "JWT-SVID"} {
 		if !bytes.Contains(raw, []byte(want)) {
 			t.Errorf("%s does not mention %q", deployedAuthConfigPath, want)
 		}

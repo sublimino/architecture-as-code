@@ -19,9 +19,12 @@ import (
 
 const (
 	testGatewayToken = "Gw7x2Lq9pN4cR8tY1kD6hF3jS5aZ0mE7uB2oG9iX4wR"
-	testGatewaySpec  = `{"name":"fe-signalloom-gateway","subject":"static-key/fe-signalloom-gateway","tenant":"kusari","permissions":["observations:read"],"expires":"2026-11-12"}`
-	testSentinelSpec = `{"name":"stun-sentinel","subject":"static-bearer/stun-sentinel-correlator","tenant":"kusari","permissions":["observations:write","collectors:write"],"expires":"2026-11-12"}`
+	testGatewaySpec  = `{"name":"fe-signalloom-gateway","subject":"static-key/fe-signalloom-gateway","tenant":"kusari","permissions":["observations:read"]}`
+	testSentinelSpec = `{"name":"stun-sentinel","subject":"static-bearer/stun-sentinel-correlator","tenant":"kusari","permissions":["observations:write","collectors:write"]}`
 )
+
+// testKeyExpiry is a valid issuer expiry: 30 days out, well inside MaxStaticKeyLifetime.
+func testKeyExpiry() string { return time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.DateOnly) }
 
 func clearStaticKeysEnv(t *testing.T) {
 	t.Helper()
@@ -36,6 +39,22 @@ func setStaticKeysEnv(t *testing.T, specs string, values map[string]string) stri
 	for name, v := range values {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(v), 0o400); err != nil {
 			t.Fatal(err)
+		}
+		// Every value file gets the expiry the issuer mints beside it, unless the test supplies
+		// its own (or deliberately none, with the "<name>.expires" key mapped to "-").
+		if strings.HasSuffix(name, StaticKeyExpirySuffix) {
+			continue
+		}
+		if _, own := values[name+StaticKeyExpirySuffix]; own {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+StaticKeyExpirySuffix), []byte(testKeyExpiry()), 0o400); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, v := range values {
+		if strings.HasSuffix(name, StaticKeyExpirySuffix) && v == "-" {
+			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
 	t.Setenv(StaticKeysEnv, specs)
@@ -79,7 +98,7 @@ func TestStaticKeysFromEnvLoadsEveryConfiguredKey(t *testing.T) {
 	gw := byName["fe-signalloom-gateway"]
 	if gw.Token != testGatewayToken || gw.Subject != "static-key/fe-signalloom-gateway" || gw.TenantID != "kusari" ||
 		len(gw.Permissions) != 1 || gw.Permissions[0] != PermissionObservationRead ||
-		!gw.ExpiresAt.Equal(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)) {
+		gw.ExpiresAt.Format(time.DateOnly) != testKeyExpiry() {
 		t.Fatalf("gateway key loaded wrong: name=%q subject=%q tenant=%q perms=%v expires=%s",
 			gw.Name, gw.Subject, gw.TenantID, gw.Permissions, gw.ExpiresAt)
 	}
@@ -88,8 +107,8 @@ func TestStaticKeysFromEnvLoadsEveryConfiguredKey(t *testing.T) {
 	}
 }
 
-// A refusal is a startup refusal: config that is wrong must not degrade to fewer keys or to a
-// weaker gate. No refusal message may carry a key value.
+// The rule for what refuses startup: the ConfigMap is reviewed, versioned configuration, so a
+// defect there is a startup refusal. No refusal message may carry a key value.
 func TestStaticKeysFromEnvRefusesInvalidConfig(t *testing.T) {
 	good := map[string]string{"stun-sentinel": testSentinelToken}
 	for _, tc := range []struct {
@@ -98,19 +117,15 @@ func TestStaticKeysFromEnvRefusesInvalidConfig(t *testing.T) {
 	}{
 		{"not JSON", `[{`, good},
 		{"an empty list", `[]`, good},
-		{"a key value inline in the ConfigMap", `[{"name":"stun-sentinel","token":"` + testSentinelToken + `","subject":"s","tenant":"kusari","permissions":["observations:write"],"expires":"2026-11-12"}]`, good},
+		{"a key value inline in the ConfigMap", `[{"name":"stun-sentinel","token":"` + testSentinelToken + `","subject":"s","tenant":"kusari","permissions":["observations:write"]}]`, good},
 		{"duplicate names", "[" + testSentinelSpec + "," + testSentinelSpec + "]", good},
-		{"name escaping the directory", `[{"name":"../stun-sentinel","subject":"s","tenant":"kusari","permissions":["observations:write"],"expires":"2026-11-12"}]`, good},
-		{"no subject", `[{"name":"stun-sentinel","tenant":"kusari","permissions":["observations:write"],"expires":"2026-11-12"}]`, good},
-		{"no tenant", `[{"name":"stun-sentinel","subject":"s","permissions":["observations:write"],"expires":"2026-11-12"}]`, good},
-		{"no permissions", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari","expires":"2026-11-12"}]`, good},
-		{"unknown permission", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari","permissions":["telemetry:write"],"expires":"2026-11-12"}]`, good},
-		{"no expiry", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari","permissions":["observations:write"]}]`, good},
-		{"expiry not a date", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari","permissions":["observations:write"],"expires":"soon"}]`, good},
-		{"SPIFFE-shaped subject", `[{"name":"stun-sentinel","subject":"spiffe://osramp.local/ns/x/sa/y","tenant":"kusari","permissions":["observations:write"],"expires":"2026-11-12"}]`, good},
-		{"value under 32 bytes", "[" + testSentinelSpec + "]", map[string]string{"stun-sentinel": "sentinel-in-cluster-token"}},
-		{"value with whitespace inside", "[" + testSentinelSpec + "]", map[string]string{"stun-sentinel": testSentinelToken[:20] + " " + testSentinelToken[20:]}},
-		{"two keys sharing one value", "[" + testSentinelSpec + "," + testGatewaySpec + "]", map[string]string{"stun-sentinel": testSentinelToken, "fe-signalloom-gateway": testSentinelToken}},
+		{"name escaping the directory", `[{"name":"../stun-sentinel","subject":"s","tenant":"kusari","permissions":["observations:write"]}]`, good},
+		{"no subject", `[{"name":"stun-sentinel","tenant":"kusari","permissions":["observations:write"]}]`, good},
+		{"no tenant", `[{"name":"stun-sentinel","subject":"s","permissions":["observations:write"]}]`, good},
+		{"no permissions", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari"}]`, good},
+		{"unknown permission", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari","permissions":["telemetry:write"]}]`, good},
+		{"an expiry in the ConfigMap (it belongs to the value, in the Secret)", `[{"name":"stun-sentinel","subject":"s","tenant":"kusari","permissions":["observations:write"],"expires":"2026-12-01"}]`, good},
+		{"SPIFFE-shaped subject", `[{"name":"stun-sentinel","subject":"spiffe://osramp.local/ns/x/sa/y","tenant":"kusari","permissions":["observations:write"]}]`, good},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setStaticKeysEnv(t, tc.specs, tc.values)
@@ -204,5 +219,74 @@ func TestNewStaticKeyAuthenticatorRefusesAmbiguousKeySets(t *testing.T) {
 		if a, err := NewStaticKeyAuthenticator(set, delegate); err == nil || a != nil {
 			t.Errorf("%s: accepted (%v, %v)", name, a, err)
 		}
+	}
+}
+
+// A Secret's CONTENT is runtime state minted per cluster, so a defect there disables that key
+// only — loudly, by name — and never keeps every other caller out by refusing to boot. The expiry
+// travels with the value: the issuer mints <name>.expires beside the key, so a rotation renews both.
+func TestStaticKeysFromEnvDisablesAKeyWhoseSecretIsDefective(t *testing.T) {
+	for name, secret := range map[string]map[string]string{
+		"no expiry file":    {"stun-sentinel": testSentinelToken, "stun-sentinel.expires": "-"},
+		"already expired":   {"stun-sentinel": testSentinelToken, "stun-sentinel.expires": time.Now().UTC().Add(-48 * time.Hour).Format(time.DateOnly)},
+		"expiry not a date": {"stun-sentinel": testSentinelToken, "stun-sentinel.expires": "soon"},
+		"expiry beyond the 90-day lifetime": {"stun-sentinel": testSentinelToken,
+			"stun-sentinel.expires": time.Now().UTC().Add(MaxStaticKeyLifetime + 48*time.Hour).Format(time.DateOnly)},
+		"value under 32 bytes":         {"stun-sentinel": "sentinel-in-cluster-token"},
+		"value with whitespace inside": {"stun-sentinel": testSentinelToken[:20] + " " + testSentinelToken[20:]},
+	} {
+		t.Run(name, func(t *testing.T) {
+			logs := captureLogs(t)
+			secret["fe-signalloom-gateway"] = testGatewayToken
+			setStaticKeysEnv(t, "["+testSentinelSpec+","+testGatewaySpec+"]", secret)
+			keys, err := StaticKeysFromEnv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(keys) != 1 || keys[0].Name != "fe-signalloom-gateway" {
+				t.Fatalf("loaded %+v, want only the gateway key", keys)
+			}
+			if !strings.Contains(logs.String(), `"level":"ERROR"`) || !strings.Contains(logs.String(), `"key":"stun-sentinel"`) {
+				t.Fatalf("the disabled key is not logged at ERROR by name: %s", logs.String())
+			}
+			if strings.Contains(logs.String(), testSentinelToken[:20]) || strings.Contains(logs.String(), "sentinel-in-cluster-token") {
+				t.Fatalf("the disable log leaks the value: %s", logs.String())
+			}
+		})
+	}
+}
+
+// Two callers holding one value cannot be told apart, so neither is trusted: both are disabled.
+func TestStaticKeysFromEnvDisablesKeysSharingAValue(t *testing.T) {
+	logs := captureLogs(t)
+	third := `{"name":"sldc-evidence-reader","subject":"static-key/sldc-evidence-reader","tenant":"kusari","permissions":["observations:read"]}`
+	setStaticKeysEnv(t, "["+testSentinelSpec+","+testGatewaySpec+","+third+"]", map[string]string{
+		"stun-sentinel": testSentinelToken, "fe-signalloom-gateway": testSentinelToken, "sldc-evidence-reader": testGatewayToken,
+	})
+	keys, err := StaticKeysFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].Name != "sldc-evidence-reader" {
+		t.Fatalf("loaded %+v, want only sldc-evidence-reader", keys)
+	}
+	if !strings.Contains(logs.String(), "share one value") {
+		t.Fatalf("shared value not logged: %s", logs.String())
+	}
+}
+
+// Fewer than StaticKeyExpiryWarning left: loaded, and warned about by name with the date, so the
+// rotation happens before the outage rather than after it.
+func TestStaticKeysWarnBeforeTheyExpire(t *testing.T) {
+	logs := captureLogs(t)
+	soon := time.Now().UTC().Add(5 * 24 * time.Hour).Format(time.DateOnly)
+	setStaticKeysEnv(t, "["+testSentinelSpec+"]", map[string]string{"stun-sentinel": testSentinelToken, "stun-sentinel.expires": soon})
+	keys, err := StaticKeysFromEnv()
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("(%v, %v)", keys, err)
+	}
+	logged := logs.String()
+	if !strings.Contains(logged, `"level":"WARN"`) || !strings.Contains(logged, `"key":"stun-sentinel"`) || !strings.Contains(logged, soon) {
+		t.Fatalf("no expiry warning naming the key and date: %s", logged)
 	}
 }

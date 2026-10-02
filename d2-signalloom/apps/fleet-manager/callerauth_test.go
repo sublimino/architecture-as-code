@@ -15,9 +15,9 @@ import (
 // scope. Driven through s.routes(), the mux main serves.
 
 const (
-	sentinelKey = "sentinel-key-0123456789abcdef"
-	feKey       = "fe-signalloom-key-0123456789ab"
-	operatorKey = "operator-key-0123456789abcdef0"
+	sentinelKey = "sentinel-key-0123456789abcdef0123456"
+	feKey       = "fe-signalloom-key-0123456789abcdef01"
+	operatorKey = "operator-key-0123456789abcdef0123456"
 )
 
 func testCallerKeys(t *testing.T) *callerKeys {
@@ -182,7 +182,7 @@ func TestCallerKeyConfigurationDefectsAreRefused(t *testing.T) {
 		"no scopes":     {"FLEET_MANAGER_KEY_A=" + sentinelKey},
 		"empty scopes":  {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES= "},
 		"unknown scope": {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES=stun,admin"},
-		"short key":     {"FLEET_MANAGER_KEY_A=short", "FLEET_MANAGER_KEY_A_SCOPES=stun"},
+		"short key":     {"FLEET_MANAGER_KEY_A=" + sentinelKey[:31], "FLEET_MANAGER_KEY_A_SCOPES=stun"},
 		"shared key":    {"FLEET_MANAGER_KEY_A=" + sentinelKey, "FLEET_MANAGER_KEY_A_SCOPES=stun", "FLEET_MANAGER_KEY_B=" + sentinelKey, "FLEET_MANAGER_KEY_B_SCOPES=recover"},
 	} {
 		if _, err := loadCallerKeys(env); err == nil {

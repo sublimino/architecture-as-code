@@ -56,8 +56,9 @@ var knownCallerScopes = map[callerScope]bool{
 // a literal in a manifest.
 const callerKeyEnvPrefix = "FLEET_MANAGER_KEY_"
 
-// minCallerKeyLength rejects a key short enough to guess; matches signal-ingest.
-const minCallerKeyLength = 16
+// minCallerKeyLength rejects a key short enough to guess; matches signal-ingest's
+// named static keys (32 bytes). The bootstrap script writes 44.
+const minCallerKeyLength = 32
 
 type callerKey struct {
 	name   string

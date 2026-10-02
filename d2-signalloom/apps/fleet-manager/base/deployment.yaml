@@ -94,6 +94,17 @@ spec:
                   optional: true
             - name: FLEET_MANAGER_KEY_FE_SIGNALLOOM_SCOPES
               value: "stun"
+            # The dashboard, behind nginx auth_request (superadmin Dex token
+            # verified by fe-signalloom first). No recover: that stays with
+            # the operator key, so the Fleet page's Recover answers 403.
+            - name: FLEET_MANAGER_KEY_DASHBOARD
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: dashboard
+                  optional: true
+            - name: FLEET_MANAGER_KEY_DASHBOARD_SCOPES
+              value: "stun,deploy,scan,reset"
             # The operator break-glass key: the only caller that may /recover
             # (which thaws every stunned agent) or /reset.
             - name: FLEET_MANAGER_KEY_OPERATOR

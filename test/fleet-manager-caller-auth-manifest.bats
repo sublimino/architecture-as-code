@@ -30,7 +30,7 @@ fm_env() {
 
 @test "caller-auth manifest: every caller key comes from a Secret, never a literal" {
   local rows; rows="$(fm_env | grep '^FLEET_MANAGER_KEY_' | grep -v '_SCOPES|')"
-  [ "$(wc -l <<<"$rows")" -ge 3 ]
+  [ "$(wc -l <<<"$rows")" -ge 4 ]
   while IFS='|' read -r name literal secret; do
     [ -z "$literal" ] || { echo "$name has a literal value"; return 1; }
     [ "$secret" = "fleet-manager-caller-keys" ] || { echo "$name: secret '$secret'"; return 1; }
@@ -41,6 +41,7 @@ fm_env() {
   local scopes; scopes="$(fm_env | grep '_SCOPES|' | cut -d'|' -f1,2)"
   grep -qx 'FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES|stun' <<<"$scopes"
   grep -qx 'FLEET_MANAGER_KEY_FE_SIGNALLOOM_SCOPES|stun' <<<"$scopes"
+  grep -qx 'FLEET_MANAGER_KEY_DASHBOARD_SCOPES|stun,deploy,scan,reset' <<<"$scopes"
   [ "$(grep -c 'recover' <<<"$scopes")" -eq 1 ]
   grep -q '^FLEET_MANAGER_KEY_OPERATOR_SCOPES|.*recover' <<<"$scopes"
 }
@@ -50,6 +51,16 @@ fm_env() {
     | select(.from[].ipBlock) | [(.from | length), (.ports | length), .ports[0].port] | join(" ")' "${FM}"
   [ "$status" -eq 0 ]
   [ "$output" = "1 1 http" ]
+}
+
+@test "caller-auth manifest: the dashboard renders its fleet key from the Secret into a writable conf.d" {
+  local dash="${BATS_TEST_TMPDIR}/dashboard.yaml"
+  kubectl kustomize "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/base" >"${dash}"
+  run q 'select(.kind == "Deployment" and .metadata.name == "dashboard-signalloom") | .spec.template.spec.containers[0].env[]
+    | select(.name == "FLEET_DASHBOARD_KEY") | [(.value // ""), .valueFrom.secretKeyRef.name, .valueFrom.secretKeyRef.key] | join("|")' "${dash}"
+  [ "$output" = "|fleet-manager-caller-keys|dashboard" ]
+  run q 'select(.kind == "Deployment" and .metadata.name == "dashboard-signalloom") | .spec.template.spec.containers[0].volumeMounts[] | .mountPath' "${dash}"
+  [[ "$output" == *"/etc/nginx/conf.d"* ]]
 }
 
 @test "caller-auth manifest: the sentinel reaches fleet-manager by FQDN with its key from a Secret" {

@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from api_compat import authenticated_tenant
+from api_compat import Principal, authenticated_principal, authenticated_tenant
 from db.connection import set_pool_for_testing
 from main import app
 
@@ -19,9 +19,9 @@ def _no_pool():
 
 @pytest.fixture(autouse=True)
 def _auth_override():
-    app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"
+    app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-demo", subject="test-user", email=None)
     yield
-    app.dependency_overrides.pop(authenticated_tenant, None)
+    app.dependency_overrides.pop(authenticated_principal, None)
 
 
 @pytest.fixture()

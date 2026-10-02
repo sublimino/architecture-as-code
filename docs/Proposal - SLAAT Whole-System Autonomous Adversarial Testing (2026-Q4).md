@@ -179,7 +179,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P2 | `SLAAT-P2-1` | Ingress Route Protection & Network Microsegmentation Fixes | `SLAAT-P2-PRE` | Harden Envoy Gateway routing, seal unauthenticated bypass paths, and tighten NetworkPolicy rules. | `integration` | `M` | `daily` | pass : delivered: acc1e7c746243078bd5e4b42aecda83d6d3e65e5 (see Errata : SLAAT-P2-1) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-2` | Backend API Auth, Token Expiry & Tenant IDOR Fixes | `SLAAT-P2-PRE` | Remediate API authorization flaws, enforce strict tenant token boundaries, and secure agent enrollment. | `contract` | `L` | `daily` | pass : delivered: f6117b8b30b786700618bfad9064aa3c5de03893 (see Errata : SLAAT-P2-2) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-3` | SPIFFE Workload API & OpenBao Policy Hardening Fixes | `SLAAT-P2-PRE` | Restrict OpenBao JWT role claims, enforce short token lifetimes, and eliminate wildcard SPIFFE selectors. | `integration` | `M` | `daily` | pass : delivered: 16c80559d023ffd933a112e1a95234020ad6e7c4 (see Errata : SLAAT-P2-3) | $0.00 | 0 | 0s | none |
-| P2 | `SLAAT-P2-4` | Agent Sandbox Confinement & Landlock LSM Policy Fixes | `SLAAT-P2-PRE` | Seal sandbox breakout vectors, enforce Landlock filesystem rules, and harden eBPF detection alarms. | `integration` | `M` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P2 | `SLAAT-P2-4` | Agent Sandbox Confinement & Landlock LSM Policy Fixes | `SLAAT-P2-PRE` | Seal sandbox breakout vectors, enforce Landlock filesystem rules, and harden eBPF detection alarms. | `integration` | `M` | `daily` | pass : delivered: 708facadab6db37f3a414c86a76d0fe1c1c2622f (see Errata : SLAAT-P2-4) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-GOV` | Phase 2 Governor Gate: Remediations Integration & Rebuild | `SLAAT-P2-1`, `SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4` | Reconcile all remediations, verify clean compilation and unit tests, and prove invariant boundary compliance. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
@@ -525,4 +525,23 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 - Also recorded for a future card, per Forge's review (not fixed here, out of this card's named scope): the federated `osramp.local`/`jwt-osramp` `agent-cardvault` role (owned by `SLDC-P2-2`, in `openbao-supercred-bootstrap.yaml`'s second document) has the same TTL bug class as F1 at 12× the cap (`token_ttl`/`token_max_ttl: "1h"` vs. the mission's 5-minute cap); and capping the `auth/jwt` mount itself (`bao auth tune -max-lease-ttl=5m jwt`) would close off the F1 bug class at the root for any future role that forgets its own TTL, rather than relying on every role to self-declare it.
 - Zero regressions: `test/spiffe-openbao-adversarial.bats` 16/16, `test/openbao-security-probes.bats` 8/8, new `test/spiffe-openbao-policy-hardening.bats` 14/14, `scripts/probe-spiffe-privilege-escalation.sh` fail_count 4→0, `scripts/probe-openbao-acls.sh` wildcard-policy records unchanged at 0 fail. `d2-signalloom/test/bats-registry-coverage.bats` tests 7/8/10 ("proof not invoked by any runner") are pre-existing failures predating this card, confirmed by diffing with/without this card's new suite (identical failure list minus this card's file when removed) -- same class already documented in `SLAAT-P1-4`'s errata.
 - Working tree was clean at task start; everything committed by this card is under `d2-signalloom/infra/inf-bao/`, `test/spiffe-openbao-policy-hardening.bats`, `ci-evidence/slaat-p2-3-*.json`, and `docs/slaat/p2-3/`.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAAT-P2-4 Agent Sandbox Confinement & Landlock LSM Policy Fixes
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-02 11:28:07+01:00
+**Last Updated:** 2026-10-02 11:28:07+01:00
+**Status:** Completed
+**Commit:** 708facadab6db37f3a414c86a76d0fe1c1c2622f
+**Governor merge:** delivered in bed5445a (integration/slaat-whole-system-adversarial)
+**Decisions:**
+- Remediated F1 (eBPF telemetry process/syscall visibility gap): added execve-rate burst detector (burstTracker) to pkg/correlator/ebpf_correlator.go, triggering immediate agent cgroup freeze reaction and logging evasive_syscall_burst observations before dispatch.
+- Remediated F2 (cgroup discovery stall under contention): added bounded discovery budget (maxDiscoveryBudget = 2s) to pkg/cgroup/freezer.go and typed ErrDiscoveryDeadline mapped to HTTP 503 Service Unavailable in cmd/stun-sentinel/main.go.
+- Hardened Landlock LSM policy in nono/profiles/worktree-agent.json: added /proc/sys/, /sys/fs/cgroup/, /root/, and ~/.kube/ to filesystem.deny.
+- Verified cgroup v2 CPU and memory enforcement on live cluster via new script scripts/verify-cgroup-enforcement.sh (5/5 probes passed).
+- Added comprehensive regression suite test/sandbox-confinement-hardening.bats (11/11 tests passing) and validated test/landlock-adversarial-escape.bats (15/15 tests passing).
+**Notes:**
+- Full remediation report: docs/slaat/p2-4/sandbox-confinement-hardening-report.md.
+- Machine-readable evidence: ci-evidence/slaat-p2-4-cgroup-enforcement.json, ci-evidence/slaat-p2-4-landlock-escape-battery.json, ci-evidence/slaat-p2-4-sentinel-evasion-post-fix-source-level.json, ci-evidence/slaat-p2-4-worktree-confinement.json.
+- Zero regressions across all unit and live test suites.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

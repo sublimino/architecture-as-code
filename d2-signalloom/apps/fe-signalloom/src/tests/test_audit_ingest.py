@@ -658,12 +658,25 @@ def test_process_metadata() -> None:
         load_host_policy,
     )
 
-    sensor_dir = Path(__file__).resolve().parents[3] / "agentmaxxing-host-sensor"
-    if str(sensor_dir) not in sys.path:
-        sys.path.insert(0, str(sensor_dir))
+    # Loaded as a package, not via sys.path: the sensor has its own models.py,
+    # and a bare `import models` here resolves to fe-signalloom's, which the
+    # suite has already imported.
+    import importlib.util
 
-    from collector import ProcessTelemetryCollector
-    from models import HealthState
+    sensor_dir = Path(__file__).resolve().parents[3] / "agentmaxxing-host-sensor"
+    package = "agentmaxxing_host_sensor"
+    if package not in sys.modules:
+        saved_path = list(sys.path)
+        spec = importlib.util.spec_from_file_location(
+            package, sensor_dir / "__init__.py", submodule_search_locations=[str(sensor_dir)]
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[package] = module
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.path[:] = saved_path
+    ProcessTelemetryCollector = sys.modules[package].ProcessTelemetryCollector
 
     collector = ProcessTelemetryCollector()
     event = collector.collect_event(

@@ -96,13 +96,13 @@ spec:
         - operator: Exists
       containers:
         - name: sentinel
-          # The tag is the source commit that last changed the image inputs,
-          # written by `make -C d2-signalloom sentinel-image-pin` and checked
+          # The tag is src- + the source fingerprint of the files the
+          # Dockerfile COPYs (scripts/lib/source-id.sh), written by `make -C d2-signalloom sentinel-image-pin` and checked
           # by test/sentinel-image-provenance.bats. Never hand-edit it to a
           # version name: v0.2.0 was reused for ~7 different builds. Overlays
           # change only newName (the kind clusters use the in-cluster zot
           # repository) and inherit this tag.
-          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:7598ab770ccd
+          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:src-78877697b4ee
           # IfNotPresent, never Never: Never cannot pull, so it makes this base
           # unusable anywhere the image was not side-loaded first.
           imagePullPolicy: IfNotPresent

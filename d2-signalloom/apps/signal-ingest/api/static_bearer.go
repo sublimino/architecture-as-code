@@ -168,6 +168,16 @@ func (c StaticBearerConfig) validate() error {
 	if c.ExpiresAt.IsZero() {
 		return errors.New("static bearer credential must carry an expiry; an undated temporary credential is a permanent one")
 	}
+	// The sunset is enforced by the binary, not only by YAML: otherwise editing
+	// the ConfigMap's expiry would extend a shared secret with no code change.
+	sunset, err := time.Parse(time.DateOnly, StaticBearerSunset)
+	if err != nil {
+		return fmt.Errorf("StaticBearerSunset %q is not a date: %w", StaticBearerSunset, err)
+	}
+	if c.ExpiresAt.After(sunset) {
+		return fmt.Errorf("static bearer expiry %s is later than the sunset %s; move the correlator to a JWT-SVID instead of extending it",
+			c.ExpiresAt.UTC().Format(time.DateOnly), StaticBearerSunset)
+	}
 	return nil
 }
 

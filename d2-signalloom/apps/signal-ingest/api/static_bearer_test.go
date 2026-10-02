@@ -724,3 +724,23 @@ func assertNoTokenLeak(t *testing.T, aw *audit.FakeWriter, bodies string) {
 		}
 	}
 }
+
+// Review M3 (2026-10-02): the sunset lived only in a test and in YAML. Editing
+// the ConfigMap's expiry extended the credential with no code change, because
+// validate() checked only that some date was present. The binary now refuses
+// any configured expiry later than StaticBearerSunset.
+func TestStaticBearerRefusesAnExpiryLaterThanTheSunset(t *testing.T) {
+	cfg := testStaticConfig()
+	cfg.ExpiresAt = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	err := cfg.validate()
+	if err == nil || !strings.Contains(err.Error(), StaticBearerSunset) {
+		t.Fatalf("validate() = %v, want a refusal that names the sunset %s", err, StaticBearerSunset)
+	}
+}
+
+func TestStaticBearerAcceptsAnExpiryOnTheSunset(t *testing.T) {
+	cfg := testStaticConfig() // expires exactly on the sunset
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("an expiry on the sunset itself must be accepted: %v", err)
+	}
+}

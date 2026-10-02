@@ -21,6 +21,12 @@ type HealthResponse struct {
 	CgroupDriver   string `json:"cgroup_driver"`
 	TCReady        bool   `json:"tc_ready"`
 	ReconcileCount int64  `json:"reconcile_count"`
+	// ResyncSeconds is the pod informer's resync interval, so a containment
+	// check can wait out one resync instead of guessing a sleep.
+	ResyncSeconds int64 `json:"resync_seconds"`
+	// FleetStunFailures counts failed stun deliveries to fleet-manager: each is
+	// a correlator freeze held in the kernel without its stun record or pin.
+	FleetStunFailures int64 `json:"fleet_stun_failures"`
 }
 
 // HealthServer serves HTTP health and readiness probes on a configured address (default :8081).
@@ -32,7 +38,9 @@ type HealthServer struct {
 	reconcileCount *atomic.Int64
 	// frozenUnlabelled backs the sentinel_frozen_unlabelled_pods gauge.
 	frozenUnlabelled func() int
-	server           *http.Server
+	// fleetStunFailures counts correlator freezes fleet-manager did not record.
+	fleetStunFailures func() int64
+	server            *http.Server
 }
 
 func newHealthServer(addr string, dryRun bool, cgroupRoot string, reconcileCount *atomic.Int64) *HealthServer {
@@ -68,6 +76,10 @@ func (h *HealthServer) Handler() http.Handler {
 			CgroupDriver:   h.cgroupDriver,
 			TCReady:        tcReady,
 			ReconcileCount: count,
+			ResyncSeconds:  int64(informerResync / time.Second),
+		}
+		if h.fleetStunFailures != nil {
+			resp.FleetStunFailures = h.fleetStunFailures()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

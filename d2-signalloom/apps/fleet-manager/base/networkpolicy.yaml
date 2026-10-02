@@ -39,6 +39,18 @@ spec:
       ports:
         - port: http
           protocol: TCP
+    # The stun-sentinel DaemonSet runs hostNetwork, so its POST /stun arrives
+    # from a NODE address, which no podSelector can match. Admitting the kind
+    # node network is acceptable only because every mutating route now needs a
+    # named caller key (callerauth.go); this rule opens the port, the key
+    # decides. Port http only. 172.18.0.0/16 is the kind docker network on the
+    # local estate; another cluster substitutes its node CIDR.
+    - from:
+        - ipBlock:
+            cidr: 172.18.0.0/16
+      ports:
+        - port: http
+          protocol: TCP
   egress:
     # Allow DNS
     - to: []

@@ -48,6 +48,8 @@ metadata:
     signalloom.ai/role: "sentinel"
 data:
   SIGNAL_INGEST_URL: "http://signal-ingest.fe-signalloom.svc.cluster.local:8082"
+  # fleet-manager's stun cascade, same FQDN rule as SIGNAL_INGEST_URL.
+  FLEET_MANAGER_URL: "http://fleet-manager.fe-signalloom.svc.cluster.local:8082"
   # kusari-agent/deployment.yaml: namespace fe-signalloom-agents,
   # serviceAccountName kusari-agent.
   SENTINEL_TENANT_MAP: "fe-signalloom-agents/kusari-agent=kusari"

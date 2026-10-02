@@ -303,6 +303,22 @@ def test_the_route_posts_the_reason_to_fleet_manager(client: TestClient) -> None
     assert sent.extensions["timeout"] == {"connect": 10.0, "read": 10.0, "write": 10.0, "pool": 10.0}
 
 
+def test_the_stun_presents_this_services_fleet_manager_caller_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = "fe-signalloom-caller-key-0123456789"
+    monkeypatch.setattr(api_compat, "FLEET_MANAGER_STUN_KEY", key)
+    with respx.mock() as mock:
+        route = mock.post(_stun_url("agent-cardvault")).mock(
+            return_value=httpx.Response(200, json=_cascade("agent-cardvault", "contained", CONTAINED_PLANES)),
+        )
+        _post_stun(client, "agent-cardvault")
+
+    assert route.call_count == 1
+    # Exactly one Authorization value: fleet-manager refuses a duplicate.
+    assert route.calls.last.request.headers.get_list("authorization") == [f"Bearer {key}"]
+
+
 def test_the_fake_proxy_is_no_longer_called(client: TestClient) -> None:
     with respx.mock(assert_all_called=False) as mock:
         proxy = mock.post(url__regex=r".*fake-integration-proxy.*")

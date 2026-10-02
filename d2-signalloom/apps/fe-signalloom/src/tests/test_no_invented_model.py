@@ -113,3 +113,15 @@ def test_an_external_claim_with_a_model_records_that_model(client: TestClient) -
     assert res.status_code == 200, res.text
     claims = _stored_claim_models()
     assert claims["ext-claim-b"] == "llama-3.1-8b"
+
+
+def test_claim_list_includes_an_external_claim(client: TestClient) -> None:
+    # Found by this sweep: the external claim record carries tenant_id, which
+    # ClaimRecord forbids, so GET /agents/claims was a 500 for any tenant with
+    # an external claim.
+    assert client.post("/api/v1/external-agents/registrations",
+                       json={"agent_id": "ext-listed", "host_id": "host-listed"}).status_code == 201
+    assert client.post("/api/v1/external-agents/registrations/ext-listed/claim", json={}).status_code == 200
+    res = client.get("/api/v1/agents/claims")
+    assert res.status_code == 200, res.text
+    assert "ext-listed" in {c["pod_name"] for c in res.json()["claims"]}

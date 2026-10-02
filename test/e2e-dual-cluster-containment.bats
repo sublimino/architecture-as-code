@@ -188,9 +188,14 @@ registry_row() {
         "${REGISTRY_SQL}" 2>/dev/null
 }
 
+# observations_json reads the ingest feed. Without a lower bound the store
+# answers with its OLDEST `limit` observations, so once more than 50 sentinel
+# observations had accumulated the provoked one was never returned and Step 4
+# failed with the observation sitting in the store (measured 2026-10-02: the
+# newest returned was 19h old). OBS_AFTER bounds the query to the provocation.
 observations_json() {
     ${K_WORKLOAD} get --raw \
-        "/api/v1/namespaces/${INGEST_NS}/services/signal-ingest:8082/proxy/api/v1/observations?limit=50" \
+        "/api/v1/namespaces/${INGEST_NS}/services/signal-ingest:8082/proxy/api/v1/observations?limit=50${OBS_AFTER:+&after=${OBS_AFTER}}" \
         2>/dev/null
 }
 
@@ -350,6 +355,10 @@ export -f registry_row observations_json sensitive_openat_observations \
 
 @test "Step 4: In-sentinel eBPF probe intercepts syscall and emits observation" {
     local start_ts; start_ts="$(cat "${EVIDENCE_DIR}/step3-provocation-start.txt" 2>/dev/null)"
+    # One second of slack below the provocation, the same tolerance the
+    # selection below applies; RFC3339 with Z needs no URL encoding.
+    OBS_AFTER="$(date -u -d "${start_ts} - 1 second" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+    export OBS_AFTER
     [ -n "$start_ts" ]
     local pod_name; pod_name="$(agent_pod_field 'metadata.name')"
 

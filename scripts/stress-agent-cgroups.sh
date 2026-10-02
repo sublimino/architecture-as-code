@@ -39,6 +39,8 @@ readonly DECLARED_PROBES=11
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
+# shellcheck source=lib/live-gate.sh
+source "${SCRIPT_DIR}/lib/live-gate.sh"
 
 CLUSTER_CONTEXT="${CLUSTER_CONTEXT:-kind-osramp}"
 KIND_NODE="${KIND_NODE:-osramp-control-plane}"
@@ -60,9 +62,9 @@ EXECUTED=0
 declare -a RESULTS=()
 
 log() { printf '%s\n' "$*" >&2; }
-node() { docker exec "${KIND_NODE}" "$@"; }
-nsh() { docker exec "${KIND_NODE}" sh -c "$1"; }
-kc() { kubectl --context "${CLUSTER_CONTEXT}" "$@"; }
+node() { sldc_docker exec "${KIND_NODE}" "$@"; }
+nsh() { sldc_docker exec "${KIND_NODE}" sh -c "$1"; }
+kc() { sldc_kubectl --context "${CLUSTER_CONTEXT}" "$@"; }
 
 usage_text() {
   cat <<'EOF'
@@ -89,13 +91,15 @@ have_cluster() {
   command -v kubectl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
   command -v go >/dev/null 2>&1 || return 1
-  docker inspect "${KIND_NODE}" >/dev/null 2>&1 || return 1
+  # Opt-in and API reachability through KUBECONFIG before any docker call:
+  # this battery docker-cp's a binary onto, and pkill's on, a SHARED node.
+  sldc_live_gate "${CLUSTER_CONTEXT}" "${KIND_NODE}" || return 1
   return 0
 }
 
 preflight() {
   if ! have_cluster; then
-    log "missing docker/kubectl/jq/go or kind node '${KIND_NODE}' — cannot run the live battery"
+    log "live battery refused: missing docker/kubectl/jq/go or ${SLDC_LIVE_GATE_REASON:-gate closed}"
     exit 3
   fi
 }
@@ -128,7 +132,7 @@ build_and_install() {
   # create and list it just fine. /usr/local/bin is part of the image's real
   # overlayfs root and is what the sibling CRKC-P1-2 harness installs into —
   # this mirrors that, with a name distinct enough not to collide with it.
-  docker cp /tmp/stun-sentinel-slaat-p1-4 "${KIND_NODE}:/usr/local/bin/slaat-sentinel" >/dev/null || exit 4
+  sldc_docker cp /tmp/stun-sentinel-slaat-p1-4 "${KIND_NODE}:/usr/local/bin/slaat-sentinel" >/dev/null || exit 4
 }
 
 start_daemon() {

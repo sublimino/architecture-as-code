@@ -19,6 +19,7 @@ spec:
         autoscaling.knative.dev/max-scale: "5"
       labels:
         signalloom.ai/agent: "true"
+        signalloom.ai/tenant: "controlplane"
         signalloom.ai/framework: custom
         signalloom.ai/role: summarizer
         signalloom.ai/state: active

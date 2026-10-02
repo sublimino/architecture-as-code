@@ -743,7 +743,7 @@ async def enroll_host_handler(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Custom', 83, 'anthropic', 'claude-3-5-sonnet',
+                    'Custom', 83, NULL, NULL,
                     NOW(), NOW(), NOW()
                 ) ON CONFLICT (tenant_id, name) DO UPDATE SET
                     lifecycle_state = 'active',
@@ -763,7 +763,7 @@ async def enroll_host_handler(
                     claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
                     harness, model, status, allocated_token_budget, claimed_at
                 ) VALUES (
-                    $1, $2, $3, $4, 'external-agents', $5, 'nono-0.73.0', 'claude-3-5-sonnet', 'granted', $6, NOW()
+                    $1, $2, $3, $4, 'external-agents', $5, 'nono-0.73.0', 'undeclared', 'granted', $6, NOW()
                 ) ON CONFLICT (claim_id) DO NOTHING""",
                 claim_id,
                 tenant_id,

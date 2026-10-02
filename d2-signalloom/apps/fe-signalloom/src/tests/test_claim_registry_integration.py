@@ -165,3 +165,127 @@ def test_discovery_claim_reclaim_records_the_workloads_current_model(scratch) ->
     second = client.post("/api/v1/discovery/claim", json=body, headers=_bearer())
     assert second.status_code == 200, second.text
     assert asyncio.run(_registry_model(dsn, "kusari-agent")) == ["deterministic"]
+
+
+# ---------------------------------------------------------------------------
+# Class sweep: no invented model or provider on the database branches.
+# ---------------------------------------------------------------------------
+
+async def _row(dsn: str, sql: str, *args: Any) -> Any:
+    conn = await asyncpg.connect(dsn)
+    try:
+        return await conn.fetchrow(sql, *args)
+    finally:
+        await conn.close()
+
+
+def _registry(dsn: str, name: str) -> Any:
+    return asyncio.run(_row(
+        dsn, "SELECT model_provider, model_name FROM public.agent_registry WHERE tenant_id = $1 AND name = $2",
+        TENANT, name))
+
+
+def _claim_model(dsn: str, pod_name: str) -> Any:
+    row = asyncio.run(_row(
+        dsn, "SELECT model FROM public.agent_claims WHERE tenant_id = $1 AND pod_name = $2", TENANT, pod_name))
+    return row["model"] if row else None
+
+
+def _as_operator(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal = api_compat.Principal(tenant=TENANT, subject=OPERATOR, email=f"{OPERATOR}@signalloom.test")
+    app.dependency_overrides[api_compat.authenticated_principal] = lambda: principal
+    monkeypatch.setattr(app, "dependency_overrides", app.dependency_overrides)
+
+
+@pytest.fixture
+def operator(scratch, monkeypatch: pytest.MonkeyPatch):
+    _as_operator(monkeypatch)
+    try:
+        yield scratch
+    finally:
+        app.dependency_overrides.pop(api_compat.authenticated_principal, None)
+
+
+def test_claims_record_no_invented_provider(scratch) -> None:
+    client, workloads, dsn = scratch
+    workloads.declare("kusari-agent", TENANT, model="deterministic")
+    body = {"pod_name": "kusari-agent", "namespace": declared_workloads.NS,
+            "spiffe_id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kusari-agent"}
+    assert client.post("/api/v1/agents/claim", json=body, headers=_bearer()).status_code == 200
+    row = _registry(dsn, "kusari-agent")
+    assert (row["model_provider"], row["model_name"]) == (None, "deterministic")
+
+
+def test_discovery_claim_records_no_invented_provider(scratch) -> None:
+    client, workloads, dsn = scratch
+    workloads.declare("disc-agent", TENANT, model="deterministic")
+    body = {"agent_id": "disc-agent", "namespace": declared_workloads.NS}
+    assert client.post("/api/v1/discovery/claim", json=body, headers=_bearer()).status_code == 200
+    row = _registry(dsn, "disc-agent")
+    assert (row["model_provider"], row["model_name"]) == (None, "deterministic")
+
+
+def test_external_claim_without_a_model_records_it_as_undeclared(operator) -> None:
+    client, _workloads, dsn = operator
+    reg = client.post("/api/v1/external-agents/registrations",
+                      json={"agent_id": "ext-db-a", "host_id": "host-db-a"})
+    assert reg.status_code == 201, reg.text
+    res = client.post("/api/v1/external-agents/registrations/ext-db-a/claim", json={})
+    assert res.status_code == 200, res.text
+    row = _registry(dsn, "ext-db-a")
+    assert (row["model_provider"], row["model_name"]) == (None, None)
+    assert _claim_model(dsn, "ext-db-a") == "undeclared"
+
+
+def test_external_claim_with_a_model_records_that_model(operator) -> None:
+    client, _workloads, dsn = operator
+    assert client.post("/api/v1/external-agents/registrations",
+                       json={"agent_id": "ext-db-b", "host_id": "host-db-b"}).status_code == 201
+    res = client.post("/api/v1/external-agents/registrations/ext-db-b/claim", json={"model": "llama-3.1-8b"})
+    assert res.status_code == 200, res.text
+    assert _registry(dsn, "ext-db-b")["model_name"] == "llama-3.1-8b"
+    assert _claim_model(dsn, "ext-db-b") == "llama-3.1-8b"
+
+
+def test_host_enrollment_records_no_invented_model_or_provider(operator) -> None:
+    client, _workloads, dsn = operator
+    agent, host = "agentmaxxing-linux-001", "amx-host-001"
+    assert client.post("/api/v1/external-agents/registrations",
+                       json={"agent_id": agent, "host_id": host}).status_code == 201
+    tok = client.post(f"/v1/external-agents/registrations/{agent}/token", json={"ttl_seconds": 3600})
+    assert tok.status_code == 200, tok.text
+    enrol = {
+        "schema_version": "1.0.0", "agent_id": agent, "host_id": host, "key_id": "host-key:001",
+        "key_algorithm": "Ed25519", "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "client_nonce": "bm9uY2UtMDAwMDAwMDAwMDAx", "credential_kind": "existing-mtls-identity",
+        "credential_scope": "audit-upload-only", "credential_bootstrap": "pre-provisioned-out-of-band",
+    }
+    res = client.post("/v1/external-agents/enroll", json=enrol,
+                      headers={"Authorization": f"Bearer {tok.json()['enrollment_token']}"})
+    assert res.status_code == 201, res.text
+    row = _registry(dsn, agent)
+    assert (row["model_provider"], row["model_name"]) == (None, None)
+    assert _claim_model(dsn, agent) == "undeclared"
+
+
+def test_the_discovery_list_shows_undeclared_models_as_unknown(operator) -> None:
+    client, _workloads, dsn = operator
+    assert client.post("/api/v1/external-agents/registrations",
+                       json={"agent_id": "ext-list", "host_id": "host-list"}).status_code == 201
+    assert client.post("/api/v1/external-agents/registrations/ext-list/claim", json={}).status_code == 200
+    res = client.get("/api/v1/discovery/workloads")
+    assert res.status_code == 200, res.text
+    models = {(w["source"], w["name"]): w["model"] for w in res.json()["workloads"]}
+    # The registry row (model_name NULL) and the external registration (no
+    # metadata model) are both listed with no model, not a guessed one.
+    assert models[("local_k8s", "ext-list")] is None
+    assert models[("external_services", "ext-list")] is None
+
+
+def test_autoclaim_on_the_database_returns_its_claims(scratch) -> None:
+    # Autoclaim on the database branch records and returns the workload's model.
+    client, workloads, _dsn = scratch
+    workloads.declare("auto-db", TENANT, model="deterministic")
+    res = client.post("/api/v1/agents/autoclaim-discovered", headers=_bearer())
+    assert res.status_code == 200, res.text
+    assert {c["pod_name"]: c["model"] for c in res.json()["claimed"]} == {"auto-db": "deterministic"}

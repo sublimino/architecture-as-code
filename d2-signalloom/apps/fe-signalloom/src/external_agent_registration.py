@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import api_compat
+import claim_tenancy
 from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
 from external_agent_contract import (
     EnrollmentRequest,
@@ -139,7 +140,8 @@ class ExternalAgentClaimRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     harness: str = Field(default="nono-0.73.0", min_length=1, max_length=128)
-    model: str = Field(default="claude-3-5-sonnet", min_length=1, max_length=128)
+    # No default: an agent that declares no model is recorded as undeclared.
+    model: str | None = Field(default=None, min_length=1, max_length=128)
     declared_tools: list[str] = Field(default_factory=list)
     allocated_token_budget: int | None = Field(default=None, gt=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -663,7 +665,7 @@ async def claim_external_agent_handler(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Custom', 83, 'anthropic', $6,
+                    'Custom', 83, NULL, $6,
                     NOW(), NOW(), NOW()
                 ) ON CONFLICT (tenant_id, name) DO UPDATE SET
                     lifecycle_state = 'active',
@@ -692,7 +694,7 @@ async def claim_external_agent_handler(
                 agent_id,
                 spiffe_id,
                 req_body.harness,
-                req_body.model,
+                req_body.model or claim_tenancy.UNDECLARED_MODEL,
                 budget,
             )
 
@@ -716,7 +718,7 @@ async def claim_external_agent_handler(
                 "runtime_profile": reg["runtime_profile"],
                 "spiffe_id": spiffe_id,
                 "harness": req_body.harness,
-                "model": req_body.model,
+                "model": req_body.model or claim_tenancy.UNDECLARED_MODEL,
                 "token_budget": budget,
             }
             await _audit_log_external_agent(
@@ -778,7 +780,7 @@ async def claim_external_agent_handler(
                             "namespace": "external-agents",
                             "spiffe_id": spiffe_id,
                             "harness": req_body.harness,
-                            "model": req_body.model,
+                            "model": req_body.model or claim_tenancy.UNDECLARED_MODEL,
                             "status": "granted",
                             "allocated_token_budget": budget,
                             "claimed_at": now,
@@ -853,7 +855,7 @@ async def claim_external_agent_handler(
                 "runtime_profile": reg_item.get("runtime_profile", "nono-0.73.0-standard") if reg_item else "nono-0.73.0-standard",
                 "spiffe_id": spiffe_id,
                 "harness": req_body.harness,
-                "model": req_body.model,
+                "model": req_body.model or claim_tenancy.UNDECLARED_MODEL,
                 "token_budget": budget,
             },
         )

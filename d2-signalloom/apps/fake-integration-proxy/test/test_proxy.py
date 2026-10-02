@@ -835,3 +835,15 @@ class ClaimTenancyFieldsTest(unittest.TestCase):
     def test_an_unlabelled_pod_reports_no_tenant_rather_than_a_default(self):
         agent = server._agent_from_pod(agent_pod("agent-x", "fe-signalloom-agents"))
         self.assertIsNone(agent["tenant"])
+
+    def test_a_kagent_agent_cr_reports_its_tenant_label(self):
+        cr = kagent_cr("kagent-k8s-reader", "fe-signalloom-agents")
+        cr["metadata"]["labels"]["signalloom.ai/tenant"] = "tenant-demo"
+        agent = server._agent_from_kagent_cr(cr, "fe-signalloom-agents")
+        self.assertEqual("tenant-demo", agent["tenant"])
+        self.assertEqual("kagent-k8s-reader", agent["agent_name"])
+        self.assertEqual("kagent", agent["harness"])
+
+    def test_an_unlabelled_kagent_agent_cr_reports_no_tenant(self):
+        agent = server._agent_from_kagent_cr(kagent_cr("x", "fe-signalloom-agents"), "fe-signalloom-agents")
+        self.assertIsNone(agent["tenant"])

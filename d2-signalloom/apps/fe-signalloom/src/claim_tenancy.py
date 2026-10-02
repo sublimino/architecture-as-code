@@ -28,6 +28,11 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 
+# agent_claims.model is NOT NULL; an agent that declares no model is recorded
+# as exactly this, never as a guessed model. Nullable columns record NULL.
+UNDECLARED_MODEL = "undeclared"
+
+
 # Per-workload refusals. Batch claiming skips these; 503 is never skipped.
 REFUSAL_CODES = frozenset({
     "workload_not_found", "workload_ambiguous", "workload_tenant_undeclared",

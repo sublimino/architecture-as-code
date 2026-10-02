@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/part-of: signalloom
     app.kubernetes.io/instance: agent-standard-baseline
     signalloom.ai/agent: "true"
+    signalloom.ai/tenant: "tenant-demo"
     signalloom.ai/agent-name: agent-standard-baseline
     signalloom.ai/agent-type: demo
     signalloom.ai/framework: custom
@@ -29,6 +30,7 @@ spec:
         app.kubernetes.io/part-of: signalloom
         app.kubernetes.io/instance: agent-standard-baseline
         signalloom.ai/agent: "true"
+        signalloom.ai/tenant: "tenant-demo"
         signalloom.ai/agent-name: agent-standard-baseline
         signalloom.ai/agent-type: demo
         signalloom.ai/framework: custom

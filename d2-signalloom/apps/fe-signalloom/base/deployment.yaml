@@ -87,7 +87,9 @@ spec:
               # It is mapped to a tenant so it authenticates cleanly; it is on
               # neither superadmin allowlist, so a 403 from it proves the
               # superadmin gate rather than a missing tenant mapping.
-              value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo","CgZ2aWV3ZXISBWxvY2Fs":"tenant-demo","viewer":"tenant-demo"}'
+              # kusari-operator is the only subject mapped to tenant kusari: the
+              # Kusari pilot claims kusari-agent as it, through the product.
+              value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo","CgZ2aWV3ZXISBWxvY2Fs":"tenant-demo","viewer":"tenant-demo","Cg9rdXNhcmktb3BlcmF0b3ISBWxvY2Fs":"kusari","kusari-operator":"kusari"}'
             - name: OIDC_PROVIDER
               value: generic
             - name: OIDC_ISSUER_URL

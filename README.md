@@ -224,7 +224,7 @@ Local mode keeps this model without GitHub:
 
 | Path | Description |
 | --- | --- |
-| [`d2-signalloom/`](d2-signalloom/) | Signal Loom agent governance slice: dashboard, FastAPI backend, Fleet Manager, host sensors, the identity plane (`infra/inf-bao`), and Kagent (`infra/kagent`). Guide: [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). |
+| [`d2-signalloom/`](d2-signalloom/) | Signal Loom agent governance slice: dashboard, FastAPI backend, Fleet Manager, host sensors, the identity plane (`d2-signalloom/infra/inf-bao`), and Kagent (`d2-signalloom/infra/kagent`). Guide: [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). |
 | [`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/) | The user documentation site (Astro Starlight), served at `/docs` from its own container |
 | [`d2-osramp-apps/`](d2-osramp-apps/) | OSRAMP application slice: Go services (`apps/`), manifests (`components/`), BATS tests (`test/`). Guide: [`d2-osramp-apps/AGENTS.md`](d2-osramp-apps/AGENTS.md). |
 | [`d2-k8s-afm/`](d2-k8s-afm/) | KubeSec-AFM slice: formal-methods RBAC privilege-escalation analysis. Guide: [`d2-k8s-afm/AGENTS.md`](d2-k8s-afm/AGENTS.md). |

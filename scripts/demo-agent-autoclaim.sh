@@ -36,6 +36,15 @@ else
   RED="" GREEN="" YELLOW="" BLUE="" BOLD="" RESET=""
 fi
 
+# Every kubectl call, including the ones scripts/lib/wait.sh runs in a child
+# bash, goes to SLAC_KUBE_CONTEXT when it is set. A caller pinned to one cluster
+# must not have its claim land on whichever context happens to be current.
+if [[ -n "${SLAC_KUBE_CONTEXT:-}" ]]; then
+  kubectl() { command kubectl --context "${SLAC_KUBE_CONTEXT}" "$@"; }
+  export -f kubectl
+  export SLAC_KUBE_CONTEXT
+fi
+
 TEMP_DIR=""
 RESULT_WRITTEN=0
 STEP=0
@@ -61,16 +70,22 @@ AUDIT_TIMESTAMP=""
 
 usage() {
   cat <<'EOF'
-Usage: scripts/demo-agent-autoclaim.sh [--reset|--help]
+Usage: scripts/demo-agent-autoclaim.sh [--workload NAME | --reset | --help]
 
 Run the seven-step Signal Loom agent discovery and auto-claim demonstration.
 
-  --reset  Reset the shared demo agent registry, compliance rows, and linked
-           audit rows, then restart the API so workloads appear discovered.
-  --help   Show this help.
+  --workload NAME  Claim only the workload NAME (its app.kubernetes.io/name).
+                   Its model and harness come from its signalloom.ai/model and
+                   signalloom.ai/harness labels; a missing model label fails.
+  --reset          Reset the shared demo agent registry, compliance rows, and
+                   linked audit rows, then restart the API so workloads appear
+                   discovered.
+  --help           Show this help.
 
 Environment overrides:
+  DEMO_DEX_USER           Dex user that claims (default: demo-user@signalloom.local)
   DEX_DEMO_PASSWORD       Dex demo-user password (default: demo-user)
+  SLAC_KUBE_CONTEXT       kubectl context for every call (default: current context)
   SLAC_DEMO_RESULT_FILE   Machine evidence path (default: /tmp/slac-demo-result.json)
   NO_COLOR=1              Disable ANSI terminal colours
 EOF
@@ -252,9 +267,13 @@ reset_demo() {
 }
 
 MODE="demo"
+WORKLOAD=""
 case "${1:-}" in
   "") ;;
   --reset) MODE="reset" ;;
+  --workload)
+    [[ -n "${2:-}" ]] || die "--workload requires a workload name" "Use --help for supported options"
+    WORKLOAD="$2"; shift ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; die "unknown argument: ${1}" "Use --help for supported options" ;;
 esac
@@ -280,9 +299,15 @@ if [[ "${MODE}" == "reset" ]]; then
   exit 0
 fi
 
-wait_pods_ready "app.kubernetes.io/managed-by=kagent" -n "${AGENT_NAMESPACE}" 20 || \
-  die "Kagent workloads did not become ready" \
-    "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -o wide"
+if [[ -n "${WORKLOAD}" ]]; then
+  wait_pods_ready "app.kubernetes.io/name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" 20 || \
+    die "no running unclaimed agent named ${WORKLOAD} became ready" \
+      "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -l app.kubernetes.io/name=${WORKLOAD}"
+else
+  wait_pods_ready "app.kubernetes.io/managed-by=kagent" -n "${AGENT_NAMESPACE}" 20 || \
+    die "Kagent workloads did not become ready" \
+      "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -o wide"
+fi
 kubectl -n "${API_NAMESPACE}" exec "deploy/${API_CLIENT_DEPLOYMENT}" -- \
   sh -c 'command -v curl >/dev/null' || \
   die "dashboard pod lacks curl" "Rebuild the dashboard image with its runtime curl dependency"
@@ -296,7 +321,7 @@ PODS_JSON="$(kubectl get pods -n "${AGENT_NAMESPACE}" \
   -l "signalloom.ai/agent=true" -o json)" || \
   die "failed to enumerate agent pods" "Inspect namespace ${AGENT_NAMESPACE}"
 
-READY_WORKLOADS="$(jq -c '
+READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
   [.items[]
    | select(.status.phase == "Running")
    | select((.status.containerStatuses // []) | length > 0)
@@ -306,8 +331,9 @@ READY_WORKLOADS="$(jq -c '
        workload: (.metadata.labels["app.kubernetes.io/name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name),
        service_account: (.spec.serviceAccountName // "default"),
        harness: (.metadata.labels["signalloom.ai/harness"] // .metadata.labels["signalloom.ai/framework"] // "kagent"),
-       model: (.metadata.labels["signalloom.ai/model"] // "anthropic-claude")
-     }]
+       model: (.metadata.labels["signalloom.ai/model"] // (if $only == "" then "anthropic-claude" else "" end))
+     }
+   | select($only == "" or .workload == $only)]
   | sort_by([(.workload != "kagent-k8s-reader"), .workload])
 ' <<<"${PODS_JSON}")" || die "could not parse Kubernetes workload inventory" "Inspect kubectl pod JSON"
 
@@ -335,6 +361,13 @@ done < <(jq -r '.[] | [.workload, .pod, .service_account, .harness, .model] | @t
 [[ -n "${TARGET_WORKLOAD}" ]] || \
   die "no running unclaimed agent with zero controls was found" \
     "Run '${SCRIPT_DIR}/demo-agent-autoclaim.sh --reset' to restore discovered state"
+
+# A targeted claim is evidence about that workload, so its model is read, never
+# defaulted: the default above exists only for the untargeted demo.
+if [[ -n "${WORKLOAD}" && -z "${TARGET_MODEL}" ]]; then
+  die "${WORKLOAD} has no signalloom.ai/model label; refusing to invent a model" \
+    "Label the workload's pod template with signalloom.ai/model"
+fi
 
 DISCOVERY_EPOCH="$(date +%s)"
 pass_step "Discovered running workload ${TARGET_WORKLOAD} (pod ${TARGET_POD})"
@@ -390,11 +423,22 @@ REGISTRY_AGENT_ID="$(jq -r '.id' <<<"${REGISTERED_AGENT}")"
   die "claim agent_id does not match registry record" "Claim=${AGENT_ID}; registry=${REGISTRY_AGENT_ID}"
 pass_step "Registered ${TARGET_WORKLOAD} in agent_registry as ${AGENT_ID}"
 
-CONTROL_COUNT="$(jq -er '.compliance_summary.total_controls' <<<"${REGISTERED_AGENT}")"
-PASSING_CONTROLS="$(jq -er '.compliance_summary.passing' <<<"${REGISTERED_AGENT}")"
-FAILING_CONTROLS="$(jq -er '.compliance_summary.failing' <<<"${REGISTERED_AGENT}")"
-PENDING_CONTROLS="$(jq -er '.compliance_summary.pending' <<<"${REGISTERED_AGENT}")"
-POSTURE_SCORE="$(jq -er '.compliance_summary.posture_score' <<<"${REGISTERED_AGENT}")"
+# Each read fails with its own reason. posture_score is null when no control
+# was evaluated: `jq -e` used to print "null" and abort the assignment silently,
+# and the result writer then died on it, leaving an empty evidence file.
+CONTROL_COUNT="$(jq -er '.compliance_summary.total_controls | numbers' <<<"${REGISTERED_AGENT}")" || \
+  die "registry record has no compliance_summary.total_controls" "Inspect /api/agents for ${TARGET_WORKLOAD}"
+[[ "${CONTROL_COUNT}" -gt 0 ]] || \
+  die "no compliance controls were evaluated for ${TARGET_WORKLOAD} (total_controls=0, posture_score=null)" \
+    "Check public.governance_controls is seeded for the claiming tenant or tenant-demo"
+PASSING_CONTROLS="$(jq -er '.compliance_summary.passing | numbers' <<<"${REGISTERED_AGENT}")" || \
+  die "registry record has no compliance_summary.passing" "Inspect /api/agents for ${TARGET_WORKLOAD}"
+FAILING_CONTROLS="$(jq -er '.compliance_summary.failing | numbers' <<<"${REGISTERED_AGENT}")" || \
+  die "registry record has no compliance_summary.failing" "Inspect /api/agents for ${TARGET_WORKLOAD}"
+PENDING_CONTROLS="$(jq -er '.compliance_summary.pending | numbers' <<<"${REGISTERED_AGENT}")" || \
+  die "registry record has no compliance_summary.pending" "Inspect /api/agents for ${TARGET_WORKLOAD}"
+POSTURE_SCORE="$(jq -er '.compliance_summary.posture_score | numbers' <<<"${REGISTERED_AGENT}")" || \
+  die "registry record has no numeric posture_score for ${CONTROL_COUNT} controls" "Inspect /api/agents for ${TARGET_WORKLOAD}"
 POSTURE_PERCENT="$(jq -n --argjson passing "${PASSING_CONTROLS}" --argjson total "${CONTROL_COUNT}" \
   'if $total > 0 then (($passing * 100 / $total) | round) else 0 end')"
 SCORE_PERCENT="$(jq -n --argjson score "${POSTURE_SCORE}" '($score * 100 | round)')"

@@ -155,8 +155,25 @@ case "${ARGS}" in
       # the in-sentinel correlator does.
       [ "${MUT}" = "step5_freeze_disabled" ] || touch "${STATE}/frozen"
       [ "${MUT}" = "step5_freeze_disabled" ] && touch "${STATE}/freeze_attempted"
-      printf '[{"timestamp":"%s","actor_id":"spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","syscall":"sys_enter_openat","target":"%s","severity":"high","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"direct_reaction":"cgroup_frozen"}]\n' \
-          "${ts}" "${tenant}" "${POD}" "${target}" "${UID_//-/_}"
+      # signal-ingest's real shape: model.Observation with the Shared Pattern 2
+      # fields in labels (the correlator's wire contract, 7f8eb0b0). TWO
+      # observations land in the same second. The chronologically first is the
+      # provocation and is written with a trimmed fraction ("SS.1Z"), exactly
+      # as RFC3339Nano trims it; the second, 23ms later, belongs to another
+      # tenant. A lexical sort orders ".123Z" before ".1Z", so only a
+      # genuinely chronological "first detection" passes the baseline
+      # (independent review L1, 2026-10-02).
+      obs() { # ts tenant target
+          printf '{"id":"stun-sentinel:%s","timestamp":"%s","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat%s","labels":{"syscall":"sys_enter_openat","target":"%s","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","severity":"CRITICAL","direct_reaction":"cgroup_frozen","cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"description":"sys_enter_openat %s"}' \
+              "$1" "$1" "$3" "$3" "$2" "${POD}" "${UID_//-/_}" "$3"
+      }
+      if [ "${MUT}" = "step4_stale_timestamp" ]; then
+          printf '[%s]\n' "$(obs "${ts}" "${tenant}" "${target}")"
+      else
+          sec="$(date -u +%Y-%m-%dT%H:%M:%S)"
+          printf '[%s,%s]\n' "$(obs "${sec}.1Z" "${tenant}" "${target}")" \
+              "$(obs "${sec}.123Z" "tenant-demo" "${target}")"
+      fi
       exit 0 ;;
 esac
 

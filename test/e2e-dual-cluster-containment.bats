@@ -364,13 +364,16 @@ export -f registry_row observations_json sensitive_openat_observations \
     # suite graded the thaw delay, not detection (measured 2026-10-01: the
     # passwd read was observed at once, the shadow read 14.4s later, and the
     # step passed by 0.5s on the wrong event).
-    local obs="" cand cand_ms start_ms_sel
+    # Chronological, not lexical: RFC3339Nano trims trailing zeros, so a
+    # string sort puts "...33.123Z" before "...33.1Z" (review L1).
+    local obs="" cand cand_ms best_ms="" start_ms_sel
     start_ms_sel="$(epoch_ms_of "$start_ts")"
     while IFS= read -r cand; do
         [ -n "$cand" ] || continue
         cand_ms="$(epoch_ms_of "$(printf '%s' "$cand" | jq -r '.timestamp')")" || continue
-        if [ "$cand_ms" -ge "$(( start_ms_sel - 1000 ))" ]; then obs="$cand"; break; fi
-    done < <(sensitive_openat_observations | jq -c 'sort_by(.timestamp) | .[]')
+        [ "$cand_ms" -ge "$(( start_ms_sel - 1000 ))" ] || continue
+        if [ -z "$best_ms" ] || [ "$cand_ms" -lt "$best_ms" ]; then obs="$cand"; best_ms="$cand_ms"; fi
+    done < <(sensitive_openat_observations | jq -c '.[]')
     [ -n "$obs" ]
     [ "$obs" != "null" ]
 

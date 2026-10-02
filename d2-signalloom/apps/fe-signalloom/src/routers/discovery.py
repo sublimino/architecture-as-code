@@ -315,9 +315,9 @@ async def list_discovery_workloads(
     search: str | None = None,
 ) -> Response:
     """Forward to api_compat list_discovery_workloads handler for complete fidelity."""
+    del request  # retained in this wrapper's signature for OpenAPI/path-op parity only
     return await api_compat.list_discovery_workloads(
-        request=request,
-        principal=principal,
+        tenant_id=principal.tenant,
         status=status,
         source=source,
         namespace=namespace,

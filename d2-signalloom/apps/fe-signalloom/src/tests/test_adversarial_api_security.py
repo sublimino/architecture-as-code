@@ -129,6 +129,7 @@ TARGET_MODULES = frozenset(
         "routers.federation",
         "routers.discovery",
         "routers.agents",
+        "routers.compliance",
         "external_agent_registration",
         "host_enrollment",
     }

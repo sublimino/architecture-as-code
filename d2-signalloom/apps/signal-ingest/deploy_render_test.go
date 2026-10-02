@@ -670,3 +670,121 @@ func TestReconciledManifestRunsTheImageBuiltFromThisSource(t *testing.T) {
 			r.container.Image, want)
 	}
 }
+
+// issuerScript is the key issuer; its KEYS registry names each key's consumer Secret.
+const issuerScript = "../../../scripts/sldc-ingest-bearer.sh"
+
+var keyRegistryRow = regexp.MustCompile(`(?m)^\s+"([a-z][a-z0-9-]+)\|([a-z0-9-]*)\|([a-z0-9-]*)\|`)
+
+// issuerRegistry is name -> "namespace/secret" (empty for a key with no in-cluster consumer).
+func issuerRegistry(t *testing.T) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(issuerScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := map[string]string{}
+	for _, m := range keyRegistryRow.FindAllStringSubmatch(string(raw), -1) {
+		reg[m[1]] = ""
+		if m[2] != "" {
+			reg[m[1]] = m[2] + "/" + m[3]
+		}
+	}
+	if len(reg) == 0 {
+		t.Fatalf("no KEYS rows parsed from %s", issuerScript)
+	}
+	return reg
+}
+
+func renderedDeployment(t *testing.T, r rendered, name string) deploymentSpec {
+	t.Helper()
+	o, ok := r.object("Deployment", name)
+	if !ok {
+		t.Fatalf("Deployment %s is not in the reconciled manifest", name)
+	}
+	var d deploymentSpec
+	if err := o.Spec.Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// Every key signal-ingest is configured with can be minted by the issuer, and nothing else can.
+func TestEveryShippedKeyIsInTheIssuerRegistry(t *testing.T) {
+	r := renderReconciledManifest(t)
+	reg := issuerRegistry(t)
+	shipped := map[string]bool{}
+	for _, name := range shippedKeyNames(t, r) {
+		shipped[name] = true
+		if _, ok := reg[name]; !ok {
+			t.Errorf("key %s is configured in signal-ingest but %s cannot mint it", name, issuerScript)
+		}
+	}
+	for name := range reg {
+		if !shipped[name] {
+			t.Errorf("%s mints key %s, which signal-ingest is not configured with", issuerScript, name)
+		}
+	}
+}
+
+// Each in-cluster caller mounts its OWN consumer Secret, the one the issuer writes, read-only, and
+// points SIGNAL_INGEST_KEY_FILE at it; the value never travels as an env var.
+func TestEachInClusterCallerMountsItsOwnKey(t *testing.T) {
+	r := renderReconciledManifest(t)
+	reg := issuerRegistry(t)
+	for _, tc := range []struct{ key, deployment, container string }{
+		{"fe-signalloom-gateway", "fe-signalloom", "discovery-portal"},
+		{"signalfusion-demo", "supercred-demo-runner", "runner"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			want := reg[tc.key]
+			if !strings.HasPrefix(want, "fe-signalloom/") {
+				t.Fatalf("issuer registry gives key %s consumer %q, want a Secret in fe-signalloom", tc.key, want)
+			}
+			secret := strings.TrimPrefix(want, "fe-signalloom/")
+			d := renderedDeployment(t, r, tc.deployment)
+			volume := ""
+			for _, v := range d.Template.Spec.Volumes {
+				if v.Secret != nil && v.Secret.SecretName == secret {
+					volume = v.Name
+				}
+			}
+			if volume == "" {
+				t.Fatalf("Deployment %s mounts no volume from Secret %s", tc.deployment, secret)
+			}
+			var c *containerSpec
+			for i := range d.Template.Spec.Containers {
+				if d.Template.Spec.Containers[i].Name == tc.container {
+					c = &d.Template.Spec.Containers[i]
+				}
+			}
+			if c == nil {
+				t.Fatalf("Deployment %s has no container %s", tc.deployment, tc.container)
+			}
+			mountPath := ""
+			for _, m := range c.VolumeMounts {
+				if m.Name == volume {
+					if !m.ReadOnly {
+						t.Errorf("%s mounts %s writable", tc.container, volume)
+					}
+					mountPath = m.MountPath
+				}
+			}
+			if mountPath == "" {
+				t.Fatalf("container %s does not mount volume %s", tc.container, volume)
+			}
+			var keyFile string
+			for _, e := range c.Env {
+				if e.Name == "SIGNAL_INGEST_KEY_FILE" {
+					keyFile = e.Value
+				}
+				if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == secret {
+					t.Errorf("env %s carries the key value; it must be read from the mounted file", e.Name)
+				}
+			}
+			if keyFile != mountPath+"/token" {
+				t.Errorf("SIGNAL_INGEST_KEY_FILE = %q, want %s/token", keyFile, mountPath)
+			}
+		})
+	}
+}

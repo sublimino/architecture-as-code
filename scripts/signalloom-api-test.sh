@@ -68,7 +68,7 @@ case "${TIER}" in
     if [ -z "${DATABASE_URL:-}" ]; then
       echo "SKIP: DATABASE_URL not set — skipping Tier 2"
     else
-      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py tests/test_migrations_integration.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py tests/test_migrations_integration.py tests/test_claim_registry_integration.py
     fi
     ;;
 
@@ -81,7 +81,7 @@ case "${TIER}" in
     if [ -z "${DATABASE_URL:-}" ]; then
       echo "SKIP: DATABASE_URL not set — skipping Tier 2"
     else
-      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py tests/test_migrations_integration.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py tests/test_migrations_integration.py tests/test_claim_registry_integration.py
     fi
 
     echo ""

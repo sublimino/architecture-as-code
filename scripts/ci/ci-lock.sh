@@ -90,7 +90,7 @@ read_lock() {
   out="$(remote "cat '${LOCK_PATH}/holder' 2>/dev/null || echo ${LOCK_FREE_SENTINEL}" 2>/dev/null)" \
     || return 2
   [ -n "$out" ] || return 2
-  if printf '%s\n' "$out" | grep -qF "$LOCK_FREE_SENTINEL"; then
+  if grep -qF "$LOCK_FREE_SENTINEL" <<<"$out"; then
     return 0
   fi
   printf '%s\n' "$out"
@@ -155,7 +155,7 @@ cmd_acquire() {
     shift
   done
 
-  if remote "mkdir '${LOCK_PATH}' 2>/dev/null && echo ACQUIRED" | grep -q ACQUIRED; then
+  if grep -q ACQUIRED <<<"$(remote "mkdir '${LOCK_PATH}' 2>/dev/null && echo ACQUIRED")"; then
     write_holder "$reason"
     echo "ci-lock: acquired by ${LOCK_HOLDER}"
     return 0
@@ -186,7 +186,7 @@ cmd_acquire() {
     local attempt
     for attempt in $(seq 1 "$LOCK_RETRY_MAX"); do
       sleep "$((LOCK_RETRY_DELAY * attempt))"  # linear backoff, bounded
-      if remote "mkdir '${LOCK_PATH}' 2>/dev/null && echo ACQUIRED" | grep -q ACQUIRED; then
+      if grep -q ACQUIRED <<<"$(remote "mkdir '${LOCK_PATH}' 2>/dev/null && echo ACQUIRED")"; then
         write_holder "$reason"
         echo "ci-lock: acquired by ${LOCK_HOLDER} (retry ${attempt}/${LOCK_RETRY_MAX})"
         return 0

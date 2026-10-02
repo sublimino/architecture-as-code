@@ -16,6 +16,10 @@ func (s stubAuthenticator) Authenticate(*http.Request) (api.Principal, error) {
 	return api.Principal{Subject: "stub"}, s.err
 }
 
+// testBearerToken has the shape scripts/sldc-ingest-bearer.sh mints: 32 random
+// bytes, base64url, 43 characters.
+const testBearerToken = "qV3x9Lw2pN7cR1tY8kD4hF6jS0aZ5mE2uB7oG3iX1wQ"
+
 func clearStaticBearerEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
@@ -33,7 +37,7 @@ func clearStaticBearerEnv(t *testing.T) {
 func setCompleteStaticBearerEnv(t *testing.T) {
 	t.Helper()
 	clearStaticBearerEnv(t)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TOKEN", "sentinel-in-cluster-token")
+	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TOKEN", testBearerToken)
 	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_SUBJECT", "static-bearer/stun-sentinel-correlator")
 	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TENANT", "kusari")
 	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS", "observations:write,collectors:write")
@@ -72,7 +76,7 @@ func TestHTTPAuthenticatorWrapsWhenConfigured(t *testing.T) {
 	}
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/observations", nil)
-	r.Header.Set("Authorization", "Bearer sentinel-in-cluster-token")
+	r.Header.Set("Authorization", "Bearer "+testBearerToken)
 	p, err := got.Authenticate(r)
 	if err != nil {
 		t.Fatalf("wired static bearer rejected the correlator token: %v", err)

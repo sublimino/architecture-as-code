@@ -68,11 +68,29 @@ func TestStaticBearerDeployedExpiryMatchesSunset(t *testing.T) {
 	}
 }
 
-// TestStaticBearerDeployedConfigAuthenticatesTheCorrelator runs the shipped
-// ConfigMap through the real env loader and authenticator, so the assertion is
-// about the manifest that actually reaches the cluster rather than about a
-// config hand-built in a test.
-func TestStaticBearerDeployedConfigAuthenticatesTheCorrelator(t *testing.T) {
+// TestStaticBearerTokenIsNotInTheShippedManifest: the token is a credential, so it lives in
+// Secret signal-ingest-static-bearer (minted by scripts/sldc-ingest-bearer.sh), never in a
+// ConfigMap and never in git. `get configmaps` in the namespace must not read it.
+func TestStaticBearerTokenIsNotInTheShippedManifest(t *testing.T) {
+	cm := loadDeployedAuthConfigMap(t)
+	if v, ok := cm.Data["SIGNAL_AUTH_STATIC_BEARER_TOKEN"]; ok {
+		t.Errorf("ConfigMap %s carries SIGNAL_AUTH_STATIC_BEARER_TOKEN=%q; the token belongs in Secret signal-ingest-static-bearer",
+			deployedAuthConfigMapName, v)
+	}
+	raw, err := os.ReadFile(deployedAuthConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(retiredPublicToken)) {
+		t.Errorf("%s still names the retired public token %q", deployedAuthConfigPath, retiredPublicToken)
+	}
+}
+
+// TestStaticBearerDeployedConfigAuthenticatesTheSecretToken runs the shipped
+// ConfigMap, plus the token the Secret supplies at runtime, through the real env
+// loader and authenticator, so the assertion is about the manifest that actually
+// reaches the cluster rather than about a config hand-built in a test.
+func TestStaticBearerDeployedConfigAuthenticatesTheSecretToken(t *testing.T) {
 	cm := loadDeployedAuthConfigMap(t)
 	clearStaticBearerEnv(t)
 	for k, v := range cm.Data {
@@ -80,6 +98,8 @@ func TestStaticBearerDeployedConfigAuthenticatesTheCorrelator(t *testing.T) {
 			t.Setenv(k, v)
 		}
 	}
+	// What the Deployment's secretKeyRef (signal-ingest-static-bearer/token) injects.
+	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TOKEN", testSentinelToken)
 
 	cfg, err := StaticBearerConfigFromEnv()
 	if err != nil {
@@ -95,11 +115,9 @@ func TestStaticBearerDeployedConfigAuthenticatesTheCorrelator(t *testing.T) {
 		t.Fatalf("shipped static bearer config rejected by the constructor: %v", err)
 	}
 
-	// The token the correlator actually sends must be the token the manifest
-	// configures; otherwise the deployed pair still 401s.
 	p, err := a.Authenticate(bearerRequest(http.MethodPost, "/api/v1/observations", testSentinelToken))
 	if err != nil {
-		t.Fatalf("the correlator's token is not the deployed token: %v", err)
+		t.Fatalf("the Secret's token does not authenticate with the shipped config: %v", err)
 	}
 	if p.TenantID != "kusari" {
 		t.Errorf("deployed tenant = %q, want kusari", p.TenantID)

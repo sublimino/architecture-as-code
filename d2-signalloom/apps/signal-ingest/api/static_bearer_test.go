@@ -19,9 +19,15 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
-// The real correlator token, so these tests exercise the value actually on the
-// wire (stun-sentinel pkg/correlator/ebpf_correlator.go DefaultBearerToken).
-const testSentinelToken = "sentinel-in-cluster-token"
+// A token of the shape scripts/sldc-ingest-bearer.sh generates (32 random bytes,
+// base64url). The value on the wire is no longer a literal in the correlator's
+// source: it is minted at bootstrap into Secret signal-ingest-static-bearer and
+// its twin stun-sentinel-ingest-token, and never committed.
+const testSentinelToken = "qV3x9Lw2pN7cR1tY8kD4hF6jS0aZ5mE2uB7oG3iX1wQ"
+
+// retiredPublicToken was DefaultBearerToken in the correlator's source, so it is
+// in git and in every image ever built. It must never authenticate again.
+const retiredPublicToken = "sentinel-in-cluster-token"
 
 const testStaticSubject = "static-bearer/stun-sentinel-correlator"
 
@@ -145,6 +151,8 @@ func TestStaticBearerConfigFromEnvRefusesPartialConfig(t *testing.T) {
 		{"empty token with a principal named", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": ""}},
 		{"whitespace token", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": "        \t   "}},
 		{"token too short to resist guessing", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": "short"}},
+		{"token one byte under the 32-byte contract", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": strings.Repeat("k", 31)}},
+		{"the retired public correlator literal", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": retiredPublicToken}},
 		{"unknown permission", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "telemetry:write"}},
 		{"one unknown permission among known ones", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "observations:write,violations:publish"}},
 		{"expiry not a date", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_EXPIRES": "soon"}},
@@ -214,7 +222,7 @@ func TestNewStaticBearerAuthenticatorRefusesInvalidConfig(t *testing.T) {
 		{name: "nil delegate", mutate: func(*StaticBearerConfig) {}, nilDelegate: true},
 		{name: "empty token", mutate: func(c *StaticBearerConfig) { c.Token = "" }},
 		{name: "short token", mutate: func(c *StaticBearerConfig) { c.Token = "abc" }},
-		{name: "no subject", mutate: func(c *StaticBearerConfig) { c.Subject = "" }},
+		{name: "31-byte token", mutate: func(c *StaticBearerConfig) { c.Token = strings.Repeat("k", 31) }}, {name: "no subject", mutate: func(c *StaticBearerConfig) { c.Subject = "" }},
 		{name: "no tenant", mutate: func(c *StaticBearerConfig) { c.TenantID = "" }},
 		{name: "no permissions", mutate: func(c *StaticBearerConfig) { c.Permissions = nil }},
 		{name: "unknown permission", mutate: func(c *StaticBearerConfig) {
@@ -342,15 +350,17 @@ func TestStaticBearerRejectsNearMissTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	tok := testSentinelToken
 	for _, token := range []string{
-		"sentinel-in-cluster-toke",   // one byte short
-		"sentinel-in-cluster-tokenn", // one byte long
-		"sentinel-in-cluster-tokem",  // same length, last byte differs
-		"Sentinel-In-Cluster-Token",  // case
-		"sentinel-in-cluster-token ", // trailing space
-		" sentinel-in-cluster-token", // leading space
-		"sentinel-in-cluster-token\n",
-		"sentinel_in_cluster_token",
+		tok[:len(tok)-1],       // one byte short
+		tok + "Q",              // one byte long
+		tok[:len(tok)-1] + "R", // same length, last byte differs
+		strings.ToLower(tok),   // case
+		tok + " ",              // trailing space
+		" " + tok,              // leading space
+		tok + "\n",
+		strings.ReplaceAll(tok, "x", "_"),
+		retiredPublicToken, // the old public literal no longer opens anything
 		"",
 	} {
 		t.Run(fmt.Sprintf("%q", token), func(t *testing.T) {
@@ -464,7 +474,7 @@ func TestStaticBearerRouterStatusCodes(t *testing.T) {
 	})
 	t.Run("wrong token is 401", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, observationRequest("sentinel-in-cluster-tokem"))
+		router.ServeHTTP(w, observationRequest(testSentinelToken[:len(testSentinelToken)-1]+"R"))
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("want 401, got %d body %s", w.Code, w.Body.String())
 		}
@@ -668,7 +678,7 @@ func TestStaticBearerTokenNeverReachesAuditOrBody(t *testing.T) {
 	var bodies strings.Builder
 	for _, r := range []*http.Request{
 		observationRequest(testSentinelToken),                                   // accepted
-		observationRequest("sentinel-in-cluster-tokem"),                         // 401
+		observationRequest(testSentinelToken[:len(testSentinelToken)-1] + "R"),  // 401
 		bearerRequest(http.MethodGet, "/api/v1/actors", testSentinelToken),      // 403
 		bearerRequest(http.MethodGet, "/api/v1/nonexistent", testSentinelToken), // 403 unregistered
 		bearerRequest(http.MethodPost, "/api/v1/observations", ""),              // 401 missing

@@ -89,7 +89,7 @@ fi
 if [ -n "${CASE_A_CVE}" ]; then
   echo "shared finding: ${CASE_A_CVE}"
   for image in "${IMAGES[@]}"; do
-    if vuln_ids "$image" | grep -qx "${CASE_A_CVE}"; then
+    if grep -qx "${CASE_A_CVE}" <<<"$(vuln_ids "$image")"; then
       vexctl create \
         --product="$(product_purl "$image")" \
         --vuln="${CASE_A_CVE}" \
@@ -143,7 +143,7 @@ CASE_B_IDS=$(jq -r --arg cve "${CASE_B_CVE}" \
 if [ -z "${CASE_B_IDS}" ]; then
   echo "warning: scanner did not flag ${CASE_B_CVE} on the processor SBOM"
   CASE_B_IDS="${CASE_B_CVE}"
-elif ! echo "${CASE_B_IDS}" | grep -qx "${CASE_B_CVE}"; then
+elif ! grep -qx "${CASE_B_CVE}" <<<"${CASE_B_IDS}"; then
   CASE_B_IDS="${CASE_B_IDS} ${CASE_B_CVE}"
 fi
 for vuln_id in ${CASE_B_IDS}; do

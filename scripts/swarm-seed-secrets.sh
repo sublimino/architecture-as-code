@@ -37,7 +37,7 @@ err() { printf '  [swarm-seed] \033[31m✗\033[0m %s\n' "$*" >&2; }
 # ─── Enable KV v2 if not already ─────────────────────────────────────────────
 
 enable_kv_v2() {
-  if bao secrets list -format=json 2>/dev/null | grep -q '"secret/"'; then
+  if grep -q '"secret/"' <<<"$(bao secrets list -format=json 2>/dev/null)"; then
     log "KV v2 already enabled at secret/"
   else
     log "enabling KV v2 at secret/"

@@ -59,7 +59,7 @@ sldc_require_tools() {
 sldc_node() { printf '%s-control-plane\n' "$1"; }
 
 sldc_cluster_exists() {
-  "$KIND_BIN" get clusters 2>/dev/null | grep -qx -- "$1"
+  grep -qx -- "$1" <<<"$("$KIND_BIN" get clusters 2>/dev/null)"
 }
 
 # IPv4 address of container $1 on network $2 (empty when not attached).

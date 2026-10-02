@@ -324,8 +324,8 @@ if [[ -z "${DEMO_SG_REEXEC:-}" ]] \
   && command -v docker >/dev/null 2>&1 \
   && ! docker version >/dev/null 2>&1 \
   && command -v sg >/dev/null 2>&1 \
-  && getent group docker 2>/dev/null | awk -F: '{print $4}' | tr ',' '\n' | grep -qx "$(id -un)" \
-  && ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+  && grep -qx "$(id -un)" <<<"$(getent group docker 2>/dev/null | awk -F: '{print $4}' | tr ',' '\n')" \
+  && ! grep -qx docker <<<"$(id -nG 2>/dev/null | tr ' ' '\n')"; then
   echo "==> docker socket unreachable and the docker group is not yet active in this session"
   echo "==> re-executing under 'sg docker' (first login after a VM rebuild; no relogin needed)"
   export DEMO_SG_REEXEC=1

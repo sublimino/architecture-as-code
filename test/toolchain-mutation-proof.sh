@@ -130,7 +130,7 @@ prove() {
   local out status=0
   out="$(bats "${suites[@]}" 2>&1)" || status=$?
 
-  if printf '%s\n' "$out" | grep -qE "^not ok [0-9]+ .*${expect_test}"; then
+  if grep -qE "^not ok [0-9]+ .*${expect_test}" <<<"$out"; then
     printf '  [CAUGHT]   %s\n' "$label"
     printf '      by: %s\n' "$(printf '%s\n' "$out" | grep -E "^not ok [0-9]+ .*${expect_test}" | head -1 | sed 's/^not ok [0-9]* //')"
     PASS=$((PASS + 1))

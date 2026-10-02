@@ -299,8 +299,8 @@ demo_reload_via_archive() {
   done
 
   # Say which of the two states we are actually in.
-  if "$DOCKER_BIN" exec "$DEMO_NODE" ctr -n k8s.io images ls -q 2>/dev/null \
-      | grep -Fqx "docker.io/library/${image%%:*}:${image##*:}"; then
+  if grep -Fqx "docker.io/library/${image%%:*}:${image##*:}" \
+      <<<"$("$DOCKER_BIN" exec "$DEMO_NODE" ctr -n k8s.io images ls -q 2>/dev/null)"; then
     demo_warn "$image is in the content store and labelled, but the CRI has not adopted it after ${waited}s — slow unpack, not a failed import; re-run"
   else
     demo_warn "$image is not in the content store after ${waited}s — the import itself failed"

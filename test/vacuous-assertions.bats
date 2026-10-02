@@ -658,6 +658,7 @@ SH
 	# script is a nested shell at the default disposition, so the mechanism is
 	# live everywhere it matters and invisible in the one place — the harness
 	# shell — where no script is ever run.
+	# pipefail-safe: deliberate — this line reproduces the race and asserts rc=141
 	run bash -c 'set -o pipefail; { echo MARKER; seq 1 300000; } | grep -Fq MARKER; echo "rc=$?"'
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"rc=141"* ]]

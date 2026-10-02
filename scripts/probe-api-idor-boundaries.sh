@@ -69,6 +69,7 @@ trap cleanup EXIT
 wait_for_ready() {
   local i=0
   while (( i < 15 )); do
+    # pipefail-safe: curl -o /dev/null -w prints only the 3-byte status code, in one write, then exits
     if curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/health" 2>/dev/null | grep -q '^200$'; then
       return 0
     fi
@@ -117,7 +118,7 @@ probe() {
   if [[ "${status}" == "401" || "${status}" == "403" ]]; then
     verdict="pass"
   fi
-  if echo "${body}" | grep -qiE 'traceback|asyncpg|psycopg|File "|  at '; then
+  if grep -qiE 'traceback|asyncpg|psycopg|File "|  at ' <<<"${body}"; then
     verdict="fail-leak"
   fi
   add_result "${name}" "${method}" "${path}" "${status}" "${body:0:500}" "${verdict}"

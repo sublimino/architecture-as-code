@@ -229,7 +229,7 @@ fact_pinned_tool() { # id tool version_cmd pin_var
     return 0
   fi
 
-  if printf '%s' "$out" | grep -qE "(^|[^0-9.])${pin}([^0-9.]|$)"; then
+  if grep -qE "(^|[^0-9.])${pin}([^0-9.]|$)" <<<"$out"; then
     record "$id" PASS "${tool}: ${pin}" ""
   else
     record "$id" FAIL "${tool}: pinned ${pin}, found '$(printf '%s' "$out" | head -1)'" \

@@ -23,9 +23,9 @@ TEST_DIR="${REPO_ROOT}/test/acceptance"
 PORT="${DOCS_PREVIEW_PORT:-}"
 if [[ -z "${PORT}" ]]; then
   PORT=4325
-  if ss -tln 2>/dev/null | grep -q ":${PORT} "; then
+  if grep -q ":${PORT} " <<<"$(ss -tln 2>/dev/null)"; then
     for p in $(seq 4326 4399); do
-      if ! ss -tln 2>/dev/null | grep -q ":${p} "; then
+      if ! grep -q ":${p} " <<<"$(ss -tln 2>/dev/null)"; then
         PORT="${p}"
         break
       fi

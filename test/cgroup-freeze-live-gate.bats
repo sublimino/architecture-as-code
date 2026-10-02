@@ -57,14 +57,14 @@ node_touches() { grep -E '^docker (exec|cp)|pkill' "${CALLS}" || true; }
 @test "live-gate: closed under KUBECONFIG=/dev/null even with SLDC_LIVE=1" {
   SLDC_LIVE=1 KUBECONFIG=/dev/null run sldc_live_gate kind-osramp osramp-control-plane
   [ "$status" -eq 1 ]
-  ! grep -q '^docker' "${CALLS}"
+  if grep -q '^docker' "${CALLS}"; then cat "${CALLS}"; return 1; fi
 }
 
 @test "live-gate: closed when the context does not answer /readyz" {
   printf '#!/usr/bin/env bash\necho "kubectl $*" >>"$SLDC_CALLS"; exit 1\n' >"${FAKE}/kubectl"
   SLDC_LIVE=1 KUBECONFIG="${BATS_TEST_TMPDIR}/kubeconfig" run sldc_live_gate kind-osramp osramp-control-plane
   [ "$status" -eq 1 ]
-  ! grep -q '^docker' "${CALLS}"
+  if grep -q '^docker' "${CALLS}"; then cat "${CALLS}"; return 1; fi
 }
 
 @test "live-gate: open only with the opt-in, a reachable API and the node (positive control)" {

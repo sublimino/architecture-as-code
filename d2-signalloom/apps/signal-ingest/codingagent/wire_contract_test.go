@@ -497,23 +497,20 @@ func TestCodingAgentWireContract_RoutingGapIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("nginx.conf unreadable at %s: %v", nginxRel, err)
 	}
-	lines := strings.Split(string(conf), "\n")
-	apiLine := -1
-	for i, l := range lines {
-		if strings.TrimSpace(l) == "location /api/ {" {
-			apiLine = i + 1
-			break
+	// The /api/ route is asserted by what it does, wherever it sits in the
+	// file. It used to be pinned to a line number, which every unrelated edit
+	// above it broke without the route changing.
+	body := nginxLocationBody(t, string(conf), "location /api/ {")
+	for _, want := range []string{
+		"set $api http://fe-signalloom-api.fe-signalloom.svc.cluster.local:8000;",
+		"proxy_pass $api$request_uri;",
+		// The coding-agent telemetry API authenticates the caller's bearer, so
+		// the proxy must hand it through.
+		"proxy_set_header Authorization $http_authorization;",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("`location /api/` no longer carries %q:\n%s", want, body)
 		}
-	}
-	if apiLine == -1 {
-		t.Fatal("no `location /api/` block found in nginx.conf")
-	}
-	if apiLine != 146 {
-		t.Fatalf("`location /api/` moved to line %d", apiLine)
-	}
-	window := strings.Join(lines[apiLine:apiLine+4], "\n")
-	if !strings.Contains(window, "fe-signalloom-api") {
-		t.Fatalf("the /api/ upstream is no longer fe-signalloom-api:\n%s", window)
 	}
 
 	// Route must be registered in signal-ingest api/auth.go
@@ -524,6 +521,40 @@ func TestCodingAgentWireContract_RoutingGapIsClosed(t *testing.T) {
 	if !bytes.Contains(authGo, []byte(WireEndpointPath)) {
 		t.Fatalf("api/auth.go must register %s", WireEndpointPath)
 	}
+}
+
+// nginxLocationBody returns the directives inside the single nginx block opened
+// by header, comments stripped and matched by brace depth. Zero or several
+// such blocks fail: a duplicate would shadow the route under test.
+func nginxLocationBody(t *testing.T, conf, header string) string {
+	t.Helper()
+	var bodies []string
+	lines := strings.Split(conf, "\n")
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(stripNginxComment(lines[i])) != header {
+			continue
+		}
+		depth, kept := 1, []string{}
+		for j := i + 1; j < len(lines) && depth > 0; j++ {
+			l := stripNginxComment(lines[j])
+			depth += strings.Count(l, "{") - strings.Count(l, "}")
+			if depth > 0 {
+				kept = append(kept, strings.TrimSpace(l))
+			}
+		}
+		bodies = append(bodies, strings.Join(kept, "\n"))
+	}
+	if len(bodies) != 1 {
+		t.Fatalf("want exactly one %q block in nginx.conf, found %d", header, len(bodies))
+	}
+	return bodies[0]
+}
+
+func stripNginxComment(l string) string {
+	if i := strings.Index(l, "#"); i >= 0 {
+		return l[:i]
+	}
+	return l
 }
 
 // ---------------------------------------------------------------------------

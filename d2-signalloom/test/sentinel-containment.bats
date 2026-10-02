@@ -125,16 +125,19 @@ cluster_up() {
   [ "$freeze_line" -lt "$tc_line" ]
 }
 
-@test "sentinel: un-stun sequencing detaches TC and releases probes before unfreezing last" {
-  local main_file="${SENTINEL_DIR}/main.go"
-  [ -f "$main_file" ]
-
-  # In unstun: probes.release and tc.detachDrop happen before freezer.unfreeze
-  local detach_line unfreeze_line
-  detach_line="$(grep -n 'r.tc.detachDrop' "$main_file" | head -1 | cut -d: -f1)"
-  unfreeze_line="$(grep -n 'r.freezer.unfreeze' "$main_file" | head -1 | cut -d: -f1)"
-
-  [ "$detach_line" -lt "$unfreeze_line" ]
+@test "sentinel: un-stun thaws first, so the network layer can never block a release" {
+  # This was a grep asserting the OPPOSITE order (tc detach before unfreeze),
+  # which integration/slms a74039a0 reversed on purpose (W6): a pod frozen
+  # before its sandbox joined a netns has no resolvable veth, and looking the
+  # veth up first left it frozen forever. A source-line comparison also proves
+  # nothing about behaviour, so this runs the reconciler test that pins the
+  # order instead: veth lookup fails, the pod is thawed anyway, the partial
+  # release is reported and the detach is retried.
+  command -v go >/dev/null || { echo "go is required to run the sentinel reconciler test" >&2; return 1; }
+  run env CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" \
+    go test -C "${SENTINEL_DIR}" -count=1 -run '^TestUnstunThawsEvenWhenVethCannotBeResolved$' -v .
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"--- PASS: TestUnstunThawsEvenWhenVethCannotBeResolved"* ]]
 }
 
 @test "sentinel: DaemonSet manifest declares necessary host privileges" {

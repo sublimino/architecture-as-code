@@ -290,7 +290,7 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
 
 ---
 
-## 14. Milestone Completion: SLAAT-P1-GOV (feab3) [DONE] — Phase 1 Certified
+## 14. Milestone Completion: SLAAT-P1-GOV (feab3) [DONE] : Phase 1 Certified
 
 - **Timestamp**: 2026-10-02T05:30:00Z
 - **Completed Card**: `SLAAT-P1-GOV` (`feab3`) [DONE]

@@ -142,8 +142,15 @@ def client(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", reject_external_network)
     set_pool_for_testing(ReadyPool())
+    # Any route seeds the module-level fixture stores, and fixture-mode
+    # GET /api/agents lists them beside discovered workloads, so each test
+    # starts from empty stores rather than whatever an earlier test seeded.
+    for tenant in ("tenant-a", "tenant-b"):
+        api_compat.reset_tenant_state(tenant)
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
+    for tenant in ("tenant-a", "tenant-b"):
+        api_compat.reset_tenant_state(tenant)
 
 
 def test_missing_and_malformed_bearer_tokens_return_typed_401(client):

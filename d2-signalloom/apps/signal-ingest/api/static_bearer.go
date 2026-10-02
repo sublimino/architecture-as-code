@@ -52,9 +52,11 @@ import (
 // TestStaticBearerSunsetHasNotPassed fails once it is reached.
 const StaticBearerSunset = "2026-11-12"
 
-// minStaticBearerTokenLength rejects a token short enough to be guessed. The
-// correlator's token is 25 bytes.
-const minStaticBearerTokenLength = 16
+// minStaticBearerTokenLength is the ingest-credential contract's floor: the token
+// is ≥32 random bytes minted at bootstrap by scripts/sldc-ingest-bearer.sh. It
+// also refuses the retired 25-byte public literal "sentinel-in-cluster-token",
+// which was compiled into the correlator and so is in git and every image.
+const minStaticBearerTokenLength = 32
 
 // ErrStaticBearerExpired is returned when the configured token is presented
 // after its deadline. It maps to 401 like any other bad credential.

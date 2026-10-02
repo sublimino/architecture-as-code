@@ -27,11 +27,24 @@ spec:
           type: RuntimeDefault
       containers:
         - name: signal-ingest
-          image: signal-ingest:local
+          # Immutable, per-source tag in the in-cluster zot: src-<16 hex> is
+          # `go run ./cmd/image-tag`, a digest of exactly the files the
+          # Dockerfile's go build compiles. Never a side-loaded :local or a
+          # mutable :latest, which cannot tell a rebuilt image from a stale one.
+          # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
+          # source moves and this pin does not; re-pin, build and push with
+          # `make -C d2-signalloom signal-ingest-image-push`.
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-9bf19ffc3a4f6987
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8082
+            # Probe-only listener (api.NewProbeHandler). The API port answers
+            # the anonymous kubelet with 401 because every route there is
+            # authenticated, so the probes cannot use it. This port is not in
+            # the Service and allow-signal-ingest-ingress does not admit it.
+            - name: probe
+              containerPort: 8083
           # Startup and liveness use /healthz, which checks nothing external.
           # Readiness uses /readyz, which verifies the audit backend is
           # reachable. The split is deliberate: an unreachable database must
@@ -47,17 +60,17 @@ spec:
           startupProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: probe
             failureThreshold: 10
             periodSeconds: 2
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: probe
           readinessProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: probe
             # /readyz pings Postgres, bounded by api.readyCheckTimeout (2s).
             # The default timeoutSeconds of 1 would cut the handler off before
             # its own bound elapsed, turning a diagnosable 503 body into a
@@ -97,9 +110,32 @@ spec:
                 secretKeyRef:
                   name: discovery-portal-database
                   key: IDENTITY_ENCRYPTION_KEY
+            - name: SIGNAL_INGEST_PROBE_PORT
+              value: "8083"
+            # TEMPORARY static bearer (../deploy/jwt-auth-config.yaml): the
+            # token is a credential, so it comes from a Secret minted at
+            # bootstrap by scripts/sldc-ingest-bearer.sh, never from git or a
+            # ConfigMap. Not optional: a missing Secret holds the new pod in
+            # CreateContainerConfigError, naming the Secret, while the old pod
+            # keeps serving — rather than starting a half-configured gate.
+            - name: SIGNAL_AUTH_STATIC_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: signal-ingest-static-bearer
+                  key: token
+          # SIGNAL_AUTH_* (JWT-SVID audience, trust domain, JWKS file, bindings)
+          # and the non-secret static-bearer scope. main exits 1 without them.
+          envFrom:
+            - configMapRef:
+                name: signal-ingest-jwt-auth
           volumeMounts:
             - name: signal-store
               mountPath: /data/signals
+            # SIGNAL_AUTH_JWKS_FILE. Synced from SPIRE by the bootstrap; the
+            # shipped key set is empty and the binary refuses to boot on it.
+            - name: signal-auth-jwks
+              mountPath: /etc/signal-ingest/auth
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -114,3 +150,6 @@ spec:
       volumes:
         - name: signal-store
           emptyDir: {}
+        - name: signal-auth-jwks
+          configMap:
+            name: signal-ingest-jwks

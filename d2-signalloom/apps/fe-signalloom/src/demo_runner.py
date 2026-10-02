@@ -130,6 +130,10 @@ _ENV_ALLOWLIST = (
     # this -- the manifest was right, the image was right, the code was right,
     # and the value was dropped in between by this tuple.
     "SIGNAL_INGEST_URL",
+    # Path of the mounted signalfusion-demo signal-ingest key (a path, not the key). Every
+    # signal-ingest route is authenticated; without the path the script would try to read the
+    # issuer Secret through kubectl, which this ServiceAccount is deliberately not granted.
+    "SIGNAL_INGEST_KEY_FILE",
 )
 
 # Constants the runner SETS for the child, as opposed to values it forwards from

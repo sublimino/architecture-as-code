@@ -146,6 +146,16 @@ func redactHomeDirectoryUser(p string) string {
 	return homeDirectoryUser.ReplaceAllString(p, "${1}${2}/[REDACTED_USER]")
 }
 
+// homeDirectoryUserInText is homeDirectoryUser for free text, where the account name ends at the
+// first whitespace rather than at the next path separator.
+var homeDirectoryUserInText = regexp.MustCompile(`(^|/)(home|Users)/[^/\s]+`)
+
+// redactHomeDirectoryUserInText applies the same rule to a free-text column (the sentinel's
+// description carries its target path).
+func redactHomeDirectoryUserInText(text string) string {
+	return homeDirectoryUserInText.ReplaceAllString(text, "${1}${2}/[REDACTED_USER]")
+}
+
 // redactLabelValue returns the value a segment may hold for key.
 func redactLabelValue(key, value string) string {
 	if redact, ok := labelValueRedactors[key]; ok {

@@ -77,6 +77,7 @@ from api_compat import (
     authenticated_principal,
     authenticated_tenant,
 )
+from superadmin import require_superadmin
 
 logger = logging.getLogger(__name__)
 
@@ -786,9 +787,14 @@ async def afm_post_cluster_jobs(
 )
 async def afm_get_cluster_jobs(
     cluster_id: str,
+    _principal: Annotated[Principal, Depends(require_superadmin)],
     limit: int = 50,
 ) -> Any:
-    """List AFM jobs for cluster."""
+    """List AFM jobs for cluster.
+
+    Superadmin only. It answered anyone, breaking the estate's default deny, and
+    the job list is cluster-wide data that no tenant boundary scopes.
+    """
     async with httpx.AsyncClient(timeout=AFM_TIMEOUT_S) as client:
         try:
             clusters_raw = await _afm_get_json(client, "/clusters")

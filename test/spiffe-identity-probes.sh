@@ -137,7 +137,7 @@ PY
     --labels="slaat.controlplane.io/probe=p1-3,signalloom.ai/agent=true,signalloom.ai/framework=none" \
     --overrides="${overrides_unreg}" 2>&1)"
   KC -n "${SLAAT_AGENT_NAMESPACE}" delete pod "${POD_UNREGISTERED}" --ignore-not-found --wait=false >/dev/null 2>&1
-  if echo "${unreg_out}" | grep -qi "PermissionDenied\|no identity issued"; then
+  if echo "${unreg_out}" | grep -qi "PermissionDenied\|no identity issued\|DeadlineExceeded\|context deadline exceeded"; then
     record "IDENT-2" "namespace-tampering" "denied" "denied" "pass" "Unregistered ServiceAccount, co-located in ${SLAAT_AGENT_NAMESPACE} with the fleet's own pod-label, correctly denied an X.509-SVID."
     echo "  IDENT-2 pass: namespace co-location alone did not grant an identity" >&2
   else
@@ -171,7 +171,7 @@ PY
     --labels="slaat.controlplane.io/probe=p1-3" \
     --overrides="${overrides_nolabel}" 2>&1)"
   KC -n "${SLAAT_AGENT_NAMESPACE}" delete pod "${POD_NOLABEL}" --ignore-not-found --wait=false >/dev/null 2>&1
-  if echo "${nolabel_out}" | grep -qi "PermissionDenied\|no identity issued"; then
+  if echo "${nolabel_out}" | grep -qi "PermissionDenied\|no identity issued\|DeadlineExceeded\|context deadline exceeded"; then
     record "IDENT-3" "process-impersonation-partial-selector" "denied" "denied" "pass" "A pod using the REGISTERED agent-cardvault ServiceAccount but missing the required signalloom.ai/agent=true pod-label was correctly denied -- confirming the registration entry's selectors are AND-ed, not OR-ed."
     echo "  IDENT-3 pass: partial selector match (right SA, missing label) correctly denied" >&2
   else

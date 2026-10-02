@@ -27,6 +27,8 @@ GOOD_TOKEN="qV3x9Lw2pN7cR1tY8kD4hF6jS0aZ5mE2uB7oG3iX1wQ"
 
 setup() {
 	export KUBECONFIG=/dev/null
+	# Pin "today" so the minted expiry (today + 90 days) is exact.
+	export SLDC_INGEST_TODAY=2026-10-02
 	FAKE="$BATS_TEST_TMPDIR/fake"
 	mkdir -p "$FAKE/bin" "$FAKE/state"
 	export FAKE_STATE="$FAKE/state" FAKE_LOG="$FAKE/state/calls.log"
@@ -52,7 +54,12 @@ if [[ -n "${FAKE_UNREACHABLE:-}" ]]; then
 fi
 case "$1 $2" in
 "get secret")
+	field=token
+	for a in "$@"; do
+		[[ "$a" == "jsonpath={.data."*"}" ]] && { field="${a#jsonpath=\{.data.}"; field="${field%\}}"; }
+	done
 	f="$FAKE_STATE/$ctx/$ns/$3"
+	[[ "$field" == token ]] || f="$f.$field"
 	[[ -f "$f" ]] || exit 0 # --ignore-not-found: absent is empty and success
 	printf '%s' "$(cat "$f")"
 	exit 0
@@ -68,6 +75,11 @@ case "$1 $2" in
 	[[ "$(yq -r '.kind' <<<"$doc")" == Secret ]] || { echo "not a Secret" >&2; exit 1; }
 	mkdir -p "$FAKE_STATE/$ctx/$dns"
 	yq -r '.data.token' <<<"$doc" >"$FAKE_STATE/$ctx/$dns/$name"
+	if [[ "$(yq -r '.data.expires // ""' <<<"$doc")" != "" ]]; then
+		yq -r '.data.expires' <<<"$doc" >"$FAKE_STATE/$ctx/$dns/$name.expires"
+	else
+		rm -f "$FAKE_STATE/$ctx/$dns/$name.expires"
+	fi
 	printf '%s\n' "$doc" >"$FAKE_STATE/$ctx/$dns/$name.yaml"
 	echo "secret/$name serverside-applied"
 	;;
@@ -83,6 +95,8 @@ STUB
 
 # token CONTEXT NS NAME -> the decoded token held in that Secret
 token() { base64 -d <"$FAKE_STATE/$1/$2/$3" 2>/dev/null; }
+# expiry CONTEXT NS NAME -> the decoded expiry held in that Secret, or nothing
+expiry() { [[ -f "$FAKE_STATE/$1/$2/$3.expires" ]] && base64 -d <"$FAKE_STATE/$1/$2/$3.expires" 2>/dev/null; }
 
 seed() { # seed CONTEXT NS NAME VALUE
 	mkdir -p "$FAKE_STATE/$1/$2"
@@ -274,5 +288,39 @@ TWO_KEYS=$'stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun
 	SLDC_INGEST_KEYS="$TWO_KEYS" run bash -c "printf '%s' '$GOOD_TOKEN' | '$SCRIPT' --context kind-osramp --from-stdin"
 	[ "$status" -eq 2 ]
 	[[ "$output" == *"--from-stdin installs one key"* ]]
+	[ "$(applies)" -eq 0 ]
+}
+
+# The expiry travels with the value in the issuer Secret (signal-ingest reads <name>.expires and
+# refuses anything more than 90 days out), so minting writes both and a rotation renews both.
+@test "minting writes the expiry, 90 days out, beside the value in the issuer Secret only" {
+	run "$SCRIPT" --context kind-osramp --key stun-sentinel
+	[ "$status" -eq 0 ]
+	[ "$(expiry kind-osramp "$ISSUER_NS" "$ISSUER")" = "2026-12-31" ]
+	[ -z "$(expiry kind-osramp "$CONSUMER_NS" "$CONSUMER")" ]
+}
+
+@test "an issuer Secret with a value but no expiry converges: the expiry is added, the value kept" {
+	seed kind-osramp "$ISSUER_NS" "$ISSUER" "$GOOD_TOKEN"
+	seed kind-osramp "$CONSUMER_NS" "$CONSUMER" "$GOOD_TOKEN"
+	run "$SCRIPT" --context kind-osramp --key stun-sentinel
+	[ "$status" -eq 0 ]
+	[ "$(token kind-osramp "$ISSUER_NS" "$ISSUER")" = "$GOOD_TOKEN" ]
+	[ "$(expiry kind-osramp "$ISSUER_NS" "$ISSUER")" = "2026-12-31" ]
+}
+
+@test "--rotate renews the expiry with the value" {
+	"$SCRIPT" --context kind-osramp --key stun-sentinel 2>/dev/null
+	SLDC_INGEST_TODAY=2026-11-20 run "$SCRIPT" --context kind-osramp --key stun-sentinel --rotate
+	[ "$status" -eq 0 ]
+	[ "$(expiry kind-osramp "$ISSUER_NS" "$ISSUER")" = "2027-02-18" ]
+}
+
+@test "a re-run keeps an existing expiry: converging never extends a key's life" {
+	"$SCRIPT" --context kind-osramp --key stun-sentinel 2>/dev/null
+	: >"$FAKE_LOG"
+	SLDC_INGEST_TODAY=2026-11-20 run "$SCRIPT" --context kind-osramp --key stun-sentinel
+	[ "$status" -eq 0 ]
+	[ "$(expiry kind-osramp "$ISSUER_NS" "$ISSUER")" = "2026-12-31" ]
 	[ "$(applies)" -eq 0 ]
 }

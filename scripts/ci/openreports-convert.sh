@@ -175,6 +175,16 @@ const stageMap = [
   // belongs in the product categories of the report, not with the harness
   // self-checks.
   { file: 'stage1k-exec-probe-ban.tap', parser: parseTap, source: 'bats-exec-probe-ban', category: 'contract' },
+  // 1c3 (SLER-P6-3 multi-plane containment acceptance) and 1s (the offline SLDC
+  // dual-cluster suites, previously a second 'stage1k' that shared exec-probe-ban's
+  // suffix) ran without a row, so their results never reached the report.
+  { file: 'stage1c3-multiplane-acceptance.tap', parser: parseTap, source: 'bats-multiplane-acceptance', category: 'security' },
+  { file: 'stage1s-sldc-offline.tap', parser: parseTap, source: 'bats-sldc-offline', category: 'contract' },
+  // Three more stages that ran unheard: the SLER acceptance coverage guard and
+  // the 7d/7e runtime stages.
+  { file: 'stage1c4-acceptance-plane-coverage.tap', parser: parseTap, source: 'bats-acceptance-plane-coverage', category: 'meta' },
+  { file: 'stage7d-autoclaim.tap', parser: parseTap, source: 'bats-autoclaim-integration', category: 'e2e' },
+  { file: 'stage7e-sfas-live.tap', parser: parseTap, source: 'bats-sfas-live-acceptance', category: 'security' },
   // 1k asserts a property of the product's manifests -- that every RBAC binding
   // resolves to a ServiceAccount and a Role that exist -- so it is 'contract'
   // alongside 1g, not 'meta'.
@@ -232,6 +242,7 @@ const stageMap = [
   { file: 'stage7-runtime.tap',    parser: parseTap,       source: 'bats-runtime-negatives',     category: 'security' },
   { file: 'stage7b-adversarial.tap', parser: parseTap,    source: 'bats-adversarial-api',       category: 'security' },
   { file: 'stage7c-user-surface-gate.tap', parser: parseTap, source: 'bats-user-surface-gate', category: 'meta' },
+  { file: 'stage7f-slaat-live.tap', parser: parseTap,     source: 'bats-slaat-live-adversarial', category: 'security' },
   { file: 'stage8-browser.xml',    parser: parseJunitXml,  source: 'playwright-browser-journey', category: 'e2e' },
   { file: 'stage8b-smoke.xml',     parser: parseJunitXml,  source: 'playwright-page-smoke',      category: 'e2e' },
 ];

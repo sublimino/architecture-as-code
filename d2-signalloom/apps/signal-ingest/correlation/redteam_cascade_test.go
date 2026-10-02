@@ -61,12 +61,19 @@ func TestCascadeRedTeam_FullCorpus(t *testing.T) {
 		}
 	}
 
-	// Write / update published ceiling artifact
+	// The committed ceiling artifact is regenerated only on request. Rewriting
+	// it on every run dirtied the tree and, worse, made
+	// TestCascadeRedTeam_CeilingReport_ArtifactMatches compare the report with
+	// the file this test had just written, so a wrong committed artifact could
+	// never fail it. Regenerate with:
+	//   SIGNAL_INGEST_UPDATE_CEILING=1 go test ./correlation -run TestCascadeRedTeam_FullCorpus
+	if os.Getenv("SIGNAL_INGEST_UPDATE_CEILING") != "1" {
+		return
+	}
 	data, err := FormatCascadeCeilingJSON(report)
 	if err != nil {
 		t.Fatalf("failed to format ceiling json: %v", err)
 	}
-
 	ceilingPath := filepath.Join(".", "redteam_cascade_ceiling.json")
 	if err := os.WriteFile(ceilingPath, data, 0644); err != nil {
 		t.Fatalf("failed to write ceiling artifact: %v", err)

@@ -37,7 +37,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-37d29350f552108c
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-e95c87c9c5f66f93
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -168,3 +168,5 @@ spec:
                   items:
                     - key: token
                       path: stun-sentinel
+                    - key: expires
+                      path: stun-sentinel.expires

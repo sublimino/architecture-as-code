@@ -34,13 +34,14 @@ import (
 	"time"
 )
 
-// StaticBearerSunset is the date the static-bearer credential must be gone, as
-// agreed when it was introduced. It is the single source of truth for the
-// deadline: the deployed ConfigMap's SIGNAL_AUTH_STATIC_BEARER_EXPIRES and its
-// signalloom.ai/expires annotation are asserted equal to it by
-// TestStaticBearerDeployedExpiryMatchesSunset, and
-// TestStaticBearerSunsetHasNotPassed fails once it is reached.
-const StaticBearerSunset = "2026-11-12"
+// MaxStaticKeyLifetime bounds every key's expiry from the moment it is loaded. Lead decision
+// 2026-10-02 replacing the fixed global sunset (2026-11-12), which would have 401'd every caller on
+// one day with no rotation path short of a code change: a key now lives at most 90 days, the
+// issuer mints the expiry beside the value, and a rotation renews both.
+const MaxStaticKeyLifetime = 90 * 24 * time.Hour
+
+// StaticKeyExpiryWarning is how far ahead of expiry a key is warned about at load.
+const StaticKeyExpiryWarning = 14 * 24 * time.Hour
 
 // minStaticBearerTokenLength is the ingest-credential contract's floor: the token
 // is ≥32 random bytes minted at bootstrap by scripts/sldc-ingest-bearer.sh. It
@@ -157,21 +158,22 @@ func NewStaticKeyAuthenticator(cfgs []StaticBearerConfig, delegate Authenticator
 			"tenant", cfg.TenantID,
 			"permissions", cfg.Permissions,
 			"actor_ids", cfg.ActorIDs,
-			"expires", cfg.ExpiresAt.UTC().Format(time.DateOnly),
-			"remove_by", StaticBearerSunset)
+			"expires", cfg.ExpiresAt.UTC().Format(time.DateOnly))
 	}
 	return a, nil
 }
 
 func (c StaticBearerConfig) validate() error {
+	if err := c.validateConfig(); err != nil {
+		return err
+	}
+	return c.validateSecret(time.Now())
+}
+
+// validateConfig checks the reviewed, versioned half of a key (the ConfigMap spec).
+func (c StaticBearerConfig) validateConfig() error {
 	if !staticKeyNamePattern.MatchString(c.Name) {
 		return fmt.Errorf("static key name %q must match %s", c.Name, staticKeyNamePattern)
-	}
-	if strings.TrimSpace(c.Token) == "" {
-		return errors.New("static bearer token must not be empty")
-	}
-	if len(c.Token) < minStaticBearerTokenLength {
-		return fmt.Errorf("static bearer token must be at least %d bytes", minStaticBearerTokenLength)
 	}
 	if c.Subject == "" {
 		return errors.New("static bearer token must name a principal")
@@ -192,18 +194,24 @@ func (c StaticBearerConfig) validate() error {
 			return fmt.Errorf("static bearer permission %q is not a signal-ingest permission", p)
 		}
 	}
+	return nil
+}
+
+// validateSecret checks the minted half of a key (the Secret): the value and its expiry. The
+// lifetime bound is enforced by the binary, so no Secret can make a key effectively permanent.
+func (c StaticBearerConfig) validateSecret(now time.Time) error {
+	if strings.TrimSpace(c.Token) == "" {
+		return errors.New("static bearer token must not be empty")
+	}
+	if len(c.Token) < minStaticBearerTokenLength {
+		return fmt.Errorf("static bearer token must be at least %d bytes", minStaticBearerTokenLength)
+	}
 	if c.ExpiresAt.IsZero() {
 		return errors.New("static bearer credential must carry an expiry; an undated temporary credential is a permanent one")
 	}
-	// The sunset is enforced by the binary, not only by YAML: otherwise editing
-	// the ConfigMap's expiry would extend a shared secret with no code change.
-	sunset, err := time.Parse(time.DateOnly, StaticBearerSunset)
-	if err != nil {
-		return fmt.Errorf("StaticBearerSunset %q is not a date: %w", StaticBearerSunset, err)
-	}
-	if c.ExpiresAt.After(sunset) {
-		return fmt.Errorf("static bearer expiry %s is later than the sunset %s; move the correlator to a JWT-SVID instead of extending it",
-			c.ExpiresAt.UTC().Format(time.DateOnly), StaticBearerSunset)
+	if c.ExpiresAt.After(now.Add(MaxStaticKeyLifetime)) {
+		return fmt.Errorf("static key expiry %s is more than 90 days away; rotate with a shorter expiry",
+			c.ExpiresAt.UTC().Format(time.DateOnly))
 	}
 	return nil
 }

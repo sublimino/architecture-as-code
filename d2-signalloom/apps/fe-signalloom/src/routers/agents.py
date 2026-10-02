@@ -31,7 +31,6 @@ from api_compat import (
     _require_pool,
     _now_iso,
     _record_memory_audit,
-    _synth_agent,
     _write,
     authenticated_principal,
 )
@@ -56,6 +55,19 @@ def _make_error(status_code: int, code: str, message: str) -> JSONResponse:
         status_code=status_code,
         content={"error": {"code": code, "message": message}},
     )
+
+
+def _not_found_detail(agent_id: str, body: AgentTransitionRequest) -> dict[str, Any]:
+    return {
+        "outcome": "not_found",
+        "to_state": body.to_state.strip().lower(),
+        "reason": body.reason,
+        "agent_ref": agent_id,
+    }
+
+
+def _agent_not_found(agent_id: str) -> JSONResponse:
+    return _make_error(404, "agent_not_found", f"Agent '{agent_id}' does not exist in this tenant")
 
 
 @router.post(
@@ -123,8 +135,16 @@ async def transition_agent_state(
                     agent_id, tenant_id,
                 )
 
-            from_state = "registered" if row is None else row["lifecycle_state"]
-            agent_name = agent_id if row is None else row["name"]
+            if row is None:
+                # The attempt is recorded, as an attempt that failed: there is
+                # no agent to transition, so nothing may read as having moved.
+                await _audit_log(
+                    conn, tenant_id, "agent.transition_failed", None, agent_id, principal.actor,
+                    _not_found_detail(agent_id, body),
+                )
+                return _agent_not_found(agent_id)
+            from_state = row["lifecycle_state"]
+            agent_name = row["name"]
 
             # Validate state transition rules
             try:
@@ -135,15 +155,12 @@ async def transition_agent_state(
                 return _make_error(409, "invalid_transition", str(re))
 
             normalized_to_state = body.to_state.strip().lower()
-            if row is not None:
-                await conn.execute(
-                    """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
-                       WHERE id = $2 AND tenant_id = $3""",
-                    normalized_to_state, row["id"], tenant_id,
-                )
-                target_agent_id = str(row["id"])
-            else:
-                target_agent_id = agent_id
+            await conn.execute(
+                """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
+                   WHERE id = $2 AND tenant_id = $3""",
+                normalized_to_state, row["id"], tenant_id,
+            )
+            target_agent_id = str(row["id"])
 
             await _audit_log(
                 conn, tenant_id, "agent.transitioned", target_agent_id, agent_name, principal.actor,
@@ -159,7 +176,17 @@ async def transition_agent_state(
         api_compat._ensure_seeded(tenant_id)
         with _STORE_LOCK:
             agent = _AGENTS.get(tenant_id, {}).get(agent_id)
-            from_state = "registered" if agent is None else str(agent.get("lifecycle_state", "registered"))
+            if agent is None:
+                _record_memory_audit(
+                    tenant_id=tenant_id,
+                    event_type="agent.transition_failed",
+                    agent_id=None,
+                    agent_name=agent_id,
+                    actor=principal.actor,
+                    detail=_not_found_detail(agent_id, body),
+                )
+                return _agent_not_found(agent_id)
+            from_state = str(agent.get("lifecycle_state", "registered"))
 
             # Validate state transition rules
             try:
@@ -168,9 +195,6 @@ async def transition_agent_state(
                 return _make_error(400, "invalid_state", str(ve))
             except RuntimeError as re:
                 return _make_error(409, "invalid_transition", str(re))
-
-            if agent is None:
-                agent = _synth_agent(tenant_id, agent_id)
 
             normalized_to_state = body.to_state.strip().lower()
             agent["lifecycle_state"] = normalized_to_state

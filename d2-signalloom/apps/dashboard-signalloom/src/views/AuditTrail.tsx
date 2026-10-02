@@ -57,7 +57,7 @@ const LIMIT = 50
 // CHECK constraint, or tests/test_audit_event_types.py fails.
 const EVENT_TYPES = [
   // Emitted by the API today.
-  'agent.created', 'agent.claimed', 'agent.transitioned', 'agent.stunned', 'agent.stun_failed', 'agent.stun_simulated',
+  'agent.created', 'agent.claimed', 'agent.transitioned', 'agent.transition_failed', 'agent.stunned', 'agent.stun_failed', 'agent.stun_simulated',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged',
   'compliance.reassess_requested', 'compliance.scan_completed',
@@ -103,6 +103,7 @@ const EVENT_COLORS: Record<string, string> = {
   'agent.created': 'var(--teal)',
   'agent.claimed': 'var(--teal)',
   'agent.transitioned': 'var(--violet)',
+  'agent.transition_failed': 'var(--amber)', // refused: there was no agent to move
   'agent.credential_issued': 'var(--cyan)',
   'violation.acknowledged': 'var(--amber)',
   'compliance.reassess_requested': 'var(--cyan)',

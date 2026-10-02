@@ -227,12 +227,13 @@ func TestTokenValidatorMatchesOnlyExact(t *testing.T) {
 
 func TestStatusForDistinguishesEveryContainmentOutcome(t *testing.T) {
 	cases := map[error]int{
-		cgroup.ErrInvalidPodUID:    http.StatusBadRequest,
-		cgroup.ErrUnauthorized:     http.StatusUnauthorized,
-		cgroup.ErrCgroupNotFound:   http.StatusNotFound,
-		cgroup.ErrPermission:       http.StatusInternalServerError,
-		cgroup.ErrFreezeDeadline:   http.StatusGatewayTimeout,
-		errors.New("unclassified"): http.StatusInternalServerError,
+		cgroup.ErrInvalidPodUID:     http.StatusBadRequest,
+		cgroup.ErrUnauthorized:      http.StatusUnauthorized,
+		cgroup.ErrCgroupNotFound:    http.StatusNotFound,
+		cgroup.ErrPermission:        http.StatusInternalServerError,
+		cgroup.ErrFreezeDeadline:    http.StatusGatewayTimeout,
+		cgroup.ErrDiscoveryDeadline: http.StatusServiceUnavailable,
+		errors.New("unclassified"):  http.StatusInternalServerError,
 	}
 	for err, want := range cases {
 		if got := statusFor(err); got != want {
@@ -298,7 +299,7 @@ func TestHealthzReports503OnUnwritableHierarchy(t *testing.T) {
 // /stun
 // ─────────────────────────────────────────────────────────────────────────────
 
-// authHeader presents the governance credential the way a real caller does — in a
+// authHeader presents the governance credential the way a real caller does -- in a
 // header, never in the URL.
 func authHeader(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
@@ -467,7 +468,7 @@ func TestStunRefusesUnauthenticatedBeforeParsing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stun", nil))
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401 — the gate must precede method and body checks", rec.Code)
+		t.Fatalf("status = %d, want 401 -- the gate must precede method and body checks", rec.Code)
 	}
 }
 
@@ -497,7 +498,7 @@ func TestResumeRequiresGovernanceCredential(t *testing.T) {
 		t.Error("a refused resume published a Resumed event")
 	}
 
-	// The bare token without a Bearer prefix is accepted — TrimPrefix is a
+	// The bare token without a Bearer prefix is accepted -- TrimPrefix is a
 	// no-op when the prefix is absent.
 	rec := postJSON(t, srv.routes(), "/resume", `{"pod_uid":"`+uid+`"}`,
 		map[string]string{"Authorization": "governor-token"})
@@ -572,7 +573,7 @@ func TestResumeRefusesUnauthenticatedBeforeParsing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/resume", nil))
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401 — the gate must precede method and body checks", rec.Code)
+		t.Fatalf("status = %d, want 401 -- the gate must precede method and body checks", rec.Code)
 	}
 }
 

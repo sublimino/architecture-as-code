@@ -7,9 +7,9 @@
 // # Why the freezer, and why it is not a controller
 //
 // In cgroup v2 the freezer is a *core* interface, not a controller. It is
-// exposed as two files present on every non-root cgroup — `cgroup.freeze`
+// exposed as two files present on every non-root cgroup -- `cgroup.freeze`
 // (write "1" to freeze, "0" to thaw) and `cgroup.events` (read back a
-// `frozen 0|1` line) — and it therefore requires no entry in
+// `frozen 0|1` line) -- and it therefore requires no entry in
 // `cgroup.controllers` and no `cgroup.subtree_control` enablement. Any
 // preflight that greps `cgroup.controllers` for the string "freezer" will
 // find nothing on a perfectly capable host; that is expected, not a fault.
@@ -68,9 +68,21 @@ const healthProbeDir = "stun-sentinel-healthprobe"
 // layout costs a bounded search rather than a traversal of all of /sys.
 const maxDiscoveryDepth = 6
 
+// maxDiscoveryBudget bounds the WALL-CLOCK time of the fallback filesystem
+// walk, independent of maxDiscoveryDepth. SLAAT-P2-4/F2: on a shared,
+// contended kind node the depth bound alone does not stop the walk from
+// running long -- each directory costs a real stat/open/read syscall, and
+// under host contention those syscalls queue behind other I/O. The walk was
+// observed taking long enough to blow past a caller's own timeout (an
+// intermittent HTTP 504 from kubectl port-forward, 2 of 5 runs), while the
+// actual Freeze() write+poll afterwards still completed inside its 50ms
+// deadline every time. Bounding the search itself turns an unbounded stall
+// into a fast, typed failure the caller can retry or escalate on.
+var maxDiscoveryBudget = 2 * time.Second
+
 // Typed errors. Callers distinguish these with errors.Is. Collapsing them
 // into a single error value would make "the path is absent", "I am not
-// permitted to write" and "it did not freeze in time" indistinguishable —
+// permitted to write" and "it did not freeze in time" indistinguishable --
 // three outcomes with three different operational responses.
 var (
 	// ErrCgroupNotFound means no cgroup directory carrying a cgroup.freeze
@@ -78,7 +90,7 @@ var (
 	ErrCgroupNotFound = errors.New("cgroup: freezer path not found")
 
 	// ErrPermission means the control file exists but the process may not
-	// write it — almost always a missing hostPath mount or a non-privileged
+	// write it -- almost always a missing hostPath mount or a non-privileged
 	// securityContext on the DaemonSet.
 	ErrPermission = errors.New("cgroup: permission denied writing freezer control file")
 
@@ -101,7 +113,7 @@ var (
 	// immediately and unconditionally. Without this check, freezing the
 	// wrong cgroup, a cgroup whose target already exited, or a cgroup the
 	// target escaped from all return success in ~0ms with a perfect-looking
-	// latency — the most convincing possible evidence for a containment that
+	// latency -- the most convincing possible evidence for a containment that
 	// contained nothing.
 	ErrCgroupEmpty = errors.New("cgroup: no processes in cgroup, freeze contained nothing")
 
@@ -113,6 +125,13 @@ var (
 	// this cgroup's own setting. When the two disagree the freeze is held
 	// higher up the tree and must be released there.
 	ErrAncestorFrozen = errors.New("cgroup: frozen by an ancestor cgroup, cannot be thawed here")
+
+	// ErrDiscoveryDeadline means the fallback cgroup-tree walk did not finish
+	// within maxDiscoveryBudget. This is distinct from ErrCgroupNotFound: the
+	// pod's cgroup may well exist, the search simply could not confirm that
+	// in time under the host contention observed at SLAAT-P2-4/F2. Callers
+	// should retry rather than conclude the pod is gone.
+	ErrDiscoveryDeadline = errors.New("cgroup: fallback discovery walk exceeded its time budget")
 )
 
 // CredentialValidator authorises a freeze or resume action.
@@ -297,7 +316,7 @@ func normaliseUID(podUID string) (dashed, underscored string, err error) {
 // place pod cgroups. The list is plural on purpose.
 //
 // The cgroup path of a pod is a function of the runtime's cgroup driver AND
-// the systemd slice the kubelet itself runs in — neither of which is derivable
+// the systemd slice the kubelet itself runs in -- neither of which is derivable
 // from the pod UID. On a stock systemd-driver node the root is
 // `kubepods.slice`; on a Kind node the kubelet runs inside a `kubelet.slice`
 // unit so the root becomes `kubelet.slice/kubelet-kubepods.slice`; with the
@@ -362,8 +381,8 @@ func (f *Freezer) candidatePaths(dashed, underscored string) []string {
 }
 
 // isFreezableCgroup reports whether dir is a cgroup-v2 directory exposing the
-// freezer control file. Presence of cgroup.freeze — not merely of the
-// directory — is the selection criterion, because an empty directory of the
+// freezer control file. Presence of cgroup.freeze -- not merely of the
+// directory -- is the selection criterion, because an empty directory of the
 // right name proves nothing.
 func isFreezableCgroup(dir string) bool {
 	st, err := os.Stat(filepath.Join(dir, freezeFile))
@@ -390,8 +409,15 @@ func (f *Freezer) ResolvePodCgroup(podUID string) (string, error) {
 		}
 	}
 
-	if found, err := f.walkForPod(dashed, underscored); err == nil && found != "" {
+	found, err := f.walkForPod(dashed, underscored)
+	if err == nil && found != "" {
 		return found, nil
+	}
+	// A deadline exceeded is reported as-is rather than falling through to
+	// the generic "not found" below: the two have different operational
+	// responses (give up vs. retry), and collapsing them hid the F2 finding.
+	if errors.Is(err, ErrDiscoveryDeadline) {
+		return "", err
 	}
 
 	if f.dryRun {
@@ -433,12 +459,27 @@ func podCgroupNameMatches(name, dashed, underscored string) bool {
 	return false
 }
 
-// walkForPod performs the depth-bounded fallback search.
+// walkForPod performs the depth- and time-bounded fallback search.
+//
+// The depth bound (maxDiscoveryDepth) limits how FAR the walk goes; the time
+// bound (maxDiscoveryBudget) limits how LONG it is allowed to take. They are
+// independent: a shallow tree can still be slow to walk when the host is
+// contended, because every directory costs a real stat/open/read syscall
+// that now queues behind other I/O (SLAAT-P2-4/F2).
 func (f *Freezer) walkForPod(dashed, underscored string) (string, error) {
 	rootDepth := strings.Count(filepath.Clean(f.root), string(os.PathSeparator))
+	deadline := time.Now().Add(maxDiscoveryBudget)
 	var match string
+	var deadlineExceeded bool
 
 	err := filepath.WalkDir(f.root, func(path string, d fs.DirEntry, err error) error {
+		if deadlineExceeded {
+			return filepath.SkipAll
+		}
+		if time.Now().After(deadline) {
+			deadlineExceeded = true
+			return filepath.SkipAll
+		}
 		if err != nil {
 			// An unreadable subtree is not fatal to the search; skip it.
 			if d != nil && d.IsDir() {
@@ -464,6 +505,9 @@ func (f *Freezer) walkForPod(dashed, underscored string) (string, error) {
 	})
 	if err != nil && !errors.Is(err, filepath.SkipAll) {
 		return "", err
+	}
+	if deadlineExceeded && match == "" {
+		return "", fmt.Errorf("%w: %s after %s", ErrDiscoveryDeadline, f.root, maxDiscoveryBudget)
 	}
 	if match == "" {
 		return "", ErrCgroupNotFound
@@ -676,8 +720,8 @@ func (f *Freezer) FreezeWithOptions(ctx context.Context, cgroupPath, credential 
 	}
 
 	// Emptiness gate. An empty cgroup reports `frozen 1` immediately, so
-	// without this the most vacuous possible outcome — freezing a cgroup
-	// with nothing in it — returns success with a flawless sub-millisecond
+	// without this the most vacuous possible outcome -- freezing a cgroup
+	// with nothing in it -- returns success with a flawless sub-millisecond
 	// latency. The census is therefore load-bearing, not informational:
 	// containment that contained no process is a failure, and the caller
 	// needs to know so it can escalate rather than stand down.

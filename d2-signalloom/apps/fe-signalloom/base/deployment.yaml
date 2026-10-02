@@ -72,11 +72,6 @@ spec:
                   name: fleet-manager-caller-keys
                   key: fe-signalloom
                   optional: true
-            # fe-signalloom's own signal-ingest key (fe-signalloom-gateway),
-            # read from the mounted Secret by src/ingest_client.py on every
-            # call, so a rotation needs no restart. A path, never the value.
-            - name: SIGNAL_INGEST_KEY_FILE
-              value: /etc/fe-signalloom/ingest-key/token
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -144,6 +139,11 @@ spec:
               value: fake-slack
             - name: OUTBOUND_REPORTING_BACKEND
               value: fake-email
+            # fe-signalloom's own signal-ingest key (fe-signalloom-gateway),
+            # read from the mounted Secret by src/ingest_client.py on every
+            # call, so a rotation needs no restart. A path, never the value.
+            - name: SIGNAL_INGEST_KEY_FILE
+              value: /etc/fe-signalloom/ingest-key/token
           startupProbe:
             httpGet:
               path: /livez

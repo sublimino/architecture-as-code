@@ -23,7 +23,16 @@ setup() {
 	: >"$STUB_LOG"
 	export SLDC_SAVED_CONTAINERS_FILE="$t/saved.txt"
 	export KIND_CLUSTERS=$'osramp\nsignalloom-hub\nother'
-	mkstub kind 'case "$*" in "get clusters") printf "%s\n" "$KIND_CLUSTERS" ;; "delete cluster"*) exit "${KIND_DELETE_RC:-0}" ;; esac'
+	# KIND_FILLER appends ~1 MiB after the cluster names: more than a pipe
+	# buffer holds, so kind is provably still writing when a reader that stops
+	# at the first matching line goes away. `exec` keeps the writer the kind
+	# process itself, as with the real single-process kind. That is the condition the old
+	# `kind get clusters | grep -qx` under pipefail lost a cluster to (SIGPIPE,
+	# 141, read as "not present") whenever the scheduler let grep exit first.
+	mkstub kind 'case "$*" in
+  "get clusters") printf "%s\n" "$KIND_CLUSTERS"; [ -z "${KIND_FILLER:-}" ] || exec awk "BEGIN { for (i = 0; i < 70000; i++) print \"filler-cluster-\" i }"; exit "${KIND_GET_RC:-0}" ;;
+  "delete cluster"*) exit "${KIND_DELETE_RC:-0}" ;;
+esac'
 	# docker ps: lists STUB_LINGERING before any stop, STUB_REMAINING after.
 	mkstub docker 'case "$*" in
   "ps --filter"*) [ -f "$STUB_LOG.stopped" ] || printf "%s" "${STUB_LINGERING:-}" ;;
@@ -55,6 +64,14 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 	grep -qx 'kind delete cluster --name osramp' "$STUB_LOG"
 	grep -qx 'kind delete cluster --name signalloom-hub' "$STUB_LOG"
 	run ! grep -q 'name other' "$STUB_LOG"
+}
+
+@test "teardown deletes both clusters even while kind is still writing after the matching line" {
+	KIND_FILLER=1 run bash "$teardown_sh"
+	[ "$status" -eq 0 ]
+	grep -qx 'kind delete cluster --name osramp' "$STUB_LOG"
+	grep -qx 'kind delete cluster --name signalloom-hub' "$STUB_LOG"
+	[ "$(grep -c '^kind delete' "$STUB_LOG")" -eq 2 ]
 }
 
 @test "teardown fails when a cluster delete fails" {

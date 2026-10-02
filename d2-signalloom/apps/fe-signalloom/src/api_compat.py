@@ -8174,6 +8174,7 @@ def install_compatibility_api(app: FastAPI) -> None:
         router as host_enrollment_router,
         api_router as host_enrollment_api_router,
         compat_router as host_enrollment_compat_router,
+        root_router as host_enrollment_root_router,
     )
     from host_credential import host_router, host_compat_router, HostCredentialScopeMiddleware
     from routers.policy_engine import router as policy_engine_router
@@ -8193,6 +8194,7 @@ def install_compatibility_api(app: FastAPI) -> None:
     app.include_router(host_enrollment_router)
     app.include_router(host_enrollment_api_router)
     app.include_router(host_enrollment_compat_router)
+    app.include_router(host_enrollment_root_router)
     app.include_router(external_agent_router)
     app.include_router(external_agent_v1_router)
     app.include_router(external_agent_compat_router)

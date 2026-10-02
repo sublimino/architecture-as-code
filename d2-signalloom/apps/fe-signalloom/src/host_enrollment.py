@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/external-agents", tags=["host-enrollment"])
 api_router = APIRouter(prefix="/api/v1/external-agents", tags=["host-enrollment-api"])
 compat_router = APIRouter(prefix="/api/external-agents", tags=["host-enrollment-compat"])
+root_router = APIRouter(tags=["host-enrollment-root"])
+enroll_router = root_router
 
 BEARER_AUTH_REGEX = re.compile(r"^Bearer\s+([A-Za-z0-9_.-]{16,2048})$", re.IGNORECASE)
 
@@ -1006,3 +1008,12 @@ for r in (router, api_router, compat_router):
         methods=["POST"],
         summary="Revoke external agent registration and SPIRE entry",
     )
+
+root_router.add_api_route(
+    "/enroll",
+    enroll_host_handler,
+    methods=["POST"],
+    status_code=201,
+    summary="Enroll external Linux host and exchange one-time token",
+)
+

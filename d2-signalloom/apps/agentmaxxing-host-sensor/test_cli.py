@@ -170,6 +170,52 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("HTTP 422", stderr_capture.getvalue())
 
+    def test_cli_enroll_command_custom_paths(self) -> None:
+        from typing import Any
+
+        captured_requests = []
+
+        def fake_urlopen(req: Any, timeout: float = 10.0) -> Any:
+            captured_requests.append(req)
+            return io.BytesIO(b'{"enrollment_state": "enrolled"}')
+
+        cases = [
+            ("/enroll", "http://fake-signalloom:8080/enroll"),
+            ("enroll", "http://fake-signalloom:8080/enroll"),
+            ("/enroll/", "http://fake-signalloom:8080/enroll"),
+            ("enroll/", "http://fake-signalloom:8080/enroll"),
+            ("/api/v1/external-agents/enroll", "http://fake-signalloom:8080/api/v1/external-agents/enroll"),
+            ("api/v1/external-agents/enroll/", "http://fake-signalloom:8080/api/v1/external-agents/enroll"),
+        ]
+
+        for enroll_path, expected_url in cases:
+            captured_requests.clear()
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                code = main([
+                    "enroll",
+                    "--token", "test-token",
+                    "--base-url", "http://fake-signalloom:8080",
+                    "--enroll-path", enroll_path,
+                    "--agent-id", "agent-test-001",
+                ])
+            self.assertEqual(code, 0)
+            self.assertEqual(len(captured_requests), 1)
+            self.assertEqual(captured_requests[0].full_url, expected_url)
+
+        # Test base_url with trailing slash
+        captured_requests.clear()
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            code = main([
+                "enroll",
+                "--token", "test-token",
+                "--base-url", "http://fake-signalloom:8080/",
+                "--enroll-path", "/enroll",
+                "--agent-id", "agent-test-001",
+            ])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(captured_requests), 1)
+        self.assertEqual(captured_requests[0].full_url, "http://fake-signalloom:8080/enroll")
+
 
 if __name__ == "__main__":
     unittest.main()

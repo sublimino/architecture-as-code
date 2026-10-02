@@ -137,12 +137,12 @@ mount_triples() {
   [ -z "$output" ]
 }
 
-@test "sentinel-capabilities: each per-cluster overlay renders and retags the image locally" {
+@test "sentinel-capabilities: each per-cluster overlay renders the in-cluster zot image" {
   for overlay in "$OVERLAY_OSRAMP" "$OVERLAY_HUB"; do
     run bash -c "kubectl kustomize '$overlay' | yq -r 'select(.kind == \"DaemonSet\") | .spec.template.spec.containers[0].image'"
     [ "$status" -eq 0 ]
-    # kind side-loads the image, so the overlay must drop the registry prefix.
-    [[ "$output" == stun-sentinel:* ]]
+    # kind clusters deploy the in-cluster zot reference; test/sentinel-image-provenance.bats pins the tag.
+    [[ "$output" == zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel:* ]]
     [[ "$output" != *":latest" ]]
   done
 }

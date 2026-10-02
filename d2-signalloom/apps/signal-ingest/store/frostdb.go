@@ -312,7 +312,7 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 		// every schema-level test stayed green — those tests inspect column NAMES and are blind to
 		// the payload. A guard applied by one caller of eight is the same as no guard. Append is
 		// the single chokepoint every writer crosses, so the guard belongs at the chokepoint.
-		descriptions[i] = segmentDescriptionRedactor.RedactText(o.Description)
+		descriptions[i] = redactHomeDirectoryUserInText(segmentDescriptionRedactor.RedactText(o.Description))
 	}
 
 	// Build Arrow schema: static columns + dynamic label columns, alphabetically ordered.

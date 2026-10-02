@@ -1977,7 +1977,10 @@ def _iter_app_routes(routes: Any, types: tuple[type, ...]) -> list[Any]:
     root-caused to SLAAT-P1-2's ``2dbb32e2``). Mirrors the identical helper already
     proven correct in ``test_tenant_authorization_matrix.py``.
     """
-    from fastapi.routing import _IncludedRouter
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
 
     found: list[Any] = []
     for route in routes:
@@ -2002,12 +2005,16 @@ def _iter_app_routes_with_mount_deps(
     ``route.dependencies`` therefore sees nothing for every router-mounted
     route regardless of whether a mount-level dependency was actually applied.
     """
-    from fastapi.routing import _IncludedRouter
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
 
     found: list[tuple[Any, tuple[Any, ...]]] = []
     for route in routes:
         if isinstance(route, types):
-            found.append((route, inherited))
+            route_deps = tuple(getattr(route, "dependencies", ()) or ())
+            found.append((route, inherited + route_deps))
         elif isinstance(route, _IncludedRouter):
             extra = tuple(route.include_context.dependencies or ())
             found.extend(

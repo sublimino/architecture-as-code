@@ -147,7 +147,10 @@ def _iter_api_routes(routes: Any) -> list[APIRoute]:
     ``_IncludedRouter`` mount wrappers to reach the real ``APIRoute`` objects
     nested in ``_IncludedRouter.original_router.routes``.
     """
-    from fastapi.routing import _IncludedRouter
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
 
     found: list[APIRoute] = []
     for route in routes:

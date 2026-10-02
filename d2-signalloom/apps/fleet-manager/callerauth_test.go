@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+	"sigs.k8s.io/yaml"
 )
 
 // The mutating fleet routes answer only a named caller key with the route's
@@ -229,5 +233,49 @@ func TestARecoverNamingOneAgentLeavesOtherStunnedAgentsStunned(t *testing.T) {
 	}
 	if len(res.RecoveryOrder) != 1 || res.RecoveryOrder[0] != "agent-txn-pipeline" {
 		t.Fatalf("recovered %v; want exactly [agent-txn-pipeline]", res.RecoveryOrder)
+	}
+}
+
+// The e2e teardown (Step 6) recovers [agent-kusari-agent] on a shared cluster
+// where other agents are deliberately stunned. Against the DEPLOYED fleet
+// DAG: the recovery touches kusari alone, and kusari has no dependents, so
+// recovering it alone is the exact inverse of its stun.
+func TestTheE2ETeardownRecoveryLeavesEveryOtherStunnedAgentStunned(t *testing.T) {
+	raw, err := os.ReadFile("base/configmap.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cm corev1.ConfigMap
+	if err := yaml.Unmarshal(raw, &cm); err != nil {
+		t.Fatal(err)
+	}
+	path := t.TempDir() + "/fleet.yaml"
+	if err := os.WriteFile(path, []byte(cm.Data["fleet.yaml"]), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dag, err := LoadFleet(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targets, err := dag.CascadeTargets("agent-kusari-agent"); err != nil || len(targets) != 1 {
+		t.Fatalf("kusari's stun cascade = %v (%v); the teardown's single-agent recovery assumes it stuns only itself", targets, err)
+	}
+	client := newMockClient()
+	s := &server{dag: dag, orchestrator: NewCascadeOrchestrator(dag, client, 0), callerKeys: testCallerKeys(t)}
+	for _, a := range dag.AllAgents() {
+		a.State = StateStunned // another card stunned everything else
+	}
+
+	w := call(t, s.routes(), http.MethodPost, "/api/v1/fleet/recover", `{"agent_ids":["agent-kusari-agent"]}`, "Bearer "+operatorKey)
+	if w.Code != http.StatusOK {
+		t.Fatalf("teardown recover: %d %s", w.Code, w.Body.String())
+	}
+	for _, c := range client.calls {
+		if strings.HasPrefix(c, "SetPodState:") && !strings.HasPrefix(c, "SetPodState:agent-kusari-agent=") {
+			t.Fatalf("the teardown recovery touched another agent: %s (all calls %v)", c, client.calls)
+		}
+	}
+	if !slices.Contains(client.calls, "SetPodState:agent-kusari-agent="+StateRunning) {
+		t.Fatalf("kusari was not recovered: %v", client.calls)
 	}
 }

@@ -58,3 +58,31 @@ func TestSentinelTargetHomeDirectoryUserIsRedactedBeforeTheSegment(t *testing.T)
 		})
 	}
 }
+
+// The sentinel's description is "<syscall> <target> by <ns>/<pod>", so the same account name the
+// target label loses would otherwise ride into the segment through the one free-text column.
+func TestSentinelDescriptionHomeDirectoryUserIsRedactedBeforeTheSegment(t *testing.T) {
+	s, err := NewFrostDBStoreWithBucket(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	o := readSentinelGolden(t)[0]
+	o.Description = "sys_enter_openat /home/alice/.ssh/id_rsa by fe-signalloom-agents/agent-kusari-7d9f"
+	if err := s.Append(context.Background(), append(readSentinelGolden(t)[:0:0], o)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.QueryRange(context.Background(), Query{After: o.Timestamp.Add(-time.Second), Before: o.Timestamp.Add(time.Second)})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("QueryRange: %d, %v", len(got), err)
+	}
+	if want := "sys_enter_openat /home/[REDACTED_USER]/.ssh/id_rsa by fe-signalloom-agents/agent-kusari-7d9f"; got[0].Description != want {
+		t.Fatalf("description stored as %q, want %q", got[0].Description, want)
+	}
+}
+
+func TestHomeDirectoryRedactionInFreeTextStopsAtWhitespace(t *testing.T) {
+	if got := redactHomeDirectoryUserInText("opened /home/alice by ns/pod"); got != "opened /home/[REDACTED_USER] by ns/pod" {
+		t.Fatalf("got %q", got)
+	}
+}

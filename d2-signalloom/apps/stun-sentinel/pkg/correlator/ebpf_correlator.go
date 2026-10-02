@@ -65,6 +65,14 @@ type FreezeManager struct {
 	freezer    *cgroup.Freezer
 	credential string
 	freezeFn   func(pod *corev1.Pod) error
+	reasonFn   func(pod *corev1.Pod, syscall, target string) error
+}
+
+// NewReasonedFreezeManager creates a FreezeManager that hands every freeze,
+// with the syscall and target that caused it, to fn. The caller owns the
+// freeze and can record why it happened.
+func NewReasonedFreezeManager(fn func(pod *corev1.Pod, syscall, target string) error) *FreezeManager {
+	return &FreezeManager{reasonFn: fn}
 }
 
 // NewFreezeManager creates a FreezeManager backed by the provided
@@ -81,6 +89,11 @@ func NewMockFreezeManager(freezeFn func(pod *corev1.Pod) error) *FreezeManager {
 // FreezePod halts execution of all processes inside the target pod's cgroup.
 // It verifies that the pod is in Running phase before executing containment.
 func (fm *FreezeManager) FreezePod(pod *corev1.Pod) error {
+	return fm.FreezePodFor(pod, "", "")
+}
+
+// FreezePodFor is FreezePod with the syscall and target that caused it.
+func (fm *FreezeManager) FreezePodFor(pod *corev1.Pod, syscall, target string) error {
 	if fm == nil {
 		return errors.New("freezeManager is nil")
 	}
@@ -93,6 +106,9 @@ func (fm *FreezeManager) FreezePod(pod *corev1.Pod) error {
 		return err
 	}
 
+	if fm.reasonFn != nil {
+		return fm.reasonFn(pod, syscall, target)
+	}
 	if fm.freezeFn != nil {
 		return fm.freezeFn(pod)
 	}
@@ -634,7 +650,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 
 	// Direct in-sentinel reactive freeze containment
 	if isAgentPod(pod) && m.freezeManager != nil {
-		if err := m.freezeManager.FreezePod(pod); err == nil {
+		if err := m.freezeManager.FreezePodFor(pod, obs.Syscall, obs.Target); err == nil {
 			obs.DirectReaction = ReactionCgroupFrozen
 		}
 	}
@@ -668,7 +684,7 @@ func (m *SentinelProbeManager) reportEvasiveBurst(raw SyscallEvent, targetPID ui
 	obs.CgroupPath = m.cgroupPathFor(cgroupID, targetPID)
 
 	if isAgentPod(pod) && m.freezeManager != nil {
-		if err := m.freezeManager.FreezePod(pod); err == nil {
+		if err := m.freezeManager.FreezePodFor(pod, obs.Syscall, obs.Target); err == nil {
 			obs.DirectReaction = ReactionCgroupFrozen
 		}
 	}

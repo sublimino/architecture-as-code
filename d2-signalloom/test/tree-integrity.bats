@@ -24,9 +24,12 @@ setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   SELF="$(basename "$BATS_TEST_FILENAME")"
   SELF_PATH="${BATS_TEST_FILENAME#"${REPO_ROOT}/"}"
-  # Anchored to line start: `=======` under a heading and `>>>>>>>` in prose are
-  # common in markdown, and a looser pattern would fire on documentation.
-  MARKERS='^(<<<<<<< |=======$|>>>>>>> )'
+  # Anchored to line start, and the bare `=======` separator is deliberately
+  # not a marker: it is also a markdown setext underline for any seven-letter
+  # heading ("Example\n======="), which a vendored README in test/fixtures
+  # carries. A real conflict always leaves the `<<<<<<< ` / `>>>>>>> ` lines,
+  # which nothing else writes at the start of a line.
+  MARKERS='^(<<<<<<< |>>>>>>> )'
 }
 
 conflict_hits() {
@@ -80,6 +83,20 @@ conflict_hits() {
   [ -n "$hits" ] || {
     echo "the guard did not catch a planted conflict — its pattern is broken,"
     echo "so every green run above meant 'unsearchable', not 'clean'"
+    return 1
+  }
+}
+
+@test "tree-integrity: a markdown setext heading is not a conflict marker" {
+  scratch="${BATS_TEST_TMPDIR}/setext"
+  mkdir -p "$scratch"
+  ( cd "$scratch" && git init -q . && git config user.email t@t && git config user.name t )
+  printf 'Example\n=======\n\ntext\n' >"${scratch}/README.md"
+  ( cd "$scratch" && git add -A )
+
+  hits="$(conflict_hits "$scratch" "none")"
+  [ -z "$hits" ] || {
+    echo "a seven-letter setext heading was reported as a conflict: ${hits}"
     return 1
   }
 }

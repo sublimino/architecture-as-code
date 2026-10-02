@@ -16,8 +16,11 @@
 # SPIRE key is live in under ~16 minutes without a restart.
 #
 # Wiring onto the Deployment: envFrom configMapRef signal-ingest-jwt-auth, plus
-# signal-ingest-jwks mounted read-only at /etc/signal-ingest/auth. The
-# bootstrap script applies that patch; see patch_signal_ingest() there.
+# signal-ingest-jwks mounted read-only at /etc/signal-ingest/auth, plus the
+# static bearer token from Secret signal-ingest-static-bearer. All three are in
+# ../base/deployment.yaml, and this file is a resource of ../base (through
+# ./kustomization.yaml), so Flux reconciles the wiring with the Deployment. The
+# bootstrap's step_signal_ingest strategic-merge patch is now redundant.
 #
 # Permissions: the card named "telemetry:write" / "violations:publish". Those
 # do not exist in signal-ingest's vocabulary (api/auth.go Permission consts),
@@ -60,37 +63,35 @@ data:
   # TEMPORARY — remove on or before 2026-11-12 (signalloom.ai/expires above).
   #
   # The stun-sentinel correlator posts observations with a static bearer token
-  # compiled into its binary (DefaultBearerToken in
-  # d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go).
-  # Nothing accepted that token, so every correlator POST was a 401 and no
-  # observation ever landed. These five keys make signal-ingest accept exactly
-  # that one token, as exactly one principal, with exactly the two permissions
-  # the correlator needs.
+  # until it moves onto its JWT-SVID. These keys make signal-ingest accept
+  # exactly one token, as exactly one principal, with exactly the two
+  # permissions the correlator needs.
   #
-  # The keys are opt-in: delete all five and signal-ingest behaves as it did
-  # before they existed (a static bearer is a 401). Delete only some and
-  # signal-ingest refuses to start rather than running a half-configured gate.
+  # The TOKEN is not here. It is a random ≥32-byte value minted at bootstrap by
+  # scripts/sldc-ingest-bearer.sh into two Secrets with the same value:
+  # signal-ingest-static-bearer/token (fe-signalloom, read by the Deployment as
+  # SIGNAL_AUTH_STATIC_BEARER_TOKEN) and stun-sentinel-ingest-token/token
+  # (fe-signalloom-agents, read by the sentinel). Never in git, argv or a
+  # ConfigMap. The old literal compiled into the correlator is public and is
+  # refused at startup by the 32-byte floor.
+  #
+  # The keys are opt-in: delete these four and the token env entry in
+  # ../base/deployment.yaml and signal-ingest behaves as it did before they
+  # existed (a static bearer is a 401). Delete only some and signal-ingest
+  # refuses to start rather than running a half-configured gate.
   #
   # The replacement is already provisioned: the correlator runs as
   # spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel, which is
   # bound above with the same two permissions. Moving the correlator onto its
   # JWT-SVID is all that is needed to delete this block.
   #
-  # This is a SHARED SECRET, and not a secret in any real sense: the value is
-  # a literal in the correlator's source, so it is in git and in the image.
-  # Anything that can reach signal-ingest and knows the string can write
-  # observations and seed collectors for tenant kusari until the expiry. That
-  # is the accepted residual risk for this phase; the bound is the scope and
-  # the date, not the confidentiality. Because the value is already public,
-  # holding it in a ConfigMap rather than a Secret adds no exposure — but the
-  # service reads it from the environment, so an operator who wants it in a
-  # Secret can drop this key and add an equivalent secretKeyRef env entry with
-  # no code change.
+  # Residual risk: a SHARED SECRET authenticates a writer that SPIRE did not
+  # attest. Anything that holds the token and can reach signal-ingest can write
+  # observations and seed collectors for tenant kusari until the expiry.
   #
   # SUBJECT is deliberately not a SPIFFE ID: signal-ingest refuses a
   # SPIFFE-shaped static subject so that an audit record produced by this
   # credential can never be mistaken for one produced by a verified SVID.
-  SIGNAL_AUTH_STATIC_BEARER_TOKEN: sentinel-in-cluster-token
   SIGNAL_AUTH_STATIC_BEARER_SUBJECT: static-bearer/stun-sentinel-correlator
   SIGNAL_AUTH_STATIC_BEARER_TENANT: kusari
   SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS: observations:write,collectors:write
@@ -99,10 +100,16 @@ data:
 # Populated from the hub SPIRE server's federated osramp.local bundle, keys
 # with use=jwt-svid only. Shipped with an empty key set; signal-ingest fails
 # closed at boot until the bootstrap has synced real keys.
+#
+# ssa: IfNotPresent — Flux creates this ConfigMap once and never overwrites it.
+# Without it every reconcile would put the empty key set back over the synced
+# keys, and the next pod restart would refuse to boot.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: signal-ingest-jwks
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
   labels:
     app.kubernetes.io/name: signal-ingest
     signalloom.io/card: SLDC-P2-2

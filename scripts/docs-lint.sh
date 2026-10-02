@@ -42,7 +42,7 @@ BANNED='utili[sz]e|leverag(e|es|ed|ing)|in order to|prior to|facilitate|commence
 # delivery records, and session records. They keep the state of their date, so
 # only their links are checked. test/docs-index-sync.bats proves that this
 # pattern and the "Decision records" section of docs/README.md agree.
-RECORDS='^(MEMORY/|Plans/|ci-evidence/|docs/signalloom/|docs/eapr/|docs/plans/|docs/policy-as-versioned-code/|terraform/notes/|terraform/ISA\.md|olly-replica/(delivery/|agentic-sre-design-doc\.md)|d2-signalloom/apps/signal-ingest/(correlation/(CASCADE_REDTEAM|SFDP-P3-1-[A-Z-]+)|store/FROSTDB_BENCHMARK|HARDENING_LEDGER)\.md|docs/Proposal |docs/Signal Loom — (CEO|Next-Phase)|docs/Signal Fusion — |docs/Signal Loom Workstation Sensor — |docs/appendix-(credential-architecture|ebpf-kernel-enforcement)\.md|docs/local-lifecycle-errata\.md|docs/(DOCUMENTATION-AUDIT|DOCUMENTATION-DELIVERY-CHECKLIST|COLLABORATOR-REVIEW|FIRST-USER-ONBOARDING-PROPOSAL|multi-agent-supercred-proposal|workspace-agentic-identity-streaming|kpai-harness-verification|ktest-p2-preflight|amxd-p0-baseline|agent-trust-(project-proposal|completion-audit|adversarial-review))\.md|docs/appraisal/(APPRAISAL|api-contract-gap|mocks-proxy-fidelity|auth-gateway-runbook|WALKING-DEMO-RUNBOOK)\.md|docs/breach-cost-talk/|docs/gcp-demo/INCIDENTS-|(CODEBASE-REVIEW-.*|DEPLOYMENT-SCOPE|ISA|PLAN-CI-FIXES|PREFLIGHT-REPORT|PROPOSAL_.*)\.md$)'
+RECORDS='^(MEMORY/|docs/slaat/|docs/slaat-phase[0-9]-[a-z-]+\.md|docs/eap/(FINAL-MISSION-CERTIFICATION-REPORT|SLDC-MISSION-CERTIFICATION|SLDC-P[0-9]-[A-Z0-9-]*(GOVERNOR-REPORT|AUDIT|INVENTORY|PREFLIGHT))\.md|\.evidence/|Plans/|ci-evidence/|docs/signalloom/|docs/eapr/|docs/plans/|docs/policy-as-versioned-code/|terraform/notes/|terraform/ISA\.md|olly-replica/(delivery/|agentic-sre-design-doc\.md)|d2-signalloom/apps/signal-ingest/(correlation/(CASCADE_REDTEAM|SFDP-P3-1-[A-Z-]+)|store/FROSTDB_BENCHMARK|HARDENING_LEDGER)\.md|docs/Proposal |docs/Signal Loom — (CEO|Next-Phase)|docs/Signal Fusion — |docs/Signal Loom Workstation Sensor — |docs/appendix-(credential-architecture|ebpf-kernel-enforcement)\.md|docs/local-lifecycle-errata\.md|docs/(DOCUMENTATION-AUDIT|DOCUMENTATION-DELIVERY-CHECKLIST|COLLABORATOR-REVIEW|FIRST-USER-ONBOARDING-PROPOSAL|multi-agent-supercred-proposal|workspace-agentic-identity-streaming|kpai-harness-verification|ktest-p2-preflight|amxd-p0-baseline|agent-trust-(project-proposal|completion-audit|adversarial-review))\.md|docs/appraisal/(APPRAISAL|api-contract-gap|mocks-proxy-fidelity|auth-gateway-runbook|WALKING-DEMO-RUNBOOK)\.md|docs/breach-cost-talk/|docs/gcp-demo/INCIDENTS-|(CODEBASE-REVIEW-.*|DEPLOYMENT-SCOPE|ISA|PLAN-CI-FIXES|PREFLIGHT-REPORT|PROPOSAL_.*)\.md$)'
 
 # Living documents that keep their authored prose: the in-product help text
 # that the dashboard bundles. They get the correctness checks, not the prose
@@ -53,7 +53,7 @@ CORRECTNESS_ONLY="${DOCS_LINT_CORRECTNESS_ONLY:-^d2-signalloom/apps/dashboard-si
 
 # Files that are not repository documentation: vendored and generated trees,
 # agent prompts, and third-party licence text. test/docs-lint.bats pins the list.
-IGNORED='/bats-assert/|^d2-signalloom/apps/docs-signalloom/src/|(^|/)\.forge-prompt[^/]*\.md$|(^|/)THIRD_PARTY_NOTICES\.md$'
+IGNORED='/bats-assert/|/vendor/|^d2-signalloom/apps/docs-signalloom/src/|(^|/)\.forge-prompt[^/]*\.md$|(^|/)THIRD_PARTY_NOTICES\.md$'
 
 # Each file gets a tier:
 #   style   all checks (every living document, or the files given as arguments)

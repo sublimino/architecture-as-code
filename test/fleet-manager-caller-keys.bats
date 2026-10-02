@@ -39,13 +39,13 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
   [ ! -e "${STATE}/applied" ]
 }
 
-@test "caller-keys: writes three distinct keys and mirrors the sentinel's to its namespace" {
+@test "caller-keys: writes four distinct keys and mirrors the sentinel's to its namespace" {
   run bash "${SCRIPT}" --context kind-osramp
   [ "$status" -eq 0 ]
-  local s f o tok
-  s="$(value stun-sentinel)"; f="$(value fe-signalloom)"; o="$(value operator)"; tok="$(value token)"
-  [ -n "$s" ] && [ -n "$f" ] && [ -n "$o" ]
-  [ "$s" != "$f" ] && [ "$s" != "$o" ] && [ "$f" != "$o" ]
+  local s f d o tok
+  s="$(value stun-sentinel)"; f="$(value fe-signalloom)"; d="$(value dashboard)"; o="$(value operator)"; tok="$(value token)"
+  [ -n "$s" ] && [ -n "$f" ] && [ -n "$d" ] && [ -n "$o" ]
+  [ "$(printf '%s\n' "$s" "$f" "$d" "$o" | sort -u | wc -l)" -eq 4 ]
   [ "$tok" = "$s" ]
   grep -q 'namespace: fe-signalloom-agents' "${STATE}/applied"
   # 32 random bytes: base64 of the 44-char key decodes to >= 32 bytes.
@@ -56,7 +56,7 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
   run bash "${SCRIPT}" --context kind-osramp
   [ "$status" -eq 0 ]
   local v plain
-  for v in "$(value stun-sentinel)" "$(value fe-signalloom)" "$(value operator)"; do
+  for v in "$(value stun-sentinel)" "$(value fe-signalloom)" "$(value dashboard)" "$(value operator)"; do
     plain="$(printf '%s' "$v" | base64 -d)"
     if grep -qF -e "$v" -e "$plain" "${STATE}/argv"; then echo "key in argv"; return 1; fi
     [[ "$output" != *"$v"* && "$output" != *"$plain"* ]]
@@ -65,9 +65,9 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
 
 @test "caller-keys: a re-run keeps every key; --rotate replaces every key" {
   bash "${SCRIPT}" --context kind-osramp
-  local before; before="$(value stun-sentinel) $(value fe-signalloom) $(value operator)"
+  local before; before="$(value stun-sentinel) $(value fe-signalloom) $(value dashboard) $(value operator)"
   bash "${SCRIPT}" --context kind-osramp
-  [ "$(value stun-sentinel) $(value fe-signalloom) $(value operator)" = "$before" ]
+  [ "$(value stun-sentinel) $(value fe-signalloom) $(value dashboard) $(value operator)" = "$before" ]
   run bash "${SCRIPT}" --context kind-osramp --rotate
   [ "$status" -eq 0 ]
   [ "$(value stun-sentinel)" != "${before%% *}" ]

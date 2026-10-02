@@ -9,7 +9,7 @@
 # fleet-manager answers its mutating routes only to a named caller key
 # (callerauth.go). This writes, per cluster:
 #
-#   fe-signalloom/fleet-manager-caller-keys      keys: stun-sentinel, fe-signalloom, operator
+#   fe-signalloom/fleet-manager-caller-keys      keys: stun-sentinel, fe-signalloom, dashboard, operator
 #   fe-signalloom-agents/stun-sentinel-fleet-key key:  token (= the stun-sentinel key)
 #
 # A key that already exists is kept, so re-running is a no-op; --rotate
@@ -24,7 +24,7 @@ set -o pipefail
 KUBECTL="${SLDC_KUBECTL:-kubectl}"
 FLEET_NS="fe-signalloom"
 AGENTS_NS="fe-signalloom-agents"
-CALLERS=(stun-sentinel fe-signalloom operator)
+CALLERS=(stun-sentinel fe-signalloom dashboard operator)
 
 usage() { sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'fleet-manager-caller-keys: %s\n' "$1" >&2; exit "${2:-1}"; }
@@ -59,8 +59,8 @@ main() {
 
   # kubectl apply reads the manifest from stdin: printf is a builtin, so no key
   # is ever an argument to an exec'd process.
-  printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: fleet-manager-caller-keys\n  namespace: %s\ntype: Opaque\ndata:\n  stun-sentinel: %s\n  fe-signalloom: %s\n  operator: %s\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: stun-sentinel-fleet-key\n  namespace: %s\ntype: Opaque\ndata:\n  token: %s\n' \
-    "${FLEET_NS}" "${key[stun-sentinel]}" "${key[fe-signalloom]}" "${key[operator]}" \
+  printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: fleet-manager-caller-keys\n  namespace: %s\ntype: Opaque\ndata:\n  stun-sentinel: %s\n  fe-signalloom: %s\n  dashboard: %s\n  operator: %s\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: stun-sentinel-fleet-key\n  namespace: %s\ntype: Opaque\ndata:\n  token: %s\n' \
+    "${FLEET_NS}" "${key[stun-sentinel]}" "${key[fe-signalloom]}" "${key[dashboard]}" "${key[operator]}" \
     "${AGENTS_NS}" "${key[stun-sentinel]}" \
     | ${KUBECTL} --context "${context}" apply -f - >/dev/null \
     || die "kubectl apply failed for context ${context}" 1

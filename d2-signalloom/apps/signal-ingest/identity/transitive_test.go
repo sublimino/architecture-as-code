@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,7 +103,10 @@ func TestFindTransitiveDelegations_MultiHop(t *testing.T) {
 	}
 }
 
-// TestFindTransitiveDelegations_CycleDetection asserts that cyclic delegation halts in <5ms with cycleDetected=true.
+// TestFindTransitiveDelegations_CycleDetection asserts that cyclic delegation
+// halts at the first revisited node with cycleDetected=true. Halting is proved
+// by the path length (the 3 hops of the cycle, not the depth cap of 8), not by a
+// wall-clock bound, which measured the scheduler and failed under load.
 func TestFindTransitiveDelegations_CycleDetection(t *testing.T) {
 	ctx := context.Background()
 	repo := setupTestMemoryRepo(t)
@@ -132,21 +136,19 @@ func TestFindTransitiveDelegations_CycleDetection(t *testing.T) {
 		ValidFrom:        now.Add(-1 * time.Hour),
 	})
 
-	start := time.Now()
 	path, cycle, err := repo.FindTransitiveDelegations(ctx, "node-1", now, 8)
-	elapsed := time.Since(start)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !cycle {
 		t.Errorf("expected cycle detected, got cycle=false")
 	}
-	if elapsed > 5*time.Millisecond {
-		t.Errorf("cycle detection took %v, expected < 5ms", elapsed)
+	var refs []string
+	for _, d := range path {
+		refs = append(refs, d.AuthzRef)
 	}
-	if len(path) == 0 {
-		t.Errorf("expected partial path before cycle, got 0")
+	if strings.Join(refs, ",") != "ref-1-2,ref-2-3,ref-3-1" {
+		t.Errorf("expected the walk to stop after the cycle's 3 hops [ref-1-2 ref-2-3 ref-3-1], got %v", refs)
 	}
 
 	// Verify ResolveActorAsOf flags cycle in EvidenceChain

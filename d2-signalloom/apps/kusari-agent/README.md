@@ -61,7 +61,7 @@ kustomize build d2-signalloom/infra/agent-swarm/kusari-agent | kubectl apply -f 
 kubectl -n fe-signalloom-agents rollout status deploy/agent-kusari
 ```
 
-The ServiceAccount `kusari-agent` ships in this agent's directory (`infra/agent-swarm/kusari-agent/service-account.yaml`) rather than `rbac.yaml`.
+The ServiceAccount `kusari-agent` ships in this agent's directory (`d2-signalloom/infra/agent-swarm/kusari-agent/service-account.yaml`) rather than `rbac.yaml`.
 The SPIRE swarm entries Job registers it, giving the pod SPIFFE ID `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kusari-agent`.
 
 ## Claim it in Signal Loom

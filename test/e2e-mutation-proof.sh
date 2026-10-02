@@ -98,14 +98,20 @@ case "${ARGS}" in
 esac
 
 # ── Step 2: agent_registry claim ─────────────────────────────────────────────
+# The baseline starts with NO row: it appears only once the fake claim command
+# (below) has run, so a green baseline proves Step 2 creates the row through
+# the claim path rather than finding one.
 case "${ARGS}" in
+  *"get pod"*"labels.signalloom"*"model"*) echo -n "deterministic"; exit 0 ;;
   *"deploy/postgresql"*)
       case "${MUT}" in
         step2_no_row)        exit 0 ;;
         step2_wrong_tenant)  echo "kusari-agent|tenant-demo|claude-3-5-sonnet" ;;
         step2_legacy_typo)   echo "kusari-agent|kurasi|deterministic" ;;
         step2_no_model)      echo "kusari-agent|kusari|" ;;
-        *)                   echo "kusari-agent|kusari|deterministic" ;;
+        step2_fabricated_model) echo "kusari-agent|kusari|claude-3-5-sonnet" ;;
+        step2_split_claim)   printf 'kusari-agent|kusari|deterministic\nkusari-agent|tenant-demo|\n' ;;
+        *)                   [ -f "${STATE}/claimed" ] && echo "kusari-agent|kusari|deterministic" ;;
       esac
       exit 0 ;;
 esac
@@ -264,6 +270,7 @@ run_suite() {
         SLDC_SKIP_BRIDGE=0 \
         WAIT_QUIET=1 WAIT_DEADLINE_SCALE=0.05 WAIT_SLEEP=0.05 WAIT_HEARTBEAT_START=0 \
         SIGNAL_LOOM_EAP_SALT=signalloom-eap-salt-2026-q3 \
+        SLDC_CLAIM_CMD="${WORK}/bin/claim" \
         bats --tap "${SUITE}" >"${log}" 2>&1
     return $?
 }
@@ -271,6 +278,19 @@ run_suite() {
 # step_failed <log> <step-number> -> 0 when that step reported not ok
 step_failed() { grep -qE "^not ok ${2} " "$1"; }
 step_passed() { grep -qE "^ok ${2} " "$1"; }
+
+# The Step 2 claim command. It creates the row only when called as the product
+# claim would be: for kusari-agent, as the kusari Dex subject, on the workload
+# context. Anything else leaves the registry empty and Step 2 red.
+cat >"${WORK}/bin/claim" <<'FAKE_CLAIM'
+#!/usr/bin/env bash
+[ "$*" = "--workload kusari-agent" ] || exit 2
+[ "${DEMO_DEX_USER:-}" = "kusari-operator@signalloom.local" ] || exit 3
+[ "${SLAC_KUBE_CONTEXT:-}" = "kind-osramp" ] || exit 4
+[ "${MUT:-}" = "step2_claim_refused" ] && exit 1
+touch "${SLDC_FAKE_STATE}/claimed"
+FAKE_CLAIM
+chmod +x "${WORK}/bin/claim"
 
 # MUTATIONS: id | step-number-expected-to-fail | description
 MUTATIONS=(
@@ -280,6 +300,9 @@ MUTATIONS=(
   "step2_wrong_tenant|2|claim into tenant-demo is not accepted as tenant kusari"
   "step2_legacy_typo|2|retired typo tenant kurasi fails closed"
   "step2_no_model|2|claim with no model_name is not accepted as registered"
+  "step2_fabricated_model|2|a model_name the workload's label does not declare is rejected"
+  "step2_split_claim|2|a second registry row in another tenant is rejected"
+  "step2_claim_refused|2|a refused product claim leaves no row and Step 2 red"
   "step3_act_failed|3|provocation returning ok=false is not read as provoked"
   "step3_descriptor_not_held|3|a descriptor released immediately is not accepted"
   "step3_shadow_not_attempted|3|shadow provocation that never attempted the open is rejected"

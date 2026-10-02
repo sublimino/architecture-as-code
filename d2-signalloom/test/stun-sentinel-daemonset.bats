@@ -74,11 +74,24 @@ swarm_yaml() {
   [ -z "$output" ]
 }
 
-@test "every stun-sentinel binding names the SA the DaemonSet runs as" {
+# A binding is the sentinel's by any of three marks: its stun-sentinel label,
+# a roleRef named stun-sentinel*, or a subject named *stun-sentinel*. Matching
+# the roleRef alone missed a ClusterRoleBinding to the pre-rename SA
+# signalloom-stun-sentinel whose roleRef was a node-reader ClusterRole. Each
+# subject must be exactly ServiceAccount <DaemonSet namespace>/<DaemonSet SA>.
+@test "every stun-sentinel binding, cluster-scoped included, names the SA the DaemonSet runs as" {
   sa="$(yq -r '.spec.template.spec.serviceAccountName' "$ds")"
+  ns="$(yq -r '.metadata.namespace' "$ds")"
   [ "$sa" = "stun-sentinel" ]
-  names="$(while read -r f; do yq -r 'select((.kind == "RoleBinding" or .kind == "ClusterRoleBinding") and (.roleRef.name | test("^stun-sentinel"))) | .subjects[] | .name' "$f"; done <<<"$(swarm_yaml)" | rg -v '^---' | sort -u)"
-  [ "$names" = "$sa" ]
+  [ "$ns" = "fe-signalloom-agents" ]
+  subjects="$(while read -r f; do yq -r '
+    select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding")
+    | select(
+        (.metadata.labels."app.kubernetes.io/name" // "") == "stun-sentinel"
+        or ((.roleRef.name // "") | test("stun-sentinel"))
+        or ([.subjects[]? | .name | test("stun-sentinel")] | any))
+    | .subjects[] | .kind + ":" + (.namespace // "-") + "/" + .name' "$f"; done <<<"$(swarm_yaml)" | rg -v '^---' | sort -u)"
+  [ "$subjects" = "ServiceAccount:${ns}/${sa}" ] || { echo "sentinel binding subjects: $subjects"; return 1; }
 }
 
 # ── SPIRE identity: selectors must name SAs that exist and are used ──────────

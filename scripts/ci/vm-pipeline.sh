@@ -738,8 +738,7 @@ run_stage \
      test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
      test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
       test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
-      test/tetragon-telemetry-stream.bats test/wait-deadline.bats test/wait-pods-service.bats \
-      test/sfas-p1-2-nono-ingest.bats"
+      test/tetragon-telemetry-stream.bats test/wait-deadline.bats test/wait-pods-service.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)
 #
@@ -780,7 +779,8 @@ run_stage \
      test/p6-teardown-preflight.bats test/p6-teardown-safety.bats \
      test/phase1-governor-verification.bats test/phase2-governor-verification.bats \
      test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
-     test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats"
+     test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
+     test/demo-agent-autoclaim.bats test/dex-subject-tenants.bats"
 
 # Stage 1i: Audit-guard reintroduction proof (12 cases)
 #
@@ -1143,11 +1143,14 @@ run_stage \
   "stage7d-autoclaim.tap" \
   "cd ${WORK_DIR} && bats --tap test/signalloom-autoclaim.bats"
 
-# Stage 7e: SFAS live dossier authorization and stun containment acceptance
+# Stage 7e: SFAS live dossier authorization and stun containment acceptance.
+# sfas-p1-2-nono-ingest.bats sits here, not in the static stage 1g: its last
+# test reads agent-nono-evidenced's pod logs with no skip, so before the
+# cluster exists it is red by construction.
 run_stage \
   "SFAS live dossier authorization and stun containment acceptance" \
   "stage7e-sfas-live.tap" \
-  "cd ${WORK_DIR} && bats --tap test/sfas-live-acceptance.bats"
+  "cd ${WORK_DIR} && bats --tap test/sfas-live-acceptance.bats test/sfas-p1-2-nono-ingest.bats"
 
 
 

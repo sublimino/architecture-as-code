@@ -262,6 +262,45 @@ default_lint() {
 	[[ "$output" == *"MEMORY/old.md:3: link: target does not exist"* ]]
 }
 
+@test "default mode: SLAAT and SLDC records get link checks only, a living EAP doc in the same tree gets every check" {
+	mkdir -p "$fixture/docs/slaat/p9" "$fixture/docs/eap" "$fixture/.evidence"
+	prose='# Record\n\nThis sentence is fine; the author wrote it in the past and the lint leaves it alone.\n'
+	printf "$prose" >"$fixture/docs/slaat/p9/hardening-report.md"
+	printf "$prose" >"$fixture/docs/slaat-phase9-remediation-report.md"
+	printf "$prose" >"$fixture/docs/eap/SLDC-P9-GOVERNOR-REPORT.md"
+	printf "$prose" >"$fixture/docs/eap/SLDC-P9-TOPOLOGY-AUDIT.md"
+	printf "$prose" >"$fixture/docs/eap/SLDC-MISSION-CERTIFICATION.md"
+	printf "$prose" >"$fixture/.evidence/final-report.md"
+	printf '# Index\n\nRead [the target](target.md) and [the report](slaat-phase9-remediation-report.md).\n' >"$fixture/docs/README.md"
+	default_lint
+	echo "$output"
+	[ "$status" -eq 0 ]
+	# A living page beside them is not a record.
+	printf "$prose" >"$fixture/docs/eap/SLDC-P9-1-E2E-CONTAINMENT.md"
+	default_lint
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"docs/eap/SLDC-P9-1-E2E-CONTAINMENT.md:3: semicolon:"* ]]
+	[[ "$output" != *"GOVERNOR-REPORT"* ]]
+	rm "$fixture/docs/eap/SLDC-P9-1-E2E-CONTAINMENT.md"
+	# Records still get their links checked.
+	printf '# Record\n\nSee [the file](missing.md).\n' >"$fixture/docs/slaat/p9/hardening-report.md"
+	default_lint
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"docs/slaat/p9/hardening-report.md:3: link: target does not exist"* ]]
+}
+
+@test "default mode: a vendored tree is not checked" {
+	mkdir -p "$fixture/test/fixtures/x/vendor/github.com/a/b"
+	printf '# Vendored\n\nUtilize this; see [gone](missing.md).\n' >"$fixture/test/fixtures/x/vendor/github.com/a/b/README.md"
+	# Forced: a global gitignore often ignores vendor/, and an untracked file
+	# would pass for the wrong reason. The real one is tracked.
+	git -C "$fixture" add -f test/fixtures
+	[ -n "$(git -C "$fixture" ls-files test/fixtures)" ]
+	default_lint
+	echo "$output"
+	[ "$status" -eq 0 ]
+}
+
 @test "default mode: a living doc gets every check" {
 	mkdir -p "$fixture/runbook"
 	printf '# Runbook\n\nThis sentence is fine; it has a semicolon that the style tier checks.\n' >"$fixture/runbook/README.md"
@@ -314,6 +353,7 @@ d2-signalloom/apps/dashboard-signalloom/src/help-content/connectors/openai.md"
 	pattern="$(pattern_of IGNORED)"
 	parts=(
 		'/bats-assert/'
+		'/vendor/'
 		'^d2-signalloom/apps/docs-signalloom/src/'
 		'(^|/)\.forge-prompt[^/]*\.md$'
 		'(^|/)THIRD_PARTY_NOTICES\.md$'

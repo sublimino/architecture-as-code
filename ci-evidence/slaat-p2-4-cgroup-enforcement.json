@@ -1,0 +1,58 @@
+{
+  "artifact": "cgroup-enforcement-verification",
+  "card": "SLAAT-P2-4",
+  "overall": "pass",
+  "generated": "2026-10-02T10:07:41Z",
+  "target": {
+    "namespace": "fe-signalloom-agents",
+    "pod": "agent-kusari-5685ff664b-kv25k"
+  },
+  "totals": {
+    "declared": 5,
+    "executed": 5,
+    "passed": 5,
+    "failed": 0
+  },
+  "probes": [
+    {
+      "id": "spec.pod-declares-both-memory-and-cpu-limits",
+      "description": "the target container's Pod spec names both resources.limits.memory and resources.limits.cpu",
+      "expectation": "both present and non-empty",
+      "verdict": "pass",
+      "evidence": "memory=64Mi cpu=100m",
+      "note": ""
+    },
+    {
+      "id": "live.memory-max-matches-the-pod-spec-limit-exactly",
+      "description": "cgroup-v2 memory.max on the real container cgroup equals resources.limits.memory, converted to bytes",
+      "expectation": "memory.max == 67108864",
+      "verdict": "pass",
+      "evidence": "memory.max=67108864 want=67108864 spec=64Mi",
+      "note": ""
+    },
+    {
+      "id": "live.cpu-max-quota-matches-the-pod-spec-limit-exactly",
+      "description": "cgroup-v2 cpu.max quota on the real container cgroup equals resources.limits.cpu converted against a 100000us period",
+      "expectation": "cpu.max quota == 10000 (period 100000)",
+      "verdict": "pass",
+      "evidence": "cpu.max=10000 100000 want_quota=10000 spec=100m",
+      "note": ""
+    },
+    {
+      "id": "live.cpu-bandwidth-controller-actually-throttles-under-stress",
+      "description": "nr_throttled in the pod-level cgroup's cpu.stat advances after a 4-way CPU-burn burst inside an isolated, throwaway 100m-quota pod this script owns",
+      "expectation": "nr_throttled after > nr_throttled before — proves the quota is enforced by the kernel, not merely written to a file",
+      "verdict": "pass",
+      "evidence": "stress_cgroup_resolved=yes before=4 after=57",
+      "note": ""
+    },
+    {
+      "id": "control.root-cgroup-cpu-stat-is-readable-and-distinct",
+      "description": "the host root cgroup's own cpu.stat is readable and distinct from the container leaf checked above (sanity: this probe is reading the container, not the root, by construction)",
+      "expectation": "root nr_periods readable (informational control, not a pass/fail on the container's behaviour)",
+      "verdict": "pass",
+      "evidence": "root_nr_periods=0",
+      "note": ""
+    }
+  ]
+}

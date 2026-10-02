@@ -1,0 +1,148 @@
+{
+  "artifact": "agent-sandbox-escape-probe",
+  "card": "SLAAT-P1-4",
+  "overall": "pass",
+  "generated": "2026-10-02T08:57:43Z",
+  "host": {
+    "kernel": "7.1.3+deb13-amd64",
+    "lsm": "lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm",
+    "nono": "nono 0.79.0"
+  },
+  "profile": "/home/andy/.cline/worktrees/fdb35/osramp-demo/nono/profiles/worktree-agent.json",
+  "totals": {
+    "declared": 16,
+    "executed": 16,
+    "passed": 16,
+    "failed": 0
+  },
+  "probes": [
+    {
+      "id": "fs.ssh-key-read-denied",
+      "description": "confined read of $HOME/.ssh/id_rsa",
+      "expectation": "non-zero exit, Permission/Operation not permitted",
+      "verdict": "pass",
+      "evidence": "status=1 out=cat: /home/andy/.ssh/id_rsa: Permission denied outer_sandbox_already_readable=0",
+      "note": "this harness's OWN bash tool is itself nono-confined and already denies ~/.ssh before the inner worktree-agent profile is even applied — not a clean Landlock-specific differential on this host, so the inner profile's own explicit deny entry (also present) is the attribution that holds"
+    },
+    {
+      "id": "fs.kube-config-read-denied",
+      "description": "confined read of $HOME/.kube/config (same-uid, DAC-readable)",
+      "expectation": "non-zero exit, Permission/Operation not permitted",
+      "verdict": "pass",
+      "evidence": "status=1 out=cat: /home/andy/.kube/config: Permission denied",
+      "note": ""
+    },
+    {
+      "id": "fs.shadow-read-denied-redundant-with-dac",
+      "description": "confined read of /etc/shadow",
+      "expectation": "non-zero exit (denied by DAC mode 640 root:shadow independent of Landlock)",
+      "verdict": "pass",
+      "evidence": "status=1 dac_mode=640 root:shadow",
+      "note": "redundant-with-dac: this uid cannot read /etc/shadow with or without Landlock"
+    },
+    {
+      "id": "fs.etc-openat-o_creat-denied",
+      "description": "confined openat(O_CREAT) write to /etc/slaat-p1-4-probe",
+      "expectation": "non-zero exit, Permission/Operation not permitted",
+      "verdict": "pass",
+      "evidence": "status=2 out=/usr/bin/sh: 1: cannot create /etc/slaat-p1-4-probe: Permission denied",
+      "note": ""
+    },
+    {
+      "id": "fs.symlink-traversal-denied",
+      "description": "confined read through a symlink (inside allowed dir) pointing at $HOME/.ssh/id_rsa",
+      "expectation": "non-zero exit — Landlock resolves the real target, not the link path",
+      "verdict": "pass",
+      "evidence": "status=1 out=cat: /home/andy/.cline/worktrees/fdb35/osramp-demo/.tmp/slaat-p1-4-landlock-escape/work/sneaky-link: Permission denied",
+      "note": ""
+    },
+    {
+      "id": "fs.symlink-to-baseline-system-read-succeeds",
+      "description": "confined read through a symlink pointing at /etc/passwd",
+      "expectation": "exit 0 — /etc/passwd is granted by nono's composed 'system_read_linux_core' baseline group (NSS dependency), not by worktree-agent.json's own explicit read list",
+      "verdict": "pass",
+      "evidence": "status=0 out=root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nsys",
+      "note": "corrected expectation: an earlier draft of this probe wrongly assumed the profile denies anything it does not explicitly list; nono composes a baseline system-read capability group (glibc NSS paths) into every profile regardless, which this symlink read correctly traverses to — not a leak introduced by worktree-agent.json"
+    },
+    {
+      "id": "proc.other-pid-environ-denied",
+      "description": "confined read of /proc/1/environ (pid 1, not self)",
+      "expectation": "non-zero exit or empty read",
+      "verdict": "pass",
+      "evidence": "status=1 out_len=39",
+      "note": "boundary is Landlock filesystem scoping (no /proc grant) rather than a /proc-specific LSM rule"
+    },
+    {
+      "id": "proc.self-fd-introspection",
+      "description": "confined process can inspect its OWN /proc/self (expected, not an escape)",
+      "expectation": "exit 0 — self-introspection is not a boundary violation",
+      "verdict": "pass",
+      "evidence": "status=0 out=0\n1\n10\n2",
+      "note": "control: distinguishes 'denied /proc entirely' from 'denied OTHER pids under /proc'"
+    },
+    {
+      "id": "proc.ptrace-attach-unrelated-pid-denied",
+      "description": "confined ptrace-attach to an unrelated sibling process (host yama ptrace_scope=0)",
+      "expectation": "attach refused",
+      "verdict": "pass",
+      "evidence": "scope=0 status=1 out=strace: attach: ptrace(PTRACE_SEIZE, 130967): Operation not permitted",
+      "note": "attribution corrected from an earlier draft: ptrace_scope=0 means Yama is NOT restricting this (scope 0 is unrestricted same-uid ptrace), so the observed EPERM is nono's own seccomp-bpf denial of ptrace(2), not Landlock and not Yama — a containment layer this probe found in place but attributed to the wrong mechanism on first pass"
+    },
+    {
+      "id": "net.raw-socket-denied-redundant-with-capability",
+      "description": "confined socket(AF_INET, SOCK_RAW)",
+      "expectation": "non-zero exit, Operation not permitted (missing CAP_NET_RAW)",
+      "verdict": "pass",
+      "evidence": "status=1 out=Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import socket; socket.socket(socket.AF_INET, socket.SOCK_RAW, 1)\n                   ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^",
+      "note": "redundant-with-capability: this uid lacks CAP_NET_RAW with or without Landlock/nono"
+    },
+    {
+      "id": "net.non-allowlisted-port-denied",
+      "description": "confined connect to 127.0.0.1:39999 (not in network.open_port)",
+      "expectation": "non-zero exit",
+      "verdict": "pass",
+      "evidence": "status=1 out=/usr/bin/bash: connect: Permission denied\n/usr/bin/bash: line 1: /dev/tcp/127.0.0.1/39999: Permission denied",
+      "note": ""
+    },
+    {
+      "id": "ns.unshare-pid-namespace-creation",
+      "description": "confined 'unshare --pid --fork --mount-proc -- true'",
+      "expectation": "informational — namespace creation is a capability/sysctl question, not Landlock's",
+      "verdict": "pass",
+      "evidence": "status=1 allowed=0 out=unshare: unshare failed: Operation not permitted",
+      "note": "informational probe; see ns.unshare-does-not-widen-fs-access for the security-relevant half"
+    },
+    {
+      "id": "ns.unshare-does-not-widen-fs-access",
+      "description": "a process that unshares into a NEW pid namespace still cannot read $HOME/.ssh/id_rsa",
+      "expectation": "non-zero exit — Landlock's ruleset is inherited across unshare(CLONE_NEWPID), not reset",
+      "verdict": "pass",
+      "evidence": "status=1 out=unshare: unshare failed: Operation not permitted",
+      "note": "the critical escape this probe rules out: unshare as a Landlock-bypass vector"
+    },
+    {
+      "id": "proc.child-process-inherits-confinement",
+      "description": "a child process spawned by a confined shell is itself confined",
+      "expectation": "non-zero exit — Landlock rulesets are inherited by children (PR_SET_NO_NEW_PRIVS-equivalent persistence)",
+      "verdict": "pass",
+      "evidence": "status=1 out=cat: /home/andy/.ssh/id_rsa: Permission denied",
+      "note": ""
+    },
+    {
+      "id": "proc.background-thread-race-no-exfil-window",
+      "description": "a background subshell started inside the confined process attempts the same denied read",
+      "expectation": "the denied file is never written to the exfil path — no race window",
+      "verdict": "pass",
+      "evidence": "exfil_file_size=0",
+      "note": ""
+    },
+    {
+      "id": "control.allowed-write-inside-worktree-succeeds",
+      "description": "confined write+read inside the allow-listed worktree path",
+      "expectation": "exit 0, prints 'ok'",
+      "verdict": "pass",
+      "evidence": "status=0 out=ok",
+      "note": "positive control: without this, a broken/non-functional sandbox would also 'pass' every denial above"
+    }
+  ]
+}

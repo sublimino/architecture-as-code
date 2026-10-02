@@ -227,12 +227,13 @@ func TestTokenValidatorMatchesOnlyExact(t *testing.T) {
 
 func TestStatusForDistinguishesEveryContainmentOutcome(t *testing.T) {
 	cases := map[error]int{
-		cgroup.ErrInvalidPodUID:    http.StatusBadRequest,
-		cgroup.ErrUnauthorized:     http.StatusUnauthorized,
-		cgroup.ErrCgroupNotFound:   http.StatusNotFound,
-		cgroup.ErrPermission:       http.StatusInternalServerError,
-		cgroup.ErrFreezeDeadline:   http.StatusGatewayTimeout,
-		errors.New("unclassified"): http.StatusInternalServerError,
+		cgroup.ErrInvalidPodUID:     http.StatusBadRequest,
+		cgroup.ErrUnauthorized:      http.StatusUnauthorized,
+		cgroup.ErrCgroupNotFound:    http.StatusNotFound,
+		cgroup.ErrPermission:        http.StatusInternalServerError,
+		cgroup.ErrFreezeDeadline:    http.StatusGatewayTimeout,
+		cgroup.ErrDiscoveryDeadline: http.StatusServiceUnavailable,
+		errors.New("unclassified"):  http.StatusInternalServerError,
 	}
 	for err, want := range cases {
 		if got := statusFor(err); got != want {

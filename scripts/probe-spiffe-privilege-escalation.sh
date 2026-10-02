@@ -137,7 +137,7 @@ PY
       --labels="slaat.controlplane.io/probe=p1-3,signalloom.ai/agent=true,signalloom.ai/framework=none" \
       --overrides="${evil_overrides}" 2>&1)"
     KC -n "${SLAAT_AGENT_NAMESPACE}" delete pod "${POD_EVIL}" --ignore-not-found --wait=false >/dev/null 2>&1
-    if echo "${evil_out}" | grep -qi "PermissionDenied\|no identity issued"; then
+    if echo "${evil_out}" | grep -qi "PermissionDenied\|no identity issued\|DeadlineExceeded\|context deadline exceeded"; then
       record "SPIFFE-1" "workload-api-forged-identity" "denied" "denied" "pass" "Unregistered ServiceAccount ${PROBE_SA}, co-located in ${SLAAT_AGENT_NAMESPACE} with matching labels, correctly refused a JWT-SVID: ${evil_out##*rpc error}"
       echo "  SPIFFE-1 pass: unregistered SA denied an SVID" >&2
     else

@@ -1,9 +1,9 @@
 {
   "schema": "slaat-p1-1-network-findings/v1",
   "card": "SLAAT-P1-1",
-  "generated_at": "2026-10-01T23:26:49Z",
+  "generated_at": "2026-10-02T11:47:41Z",
   "cluster_context": "kind-osramp",
-  "repo_head": "b0d85e5ab71bcbf6b1c39cbefd09c5468dfeb011",
+  "repo_head": "3bcba6717885cc22776454c6c989cd2c683777d0",
   "components": {
     "envoy_gateway_audit": {
       "probe_count": 19,
@@ -11,11 +11,11 @@
     },
     "network_isolation_audit": {
       "record_count": 32,
-      "fail_count": 10
+      "fail_count": 5
     }
   },
   "total_record_count": 51,
-  "total_fail_count": 10,
+  "total_fail_count": 5,
   "records": [
     {
       "id": "GW-BASE-1",
@@ -245,11 +245,11 @@
       "vector": "default-deny-coverage",
       "namespace": "backend",
       "pod_count": 7,
-      "policy_count": 0,
-      "blanket_ingress_deny": false,
-      "blanket_egress_deny": false,
+      "policy_count": 5,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
       "priority": "tenant",
-      "severity": "fail"
+      "severity": "pass"
     },
     {
       "id": "NETPOL-cert-manager",
@@ -321,7 +321,7 @@
       "id": "NETPOL-fe-signalloom-agents",
       "vector": "default-deny-coverage",
       "namespace": "fe-signalloom-agents",
-      "pod_count": 20,
+      "pod_count": 21,
       "policy_count": 11,
       "blanket_ingress_deny": true,
       "blanket_egress_deny": true,
@@ -344,11 +344,11 @@
       "vector": "default-deny-coverage",
       "namespace": "frontend",
       "pod_count": 3,
-      "policy_count": 0,
-      "blanket_ingress_deny": false,
-      "blanket_egress_deny": false,
+      "policy_count": 4,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
       "priority": "tenant",
-      "severity": "fail"
+      "severity": "pass"
     },
     {
       "id": "NETPOL-inf-bao",
@@ -377,7 +377,7 @@
       "vector": "default-deny-coverage",
       "namespace": "ingress",
       "pod_count": 2,
-      "policy_count": 0,
+      "policy_count": 2,
       "blanket_ingress_deny": false,
       "blanket_egress_deny": false,
       "priority": "tenant",
@@ -388,7 +388,7 @@
       "vector": "default-deny-coverage",
       "namespace": "kagent",
       "pod_count": 4,
-      "policy_count": 2,
+      "policy_count": 5,
       "blanket_ingress_deny": false,
       "blanket_egress_deny": false,
       "priority": "tenant",
@@ -493,9 +493,9 @@
       "target_ip": "10.96.137.247",
       "target_port": 9000,
       "zero_trust_expectation": "blocked",
-      "observed": "reachable",
-      "nc_exit_code": 0,
-      "severity": "fail"
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
     },
     {
       "id": "LAT-5",
@@ -517,9 +517,9 @@
       "target_ip": "10.96.155.95",
       "target_port": 5432,
       "zero_trust_expectation": "blocked",
-      "observed": "reachable",
-      "nc_exit_code": 0,
-      "severity": "fail"
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
     },
     {
       "id": "LAT-7",
@@ -553,9 +553,9 @@
       "target_ip": "10.96.146.65",
       "target_port": 19001,
       "zero_trust_expectation": "blocked",
-      "observed": "reachable",
-      "nc_exit_code": 0,
-      "severity": "fail"
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
     },
     {
       "id": "PGREADY-1",

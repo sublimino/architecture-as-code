@@ -332,6 +332,35 @@ func newCorrelatorFreezeManager(f *cgroupFreezer) *correlator.FreezeManager {
 	return correlator.NewFreezeManager(f.engine, f.freezeToken)
 }
 
+// correlatorOptions turns the operator's configuration into correlator options
+// and the startup events that report it. Neither a missing ingest token nor an
+// invalid tenant map stops the sentinel, because that would also stop the
+// freeze: the first means observations are not posted, the second means every
+// workload is attributed to correlator.UnattributedTenantID. Both are logged.
+// The token value is never placed in an event.
+func correlatorOptions(cfg *Config) ([]correlator.Option, []stunEvent) {
+	var opts []correlator.Option
+	var events []stunEvent
+
+	if cfg.IngestToken == "" {
+		events = append(events, stunEvent{Timestamp: now(), Event: "ingest_token_missing",
+			Error: "SIGNAL_INGEST_TOKEN is empty (Secret stun-sentinel-ingest-token, key token): detections are logged and frozen but NOT posted to signal-ingest"})
+	} else {
+		opts = append(opts, correlator.WithBearerToken(cfg.IngestToken))
+	}
+
+	tenants, err := correlator.ParseTenantMap(cfg.TenantMap)
+	if err != nil {
+		events = append(events, stunEvent{Timestamp: now(), Event: "tenant_map_invalid",
+			Error: fmt.Sprintf("%v: every observation will carry tenant_id %s", err, correlator.UnattributedTenantID)})
+	} else {
+		events = append(events, stunEvent{Timestamp: now(), Event: "tenant_map_loaded",
+			Details: map[string]interface{}{"entries": tenants.Len()}})
+	}
+	opts = append(opts, correlator.WithTenantMap(tenants))
+	return opts, events
+}
+
 func main() {
 	cfg := parseConfig(os.Args[1:])
 
@@ -429,7 +458,12 @@ func main() {
 		})
 
 		freezeMgr := newCorrelatorFreezeManager(freezer)
-		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr, correlator.WithCgroupRoot(cfg.CgroupRoot))
+		opts, events := correlatorOptions(cfg)
+		for _, ev := range events {
+			logEvent(ev)
+		}
+		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr,
+			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot))...)
 		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})

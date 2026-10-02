@@ -1,9 +1,111 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+const wiringToken = "wiring-test-token-0123456789abcdef0123456789"
+
+func eventsNamed(events []stunEvent, name string) []stunEvent {
+	var out []stunEvent
+	for _, e := range events {
+		if e.Event == name {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// tenantOf builds the correlator exactly as main does and attributes the
+// kusari-agent pod as it ships (forged `tenant` label included).
+func tenantOf(t *testing.T, cfg *Config) string {
+	t.Helper()
+	opts, _ := correlatorOptions(cfg)
+	m := correlator.NewSentinelProbeManager(nil, "", nil, opts...)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "fe-signalloom-agents", Name: "kusari-agent-1",
+			Labels: map[string]string{"signalloom.ai/tenant": "kusari", "tenant": "acme"}},
+		Spec: corev1.PodSpec{ServiceAccountName: "kusari-agent"},
+	}
+	return m.NormalizeObservation(correlator.SyscallEvent{}, pod).TenantID
+}
+
+func TestIngestTokenComesFromTheEnvironmentAndIsNeverSerialised(t *testing.T) {
+	t.Setenv("SIGNAL_INGEST_TOKEN", "  "+wiringToken+"\n")
+	cfg := parseConfig([]string{})
+	if cfg.IngestToken != wiringToken {
+		t.Fatalf("IngestToken = %q, want the trimmed env value", cfg.IngestToken)
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), wiringToken) {
+		t.Fatalf("serialised config leaks the ingest token: %s", raw)
+	}
+}
+
+func TestTenantMapComesFromEnvWithFlagPrecedence(t *testing.T) {
+	t.Setenv("SENTINEL_TENANT_MAP", "fe-signalloom-agents/kusari-agent=kusari")
+	if got := parseConfig([]string{}).TenantMap; got != "fe-signalloom-agents/kusari-agent=kusari" {
+		t.Fatalf("TenantMap from env = %q", got)
+	}
+	if got := parseConfig([]string{"--tenant-map=ns-a=acme"}).TenantMap; got != "ns-a=acme" {
+		t.Fatalf("TenantMap with flag = %q, want the flag to win", got)
+	}
+}
+
+func TestMissingIngestTokenIsReportedAtStartup(t *testing.T) {
+	_, events := correlatorOptions(&Config{})
+	if len(eventsNamed(events, "ingest_token_missing")) != 1 {
+		t.Fatalf("want one ingest_token_missing event, got %+v", events)
+	}
+}
+
+func TestConfiguredIngestTokenIsUsedAndNeverLogged(t *testing.T) {
+	cfg := &Config{IngestToken: wiringToken}
+	opts, events := correlatorOptions(cfg)
+	if len(eventsNamed(events, "ingest_token_missing")) != 0 {
+		t.Fatalf("a configured token was reported missing: %+v", events)
+	}
+	raw, _ := json.Marshal(events)
+	if strings.Contains(string(raw), wiringToken) {
+		t.Fatalf("a startup event leaks the ingest token: %s", raw)
+	}
+	if !correlator.NewSentinelProbeManager(nil, "", nil, opts...).IngestTokenConfigured() {
+		t.Fatal("the configured token did not reach the correlator")
+	}
+}
+
+func TestTenantMapReachesTheCorrelator(t *testing.T) {
+	cfg := &Config{TenantMap: "fe-signalloom-agents/kusari-agent=kusari"}
+	if got := tenantOf(t, cfg); got != "kusari" {
+		t.Fatalf("tenant_id = %q, want kusari", got)
+	}
+	if _, events := correlatorOptions(cfg); len(eventsNamed(events, "tenant_map_loaded")) != 1 {
+		t.Fatalf("want one tenant_map_loaded event, got %+v", events)
+	}
+}
+
+// A malformed map must not stop the sentinel (that would stop the freeze) and
+// must not half-apply: every workload is unattributed, and it is said loudly.
+func TestInvalidTenantMapIsLoudAndAttributesNothing(t *testing.T) {
+	cfg := &Config{TenantMap: "fe-signalloom-agents/kusari-agent=kusari,fe-signalloom-agents/x=kusarі"}
+	if got := tenantOf(t, cfg); got != correlator.UnattributedTenantID {
+		t.Fatalf("tenant_id = %q under an invalid map, want %q", got, correlator.UnattributedTenantID)
+	}
+	_, events := correlatorOptions(cfg)
+	if bad := eventsNamed(events, "tenant_map_invalid"); len(bad) != 1 || bad[0].Error == "" {
+		t.Fatalf("want one tenant_map_invalid event carrying the parse error, got %+v", events)
+	}
+}
 
 func TestParseConfigDefaults(t *testing.T) {
 	os.Unsetenv("STUN_DRY_RUN")

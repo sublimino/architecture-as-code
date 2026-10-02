@@ -41,7 +41,7 @@ func tenancyRouter(t *testing.T) (http.Handler, *Handlers) {
 	// actor_ids "*" passes the router's per-actor allow-list on the {id} routes, so what is left to
 	// decide the reply is tenancy alone.
 	anyActor := []string{"*"}
-	read := []Permission{PermissionObservationRead, PermissionStream, PermissionActorList, PermissionActorRead, PermissionAnalysisRead, PermissionActorWrite, PermissionAnalysisRun}
+	read := []Permission{PermissionObservationRead, PermissionStream, PermissionActorList, PermissionActorRead, PermissionAnalysisRead, PermissionActorWrite, PermissionAnalysisRun, PermissionRiskRead}
 	a, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
 		{Name: "reader-a", Token: tenantAToken, Subject: "static-key/reader-a", TenantID: "tenant-a", Permissions: read, ActorIDs: anyActor, ExpiresAt: expires},
 		{Name: "reader-b", Token: tenantBToken, Subject: "static-key/reader-b", TenantID: "tenant-b", Permissions: read, ActorIDs: anyActor, ExpiresAt: expires},
@@ -438,5 +438,21 @@ func TestWriteBindingFailsClosedOnMissingTenancy(t *testing.T) {
 		Principal{Subject: "s", Permissions: map[Permission]bool{PermissionObservationWrite: true}}))
 	if err := bindWriteTenancy(noTenant, batch()); err == nil {
 		t.Fatal("a principal with no tenant was allowed to write")
+	}
+}
+
+// Risk is computed over an agent catalogue that carries no tenant at all, so there is nothing to
+// scope it by: a tenant-scoped principal is refused outright (403 cross_tenant_read_required),
+// never handed a silently partial or cross-tenant answer.
+func TestRiskNeedsCrossTenantRead(t *testing.T) {
+	router, _ := tenancyRouter(t)
+	for _, path := range []string{"/api/v1/risk/fleet", "/api/v1/risk/agents/agent-x", "/v1/risk/fleet"} {
+		w := serve(router, bearerRequest(http.MethodGet, path, tenantAToken))
+		if w.Code != http.StatusForbidden || strings.TrimSpace(w.Body.String()) != `{"error":"cross_tenant_read_required"}` {
+			t.Errorf("tenant-a GET %s: %d %s, want 403 cross_tenant_read_required", path, w.Code, w.Body.String())
+		}
+		if w := serve(router, bearerRequest(http.MethodGet, path, crossToken)); w.Code == http.StatusForbidden {
+			t.Errorf("cross-tenant GET %s refused: %s", path, w.Body.String())
+		}
 	}
 }

@@ -36,12 +36,15 @@ func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	if sunset, _ := time.Parse(time.DateOnly, StaticBearerSunset); expires.After(sunset) {
 		expires = sunset
 	}
-	read := []Permission{PermissionObservationRead, PermissionStream, PermissionActorList, PermissionActorRead, PermissionAnalysisRead}
+	// actor_ids "*" passes the router's per-actor allow-list on the {id} routes, so what is left to
+	// decide the reply is tenancy alone.
+	anyActor := []string{"*"}
+	read := []Permission{PermissionObservationRead, PermissionStream, PermissionActorList, PermissionActorRead, PermissionAnalysisRead, PermissionActorWrite, PermissionAnalysisRun}
 	a, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
-		{Name: "reader-a", Token: tenantAToken, Subject: "static-key/reader-a", TenantID: "tenant-a", Permissions: read, ExpiresAt: expires},
-		{Name: "reader-b", Token: tenantBToken, Subject: "static-key/reader-b", TenantID: "tenant-b", Permissions: read, ExpiresAt: expires},
+		{Name: "reader-a", Token: tenantAToken, Subject: "static-key/reader-a", TenantID: "tenant-a", Permissions: read, ActorIDs: anyActor, ExpiresAt: expires},
+		{Name: "reader-b", Token: tenantBToken, Subject: "static-key/reader-b", TenantID: "tenant-b", Permissions: read, ActorIDs: anyActor, ExpiresAt: expires},
 		{Name: "reader-all", Token: crossToken, Subject: "static-key/reader-all", TenantID: "tenant-a",
-			Permissions: append([]Permission{PermissionCrossTenantRead}, read...), ExpiresAt: expires},
+			Permissions: append([]Permission{PermissionCrossTenantRead}, read...), ActorIDs: anyActor, ExpiresAt: expires},
 	}, delegate)
 	if err != nil {
 		t.Fatal(err)
@@ -222,5 +225,87 @@ func TestStoreStatsCountOnlyThePrincipalsTenant(t *testing.T) {
 	getJSON(t, router, crossToken, "/api/v1/store/stats", http.StatusOK, &stats)
 	if stats.TotalObservations != 5 || stats.ActorCount != 3 {
 		t.Fatalf("cross-tenant stats: %d observations, %d actors; want 5 and 3", stats.TotalObservations, stats.ActorCount)
+	}
+}
+
+func postJSON(t *testing.T, router http.Handler, token, path string, wantStatus int) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, bearerRequest(http.MethodPost, path, token))
+	if w.Code != wantStatus {
+		t.Fatalf("POST %s: %d %s, want %d", path, w.Code, w.Body.String(), wantStatus)
+	}
+	return strings.TrimSpace(w.Body.String())
+}
+
+// Promoting another tenant's actor is answered like promoting an absent one, and changes nothing.
+func TestActorPromotionIsScopedToThePrincipalsTenant(t *testing.T) {
+	router, h := tenancyRouter(t)
+	foreign := tenancyActors["obs-1-tenant-b"]
+	body := postJSON(t, router, tenantAToken, "/api/v1/actors/"+foreign+"/promote", http.StatusNotFound)
+	if !strings.Contains(body, "not found") {
+		t.Fatalf("tenant-a promoting a tenant-b actor: %s", body)
+	}
+	if a := h.Engine.GetActor(foreign); a == nil || a.PromotedAt != nil {
+		t.Fatalf("the refused promotion changed the actor: %+v", a)
+	}
+	postJSON(t, router, tenantBToken, "/api/v1/actors/"+foreign+"/promote", http.StatusOK)
+}
+
+// Correlation runs over the whole store, but reports back only what the caller may read.
+func TestCorrelationReportsOnlyThePrincipalsTenant(t *testing.T) {
+	router, _ := tenancyRouter(t)
+	var resp struct {
+		ActorsDiscovered int                      `json:"actors_discovered"`
+		Actors           []model.ProvisionalActor `json:"actors"`
+	}
+	if err := json.Unmarshal([]byte(postJSON(t, router, tenantAToken, "/api/v1/correlate", http.StatusOK)), &resp); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range resp.Actors {
+		for _, ev := range a.EvidenceChain {
+			if !strings.HasSuffix(ev.ObservationID, "tenant-a") {
+				t.Fatalf("tenant-a correlation reports actor %s built from %s", a.ID, ev.ObservationID)
+			}
+		}
+	}
+	if resp.ActorsDiscovered != len(resp.Actors) || resp.ActorsDiscovered == 0 {
+		t.Fatalf("tenant-a correlation: discovered %d, returned %d", resp.ActorsDiscovered, len(resp.Actors))
+	}
+}
+
+// A quarantine record carries no evidence chain, so its tenant is unknown: the estate-wide
+// authorization listing shows it only to a cross-tenant principal.
+func TestQuarantinedActorsAreListedCrossTenantOnly(t *testing.T) {
+	router, h := tenancyRouter(t)
+	if _, err := h.Engine.QuarantineActor(context.Background(), "quarantined-elsewhere",
+		model.QuarantineRecord{ActorID: "quarantined-elsewhere", AttemptedAt: time.Now(), QuarantinedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if body := getJSON(t, router, tenantAToken, "/api/v1/authorization", http.StatusOK, nil); strings.Contains(body, "quarantined-elsewhere") {
+		t.Fatalf("tenant-a estate listing shows a tenantless quarantined actor: %s", body)
+	}
+	if body := getJSON(t, router, crossToken, "/api/v1/authorization", http.StatusOK, nil); !strings.Contains(body, "quarantined-elsewhere") {
+		t.Fatalf("cross-tenant estate listing omits the quarantined actor: %s", body)
+	}
+}
+
+// Edge rules of the two scoping helpers, which the router-level tests cannot reach: a principal
+// with no tenant reads nothing (not the untagged rows, whose tenant is also ""), and an actor with
+// no evidence has no tenant, so it is never visible to a tenant-scoped principal.
+func TestScopeHelpersFailClosedOnMissingTenancy(t *testing.T) {
+	obs := []model.Observation{{ID: "untagged", Labels: map[string]string{}}, {ID: "a", Labels: map[string]string{ObservationTenantLabel: "tenant-a"}}}
+	if got := scopeObservations(obs, "", false, 0); len(got) != 0 {
+		t.Fatalf("a principal with no tenant read %d observations, want 0", len(got))
+	}
+	s := actorScope{tenant: "tenant-a", obsTenant: map[string]string{"a": "tenant-a"}}
+	if s.visible(&model.ProvisionalActor{ID: "no-evidence"}) {
+		t.Fatal("an actor with no evidence chain is visible to a tenant-scoped principal")
+	}
+	if !s.visible(&model.ProvisionalActor{ID: "own", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}}}) {
+		t.Fatal("an actor built only from the principal's own observations is not visible")
+	}
+	if s.visible(&model.ProvisionalActor{ID: "mixed", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}, {ObservationID: "untagged"}}}) {
+		t.Fatal("an actor with mixed-tenant evidence is visible to a tenant-scoped principal")
 	}
 }

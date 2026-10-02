@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -12,6 +13,15 @@ import (
 
 func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	// Another tenant's actor is answered exactly like an absent one, before anything changes.
+	if visible, err := h.scopedActor(r, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	} else if visible == nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("actor %q not found", id))
+		return
+	}
 
 	actor, err := h.Engine.PromoteActor(id)
 	if err != nil {

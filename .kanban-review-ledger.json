@@ -4375,5 +4375,129 @@
     "verdict": "pass",
     "model": null,
     "reason": "Final Governor cold-start zero-state attestation and EAP pilot certification complete at 24b5f561"
+  },
+  "ec835": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "ec835",
+        "reviewed_at": "2026-10-01T22:39:05.211Z",
+        "reviewer": "antigravity",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "Phase 1 Preflight baseline verified across all 15 test slices"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "ec835",
+    "reviewed_at": "2026-10-01T22:39:05.211Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Phase 1 Preflight baseline verified across all 15 test slices"
+  },
+  "350b2": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "350b2",
+        "reviewed_at": "2026-10-01T23:35:04.729Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": "gemini-3.8",
+        "summary": "Phase 1 Ingress Gateway and Network Isolation attack probing complete and verified",
+        "next_step": "advance to done and start P1-2",
+        "reason": "20/20 bats tests pass, reports and access log evidence complete"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "350b2",
+    "reviewed_at": "2026-10-01T23:35:04.729Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": "gemini-3.8",
+    "summary": "Phase 1 Ingress Gateway and Network Isolation attack probing complete and verified",
+    "next_step": "advance to done and start P1-2",
+    "reason": "20/20 bats tests pass, reports and access log evidence complete"
+  },
+  "9f44a": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "9f44a",
+        "reviewed_at": "2026-10-02T00:40:05.361Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "373/373 pytest cases pass, live cluster boundary probe 7/7 pass, vulnerability dossier and findings complete"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "9f44a",
+    "reviewed_at": "2026-10-02T00:40:05.361Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "373/373 pytest cases pass, live cluster boundary probe 7/7 pass, vulnerability dossier and findings complete"
+  },
+  "9f076": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "9f076",
+        "reviewed_at": "2026-10-02T02:03:32.766Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "SPIFFE Identity & OpenBao JWT privilege escalation probing verified: 34 live probes executed with zero unauthorized logins or KV leaks; 9 deliverables and dossier committed at c0f4d197 and merged cleanly."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "9f076",
+    "reviewed_at": "2026-10-02T02:03:32.766Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "SPIFFE Identity & OpenBao JWT privilege escalation probing verified: 34 live probes executed with zero unauthorized logins or KV leaks; 9 deliverables and dossier committed at c0f4d197 and merged cleanly."
+  },
+  "9b991": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "9b991",
+        "reviewed_at": "2026-10-02T03:51:34.769Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "Sentinel eBPF and Landlock sandbox confinement escape probing verified: 42 BATS tests, 36 live probes, 14 files delivered (+2,444 lines) committed at e0395647 and merged cleanly."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "9b991",
+    "reviewed_at": "2026-10-02T03:51:34.769Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Sentinel eBPF and Landlock sandbox confinement escape probing verified: 42 BATS tests, 36 live probes, 14 files delivered (+2,444 lines) committed at e0395647 and merged cleanly."
+  },
+  "feab3": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "feab3",
+        "reviewed_at": "2026-10-02T04:41:23.452Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "Phase 1 Governor Gate certified: 24 findings reconciled across all 4 probe domains, authoritative vulnerability dossier and findings database delivered, docs-lint clean attestation report registered in docs/README.md."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "feab3",
+    "reviewed_at": "2026-10-02T04:41:23.452Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Phase 1 Governor Gate certified: 24 findings reconciled across all 4 probe domains, authoritative vulnerability dossier and findings database delivered, docs-lint clean attestation report registered in docs/README.md."
   }
 }

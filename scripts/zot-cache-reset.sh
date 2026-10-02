@@ -36,7 +36,7 @@ ABS_CACHE="$(cd "$(dirname "$ZOT_CACHE_DIR")" && pwd -P)/$(basename "$ZOT_CACHE_
 # expand literally and are harmlessly swallowed by `rm -rf`.
 clear_cmd='rm -rf "$1"/* "$1"/.[!.]* "$1"/..?*'
 
-if "$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
+if grep -qx "$CONTAINER" <<<"$("$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null)"; then
   echo "Clearing Zot cache from inside running container '$CONTAINER':$MOUNT"
   "$DOCKER_BIN" exec "$CONTAINER" sh -c "$clear_cmd" _ "$MOUNT"
 else

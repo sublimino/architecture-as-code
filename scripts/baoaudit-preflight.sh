@@ -10,7 +10,7 @@ FAILURES=0
 
 # 1. OpenBao cluster & audit transport readiness
 echo -n "[1/5] Checking OpenBao pod & audit socket capability... "
-if kubectl get pods -n inf-bao -l app.kubernetes.io/name=openbao --no-headers 2>/dev/null | grep -q "Running"; then
+if grep -q "Running" <<<"$(kubectl get pods -n inf-bao -l app.kubernetes.io/name=openbao --no-headers 2>/dev/null)"; then
     echo "OK (OpenBao pod running in inf-bao)"
 else
     echo "WARN (Simulating local socket transport environment for CI/unit tests)"
@@ -18,7 +18,7 @@ fi
 
 # 2. SPIRE Server & Workload API readiness
 echo -n "[2/5] Checking SPIRE Workload API & Server pods... "
-if kubectl get pods -n inf-bao -l app.kubernetes.io/name=spire-server --no-headers 2>/dev/null | grep -q "Running"; then
+if grep -q "Running" <<<"$(kubectl get pods -n inf-bao -l app.kubernetes.io/name=spire-server --no-headers 2>/dev/null)"; then
     echo "OK (SPIRE server operational)"
 else
     echo "WARN (SPIRE server not live; mock SVID stream will be used for unit testing)"

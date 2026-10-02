@@ -137,7 +137,7 @@ PY
       --labels="slaat.controlplane.io/probe=p1-3,signalloom.ai/agent=true,signalloom.ai/framework=none" \
       --overrides="${evil_overrides}" 2>&1)"
     KC -n "${SLAAT_AGENT_NAMESPACE}" delete pod "${POD_EVIL}" --ignore-not-found --wait=false >/dev/null 2>&1
-    if echo "${evil_out}" | grep -qi "PermissionDenied\|no identity issued\|DeadlineExceeded\|context deadline exceeded"; then
+    if grep -qi "PermissionDenied\|no identity issued\|DeadlineExceeded\|context deadline exceeded" <<<"${evil_out}"; then
       record "SPIFFE-1" "workload-api-forged-identity" "denied" "denied" "pass" "Unregistered ServiceAccount ${PROBE_SA}, co-located in ${SLAAT_AGENT_NAMESPACE} with matching labels, correctly refused a JWT-SVID: ${evil_out##*rpc error}"
       echo "  SPIFFE-1 pass: unregistered SA denied an SVID" >&2
     else
@@ -252,7 +252,7 @@ print(int(m.group(1))*3600 if m else -1)
             export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN='${issued_token}'
             bao kv get '${path}' 2>&1 || bao read '${path}' 2>&1
           " 2>&1)"
-          if echo "${out}" | grep -q "Code: 403"; then rc="403"; elif echo "${out}" | grep -qi "====== Data ======\|^Key"; then rc="200"; else rc="other"; fi
+          if grep -q "Code: 403" <<<"${out}"; then rc="403"; elif grep -qi "====== Data ======\|^Key" <<<"${out}"; then rc="200"; else rc="other"; fi
           local sev="pass"
           [ "${rc}" != "${expect_status}" ] && sev="fail"
           record "${id}" "kv-tenant-isolation" "http_${expect_status}" "http_${rc}" "${sev}" "${desc} (path=${path})"
@@ -270,7 +270,7 @@ print(int(m.group(1))*3600 if m else -1)
 
       # SPIFFE-10: cross-identity bypass -- cardvault SVID against an unrelated role
       cross_login="$(bao_login signalloom-fe-signalloom openbao)"
-      if echo "${cross_login}" | grep -qi "invalid subject\|does not match\|Code: 400"; then
+      if grep -qi "invalid subject\|does not match\|Code: 400" <<<"${cross_login}"; then
         record "SPIFFE-10" "openbao-jwt-login" "denied" "denied" "pass" "cardvault SVID correctly rejected by signalloom-fe-signalloom role (bound to a different sub): ${cross_login##*Errors:}"
         echo "  SPIFFE-10 pass: cross-identity role login denied" >&2
       else
@@ -280,7 +280,7 @@ print(int(m.group(1))*3600 if m else -1)
 
       # SPIFFE-11: audience bypass -- wrong-audience SVID against the generic role
       aud_bypass="$(bao_login signalloom-agent-generic openbao)"
-      if echo "${aud_bypass}" | grep -qi "invalid audience"; then
+      if grep -qi "invalid audience" <<<"${aud_bypass}"; then
         record "SPIFFE-11" "openbao-jwt-audience" "denied" "denied" "pass" "Wrong-audience SVID (aud=openbao) correctly rejected by signalloom-agent-generic (bound_audiences=openbao-supercredential)."
         echo "  SPIFFE-11 pass: audience mismatch denied" >&2
       else
@@ -290,7 +290,7 @@ print(int(m.group(1))*3600 if m else -1)
       # SPIFFE-12: bound_claims glob defect -- correct-audience SVID against the generic role
       if [ -n "${JWT_SUPERCRED}" ]; then
         glob_bug="$(bao_login signalloom-agent-generic supercred)"
-        if echo "${glob_bug}" | grep -qi 'does not match any associated bound claim'; then
+        if grep -qi 'does not match any associated bound claim' <<<"${glob_bug}"; then
           record "SPIFFE-12" "openbao-jwt-bound-claims" "login-succeeds-for-registered-fleet-agents" "claim-mismatch-for-every-agent" "fail" "signalloom-agent-generic role is missing bound_claims_type=glob. Its bound_claims.sub literal '*' never matches a real SPIFFE sub, so EVERY one of the 18 registered fe-signalloom-agents/sa/* identities is permanently denied by this role -- a correctness defect that happens to fail closed. Same bug class previously fixed (bound_claims_type=glob added) in openbao-supercred-bootstrap.yaml's two roles per the documented PF-3 precedent; this role was never updated to match."
           echo "  SPIFFE-12 FAIL (functional defect, fails closed): generic role's bound_claims glob is broken for all fleet agents" >&2
         else
@@ -312,7 +312,7 @@ with open('${WORKDIR}/tampered.jwt', 'w') as f:
 "
       stage_jwt "tampered" "${WORKDIR}/tampered.jwt"
       tamper_login="$(bao_login signalloom-cardvault-agent tampered)"
-      if echo "${tamper_login}" | grep -qi "failed to verify id token signature\|invalid.*signature"; then
+      if grep -qi "failed to verify id token signature\|invalid.*signature" <<<"${tamper_login}"; then
         record "SPIFFE-13" "openbao-jwt-signature" "denied" "denied" "pass" "Tampered-signature SVID correctly rejected."
         echo "  SPIFFE-13 pass: tampered signature denied" >&2
       else
@@ -336,7 +336,7 @@ with open('${WORKDIR}/algnone.jwt', 'w') as f:
 "
       stage_jwt "algnone" "${WORKDIR}/algnone.jwt"
       algnone_login="$(bao_login signalloom-cardvault-agent algnone)"
-      if echo "${algnone_login}" | grep -qi "failed to verify id token signature\|invalid.*signature\|malformed"; then
+      if grep -qi "failed to verify id token signature\|invalid.*signature\|malformed" <<<"${algnone_login}"; then
         record "SPIFFE-14" "openbao-jwt-alg-none" "denied" "denied" "pass" "alg:none forged token impersonating ${sub_claim} correctly rejected by OpenBao's JWT signature verification."
         echo "  SPIFFE-14 pass: alg:none forgery denied" >&2
       else

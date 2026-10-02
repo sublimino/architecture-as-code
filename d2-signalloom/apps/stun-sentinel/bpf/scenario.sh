@@ -213,13 +213,13 @@ if ! stun-tcctl attach --interface "$HOST_IF" >"$WORK/attach.txt" 2>&1; then
 	fail_out "attach failed (see verifier_error)"
 fi
 
-tc qdisc show dev "$HOST_IF" | grep -q clsact && clsact_present=true || clsact_present=false
-tc filter show dev "$HOST_IF" ingress | grep -q stun_tc_drop && ingress_filter=true || ingress_filter=false
-tc filter show dev "$HOST_IF" egress | grep -q stun_tc_drop && egress_filter=true || egress_filter=false
+grep -q clsact <<<"$(tc qdisc show dev "$HOST_IF")" && clsact_present=true || clsact_present=false
+grep -q stun_tc_drop <<<"$(tc filter show dev "$HOST_IF" ingress)" && ingress_filter=true || ingress_filter=false
+grep -q stun_tc_drop <<<"$(tc filter show dev "$HOST_IF" egress)" && egress_filter=true || egress_filter=false
 
-if bpftool prog show | grep -q "name stun_tc_drop"; then
+if grep -q "name stun_tc_drop" <<<"$(bpftool prog show)"; then
 	prog_name='"stun_tc_drop"'
-	if bpftool prog show | grep "name stun_tc_drop" | grep -q sched_cls; then
+	if grep -q sched_cls <<<"$(bpftool prog show | grep "name stun_tc_drop")"; then
 		prog_type='"sched_cls"'
 	else
 		prog_type='"unexpected"'
@@ -340,7 +340,7 @@ done
 # --- detach -----------------------------------------------------------------
 
 stun-tcctl detach --interface "$HOST_IF" >/dev/null 2>&1
-if tc filter show dev "$HOST_IF" ingress 2>/dev/null | grep -q stun_tc_drop; then
+if grep -q stun_tc_drop <<<"$(tc filter show dev "$HOST_IF" ingress 2>/dev/null)"; then
 	detach_left_filters=true
 else
 	detach_left_filters=false

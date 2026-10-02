@@ -34,7 +34,7 @@ ABS_DATA="$(cd "$(dirname "$POSTGRES_DATA_DIR")" && pwd -P)/$(basename "$POSTGRE
 # shellcheck disable=SC2016
 clear_cmd='rm -rf "$1"/* "$1"/.[!.]* "$1"/..?*'
 
-if "$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
+if grep -qx "$CONTAINER" <<<"$("$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null)"; then
   echo "Clearing Postgres data from inside running container '$CONTAINER':$MOUNT"
   "$DOCKER_BIN" exec "$CONTAINER" sh -c "$clear_cmd" _ "$MOUNT"
 else

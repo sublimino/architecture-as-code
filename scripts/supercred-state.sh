@@ -173,7 +173,7 @@ probe() {
       /opt/spire/bin/spire-server entry show -spiffeID "$SPIFFE_ID" 2>/dev/null || true)"
     # `entry show` prints "Found 0 entries" for a clean server; any Entry ID
     # line means a registration survives.
-    if printf '%s' "$entries" | grep -q 'Entry ID'; then
+    if grep -q 'Entry ID' <<<"$entries"; then
       printf 'spire.entry=present\n'
     else
       printf 'spire.entry=absent\n'

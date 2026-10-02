@@ -556,7 +556,7 @@ wait_job() {
   local is_complete=0 is_failed=0 has_nonzero_exit=0
   [[ "${conditions}" == *"Complete=True"* ]] && is_complete=1
   [[ "${conditions}" == *"Failed=True"* ]] && is_failed=1
-  printf '%s' "${pod_exits}" | grep -qE '=[1-9]' && has_nonzero_exit=1
+  grep -qE '=[1-9]' <<<"${pod_exits}" && has_nonzero_exit=1
 
   case "${for_cond}" in
     complete)

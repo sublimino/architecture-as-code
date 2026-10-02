@@ -93,7 +93,7 @@ elif [ -f "$target" ]; then
   top="$(printf '%s\n' "$names" | head -n 1)"
   top="${top%%/*}"
   archive_ok=1
-  if ! printf '%s' "$top" | grep -Eq '^kusari-eap-evidence-[0-9]{8}T[0-9]{6}Z$'; then
+  if ! grep -Eq '^kusari-eap-evidence-[0-9]{8}T[0-9]{6}Z$' <<<"$top"; then
     eap_fail "archive top-level entry '$top' is not kusari-eap-evidence-<UTC timestamp>"
     archive_ok=0
   fi
@@ -103,7 +103,7 @@ elif [ -f "$target" ]; then
       "$top" | "$top/") ;;
       "$top"/*)
         base="${n#"$top"/}"
-        if ! printf '%s\n' "${bundle_files[@]}" | grep -Fxq -- "$base"; then
+        if ! grep -Fxq -- "$base" <<<"$(printf '%s\n' "${bundle_files[@]}")"; then
           eap_fail "archive entry '$n' is not part of the bundle contract"
           archive_ok=0
         fi

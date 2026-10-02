@@ -391,9 +391,10 @@ if [[ "$L3_PROBE" == 1 ]]; then
         [[ "$s" =~ ^[0-9]+\. ]] && cidr_overlap "$s" "$cand" && clash=1
       done
     done
-    "$IP_BIN" -4 route show table all 2>/dev/null | awk '{print $1}' | grep -E '^[0-9]+\.' | while read -r d; do
+    route_clashes="$("$IP_BIN" -4 route show table all 2>/dev/null | awk '{print $1}' | grep -E '^[0-9]+\.' | while read -r d; do
       cidr_overlap "$d" "$cand" && echo clash
-    done | grep -q clash && clash=1
+    done || true)"
+    grep -q clash <<<"$route_clashes" && clash=1
     [[ "$clash" == 0 ]] && { probe_cidr="$cand"; break; }
   done
   if [[ -z "$probe_cidr" ]]; then

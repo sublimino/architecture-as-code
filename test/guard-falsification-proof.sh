@@ -1312,7 +1312,7 @@ orc_ci_orphan_report() {
 	while IFS= read -r f; do
 		[ -n "$f" ] || continue
 		grep -qxF "$f" <<< "$mapped" && continue
-		grep -q "deliberately NOT mapped" "$CONVERTER" && grep -B3 -A3 'deliberately NOT mapped' "$CONVERTER" | grep -qF "$f" && continue
+		grep -q "deliberately NOT mapped" "$CONVERTER" && grep -qF "$f" <<<"$(grep -B3 -A3 'deliberately NOT mapped' "$CONVERTER")" && continue
 		n=$((n + 1))
 	done <<< "$(_pipeline_structured)"
 	printf '%s' "$n"
@@ -1423,7 +1423,7 @@ orc_meta_uninvoked_proof() {
 		while IFS= read -r cand; do
 			[ -n "$cand" ] || continue
 			[ "$(basename "$cand")" = "$base" ] && continue
-			if grep -vE '^[[:space:]]*#' "$cand" 2>/dev/null | grep -qF "$base"; then hit=1; break; fi
+			if grep -qF "$base" <<<"$(grep -vE '^[[:space:]]*#' "$cand" 2>/dev/null)"; then hit=1; break; fi
 		done < <(grep -rl --include='*.sh' --include='*.bats' --include='Makefile' -F "$base" \
 				scripts test Makefile d2-signalloom 2>/dev/null)
 		[ "$hit" -eq 1 ] || n=$((n + 1))
@@ -2012,7 +2012,7 @@ prove() {
 	# that goes red because the mutation broke its parser has not detected
 	# anything, and reporting that as success is how a guard keeps its reputation
 	# while losing its capability.
-	if ! printf '%s\n' "$mutated_output" | grep -qE "$sig"; then
+	if ! grep -qE "$sig" <<<"$mutated_output"; then
 		record_unknown "$id" "guard went red (exit $mutated_status) but its output did not match the expected signature /$sig/ — it may be failing for a reason unrelated to the injected defect"
 		show "$mutated_output" '^not ok|^# ' 6 '      | '
 		return 0
@@ -2493,6 +2493,7 @@ printf 'watching: %s guard/target path(s) by content hash\n' "${#WATCH_PATHS[@]}
 
 RAN=0
 for i in "${!C_ID[@]}"; do
+	# pipefail-safe: printf writes one short single-line id in a single write; nothing follows the match
 	if [ -n "$ONLY" ] && ! printf '%s' "${C_ID[$i]}" | grep -qE "$ONLY"; then
 		continue
 	fi

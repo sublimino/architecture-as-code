@@ -1,6 +1,6 @@
 [
   {
-    "id": "stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:33.123456789Z:sys_enter_openat",
+    "id": "stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:33.123456789Z:sys_enter_openat:/etc/passwd",
     "timestamp": "2026-10-01T22:35:33.123456789Z",
     "layer": "endpoint_host",
     "fidelity": "strong",
@@ -9,7 +9,6 @@
     "actor_id": "kusari-agent",
     "raw_evidence_ref": "ebpf://sys_enter_openat/etc/passwd",
     "labels": {
-      "app.kubernetes.io/name": "kusari-agent",
       "cgroup_path": "/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice",
       "direct_reaction": "cgroup_frozen",
       "namespace": "fe-signalloom-agents",

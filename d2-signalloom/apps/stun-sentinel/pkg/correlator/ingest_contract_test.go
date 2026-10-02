@@ -109,3 +109,32 @@ func TestNormalizeObservationDoesNotAliasThePodsLabelMap(t *testing.T) {
 		t.Fatal("NormalizeObservation must copy pod labels; writing to the observation mutated the informer's cached pod")
 	}
 }
+
+// Review M4/M5 (2026-10-02): toIngest copied every pod label onto the wire.
+// Pod labels are chosen by whoever deploys the pod, so in a multi-tenant
+// cluster they are attacker-influenced; they also blew through signal-ingest's
+// closed segment label allow-list. The wire now carries the sentinel's own
+// keys and nothing else.
+func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
+	o := sampleObservation()
+	o.Labels = map[string]string{"syscall": "forged", "tenant_id": "other-tenant", "evil": "x"}
+	got := o.toIngest().Labels
+	want := map[string]bool{"syscall": true, "target": true, "pod_name": true, "namespace": true,
+		"tenant_id": true, "severity": true, "direct_reaction": true, "cgroup_path": true}
+	for k := range got {
+		if !want[k] {
+			t.Fatalf("wire label %q is not a sentinel key; pod labels must not reach signal-ingest (%v)", k, got)
+		}
+	}
+	if got["syscall"] != SyscallNameOpenat || got["tenant_id"] != "kusari" {
+		t.Fatalf("a pod label overrode a sentinel key: %v", got)
+	}
+}
+
+func TestObservationIDsDifferForDifferentTargetsAtTheSameInstant(t *testing.T) {
+	a, b := sampleObservation(), sampleObservation()
+	b.Target = "/etc/shadow"
+	if a.toIngest().ID == b.toIngest().ID {
+		t.Fatal("two opens of different files by the same pod at the same instant share an ID")
+	}
+}

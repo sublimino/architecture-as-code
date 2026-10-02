@@ -566,6 +566,10 @@ test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_proven
 test-slaat-p1-1-network-probes: ## SLAAT-P1-1 adversarial probe suite: Envoy Gateway + NetworkPolicy isolation. Needs a live kind-osramp cluster; not part of test-all-offline.
 	bats test/adversarial-network-probes.bats
 
+.PHONY: test-slaat-p1-2-api-probes
+test-slaat-p1-2-api-probes: ## SLAAT-P1-2 live backend API probe: unauthenticated/forged-token fail-closed boundaries. Needs a live kind-osramp cluster; not part of test-all-offline (the pytest suites it complements already run there).
+	scripts/probe-api-idor-boundaries.sh
+
 test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	@echo "=== [Cluster] Live Kind Cluster Slices & Runtime Tests ==="
 	$(MAKE) test

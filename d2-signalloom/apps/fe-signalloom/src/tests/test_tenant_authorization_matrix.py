@@ -121,7 +121,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def _iter_api_routes(routes: Any) -> list[APIRoute]:
-    from fastapi.routing import _IncludedRouter
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
 
     found: list[APIRoute] = []
     for route in routes:

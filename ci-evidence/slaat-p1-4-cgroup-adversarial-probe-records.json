@@ -1,0 +1,109 @@
+{
+  "artifact": "cgroup-adversarial-stress",
+  "card": "SLAAT-P1-4",
+  "overall": "pass",
+  "generated": "2026-10-02T03:33:26Z",
+  "target": {
+    "node": "osramp-control-plane",
+    "namespace": "slaat-p1-4-cgroup-stress",
+    "pod": "slaat-forkbomb-target",
+    "cgroup_path": "/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pode1734acb_9bf8_40ea_8271_d058f828bdff.slice",
+    "fork_count": 60
+  },
+  "totals": {
+    "declared": 11,
+    "executed": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "probes": [
+    {
+      "id": "stress.target-under-heavy-pid-churn-before-freeze",
+      "description": "pids.current reads a large, non-trivial count while the fork-bomb-shaped loop runs unfrozen",
+      "expectation": "pids.current > 20 (confirms the churn workload is real, not a no-op)",
+      "verdict": "pass",
+      "evidence": "pids_current=182",
+      "note": ""
+    },
+    {
+      "id": "ns.unshare-denied-by-default-capabilities",
+      "description": "unshare(CLONE_NEWPID) attempted from the adversarial target under its DEFAULT (no added capabilities) pod spec, before any freeze",
+      "expectation": "non-zero exit, 'Operation not permitted' — CAP_SYS_ADMIN is required and an ordinary agent workload does not have it",
+      "verdict": "pass",
+      "evidence": "status=1 out=unshare: unshare(0x20020000): Operation not permitted\ncommand terminated with exit code 1",
+      "note": "a capability boundary, not a Landlock/cgroup one — recorded because it closes off the escape vector before cgroup freeze is ever tested"
+    },
+    {
+      "id": "auth.unauthenticated-freeze-refused",
+      "description": "POST /stun with no Authorization header",
+      "expectation": "HTTP 401 — /stun is bearer-gated, same as /resume (a hardening landed after CRKC-P1-2 was authored)",
+      "verdict": "pass",
+      "evidence": "http_status=401",
+      "note": ""
+    },
+    {
+      "id": "stress.authenticated-freeze-under-load-succeeds",
+      "description": "POST /stun with the correct bearer token, while the target is mid-fork-storm",
+      "expectation": "HTTP 200, resolved_path matches expected, latency < 50ms",
+      "verdict": "pass",
+      "evidence": "http_status=200 latency_ms=0.335807 resolved=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pode1734acb_9bf8_40ea_8271_d058f828bdff.slice",
+      "note": ""
+    },
+    {
+      "id": "stress.freeze-latency-under-fork-storm-stays-under-50ms",
+      "description": "freeze latency measured while pids.current was 182",
+      "expectation": "latency_ms < 50 — the freezer is a core kernel interface, not a per-task walk, so PID count should not matter",
+      "verdict": "pass",
+      "evidence": "latency_ms=0.335807 pids_at_freeze_time=182",
+      "note": ""
+    },
+    {
+      "id": "ns.unshare-escape-target-frozen-despite-elevated-capability",
+      "description": "a process that successfully unshared into a NEW pid namespace (SYS_ADMIN granted) is still inside the frozen cgroup",
+      "expectation": "freeze HTTP 200 (within 2 bounded attempts) AND cgroup-wide CPU usage_usec delta == 0 post-freeze — PID namespace escape does not defeat cgroup-v2 containment",
+      "verdict": "pass",
+      "evidence": "attempts=1 first_attempt_status=200 final_status=200 cpu_usec_delta=0 cgroup=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-poda433b536_da34_4bec_86a8_e31d0907485f.slice",
+      "note": ""
+    },
+    {
+      "id": "stress.kernel-confirms-frozen-1-under-load",
+      "description": "cgroup.events read directly from the kernel (not via the daemon)",
+      "expectation": "frozen 1",
+      "verdict": "pass",
+      "evidence": "cgroup.events=populated 1;frozen 1;",
+      "note": ""
+    },
+    {
+      "id": "stress.concurrent-resume-race-handled-without-crash",
+      "description": "two authenticated /resume calls issued back-to-back with no serialisation",
+      "expectation": "the daemon survives (still answers healthz afterwards); both calls return a definite HTTP status, neither hangs",
+      "verdict": "pass",
+      "evidence": "codes=200200,200200",
+      "note": ""
+    },
+    {
+      "id": "stress.daemon-survives-concurrent-resume-race",
+      "description": "daemon healthz reachable immediately after the concurrent-resume probe",
+      "expectation": "alive — a race in /resume must not crash the containment daemon itself",
+      "verdict": "pass",
+      "evidence": "post_race_health=alive",
+      "note": ""
+    },
+    {
+      "id": "stress.authorised-resume-restores-execution-after-race",
+      "description": "cgroup-wide CPU usage_usec delta after the concurrent-resume probe",
+      "expectation": "delta > 0 — execution actually resumed, the race did not leave the cgroup stuck frozen",
+      "verdict": "pass",
+      "evidence": "cpu_usec_delta_after_resume=28896",
+      "note": ""
+    },
+    {
+      "id": "oom.memory-cgroup-kills-the-overallocating-container",
+      "description": "a container with memory.limit=32Mi allocating 512Mi via dd into /dev/shm",
+      "expectation": "container status reason is OOMKilled — the kernel's memory controller holds independent of the sentinel",
+      "verdict": "pass",
+      "evidence": "terminated_reason=OOMKilled",
+      "note": ""
+    }
+  ]
+}

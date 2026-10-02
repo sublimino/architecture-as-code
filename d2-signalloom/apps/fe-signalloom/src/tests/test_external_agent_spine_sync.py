@@ -39,3 +39,51 @@ def test_revocation_clamps_the_revoked_agent_for_its_tenant(monkeypatch):
     args, kwargs = calls[0]
     assert args[0] == agent_uuid, f"clamp targeted {args[0]!r}, not the revoked agent"
     assert kwargs.get("tenant") == "kusari"
+
+
+def test_db_backed_claim_reaches_the_spine_for_its_tenant(monkeypatch):
+    """Reported by lanes-docs: on the Postgres branch the sync call's arguments read ``reg_item``,
+    which only the in-memory branch binds, so every DB-backed external-agent claim raised
+    UnboundLocalError into the swallowing except and never reached the spine."""
+    from contextlib import asynccontextmanager
+
+    reg = {
+        "tenant_id": "kusari", "agent_id": "host-agent-1", "host_id": "host-7", "host_os": "linux",
+        "runtime_profile": "nono-0.73.0-standard", "enrollment_status": "registered",
+        "allocated_token_budget": 1000, "spiffe_id_pattern": None,
+    }
+
+    class Conn:
+        async def fetchrow(self, sql, *args):
+            return reg if "external_agent_registrations" in sql else None
+
+        async def execute(self, *args):
+            return "OK"
+
+    @asynccontextmanager
+    async def fake_write(_pool):
+        yield Conn()
+
+    async def fake_pool():
+        return object()
+
+    synced = []
+
+    async def fake_sync(**kwargs):
+        synced.append(kwargs)
+        return True
+
+    async def no_audit(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", fake_pool)
+    monkeypatch.setattr(api_compat, "_write", fake_write)
+    monkeypatch.setattr(ear, "sync_claim_delegation_to_spine", fake_sync)
+    monkeypatch.setattr(ear, "_audit_log_external_agent", no_audit)
+
+    principal = api_compat.Principal(tenant="kusari", subject="alice", email=None)
+    asyncio.run(ear.claim_external_agent_handler("host-agent-1", principal, None))
+
+    assert len(synced) == 1, "the DB-backed claim never reached the spine"
+    assert synced[0]["tenant"] == "kusari"
+    assert synced[0]["metadata"]["host_id"] == "host-7"

@@ -44,21 +44,29 @@ GUARD="$SRC/tests/test_audit_provenance.py"
 SNAPSHOT=$(mktemp -d)
 FAILURES=0
 
-# Restore only the files each case mutates. Never `git checkout` a whole
-# directory: it also reverts uncommitted work by whoever is running this.
+# Restore only the files each case mutates, and restore them from a snapshot
+# taken at start, never from git. `git checkout -- <file>` also reverts the
+# uncommitted work of whoever is running this: it silently discarded an
+# in-progress api_compat.py edit on 2026-10-02.
 PRODUCTION_FILES=(
   d2-signalloom/apps/fe-signalloom/src/api_compat.py
   d2-signalloom/apps/dashboard-signalloom/src/api/client.ts
 )
 
 restore() {
-  git -C "$REPO_ROOT" checkout -- "${PRODUCTION_FILES[@]}" 2>/dev/null || true
+  local i
+  for i in "${!PRODUCTION_FILES[@]}"; do
+    [ -f "$SNAPSHOT/production-$i" ] && cp "$SNAPSHOT/production-$i" "$REPO_ROOT/${PRODUCTION_FILES[$i]}"
+  done
   [ -f "$SNAPSHOT/guard.py" ] && cp "$SNAPSHOT/guard.py" "$GUARD"
   return 0
 }
 cleanup() { restore; rm -rf "$SNAPSHOT"; }
 trap cleanup EXIT
 
+for i in "${!PRODUCTION_FILES[@]}"; do
+  cp "$REPO_ROOT/${PRODUCTION_FILES[$i]}" "$SNAPSHOT/production-$i"
+done
 cp "$GUARD" "$SNAPSHOT/guard.py"
 
 # How to invoke pytest.

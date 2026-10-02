@@ -653,7 +653,11 @@ line_number() {
 # rendered YAML, script text, an injected fetch -- and all of those were correct.
 # None of them checked whether the default lifecycle ever runs the thing.
 @test "the standard Signal Loom bring-up activates the Agent Trust slice its dashboard panel reads" {
-  run make -n demo-signalloom-up
+  # AFM_REQUIRED=0: demo-signalloom-afm-up's recipe line carries $(MAKE), so
+  # make -n really runs its `k8s-afm.sh preflight`, which fails on any machine
+  # without an AFM source checkout or image archive and takes the dry run down
+  # with it. Whether AFM is obtainable here has nothing to do with Agent Trust.
+  run make -n demo-signalloom-up AFM_REQUIRED=0
   [ "$status" -eq 0 ]
   [[ "$output" == *"agent-trust-local.sh up"* ]]
   [[ "$output" == *"push-local-agent-trust"* ]]

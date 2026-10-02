@@ -222,8 +222,11 @@ setup() {
 
 @test "FLEET bootstrap job name differs from single-agent bootstrap" {
   local fleet_name single_name
-  fleet_name=$(yq '.metadata.name' "$FLEET_BOOTSTRAP")
-  single_name=$(yq '.metadata.name' "$SINGLE_BOOTSTRAP")
+  # Select the Job: the single-agent file also carries the
+  # openbao-jwt-role-config ConfigMap (SLAAT-P2-3), so a bare
+  # '.metadata.name' prints one name per document.
+  fleet_name=$(yq 'select(.kind == "Job") | .metadata.name' "$FLEET_BOOTSTRAP")
+  single_name=$(yq 'select(.kind == "Job") | .metadata.name' "$SINGLE_BOOTSTRAP")
   [ "$fleet_name" != "$single_name" ]
   [ "$fleet_name" = "openbao-fleet-bootstrap" ]
   [ "$single_name" = "openbao-supercred-bootstrap" ]

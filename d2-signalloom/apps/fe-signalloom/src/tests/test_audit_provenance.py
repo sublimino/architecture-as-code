@@ -835,6 +835,30 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "Stateless diagnostic reachability and credentials probe for tenant connector; "
         "updates connector test timestamp and health status without creating separate audit trail entries."
     ),
+    ("compliance.py", "calculate_posture"): (
+        "Pure arithmetic over the request body (passing/failing/total control "
+        "counts in, a bounded score out). It reads no tenant data and writes "
+        "nothing, here or upstream."
+    ),
+    ("compliance.py", "scan_compliance"): (
+        "Forwards to the Go policy-engine's POST /api/v1/compliance/scan, whose "
+        "handler (policy-engine/compliance.go handleScan) evaluates the manifest "
+        "against the framework policies and returns results without persisting "
+        "them. The scan that persists results is api_compat's policy scan, which "
+        "audits compliance.scan_completed in the same transaction. The live "
+        "route is also served by routers.policy_engine.proxy_compliance_route, "
+        "which forwards 'scan' straight upstream without calling this handler."
+    ),
+    ("policies.py", "validate_policy_expression"): (
+        "CEL syntax and type check of the submitted expression. Reads no tenant "
+        "data and writes nothing."
+    ),
+    ("policies.py", "evaluate_policies"): (
+        "Evaluates CEL rules against a supplied context. The upstream handler "
+        "(policy-engine/handlers.go HandleEvaluatePolicies -> store.EvaluateBundle) "
+        "reads the active bundle and returns results without storing them, and "
+        "the offline fallback computes in-process. Nothing is mutated."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate
@@ -1066,6 +1090,24 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
     ("host_enrollment.py", "_audit_log_enrollment"): (
         "Fixture fallback path for host enrollment and revocation audit events when no database pool is available."
     ),
+    ("agents.py", "transition_agent_state"): (
+        "The `pool is None` branch of the lifecycle transition. With a pool the "
+        "handler updates agent_registry and audits agent.transitioned on the same "
+        "connection; without one it mutates the in-memory fixture store, the "
+        "same no-database demo path as api_compat's siblings."
+    ),
+    ("api_compat.py", "_audit_outbound_request"): (
+        "The no-DSN branch of the helper that records a request to an upstream "
+        "service (policy bundle submission and rollback, AFM cluster scans). It "
+        "goes through _require_pool, so a configured deployment with an "
+        "unreachable database answers 503 and never reaches this line."
+    ),
+    ("discovery.py", "claim_discovered_workload"): (
+        "The `pool is None` branch of the discovery claim. With a pool the "
+        "handler writes agent_registry and agent_claims and audits agent.claimed "
+        "on the same connection; without one it writes the in-memory _CLAIMS and "
+        "_AGENTS fixture stores, like api_compat's _execute_claim."
+    ),
 }
 
 
@@ -1236,6 +1278,17 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
     ),
     ("environment_routing.py", "teardown_environment"): (
         "LEGITIMATE. Environment teardown purges in-memory routing/cluster allocations; audit event is recorded durably."
+    ),
+    ("api_compat.py", "_audit_outbound_request"): (
+        "LEGITIMATE. The state change is in another service: a policy bundle "
+        "registered or rolled back in the policy-engine, a scan queued in "
+        "KubeSec-AFM. There is no local write to bind a transaction to, so "
+        "ordering is the guarantee instead, as for the demo runner: every "
+        "caller writes this row before the outbound call, so a failed audit "
+        "write means the upstream is never asked. The event names a request "
+        "(bundle_submitted, rollback_requested, scan_requested), not an outcome, "
+        "because the outcome belongs to the upstream and is returned to the "
+        "caller rather than asserted here."
     ),
     ("scenario_seeding.py", "api_execute_scenario"): (
         "LEGITIMATE. Scenario execution seeds synthetic multiplane telemetry into GLOBAL_SCENARIO_MANAGER; "

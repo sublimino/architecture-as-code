@@ -508,7 +508,7 @@ def test_afm_post_cluster_jobs_accepted(monkeypatch):
         "/clusters/local/analysis/escalation": FakeResponse({"id": "job-afm-upstream-1", "status": "queued"}),
     }
     with client_for(monkeypatch, fake_client_cls(routes)) as client:
-        response = client.post("/afm/clusters/local/jobs")
+        response = client.post("/afm/clusters/local/jobs", headers=bearer(token_for()))
 
     assert response.status_code == 202
     body = response.json()
@@ -528,6 +528,7 @@ def test_afm_post_cluster_jobs_custom_payload(monkeypatch):
         response = client.post(
             "/afm/clusters/prod/jobs",
             json={"trigger_source": "ci-pipeline"},
+            headers=bearer(token_for()),
         )
 
     assert response.status_code == 202
@@ -554,7 +555,7 @@ def test_afm_post_cluster_jobs_unknown_cluster_returns_404(monkeypatch):
         "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
     }
     with client_for(monkeypatch, fake_client_cls(routes)) as client:
-        response = client.post("/afm/clusters/non-existent-cluster/jobs")
+        response = client.post("/afm/clusters/non-existent-cluster/jobs", headers=bearer(token_for()))
 
     assert response.status_code == 404
     error = response.json()["error"]
@@ -612,3 +613,93 @@ def test_rbac_post_cluster_scan_unknown_cluster_returns_404(monkeypatch):
     error = response.json()["error"]
     assert error["code"] == "cluster_not_found"
 
+
+
+# -----------------------------------------------------------------------------
+# Scan triggers are authenticated, audited first, and honest about rejection
+# -----------------------------------------------------------------------------
+
+SCAN_ROUTES = ("/afm/clusters/local/jobs", "/api/rbac/clusters/local/scan", "/api/rbac/clusters/local/jobs")
+
+
+def _scan_audit_rows() -> list[dict]:
+    with api_compat._STORE_LOCK:
+        return [e for e in api_compat._AUDIT_EVENTS.get("tenant-a", []) if e["event_type"] == "rbac.scan_requested"]
+
+
+@pytest.fixture
+def clean_tenant_a():
+    api_compat.reset_tenant_state("tenant-a")
+    yield
+    api_compat.reset_tenant_state("tenant-a")
+
+
+@pytest.mark.parametrize("path", SCAN_ROUTES)
+def test_scan_trigger_rejects_an_anonymous_caller_before_reaching_afm(monkeypatch, path):
+    requested: list[str] = []
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/analysis/escalation": FakeResponse({"id": "job-1", "status": "queued"}),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes, requested)) as client:
+        response = client.post(path)
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "authentication_required"
+    assert requested == []
+
+
+@pytest.mark.parametrize("path", SCAN_ROUTES)
+def test_scan_trigger_is_audited_before_afm_is_asked(monkeypatch, clean_tenant_a, path):
+    audited_when_posted: list[int] = []
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/analysis/escalation": FakeResponse({"id": "job-afm-upstream-1", "status": "queued"}),
+    }
+    base = fake_client_cls(routes)
+
+    class RecordingClient(base):
+        async def post(self, url, *args, **kwargs):
+            audited_when_posted.append(len(_scan_audit_rows()))
+            return await super().post(url, *args, **kwargs)
+
+    with client_for(monkeypatch, RecordingClient) as client:
+        response = client.post(path, json={"trigger_source": "free text"}, headers=bearer(token_for()))
+
+    assert response.status_code == 202, response.text
+    assert audited_when_posted == [1]
+    (row,) = _scan_audit_rows()
+    assert row["actor"] == "alice"
+    assert row["detail"] == {"cluster_id": "local", "upstream": "kubesec-afm"}
+
+
+def test_scan_trigger_for_an_unknown_cluster_is_not_audited(monkeypatch, clean_tenant_a):
+    routes = {"/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}])}
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post("/api/rbac/clusters/phantom/scan", headers=bearer(token_for()))
+
+    assert response.status_code == 404
+    assert _scan_audit_rows() == []
+
+
+def test_scan_trigger_reports_an_afm_rejection_instead_of_a_queued_job(monkeypatch, clean_tenant_a):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/analysis/escalation": FakeResponse({"detail": "engine busy"}, status=500),
+    }
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post("/api/rbac/clusters/local/scan", headers=bearer(token_for()))
+
+    assert response.status_code == 502
+    error = response.json()["error"]
+    assert error["code"] == "afm_scan_not_accepted"
+    assert error["message"] == "KubeSec-AFM answered HTTP 500 to the scan request for cluster 'local'; no scan was queued"
+
+
+def test_scan_trigger_reports_an_unreachable_afm_instead_of_a_queued_job(monkeypatch, clean_tenant_a):
+    routes = {"/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}])}
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.post("/api/rbac/clusters/local/scan", headers=bearer(token_for()))
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "afm_unreachable"

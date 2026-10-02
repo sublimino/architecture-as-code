@@ -69,7 +69,14 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from api_compat import ERROR_RESPONSES, APIError, authenticated_tenant
+from api_compat import (
+    ERROR_RESPONSES,
+    APIError,
+    Principal,
+    _audit_outbound_request,
+    authenticated_principal,
+    authenticated_tenant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -694,7 +701,8 @@ class JobRecordResponse(BaseModel):
 
 async def _trigger_cluster_scan(
     cluster_id: str,
-    trigger_source: str = "manual",
+    trigger_source: str,
+    principal: Principal,
 ) -> JSONResponse:
     async with httpx.AsyncClient(timeout=AFM_TIMEOUT_S) as client:
         try:
@@ -714,6 +722,13 @@ async def _trigger_cluster_scan(
         if cluster_id not in known_ids:
             raise APIError(404, "cluster_not_found", f"Cluster '{cluster_id}' not found")
 
+        # Recorded before AFM is asked, so a scan cannot run unrecorded.
+        await _audit_outbound_request(
+            principal, "rbac.scan_requested",
+            {"cluster_id": cluster_id, "upstream": "kubesec-afm"},
+            "Requesting a cluster scan",
+        )
+
         job_id = f"job-afm-{cluster_id}-{int(time.time())}"
         job_data = {
             "id": job_id,
@@ -728,15 +743,24 @@ async def _trigger_cluster_scan(
                 f"{AFM_BASE_URL}/clusters/{cluster_id}/analysis/escalation",
                 json={"trigger_source": trigger_source},
             )
-            if afm_res.status_code in (200, 201, 202):
-                upstream_json = afm_res.json()
-                if isinstance(upstream_json, dict):
-                    if "id" in upstream_json:
-                        job_data["id"] = upstream_json["id"]
-                    if "status" in upstream_json:
-                        job_data["status"] = upstream_json["status"]
-        except Exception as exc:
-            logger.info("rbac_correlation: upstream escalation trigger notification: %s", exc)
+        except httpx.HTTPError as exc:
+            logger.warning("rbac_correlation: scan request for %s failed: %s", cluster_id, exc)
+            raise _afm_failure(exc, f"the scan request for cluster {cluster_id!r}") from exc
+        if afm_res.status_code not in (200, 201, 202):
+            raise APIError(
+                502, "afm_scan_not_accepted",
+                f"KubeSec-AFM answered HTTP {afm_res.status_code} to the scan request for cluster "
+                f"'{cluster_id}'; no scan was queued",
+            )
+        try:
+            upstream_json = afm_res.json()
+        except ValueError:
+            upstream_json = None
+        if isinstance(upstream_json, dict):
+            if "id" in upstream_json:
+                job_data["id"] = upstream_json["id"]
+            if "status" in upstream_json:
+                job_data["status"] = upstream_json["status"]
 
         return JSONResponse(status_code=202, content=job_data)
 
@@ -749,11 +773,12 @@ async def _trigger_cluster_scan(
 )
 async def afm_post_cluster_jobs(
     cluster_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     payload: ScanTriggerPayload | None = None,
 ) -> JSONResponse:
     """Trigger an AFM scan job via /afm/clusters/{cluster}/jobs endpoint."""
     trigger_source = payload.trigger_source if payload else "manual"
-    return await _trigger_cluster_scan(cluster_id, trigger_source)
+    return await _trigger_cluster_scan(cluster_id, trigger_source, principal)
 
 
 @afm_router.get(
@@ -803,12 +828,12 @@ async def afm_get_cluster_jobs(
 )
 async def rbac_post_cluster_scan(
     cluster_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     payload: ScanTriggerPayload | None = None,
 ) -> JSONResponse:
     """Trigger an RBAC scan job via correlation API."""
     trigger_source = payload.trigger_source if payload else "manual"
-    return await _trigger_cluster_scan(cluster_id, trigger_source)
+    return await _trigger_cluster_scan(cluster_id, trigger_source, principal)
 
 
 def install_rbac_api(app: Any) -> None:

@@ -234,7 +234,7 @@ VALID_INTERNAL_STATES: frozenset[str] = frozenset({
 # Keys are from-states; values are reachable to-states.
 # Terminal states have an empty set.
 LIFECYCLE_TRANSITIONS: dict[str, frozenset[str]] = {
-    "discovered": frozenset({"governed", "active", "registered", "enrolled", "in_review", "ignored"}),
+    "discovered": frozenset({"governed", "active", "registered", "enrolled"}),
     "registered": frozenset({"enrolled", "active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
     "enrolled":   frozenset({"active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
     "active":     frozenset({"governed", "suspended", "stunned", "revoked", "decommissioned"}),

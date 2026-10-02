@@ -150,6 +150,24 @@ test-signalloom-security-validation-evidence: ## Verify Signal Loom fail-closed 
 test-worktree-confinement: ## Prove Rule SP-1 against the live kernel and regenerate the evidence artifact (nono + Landlock required).
 	./scripts/test-worktree-confinement.sh
 
+# SLAAT-P1-4: same shape as test-worktree-confinement above — a Makefile
+# target rather than a CI stage, because each proves a live kernel/cluster
+# control the CI VM does not have. The static halves of all three are in CI
+# via test/landlock-containment-probes.bats, test/landlock-adversarial-escape.bats,
+# and test/cgroup-freeze-adversarial.bats (stage 1g), which skip their live
+# tests and say how many they skipped.
+.PHONY: test-agent-sandbox-escape
+test-agent-sandbox-escape: ## Run the live Landlock escape adversarial battery (nono + Landlock required).
+	./scripts/test-agent-sandbox-escape.sh
+
+.PHONY: probe-sentinel-evasion
+probe-sentinel-evasion: ## Run the live eBPF telemetry evasion probe against the deployed sentinel (kind-osramp required).
+	./scripts/probe-sentinel-evasion.sh
+
+.PHONY: stress-agent-cgroups
+stress-agent-cgroups: ## Run the live adversarial cgroup-freeze and OOM battery against an isolated sentinel instance (kind-osramp required).
+	./scripts/stress-agent-cgroups.sh
+
 ##@ Cluster lifecycle
 
 .PHONY: cluster
@@ -561,6 +579,18 @@ test-eap-offline: ## Run the EAP gate: four EAP pytest files + test_audit_proven
 	@# EAPR-P3-1 uncomments the next line once d2-signalloom/test/eap-netpol.bats exists,
 	@# appending it to the bats line above so its status joins the same chain.
 	@# bats d2-signalloom/test/eap-netpol.bats
+
+.PHONY: test-slaat-p1-1-network-probes
+test-slaat-p1-1-network-probes: ## SLAAT-P1-1 adversarial probe suite: Envoy Gateway + NetworkPolicy isolation. Needs a live kind-osramp cluster; not part of test-all-offline.
+	bats test/adversarial-network-probes.bats
+
+.PHONY: test-slaat-p2-1-network-hardening
+test-slaat-p2-1-network-hardening: ## SLAAT-P2-1 remediation suite: backend/frontend default-deny, ingress/kagent scoped hardening, ClientTrafficPolicy XFF stripping. Tier 1 is hermetic; Tier 2 needs a live kind-osramp cluster.
+	bats test/network-microsegmentation-hardening.bats
+
+.PHONY: test-slaat-p1-2-api-probes
+test-slaat-p1-2-api-probes: ## SLAAT-P1-2 live backend API probe: unauthenticated/forged-token fail-closed boundaries. Needs a live kind-osramp cluster; not part of test-all-offline (the pytest suites it complements already run there).
+	scripts/probe-api-idor-boundaries.sh
 
 test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	@echo "=== [Cluster] Live Kind Cluster Slices & Runtime Tests ==="

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -37,6 +38,14 @@ const (
 	DefaultWorkerCount  = 8
 	DefaultHTTPTimeout  = 3 * time.Second
 	DefaultRateCapacity = 500
+
+	// DefaultEvasiveBurstThreshold and DefaultEvasiveBurstWindow (SLAAT-P2-4):
+	// the execve-rate signal used to catch a process-spawn flood that opens
+	// no sensitive path. Chosen well above ordinary tool-invocation churn
+	// (a shell running a handful of commands) and comfortably below the
+	// 200-spawn burst the card's probe-sentinel-evasion.sh drives.
+	DefaultEvasiveBurstThreshold = 20
+	DefaultEvasiveBurstWindow    = 1 * time.Second
 )
 
 // Standard sensitive filesystem prefixes monitored by the correlator
@@ -128,6 +137,58 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
+// WithEvasiveBurstThreshold overrides the default execve-rate burst
+// detection parameters (SLAAT-P2-4). Exposed mainly for tests that need a
+// burst to trip inside a handful of synthetic events rather than twenty.
+func WithEvasiveBurstThreshold(threshold int, window time.Duration) Option {
+	return func(m *SentinelProbeManager) {
+		m.burstThreshold = threshold
+		m.burstWindow = window
+	}
+}
+
+// burstTracker counts EXECVE events per cgroup within a sliding window, to
+// catch a rapid process-spawn flood that never touches a sensitive path
+// (SLAAT-P2-4/F1; reproduced live as SLAAT-P2-PRE's SENTINEL-F1: a
+// 200-process-spawn burst generated zero telemetry under the
+// sensitive-path-only filter). The signal here is RATE, not WHICH path was
+// opened, so it runs independently of IsSensitivePath.
+type burstTracker struct {
+	mu          sync.Mutex
+	windowStart map[uint64]time.Time
+	count       map[uint64]int
+}
+
+func newBurstTracker() *burstTracker {
+	return &burstTracker{
+		windowStart: make(map[uint64]time.Time),
+		count:       make(map[uint64]int),
+	}
+}
+
+// observe records one EXECVE event for cgroupID at ts and reports whether
+// threshold was reached within window. Reaching it resets the window for
+// that cgroup, so a sustained attacker is re-flagged every window rather
+// than alerting once and then falling silent for the rest of the cgroup's
+// life -- each reset is itself a fresh detection, not a suppression.
+func (b *burstTracker) observe(cgroupID uint64, ts time.Time, threshold int, window time.Duration) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	start, ok := b.windowStart[cgroupID]
+	if !ok || ts.Sub(start) > window {
+		b.windowStart[cgroupID] = ts
+		b.count[cgroupID] = 1
+		return false
+	}
+	b.count[cgroupID]++
+	if b.count[cgroupID] >= threshold {
+		delete(b.windowStart, cgroupID)
+		delete(b.count, cgroupID)
+		return true
+	}
+	return false
+}
+
 // SentinelProbeManager correlates raw eBPF kernel events with Kubernetes pod context,
 // executes acute cgroup freeze containment, and streams normalized JSON telemetry to signal-ingest.
 type SentinelProbeManager struct {
@@ -155,6 +216,10 @@ type SentinelProbeManager struct {
 	cgroupIndexedAt time.Time
 	cgroupMisses    map[uint64]time.Time // inode -> until when it is a known miss
 	cgroupWalks     atomic.Uint64
+
+	burst          *burstTracker
+	burstThreshold int
+	burstWindow    time.Duration
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -164,16 +229,19 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 	}
 
 	m := &SentinelProbeManager{
-		informer:      informer,
-		ingestURL:     ingestURL,
-		sensitiveList: append([]string(nil), DefaultSensitivePrefixes...),
-		freezeManager: fm,
-		bearerToken:   DefaultBearerToken,
-		procRoot:      DefaultProcRoot,
-		podMap:        make(map[string]*corev1.Pod),
-		queue:         make(chan TelemetryObservation, DefaultQueueSize),
-		workers:       DefaultWorkerCount,
-		rateLim:       make(chan struct{}, DefaultRateCapacity),
+		informer:       informer,
+		ingestURL:      ingestURL,
+		sensitiveList:  append([]string(nil), DefaultSensitivePrefixes...),
+		freezeManager:  fm,
+		bearerToken:    DefaultBearerToken,
+		procRoot:       DefaultProcRoot,
+		podMap:         make(map[string]*corev1.Pod),
+		queue:          make(chan TelemetryObservation, DefaultQueueSize),
+		workers:        DefaultWorkerCount,
+		rateLim:        make(chan struct{}, DefaultRateCapacity),
+		burst:          newBurstTracker(),
+		burstThreshold: DefaultEvasiveBurstThreshold,
+		burstWindow:    DefaultEvasiveBurstWindow,
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 			Transport: &http.Transport{
@@ -517,6 +585,18 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	filename := ev.Filename
 	targetPID := ev.PID
 
+	// SLAAT-P2-4: evasive-burst detection runs independently of, and before,
+	// the sensitive-path filter below. A rapid process-spawn flood (and the
+	// forked child an unshare(CLONE_NEWPID) escape leaves behind) has no
+	// sensitive path to open, so the filter alone never sees it -- the rate
+	// itself is the signal. See SLAAT-P1-4/F1 and the live reproduction at
+	// SLAAT-P2-PRE's SENTINEL-F1.
+	if raw.Type == SyscallTypeExecve && m.burst.observe(ev.CgroupID, time.Now(), m.burstThreshold, m.burstWindow) {
+		if obs, ok := m.reportEvasiveBurst(raw, targetPID, ev.CgroupID); ok {
+			return obs, true
+		}
+	}
+
 	if _, ok := m.sensitiveTarget(filename, targetPID, ev.CgroupID); !ok {
 		m.stats.notSensitive.Add(1)
 		return TelemetryObservation{}, false
@@ -554,6 +634,40 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	return obs, true
 }
 
+// reportEvasiveBurst builds the telemetry observation for a detected
+// execve-rate burst and, for a governed agent pod, triggers the same direct
+// freeze containment the sensitive-path path uses. ok is false when no
+// owning pod can be resolved -- there is nothing to report or freeze.
+func (m *SentinelProbeManager) reportEvasiveBurst(raw SyscallEvent, targetPID uint32, cgroupID uint64) (TelemetryObservation, bool) {
+	var pod *corev1.Pod
+	if m.cgroupRoot != "" {
+		pod = m.lookupPodByCgroupID(cgroupID)
+	} else {
+		pod = m.lookupPodByPID(targetPID)
+		if pod == nil && raw.TGID != 0 {
+			pod = m.lookupPodByPID(raw.TGID)
+		}
+	}
+	if pod == nil {
+		m.stats.noPod.Add(1)
+		return TelemetryObservation{}, false
+	}
+	m.stats.matched.Add(1)
+
+	obs := m.NormalizeObservation(raw, pod)
+	obs.Syscall = SyscallNameEvasiveBurst
+	obs.Target = fmt.Sprintf(">=%d execve in %s from one cgroup", m.burstThreshold, m.burstWindow)
+	obs.Severity = SeverityCritical
+	obs.CgroupPath = m.cgroupPathFor(cgroupID, targetPID)
+
+	if isAgentPod(pod) && m.freezeManager != nil {
+		if err := m.freezeManager.FreezePod(pod); err == nil {
+			obs.DirectReaction = ReactionCgroupFrozen
+		}
+	}
+	return obs, true
+}
+
 // sensitiveTarget resolves filename as pid would see it and reports whether
 // it is sensitive. The probe captures the raw argument, so a relative path is
 // joined to the process cwd; if the cwd is unreadable the process has exited
@@ -575,7 +689,8 @@ func (m *SentinelProbeManager) sensitiveTarget(filename string, pid uint32, cgro
 	return path.Clean(filename), m.IsSensitivePath(filename)
 }
 
-// dispatchWorker consumes telemetry observations from the internal queue and sends them to signal-ingest.
+// dispatchWorker consumes telemetry observations from the internal queue,
+// logs each one to stdout, and sends it to signal-ingest.
 func (m *SentinelProbeManager) dispatchWorker(ctx context.Context) {
 	defer m.wg.Done()
 
@@ -587,9 +702,61 @@ func (m *SentinelProbeManager) dispatchWorker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			m.recordDispatch(m.dispatchObservation(obs))
+			logObservation(obs)
+			err := m.dispatchObservation(obs)
+			m.recordDispatch(err)
+			if err != nil {
+				logDispatchFailure(obs, err)
+			}
 		}
 	}
+}
+
+// correlatorLogOut and correlatorLogMu back logObservation/logDispatchFailure.
+// A package-level var (not a field) because handleRecord/dispatchWorker run
+// across both daemon binaries that embed this package, and tests need a
+// seam to capture output without threading a writer through every call.
+var (
+	correlatorLogOut io.Writer = os.Stdout
+	correlatorLogMu  sync.Mutex
+)
+
+// correlatorEvent is the structured JSON audit line emitted to stdout for
+// every observation, independent of whether the signal-ingest HTTP POST
+// that follows succeeds (SLAAT-P2-4). Previously an observation's only
+// trace was that POST: dispatchWorker discarded dispatchObservation's error
+// outright, so a detected sensitive-path access or evasive burst left zero
+// evidence anywhere `kubectl logs` could show if signal-ingest happened to
+// be unreachable. A detection that can be lost to a downstream outage is
+// not "generating immediate alarms".
+type correlatorEvent struct {
+	Timestamp   string               `json:"timestamp"`
+	Event       string               `json:"event"`
+	Observation TelemetryObservation `json:"observation"`
+	Error       string               `json:"error,omitempty"`
+}
+
+func logObservation(obs TelemetryObservation) {
+	writeCorrelatorEvent(correlatorEvent{
+		Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
+		Event:       "ebpf_detection",
+		Observation: obs,
+	})
+}
+
+func logDispatchFailure(obs TelemetryObservation, err error) {
+	writeCorrelatorEvent(correlatorEvent{
+		Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
+		Event:       "ebpf_detection_dispatch_failed",
+		Observation: obs,
+		Error:       err.Error(),
+	})
+}
+
+func writeCorrelatorEvent(ev correlatorEvent) {
+	correlatorLogMu.Lock()
+	defer correlatorLogMu.Unlock()
+	_ = json.NewEncoder(correlatorLogOut).Encode(ev)
 }
 
 // dispatchObservation transmits a single TelemetryObservation to signal-ingest via HTTP POST.

@@ -267,6 +267,12 @@ func statusFor(err error) int {
 		return http.StatusUnauthorized
 	case errors.Is(err, cgroup.ErrCgroupNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, cgroup.ErrDiscoveryDeadline):
+		// SLAAT-P2-4/F2: the cgroup-tree discovery walk timed out under host
+		// contention, not because the pod is absent. 503 (retryable) rather
+		// than a bare connection stall that an upstream (kubectl port-forward)
+		// eventually reports as an uninformative 504.
+		return http.StatusServiceUnavailable
 	case errors.Is(err, cgroup.ErrPermission):
 		return http.StatusInternalServerError
 	case errors.Is(err, cgroup.ErrFreezeDeadline):
@@ -513,7 +519,7 @@ func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 
 // handleHealth proves the daemon can write the host cgroup hierarchy. A
 // read-only hostPath mount passes every other check and fails only here,
-// which is exactly the misconfiguration this endpoint exists to surface —
+// which is exactly the misconfiguration this endpoint exists to surface --
 // before an incident rather than during one.
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	if err := s.freezer.HealthCheck(); err != nil {
@@ -555,12 +561,21 @@ func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) h
 	}
 }
 
+// containmentRequestTimeout bounds /stun and /resume end-to-end. The freeze
+// write+poll itself is bounded by cgroup.DefaultFreezeDeadline (50ms) and the
+// cgroup-tree discovery fallback by cgroup.maxDiscoveryBudget (2s); this is
+// the outer belt-and-suspenders bound so a genuinely wedged syscall (not a
+// slow search, an actually stuck one) still gets a typed 503 from THIS
+// server rather than an uninformative 504 from an upstream proxy or
+// port-forward that gave up waiting (SLAAT-P2-4/F2).
+const containmentRequestTimeout = 5 * time.Second
+
 func (s *server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/readyz", s.handleHealth)
-	mux.HandleFunc("/stun", requireBearer(s.freezeValidate, s.handleStun))
-	mux.HandleFunc("/resume", requireBearer(s.resumeValidate, s.handleResume))
+	mux.Handle("/stun", http.TimeoutHandler(requireBearer(s.freezeValidate, s.handleStun), containmentRequestTimeout, `{"error":"containment request exceeded the server-side deadline"}`))
+	mux.Handle("/resume", http.TimeoutHandler(requireBearer(s.resumeValidate, s.handleResume), containmentRequestTimeout, `{"error":"containment request exceeded the server-side deadline"}`))
 	// Quarantine inspection and maintenance endpoints
 	mux.HandleFunc("/quarantine/snapshots", s.handleListSnapshots)
 	mux.HandleFunc("/quarantine/snapshots/", s.handleGetSnapshot)

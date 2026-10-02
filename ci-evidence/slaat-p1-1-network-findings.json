@@ -1,0 +1,571 @@
+{
+  "schema": "slaat-p1-1-network-findings/v1",
+  "card": "SLAAT-P1-1",
+  "generated_at": "2026-10-02T11:47:41Z",
+  "cluster_context": "kind-osramp",
+  "repo_head": "3bcba6717885cc22776454c6c989cd2c683777d0",
+  "components": {
+    "envoy_gateway_audit": {
+      "probe_count": 19,
+      "fail_count": 0
+    },
+    "network_isolation_audit": {
+      "record_count": 32,
+      "fail_count": 5
+    }
+  },
+  "total_record_count": 51,
+  "total_fail_count": 5,
+  "records": [
+    {
+      "id": "GW-BASE-1",
+      "vector": "baseline",
+      "method": "GET",
+      "path": "/",
+      "expected": "200",
+      "observed_code": "200",
+      "severity": "info",
+      "summary": "legitimate hostname, legitimate path reaches the dashboard SPA"
+    },
+    {
+      "id": "GW-VHOST-1",
+      "vector": "unregistered-sni",
+      "method": "GET",
+      "path": "/",
+      "expected": "connection-rejected(000)",
+      "observed_code": "000",
+      "severity": "pass",
+      "summary": "SNI for a hostname with no matching Gateway listener is rejected at the TLS layer (Envoy filter_chain_not_found) before any HTTP routing occurs"
+    },
+    {
+      "id": "GW-VHOST-2",
+      "vector": "spoofed-host-header",
+      "method": "GET",
+      "path": "/",
+      "expected": "404",
+      "observed_code": "404",
+      "severity": "pass",
+      "summary": "correct SNI with a spoofed Host/:authority header does not match any HTTPRoute hostname and falls through to Envoy's 404, not a different tenant's route"
+    },
+    {
+      "id": "GW-TRAV-1",
+      "vector": "dot-segment-traversal",
+      "method": "GET",
+      "path": "/api/v1/../admin",
+      "expected": "404(normalized,reached-backend)",
+      "observed_code": "404",
+      "severity": "pass",
+      "summary": "Envoy normalizes dot-segments before routing (RFC 3986): /api/v1/../admin -> /api/admin, still matches the /api prefix, backend 404s cleanly -- no traversal outside the matched backend"
+    },
+    {
+      "id": "GW-TRAV-2",
+      "vector": "encoded-dot-segment-traversal",
+      "method": "GET",
+      "path": "/api/%2e%2e/%2e%2e/etc/passwd",
+      "expected": "200(normalized-to-SPA-fallback)",
+      "observed_code": "200",
+      "severity": "pass",
+      "summary": "percent-encoded dot-segments are decoded+collapsed before routing: /api/%2e%2e/%2e%2e/etc/passwd -> /etc/passwd, which matches no HTTPRoute prefix and falls to the dashboard SPA's catch-all (index.html, not a filesystem read)"
+    },
+    {
+      "id": "GW-TRAV-3",
+      "vector": "double-leading-slash",
+      "method": "GET",
+      "path": "//api",
+      "expected": "404(merged,reached-backend)",
+      "observed_code": "404",
+      "severity": "pass",
+      "summary": "leading double slash is merged before routing; reaches the same backend 404 as a bare /api"
+    },
+    {
+      "id": "GW-TRAV-4",
+      "vector": "encoded-slash-in-path",
+      "method": "GET",
+      "path": "/api/..%2f..%2fadmin",
+      "expected": "307(path_normalization_failed,no-backend-contacted)",
+      "observed_code": "307",
+      "severity": "pass",
+      "summary": "percent-encoded slash (%2f) inside a path segment is rejected by Envoy's own path_normalization_failed handling: it returns a 307 to the canonicalized path WITHOUT ever selecting a route or contacting a backend (verified via access log: upstream_cluster=null, response_code_details=path_normalization_failed) -- no differential parsing between Envoy and the backend was observed"
+    },
+    {
+      "id": "GW-TRAV-5",
+      "vector": "embedded-null-byte",
+      "method": "GET",
+      "path": "/api/%00/admin",
+      "expected": "400",
+      "observed_code": "400",
+      "severity": "pass",
+      "summary": "a path containing an encoded null byte is rejected as a malformed request (400) before routing"
+    },
+    {
+      "id": "GW-AMBIG-1",
+      "vector": "case-sensitivity",
+      "method": "GET",
+      "path": "/API",
+      "expected": "200(falls-to-SPA,case-sensitive-match)",
+      "observed_code": "200",
+      "severity": "info",
+      "summary": "PathPrefix matching is case-sensitive; /API does not match the /api prefix and falls to the dashboard SPA catch-all -- not a privilege bypass since the SPA is the public default route"
+    },
+    {
+      "id": "GW-AMBIG-2",
+      "vector": "trailing-slash",
+      "method": "GET",
+      "path": "/api/",
+      "expected": "404",
+      "observed_code": "404",
+      "severity": "info",
+      "summary": "trailing slash on /api still routes to the API backend; backend has no handler for the bare prefix"
+    },
+    {
+      "id": "GW-AMBIG-3",
+      "vector": "no-trailing-slash",
+      "method": "GET",
+      "path": "/api",
+      "expected": "404",
+      "observed_code": "404",
+      "severity": "info",
+      "summary": "consistent with GW-AMBIG-2"
+    },
+    {
+      "id": "GW-HDR-1",
+      "vector": "xff-spoof",
+      "method": "GET",
+      "path": "/api/v1/healthz",
+      "expected": "no-routing-change",
+      "observed_code": "404",
+      "severity": "info",
+      "summary": "spoofed X-Forwarded-For does not appear in any HTTPRoute match rule in this repo, so it cannot alter routing; Envoy Gateway's default behaviour (no ClientTrafficPolicy configured) APPENDS the real peer address rather than trusting the client-supplied value for its own hop, but a client-supplied XFF[0] is still present in the forwarded header chain -- see hardening checklist for the numTrustedHops recommendation"
+    },
+    {
+      "id": "GW-HDR-2",
+      "vector": "x-real-ip-spoof",
+      "method": "GET",
+      "path": "/api/v1/healthz",
+      "expected": "no-routing-change",
+      "observed_code": "404",
+      "severity": "info",
+      "summary": "same reasoning as GW-HDR-1"
+    },
+    {
+      "id": "GW-HDR-3",
+      "vector": "x-forwarded-prefix-spoof",
+      "method": "GET",
+      "path": "/api/v1/healthz",
+      "expected": "no-routing-change",
+      "observed_code": "404",
+      "severity": "pass",
+      "summary": "no HTTPRoute or filter in this repo reads X-Forwarded-Prefix, so it cannot rewrite the effective path"
+    },
+    {
+      "id": "GW-TLS-1.0",
+      "vector": "legacy-tls-version",
+      "method": "GET",
+      "path": "/",
+      "expected": "rejected",
+      "observed_code": "rejected",
+      "severity": "pass",
+      "summary": "listener must refuse TLS 1.0; rejected"
+    },
+    {
+      "id": "GW-TLS-1.1",
+      "vector": "legacy-tls-version",
+      "method": "GET",
+      "path": "/",
+      "expected": "rejected",
+      "observed_code": "rejected",
+      "severity": "pass",
+      "summary": "listener must refuse TLS 1.1; rejected"
+    },
+    {
+      "id": "GW-TLS-1.2",
+      "vector": "modern-tls-version",
+      "method": "GET",
+      "path": "/",
+      "expected": "accepted-strong-cipher",
+      "observed_code": "SSL connection using TLSv1.2 / ECDHE-ECDSA-CHACHA20-POLY1305",
+      "severity": "pass",
+      "summary": "listener accepts TLS 1.2; negotiated SSL connection using TLSv1.2 / ECDHE-ECDSA-CHACHA20-POLY1305"
+    },
+    {
+      "id": "GW-TLS-1.3",
+      "vector": "modern-tls-version",
+      "method": "GET",
+      "path": "/",
+      "expected": "accepted-strong-cipher",
+      "observed_code": "SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384",
+      "severity": "pass",
+      "summary": "listener accepts TLS 1.3; negotiated SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384"
+    },
+    {
+      "id": "GW-H2-1",
+      "vector": "http2-baseline",
+      "method": "GET",
+      "path": "/",
+      "expected": "200",
+      "observed_code": "200",
+      "severity": "info",
+      "summary": "HTTP/2 is negotiated cleanly; this probe set has no tool capable of forging raw HTTP/2 pseudo-headers (:method/:path/:authority) independent of curl's own framing, so request-smuggling-via-pseudo-header-manipulation is NOT exhaustively tested here -- flagged as a coverage gap in the hardening checklist, not asserted clean"
+    },
+    {
+      "id": "NETPOL-agent-trust-acme-payments",
+      "vector": "default-deny-coverage",
+      "namespace": "agent-trust-acme-payments",
+      "pod_count": 12,
+      "policy_count": 6,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-agent-trust-acme-risk",
+      "vector": "default-deny-coverage",
+      "namespace": "agent-trust-acme-risk",
+      "pod_count": 5,
+      "policy_count": 2,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-agent-trust-northstar-investigations",
+      "vector": "default-deny-coverage",
+      "namespace": "agent-trust-northstar-investigations",
+      "pod_count": 5,
+      "policy_count": 2,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-backend",
+      "vector": "default-deny-coverage",
+      "namespace": "backend",
+      "pod_count": 7,
+      "policy_count": 5,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-cert-manager",
+      "vector": "default-deny-coverage",
+      "namespace": "cert-manager",
+      "pod_count": 3,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "platform",
+      "severity": "advisory"
+    },
+    {
+      "id": "NETPOL-cpai",
+      "vector": "default-deny-coverage",
+      "namespace": "cpai",
+      "pod_count": 1,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "tenant",
+      "severity": "fail"
+    },
+    {
+      "id": "NETPOL-default",
+      "vector": "default-deny-coverage",
+      "namespace": "default",
+      "pod_count": 2,
+      "policy_count": 9,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-eap-6f82ad81",
+      "vector": "default-deny-coverage",
+      "namespace": "eap-6f82ad81",
+      "pod_count": 1,
+      "policy_count": 1,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-fe-k8s-afm",
+      "vector": "default-deny-coverage",
+      "namespace": "fe-k8s-afm",
+      "pod_count": 1,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "tenant",
+      "severity": "fail"
+    },
+    {
+      "id": "NETPOL-fe-signalloom",
+      "vector": "default-deny-coverage",
+      "namespace": "fe-signalloom",
+      "pod_count": 10,
+      "policy_count": 15,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-fe-signalloom-agents",
+      "vector": "default-deny-coverage",
+      "namespace": "fe-signalloom-agents",
+      "pod_count": 21,
+      "policy_count": 11,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-flux-system",
+      "vector": "default-deny-coverage",
+      "namespace": "flux-system",
+      "pod_count": 5,
+      "policy_count": 4,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-frontend",
+      "vector": "default-deny-coverage",
+      "namespace": "frontend",
+      "pod_count": 3,
+      "policy_count": 4,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-inf-bao",
+      "vector": "default-deny-coverage",
+      "namespace": "inf-bao",
+      "pod_count": 8,
+      "policy_count": 6,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-inf-signalloom",
+      "vector": "default-deny-coverage",
+      "namespace": "inf-signalloom",
+      "pod_count": 6,
+      "policy_count": 7,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "NETPOL-ingress",
+      "vector": "default-deny-coverage",
+      "namespace": "ingress",
+      "pod_count": 2,
+      "policy_count": 2,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "tenant",
+      "severity": "fail"
+    },
+    {
+      "id": "NETPOL-kagent",
+      "vector": "default-deny-coverage",
+      "namespace": "kagent",
+      "pod_count": 4,
+      "policy_count": 5,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "tenant",
+      "severity": "fail"
+    },
+    {
+      "id": "NETPOL-kube-system",
+      "vector": "default-deny-coverage",
+      "namespace": "kube-system",
+      "pod_count": 10,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "platform",
+      "severity": "advisory"
+    },
+    {
+      "id": "NETPOL-local-path-storage",
+      "vector": "default-deny-coverage",
+      "namespace": "local-path-storage",
+      "pod_count": 1,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "platform",
+      "severity": "advisory"
+    },
+    {
+      "id": "NETPOL-registry",
+      "vector": "default-deny-coverage",
+      "namespace": "registry",
+      "pod_count": 1,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "platform",
+      "severity": "advisory"
+    },
+    {
+      "id": "NETPOL-spire-system",
+      "vector": "default-deny-coverage",
+      "namespace": "spire-system",
+      "pod_count": 3,
+      "policy_count": 0,
+      "blanket_ingress_deny": false,
+      "blanket_egress_deny": false,
+      "priority": "platform",
+      "severity": "advisory"
+    },
+    {
+      "id": "NETPOL-stun-pre-probe",
+      "vector": "default-deny-coverage",
+      "namespace": "stun-pre-probe",
+      "pod_count": 3,
+      "policy_count": 4,
+      "blanket_ingress_deny": true,
+      "blanket_egress_deny": true,
+      "priority": "tenant",
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-1",
+      "vector": "lateral-movement",
+      "source_namespace": "default",
+      "target": "inf-signalloom/postgresql",
+      "target_ip": "10.96.124.70",
+      "target_port": 5432,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-2",
+      "vector": "lateral-movement",
+      "source_namespace": "default",
+      "target": "kube-apiserver",
+      "target_ip": "10.96.0.1",
+      "target_port": 443,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-3",
+      "vector": "lateral-movement",
+      "source_namespace": "default",
+      "target": "ingress/envoy-gateway-metrics",
+      "target_ip": "10.96.146.65",
+      "target_port": 19001,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-4",
+      "vector": "lateral-movement",
+      "source_namespace": "frontend",
+      "target": "backend/minio",
+      "target_ip": "10.96.137.247",
+      "target_port": 9000,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-5",
+      "vector": "lateral-movement",
+      "source_namespace": "frontend",
+      "target": "backend/nats",
+      "target_ip": "10.96.101.44",
+      "target_port": 4222,
+      "zero_trust_expectation": "blocked",
+      "observed": "reachable",
+      "nc_exit_code": 0,
+      "severity": "fail"
+    },
+    {
+      "id": "LAT-6",
+      "vector": "lateral-movement",
+      "source_namespace": "frontend",
+      "target": "backend/postgres",
+      "target_ip": "10.96.155.95",
+      "target_port": 5432,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-7",
+      "vector": "lateral-movement",
+      "source_namespace": "frontend",
+      "target": "inf-signalloom/postgresql",
+      "target_ip": "10.96.124.70",
+      "target_port": 5432,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-8",
+      "vector": "lateral-movement",
+      "source_namespace": "frontend",
+      "target": "inf-signalloom/redis",
+      "target_ip": "10.96.53.136",
+      "target_port": 6379,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "LAT-9",
+      "vector": "lateral-movement",
+      "source_namespace": "frontend",
+      "target": "ingress/envoy-gateway-metrics",
+      "target_ip": "10.96.146.65",
+      "target_port": 19001,
+      "zero_trust_expectation": "blocked",
+      "observed": "blocked",
+      "nc_exit_code": 143,
+      "severity": "pass"
+    },
+    {
+      "id": "PGREADY-1",
+      "vector": "control-plane-exec",
+      "namespace": "inf-signalloom",
+      "command": "kubectl exec deployment/postgresql -- pg_isready",
+      "exit_code": 0,
+      "output": "/var/run/postgresql:5432 - accepting connections",
+      "severity": "info",
+      "note": "kubectl exec runs over the API-server->kubelet exec stream, not the pod network; it does NOT traverse NetworkPolicy and must not be read as evidence about network isolation. Included only because the card's Required Tests name it explicitly."
+    }
+  ]
+}

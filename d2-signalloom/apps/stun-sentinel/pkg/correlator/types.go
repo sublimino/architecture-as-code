@@ -14,6 +14,15 @@ const (
 	SyscallNameExecve  = "sys_enter_execve"
 	SyscallNameConnect = "tcp_connect"
 
+	// SyscallNameEvasiveBurst names a behavioural detection (SLAAT-P2-4): a
+	// rapid run of execve events from one cgroup within a short window, as
+	// produced by a process-spawn flood or the forked child left behind by
+	// unshare(CLONE_NEWPID). It is reported independently of the
+	// sensitive-path filter, because the signal here is RATE, not WHICH path
+	// was touched -- a burst that never opens a sensitive file still has
+	// none to match against under the per-path rule alone.
+	SyscallNameEvasiveBurst = "evasive_syscall_burst"
+
 	// Severity levels
 	SeverityCritical = "CRITICAL"
 	SeverityWarn     = "WARN"

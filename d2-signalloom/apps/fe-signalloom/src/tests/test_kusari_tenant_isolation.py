@@ -853,35 +853,37 @@ def test_concurrent_mixed_journeys_preserve_the_key_invariant() -> None:
     assert set(transit._keys) == active_keys
 
 
-@pytest.mark.asyncio
-async def test_concurrent_http_journeys_over_asgi(manager: TenantIsolationManager) -> None:
+def test_concurrent_http_journeys_over_asgi(manager: TenantIsolationManager) -> None:
     """20 parallel kusari+peer journeys through the ASGI stack, no state corruption."""
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://slet.test", headers=eap_bearer()) as ac:
-        provisions = await asyncio.gather(*[
-            ac.post("/api/v1/eap/tenants", json={"company_name": KUSARI if i % 2 == 0 else f"slet-async-{i}"})
-            for i in range(20)
-        ])
-        assert all(r.status_code == 201 for r in provisions)
-        assert {r.json()["namespace"] for r in provisions if r.json()["company_name"] == KUSARI} == {KUSARI_NS}
+    async def _journey() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://slet.test", headers=eap_bearer()) as ac:
+            provisions = await asyncio.gather(*[
+                ac.post("/api/v1/eap/tenants", json={"company_name": KUSARI if i % 2 == 0 else f"slet-async-{i}"})
+                for i in range(20)
+            ])
+            assert all(r.status_code == 201 for r in provisions)
+            assert {r.json()["namespace"] for r in provisions if r.json()["company_name"] == KUSARI} == {KUSARI_NS}
 
-        async def roundtrip(i: int) -> bytes:
-            pt = f"record-{i}".encode()
-            ct = (await ac.post(f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
-                                json={"plaintext": b64(pt)})).json()["ciphertext"]
-            out = await ac.post(f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
-                                json={"ciphertext": ct})
-            return base64.b64decode(out.json()["plaintext"])
+            async def roundtrip(i: int) -> bytes:
+                pt = f"record-{i}".encode()
+                ct = (await ac.post(f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/encrypt",
+                                    json={"plaintext": b64(pt)})).json()["ciphertext"]
+                out = await ac.post(f"/api/v1/eap/tenants/{KUSARI_HASH}/transit/decrypt",
+                                    json={"ciphertext": ct})
+                return base64.b64decode(out.json()["plaintext"])
 
-        results = await asyncio.gather(*[roundtrip(i) for i in range(50)])
-        assert results == [f"record-{i}".encode() for i in range(50)]
+            results = await asyncio.gather(*[roundtrip(i) for i in range(50)])
+            assert results == [f"record-{i}".encode() for i in range(50)]
 
-        teardowns = await asyncio.gather(*[
-            ac.delete(f"/api/v1/eap/tenants/{r.json()['customer_hash']}") for r in provisions
-        ])
-        assert all(t.status_code == 200 for t in teardowns)
-    assert manager.list_active_boundaries() == []
-    assert manager.transit._keys == {}
+            teardowns = await asyncio.gather(*[
+                ac.delete(f"/api/v1/eap/tenants/{r.json()['customer_hash']}") for r in provisions
+            ])
+            assert all(t.status_code == 200 for t in teardowns)
+        assert manager.list_active_boundaries() == []
+        assert manager.transit._keys == {}
+
+    asyncio.run(_journey())
 
 
 # ── Performance: peak cryptographic workload ────────────────────────────────

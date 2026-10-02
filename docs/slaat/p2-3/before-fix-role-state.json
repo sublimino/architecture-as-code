@@ -1,0 +1,142 @@
+=== BEFORE FIX (SLAAT-P2-3) ===
+--- signalloom-cardvault-agent ---
+{
+  "request_id": "cd97c024-e254-5096-8bd6-f6d2fe39bdf6",
+  "lease_id": "",
+  "lease_duration": 0,
+  "renewable": false,
+  "data": {
+    "allowed_redirect_uris": null,
+    "bound_audiences": [
+      "openbao"
+    ],
+    "bound_claims": {
+      "sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*cardvault*"
+    },
+    "bound_claims_type": "glob",
+    "bound_subject": "",
+    "callback_mode": "client",
+    "claim_mappings": null,
+    "clock_skew_leeway": 0,
+    "expiration_leeway": 0,
+    "groups_claim": "",
+    "max_age": 0,
+    "not_before_leeway": 0,
+    "oauth2_metadata": null,
+    "oidc_scopes": null,
+    "policies": [
+      "signalloom-cardvault-agent"
+    ],
+    "role_type": "jwt",
+    "token_bound_cidrs": [],
+    "token_explicit_max_ttl": 0,
+    "token_max_ttl": 0,
+    "token_no_default_policy": false,
+    "token_num_uses": 0,
+    "token_period": 0,
+    "token_policies": [
+      "signalloom-cardvault-agent"
+    ],
+    "token_policies_template_claims": false,
+    "token_strictly_bind_ip": false,
+    "token_ttl": 0,
+    "token_type": "default",
+    "user_claim": "sub",
+    "user_claim_json_pointer": false,
+    "verbose_oidc_logging": false
+  },
+  "warnings": null
+}
+--- signalloom-fe-signalloom ---
+{
+  "request_id": "48a87dd1-3525-f0bd-66e3-f88f33791374",
+  "lease_id": "",
+  "lease_duration": 0,
+  "renewable": false,
+  "data": {
+    "allowed_redirect_uris": null,
+    "bound_audiences": [
+      "openbao"
+    ],
+    "bound_claims": null,
+    "bound_claims_type": "string",
+    "bound_subject": "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom",
+    "callback_mode": "client",
+    "claim_mappings": null,
+    "clock_skew_leeway": 0,
+    "expiration_leeway": 0,
+    "groups_claim": "",
+    "max_age": 0,
+    "not_before_leeway": 0,
+    "oauth2_metadata": null,
+    "oidc_scopes": null,
+    "policies": [
+      "signalloom-fe-signalloom"
+    ],
+    "role_type": "jwt",
+    "token_bound_cidrs": [],
+    "token_explicit_max_ttl": 0,
+    "token_max_ttl": 0,
+    "token_no_default_policy": false,
+    "token_num_uses": 0,
+    "token_period": 0,
+    "token_policies": [
+      "signalloom-fe-signalloom"
+    ],
+    "token_policies_template_claims": false,
+    "token_strictly_bind_ip": false,
+    "token_ttl": 0,
+    "token_type": "default",
+    "user_claim": "sub",
+    "user_claim_json_pointer": false,
+    "verbose_oidc_logging": false
+  },
+  "warnings": null
+}
+--- signalloom-agent-generic ---
+{
+  "request_id": "e617f280-5bd3-cd89-f3e8-0f48cd67d258",
+  "lease_id": "",
+  "lease_duration": 0,
+  "renewable": false,
+  "data": {
+    "allowed_redirect_uris": null,
+    "bound_audiences": [
+      "openbao-supercredential"
+    ],
+    "bound_claims": {
+      "sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*"
+    },
+    "bound_claims_type": "string",
+    "bound_subject": "",
+    "callback_mode": "client",
+    "claim_mappings": {
+      "sub": "sub"
+    },
+    "clock_skew_leeway": 0,
+    "expiration_leeway": 0,
+    "groups_claim": "",
+    "max_age": 0,
+    "not_before_leeway": 0,
+    "oauth2_metadata": null,
+    "oidc_scopes": null,
+    "role_type": "jwt",
+    "token_bound_cidrs": [],
+    "token_explicit_max_ttl": 0,
+    "token_max_ttl": 300,
+    "token_no_default_policy": false,
+    "token_num_uses": 0,
+    "token_period": 0,
+    "token_policies": [
+      "signalloom-agent-templated"
+    ],
+    "token_policies_template_claims": false,
+    "token_strictly_bind_ip": false,
+    "token_ttl": 300,
+    "token_type": "default",
+    "user_claim": "sub",
+    "user_claim_json_pointer": false,
+    "verbose_oidc_logging": false
+  },
+  "warnings": null
+}

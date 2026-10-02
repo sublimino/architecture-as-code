@@ -30,8 +30,12 @@ router = APIRouter(tags=["policies"])
 
 @router.post("/api/v1/policies/validate")
 @router.post("/v1/policies/validate")
-async def validate_policy_expression(request: Request) -> Response:
+async def validate_policy_expression(
+    request: Request,
+    tenant_id: str = Depends(authenticated_tenant),
+) -> Response:
     """Validate a CEL policy expression and return structured error diagnostics."""
+    del tenant_id  # auth gate only; this computation reads no tenant-owned data
     content_type = request.headers.get("content-type", "")
     if content_type and not content_type.lower().startswith("application/json"):
         return _error_response(400, "invalid_content_type", "Content-Type must be application/json")

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,14 @@ func rawRecord(typ ebpf.EventType, pid uint32, filename string) []byte {
 // whose cgroup belongs to pod, and counts freeze attempts.
 func pipeline(t *testing.T, pod *corev1.Pod, freezeErr error) (*SentinelProbeManager, *int32) {
 	t.Helper()
+	return pipelineWithOpts(t, pod, freezeErr)
+}
+
+// pipelineWithOpts is pipeline with extra Options appended after the fixed
+// WithProcRoot -- callers come last, so a test's own option (e.g. a shrunk
+// burst threshold) always wins over this helper's default.
+func pipelineWithOpts(t *testing.T, pod *corev1.Pod, freezeErr error, opts ...Option) (*SentinelProbeManager, *int32) {
+	t.Helper()
 	proc := t.TempDir()
 	dir := filepath.Join(proc, "1001")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -47,7 +56,8 @@ func pipeline(t *testing.T, pod *corev1.Pod, freezeErr error) (*SentinelProbeMan
 	var calls int32
 	fm := NewMockFreezeManager(func(*corev1.Pod) error { atomic.AddInt32(&calls, 1); return freezeErr })
 	inf := NewMockSharedIndexInformer()
-	m := NewSentinelProbeManager(inf, "", fm, WithProcRoot(proc))
+	allOpts := append([]Option{WithProcRoot(proc)}, opts...)
+	m := NewSentinelProbeManager(inf, "", fm, allOpts...)
 	if pod != nil {
 		inf.InjectPod(pod)
 	}
@@ -142,6 +152,105 @@ func TestHandleRecordFreezeFailureReportsNoReaction(t *testing.T) {
 	obs, ok := m.handleRecord(rawRecord(ebpf.EventOpenat, 1001, "/etc/shadow"))
 	if !ok || *calls != 1 || obs.DirectReaction != ReactionNone {
 		t.Fatalf("ok=%v calls=%d reaction=%q, want attempted and reported as none", ok, *calls, obs.DirectReaction)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SLAAT-P2-4/F1: evasive execve-rate burst detection
+//
+// SLAAT-P1-4 found the deployed sentinel's filter path-only: an event that
+// never opens a sensitive file is dropped before pod lookup, freeze, or
+// telemetry. SLAAT-P2-PRE reproduced it live (SENTINEL-F1): a 200-process
+// spawn burst from an agent pod generated zero syscall-shaped telemetry.
+// None of the execve calls in that burst touch a path on the sensitive
+// list -- /bin/true, /bin/sleep, and similar have no reason to -- so the
+// gap is real and these tests exercise the same shape with a plain,
+// non-sensitive binary path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestHandleRecordDetectsEvasiveExecveBurstWithNoSensitivePath(t *testing.T) {
+	const threshold = 4
+	m, calls := pipelineWithOpts(t, agentPod("tenant-kusari"), nil,
+		WithEvasiveBurstThreshold(threshold, time.Second))
+
+	rec := rawRecord(ebpf.EventExecve, 1001, "/bin/true")
+	for i := 1; i < threshold; i++ {
+		if obs, ok := m.handleRecord(rec); ok {
+			t.Fatalf("event %d: ok=%v obs=%+v, want sub-threshold events to be silently dropped (the documented F1 gap, not yet tripped)", i, ok, obs)
+		}
+	}
+	if *calls != 0 {
+		t.Fatalf("freeze calls = %d before the burst tripped, want 0", *calls)
+	}
+
+	obs, ok := m.handleRecord(rec)
+	if !ok {
+		t.Fatal("the threshold-th execve in the window did not trip detection")
+	}
+	if obs.Syscall != SyscallNameEvasiveBurst {
+		t.Errorf("Syscall = %q, want %q", obs.Syscall, SyscallNameEvasiveBurst)
+	}
+	if obs.Severity != SeverityCritical {
+		t.Errorf("Severity = %q, want %q", obs.Severity, SeverityCritical)
+	}
+	if obs.DirectReaction != ReactionCgroupFrozen || *calls != 1 {
+		t.Errorf("reaction=%q calls=%d, want a single freeze on the tripping event", obs.DirectReaction, *calls)
+	}
+}
+
+func TestHandleRecordEvasiveBurstDoesNotFalsePositiveOnOrdinaryChurn(t *testing.T) {
+	const threshold = 20
+	m, calls := pipelineWithOpts(t, agentPod("tenant-kusari"), nil,
+		WithEvasiveBurstThreshold(threshold, time.Second))
+
+	rec := rawRecord(ebpf.EventExecve, 1001, "/bin/true")
+	for i := 0; i < threshold-1; i++ {
+		if obs, ok := m.handleRecord(rec); ok {
+			t.Fatalf("event %d produced an observation below threshold: %+v", i, obs)
+		}
+	}
+	if *calls != 0 {
+		t.Fatalf("freeze calls = %d, want 0 below threshold", *calls)
+	}
+}
+
+func TestHandleRecordEvasiveBurstRetripsAfterWindowReset(t *testing.T) {
+	const threshold = 3
+	m, calls := pipelineWithOpts(t, agentPod("tenant-kusari"), nil,
+		WithEvasiveBurstThreshold(threshold, time.Second))
+	rec := rawRecord(ebpf.EventExecve, 1001, "/bin/true")
+
+	for round := 1; round <= 2; round++ {
+		for i := 1; i < threshold; i++ {
+			if _, ok := m.handleRecord(rec); ok {
+				t.Fatalf("round %d event %d tripped early", round, i)
+			}
+		}
+		if obs, ok := m.handleRecord(rec); !ok || obs.DirectReaction != ReactionCgroupFrozen {
+			t.Fatalf("round %d: ok=%v obs=%+v, want a fresh trip", round, ok, obs)
+		}
+	}
+	if *calls != 2 {
+		t.Fatalf("freeze calls = %d, want 2 (one per round, not suppressed after the first)", *calls)
+	}
+}
+
+func TestHandleRecordEvasiveBurstRefusesFreezeOutsidePolicy(t *testing.T) {
+	const threshold = 3
+	notAgent := agentPod("tenant-kusari")
+	notAgent.Labels = map[string]string{"app": "web"}
+	m, calls := pipelineWithOpts(t, notAgent, nil, WithEvasiveBurstThreshold(threshold, time.Second))
+	rec := rawRecord(ebpf.EventExecve, 1001, "/bin/true")
+
+	for i := 1; i < threshold; i++ {
+		m.handleRecord(rec)
+	}
+	obs, ok := m.handleRecord(rec)
+	if !ok {
+		t.Fatal("a refused freeze must still be reported, not dropped")
+	}
+	if obs.DirectReaction != ReactionNone || *calls != 0 {
+		t.Fatalf("reaction=%q calls=%d, want refused (not a governed agent pod)", obs.DirectReaction, *calls)
 	}
 }
 

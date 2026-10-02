@@ -270,12 +270,22 @@ def install_policy_engine_api(app: Any) -> None:
     from routers.policies import router as policies_router
 
     # Avoid duplicate includes if already registered
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
+
+    registered_endpoints = set()
     for route in app.routes:
-        if getattr(route, "endpoint", None) in (
-            proxy_compliance_route,
-            proxy_policies_route,
-        ):
-            return
-    app.include_router(policies_router)
-    app.include_router(compliance_router)
-    app.include_router(router)
+        if isinstance(route, _IncludedRouter):
+            for sub in route.original_router.routes:
+                registered_endpoints.add(getattr(sub, "endpoint", None))
+        else:
+            registered_endpoints.add(getattr(route, "endpoint", None))
+
+    if not any(r.endpoint in registered_endpoints for r in policies_router.routes):
+        app.include_router(policies_router)
+    if not any(r.endpoint in registered_endpoints for r in compliance_router.routes):
+        app.include_router(compliance_router)
+    if proxy_compliance_route not in registered_endpoints:
+        app.include_router(router)

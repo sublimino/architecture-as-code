@@ -1,0 +1,44 @@
+{
+  "shortcode": "SLAAT",
+  "card": "P3-PRE",
+  "timestamp": "2026-10-02T12:18:00Z",
+  "git": {
+    "head": "8aa51c48873c07d1d340ea04b7bde7e3edf3962a",
+    "canonical_repo": "/home/andy/src/cp/osramp-demo",
+    "integration_ref": "refs/heads/integration/slaat-whole-system-adversarial",
+    "integration_sha": "8aa51c48873c07d1d340ea04b7bde7e3edf3962a",
+    "relation": "equal",
+    "ahead": 0,
+    "behind": 0
+  },
+  "caches": {
+    "GOCACHE": "/tmp/gocache",
+    "GOMODCACHE": "/tmp/gomodcache",
+    "CGO_ENABLED": "0",
+    "UV_CACHE_DIR": "/tmp/uv-cache"
+  },
+  "tools": {
+    "bats": "Bats 1.13.0",
+    "go": "go version go1.26.2 linux/amd64",
+    "curl": "curl 8.20.0",
+    "jq": "jq-1.8.1",
+    "kubectl": "Client Version: v1.36.0",
+    "python3": "Python 3.14.4",
+    "pytest": "pytest 9.1.1",
+    "bun": "1.4.0"
+  },
+  "cluster": {
+    "skipped": false,
+    "context": "kind-osramp",
+    "nodes_ready": 1,
+    "nodes_total": 1,
+    "postgresql": "accepting connections (34 tables)",
+    "openbao": "unsealed (HA=false, storage=inmem)",
+    "gateway": "172.18.0.5 (NodePort 31613/31436)",
+    "flux": "healthy (0 unsubstituted tokens)"
+  },
+  "warnings": [],
+  "failures": [],
+  "status": "pass",
+  "proceed": true
+}

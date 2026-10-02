@@ -1,0 +1,50 @@
+{
+  "shortcode": "SLAAT",
+  "card": "P1-PRE",
+  "timestamp": "2026-10-01T22:27:05Z",
+  "git": {
+    "head": "bac96b68f787ff4641c2c5f77faf62f2af1a33b8",
+    "canonical_repo": "/home/andy/src/cp/osramp-demo",
+    "integration_ref": "refs/heads/integration/slaat-whole-system-adversarial",
+    "integration_sha": "47d124eec7ebd0cbf95c72bd2a461818b6813d45",
+    "relation": "ahead",
+    "ahead": 2,
+    "behind": 0
+  },
+  "caches": {
+    "root": "/tmp/slaat-p1pre/cache",
+    "GOCACHE": "/tmp/slaat-p1pre/cache/gocache",
+    "GOMODCACHE": "/tmp/slaat-p1pre/cache/gomodcache",
+    "GOPATH": "/tmp/slaat-p1pre/cache/gopath",
+    "UV_CACHE_DIR": "/tmp/slaat-p1pre/cache/uv-cache",
+    "CGO_ENABLED": "0"
+  },
+  "tools": {
+    "bats": "Bats 1.13.0",
+    "go": "go version go1.26.2 linux/amd64",
+    "curl": "curl 8.20.0 (x86_64-pc-linux-gnu) libcurl/8.20.0 OpenSSL/3.6.2 zlib/1.3.1.zlib-ng brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libssh2/1.11.1 nghttp2/1.69.0 ngtcp2/1.22.1 nghttp3/1.15.0 mit-krb5/1.22.2 OpenLDAP/2.6.13",
+    "jq": "jq-1.8.1",
+    "kubectl": "Client Version: v1.36.0",
+    "uv": "uv 0.5.10",
+    "python3": "Python 3.14.4",
+    "pytest": "pytest 9.1.1"
+  },
+  "cluster": {
+    "skipped": false,
+    "context": "kind-osramp",
+    "nodes_ready": 1,
+    "nodes_total": 1,
+    "postgresql": "1/1 1",
+    "zot": "1/1 1"
+  },
+  "warnings": [
+    "shared dependency dir: d2-signalloom/apps/dashboard-signalloom/node_modules -> /home/andy/src/cp/osramp-demo/d2-signalloom/apps/dashboard-signalloom/node_modules",
+    "shared dependency dir: d2-signalloom/apps/docs-signalloom/node_modules -> /home/andy/src/cp/osramp-demo/d2-signalloom/apps/docs-signalloom/node_modules",
+    "shared dependency dir: d2-signalloom/design-system-demo/node_modules -> /home/andy/src/cp/osramp-demo/d2-signalloom/design-system-demo/node_modules",
+    "shared dependency dir: test/acceptance/node_modules -> /home/andy/src/cp/osramp-demo/test/acceptance/node_modules",
+    "HEAD is ahead integration (ahead=2, patch-unique=2, behind=0)"
+  ],
+  "failures": [],
+  "status": "pass",
+  "proceed": true
+}

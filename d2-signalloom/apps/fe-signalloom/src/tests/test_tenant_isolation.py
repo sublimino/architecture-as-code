@@ -59,6 +59,8 @@ from types import SimpleNamespace
 
 import api_compat
 import onboarding
+import routers.agents
+import routers.discovery
 from api_compat import JWTValidationError, settings, validate_jwt
 from db.connection import set_pool_for_testing
 from main import app
@@ -342,6 +344,7 @@ def unscoped_statements(pool: RecordingPool, tenant: str) -> list[tuple[str, tup
 
 DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/agents", None),
+    ("GET", "/api/v1/agents", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/origin-verification", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/violations", None),
@@ -415,6 +418,20 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "POST",
         "/api/agents/00000000-0000-0000-0000-0000000000a1/transition",
         {"to_state": "active", "reason": "probe"},
+    ),
+    (
+        "POST",
+        "/api/v1/agents/00000000-0000-0000-0000-0000000000a1/transition",
+        {"to_state": "active", "reason": "probe"},
+    ),
+    (
+        "POST",
+        "/api/v1/discovery/claim",
+        {
+            "agent_id": "probe-discovery-claim",
+            "namespace": "fe-signalloom-agents",
+            "token_budget_limit": 100000,
+        },
     ),
     ("POST", "/api/agents/violations/00000000-0000-0000-0000-0000000000b1/acknowledge", None),
     (
@@ -567,12 +584,15 @@ def recording(monkeypatch):
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
-    # `onboarding` does `from api_compat import _get_pool`, which binds the
-    # function object into its own module namespace at import time. Patching
-    # only `api_compat._get_pool` leaves the onboarding routes talking to the
-    # real (absent) pool, and they then answer from their fixture fallback --
-    # which is a green sweep that never reached a database. Patch both.
+    # `onboarding`, `routers.agents` and `routers.discovery` all do
+    # `from api_compat import _get_pool`, which binds the function object into
+    # each module's own namespace at import time. Patching only
+    # `api_compat._get_pool` leaves those routes talking to the real (absent)
+    # pool, and they then answer from their fixture fallback -- which is a
+    # green sweep that never reached a database. Patch every importer.
     monkeypatch.setattr(onboarding, "_get_pool", get_pool)
+    monkeypatch.setattr(routers.agents, "_get_pool", get_pool)
+    monkeypatch.setattr(routers.discovery, "_get_pool", get_pool)
     return pool
 
 
@@ -838,6 +858,52 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/v1/connectors/{connector_id}/test"),
     ("DELETE", "/api/connectors/{connector_id}"),
     ("DELETE", "/api/v1/connectors/{connector_id}"),
+    # cAdvisor pod telemetry (cadvisor_poller.py): authenticated (router-level
+    # Depends(authenticated_principal)) but genuinely cluster-wide, not
+    # tenant-partitioned -- there is no tenant_id anywhere in AgentTelemetry
+    # or the poller's pod index, only namespace/pod_name. Same residual-gap
+    # class as test_rbac_correlation_routes_are_not_tenant_scoped_at_all
+    # below: an authenticated tenant that already knows (or guesses) another
+    # tenant's pod_name can read its telemetry. Not fixed here: retrofitting
+    # a tenant mapping onto pod-level cAdvisor metrics is a product decision
+    # about where that mapping lives, not a one-line filter -- same shape as
+    # the already-escalated RBAC finding, called out rather than silently
+    # excused.
+    ("GET", "/api/telemetry/agents"),
+    ("GET", "/api/v1/telemetry/agents"),
+    ("GET", "/api/telemetry/agents/{pod_name}"),
+    ("GET", "/api/v1/telemetry/agents/{pod_name}"),
+    # Compliance frameworks catalog (routers/compliance.py): static in-process
+    # KNOWN_FRAMEWORKS dict, authenticated via Depends(authenticated_tenant)
+    # but reads no tenant-owned table. /api/compliance/frameworks (api_compat's
+    # own route) is the identical pattern, already above.
+    ("GET", "/api/v1/compliance/frameworks"),
+    ("GET", "/api/v1/compliance/frameworks/{framework_id}"),
+    # Compliance summary/scan/posture-calculate (routers/compliance.py): proxy
+    # to the upstream Go policy-engine with tenant_id derived server-side from
+    # the validated JWT (never client input) and forwarded as X-Tenant-ID;
+    # posture/calculate is pure arithmetic over the request body, no DB read.
+    # SLAAT-P2-2 added the missing Depends(authenticated_tenant) to
+    # posture/calculate (it had none) -- see test_api_auth_remediation.py.
+    ("GET", "/api/v1/compliance/summary"),
+    ("POST", "/api/v1/compliance/scan"),
+    ("POST", "/api/v1/compliance/posture/calculate"),
+    # RBAC cluster scan triggers (rbac_correlation.py): same documented,
+    # escalated finding as test_rbac_correlation_routes_are_not_tenant_scoped_at_all
+    # -- authenticated via Depends(authenticated_tenant), but the upstream
+    # KubeSec-AFM call is built straight from the path's cluster_id with no
+    # tenant-to-cluster mapping anywhere in this service to filter by.
+    ("POST", "/api/rbac/clusters/{cluster_id}/jobs"),
+    ("POST", "/api/rbac/clusters/{cluster_id}/scan"),
+    # Policy-as-code CEL routes (routers/policies.py): evaluate/bundles/rollback
+    # proxy to the upstream policy-engine with tenant_id forwarded the same way
+    # as compliance/scan above; validate is pure CEL syntax checking with no
+    # DB read. SLAAT-P2-2 added the missing Depends(authenticated_tenant) to
+    # validate (it had none) -- see test_api_auth_remediation.py.
+    ("POST", "/api/v1/policies/bundles"),
+    ("POST", "/api/v1/policies/evaluate"),
+    ("POST", "/api/v1/policies/rollback"),
+    ("POST", "/api/v1/policies/validate"),
 ]
 
 
@@ -1901,6 +1967,64 @@ import base64 as _base64
 
 from fastapi.routing import APIRoute as _APIRoute
 
+
+def _iter_app_routes(routes: Any, types: tuple[type, ...]) -> list[Any]:
+    """Recursively descend through ``_IncludedRouter`` wrappers to find leaf routes.
+
+    This FastAPI version stores routers mounted via ``include_router`` as opaque
+    ``_IncludedRouter`` entries, so a flat ``isinstance`` check over ``app.routes``
+    silently sees zero routes for every included router (SLAAT-P2-PRE finding,
+    root-caused to SLAAT-P1-2's ``2dbb32e2``). Mirrors the identical helper already
+    proven correct in ``test_tenant_authorization_matrix.py``.
+    """
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
+
+    found: list[Any] = []
+    for route in routes:
+        if isinstance(route, types):
+            found.append(route)
+        elif isinstance(route, _IncludedRouter):
+            found.extend(_iter_app_routes(route.original_router.routes, types))
+    return found
+
+
+def _iter_app_routes_with_mount_deps(
+    routes: Any, types: tuple[type, ...], inherited: tuple[Any, ...] = ()
+) -> list[tuple[Any, tuple[Any, ...]]]:
+    """Like ``_iter_app_routes``, but pairs each leaf route with the router-level
+    dependencies it was mounted under.
+
+    FastAPI 0.140 stores ``include_router(dependencies=...)`` on the
+    ``_IncludedRouter.include_context`` dataclass rather than merging it into
+    each mounted route's own ``.dependencies`` list (that field is empty on
+    every route reached through ``include_router`` in this version -- verified
+    by direct introspection). A route-level structural check against
+    ``route.dependencies`` therefore sees nothing for every router-mounted
+    route regardless of whether a mount-level dependency was actually applied.
+    """
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:
+        _IncludedRouter = ()
+
+    found: list[tuple[Any, tuple[Any, ...]]] = []
+    for route in routes:
+        if isinstance(route, types):
+            route_deps = tuple(getattr(route, "dependencies", ()) or ())
+            found.append((route, inherited + route_deps))
+        elif isinstance(route, _IncludedRouter):
+            extra = tuple(route.include_context.dependencies or ())
+            found.extend(
+                _iter_app_routes_with_mount_deps(
+                    route.original_router.routes, types, inherited + extra
+                )
+            )
+    return found
+
+
 EAP_MODULES: frozenset[str] = frozenset({
     "tenant_isolation",
     "scenario_seeding",
@@ -1912,9 +2036,7 @@ EAP_MODULES: frozenset[str] = frozenset({
 
 def _eap_http_routes() -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
-    for route in app.routes:
-        if not isinstance(route, _APIRoute):
-            continue
+    for route in _iter_app_routes(app.routes, (_APIRoute,)):
         if getattr(route.endpoint, "__module__", "") not in EAP_MODULES:
             continue
         for method in sorted(route.methods or ()):
@@ -2082,24 +2204,25 @@ def test_every_eap_route_carries_the_mount_level_auth_dependency():
     and environment_routing mounts stripped).  The property
     the card actually requires -- a route added to one of these routers is
     denied by default with no per-handler opt-in -- is structural, so it is
-    asserted structurally: ``include_router(dependencies=...)`` lands in
-    ``route.dependencies`` on every route it mounts (websocket included),
-    whereas a handler parameter does not.
+    asserted structurally: ``include_router(dependencies=...)`` lands on the
+    ``_IncludedRouter.include_context`` of every mount a route passes through
+    (websocket included), whereas a handler parameter does not.
     """
     from fastapi.routing import APIWebSocketRoute as _APIWebSocketRoute
 
-    eap_routes = [
-        route for route in app.routes
-        if isinstance(route, (_APIRoute, _APIWebSocketRoute))
-        and getattr(route.endpoint, "__module__", "") in EAP_MODULES
+    eap_routes_with_deps = [
+        (route, deps)
+        for route, deps in _iter_app_routes_with_mount_deps(app.routes, (_APIRoute, _APIWebSocketRoute))
+        if getattr(route.endpoint, "__module__", "") in EAP_MODULES
     ]
+    eap_routes = [route for route, _ in eap_routes_with_deps]
     assert len(eap_routes) >= MINIMUM_SWEEP_SIZES["EAP_TENANT_BOUND_ROUTES"], len(eap_routes)
     assert any(isinstance(route, _APIWebSocketRoute) for route in eap_routes), "the websocket route is missing"
 
     unmounted = sorted(
         f"{type(route).__name__} {route.path}"
-        for route in eap_routes
-        if not any(dep.dependency is api_compat.authenticated_principal for dep in route.dependencies)
+        for route, deps in eap_routes_with_deps
+        if not any(dep.dependency is api_compat.authenticated_principal for dep in deps)
     )
     assert not unmounted, (
         "these EAP routes are not covered by a router-level "

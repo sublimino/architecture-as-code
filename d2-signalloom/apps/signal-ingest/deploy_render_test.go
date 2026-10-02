@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -37,10 +38,9 @@ import (
 // the runtime-info substitution Flux applies, and feed the signal-ingest Deployment's resolved
 // environment into api.AuthConfigFromEnv / httpAuthenticator exactly as main does.
 const (
-	reconciledOverlay  = "../fe-signalloom/local"
-	fluxRuntimeInfo    = "../../../d2-osramp-fleet/clusters/local/flux-system/runtime-info.yaml"
-	staticBearerSecret = "signal-ingest-static-bearer"
-	sentinelSPIFFEID   = "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"
+	reconciledOverlay = "../fe-signalloom/local"
+	fluxRuntimeInfo   = "../../../d2-osramp-fleet/clusters/local/flux-system/runtime-info.yaml"
+	sentinelSPIFFEID  = "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"
 )
 
 // bootstrapSecrets is every Secret the rendered Deployment may read and who provisions it. A
@@ -51,9 +51,11 @@ var bootstrapSecrets = map[string]map[string]string{
 		"DATABASE_URL":            "postgres://signal@postgres.inf-signalloom:5432/signal",
 		"IDENTITY_ENCRYPTION_KEY": strings.Repeat("ab", 32),
 	},
-	// scripts/sldc-ingest-bearer.sh.
-	staticBearerSecret: {"token": testBearerToken},
 }
+
+// keySecretPrefix names every static key's Secret: signal-ingest-key-<name>, minted by
+// scripts/sldc-ingest-bearer.sh. Any of them resolves to keyValue(<name>).
+const keySecretPrefix = "signal-ingest-key-"
 
 type k8sObject struct {
 	Kind     string `yaml:"kind"`
@@ -119,6 +121,17 @@ type deploymentSpec struct {
 				Secret *struct {
 					SecretName string `yaml:"secretName"`
 				} `yaml:"secret"`
+				Projected *struct {
+					Sources []struct {
+						Secret *struct {
+							Name  string `yaml:"name"`
+							Items []struct {
+								Key  string `yaml:"key"`
+								Path string `yaml:"path"`
+							} `yaml:"items"`
+						} `yaml:"secret"`
+					} `yaml:"sources"`
+				} `yaml:"projected"`
 			} `yaml:"volumes"`
 		} `yaml:"spec"`
 	} `yaml:"template"`
@@ -242,10 +255,13 @@ func containerEnv(t *testing.T, r rendered, root string, fileOverrides map[strin
 		return cm.Data
 	}
 	secret := func(name string) map[string]string {
+		if strings.HasPrefix(name, keySecretPrefix) {
+			return map[string]string{"token": keyValue(strings.TrimPrefix(name, keySecretPrefix))}
+		}
 		s, ok := bootstrapSecrets[name]
 		if !ok {
-			t.Fatalf("the Deployment reads Secret %s, which no bootstrap step provisions (known: discovery-portal-database, %s)",
-				name, staticBearerSecret)
+			t.Fatalf("the Deployment reads Secret %s, which no bootstrap step provisions (known: discovery-portal-database, %s<name>)",
+				name, keySecretPrefix)
 		}
 		return s
 	}
@@ -286,6 +302,34 @@ func containerEnv(t *testing.T, r rendered, root string, fileOverrides map[strin
 	for _, v := range r.deployment.Template.Spec.Volumes {
 		if v.ConfigMap != nil {
 			volumes[v.Name] = v.ConfigMap.Name
+		}
+	}
+	for _, v := range r.deployment.Template.Spec.Volumes {
+		if v.Projected == nil {
+			continue
+		}
+		for _, m := range c.VolumeMounts {
+			if m.Name != v.Name {
+				continue
+			}
+			dir := filepath.Join(root, m.MountPath)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, src := range v.Projected.Sources {
+				if src.Secret == nil {
+					continue
+				}
+				for _, it := range src.Secret.Items {
+					if err := os.WriteFile(filepath.Join(dir, it.Path), []byte(secret(src.Secret.Name)[it.Key]), 0o400); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			// The binary reads SIGNAL_AUTH_STATIC_KEYS_DIR, defaulting to the mount path.
+			if env[api.StaticKeysDirEnv] == "" || env[api.StaticKeysDirEnv] == m.MountPath {
+				env[api.StaticKeysDirEnv] = dir
+			}
 		}
 	}
 	for _, m := range c.VolumeMounts {
@@ -363,103 +407,155 @@ func authenticate(t *testing.T, a api.Authenticator, token string) (api.Principa
 	return a.Authenticate(r)
 }
 
-// TestReconciledManifestStartsSignalIngestWithAuthOn is the deployability gate: given the two
-// things the bootstrap provisions (the bearer Secret, the synced JWKS), the rendered Deployment's
-// environment passes the binary's own startup validation, the Secret's token authenticates as the
-// correlator's scoped principal, and a JWT-SVID for the sentinel authenticates through the shipped
-// bindings — the JWT path is configured, not merely present.
-func TestReconciledManifestStartsSignalIngestWithAuthOn(t *testing.T) {
+// keyValue is the synthetic value the bootstrap would mint for a key: distinct per key, ≥32 bytes.
+func keyValue(name string) string { return "k-" + name + "-" + strings.Repeat("x", 40) }
+
+// shippedKeyNames is every static key the rendered ConfigMap configures.
+func shippedKeyNames(t *testing.T, r rendered) []string {
+	t.Helper()
+	cm, ok := r.object("ConfigMap", "signal-ingest-jwt-auth")
+	if !ok {
+		t.Fatal("ConfigMap signal-ingest-jwt-auth is not in the reconciled manifest")
+	}
+	var specs []struct{ Name string }
+	if err := json.Unmarshal([]byte(cm.Data[api.StaticKeysEnv]), &specs); err != nil || len(specs) == 0 {
+		t.Fatalf("rendered %s names no keys (%v)", api.StaticKeysEnv, err)
+	}
+	var names []string
+	for _, s := range specs {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
+// TestReconciledManifestBootsOnStaticKeysAlone is the deployability gate for kind-osramp, where
+// callers hold static keys and no SPIRE (Andy, 2026-10-02). Given only the per-key Secrets the
+// issuer script mints, the rendered Deployment passes the binary's own startup path
+// (gatewayFromEnv, as main calls it); every shipped key authenticates as its own principal; and a
+// JWT is refused, because no JWKS is configured.
+func TestReconciledManifestBootsOnStaticKeysAlone(t *testing.T) {
+	r := renderReconciledManifest(t)
+	setContainerEnv(t, containerEnv(t, r, t.TempDir(), nil))
+
+	gateway, err := gatewayFromEnv(context.Background())
+	if err != nil {
+		t.Fatalf("main would refuse startup: %v", err)
+	}
+	if _, ok := gateway.(*api.StaticBearerAuthenticator); !ok {
+		t.Fatalf("rendered manifest enables no static keys (gateway is %T)", gateway)
+	}
+	for _, name := range shippedKeyNames(t, r) {
+		if _, err := authenticate(t, gateway, keyValue(name)); err != nil {
+			t.Errorf("key %s from Secret %s%s does not authenticate: %v", name, keySecretPrefix, name, err)
+		}
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authenticate(t, gateway, mintJWTSVID(t, "k1", key, sentinelSPIFFEID, "signal-ingest")); !errors.Is(err, api.ErrInvalidCredential) {
+		t.Fatalf("a JWT-SVID with no JWKS configured: err = %v, want ErrInvalidCredential", err)
+	}
+}
+
+// TestReconciledManifestCanStillEnableJWTSVIDs: the JWT path is configured, not merely present.
+// Setting SIGNAL_AUTH_JWKS_FILE (the hub bootstrap does) over a synced key set turns it on beside
+// the static keys; over the shipped empty placeholder the binary refuses to boot trusting nothing.
+// The ConfigMap is created by Flux once and then left alone (ssa: IfNotPresent) so a sync survives
+// reconciliation.
+func TestReconciledManifestCanStillEnableJWTSVIDs(t *testing.T) {
 	r := renderReconciledManifest(t)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := containerEnv(t, r, t.TempDir(), map[string]string{"signal-ingest-jwks/jwks.json": syncedJWKS(t, "k1", key)})
+	root := t.TempDir()
+	env := containerEnv(t, r, root, map[string]string{"signal-ingest-jwks/jwks.json": syncedJWKS(t, "k1", key)})
+	env["SIGNAL_AUTH_JWKS_FILE"] = filepath.Join(root, "/etc/signal-ingest/auth/jwks.json")
 	setContainerEnv(t, env)
-
-	cfg, err := api.AuthConfigFromEnv()
+	gateway, err := gatewayFromEnv(context.Background())
 	if err != nil {
-		t.Fatalf("main would refuse startup (api.AuthConfigFromEnv): %v", err)
+		t.Fatalf("JWKS enabled over synced keys: main would refuse startup: %v", err)
 	}
-	jwt, err := api.NewJWTAuthenticator(cfg)
-	if err != nil {
-		t.Fatalf("main would refuse startup (api.NewJWTAuthenticator): %v", err)
-	}
-	gateway, err := httpAuthenticator(jwt)
-	if err != nil {
-		t.Fatalf("main would refuse startup (httpAuthenticator): %v", err)
-	}
-	if _, ok := gateway.(*api.StaticBearerAuthenticator); !ok {
-		t.Fatalf("rendered manifest does not enable the static bearer; the sentinel would 401 (gateway is %T)", gateway)
-	}
-
-	p, err := authenticate(t, gateway, testBearerToken)
-	if err != nil {
-		t.Fatalf("the token from Secret %s does not authenticate: %v", staticBearerSecret, err)
-	}
-	if p.TenantID != "kusari" || !p.Permissions[api.PermissionObservationWrite] || p.Permissions[api.PermissionObservationRead] {
-		t.Fatalf("static principal scope = tenant %q perms %v, want kusari with observations:write and no read", p.TenantID, p.Permissions)
-	}
-
-	p, err = authenticate(t, gateway, mintJWTSVID(t, "k1", key, sentinelSPIFFEID, "signal-ingest"))
-	if err != nil {
-		t.Fatalf("a JWT-SVID for %s does not authenticate through the rendered bindings: %v", sentinelSPIFFEID, err)
-	}
-	if p.Subject != sentinelSPIFFEID || !p.Permissions[api.PermissionObservationWrite] {
-		t.Fatalf("JWT principal = %+v", p)
+	p, err := authenticate(t, gateway, mintJWTSVID(t, "k1", key, sentinelSPIFFEID, "signal-ingest"))
+	if err != nil || p.Subject != sentinelSPIFFEID {
+		t.Fatalf("a JWT-SVID for %s through the rendered bindings: (%+v, %v)", sentinelSPIFFEID, p, err)
 	}
 	if _, err := authenticate(t, gateway, mintJWTSVID(t, "k1", key, sentinelSPIFFEID, "wrong-audience")); err == nil {
 		t.Fatal("a JWT-SVID for another audience authenticated; the rendered audience is not enforced")
 	}
-}
-
-// TestReconciledManifestRefusesToStartBeforeTheJWKSIsSynced documents the one bootstrap
-// prerequisite that is not a Secret: the shipped signal-ingest-jwks holds an empty key set, and the
-// binary refuses to boot trusting nothing. The ConfigMap is created by Flux once and then left alone
-// (ssa: IfNotPresent) so the bootstrap's sync survives reconciliation.
-func TestReconciledManifestRefusesToStartBeforeTheJWKSIsSynced(t *testing.T) {
-	r := renderReconciledManifest(t)
-	setContainerEnv(t, containerEnv(t, r, t.TempDir(), nil))
-	if _, err := api.AuthConfigFromEnv(); err == nil || !strings.Contains(err.Error(), "empty JWKS") {
-		t.Fatalf("shipped JWKS placeholder: AuthConfigFromEnv err = %v, want the empty-JWKS refusal", err)
+	if _, err := authenticate(t, gateway, keyValue(shippedKeyNames(t, r)[0])); err != nil {
+		t.Fatalf("static keys stop working when JWKS is enabled: %v", err)
 	}
 
+	root = t.TempDir()
+	env = containerEnv(t, r, root, nil)
+	env["SIGNAL_AUTH_JWKS_FILE"] = filepath.Join(root, "/etc/signal-ingest/auth/jwks.json")
+	setContainerEnv(t, env)
+	if _, err := gatewayFromEnv(context.Background()); err == nil || !strings.Contains(err.Error(), "empty JWKS") {
+		t.Fatalf("JWKS enabled over the shipped placeholder: err = %v, want the empty-JWKS refusal", err)
+	}
 	jwks, ok := r.object("ConfigMap", "signal-ingest-jwks")
 	if !ok {
 		t.Fatal("signal-ingest-jwks is not in the reconciled manifest")
 	}
 	if got := jwks.Metadata.Annotations["kustomize.toolkit.fluxcd.io/ssa"]; got != "IfNotPresent" {
-		t.Fatalf("signal-ingest-jwks ssa annotation = %q, want IfNotPresent; otherwise every reconcile reverts the synced keys to an empty set and the next restart crash-loops", got)
+		t.Fatalf("signal-ingest-jwks ssa annotation = %q, want IfNotPresent", got)
 	}
 }
 
-func TestReconciledManifestTakesTheTokenFromTheSecretOnly(t *testing.T) {
+// TestReconciledManifestTakesKeyValuesFromSecretsOnly: every configured key's value is projected
+// from its own Secret, at the path the loader reads (<dir>/<name>); no value is in env, in a
+// ConfigMap, or committed as a Secret.
+func TestReconciledManifestTakesKeyValuesFromSecretsOnly(t *testing.T) {
 	r := renderReconciledManifest(t)
-	var fromSecret bool
-	for _, e := range r.container.Env {
-		if e.Name != "SIGNAL_AUTH_STATIC_BEARER_TOKEN" {
+	projected := map[string]string{} // path -> secret
+	for _, v := range r.deployment.Template.Spec.Volumes {
+		if v.Name != "signal-ingest-static-keys" || v.Projected == nil {
 			continue
 		}
-		ref := e.ValueFrom
-		if e.Value != "" || ref == nil || ref.SecretKeyRef == nil || ref.SecretKeyRef.Name != staticBearerSecret || ref.SecretKeyRef.Key != "token" {
-			t.Fatalf("SIGNAL_AUTH_STATIC_BEARER_TOKEN must come from secretKeyRef %s/token, got %+v", staticBearerSecret, e)
+		for _, src := range v.Projected.Sources {
+			if src.Secret == nil {
+				t.Errorf("static-keys volume projects a non-Secret source")
+				continue
+			}
+			for _, it := range src.Secret.Items {
+				if it.Key != "token" {
+					t.Errorf("Secret %s projects key %q, want token", src.Secret.Name, it.Key)
+				}
+				projected[it.Path] = src.Secret.Name
+			}
 		}
-		if ref.SecretKeyRef.Optional != nil && *ref.SecretKeyRef.Optional {
-			t.Fatal("the token secretKeyRef is optional; a missing Secret would start a half-configured static bearer")
-		}
-		fromSecret = true
 	}
-	if !fromSecret {
-		t.Fatal("the rendered Deployment does not source SIGNAL_AUTH_STATIC_BEARER_TOKEN from a Secret")
+	for _, name := range shippedKeyNames(t, r) {
+		if got := projected[name]; got != keySecretPrefix+name {
+			t.Errorf("key %s is projected from %q, want Secret %s%s", name, got, keySecretPrefix, name)
+		}
+	}
+	var mounted bool
+	for _, m := range r.container.VolumeMounts {
+		if m.Name == "signal-ingest-static-keys" {
+			mounted = m.MountPath == api.DefaultStaticKeysDir && m.ReadOnly
+		}
+	}
+	if !mounted {
+		t.Errorf("the static-keys volume is not mounted read-only at %s", api.DefaultStaticKeysDir)
+	}
+	for _, e := range r.container.Env {
+		if strings.Contains(e.Name, "TOKEN") || (e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && strings.HasPrefix(e.ValueFrom.SecretKeyRef.Name, keySecretPrefix)) {
+			t.Errorf("env %s carries a key value; values are files, never env", e.Name)
+		}
 	}
 	for _, o := range r.objects {
 		if o.Kind == "ConfigMap" {
-			if _, ok := o.Data["SIGNAL_AUTH_STATIC_BEARER_TOKEN"]; ok {
-				t.Errorf("ConfigMap %s carries the static bearer token", o.Metadata.Name)
+			for k := range o.Data {
+				if strings.Contains(k, "TOKEN") {
+					t.Errorf("ConfigMap %s carries %s", o.Metadata.Name, k)
+				}
 			}
 		}
-		if o.Kind == "Secret" && o.Metadata.Name == staticBearerSecret {
-			t.Errorf("Secret %s is committed to the manifest; it must be minted at bootstrap", staticBearerSecret)
+		if o.Kind == "Secret" && strings.HasPrefix(o.Metadata.Name, keySecretPrefix) {
+			t.Errorf("Secret %s is committed to the manifest; it must be minted at bootstrap", o.Metadata.Name)
 		}
 	}
 }

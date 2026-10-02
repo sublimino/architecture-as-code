@@ -518,6 +518,11 @@ def _agent_from_kagent_cr(cr: object, namespace: str | None = None) -> dict[str,
         # the pod path emits lower-case label values, so casing must match.
         "type": spec_type.lower() if isinstance(spec_type, str) else None,
         "framework": labels.get("signalloom.ai/framework") or "kagent",
+        # Same claim fields as the pod path: the GitOps-declared tenant (never
+        # defaulted), the agent's own name, and its harness label.
+        "tenant": labels.get("signalloom.ai/tenant"),
+        "agent_name": name,
+        "harness": labels.get("signalloom.ai/harness"),
         "model": declarative.get("modelConfig"),
         "runtime": declarative.get("runtime"),
         "state": _kagent_state(cr.get("status")),

@@ -46,7 +46,7 @@ case "${args}" in
  {"metadata":{"name":"kagent-k8s-reader-0","labels":{"app.kubernetes.io/name":"kagent-k8s-reader","signalloom.ai/model":"gpt-4o"}},
   "spec":{"serviceAccountName":"k8s-reader"},
   "status":{"phase":"Running","containerStatuses":[{"ready":true}]}},
- {"metadata":{"name":"agent-kusari-abc","labels":{"app.kubernetes.io/name":"kusari-agent",${kusari_model}"signalloom.ai/harness":"go-http"}},
+ {"metadata":{"name":"agent-kusari-abc","annotations":{"signalloom.ai/agent-display-name":"Kusari Agent (stub)"},"labels":{"app.kubernetes.io/name":"kusari-agent","signalloom.ai/agent-name":"kusari-agent",${kusari_model}"signalloom.ai/harness":"go-http"}},
   "spec":{"serviceAccountName":"kusari-agent"},
   "status":{"phase":"Running","containerStatuses":[{"ready":true}]}}
 ]}
@@ -72,8 +72,10 @@ IFS= read -r _token
 IFS= read -r body
 st=200
 case "${method} ${path}" in
+  # A discovered record is named the way fake-integration-proxy names it: the
+  # signalloom.ai/agent-display-name annotation first (the live kusari pod has one).
   "GET /api/agents?namespace="*)
-    out='{"agents":[{"id":"d-1","name":"kagent-k8s-reader","record_class":"discovered","is_registry_linked":false,"compliance_summary":{"total_controls":0}},{"id":"d-2","name":"kusari-agent","record_class":"discovered","is_registry_linked":false,"compliance_summary":{"total_controls":0}}]}' ;;
+    out='{"agents":[{"id":"d-1","name":"kagent-k8s-reader","record_class":"discovered","is_registry_linked":false,"compliance_summary":{"total_controls":0}},{"id":"d-2","name":"Kusari Agent (stub)","record_class":"discovered","is_registry_linked":false,"compliance_summary":{"total_controls":0}}]}' ;;
   "POST /api/v1/agents/claim")
     printf '%s\n' "${body}" >>"${FAKE_CLAIMS}"
     out='{"claim_id":"claim-1","status":"granted","spiffe_svid_verified":true,"allocated_token_budget":250000,"agent_id":"a-1"}' ;;

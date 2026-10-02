@@ -493,7 +493,10 @@ func TestEnumerationLimitCapsActualResponses(t *testing.T) {
 		}
 	}
 	h.FairService = fair.NewService(fair.NewFixtureSource(10))
-	p := Principal{Subject: "spiffe://cluster.local/ns/x/sa/y", TenantID: "tenant-a", ExpiresAt: time.Now().Add(time.Hour), Permissions: map[Permission]bool{PermissionActorList: true, PermissionAnalysisRun: true, PermissionRiskRead: true}}
+	p := Principal{Subject: "spiffe://cluster.local/ns/x/sa/y", TenantID: "tenant-a", ExpiresAt: time.Now().Add(time.Hour), Permissions: map[Permission]bool{PermissionActorList: true, PermissionAnalysisRun: true, PermissionRiskRead: true,
+		// The fixture observations carry no tenant, so only a cross-tenant reader sees them; a
+		// tenant-scoped principal would read empty pages and every cap below would pass vacuously.
+		PermissionCrossTenantRead: true}}
 	router, err := NewProtectedRouter(h, staticAuthenticator{principal: p}, h.Audit, http.NotFoundHandler(), RouterOptions{DefaultPageSize: 2, MaxPageSize: 3, PrincipalBudget: 20})
 	if err != nil {
 		t.Fatal(err)
@@ -508,8 +511,8 @@ func TestEnumerationLimitCapsActualResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &authz); err != nil {
 		t.Fatal(err)
 	}
-	if len(authz.Chains) > 2 {
-		t.Fatalf("authorization chains=%d", len(authz.Chains))
+	if len(authz.Chains) != 2 {
+		t.Fatalf("authorization chains=%d, want exactly the cap of 2", len(authz.Chains))
 	}
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/actors", nil))
@@ -520,8 +523,8 @@ func TestEnumerationLimitCapsActualResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &listedActors); err != nil {
 		t.Fatal(err)
 	}
-	if len(listedActors) > 2 {
-		t.Fatalf("default actor page size not enforced: actors=%d", len(listedActors))
+	if len(listedActors) != 2 {
+		t.Fatalf("default actor page size not enforced: actors=%d, want exactly 2", len(listedActors))
 	}
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/correlate?limit=2", nil))
@@ -534,6 +537,8 @@ func TestEnumerationLimitCapsActualResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &correlate); err != nil {
 		t.Fatal(err)
 	}
+	// Pre-existing gap, left as found: Engine.Resolve does not write to the store, so correlate
+	// discovers nothing here and this cap is asserted over an empty list.
 	if len(correlate.Actors) > 2 {
 		t.Fatalf("correlate actors=%d", len(correlate.Actors))
 	}
@@ -549,8 +554,8 @@ func TestEnumerationLimitCapsActualResponses(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &fleet); err != nil {
 			t.Fatal(err)
 		}
-		if len(fleet.Top) > 2 {
-			t.Fatalf("%s topAgents=%d", path, len(fleet.Top))
+		if len(fleet.Top) != 2 {
+			t.Fatalf("%s topAgents=%d, want exactly 2", path, len(fleet.Top))
 		}
 	}
 }

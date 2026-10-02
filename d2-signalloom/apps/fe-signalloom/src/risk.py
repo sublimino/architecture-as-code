@@ -13,7 +13,8 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from api_compat import APIError, authenticated_tenant
+from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
+from ingest_client import ingest_headers
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,13 @@ _SIGNAL_INGEST_URL = os.getenv("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 _TIMEOUT = 10.0
 
 
-async def _proxy(method: str, path: str, tenant_id: str | None = None, **kwargs: Any) -> JSONResponse:
-    """Forward a request to the signal-ingest service."""
-    headers = kwargs.pop("headers", {}) or {}
-    if tenant_id:
-        headers["X-Tenant-ID"] = tenant_id
+async def _proxy(method: str, path: str, principal: Principal, **kwargs: Any) -> JSONResponse:
+    """Forward a request to signal-ingest as the gateway, acting for ``principal``'s tenant.
+
+    X-Tenant-ID is not sent: signal-ingest never trusted it. The tenant travels as the gateway's
+    acting tenant, which signal-ingest honours only for the gateway key.
+    """
+    headers = ingest_headers(principal)
     try:
         async with httpx.AsyncClient(
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
@@ -139,7 +142,7 @@ async def get_framework_versions(
 @router.get("/v1/risk/agents/{agent_id:path}")
 async def get_agent_risk(
     agent_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     request: Request,
     trials: int | None = Query(default=None),
     seed: int | None = Query(default=None),
@@ -153,17 +156,17 @@ async def get_agent_risk(
         params["seed"] = seed
     if model is not None:
         params["model"] = model
-    return await _proxy("GET", f"/api/v1/risk/agents/{agent_id}", tenant_id=tenant_id, params=params)
+    return await _proxy("GET", f"/api/v1/risk/agents/{agent_id}", principal, params=params)
 
 
 @router.get("/api/v1/risk/fleet")
 @router.get("/v1/risk/fleet")
 async def get_fleet_risk(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     request: Request,
 ) -> JSONResponse:
     """Get quantitative OpenFAIR risk rollup across the agent fleet."""
-    return await _proxy("GET", "/api/v1/risk/fleet", tenant_id=tenant_id)
+    return await _proxy("GET", "/api/v1/risk/fleet", principal)
 
 
 def install_risk_api(app: Any) -> None:

@@ -11,27 +11,36 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
-// The real correlator token, so these tests exercise the value actually on the
-// wire (stun-sentinel pkg/correlator/ebpf_correlator.go DefaultBearerToken).
-const testSentinelToken = "sentinel-in-cluster-token"
+// A token of the shape scripts/sldc-ingest-bearer.sh generates (32 random bytes,
+// base64url). The value on the wire is no longer a literal in the correlator's
+// source: it is minted at bootstrap into Secret signal-ingest-static-bearer and
+// its twin stun-sentinel-ingest-token, and never committed.
+const testSentinelToken = "qV3x9Lw2pN7cR1tY8kD4hF6jS0aZ5mE2uB7oG3iX1wQ"
+
+// retiredPublicToken was DefaultBearerToken in the correlator's source, so it is
+// in git and in every image ever built. It must never authenticate again.
+const retiredPublicToken = "sentinel-in-cluster-token"
 
 const testStaticSubject = "static-bearer/stun-sentinel-correlator"
 
 func testStaticConfig() StaticBearerConfig {
 	return StaticBearerConfig{
+		Name:        "stun-sentinel",
 		Token:       testSentinelToken,
 		Subject:     testStaticSubject,
 		TenantID:    "kusari",
 		Permissions: []Permission{PermissionObservationWrite, PermissionCollectorWrite},
-		ExpiresAt:   time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC),
+		ExpiresAt:   time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(24 * time.Hour),
 	}
 }
 
@@ -69,40 +78,6 @@ func bearerRequest(method, target, token string) *http.Request {
 	return r
 }
 
-// clearStaticBearerEnv blanks every static-bearer variable so a test starts
-// from the shipped default (feature absent). An empty value and an unset
-// variable are the same thing to the loader, which is itself asserted by
-// TestStaticBearerAbsentFromEnvYieldsNoConfig.
-func clearStaticBearerEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{
-		"SIGNAL_AUTH_STATIC_BEARER_TOKEN",
-		"SIGNAL_AUTH_STATIC_BEARER_SUBJECT",
-		"SIGNAL_AUTH_STATIC_BEARER_TENANT",
-		"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS",
-		"SIGNAL_AUTH_STATIC_BEARER_ACTORS",
-		"SIGNAL_AUTH_STATIC_BEARER_EXPIRES",
-	} {
-		t.Setenv(k, "")
-	}
-}
-
-// --- Off by default -------------------------------------------------------
-
-// TestStaticBearerAbsentFromEnvYieldsNoConfig proves the opt-in: with none of
-// the variables set, the loader reports "no static bearer" rather than an
-// error and rather than a permissive default.
-func TestStaticBearerAbsentFromEnvYieldsNoConfig(t *testing.T) {
-	clearStaticBearerEnv(t)
-	cfg, err := StaticBearerConfigFromEnv()
-	if err != nil {
-		t.Fatalf("absent static bearer config must not be an error: %v", err)
-	}
-	if cfg != nil {
-		t.Fatalf("absent static bearer config must yield nil, got %+v", cfg)
-	}
-}
-
 // TestStaticBearerOffByDefaultIsStill401 proves behaviour is byte-identical to
 // today when the feature is not configured: the correlator's static token is
 // rejected by the bare JWT authenticator with 401 and the generic body.
@@ -122,86 +97,6 @@ func TestStaticBearerOffByDefaultIsStill401(t *testing.T) {
 	assertNoTokenLeak(t, aw, w.Body.String())
 }
 
-// --- Explicit opt-in: hard startup refusals -------------------------------
-
-// TestStaticBearerConfigFromEnvRefusesPartialConfig proves a partially
-// configured credential is a startup refusal, never a silent accept-anything.
-func TestStaticBearerConfigFromEnvRefusesPartialConfig(t *testing.T) {
-	full := map[string]string{
-		"SIGNAL_AUTH_STATIC_BEARER_TOKEN":       testSentinelToken,
-		"SIGNAL_AUTH_STATIC_BEARER_SUBJECT":     testStaticSubject,
-		"SIGNAL_AUTH_STATIC_BEARER_TENANT":      "kusari",
-		"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "observations:write,collectors:write",
-		"SIGNAL_AUTH_STATIC_BEARER_EXPIRES":     StaticBearerSunset,
-	}
-	tests := []struct {
-		name     string
-		override map[string]string
-	}{
-		{"no subject", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_SUBJECT": ""}},
-		{"no tenant", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TENANT": ""}},
-		{"no permissions", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": ""}},
-		{"no expiry", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_EXPIRES": ""}},
-		{"empty token with a principal named", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": ""}},
-		{"whitespace token", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": "        \t   "}},
-		{"token too short to resist guessing", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": "short"}},
-		{"unknown permission", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "telemetry:write"}},
-		{"one unknown permission among known ones", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "observations:write,violations:publish"}},
-		{"expiry not a date", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_EXPIRES": "soon"}},
-		{"subject impersonating a SPIFFE ID", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_SUBJECT": "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			clearStaticBearerEnv(t)
-			for k, v := range full {
-				t.Setenv(k, v)
-			}
-			for k, v := range tc.override {
-				t.Setenv(k, v)
-			}
-			cfg, err := StaticBearerConfigFromEnv()
-			if err == nil {
-				t.Fatalf("partial static bearer config accepted: %+v", cfg)
-			}
-			if cfg != nil {
-				t.Fatalf("refused config must be nil, got %+v", cfg)
-			}
-			if strings.Contains(err.Error(), testSentinelToken) {
-				t.Fatalf("refusal error leaks the token: %v", err)
-			}
-		})
-	}
-}
-
-// TestStaticBearerConfigFromEnvLoadsCompleteConfig pins the happy path of the
-// loader, including the permission and actor list parsing.
-func TestStaticBearerConfigFromEnvLoadsCompleteConfig(t *testing.T) {
-	clearStaticBearerEnv(t)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TOKEN", testSentinelToken)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_SUBJECT", testStaticSubject)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TENANT", "kusari")
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS", " observations:write , collectors:write ")
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_EXPIRES", StaticBearerSunset)
-
-	cfg, err := StaticBearerConfigFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg == nil {
-		t.Fatal("complete static bearer config not loaded")
-	}
-	if cfg.Token != testSentinelToken || cfg.Subject != testStaticSubject || cfg.TenantID != "kusari" {
-		t.Fatalf("loaded config mismatch: subject=%q tenant=%q", cfg.Subject, cfg.TenantID)
-	}
-	want := []Permission{PermissionObservationWrite, PermissionCollectorWrite}
-	if fmt.Sprint(cfg.Permissions) != fmt.Sprint(want) {
-		t.Fatalf("permissions = %v, want %v", cfg.Permissions, want)
-	}
-	if !cfg.ExpiresAt.Equal(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("expiry = %s, want %s", cfg.ExpiresAt, StaticBearerSunset)
-	}
-}
-
 // TestNewStaticBearerAuthenticatorRefusesInvalidConfig covers the constructor
 // directly, so a programmatic caller cannot bypass the env loader's gates.
 func TestNewStaticBearerAuthenticatorRefusesInvalidConfig(t *testing.T) {
@@ -214,7 +109,10 @@ func TestNewStaticBearerAuthenticatorRefusesInvalidConfig(t *testing.T) {
 		{name: "nil delegate", mutate: func(*StaticBearerConfig) {}, nilDelegate: true},
 		{name: "empty token", mutate: func(c *StaticBearerConfig) { c.Token = "" }},
 		{name: "short token", mutate: func(c *StaticBearerConfig) { c.Token = "abc" }},
-		{name: "no subject", mutate: func(c *StaticBearerConfig) { c.Subject = "" }},
+		{name: "31-byte token", mutate: func(c *StaticBearerConfig) { c.Token = strings.Repeat("k", 31) }}, {name: "no subject", mutate: func(c *StaticBearerConfig) { c.Subject = "" }},
+		{name: "no name", mutate: func(c *StaticBearerConfig) { c.Name = "" }},
+		{name: "name with a path separator", mutate: func(c *StaticBearerConfig) { c.Name = "../stun-sentinel" }},
+		{name: "upper-case name", mutate: func(c *StaticBearerConfig) { c.Name = "Stun-Sentinel" }},
 		{name: "no tenant", mutate: func(c *StaticBearerConfig) { c.TenantID = "" }},
 		{name: "no permissions", mutate: func(c *StaticBearerConfig) { c.Permissions = nil }},
 		{name: "unknown permission", mutate: func(c *StaticBearerConfig) {
@@ -342,15 +240,17 @@ func TestStaticBearerRejectsNearMissTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	tok := testSentinelToken
 	for _, token := range []string{
-		"sentinel-in-cluster-toke",   // one byte short
-		"sentinel-in-cluster-tokenn", // one byte long
-		"sentinel-in-cluster-tokem",  // same length, last byte differs
-		"Sentinel-In-Cluster-Token",  // case
-		"sentinel-in-cluster-token ", // trailing space
-		" sentinel-in-cluster-token", // leading space
-		"sentinel-in-cluster-token\n",
-		"sentinel_in_cluster_token",
+		tok[:len(tok)-1],       // one byte short
+		tok + "Q",              // one byte long
+		tok[:len(tok)-1] + "R", // same length, last byte differs
+		strings.ToLower(tok),   // case
+		tok + " ",              // trailing space
+		" " + tok,              // leading space
+		tok + "\n",
+		strings.ReplaceAll(tok, "x", "_"),
+		retiredPublicToken, // the old public literal no longer opens anything
 		"",
 	} {
 		t.Run(fmt.Sprintf("%q", token), func(t *testing.T) {
@@ -464,7 +364,7 @@ func TestStaticBearerRouterStatusCodes(t *testing.T) {
 	})
 	t.Run("wrong token is 401", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, observationRequest("sentinel-in-cluster-tokem"))
+		router.ServeHTTP(w, observationRequest(testSentinelToken[:len(testSentinelToken)-1]+"R"))
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("want 401, got %d body %s", w.Code, w.Body.String())
 		}
@@ -595,38 +495,20 @@ func TestStaticBearerPrincipalCarriesTheDeadline(t *testing.T) {
 	}
 }
 
-// TestStaticBearerSunsetHasNotPassed is a deliberate time bomb. It is the one
-// test in this file designed to start failing on its own, and the failure is
-// the deliverable: it means the temporary credential has outlived its agreed
-// window and must now be removed.
-func TestStaticBearerSunsetHasNotPassed(t *testing.T) {
-	deadline, err := time.Parse(time.DateOnly, StaticBearerSunset)
-	if err != nil {
-		t.Fatalf("StaticBearerSunset %q is not a YYYY-MM-DD date: %v", StaticBearerSunset, err)
+// Review M3, carried into the per-key lifetime (Andy/lead 2026-10-02): the deadline is enforced by
+// the binary, not only by whatever a Secret says. No key may be valid for more than
+// MaxStaticKeyLifetime from now, so an issued key cannot be made effectively permanent, and the
+// fixed global sunset that would have 401'd every caller on one day is gone.
+func TestStaticKeyLifetimeIsBoundedByTheBinary(t *testing.T) {
+	cfg := testStaticConfig()
+	cfg.ExpiresAt = time.Now().Add(MaxStaticKeyLifetime + 24*time.Hour)
+	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "90 days") {
+		t.Fatalf("validate() = %v, want a refusal naming the 90-day lifetime", err)
 	}
-	if time.Now().UTC().Before(deadline) {
-		return
+	cfg.ExpiresAt = time.Now().Add(MaxStaticKeyLifetime - 24*time.Hour)
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("an expiry inside the lifetime must be accepted: %v", err)
 	}
-	t.Fatalf(`the signal-ingest static bearer credential expired on %s and must now be removed.
-
-This test is not broken. It is the sunset gate for the temporary shared secret
-that lets the stun-sentinel correlator POST observations without a JWT-SVID.
-
-To fix it, do the work the credential was deferring:
-  1. Give the correlator a real JWT-SVID. It already runs as
-     spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel, which is
-     already bound in deploy/jwt-auth-config.yaml with
-     ["observations:write","collectors:write"] — so no new binding is needed.
-     Replace DefaultBearerToken in
-     d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go with a
-     token read from the mounted SPIRE JWT-SVID.
-  2. Delete the SIGNAL_AUTH_STATIC_BEARER_* keys from
-     d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml and the
-     signalloom.ai/expires annotation with them.
-  3. Delete api/static_bearer.go, this file, and the main.go wiring block.
-
-Do NOT extend StaticBearerSunset to make this pass. Extending it is a decision
-for Andy, not for whoever is holding the failing build.`, StaticBearerSunset)
 }
 
 // --- The secret never leaks -----------------------------------------------
@@ -647,7 +529,7 @@ func TestStaticBearerEnabledWarningOmitsTheToken(t *testing.T) {
 	if strings.Contains(logged, testSentinelToken) {
 		t.Fatalf("startup log leaks the token: %s", logged)
 	}
-	for _, want := range []string{testStaticSubject, StaticBearerSunset} {
+	for _, want := range []string{testStaticSubject, testStaticConfig().ExpiresAt.Format(time.DateOnly)} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("startup log omits %q: %s", want, logged)
 		}
@@ -668,7 +550,7 @@ func TestStaticBearerTokenNeverReachesAuditOrBody(t *testing.T) {
 	var bodies strings.Builder
 	for _, r := range []*http.Request{
 		observationRequest(testSentinelToken),                                   // accepted
-		observationRequest("sentinel-in-cluster-tokem"),                         // 401
+		observationRequest(testSentinelToken[:len(testSentinelToken)-1] + "R"),  // 401
 		bearerRequest(http.MethodGet, "/api/v1/actors", testSentinelToken),      // 403
 		bearerRequest(http.MethodGet, "/api/v1/nonexistent", testSentinelToken), // 403 unregistered
 		bearerRequest(http.MethodPost, "/api/v1/observations", ""),              // 401 missing
@@ -725,22 +607,44 @@ func assertNoTokenLeak(t *testing.T, aw *audit.FakeWriter, bodies string) {
 	}
 }
 
-// Review M3 (2026-10-02): the sunset lived only in a test and in YAML. Editing
-// the ConfigMap's expiry extended the credential with no code change, because
-// validate() checked only that some date was present. The binary now refuses
-// any configured expiry later than StaticBearerSunset.
-func TestStaticBearerRefusesAnExpiryLaterThanTheSunset(t *testing.T) {
-	cfg := testStaticConfig()
-	cfg.ExpiresAt = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	err := cfg.validate()
-	if err == nil || !strings.Contains(err.Error(), StaticBearerSunset) {
-		t.Fatalf("validate() = %v, want a refusal that names the sunset %s", err, StaticBearerSunset)
+// TestStaticBearerIngestsTheSentinelsRealPayloads drives the correlator's golden
+// wire payload through the real router with the static credential, both as
+// attributed (tenant_id kusari) and as the sentinel posts an unmapped workload
+// (tenant_id identity.QuarantineTenant). Observation tenancy is a label, not a
+// claim bound to the principal, so the quarantine marker must land rather than
+// be refused by the tenant gate meant for principals.
+func TestStaticBearerIngestsTheSentinelsRealPayloads(t *testing.T) {
+	raw, err := os.ReadFile("../../stun-sentinel/pkg/correlator/testdata/ingest-observation.golden.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestStaticBearerAcceptsAnExpiryOnTheSunset(t *testing.T) {
-	cfg := testStaticConfig() // expires exactly on the sunset
-	if err := cfg.validate(); err != nil {
-		t.Fatalf("an expiry on the sunset itself must be accepted: %v", err)
+	delegate, _, _ := testJWTDelegate(t)
+	cfg := testStaticConfig()
+	// The sentinel watches every workload, so its key carries the cross-tenant write grant.
+	cfg.Permissions = append(cfg.Permissions, PermissionCrossTenantWrite)
+	a, err := NewStaticBearerAuthenticator(cfg, delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range []string{"kusari", identity.QuarantineTenant} {
+		t.Run(tenant, func(t *testing.T) {
+			var batch []map[string]any
+			if err := json.Unmarshal(raw, &batch); err != nil {
+				t.Fatal(err)
+			}
+			for _, o := range batch {
+				o["labels"].(map[string]any)["tenant_id"] = tenant
+			}
+			body, _ := json.Marshal(batch)
+			router, _ := newStaticBearerRouter(t, a)
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/observations", bytes.NewReader(body))
+			r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, r)
+			want := fmt.Sprintf(`{"ingested":%d}`, len(batch))
+			if w.Code != http.StatusCreated || strings.TrimSpace(w.Body.String()) != want {
+				t.Fatalf("sentinel payload with tenant_id %q: %d %s, want 201 %s", tenant, w.Code, w.Body.String(), want)
+			}
+		})
 	}
 }

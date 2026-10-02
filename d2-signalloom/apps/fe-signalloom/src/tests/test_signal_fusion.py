@@ -94,9 +94,9 @@ class TestProxyErrorHandling:
         mock_client_cls.return_value = mock_instance
 
         # Bypass auth by patching the dependency
-        from api_compat import authenticated_tenant
+        from api_compat import Principal, authenticated_principal
 
-        app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"
+        app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-demo", subject="test-user", email=None)
         try:
             resp = client.get("/api/signals/observations")
             assert resp.status_code == 502
@@ -104,7 +104,7 @@ class TestProxyErrorHandling:
             assert body["error"]["code"] == "upstream_unavailable"
             assert "unreachable" in body["error"]["message"]
         finally:
-            app.dependency_overrides.pop(authenticated_tenant, None)
+            app.dependency_overrides.pop(authenticated_principal, None)
 
     @patch("signal_fusion.httpx.AsyncClient")
     def test_timeout_returns_504(self, mock_client_cls, client):
@@ -119,9 +119,9 @@ class TestProxyErrorHandling:
         mock_instance.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_instance
 
-        from api_compat import authenticated_tenant
+        from api_compat import Principal, authenticated_principal
 
-        app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"
+        app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-demo", subject="test-user", email=None)
         try:
             resp = client.get("/api/signals/observations")
             assert resp.status_code == 504
@@ -129,7 +129,7 @@ class TestProxyErrorHandling:
             assert body["error"]["code"] == "upstream_timeout"
             assert "timed out" in body["error"]["message"]
         finally:
-            app.dependency_overrides.pop(authenticated_tenant, None)
+            app.dependency_overrides.pop(authenticated_principal, None)
 
 
 # ---------------------------------------------------------------------------

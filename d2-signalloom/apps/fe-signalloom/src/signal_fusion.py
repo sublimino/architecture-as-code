@@ -15,7 +15,8 @@ import httpx
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
+from api_compat import APIError, Principal, authenticated_principal
+from ingest_client import ingest_headers
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,18 @@ _SIGNAL_INGEST_URL = os.getenv("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 _TIMEOUT = 10.0
 
 
-async def _proxy(method: str, path: str, **kwargs: Any) -> JSONResponse:
-    """Forward a request to the signal-ingest service."""
+async def _proxy(method: str, path: str, principal: Principal, *, write: bool = False, **kwargs: Any) -> JSONResponse:
+    """Forward a request to signal-ingest as the gateway, acting for ``principal``'s tenant.
+
+    The headers are built before the request so a missing gateway key is its own 503, never
+    folded into the generic 502 below and never sent as an anonymous request.
+    """
+    headers = ingest_headers(principal, write=write)
     try:
         async with httpx.AsyncClient(
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
         ) as client:
-            resp = await client.request(method, path, **kwargs)
+            resp = await client.request(method, path, headers=headers, **kwargs)
             return JSONResponse(status_code=resp.status_code, content=resp.json())
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
@@ -52,7 +58,7 @@ async def _proxy(method: str, path: str, **kwargs: Any) -> JSONResponse:
 
 @router.get("/observations")
 async def get_observations(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     layer: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> JSONResponse:
@@ -60,13 +66,13 @@ async def get_observations(
     params: dict[str, Any] = {"limit": limit}
     if layer:
         params["layer"] = layer
-    return await _proxy("GET", "/api/v1/observations", params=params)
+    return await _proxy("GET", "/api/v1/observations", principal, params=params)
 
 
 
 @router.get("/observations/stream")
 async def stream_observations(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     after: str | None = None,
     before: str | None = None,
     layers: str | None = None,
@@ -84,13 +90,15 @@ async def stream_observations(
     if actor_id:
         params["actor_id"] = actor_id
 
+    headers = ingest_headers(principal)
+
     async def event_generator() -> AsyncIterator[bytes]:
         try:
             async with httpx.AsyncClient(
                 base_url=_SIGNAL_INGEST_URL, timeout=None
             ) as client:
                 async with client.stream(
-                    "GET", "/api/v1/observations/stream", params=params
+                    "GET", "/api/v1/observations/stream", params=params, headers=headers
                 ) as resp:
                     resp.raise_for_status()
                     async for chunk in resp.aiter_bytes():
@@ -117,37 +125,37 @@ async def stream_observations(
 
 @router.get("/actors")
 async def get_actors(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """List provisional actors."""
-    return await _proxy("GET", "/api/v1/actors")
+    return await _proxy("GET", "/api/v1/actors", principal)
 
 
 @router.get("/actors/{actor_id}")
 async def get_actor(
     actor_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Get a single provisional actor with evidence chain."""
-    return await _proxy("GET", f"/api/v1/actors/{actor_id}")
+    return await _proxy("GET", f"/api/v1/actors/{actor_id}", principal)
 
 
 @router.get("/actors/{actor_id}/authorization")
 async def get_actor_authorization(
     actor_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     action: str | None = None,
 ) -> JSONResponse:
     """Get authorization chain for an actor."""
     params: dict[str, Any] = {}
     if action:
         params["action"] = action
-    return await _proxy("GET", f"/api/v1/actors/{actor_id}/authorization", params=params)
+    return await _proxy("GET", f"/api/v1/actors/{actor_id}/authorization", principal, params=params)
 
 
 @router.get("/authorization")
 async def query_authorization(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     actor_id: str | None = None,
     action: str | None = None,
 ) -> JSONResponse:
@@ -157,7 +165,7 @@ async def query_authorization(
         params["actor_id"] = actor_id
     if action:
         params["action"] = action
-    return await _proxy("GET", "/api/v1/authorization", params=params)
+    return await _proxy("GET", "/api/v1/authorization", principal, params=params)
 
 
 @router.post("/actors/{actor_id}/promote")
@@ -166,15 +174,15 @@ async def promote_actor(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Promote a provisional actor to the agent registry."""
-    return await _proxy("POST", f"/api/v1/actors/{actor_id}/promote")
+    return await _proxy("POST", f"/api/v1/actors/{actor_id}/promote", principal)
 
 
 @router.get("/coverage")
 async def get_coverage(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Get signal coverage across observation layers."""
-    return await _proxy("GET", "/api/v1/coverage")
+    return await _proxy("GET", "/api/v1/coverage", principal)
 
 
 @router.post("/correlate")
@@ -182,15 +190,15 @@ async def run_correlation(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Trigger a correlation engine run."""
-    return await _proxy("POST", "/api/v1/correlate")
+    return await _proxy("POST", "/api/v1/correlate", principal)
 
 
 @router.get("/store/stats")
 async def get_store_stats(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Get store diagnostics — observation counts, actor stats, store type."""
-    return await _proxy("GET", "/api/v1/store/stats")
+    return await _proxy("GET", "/api/v1/store/stats", principal)
 
 
 @router.post("/collectors/seed")
@@ -198,7 +206,7 @@ async def seed_collectors(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Seed the signal collectors with initial data."""
-    return await _proxy("POST", "/api/v1/collectors/seed")
+    return await _proxy("POST", "/api/v1/collectors/seed", principal, write=True)
 
 
 def install_signal_fusion_api(app: Any) -> None:

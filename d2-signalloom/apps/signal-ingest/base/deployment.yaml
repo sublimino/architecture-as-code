@@ -23,15 +23,31 @@ spec:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
+        # Group-owns projected volumes (the static-key files are 0440), so the
+        # non-root process can read its keys and nothing else in the pod can.
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: signal-ingest
-          image: signal-ingest:local
+          # Immutable, per-source tag in the in-cluster zot: src-<16 hex> is
+          # `go run ./cmd/image-tag`, a digest of exactly the files the
+          # Dockerfile's go build compiles. Never a side-loaded :local or a
+          # mutable :latest, which cannot tell a rebuilt image from a stale one.
+          # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
+          # source moves and this pin does not; re-pin, build and push with
+          # `make -C d2-signalloom signal-ingest-image-push`.
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-8b8b57aa1e88cb47
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8082
+            # Probe-only listener (api.NewProbeHandler). The API port answers
+            # the anonymous kubelet with 401 because every route there is
+            # authenticated, so the probes cannot use it. This port is not in
+            # the Service and allow-signal-ingest-ingress does not admit it.
+            - name: probe
+              containerPort: 8083
           # Startup and liveness use /healthz, which checks nothing external.
           # Readiness uses /readyz, which verifies the audit backend is
           # reachable. The split is deliberate: an unreachable database must
@@ -47,17 +63,17 @@ spec:
           startupProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: probe
             failureThreshold: 10
             periodSeconds: 2
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: probe
           readinessProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: probe
             # /readyz pings Postgres, bounded by api.readyCheckTimeout (2s).
             # The default timeoutSeconds of 1 would cut the handler off before
             # its own bound elapsed, turning a diagnosable 503 body into a
@@ -97,9 +113,29 @@ spec:
                 secretKeyRef:
                   name: discovery-portal-database
                   key: IDENTITY_ENCRYPTION_KEY
+            - name: SIGNAL_INGEST_PROBE_PORT
+              value: "8083"
+          # SIGNAL_AUTH_*: the non-secret half of every static key, and the
+          # (disabled-by-default) JWT-SVID settings. main exits 1 with neither
+          # a static key nor a JWKS.
+          envFrom:
+            - configMapRef:
+                name: signal-ingest-jwt-auth
           volumeMounts:
             - name: signal-store
               mountPath: /data/signals
+            # SIGNAL_AUTH_JWKS_FILE. Synced from SPIRE by the bootstrap; the
+            # shipped key set is empty and the binary refuses to boot on it.
+            - name: signal-auth-jwks
+              mountPath: /etc/signal-ingest/auth
+              readOnly: true
+            # One file per static key, /etc/signal-ingest/static-keys/<name>,
+            # each projected from that key's own Secret (minted by
+            # scripts/sldc-ingest-bearer.sh). A file, not env: a value never
+            # shows in `kubectl describe pod` or /proc/<pid>/environ.
+            - name: signal-ingest-static-keys
+              mountPath: /etc/signal-ingest/static-keys
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -114,3 +150,55 @@ spec:
       volumes:
         - name: signal-store
           emptyDir: {}
+        - name: signal-auth-jwks
+          configMap:
+            name: signal-ingest-jwks
+        # optional: true per source, so one caller's Secret not yet minted
+        # disables that caller's key (logged at ERROR) instead of holding the
+        # whole pod in ContainerCreating. Every key named in
+        # SIGNAL_AUTH_STATIC_KEYS needs a source here; asserted by
+        # TestReconciledManifestTakesKeyValuesFromSecretsOnly.
+        - name: signal-ingest-static-keys
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: signal-ingest-key-stun-sentinel
+                  optional: true
+                  items:
+                    - key: token
+                      path: stun-sentinel
+                    - key: expires
+                      path: stun-sentinel.expires
+              - secret:
+                  name: signal-ingest-key-fe-signalloom-gateway
+                  optional: true
+                  items:
+                    - key: token
+                      path: fe-signalloom-gateway
+                    - key: expires
+                      path: fe-signalloom-gateway.expires
+              - secret:
+                  name: signal-ingest-key-signalfusion-demo
+                  optional: true
+                  items:
+                    - key: token
+                      path: signalfusion-demo
+                    - key: expires
+                      path: signalfusion-demo.expires
+              - secret:
+                  name: signal-ingest-key-sldc-live-bats
+                  optional: true
+                  items:
+                    - key: token
+                      path: sldc-live-bats
+                    - key: expires
+                      path: sldc-live-bats.expires
+              - secret:
+                  name: signal-ingest-key-sldc-evidence-reader
+                  optional: true
+                  items:
+                    - key: token
+                      path: sldc-evidence-reader
+                    - key: expires
+                      path: sldc-evidence-reader.expires

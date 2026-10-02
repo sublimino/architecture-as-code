@@ -1,0 +1,8 @@
+# signal-ingest's authentication configuration, as a kustomization so ../base
+# can include it (kustomize refuses a bare file outside the kustomization root).
+# scripts/bootstrap-spire-federation.sh still `kubectl apply -f`s the YAML file
+# directly for the hub, which this file does not affect.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - jwt-auth-config.yaml

@@ -306,6 +306,11 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if err := bindWriteTenancy(r, observations); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
 	if err := h.Store.Append(r.Context(), observations); err != nil {
 		slog.Error("append failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store observations")
@@ -362,12 +367,17 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		q.Limit = n
 	}
 
+	// Tenancy filter runs before the limit; see scopeObservations.
+	tenant, all := observationReadScope(r)
+	limit := q.Limit
+	q.Limit = 0
 	obs, err := h.Store.QueryRange(r.Context(), q)
 	if err != nil {
 		slog.Error("query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	obs = scopeObservations(obs, tenant, all, limit)
 
 	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that
 	// declared the field an array then dereferences null and crashes — which is
@@ -384,7 +394,11 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
-	actors := h.Engine.GetActors()
+	actors, err := h.scopedActors(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	if limit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && limit > 0 && len(actors) > limit {
 		actors = actors[:limit]
 	}
@@ -396,7 +410,11 @@ func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	actor := h.Engine.GetActor(id)
+	actor, err := h.scopedActor(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	if actor == nil {
 		writeError(w, http.StatusNotFound, "actor not found")
 		return
@@ -440,6 +458,13 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Correlation runs over the whole store; what it reports back is scoped like any read.
+	scope, err := h.actorScopeFor(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	actors = scope.filter(actors)
 	returnedActors := actors
 	if limit := requestLimit(r, len(actors)); limit < len(returnedActors) {
 		returnedActors = returnedActors[:limit]
@@ -452,6 +477,10 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 	obs := collectors.SeedAll(time.Now().UTC())
+	if err := bindWriteTenancy(r, obs); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err := h.Store.Append(r.Context(), obs); err != nil {
 		slog.Error("seed failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to seed fixtures")
@@ -494,6 +523,8 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to query store")
 		return
 	}
+	tenant, all := observationReadScope(r)
+	obs = scopeObservations(obs, tenant, all, 0)
 
 	byLayer := make(map[string]int)
 	byFidelity := make(map[string]int)
@@ -508,7 +539,11 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	actors := h.Engine.GetActors()
+	actors, err := h.scopedActors(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query store")
+		return
+	}
 	byStatus := make(map[string]int)
 	for _, a := range actors {
 		byStatus[string(a.Status)]++
@@ -590,8 +625,10 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if lastEventID != "" {
 		if t, err := time.Parse(time.RFC3339, lastEventID); err == nil {
-			obs, err := h.Store.QueryRange(r.Context(), store.Query{After: t, Limit: 100})
+			obs, err := h.Store.QueryRange(r.Context(), store.Query{After: t})
 			if err == nil {
+				tenant, all := observationReadScope(r)
+				obs = scopeObservations(obs, tenant, all, 100)
 				for _, o := range obs {
 					data, _ := json.Marshal(o)
 					fmt.Fprintf(w, "id: %s\nevent: observation\ndata: %s\n\n", o.Timestamp.UTC().Format(time.RFC3339), string(data))
@@ -616,6 +653,9 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
+	if !requireCrossTenantRead(w, r) {
+		return
+	}
 	if h.FairService == nil {
 		writeError(w, http.StatusServiceUnavailable, "fair service not initialized")
 		return
@@ -703,6 +743,9 @@ func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
+	if !requireCrossTenantRead(w, r) {
+		return
+	}
 	if h.FairService == nil {
 		writeError(w, http.StatusServiceUnavailable, "fair service not initialized")
 		return

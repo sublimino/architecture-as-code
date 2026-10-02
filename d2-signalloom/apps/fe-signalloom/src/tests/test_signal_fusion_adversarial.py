@@ -40,10 +40,9 @@ def client():
 
 
 def _override_tenant(tenant: str = "tenant-demo"):
-    """Override authenticated_tenant to return a fixed tenant."""
-    from api_compat import authenticated_tenant
-    app.dependency_overrides[authenticated_tenant] = lambda: tenant
-    return authenticated_tenant
+    """Fix the caller's tenant. The proxies depend on the principal (they act for its tenant as
+    the gateway), and authenticated_tenant is derived from it, so the principal is overridden."""
+    return _override_principal(tenant)
 
 
 def _override_principal(tenant: str = "tenant-demo"):
@@ -162,11 +161,10 @@ class TestCrossTenantIsolation:
             # Collect all params sent upstream
             upstream_params = call_args[1].get("params", {})
 
-            # PINNED DEFECT: tenant_id is absent from the upstream request
-            assert "tenant_id" not in upstream_params, (
-                "If this assertion fails, the tenant isolation defect has been fixed — "
-                "update this test to assert tenant_id IS present."
-            )
+            # The defect this test pinned is fixed: the caller's tenant now travels upstream as the
+            # gateway's acting tenant (never as a client-writable param).
+            assert "tenant_id" not in upstream_params
+            assert call_args[1]["headers"]["X-SignalLoom-Acting-Tenant"] == "tenant-alice"
         finally:
             _clear_overrides()
             patcher.stop()
@@ -187,9 +185,7 @@ class TestCrossTenantIsolation:
             call_args = mock_instance.request.call_args
             # The call is _proxy("GET", "/api/v1/actors") — no kwargs at all
             upstream_kwargs = call_args[1] if call_args[1] else {}
-            assert "params" not in upstream_kwargs or "tenant_id" not in upstream_kwargs.get("params", {}), (
-                "Tenant isolation defect appears fixed"
-            )
+            assert upstream_kwargs["headers"]["X-SignalLoom-Acting-Tenant"] == "tenant-bob"
         finally:
             _clear_overrides()
             patcher.stop()

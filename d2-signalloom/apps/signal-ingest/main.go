@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -344,26 +345,117 @@ func buildKeyDestroyer(auditWriter audit.AuditWriter, encryptor identity.Encrypt
 	return saga, nil
 }
 
-// httpAuthenticator returns the authenticator the protected router should use.
-//
-// TEMPORARY — delete this function, its call in main, and api/static_bearer.go
-// on or before api.StaticBearerSunset. It exists only to let the stun-sentinel
-// correlator's static bearer token through while the correlator is moved onto
-// the JWT-SVID it already has a binding for in deploy/jwt-auth-config.yaml.
-//
-// With no SIGNAL_AUTH_STATIC_BEARER_* variable set it returns jwt unchanged,
-// so the shipped default is exactly the JWT-SVID gate. A half-configured
-// credential is an error for the caller to refuse startup on, never a weaker
-// gate.
+// httpAuthenticator wraps jwt with the configured named static keys (api/static_keys.go). With
+// no SIGNAL_AUTH_STATIC_KEYS it returns jwt unchanged. A malformed key configuration is an error
+// for the caller to refuse startup on, never a weaker gate.
 func httpAuthenticator(jwt api.Authenticator) (api.Authenticator, error) {
-	staticBearer, err := api.StaticBearerConfigFromEnv()
+	keys, err := api.StaticKeysFromEnv()
 	if err != nil {
 		return nil, err
 	}
-	if staticBearer == nil {
+	if keys == nil {
 		return jwt, nil
 	}
-	return api.NewStaticBearerAuthenticator(*staticBearer, jwt)
+	return api.NewStaticKeyAuthenticator(keys, jwt)
+}
+
+// refuseAllJWT stands in for the JWT-SVID authenticator when no JWKS is configured (Andy,
+// 2026-10-02: no SPIRE for callers). It accepts nothing: no credential is ErrMissingCredential
+// and any other is ErrInvalidCredential, the same 401 an unknown token gets from the real one.
+type refuseAllJWT struct{}
+
+func (refuseAllJWT) Authenticate(r *http.Request) (api.Principal, error) {
+	if len(r.Header.Values("Authorization")) == 0 {
+		return api.Principal{}, api.ErrMissingCredential
+	}
+	return api.Principal{}, api.ErrInvalidCredential
+}
+
+// jwksConfigured reports whether the operator configured a JWT-SVID trust source at all.
+func jwksConfigured() bool {
+	return os.Getenv("SIGNAL_AUTH_JWKS") != "" || os.Getenv("SIGNAL_AUTH_JWKS_FILE") != ""
+}
+
+// gatewayFromEnv builds the authenticator every HTTP request enters through.
+//
+// JWKS is optional. Configured, it keeps its fail-closed boot (an empty or invalid key set is a
+// refusal) and its refresh loop. Absent, every JWT is refused and only static keys authenticate.
+// Neither configured is a refusal: a service that 401s every caller is a misconfiguration.
+func gatewayFromEnv(ctx context.Context) (api.Authenticator, error) {
+	var jwt api.Authenticator = refuseAllJWT{}
+	if jwksConfigured() {
+		cfg, err := api.AuthConfigFromEnv()
+		if err != nil {
+			return nil, fmt.Errorf("JWT-SVID configuration invalid: %w", err)
+		}
+		authenticator, err := api.NewJWTAuthenticator(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("JWT-SVID authenticator: %w", err)
+		}
+		// SLDC-P2-2: re-read SIGNAL_AUTH_JWKS_FILE on its refresh interval (no-op for inline JWKS).
+		authenticator.StartKeyRefresh(ctx)
+		jwt = authenticator
+	} else {
+		slog.Warn("no JWKS configured: every JWT-SVID is refused; only static keys authenticate")
+	}
+	gateway, err := httpAuthenticator(jwt)
+	if err != nil {
+		return nil, fmt.Errorf("static key configuration invalid: %w", err)
+	}
+	if !jwksConfigured() && gateway == api.Authenticator(jwt) {
+		return nil, errors.New("no authentication configured: set SIGNAL_AUTH_STATIC_KEYS (and mount the key Secrets) or a JWKS")
+	}
+	return gateway, nil
+}
+
+// AuditFileEnvVar names a JSON-lines audit file for a run without DATABASE_URL.
+const AuditFileEnvVar = "SIGNAL_AUDIT_FILE"
+
+// localAuditWriter is the audit sink when no DATABASE_URL is set: a fail-closed file writer at
+// SIGNAL_AUDIT_FILE, or the discarding NopWriter (on which the router refuses to start).
+func localAuditWriter() (audit.AuditWriter, error) {
+	if path := os.Getenv(AuditFileEnvVar); path != "" {
+		w, err := audit.NewFileWriter(path)
+		if err != nil {
+			return nil, err
+		}
+		slog.Info("no DATABASE_URL set, auditing to a local file", "path", path)
+		return w, nil
+	}
+	slog.Info("no DATABASE_URL set, audit writes disabled", "allow_discard", identity.DevOptInAllowed())
+	return audit.NewNopWriter(identity.DevOptInAllowed()), nil
+}
+
+// apiHandler is what the API port serves: the protected router, behind ActingTenantGate when
+// static keys are configured (the gate answers a gateway key's missing acting tenant with 400).
+func apiHandler(gateway api.Authenticator, router http.Handler) http.Handler {
+	if keys, ok := gateway.(*api.StaticBearerAuthenticator); ok {
+		return keys.ActingTenantGate(router)
+	}
+	return router
+}
+
+// ProbePortEnvVar names the port of the probe-only listener (api.NewProbeHandler).
+const ProbePortEnvVar = "SIGNAL_INGEST_PROBE_PORT"
+
+// probePort is the port the kubelet probes. The API port cannot serve them: every route there is
+// authenticated and the kubelet sends no credential.
+func probePort() string {
+	if p := os.Getenv(ProbePortEnvVar); p != "" {
+		return p
+	}
+	return "8083"
+}
+
+// newProbeServer serves liveness and readiness, and nothing else, on probePort.
+func newProbeServer(h *api.Handlers) *http.Server {
+	return &http.Server{
+		Addr:         ":" + probePort(),
+		Handler:      api.NewProbeHandler(h),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
 }
 
 func main() {
@@ -452,10 +544,15 @@ func main() {
 			auditReady = pw.Ping
 		}
 	} else {
-		// No DSN: audit is deliberately off (local and fixture runs). This is
-		// a configured state, not a degraded one, so readiness stays green.
-		auditWriter = audit.NewNopWriter(identity.DevOptInAllowed())
-		slog.Info("no DATABASE_URL set, audit writes disabled", "allow_discard", identity.DevOptInAllowed())
+		// No DSN: a local or fixture run. SIGNAL_AUDIT_FILE gives it a real,
+		// fail-closed audit sink (the router refuses to start on a discarding
+		// one); without it audit is off and the router will refuse startup.
+		w, err := localAuditWriter()
+		if err != nil {
+			slog.Error("audit file unusable; refusing startup", "error", err)
+			os.Exit(1)
+		}
+		auditWriter = w
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -647,24 +744,9 @@ func main() {
 
 	// Every HTTP request enters through the Authorization JWT-SVID gate below.
 	// NewProtectedRouter is the sole production route-registration boundary.
-	authConfig, err := api.AuthConfigFromEnv()
+	gateway, err := gatewayFromEnv(ctx)
 	if err != nil {
 		slog.Error("HTTP authentication configuration invalid; refusing startup", "error", err)
-		os.Exit(1)
-	}
-	authenticator, err := api.NewJWTAuthenticator(authConfig)
-	if err != nil {
-		slog.Error("HTTP authenticator initialization failed; refusing startup", "error", err)
-		os.Exit(1)
-	}
-	// SLDC-P2-2: re-read SIGNAL_AUTH_JWKS_FILE on its refresh interval (no-op for inline JWKS).
-	authenticator.StartKeyRefresh(ctx)
-
-	// TEMPORARY — delete this call, httpAuthenticator below, and
-	// api/static_bearer.go, on or before api.StaticBearerSunset.
-	gateway, err := httpAuthenticator(authenticator)
-	if err != nil {
-		slog.Error("static bearer configuration invalid; refusing startup", "error", err)
 		os.Exit(1)
 	}
 
@@ -676,7 +758,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      protectedRouter,
+		Handler:      apiHandler(gateway, protectedRouter),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
@@ -690,12 +772,22 @@ func main() {
 		}
 	}()
 
+	probeSrv := newProbeServer(handlers)
+	go func() {
+		slog.Info("signal-ingest probe listener starting", "port", probePort())
+		if err := probeSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("probe listener failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
 	<-ctx.Done()
 	slog.Info("shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	_ = probeSrv.Shutdown(shutdownCtx)
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 		os.Exit(1)

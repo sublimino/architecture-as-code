@@ -121,6 +121,7 @@ def test_sync_claim_delegation_success() -> None:
                 claim_id="claim-abc",
                 capabilities=["agent:operate", "agent:inspect"],
                 containment_claims=["containment:landlock"],
+                tenant="tenant-demo",
             )
         )
     assert ok is True
@@ -149,6 +150,7 @@ def test_sync_claim_delegation_nono_auto_landlock() -> None:
                 agent_id="agent-nono-worker-01",
                 operator_id="human-operator-1",
                 claim_id="claim-nono",
+                tenant="tenant-demo",
             )
         )
     assert ok is True
@@ -168,6 +170,7 @@ def test_sync_claim_delegation_graceful_failure() -> None:
                 agent_id="agent-007",
                 operator_id="human-operator-1",
                 claim_id="claim-abc",
+                tenant="tenant-demo",
             )
         )
     assert ok is False
@@ -186,6 +189,7 @@ def test_clamp_claim_delegation_success() -> None:
             clamp_claim_delegation_in_spine(
                 agent_id="agent-007",
                 claim_id="claim-abc",
+                tenant="tenant-demo",
             )
         )
     assert ok is True

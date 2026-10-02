@@ -13,7 +13,8 @@ import httpx
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
-from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
+from api_compat import APIError, Principal, authenticated_principal
+from ingest_client import ingest_headers
 
 logger = logging.getLogger(__name__)
 
@@ -61,70 +62,70 @@ async def _proxy_telemetry(
         ) from exc
 
 
+# Telemetry is per-tenant data with no cross-tenant view, so every route acts for the caller's own
+# tenant (write=True), superadmin included. The caller's own Authorization is no longer forwarded:
+# signal-ingest never accepted a dashboard token, so the forward only ever produced 401s.
+
+
+def _telemetry_headers(principal: Principal, content_type: bool, contract: str | None = None) -> dict[str, str]:
+    headers = ingest_headers(principal, write=True)
+    if content_type:
+        headers["Content-Type"] = "application/json"
+    if contract:
+        headers["X-SignalLoom-Contract"] = contract
+    return headers
+
+
 @router.post("")
 async def ingest_coding_agent_telemetry(
     request: Request,
-    authorization: Annotated[str | None, Header()] = None,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     x_signalloom_contract: Annotated[str | None, Header()] = None,
 ) -> JSONResponse:
     """Ingest CodingAgentTelemetry event, validating closed-world schema and isolating by tenant."""
+    headers = _telemetry_headers(principal, True, x_signalloom_contract)
     body = await request.body()
-    forward_headers: dict[str, str] = {"Content-Type": "application/json"}
-    if authorization:
-        forward_headers["Authorization"] = authorization
-    if x_signalloom_contract:
-        forward_headers["X-SignalLoom-Contract"] = x_signalloom_contract
-
     return await _proxy_telemetry(
-        "POST", "/api/v1/telemetry/coding-agents", headers=forward_headers, content=body
+        "POST", "/api/v1/telemetry/coding-agents", headers=headers, content=body
     )
 
 
 @router.get("")
 async def list_coding_agent_telemetry(
     request: Request,
-    authorization: Annotated[str | None, Header()] = None,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """List stored coding agent telemetry records for the authenticated tenant."""
-    forward_headers: dict[str, str] = {}
-    if authorization:
-        forward_headers["Authorization"] = authorization
-
+    headers = _telemetry_headers(principal, False)
     params = dict(request.query_params)
     return await _proxy_telemetry(
-        "GET", "/api/v1/telemetry/coding-agents", headers=forward_headers, params=params
+        "GET", "/api/v1/telemetry/coding-agents", headers=headers, params=params
     )
 
 
 @router.get("/aggregate")
 async def get_coding_agent_aggregate(
     request: Request,
-    authorization: Annotated[str | None, Header()] = None,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Get k-anonymity (k=5) protected aggregate metrics for coding agents."""
-    forward_headers: dict[str, str] = {}
-    if authorization:
-        forward_headers["Authorization"] = authorization
-
+    headers = _telemetry_headers(principal, False)
     params = dict(request.query_params)
     return await _proxy_telemetry(
-        "GET", "/api/v1/telemetry/coding-agents/aggregate", headers=forward_headers, params=params
+        "GET", "/api/v1/telemetry/coding-agents/aggregate", headers=headers, params=params
     )
 
 
 @router.post("/ordering")
 async def evaluate_coding_agent_ordering(
     request: Request,
-    authorization: Annotated[str | None, Header()] = None,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Evaluate cross-workstation causal ordering with clock-skew bounds."""
+    headers = _telemetry_headers(principal, True)
     body = await request.body()
-    forward_headers: dict[str, str] = {"Content-Type": "application/json"}
-    if authorization:
-        forward_headers["Authorization"] = authorization
-
     return await _proxy_telemetry(
-        "POST", "/api/v1/telemetry/coding-agents/ordering", headers=forward_headers, content=body
+        "POST", "/api/v1/telemetry/coding-agents/ordering", headers=headers, content=body
     )
 
 

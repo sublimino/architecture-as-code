@@ -4864,6 +4864,20 @@ def _validate_transition(from_state: str, to_state: str) -> None:
         )
 
 
+def _transition_not_found_detail(agent_id: str, body: Any) -> dict[str, Any]:
+    """Audit detail for a transition requested on an agent that does not exist."""
+    return {
+        "outcome": "not_found",
+        "to_state": str(body.to_state).strip().lower(),
+        "reason": body.reason,
+        "agent_ref": agent_id,
+    }
+
+
+def _transition_agent_not_found(agent_id: str) -> APIError:
+    return APIError(404, "agent_not_found", f"Agent '{agent_id}' does not exist in this tenant")
+
+
 @router.post("/agents/{agent_id}/transition", response_model=TransitionResponse, responses=ERROR_RESPONSES)
 async def transition_agent(
     agent_id: str,
@@ -4878,10 +4892,14 @@ async def transition_agent(
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
             agent = _AGENTS[tenant_id].get(agent_id)
-            from_state = "registered" if agent is None else str(agent["lifecycle_state"])
-            _validate_transition(from_state, body.to_state)
             if agent is None:
-                agent = _synth_agent(tenant_id, agent_id)
+                _record_memory_audit(
+                    tenant_id, "agent.transition_failed", None, agent_id, principal.actor,
+                    _transition_not_found_detail(agent_id, body),
+                )
+                raise _transition_agent_not_found(agent_id)
+            from_state = str(agent["lifecycle_state"])
+            _validate_transition(from_state, body.to_state)
             agent["lifecycle_state"] = body.to_state
             agent["last_transition_at"] = now
             agent["last_transition_by"] = principal.actor
@@ -4910,24 +4928,32 @@ async def transition_agent(
                 "SELECT id, lifecycle_state, name FROM agent_registry WHERE name = $1 AND tenant_id = $2 FOR UPDATE",
                 agent_id, tenant_id,
             )
-        from_state = "registered" if row is None else row["lifecycle_state"]
-        agent_name = agent_id if row is None else row["name"]
-        _validate_transition(from_state, body.to_state)
+        if row is None:
+            # Recorded as a refused attempt. The 404 is raised after the
+            # transaction closes, so the audit row commits rather than rolling
+            # back with the exception.
+            await _audit_log(
+                conn, tenant_id, "agent.transition_failed", None, agent_id, principal.actor,
+                _transition_not_found_detail(agent_id, body),
+            )
+        else:
+            from_state = row["lifecycle_state"]
+            agent_name = row["name"]
+            _validate_transition(from_state, body.to_state)
 
-        if row is not None:
             await conn.execute(
                 """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
                    WHERE id = $2 AND tenant_id = $3""",
                 body.to_state, row["id"], tenant_id,
             )
             target_agent_id = str(row["id"])
-        else:
-            target_agent_id = agent_id
 
-        await _audit_log(
-            conn, tenant_id, "agent.transitioned", target_agent_id, agent_name, principal.actor,
-            {"from_state": from_state, "to_state": body.to_state, "reason": body.reason, "agent_ref": agent_id},
-        )
+            await _audit_log(
+                conn, tenant_id, "agent.transitioned", target_agent_id, agent_name, principal.actor,
+                {"from_state": from_state, "to_state": body.to_state, "reason": body.reason, "agent_ref": agent_id},
+            )
+    if row is None:
+        raise _transition_agent_not_found(agent_id)
     return TransitionResponse(
         agent_id=agent_id,
         from_state=from_state,

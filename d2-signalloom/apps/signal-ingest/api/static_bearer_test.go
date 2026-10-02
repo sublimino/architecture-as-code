@@ -632,15 +632,18 @@ func TestStaticBearerIngestsTheSentinelsRealPayloads(t *testing.T) {
 			if err := json.Unmarshal(raw, &batch); err != nil {
 				t.Fatal(err)
 			}
-			batch[0]["labels"].(map[string]any)["tenant_id"] = tenant
+			for _, o := range batch {
+				o["labels"].(map[string]any)["tenant_id"] = tenant
+			}
 			body, _ := json.Marshal(batch)
 			router, _ := newStaticBearerRouter(t, a)
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/observations", bytes.NewReader(body))
 			r.Header.Set("Authorization", "Bearer "+testSentinelToken)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, r)
-			if w.Code != http.StatusCreated || strings.TrimSpace(w.Body.String()) != `{"ingested":1}` {
-				t.Fatalf("sentinel payload with tenant_id %q: %d %s, want 201 {\"ingested\":1}", tenant, w.Code, w.Body.String())
+			want := fmt.Sprintf(`{"ingested":%d}`, len(batch))
+			if w.Code != http.StatusCreated || strings.TrimSpace(w.Body.String()) != want {
+				t.Fatalf("sentinel payload with tenant_id %q: %d %s, want 201 %s", tenant, w.Code, w.Body.String(), want)
 			}
 		})
 	}

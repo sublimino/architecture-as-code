@@ -574,6 +574,17 @@ run_stage \
   "stage1c4-acceptance-plane-coverage.tap" \
   "cd ${WORK_DIR} && bats --tap test/sler-p6-3-multiplane-acceptance.bats"
 
+# Stage 1c5: the dashboard's /fleet-api/ gate in the real nginx image, against
+# stub upstreams on a throwaway docker network. It needs docker and two images
+# it refuses to pull itself, so it is excluded from the d2-signalloom glob
+# (EXCLUDED_BATS) and runs here, where the images are pulled first. No cluster.
+run_stage \
+  "Dashboard fleet-api gate in the real nginx image" \
+  "stage1c5-dashboard-fleet-gate.tap" \
+  "cd ${WORK_DIR} && docker pull -q nginxinc/nginx-unprivileged:1.27-alpine && \
+   docker pull -q python:3.12-alpine && \
+   bats --tap d2-signalloom/test/dashboard-fleet-gate.bats"
+
 # Stage 1d: CI build parity (BATS TAP)
 #
 # Numbered 1d for the reason 1b and 1c were: openreports-convert.sh maps report

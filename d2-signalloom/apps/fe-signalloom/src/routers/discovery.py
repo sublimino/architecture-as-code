@@ -192,6 +192,7 @@ async def claim_discovered_workload(
                         lifecycle_state = 'active',
                         status = 'active',
                         compliance_posture = 83,
+                        model_name = EXCLUDED.model_name,
                         last_transition_at = NOW(),
                         updated_at = NOW()""",
                     agent_uuid, tenant_id, req.agent_id, req.agent_id.replace("-", " ").title(),

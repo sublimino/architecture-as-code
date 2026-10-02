@@ -149,3 +149,18 @@ func TestHealthPublishesTheInformerResyncInterval(t *testing.T) {
 		t.Fatalf("resync_seconds = %d, want %d", resp.ResyncSeconds, want)
 	}
 }
+
+// A correlator freeze fleet-manager never recorded must be visible without log
+// access: it is frozen in the kernel with no stun record and no Flux pin.
+func TestHealthReportsFleetStunFailures(t *testing.T) {
+	srv := &HealthServer{tcReady: func() bool { return true }, fleetStunFailures: func() int64 { return 3 }}
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	var resp HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.FleetStunFailures != 3 {
+		t.Fatalf("fleet_stun_failures = %d, want 3 (body %s)", resp.FleetStunFailures, w.Body.String())
+	}
+}

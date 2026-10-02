@@ -160,7 +160,7 @@ type stunReconciler struct {
 	kernel         *kernelPublisher // nil: kernel state is not published
 	dryRun         bool
 	reconcileCount *atomic.Int64
-	selfSkipped    sync.Map // pod key -> struct{}: self_pod_skipped logged once
+	selfSkipped    sync.Map   // pod key -> struct{}: self_pod_skipped logged once
 	holds          *stunHolds // nil: no correlator freeze holds
 }
 
@@ -407,6 +407,12 @@ func main() {
 
 	reconciler := newStunReconciler(freezer, tc, probes)
 	reconciler.holds = newStunHolds(freezer)
+	// A new correlator freeze is recorded by fleet-manager's stun cascade, the
+	// one writer of the Flux pin. The key comes from a Secret via env.
+	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), os.Getenv("FLEET_MANAGER_STUN_KEY"))
+	stunner.stillHeld = reconciler.holds.awaitingRecord
+	reconciler.holds.recordStun = stunner.stun
+	healthSrv.fleetStunFailures = stunner.failures.Load
 	reconciler.dryRun = cfg.DryRun
 	reconciler.reconcileCount = reconcileCount
 

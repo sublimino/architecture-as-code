@@ -561,3 +561,55 @@ type countingLink struct {
 }
 
 func (c *countingLink) Close() error { c.closed++; return nil }
+
+// Independent review M2 (2026-10-02): reverting NewLoader's cleanup to use the
+// named return stayed green, because only the nil-receiver half of the fix was
+// tested and NewLoader needs BPF privileges to reach its failure path. The
+// post-load steps now run in attachAndOpen with injectable attach/open, so the
+// release of already-attached links is tested without the kernel.
+
+func TestAttachFailureReleasesTheLinksAlreadyAttached(t *testing.T) {
+	first := &countingLink{}
+	calls := 0
+	attach := func(_, _ string, _ *ebpf.Program) (link.Link, error) {
+		calls++
+		if calls == 1 {
+			return first, nil
+		}
+		return nil, errors.New("neither debugfs nor tracefs are mounted")
+	}
+	l := &Loader{}
+	err := l.attachAndOpen(attach, func() (*ringbuf.Reader, error) {
+		t.Fatal("the reader must not be opened after an attach failure")
+		return nil, nil
+	})
+	if err == nil {
+		t.Fatal("an attach failure must be returned")
+	}
+	if first.closed != 1 {
+		t.Fatalf("the link attached before the failure was closed %d times, want 1 (leaked)", first.closed)
+	}
+}
+
+func TestReaderFailureReleasesEveryAttachedLink(t *testing.T) {
+	var attached []*countingLink
+	attach := func(_, _ string, _ *ebpf.Program) (link.Link, error) {
+		lk := &countingLink{}
+		attached = append(attached, lk)
+		return lk, nil
+	}
+	l := &Loader{}
+	if err := l.attachAndOpen(attach, func() (*ringbuf.Reader, error) {
+		return nil, errors.New("ring buffer map unavailable")
+	}); err == nil {
+		t.Fatal("a reader failure must be returned")
+	}
+	if len(attached) != len(tracepoints) {
+		t.Fatalf("attached %d links, want %d", len(attached), len(tracepoints))
+	}
+	for i, lk := range attached {
+		if lk.closed != 1 {
+			t.Fatalf("link %d closed %d times, want 1 (leaked)", i, lk.closed)
+		}
+	}
+}

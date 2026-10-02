@@ -1,0 +1,33 @@
+# FLUX ENVSUBST: NO - no ${VAR} substitution needed in this manifest.
+#
+# SLAAT-P2-1: SLAAT-P1-1's hardening checklist found no ClientTrafficPolicy
+# configured for the Gateway. Envoy's default XFF handling appends the real
+# peer rather than trusting the client-supplied value (so the boundary was
+# never actually crossable), but a client-supplied X-Forwarded-For/X-Real-IP
+# entry was still present in the chain for a careless backend to misread as
+# the trusted hop (see docs/slaat/p1-1/envoy-access-log-validation-report.md:
+# "x-forwarded-for": "1.2.3.4,10.0.0.126" -- "1.2.3.4" is attacker-supplied).
+#
+# earlyRequestHeaders.remove strips any client-supplied X-Forwarded-For and
+# X-Real-IP before Envoy's own header manipulation and routing, so the only
+# X-Forwarded-For entry a backend ever sees is the one Envoy itself appends
+# for the real connecting peer. clientIPDetection.xForwardedFor.numTrustedHops
+# declares that one-hop trust boundary explicitly instead of relying on
+# Envoy's current default.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: cluster-strip-spoofable-client-headers
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: cluster
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 1
+  headers:
+    earlyRequestHeaders:
+      remove:
+        - X-Forwarded-For
+        - X-Real-IP

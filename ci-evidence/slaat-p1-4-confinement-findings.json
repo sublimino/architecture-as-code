@@ -1,0 +1,132 @@
+{
+  "schema": "slaat-p1-4-confinement-findings/v1",
+  "card": "SLAAT-P1-4",
+  "title": "Sentinel eBPF & Landlock Sandbox Confinement Escape Attacks",
+  "target": "nono/profiles/worktree-agent.json, d2-signalloom/apps/signalloom-stun-sentinel (live), d2-signalloom/apps/stun-sentinel (isolated test instance)",
+  "generated_by": "scripts/test-agent-sandbox-escape.sh + scripts/probe-sentinel-evasion.sh + scripts/stress-agent-cgroups.sh",
+  "generated_at": "2026-10-02T03:30:00Z",
+  "summary": {
+    "landlock_escape_probes_run": 16,
+    "landlock_escape_probes_passed": 16,
+    "sentinel_evasion_probes_run": 9,
+    "sentinel_evasion_probes_passed": 9,
+    "cgroup_adversarial_probes_run": 11,
+    "cgroup_adversarial_probes_passed": 11,
+    "unauthorized_host_escapes_found": 0,
+    "kernel_panics_or_host_instability": false,
+    "detection_gaps_found": 1,
+    "reliability_findings_found": 1,
+    "stale_sibling_harness_found": 1
+  },
+  "findings": [
+    {
+      "id": "SLAAT-P1-4-F1",
+      "title": "The live sentinel's eBPF telemetry has zero visibility into process spawning, ptrace attachment, or namespace creation — not an evasion, an absence",
+      "severity": "HIGH",
+      "status": "confirmed",
+      "exploitable_today": true,
+      "component": "d2-signalloom/apps/signalloom-stun-sentinel/ebpf/c/socket_trace.bpf.c (deployed, image ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:v0.2.0)",
+      "description": "Static source inspection confirms the live sentinel's eBPF program attaches exactly one tracepoint, SEC(\"tp_btf/inet_sock_set_state\") — TCP socket state transitions only. A live adversarial burst from an unrelated agent pod (200 rapid process spawns plus one unshare(CLONE_NEWPID)) generated zero execve/openat/unshare-shaped log entries in the sentinel's own output stream within a 3-second observation window, confirming the static finding live. A separate, more capable syscall tracer exists in this repository — d2-signalloom/apps/stun-sentinel/bpf/sentinel_probe.c, attaching tracepoint/syscalls/{sys_enter_openat, sys_enter_openat2, sys_enter_execve, sys_enter_connect} with a full SyscallEvent/correlator pipeline and passing unit tests — but it is wired into NO cmd/ entrypoint in that module (grep across every cmd/*/main.go in d2-signalloom/apps/stun-sentinel found no reference to pkg/ebpf or pkg/correlator) and is not the image deployed. A positive control (a TCP connect burst from the same probe pod) confirmed the deployed probe's own ebpf_correlator_stats.records_read counter is genuinely live and counting throughout, ruling out 'nothing is instrumented at all' as an alternative explanation.",
+      "evidence": [
+        "scripts/probe-sentinel-evasion.sh probes: static.deployed-probe-is-socket-state-only, static.a-fuller-syscall-tracer-exists-but-is-unwired, static.deployed-signalloom-variant-does-wire-its-own-probe, live.evasion-burst-generates-no-syscall-telemetry, live.control-tcp-connect-stays-within-instrumented-surface",
+        "ci-evidence/slaat-p1-4-sentinel-evasion-probe-records.json"
+      ],
+      "remediation": "Wire d2-signalloom/apps/stun-sentinel's pkg/ebpf.NewLoader + pkg/correlator.NewSentinelProbeManager into a cmd/ entrypoint (or port the same tracepoints into the deployed signalloom-stun-sentinel module's ebpf/c/ sources) so execve/openat process-level activity is observed, not just TCP flow state.",
+      "remediation_phase": "SLAAT-P2-4"
+    },
+    {
+      "id": "SLAAT-P1-4-F2",
+      "title": "Freezing a cgroup containing an unshare(CLONE_NEWPID + mount_proc)'d process intermittently exceeds the daemon's internal deadline (HTTP 504) under host contention",
+      "severity": "MEDIUM",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel (isolated test instance built from current source; not the live deployment)",
+      "description": "Against an isolated, freshly-built stun-sentinel instance, POST /stun targeting a pod whose single process has successfully unshare(CLONE_NEWPID)'d with --mount-proc returned HTTP 504 in roughly half of initial attempts on this shared, multi-tenant kind node, where an identical call against an ordinary fork-bomb-shaped target (no unshare) never did. A second attempt with a longer client deadline (20s vs 10s) always succeeded with HTTP 200 and the expected frozen=true state. Once the freeze call DOES complete, it is unconditionally effective: cgroup-wide CPU usage_usec delta measured 0 across every successful attempt, and the kernel's own cgroup.events read directly (not via the daemon) confirmed frozen 1 — cgroup-v2's freezer suspends every task in the cgroup regardless of which PID namespace it occupies, as the kernel design guarantees, and no live attempt ever observed a leaked, still-running task. This is therefore a LATENCY/RELIABILITY finding specific to this one workload shape under load, not a containment bypass: nothing escapes the freeze once it lands, but the daemon can take longer than its own internal processing budget to resolve PIDs for a cgroup whose member has remounted /proc for itself.",
+      "evidence": [
+        "scripts/stress-agent-cgroups.sh probe ns.unshare-escape-target-frozen-despite-elevated-capability (attempts/first_attempt_status/final_status fields in the evidence record)",
+        "ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json",
+        "reproduced 504 on first attempt in 2 of 5 total script invocations during this card's testing; all 5 succeeded on the bounded second attempt"
+      ],
+      "remediation": "Profile the freeze handler's PID/cgroup resolution path specifically against a target whose member has called unshare(CLONE_NEWPID, CLONE_NEWNS); the daemon's own internal deadline (the mechanism producing 504 rather than a slow-but-eventual 200) should be measured and, if genuinely load-sensitive, either raised or made to degrade to a retryable 503 rather than 504.",
+      "remediation_phase": "SLAAT-P2-4"
+    },
+    {
+      "id": "SLAAT-P1-4-F3",
+      "title": "The sibling CRKC-P1-2 harness (scripts/test-cgroup-freezer.sh) is stale against the current stun-sentinel binary's auth contract",
+      "severity": "LOW",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "scripts/test-cgroup-freezer.sh (owned by CRKC-P1-2, not this card)",
+      "description": "The current stun-sentinel binary refuses to start at all unless STUN_FREEZE_TOKEN is set (a hard startup error: 'STUN_FREEZE_TOKEN is required and cannot be empty'), and its /stun endpoint is now wrapped in the same requireBearer(freezeValidate, ...) gate as /resume. scripts/test-cgroup-freezer.sh starts its daemon with only STUN_RESUME_TOKEN set and posts to /stun with no Authorization header at all — against the binary as it exists on the integration branch today, that daemon would not even start. This was discovered as a byproduct of building an isolated instance of the same binary for this card's cgroup-adversarial battery (scripts/stress-agent-cgroups.sh), which sets both tokens and sends the bearer header, and is explicitly out of this card's merge boundary to fix (test/ and scripts/ only for THIS card's own new files; scripts/test-cgroup-freezer.sh and its owning test/cgroup-freeze-stun.bats belong to CRKC-P1-2).",
+      "evidence": [
+        "scripts/stress-agent-cgroups.sh probe auth.unauthenticated-freeze-refused (HTTP 401 against the current binary with no Authorization header)",
+        "d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go:578-580 (STUN_FREEZE_TOKEN required) and :562 (mux.HandleFunc(\"/stun\", requireBearer(s.freezeValidate, s.handleStun)))"
+      ],
+      "remediation": "Update scripts/test-cgroup-freezer.sh to set STUN_FREEZE_TOKEN alongside STUN_RESUME_TOKEN and send the matching Authorization header to /stun.",
+      "remediation_phase": "CRKC-P1-2 (not SLAAT — flagged for the owning card, not actioned here)"
+    }
+  ],
+  "verified_boundaries": [
+    {
+      "id": "SLAAT-P1-4-B1",
+      "title": "Landlock denies every named sensitive-path read and the O_CREAT write to /etc",
+      "detail": "$HOME/.ssh/id_rsa, $HOME/.kube/config, and /etc/shadow are all denied under the shipped worktree-agent.json profile; openat(O_CREAT) on /etc is denied; a positive control (an allow-listed write inside the worktree) confirms the sandbox is functioning, not merely refusing everything.",
+      "evidence": "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B2",
+      "title": "Symlink traversal does not bypass Landlock's path resolution",
+      "detail": "A symlink created INSIDE the allowed worktree pointing at a denied target ($HOME/.ssh/id_rsa) is still denied — Landlock resolves the real target, not the link path. A control symlink to a baseline system-read path (/etc/passwd, granted by nono's composed system-read group, not by the profile itself) correctly still resolves, ruling out an over-broad denial-of-everything as the explanation.",
+      "evidence": "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B3",
+      "title": "/proc inspection of another process is denied; self-introspection is not",
+      "detail": "Reading /proc/1/environ (pid 1, not self) from a confined process is denied; the same process can still inspect its own /proc/self — ruling out an accidental blanket /proc lockdown as the explanation for the denial.",
+      "evidence": "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B4",
+      "title": "ptrace-attach to an unrelated process is denied by nono's own seccomp-bpf filter, independent of Yama and Landlock",
+      "detail": "The host's yama/ptrace_scope sysctl reads 0 (unrestricted-by-Yama), yet attach to an unrelated sibling process still fails EPERM at PTRACE_SEIZE. The denial is therefore nono's own seccomp-bpf policy, not Yama and not Landlock — recorded with the corrected attribution rather than the Yama assumption an earlier draft of this probe made.",
+      "evidence": "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B5",
+      "title": "unshare(CLONE_NEWPID) neither widens filesystem access nor defeats cgroup freeze",
+      "detail": "A confined process that successfully unshares into a new PID namespace gains no new filesystem access (the same denied read still fails from inside the new namespace) — Landlock rulesets persist across unshare(CLONE_NEWPID), they are not reset. Separately, under default (non-elevated) Kubernetes pod capabilities, unshare(CLONE_NEWPID) with --mount-proc is denied outright (EPERM, missing CAP_SYS_ADMIN) before cgroup freeze is even relevant. Against a deliberately capability-elevated throwaway pod built specifically to test the escape (see SLAAT-P1-4-F2 for the one caveat on freeze latency under load), a process that DID unshare is still fully suspended by cgroup.freeze — cgroup membership and PID namespace are orthogonal kernel concepts, confirmed live via both the daemon's own report and an independent CPU-accounting measurement.",
+      "evidence": "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json, ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B6",
+      "title": "Raw socket creation is denied (capability boundary, redundant with Landlock)",
+      "detail": "socket(AF_INET, SOCK_RAW) fails under this uid with or without nono confinement — CAP_NET_RAW is absent either way. Recorded as redundant-with-capability rather than attributed to Landlock, per this mission's Adversarial Integrity pattern: no inflated attribution of a boundary to the wrong mechanism.",
+      "evidence": "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B7",
+      "title": "cgroup-v2 freeze holds under heavy adversarial PID churn, concurrent resume races, and remains kernel-truth-verified",
+      "detail": "Freeze latency stayed under the 50ms deadline while the target cgroup carried 122-182 concurrently-alive processes from a bounded fork-bomb-shaped workload. The kernel's own cgroup.events (read directly via docker exec, not through the daemon) confirmed frozen 1 after every successful freeze. Two concurrent, unserialised /resume calls fired back-to-back did not crash the daemon (it answered healthz immediately afterward) and execution genuinely resumed (non-zero CPU usage_usec delta measured independently afterward) — no stuck-frozen state and no daemon crash from the race.",
+      "evidence": "ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B8",
+      "title": "/stun is bearer-gated; unauthenticated freeze attempts are refused with 401",
+      "detail": "The current stun-sentinel binary requires STUN_FREEZE_TOKEN to even start and rejects an unauthenticated POST /stun with HTTP 401 — the same bearer gate CRKC-P1-2's design documents for /resume now also covers /stun. See SLAAT-P1-4-F3 for the stale sibling harness this hardening left behind.",
+      "evidence": "ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json"
+    },
+    {
+      "id": "SLAAT-P1-4-B9",
+      "title": "The kernel's own memory cgroup and OOM killer hold independent of the sentinel",
+      "detail": "A throwaway container with memory.limit=32Mi deliberately allocating 512Mi via dd into /dev/shm was OOMKilled by the kernel, confirming the memory controller enforces its ceiling regardless of what the sentinel does or does not observe.",
+      "evidence": "ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json"
+    }
+  ],
+  "operational_notes": [
+    {
+      "id": "SLAAT-P1-4-N1",
+      "title": "nono cannot self-nest via `nono run` under this host's own confinement; `nono wrap` is unaffected",
+      "detail": "This card's own test harness executes inside an outer nono-confined session. A nested `nono run -p <profile> -- <cmd>` persists a session record under $XDG_STATE_HOME/nono/{sessions,audit}/, a directory the outer sandbox denies write access to — every nested `run` invocation stalled 13-26s before failing with 'Permission denied' writing its own session file, never reaching the command under test. `nono wrap` execs directly with no session-state file and is unaffected. Not a Landlock finding against the profile under test; an operational fact about nested sandboxing on this host, recorded for the next agent who builds a live Landlock harness from inside a kpai/agent-managed session."
+    }
+  ]
+}

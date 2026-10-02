@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-10-02T11:48:04Z",
+  "git_commit": "3bcba6717885cc22776454c6c989cd2c683777d0",
+  "verdict": "PASS",
+  "total_checks": 4,
+  "failed_checks": 0,
+  "checks": [
+    {
+      "id": "OBH-1",
+      "name": "OpenBao ACL audit (probe-openbao-acls.sh)",
+      "status": "PASS",
+      "duration_seconds": 1.334,
+      "tail": "      \"detail\": \"6 registered SPIRE identities have no matching OpenBao JWT role (see ACL-GAP-* records).\"\n    }\n  ]\n}\n[probe-openbao-acls] done: 7 fail-severity findings"
+    },
+    {
+      "id": "OBH-2",
+      "name": "SPIFFE privilege-escalation probe (probe-spiffe-privilege-escalation.sh)",
+      "status": "PASS",
+      "duration_seconds": 12.022,
+      "tail": "      \"detail\": \"Role auth/jwt/role/signalloom-fe-signalloom: resolved effective token_ttl=300s.\"\n    }\n  ]\n}\n[probe-spiffe] done: 0 fail-severity findings"
+    },
+    {
+      "id": "OBH-3",
+      "name": "OpenBao security probes bats suite (test/openbao-security-probes.bats)",
+      "status": "PASS",
+      "duration_seconds": 2.029,
+      "tail": "ok 5 delegation coverage: d2-agent-trust's acme/risk and northstar/investigations identities are flagged as gaps\n# 4 eap-* delegation-gap records observed; out of SLAAT-P1-3 scope, see EAPR-P2-1\nok 6 delegation gap scope note: eap-* entries surfaced by this audit belong to EAPR, not SLAAT\nok 7 ACL audit: a requested but nonexistent --role is reported as a gap, not a usage error\nok 8 arity: this suite defines exactly the number of tests it declares"
+    },
+    {
+      "id": "OBH-4",
+      "name": "SPIFFE/OpenBao policy hardening bats suite (test/spiffe-openbao-policy-hardening.bats)",
+      "status": "PASS",
+      "duration_seconds": 76.467,
+      "tail": "ok 10 Anti: tampered-signature and alg:none forgery are still rejected after both role edits\nok 11 Anti: issued tokens still cannot read cross-tenant KV paths after both role edits\nok 12 live: probe-spiffe-privilege-escalation.sh reports zero fail-severity records after the fix\nok 13 live: no OpenBao ACL policy grants a wildcard read/list across kv/data (no regression from this card's edits)\nok 14 arity: this suite defines exactly the number of tests it declares"
+    }
+  ]
+}

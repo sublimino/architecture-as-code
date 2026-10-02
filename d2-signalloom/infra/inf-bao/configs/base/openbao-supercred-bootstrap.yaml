@@ -6,8 +6,15 @@
 # uses to read the KV secret containing the cardvault service credentials.
 #
 # Prerequisites: openbao-spire-bootstrap must have already enabled the KV-v2
-# engine and the JWT auth backend. This Job is additive — it creates a new
+# engine and the JWT auth backend. This Job is additive -- it creates a new
 # role and secret without disturbing the existing fe-signalloom setup.
+#
+# SLAAT-P1-3-F1 (CRITICAL, fixed by SLAAT-P2-3): this role previously declared
+# no token_ttl/token_max_ttl, so it inherited the auth/jwt mount's
+# default_lease_ttl=768h -- a captured token stayed valid (and renewable) for
+# 32 days against the mission's stated 5-minute hard cap. token_ttl/
+# token_max_ttl=5m plus token_type=batch (non-renewable) now match the
+# agent-trust-planner/triage pattern in d2-agent-trust/contracts/openbao-role-intent.sh.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -56,7 +63,10 @@ spec:
                 "bound_claims": {"sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*cardvault*"},
                 "bound_claims_type": "glob",
                 "user_claim": "sub",
-                "policies": ["signalloom-cardvault-agent"]
+                "policies": ["signalloom-cardvault-agent"],
+                "token_ttl": "5m",
+                "token_max_ttl": "5m",
+                "token_type": "batch"
               }
               ROLE
 

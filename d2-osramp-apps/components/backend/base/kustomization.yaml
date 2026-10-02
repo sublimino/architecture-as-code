@@ -12,3 +12,4 @@ resources:
   - archivista.yaml
   - archivista-secret.yaml
   - minio.yaml
+  - networkpolicy.yaml

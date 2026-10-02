@@ -7,3 +7,5 @@ kind: Kustomization
 resources:
   - envoy-gatewayclass.yaml
   - cluster-gateway.yaml
+  - networkpolicy.yaml
+  - clienttrafficpolicy.yaml

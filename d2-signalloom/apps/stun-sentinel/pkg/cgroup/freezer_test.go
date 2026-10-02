@@ -21,7 +21,7 @@ import (
 // cgroup-v2 hierarchy. Nothing here needs a cluster, a kernel feature, or
 // root. The one behaviour a temp directory cannot reproduce is the kernel
 // flipping `frozen 0` to `frozen 1` in response to a write, so the mock
-// provides that transition explicitly — which is precisely what lets us test
+// provides that transition explicitly -- which is precisely what lets us test
 // the "it never froze" path that a real kernel makes hard to produce on
 // demand.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,7 +378,7 @@ func TestParsePopulatedState(t *testing.T) {
 
 func TestOwnFreezeSettingReadsTheControlFileNotEvents(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
-	// cgroup.freeze says 0 while cgroup.events says frozen 1 — the exact
+	// cgroup.freeze says 0 while cgroup.events says frozen 1 -- the exact
 	// signature of an ancestor-held freeze.
 	if err := os.WriteFile(filepath.Join(dir, freezeFile), []byte("0\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -401,7 +401,7 @@ func TestOwnFreezeSettingReadsTheControlFileNotEvents(t *testing.T) {
 
 // An EMPTY cgroup reports `frozen 1` immediately and unconditionally. Freezing
 // the wrong cgroup, or one whose target already exited, therefore produces the
-// most convincing possible evidence — instant success, flawless latency — for
+// most convincing possible evidence -- instant success, flawless latency -- for
 // a containment that contained nothing.
 func TestFreezeRefusesToClaimSuccessOnAnEmptyCgroup(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 0\nfrozen 1\n", true)
@@ -436,7 +436,7 @@ func TestFreezeSucceedsWhenPopulatedFlagIsSetEvenIfProcsUnreadable(t *testing.T)
 }
 
 // A cgroup whose events file omits `populated` but which demonstrably holds
-// PIDs must not be rejected — the census is the fallback evidence.
+// PIDs must not be rejected -- the census is the fallback evidence.
 func TestFreezeAcceptsCgroupWithPIDsButNoPopulatedFlag(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "frozen 1\n", true)
 	if err := os.WriteFile(filepath.Join(dir, procsFile), []byte("4242\n"), 0o644); err != nil {
@@ -459,7 +459,7 @@ func TestFreezeAcceptsCgroupWithPIDsButNoPopulatedFlag(t *testing.T) {
 // cgroup.events reports the EFFECTIVE frozen state, inheriting a freeze from
 // any ancestor; cgroup.freeze holds only this cgroup's own setting. When our
 // write lands but the effective state stays frozen, the freeze is held higher
-// up the tree — waiting longer cannot help, and reporting a generic timeout
+// up the tree -- waiting longer cannot help, and reporting a generic timeout
 // would send an operator to the wrong place.
 func TestUnfreezeReportsAncestorHeldFreeze(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
@@ -632,7 +632,7 @@ func TestFreezeReturnsDeadlineErrorWhenNeverFrozen(t *testing.T) {
 	if !strings.Contains(err.Error(), "frozen 0") {
 		t.Errorf("error %q should name the observed state", err)
 	}
-	// The write still happened — the failure is in confirmation, not in the
+	// The write still happened -- the failure is in confirmation, not in the
 	// attempt, and the error must not imply otherwise.
 	if got := readFreezeControl(t, dir); got != "1" {
 		t.Errorf("cgroup.freeze = %q, want \"1\"; the write should still have been attempted", got)
@@ -724,6 +724,75 @@ func TestFreezePodPropagatesResolutionFailure(t *testing.T) {
 	}
 	if res.Frozen {
 		t.Error("Frozen = true on a resolution failure")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SLAAT-P2-4/F2: fallback-discovery time budget
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// On a shared, contended kind node the depth-bounded walkForPod fallback was
+// observed taking long enough to blow past a caller's own timeout (an
+// intermittent HTTP 504, 2 of 5 stress runs) even though the actual
+// Freeze() write+poll afterwards always completed inside its 50ms deadline.
+// These tests prove the walk now carries its own independent time budget,
+// and that a genuine "pod not found" is never misreported as a timeout (or
+// vice versa) -- the two require different operational responses.
+
+func withShrunkDiscoveryBudget(t *testing.T, d time.Duration) {
+	t.Helper()
+	original := maxDiscoveryBudget
+	maxDiscoveryBudget = d
+	t.Cleanup(func() { maxDiscoveryBudget = original })
+}
+
+func TestResolvePodCgroupReportsDiscoveryDeadlineUnderContention(t *testing.T) {
+	root := t.TempDir()
+	// A real subtree so the walk has somewhere to descend into; none of it
+	// matches the target pod, so the fast candidate-path check misses and
+	// control reaches walkForPod's budget check.
+	if err := os.MkdirAll(filepath.Join(root, "kubepods.slice", "unrelated.slice"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Already expired before the walk starts: this is the "arbitrarily slow
+	// host" case made deterministic, not a race against a real clock.
+	withShrunkDiscoveryBudget(t, -1*time.Second)
+
+	f := New(root)
+	_, err := f.ResolvePodCgroup(testUID)
+	if !errors.Is(err, ErrDiscoveryDeadline) {
+		t.Fatalf("error = %v, want ErrDiscoveryDeadline", err)
+	}
+	if errors.Is(err, ErrCgroupNotFound) {
+		t.Fatalf("a discovery-deadline timeout must not also satisfy ErrCgroupNotFound: %v", err)
+	}
+}
+
+func TestResolvePodCgroupGenuineAbsenceIsNotADeadline(t *testing.T) {
+	// Budget is untouched: a pod that genuinely is not present must still
+	// resolve quickly to ErrCgroupNotFound, not get reclassified as a
+	// timeout now that one exists.
+	f := New(t.TempDir())
+	_, err := f.ResolvePodCgroup(testUID)
+	if !errors.Is(err, ErrCgroupNotFound) {
+		t.Fatalf("error = %v, want ErrCgroupNotFound", err)
+	}
+	if errors.Is(err, ErrDiscoveryDeadline) {
+		t.Fatalf("a genuine not-found must not also be a discovery deadline: %v", err)
+	}
+}
+
+func TestFreezePodPropagatesDiscoveryDeadlineDistinctlyFromNotFound(t *testing.T) {
+	root := t.TempDir()
+	withShrunkDiscoveryBudget(t, -1*time.Second)
+
+	f := New(root, WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.FreezePod(testUID, "t")
+	if !errors.Is(err, ErrDiscoveryDeadline) {
+		t.Fatalf("error = %v, want ErrDiscoveryDeadline", err)
+	}
+	if res == nil || res.Frozen {
+		t.Error("a discovery-deadline failure must not report Frozen = true")
 	}
 }
 
@@ -969,7 +1038,7 @@ func TestListProcsEmptyCgroupReturnsEmptySlice(t *testing.T) {
 //
 // The scenario: a process forks a child while the freeze is being asserted.
 // cgroup-v2 freezes the whole subtree atomically in-kernel, so the child is
-// frozen too — but only a census taken AFTER the frozen state is confirmed
+// frozen too -- but only a census taken AFTER the frozen state is confirmed
 // will contain it. This test reproduces that ordering: the child PID is
 // written into cgroup.procs at the same moment the state settles, and it must
 // appear in FreezeResult.PIDs.
@@ -1000,7 +1069,7 @@ func TestFreezeCensusIsTakenAfterConfirmationAndSeesForkedChild(t *testing.T) {
 		t.Fatal("Frozen = false")
 	}
 	if want := []int{4242, 4243}; !reflect.DeepEqual(res.PIDs, want) {
-		t.Errorf("post-freeze PIDs = %v, want %v — the census must run after confirmation, "+
+		t.Errorf("post-freeze PIDs = %v, want %v -- the census must run after confirmation, "+
 			"or a process forked during the freeze is missing from the audit record", res.PIDs, want)
 	}
 }

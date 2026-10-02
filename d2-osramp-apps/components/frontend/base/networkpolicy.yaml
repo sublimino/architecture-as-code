@@ -1,0 +1,85 @@
+# SLAAT-P2-1: frontend had zero NetworkPolicy coverage (SLAAT-P1-1 finding
+# NET-3, confirmed live by SLAAT-P2-PRE's NETPOL-frontend reproduction).
+# None of the three workers here (osramp-archiver, osramp-multipurpose,
+# osramp-purl) declares a containerPort or a probe, and no Service exists in
+# this namespace -- they are pure outbound NATS/Postgres consumers, so this
+# namespace needs zero ingress rules at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# All three workers consume NATS (backend/base/archiver.yaml,
+# listener.yaml, osramp-purl.yaml all set NATS_URL to
+# nats.backend.svc.cluster.local:4222).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nats-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: backend
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/component: nats
+      ports:
+        - protocol: TCP
+          port: 4222
+---
+# Only osramp-archiver sets POSTGRES_HOST/POSTGRES_PORT; scoped to that one
+# workload rather than the whole namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-archiver-postgres-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: osramp-archiver
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: backend
+          podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432

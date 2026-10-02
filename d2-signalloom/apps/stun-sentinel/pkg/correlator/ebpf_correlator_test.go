@@ -4,7 +4,10 @@
 package correlator
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -288,5 +291,96 @@ func TestOwnerRecordPhaseGating(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not Running") && !strings.Contains(err.Error(), "refusing freeze outside Running phase") {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SLAAT-P2-4: stdout alarm logging survives a signal-ingest outage
+//
+// Before this change, dispatchWorker's only record of a detection was the
+// HTTP POST to signal-ingest, and that POST's error was discarded
+// (`_ = m.dispatchObservation(obs)`). An observation generated no evidence
+// anywhere `kubectl logs` could show if signal-ingest was unreachable --
+// which is exactly the condition under test here. These tests swap the
+// package-level correlatorLogOut for a buffer rather than driving the real
+// queue/worker goroutines, so they are deterministic and need no sleep.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func withCapturedCorrelatorLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	original := correlatorLogOut
+	correlatorLogOut = &buf
+	t.Cleanup(func() { correlatorLogOut = original })
+	return &buf
+}
+
+func TestLogObservationWritesStructuredJSONLine(t *testing.T) {
+	buf := withCapturedCorrelatorLog(t)
+	obs := TelemetryObservation{PodName: "agent-1", Syscall: SyscallNameEvasiveBurst, Severity: SeverityCritical}
+
+	logObservation(obs)
+
+	var ev correlatorEvent
+	if err := json.Unmarshal(buf.Bytes(), &ev); err != nil {
+		t.Fatalf("logObservation did not emit valid JSON: %v (%q)", err, buf.String())
+	}
+	if ev.Event != "ebpf_detection" || ev.Observation.PodName != "agent-1" || ev.Error != "" {
+		t.Errorf("event = %+v", ev)
+	}
+}
+
+func TestLogDispatchFailureRecordsTheErrorAlongsideTheObservation(t *testing.T) {
+	buf := withCapturedCorrelatorLog(t)
+	obs := TelemetryObservation{PodName: "agent-1", Syscall: SyscallNameEvasiveBurst}
+
+	logDispatchFailure(obs, errors.New("signal-ingest unreachable"))
+
+	var ev correlatorEvent
+	if err := json.Unmarshal(buf.Bytes(), &ev); err != nil {
+		t.Fatalf("logDispatchFailure did not emit valid JSON: %v (%q)", err, buf.String())
+	}
+	if ev.Event != "ebpf_detection_dispatch_failed" || ev.Observation.PodName != "agent-1" {
+		t.Errorf("event = %+v", ev)
+	}
+	if ev.Error != "signal-ingest unreachable" {
+		t.Errorf("Error = %q, want the dispatch error surfaced, not swallowed", ev.Error)
+	}
+}
+
+func TestDispatchWorkerLogsEveryObservationIndependentlyOfIngestReachability(t *testing.T) {
+	buf := withCapturedCorrelatorLog(t)
+	// No httptest server backing this URL: every dispatch attempt fails.
+	m := NewSentinelProbeManager(nil, "http://127.0.0.1:1/unreachable", nil)
+	m.queue <- TelemetryObservation{PodName: "agent-2", Syscall: SyscallNameEvasiveBurst}
+	close(m.queue)
+
+	m.wg.Add(1)
+	m.dispatchWorker(context.Background())
+
+	// Two lines, not one: the unconditional "every observation is logged"
+	// record, PLUS the dispatch-failure record naming why the POST itself
+	// did not land. Losing either half would silently reopen the gap this
+	// card found -- the first is what proves the detection happened at all,
+	// the second is what proves the operator is told ingest is unreachable
+	// rather than that being swallowed as `_ = m.dispatchObservation(obs)`
+	// used to.
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d log line(s), want exactly 2: %q", len(lines), buf.String())
+	}
+	var events []string
+	for _, line := range lines {
+		var ev correlatorEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("invalid JSON %q: %v", line, err)
+		}
+		if ev.Observation.PodName != "agent-2" {
+			t.Errorf("observation.pod_name = %q, want agent-2", ev.Observation.PodName)
+		}
+		events = append(events, ev.Event)
+	}
+	if events[0] != "ebpf_detection" || events[1] != "ebpf_detection_dispatch_failed" {
+		t.Errorf("events = %v, want [ebpf_detection, ebpf_detection_dispatch_failed] in that order", events)
 	}
 }

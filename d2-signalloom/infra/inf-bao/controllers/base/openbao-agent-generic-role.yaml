@@ -1,14 +1,20 @@
-# FLUX ENVSUBST: NO — no postBuild on the Flux Kustomization that reconciles
+# FLUX ENVSUBST: NO -- no postBuild on the Flux Kustomization that reconciles
 # this directory. Flux does NOT run envsubst here.
 #
 # Generic glob-bound JWT auth role for the agent swarm. Instead of one role per
 # agent (which scales linearly with agent count and requires a config deploy for
-# every new agent type), this role accepts ANY SPIFFE ID under the trust domain
-# and uses OpenBao's identity templating to scope the policy dynamically.
+# every new agent type), this role accepts any SPIFFE ID under one fixed
+# namespace prefix and uses OpenBao's identity templating to scope the policy
+# dynamically.
 #
-# The glob claim `spiffe://signalloom.demo/ns/*/sa/*` means SPIRE must have
-# issued a valid JWT-SVID for the workload — the signature check is the auth
-# gate, and the templated policy is the authz gate.
+# The glob claim is `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*`
+# (SLAAT-P2-3 correction: pinned to the fe-signalloom-agents namespace, NOT
+# "ns/*/sa/*" / "ANY SPIFFE ID under the trust domain" as an earlier revision
+# of this comment claimed -- a namespace-wide glob would be the exact wildcard
+# shape this role's sibling, supercred-bootstrap.yaml, explicitly documents
+# rejecting). SPIRE must have issued a valid JWT-SVID for a workload inside
+# that one namespace -- the signature check is the auth gate, and the
+# templated policy is the authz gate.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -31,7 +37,7 @@ data:
     #
     # Path shape: secret/data/agents/<spiffe-id>/*
     # The SPIFFE ID contains slashes which OpenBao handles as nested path
-    # segments — this is intentional and matches the secret tree layout.
+    # segments -- this is intentional and matches the secret tree layout.
     path "kv/data/agents/{{identity.entity.aliases.auth_jwt.metadata.sub}}/*" {
       capabilities = ["read", "list"]
     }
@@ -47,26 +53,38 @@ data:
     #   * error converting input {"sub":"spiffe://signalloom.demo/ns/*/sa/*"}
     #     for field "bound_claims": '' expected a map, got 'string'
     #
-    # The quoting looks right — the value IS valid JSON — which is why this
+    # The quoting looks right -- the value IS valid JSON -- which is why this
     # survived review. The CLI simply never parses it as anything but a string.
     # `bao write path -` reads a JSON object from stdin and preserves types.
     #
     # This Job had therefore NEVER succeeded. It failed at this line on every
     # run since it was authored, took the Job to BackoffLimitExceeded, and held
-    # inf-bao/infra-controllers not-Ready through its health check — which in
+    # inf-bao/infra-controllers not-Ready through its health check -- which in
     # turn blocked inf-bao/infra-configs on dependsOn. Nothing surfaced it
     # because the policy write on the line above succeeds first, so the log
     # opens with "Success! Uploaded policy".
+    # SLAAT-P1-3-F2 (MEDIUM, fixed by SLAAT-P2-3): bound_claims_type was
+    # missing, so OpenBao defaulted to "string" and compared the trailing
+    # "*" in bound_claims.sub as a LITERAL character, never a wildcard.
+    # Every one of the 18 registered fe-signalloom-agents/sa/* identities
+    # was permanently denied with 'claim "sub" does not match any
+    # associated bound claim values' -- this role has never successfully
+    # authenticated a single agent since it was authored. Same bug class
+    # already fixed in openbao-supercred-bootstrap.yaml's PF-3 comment
+    # (signalloom-cardvault-agent, osramp.local agent-cardvault); this is
+    # the back-port to the fleet-wide generic role.
     bao write auth/jwt/role/signalloom-agent-generic - <<'ROLE'
     {
       "role_type": "jwt",
       "bound_audiences": "openbao-supercredential",
       "bound_claims": {"sub": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*"},
+      "bound_claims_type": "glob",
       "claim_mappings": {"sub": "sub"},
       "user_claim": "sub",
       "token_policies": "signalloom-agent-templated",
       "token_ttl": "5m",
-      "token_max_ttl": "5m"
+      "token_max_ttl": "5m",
+      "token_type": "batch"
     }
     ROLE
 
@@ -80,12 +98,30 @@ metadata:
   labels:
     app.kubernetes.io/name: openbao-agent-generic-role
     app.kubernetes.io/part-of: signalloom-bao-proof
+  annotations:
+    # SLAAT-P2-3 (Forge review finding): a Job's pod template is immutable
+    # once created. Editing openbao-agent-generic-role-config's data (this
+    # card's F2 fix) does NOT by itself cause Flux to re-run this Job on an
+    # already-reconciled cluster -- the Job object is unchanged, so it stays
+    # Completed from before the fix. `force` lets Flux delete+recreate the
+    # Job when its spec changes; the pod-template config-hash annotation
+    # below is what actually changes the spec in lockstep with the
+    # ConfigMap, so the two annotations are a pair -- force alone is a
+    # no-op without a corresponding spec diff to force past.
+    kustomize.toolkit.fluxcd.io/force: "true"
 spec:
   backoffLimit: 3
   template:
     metadata:
       labels:
         app.kubernetes.io/name: openbao-agent-generic-role
+      annotations:
+        # Bump whenever agent-generic-role-config's agent-generic-role.sh
+        # content changes, so this Job's pod template (and therefore the
+        # Job itself) is forced to recreate alongside the ConfigMap. Current
+        # value is sha256(script)[:12] as of the SLAAT-P2-3 bound_claims_type
+        # glob fix + token_type=batch addition.
+        signalloom.io/config-hash: "73964ebcba07"
     spec:
       restartPolicy: OnFailure
       initContainers:

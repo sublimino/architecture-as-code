@@ -85,3 +85,96 @@ spec:
         # and is deliberately NOT opened here.
         - protocol: TCP
           port: 8084
+---
+# SLAAT-P2-1: SLAAT-P1-1's hardening checklist found kagent-controller,
+# kagent-ui, and the kagent-tools-metrics port (8085) carry NO Ingress-type
+# policy at all -- every port on all three is reachable from any pod in the
+# cluster, not just the two ports the policies above cover. Scoped to
+# Ingress only: WATCH_NAMESPACES is empty on kagent-controller (it watches
+# every namespace via the k8s apiserver) and its model-config egress target
+# is not something this card can safely enumerate, so Egress is left
+# untouched here, same reasoning as d2-infra/components/ingress's
+# NetworkPolicy for envoy-gateway's own control plane.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kagent-controller-ingress
+  namespace: kagent
+  labels:
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kagent
+      app.kubernetes.io/instance: kagent
+      app.kubernetes.io/component: controller
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # kagent-ui proxies through the controller; Signal Loom's managed
+        # agents (fe-signalloom-agents) call back via the A2A protocol
+        # (A2A_BASE_URL points at this service).
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom-agents
+      ports:
+        - protocol: TCP
+          port: 8083
+---
+# No HTTPRoute references kagent-ui anywhere in this repo today, so it has
+# no legitimate caller outside the namespace. If a Gateway route is added
+# later, this policy needs an explicit `ingress` namespaceSelector carve-out
+# alongside it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kagent-ui-ingress
+  namespace: kagent
+  labels:
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kagent
+      app.kubernetes.io/instance: kagent
+      app.kubernetes.io/component: ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Closes the kagent-tools-metrics Service (8085) that kagent-tool-server-allow
+# (above) deliberately left out of its own ingress rule -- that port was
+# genuinely open to the whole cluster until now, not merely undocumented.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kagent-tools-metrics-ingress
+  namespace: kagent
+  labels:
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kagent-tools
+      app.kubernetes.io/instance: kagent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8085

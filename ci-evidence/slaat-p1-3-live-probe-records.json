@@ -1,0 +1,197 @@
+{
+  "schema": "slaat-p1-3-live-probe-records/v1",
+  "card": "SLAAT-P1-3",
+  "generated_at": "2026-10-02T11:48:08Z",
+  "cluster_context": "kind-osramp",
+  "repo_head": "3bcba6717885cc22776454c6c989cd2c683777d0",
+  "components": {
+    "spiffe_openbao_probe": {
+      "record_count": 19,
+      "fail_count": 0
+    },
+    "spiffe_identity_probe": {
+      "record_count": 3,
+      "fail_count": 0
+    }
+  },
+  "total_record_count": 22,
+  "total_fail_count": 0,
+  "records": [
+    {
+      "id": "SPIFFE-1",
+      "vector": "workload-api-forged-identity",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "Unregistered ServiceAccount slaat-p1-3-evil-3777415, co-located in fe-signalloom-agents with matching labels, correctly refused a JWT-SVID: : code = PermissionDenied desc = no identity issued\npod \"slaat-p1-3-evil-3777415\" deleted from fe-signalloom-agents namespace\npod fe-signalloom-agents/slaat-p1-3-evil-3777415 terminated (Error)"
+    },
+    {
+      "id": "SPIFFE-2",
+      "vector": "workload-api-legit-identity",
+      "expectation": "svid-issued",
+      "observed": "svid-issued",
+      "severity": "pass",
+      "detail": "agent-cardvault received a valid JWT-SVID, sub=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-cardvault"
+    },
+    {
+      "id": "SPIFFE-3",
+      "vector": "openbao-jwt-login",
+      "expectation": "token_ttl<=300s",
+      "observed": "token_duration=5m",
+      "severity": "pass",
+      "detail": "signalloom-cardvault-agent token duration is within the 5-minute cap."
+    },
+    {
+      "id": "SPIFFE-4",
+      "vector": "kv-tenant-isolation",
+      "expectation": "http_200",
+      "observed": "http_200",
+      "severity": "pass",
+      "detail": "positive control: own path (path=kv/signalloom/cardvault-agent)"
+    },
+    {
+      "id": "SPIFFE-5",
+      "vector": "kv-tenant-isolation",
+      "expectation": "http_403",
+      "observed": "http_403",
+      "severity": "pass",
+      "detail": "cross-tenant: fe-signalloom secret (path=kv/signalloom/fe-signalloom)"
+    },
+    {
+      "id": "SPIFFE-6",
+      "vector": "kv-tenant-isolation",
+      "expectation": "http_403",
+      "observed": "http_403",
+      "severity": "pass",
+      "detail": "cross-tenant: another agent's templated path (path=kv/agents/spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-security-analyst/secret)"
+    },
+    {
+      "id": "SPIFFE-7",
+      "vector": "kv-tenant-isolation",
+      "expectation": "http_403",
+      "observed": "http_403",
+      "severity": "pass",
+      "detail": "cross-tenant: agent-trust acme/payments path (path=kv/signalloom/agent-trust/acme/payments/x)"
+    },
+    {
+      "id": "SPIFFE-8",
+      "vector": "kv-tenant-isolation",
+      "expectation": "http_403",
+      "observed": "http_403",
+      "severity": "pass",
+      "detail": "vertical: own role definition read (path=auth/jwt/role/signalloom-cardvault-agent)"
+    },
+    {
+      "id": "SPIFFE-9",
+      "vector": "kv-tenant-isolation",
+      "expectation": "http_403",
+      "observed": "http_403",
+      "severity": "pass",
+      "detail": "vertical: secrets-engine admin listing (path=sys/mounts)"
+    },
+    {
+      "id": "SPIFFE-10",
+      "vector": "openbao-jwt-login",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "cardvault SVID correctly rejected by signalloom-fe-signalloom role (bound to a different sub): \n\n* error validating token: invalid subject (sub) claim\ncommand terminated with exit code 2"
+    },
+    {
+      "id": "SPIFFE-11",
+      "vector": "openbao-jwt-audience",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "Wrong-audience SVID (aud=openbao) correctly rejected by signalloom-agent-generic (bound_audiences=openbao-supercredential)."
+    },
+    {
+      "id": "SPIFFE-12",
+      "vector": "openbao-jwt-bound-claims",
+      "expectation": "login-succeeds-for-registered-fleet-agents",
+      "observed": "login-succeeded",
+      "severity": "pass",
+      "detail": "signalloom-agent-generic accepted a correctly-audienced, registered SVID."
+    },
+    {
+      "id": "SPIFFE-13",
+      "vector": "openbao-jwt-signature",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "Tampered-signature SVID correctly rejected."
+    },
+    {
+      "id": "SPIFFE-14",
+      "vector": "openbao-jwt-alg-none",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "alg:none forged token impersonating spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-cardvault correctly rejected by OpenBao's JWT signature verification."
+    },
+    {
+      "id": "TTL-agent-trust-planner",
+      "vector": "role-ttl-audit",
+      "expectation": "token_ttl<=300s",
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/agent-trust-planner: resolved effective token_ttl=300s."
+    },
+    {
+      "id": "TTL-agent-trust-triage",
+      "vector": "role-ttl-audit",
+      "expectation": "token_ttl<=300s",
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/agent-trust-triage: resolved effective token_ttl=300s."
+    },
+    {
+      "id": "TTL-signalloom-agent-generic",
+      "vector": "role-ttl-audit",
+      "expectation": "token_ttl<=300s",
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/signalloom-agent-generic: resolved effective token_ttl=300s."
+    },
+    {
+      "id": "TTL-signalloom-cardvault-agent",
+      "vector": "role-ttl-audit",
+      "expectation": "token_ttl<=300s",
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/signalloom-cardvault-agent: resolved effective token_ttl=300s."
+    },
+    {
+      "id": "TTL-signalloom-fe-signalloom",
+      "vector": "role-ttl-audit",
+      "expectation": "token_ttl<=300s",
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/signalloom-fe-signalloom: resolved effective token_ttl=300s."
+    },
+    {
+      "id": "IDENT-1",
+      "vector": "registration-entry-selector-audit",
+      "expectation": "zero-namespace-only-entries",
+      "observed": "0-found",
+      "severity": "pass",
+      "detail": "Every live k8s-selector registration entry requires at least k8s:ns + k8s:sa (most also require a pod-label); none rely on namespace alone."
+    },
+    {
+      "id": "IDENT-2",
+      "vector": "namespace-tampering",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "Unregistered ServiceAccount, co-located in fe-signalloom-agents with the fleet's own pod-label, correctly denied an X.509-SVID."
+    },
+    {
+      "id": "IDENT-3",
+      "vector": "process-impersonation-partial-selector",
+      "expectation": "denied",
+      "observed": "denied",
+      "severity": "pass",
+      "detail": "A pod using the REGISTERED agent-cardvault ServiceAccount but missing the required signalloom.ai/agent=true pod-label was correctly denied -- confirming the registration entry's selectors are AND-ed, not OR-ed."
+    }
+  ]
+}

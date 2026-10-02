@@ -11,8 +11,9 @@
 #
 # Without --key, every key in KEYS below. One key per caller, each a random
 # 32-byte token (base64url) held in two Secrets with the same value:
-#   issuer    fe-signalloom/signal-ingest-key-<name>, key token, projected into
-#             signal-ingest as /etc/signal-ingest/static-keys/<name>
+#   issuer    fe-signalloom/signal-ingest-key-<name>, keys token and expires
+#             (YYYY-MM-DD, 90 days from minting), projected into signal-ingest as
+#             /etc/signal-ingest/static-keys/<name> and <name>.expires
 #   consumer  <namespace>/<secret> from KEYS, key token, read by the caller
 #             (none for a key whose caller is an operator tool outside the
 #             cluster; it reads the issuer Secret)
@@ -53,6 +54,9 @@ if [[ -n "${SLDC_INGEST_KEYS:-}" ]]; then
 	mapfile -t KEYS <<<"$SLDC_INGEST_KEYS"
 fi
 MIN_BYTES=32
+# signal-ingest refuses an expiry more than 90 days after it loads the key
+# (api.MaxStaticKeyLifetime), so a key is minted with exactly that lifetime.
+LIFETIME_DAYS=90
 FIELD_MANAGER=sldc-ingest-bearer
 
 log() { printf '[sldc-ingest-bearer] %s\n' "$*" >&2; }
@@ -92,6 +96,38 @@ write_token() {
 
 valid() { [[ ${#1} -ge $MIN_BYTES ]]; }
 
+# expiry_date -> today (UTC, or SLDC_INGEST_TODAY) + LIFETIME_DAYS, as YYYY-MM-DD.
+# perl, not `date -d`: the same script runs on macOS (BSD date) and Linux.
+expiry_date() {
+	perl -MTime::Local -MPOSIX=strftime -e '
+		my ($today, $days) = @ARGV;
+		my $t = time;
+		if ($today) { my ($y, $m, $d) = split /-/, $today; $t = timegm(0, 0, 12, $d, $m - 1, $y); }
+		print strftime("%Y-%m-%d", gmtime($t + $days * 86400));
+	' "${SLDC_INGEST_TODAY:-}" "$LIFETIME_DAYS"
+}
+
+# read_field NS NAME FIELD -> the decoded data field, empty if absent.
+read_field() {
+	local b64
+	b64=$(kube -n "$1" get secret "$2" --ignore-not-found -o "jsonpath={.data.$3}") ||
+		die 3 "could not read Secret $1/$2 in context $CONTEXT"
+	[[ -n "$b64" ]] || return 0
+	printf '%s' "$b64" | base64 -d 2>/dev/null ||
+		die 3 "Secret $1/$2 in context $CONTEXT holds a $3 that is not base64"
+}
+
+# write_issuer NS NAME TOKEN EXPIRES: the issuer Secret carries the value and its expiry.
+write_issuer() {
+	local b64 exp
+	b64=$(printf '%s' "$3" | base64 | tr -d '\n')
+	exp=$(printf '%s' "$4" | base64 | tr -d '\n')
+	printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: sldc-ingest-bearer\n    signalloom.io/credential: ingest-static-bearer\ntype: Opaque\ndata:\n  token: %s\n  expires: %s\n' \
+		"$2" "$1" "$b64" "$exp" |
+		kube apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null ||
+		die 3 "could not write Secret $1/$2 in context $CONTEXT; the two Secrets may now disagree — re-run to converge them"
+}
+
 # key_row NAME -> the KEYS row, or nothing.
 key_row() {
 	local row
@@ -108,6 +144,8 @@ converge_key() {
 	local issuer_secret="${ISSUER_PREFIX}${name}"
 
 	issuer=$(read_token "$ISSUER_NS" "$issuer_secret") || exit $?
+	local issuer_expires want_expires
+	issuer_expires=$(read_field "$ISSUER_NS" "$issuer_secret" expires) || exit $?
 	consumer=""
 	if [[ -n "$consumer_ns" ]]; then
 		consumer=$(read_token "$consumer_ns" "$consumer_secret") || exit $?
@@ -130,8 +168,14 @@ converge_key() {
 		action=created
 	fi
 	valid "$want" || die 3 "generated value is shorter than $MIN_BYTES bytes; /dev/urandom unreadable?"
+	# A new value gets a new lifetime; converging keeps the one it has (never extends it) and
+	# only fills in an expiry that is missing.
+	want_expires="$issuer_expires"
+	if [[ "$action" != converged || -z "$issuer_expires" ]]; then
+		want_expires=$(expiry_date)
+	fi
 
-	if [[ "$issuer" == "$want" && ( -z "$consumer_ns" || "$consumer" == "$want" ) ]]; then
+	if [[ "$issuer" == "$want" && "$issuer_expires" == "$want_expires" && ( -z "$consumer_ns" || "$consumer" == "$want" ) ]]; then
 		log "key $name in $CONTEXT: unchanged"
 		return 0
 	fi
@@ -140,8 +184,10 @@ converge_key() {
 	if [[ -n "$consumer_ns" && "$consumer" != "$want" ]]; then
 		write_token "$consumer_ns" "$consumer_secret" "$want"
 	fi
-	[[ "$issuer" == "$want" ]] || write_token "$ISSUER_NS" "$issuer_secret" "$want"
-	log "key $name in $CONTEXT: $action"
+	if [[ "$issuer" != "$want" || "$issuer_expires" != "$want_expires" ]]; then
+		write_issuer "$ISSUER_NS" "$issuer_secret" "$want" "$want_expires"
+	fi
+	log "key $name in $CONTEXT: $action (expires $want_expires)"
 	if [[ -n "$issuer$consumer" ]]; then
 		log "  running pods read keys at start; load it with:"
 		log "    $KUBECTL_BIN --context $CONTEXT -n $ISSUER_NS rollout restart deploy/signal-ingest"

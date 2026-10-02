@@ -1,6 +1,6 @@
 [
   {
-    "id": "stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:33.123456789Z:sys_enter_openat:/etc/passwd",
+    "id": "stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:33.123456789Z:sys_enter_openat:74acf31844532670",
     "timestamp": "2026-10-01T22:35:33.123456789Z",
     "layer": "endpoint_host",
     "fidelity": "strong",
@@ -21,7 +21,7 @@
     "description": "sys_enter_openat /etc/passwd by fe-signalloom-agents/agent-kusari-7d9f"
   },
   {
-    "id": "stun-sentinel:fe-signalloom-agents/agent-cardvault-5b7c:2026-10-01T22:35:33.123456789Z:sys_enter_openat:/etc/passwd",
+    "id": "stun-sentinel:fe-signalloom-agents/agent-cardvault-5b7c:2026-10-01T22:35:33.123456789Z:sys_enter_openat:74acf31844532670",
     "timestamp": "2026-10-01T22:35:33.123456789Z",
     "layer": "endpoint_host",
     "fidelity": "strong",

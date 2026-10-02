@@ -3,7 +3,11 @@
 
 package correlator
 
-import "fmt"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+)
 
 // ingestObservation is signal-ingest's model.Observation as it travels on the
 // wire. signal-ingest is the system of record, so the correlator speaks its
@@ -31,6 +35,15 @@ const (
 	ingestConfidence = 0.95
 )
 
+// targetDigest stands in for the target path in the observation id: the id is
+// stored verbatim, while signal-ingest redacts labels.target, so a raw path
+// (a home-directory username) must not ride in the id. 64 bits keeps ids
+// distinct per target at any realistic rate of opens per pod per nanosecond.
+func targetDigest(target string) string {
+	sum := sha256.Sum256([]byte(target))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 func (o TelemetryObservation) toIngest() ingestObservation {
 	// Only the sentinel's own keys. Pod labels are chosen by whoever deploys
 	// the pod, so they are attacker-influenced and must not ride along (review
@@ -50,7 +63,7 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 		actor = o.PodName
 	}
 	return ingestObservation{
-		ID:             fmt.Sprintf("%s:%s/%s:%s:%s:%s", ingestSource, o.Namespace, o.PodName, o.Timestamp, o.Syscall, o.Target),
+		ID:             fmt.Sprintf("%s:%s/%s:%s:%s:%s", ingestSource, o.Namespace, o.PodName, o.Timestamp, o.Syscall, targetDigest(o.Target)),
 		Timestamp:      o.Timestamp,
 		Layer:          ingestLayer,
 		Fidelity:       ingestFidelity,

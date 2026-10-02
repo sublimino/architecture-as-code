@@ -653,6 +653,9 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
+	if !requireCrossTenantRead(w, r) {
+		return
+	}
 	if h.FairService == nil {
 		writeError(w, http.StatusServiceUnavailable, "fair service not initialized")
 		return
@@ -740,6 +743,9 @@ func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
+	if !requireCrossTenantRead(w, r) {
+		return
+	}
 	if h.FairService == nil {
 		writeError(w, http.StatusServiceUnavailable, "fair service not initialized")
 		return

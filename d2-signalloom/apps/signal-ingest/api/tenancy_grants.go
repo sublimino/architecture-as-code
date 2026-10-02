@@ -202,3 +202,14 @@ func bindWriteTenancy(r *http.Request, observations []model.Observation) error {
 	}
 	return nil
 }
+
+// requireCrossTenantRead refuses a request over data that carries no tenant at all (the risk
+// catalogue) unless its principal reads across tenants: 403 cross_tenant_read_required, never a
+// silently partial or cross-tenant answer.
+func requireCrossTenantRead(w http.ResponseWriter, r *http.Request) bool {
+	if _, all := observationReadScope(r); all {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "cross_tenant_read_required")
+	return false
+}

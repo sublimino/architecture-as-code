@@ -209,3 +209,35 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Governor worktree `/home/andy/src/.worktrees/osramp-demo/slaat-whole-system-adversarial/governor` remains clean and isolated on `refs/heads/integration/slaat-whole-system-adversarial` without interfering with peer development.
 
 
+
+---
+
+## 10. Milestone Completion: SLAAT-P1-2 (9f44a) [DONE]
+
+- **Timestamp**: `2026-10-02T01:35:00Z`
+- **Completed Card**: `SLAAT-P1-2` (`9f44a`) [DONE]
+  - Deliverables: 13 files (+2,285 lines) committed at `2dbb32e2272ea5d5ebb534c464dbbc27e2da1aa4`:
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_token_adversarial_verification.py` (36 cases: alg confusion, signature stripping, token tampering).
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_adversarial_api_security.py` (210 cases: payload fuzzing, unauthenticated mutation sweep, SQLi inertness, static SQL guard).
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_enrollment_cas_race_adversarial.py` (3 cases: true asyncio CAS concurrency race, token binding).
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_authorization_matrix.py` (124 cases: structural auth sweep across 8 non-EAP routers + cross-tenant BOLA).
+    - `scripts/probe-api-idor-boundaries.sh` (live read-only boundary probe against `kind-osramp` fe-signalloom-api: 7/7 pass).
+    - `scripts/fuzz-api-routes.py` (standalone fuzzer: live cluster mode 18/18 pass).
+    - `docs/slaat/p1-2/` (`backend-api-vulnerability-and-tenant-isolation-dossier.md`, `authorization-matrix.md`, `rate-limiting-and-cors-audit.md`, `backend-api-hardening-checklist.md`).
+    - `ci-evidence/slaat-p1-2-api-findings.json`, `ci-evidence/slaat-p1-2-live-probe-evidence.json`.
+    - `Makefile` (`test-slaat-p1-2-api-probes` target).
+  - Integration Merge: Commit `a6e4bb8f` merged worker deliverables into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Errata and Work Decomposition: Recorded at commit `917565ce`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=3`: P1-PRE, P1-1, P1-2).
+
+---
+
+## 11. Dispatch of SLAAT-P1-3 (9f076) [IN PROGRESS]
+
+- **Timestamp**: `2026-10-02T01:44:00Z`
+- **Active Card**: `SLAAT-P1-3` (`9f076`) [IN PROGRESS]
+  - Task: SPIFFE Identity & OpenBao JWT Privilege Escalation Probing.
+  - Worktree: `/home/andy/.cline/worktrees/9f076/osramp-demo` (derived from integration head `917565ce`).
+  - Agent: `kpai` running under Claude Code session, executing Algorithm pre-execution checks and probing SPIFFE/OpenBao contracts.
+  - Doctor Health: `kanban-check.sh doctor` reports `doc=clean` with zero exceptions.

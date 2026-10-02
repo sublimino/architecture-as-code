@@ -9,23 +9,23 @@
 # @doc     docs/slaat/p1-3/spiffe-openbao-privilege-escalation-dossier.md
 # @spec    SLAAT-P2-3
 #
-# SLAAT-P2-3 — SPIFFE Workload API & OpenBao Policy Hardening Fixes.
+# SLAAT-P2-3 -- SPIFFE Workload API & OpenBao Policy Hardening Fixes.
 #
 # Proves the two SLAAT-P1-3 findings routed to this card are closed:
 #
-#   F1 (CRITICAL) — signalloom-cardvault-agent and signalloom-fe-signalloom
+#   F1 (CRITICAL) -- signalloom-cardvault-agent and signalloom-fe-signalloom
 #   issued 768h (32-day) tokens instead of the mission's 5-minute hard cap,
 #   because neither role declared token_ttl/token_max_ttl. Fixed by adding
 #   token_ttl=5m, token_max_ttl=5m, token_type=batch to both roles.
 #
-#   F2 (MEDIUM, fails closed) — signalloom-agent-generic's bound_claims glob
+#   F2 (MEDIUM, fails closed) -- signalloom-agent-generic's bound_claims glob
 #   never matched a real SPIFFE sub because bound_claims_type defaulted to
 #   "string", so the trailing "*" was compared as a literal character. Every
 #   one of the 18 registered fe-signalloom-agents/sa/* identities was denied.
 #   Fixed by adding bound_claims_type=glob.
 #
 # Structure. A static block (no cluster required) greps the three manifests
-# for the exact fields the fix adds — this is the "declarative source of
+# for the exact fields the fix adds -- this is the "declarative source of
 # truth" half of the proof. A live block (skips without a cluster) re-runs
 # the exact Phase 1 probe scripts and asserts the specific records that were
 # fail-severity in ci-evidence/slaat-p1-3-spiffe-findings.json now read
@@ -62,7 +62,7 @@ require_evidence() {
     [[ -s "${log}" ]] && sed 's/^/#   /' "${log}" >&3
     return 1
   fi
-  skip "no cluster '${CLUSTER_CONTEXT}' — live probe suite cannot run"
+  skip "no cluster '${CLUSTER_CONTEXT}' -- live probe suite cannot run"
 }
 
 setup_file() {
@@ -71,7 +71,7 @@ setup_file() {
   rm -f "${SPIFFE_JSON}" "${ACL_JSON}" "${SPIFFE_LOG}" "${ACL_LOG}"
 
   if ! have_cluster; then
-    echo "# no cluster '${CLUSTER_CONTEXT}' — live tests will skip" >&3
+    echo "# no cluster '${CLUSTER_CONTEXT}' -- live tests will skip" >&3
     return 0
   fi
 

@@ -1,0 +1,352 @@
+{
+  "schema": "slaat-phase1-consolidated-findings/v1",
+  "mission": "SLAAT",
+  "phase": "P1",
+  "card": "SLAAT-P1-GOV",
+  "generated_at": "2026-10-02T04:19:02Z",
+  "source_cards": [
+    "SLAAT-P1-1",
+    "SLAAT-P1-2",
+    "SLAAT-P1-3",
+    "SLAAT-P1-4"
+  ],
+  "source_evidence_files": [
+    "ci-evidence/slaat-p1-1-network-findings.json",
+    "ci-evidence/slaat-p1-1-gateway-access-log-sample.jsonl",
+    "ci-evidence/slaat-p1-2-api-findings.json",
+    "ci-evidence/slaat-p1-2-live-probe-evidence.json",
+    "ci-evidence/slaat-p1-3-spiffe-findings.json",
+    "ci-evidence/slaat-p1-3-acl-audit-evidence.json",
+    "ci-evidence/slaat-p1-3-live-probe-records.json",
+    "ci-evidence/slaat-p1-4-confinement-findings.json",
+    "ci-evidence/slaat-p1-4-landlock-escape-probe-records.json",
+    "ci-evidence/slaat-p1-4-sentinel-evasion-probe-records.json",
+    "ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json"
+  ],
+  "severity_taxonomy": {
+    "CRITICAL": "An active, exploitable boundary bypass or a mission invariant violated in a way that gives an attacker material capability today.",
+    "HIGH": "A control is absent or disabled such that a known attack path is open, protected currently only by accident, convention, or a detection gap.",
+    "MEDIUM": "A real defect with a bounded or conditional impact: fails closed, needs contention to trigger, or is confined to a non-tenant-facing path.",
+    "LOW": "A hardening gap, availability defect, or stale artifact with no credible path to tenant-boundary compromise.",
+    "INFO": "A coverage gap, accepted demo convention, or observation with no finding attached."
+  },
+  "severity_counts": {
+    "HIGH": 3,
+    "MEDIUM": 5,
+    "LOW": 11,
+    "INFO": 4,
+    "CRITICAL": 1
+  },
+  "total_findings": 24,
+  "findings": [
+    {
+      "id": "NET-1",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "HIGH",
+      "title": "Gateway control-plane namespace (ingress) carries zero NetworkPolicy",
+      "detail": "The ingress namespace, which hosts the Envoy Gateway control plane, has no NetworkPolicy. Its metrics port 19001 is reachable from any unprivileged tenant pod with no authentication.",
+      "evidence": [
+        "LAT-9",
+        "NETPOL-ingress"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-2",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "MEDIUM",
+      "title": "backend namespace carries zero NetworkPolicy",
+      "detail": "frontend can reach backend's MinIO, NATS, and Postgres with no policy on either side.",
+      "evidence": [
+        "LAT-4",
+        "LAT-5",
+        "LAT-6",
+        "NETPOL-backend"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-3",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "MEDIUM",
+      "title": "frontend namespace carries zero NetworkPolicy",
+      "detail": "No blanket default-deny exists for the frontend namespace's three pods.",
+      "evidence": [
+        "NETPOL-frontend"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-4",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "LOW",
+      "title": "fe-k8s-afm namespace carries zero NetworkPolicy",
+      "detail": "Single-pod namespace with no isolation. Smaller blast radius than NET-2/NET-3.",
+      "evidence": [
+        "NETPOL-fe-k8s-afm"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-5",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "LOW",
+      "title": "cpai namespace carries zero NetworkPolicy",
+      "detail": "Single-pod namespace with no isolation.",
+      "evidence": [
+        "NETPOL-cpai"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-6",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "LOW",
+      "title": "kagent namespace is only partially covered",
+      "detail": "kagent-postgres-isolation correctly scopes the controller-to-postgres path. kagent-controller, kagent-ui, and kagent-tools-metrics have no Ingress policy at all and no egress restriction.",
+      "evidence": [
+        "NETPOL-kagent"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-7",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "LOW",
+      "title": "Platform namespaces carry zero NetworkPolicy",
+      "detail": "cert-manager, kube-system, spire-system, local-path-storage, and registry have no policy. A blanket default-deny risks breaking core cluster plumbing without a carefully scoped allowlist. Recorded as a lower-urgency follow-up, separate from the P2-1 tenant fixes.",
+      "evidence": [
+        "NETPOL-cert-manager",
+        "NETPOL-kube-system",
+        "NETPOL-spire-system",
+        "NETPOL-local-path-storage",
+        "NETPOL-registry"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-8",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "INFO",
+      "title": "No ClientTrafficPolicy declares the XFF trust boundary",
+      "detail": "A client-supplied X-Forwarded-For entry remains present in the header chain. Envoy's current default is safe, but the trust boundary is implicit, not declared.",
+      "evidence": [
+        "envoy-access-log-validation-report.md"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "NET-9",
+      "domain": "network-isolation",
+      "card": "SLAAT-P1-1",
+      "severity": "INFO",
+      "title": "HTTP/2 pseudo-header manipulation was not exhaustively tested",
+      "detail": "curl cannot forge invalid HTTP/2 framing independent of its own library. Recorded as a coverage gap (GW-H2-1), not asserted clean.",
+      "evidence": [
+        "GW-H2-1"
+      ],
+      "remediation_target": "SLAAT-P2-1"
+    },
+    {
+      "id": "API-F1",
+      "domain": "backend-api",
+      "card": "SLAAT-P1-2",
+      "severity": "MEDIUM",
+      "title": "No rate limiting middleware is installed anywhere in the application",
+      "detail": "No per-route or global rate limiting exists on fe-signalloom-api. All routes accept unbounded request volume from an authenticated or unauthenticated caller.",
+      "evidence": [
+        "SLAAT-P1-2-F1"
+      ],
+      "remediation_target": "SLAAT-P2-2"
+    },
+    {
+      "id": "API-F2",
+      "domain": "backend-api",
+      "card": "SLAAT-P1-2",
+      "severity": "LOW",
+      "title": "Settings.cors_allowed_origins is declared but never wired to CORSMiddleware",
+      "detail": "The setting exists but has no effect. Browsers currently enforce the default same-origin policy, so the gap fails closed today, but the configuration is dead and misleading.",
+      "evidence": [
+        "SLAAT-P1-2-F2"
+      ],
+      "remediation_target": "SLAAT-P2-2"
+    },
+    {
+      "id": "API-F3",
+      "domain": "backend-api",
+      "card": "SLAAT-P1-2",
+      "severity": "HIGH",
+      "title": "CEL policy routes have no auth dependency",
+      "detail": "routers.policies's own CEL-validate, evaluate, and bundle routes carry no auth dependency. They are currently unreachable only by router-registration-order accident, not by a deliberate control.",
+      "evidence": [
+        "SLAAT-P1-2-F3"
+      ],
+      "remediation_target": "SLAAT-P2-2"
+    },
+    {
+      "id": "API-F4",
+      "domain": "backend-api",
+      "card": "SLAAT-P1-2",
+      "severity": "LOW",
+      "title": "Ad-hoc error messages occasionally include raw exception text",
+      "detail": "Several routers return raw exception text to the caller instead of a sanitized error.",
+      "evidence": [
+        "SLAAT-P1-2-F4"
+      ],
+      "remediation_target": "SLAAT-P2-2"
+    },
+    {
+      "id": "API-F5",
+      "domain": "backend-api",
+      "card": "SLAAT-P1-2",
+      "severity": "LOW",
+      "title": "threading.Lock held across an await in the enrollment fallback path",
+      "detail": "enroll_host_handler's in-memory fallback path holds a threading.Lock across an await point, a latent deadlock and availability risk under concurrent enrollment.",
+      "evidence": [
+        "SLAAT-P1-2-F5"
+      ],
+      "remediation_target": "SLAAT-P2-2"
+    },
+    {
+      "id": "API-F6",
+      "domain": "backend-api",
+      "card": "SLAAT-P1-2",
+      "severity": "LOW",
+      "title": "Duplicate router registration breaks route-inventory invariant tests",
+      "detail": "Pre-existing defect, confirmed not caused by this card by removing its four new files from disk and reproducing identically. Inflates route counts and breaks several pre-existing inventory-exactness tests.",
+      "evidence": [
+        "SLAAT-P1-2-F6"
+      ],
+      "remediation_target": "SLAAT-P2-2",
+      "pre_existing": true
+    },
+    {
+      "id": "SPIFFE-F1",
+      "domain": "spiffe-openbao",
+      "card": "SLAAT-P1-3",
+      "severity": "CRITICAL",
+      "title": "Two OpenBao JWT roles issue 32-day tokens instead of the mission's 5-minute cap",
+      "detail": "signalloom-cardvault-agent and signalloom-fe-signalloom roles issue 768h (32-day) tokens. The mission's Fail-Closed Boundaries invariant requires a 5-minute hard cap on workload credentials.",
+      "evidence": [
+        "SLAAT-P1-3-F1",
+        "SPIFFE-3"
+      ],
+      "remediation_target": "SLAAT-P2-3"
+    },
+    {
+      "id": "SPIFFE-F2",
+      "domain": "spiffe-openbao",
+      "card": "SLAAT-P1-3",
+      "severity": "MEDIUM",
+      "title": "signalloom-agent-generic role's bound_claims glob is non-functional",
+      "detail": "Missing bound_claims_type=glob permanently denies all 18 registered fleet agents. Fails closed: an availability and correctness defect, not an active privilege-escalation bypass.",
+      "evidence": [
+        "SLAAT-P1-3-F2"
+      ],
+      "remediation_target": "SLAAT-P2-3"
+    },
+    {
+      "id": "SPIFFE-F3",
+      "domain": "spiffe-openbao",
+      "card": "SLAAT-P1-3",
+      "severity": "LOW",
+      "title": "Two of four live tenant identities have no corresponding OpenBao JWT role",
+      "detail": "A delegation gap, not a privilege-escalation path. Two SPIRE-registered agent-trust tenant identities cannot authenticate to OpenBao at all.",
+      "evidence": [
+        "SLAAT-P1-3-F3"
+      ],
+      "remediation_target": "SLAAT-P2-3"
+    },
+    {
+      "id": "SPIFFE-F4",
+      "domain": "spiffe-openbao",
+      "card": "SLAAT-P1-3",
+      "severity": "LOW",
+      "title": "SPIRE agent runs with insecure_bootstrap and skip_kubelet_verification enabled",
+      "detail": "Demo-appropriate today. Flag explicitly before any path toward a production deployment.",
+      "evidence": [
+        "SLAAT-P1-3-F4"
+      ],
+      "remediation_target": "SLAAT-P2-3"
+    },
+    {
+      "id": "SPIFFE-F5",
+      "domain": "spiffe-openbao",
+      "card": "SLAAT-P1-3",
+      "severity": "INFO",
+      "title": "agent-cardvault's Workload API socket is mounted via raw hostPath",
+      "detail": "The documented spiffe-csi-driver ephemeral volume is not used for this one agent.",
+      "evidence": [
+        "SLAAT-P1-3-F5"
+      ],
+      "remediation_target": "SLAAT-P2-3"
+    },
+    {
+      "id": "SPIFFE-F6",
+      "domain": "spiffe-openbao",
+      "card": "SLAAT-P1-3",
+      "severity": "INFO",
+      "title": "A static root token is hardcoded across multiple live ConfigMaps and Jobs",
+      "detail": "Accepted pre-existing demo convention (signalloom-demo-root-token).",
+      "evidence": [
+        "SLAAT-P1-3-F6"
+      ],
+      "remediation_target": "SLAAT-P2-3",
+      "pre_existing": true
+    },
+    {
+      "id": "SENT-F1",
+      "domain": "sandbox-confinement",
+      "card": "SLAAT-P1-4",
+      "severity": "HIGH",
+      "title": "The live sentinel's eBPF telemetry has zero process, ptrace, or namespace visibility",
+      "detail": "The deployed eBPF program attaches only tp_btf/inet_sock_set_state (TCP flow state). A fuller syscall tracer exists in-repo but is wired into no cmd/ entrypoint and is not deployed. Evading telemetry via process spawning, ptrace, or unshare succeeds trivially today because there is no instrumentation to evade. A detection-scope gap, not a bypass of a working defense.",
+      "evidence": [
+        "SLAAT-P1-4-F1"
+      ],
+      "remediation_target": "SLAAT-P2-4"
+    },
+    {
+      "id": "SENT-F2",
+      "domain": "sandbox-confinement",
+      "card": "SLAAT-P1-4",
+      "severity": "MEDIUM",
+      "title": "cgroup-freeze intermittently exceeds the daemon's internal deadline under host contention",
+      "detail": "Freezing a cgroup containing a process that has unshare(CLONE_NEWPID)'d with mount_proc returned HTTP 504 in 2 of 5 runs against the isolated test instance under shared-node contention. Once the freeze call completes it is unconditionally effective. Not a containment bypass: a latency and reliability finding against one workload shape under load.",
+      "evidence": [
+        "SLAAT-P1-4-F2"
+      ],
+      "remediation_target": "SLAAT-P2-4"
+    },
+    {
+      "id": "SENT-F3",
+      "domain": "sandbox-confinement",
+      "card": "SLAAT-P1-4",
+      "severity": "LOW",
+      "title": "A sibling test harness is stale against the current binary's auth contract",
+      "detail": "scripts/test-cgroup-freezer.sh (owned by CRKC-P1-2) sets only STUN_RESUME_TOKEN and sends no Authorization header, while the binary now requires STUN_FREEZE_TOKEN and bearer-gates /stun. Outside this card's merge boundary.",
+      "evidence": [
+        "SLAAT-P1-4-F3"
+      ],
+      "remediation_target": "CRKC-P1-2",
+      "pre_existing": true,
+      "out_of_scope_for_slaat": true
+    }
+  ],
+  "verified_facts": {
+    "all_four_probe_domains_executed": true,
+    "all_required_governor_test_suites_green_on_two_consecutive_runs": true,
+    "zero_unauthorized_host_escapes_or_kernel_instability": true,
+    "zero_confirmed_sql_injection_or_jwt_bypass": true,
+    "zero_cross_tenant_data_leak_confirmed": true,
+    "integration_branch_working_tree_clean_at_governor_sign_off": true
+  }
+}

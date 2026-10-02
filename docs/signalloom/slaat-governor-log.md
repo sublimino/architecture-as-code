@@ -401,3 +401,26 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
 - **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
 - **Board Inventory**: `done=8`, `in_progress=0`, `review=0`, `backlog=8`.
 - **Next Ready Tasks**: Phase 2 Remediations (`SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4`).
+
+---
+
+## 19. Milestone Completion: SLAAT-P2-2 (23160) [DONE]
+
+- **Timestamp**: 2026-10-02T08:03:00Z
+- **Completed Card**: `SLAAT-P2-2` (`23160`) [DONE]
+  - Task: Backend API Auth, Token Expiry & Tenant IDOR Fixes.
+  - Deliverables: 7 files (+384 lines) committed at `f6117b8b` and merged into `refs/heads/integration/slaat-whole-system-adversarial`:
+    - `d2-signalloom/apps/fe-signalloom/src/routers/discovery.py`: Fixed fail-open bug where `GET /api/v1/discovery/workloads` passed incompatible kwargs to `list_discovery_workloads`, raising unhandled TypeError on authenticated requests. Explicitly forwarded `tenant_id=principal.tenant`.
+    - `d2-signalloom/apps/fe-signalloom/src/routers/compliance.py`: Bound `Depends(authenticated_tenant)` to `POST /api/v1/compliance/posture/calculate`, closing unauthenticated access.
+    - `d2-signalloom/apps/fe-signalloom/src/routers/policies.py`: Bound `Depends(authenticated_tenant)` to `POST /api/v1/policies/validate`, closing unauthenticated access.
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py`: Implemented `_iter_app_routes_with_mount_deps` to traverse opaque FastAPI 0.140 `_IncludedRouter` wrappers, capturing mount-level auth dependencies and closing the route sweep from 51 unclassified routes to 0. Updated `recording` fixture to patch `api_compat._get_pool` in `routers.agents` and `routers.discovery`.
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_adversarial_api_security.py`: Added `routers.compliance` to `TARGET_MODULES`.
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_api_auth_remediation.py`: 4 new targeted regression tests for posture calculation auth, policy validation auth, and discovery workloads mount tenant isolation.
+    - `ci-evidence/slaat-p2-2-api-remediation.json`: Comprehensive post-fix verification telemetry.
+  - Integration Merge: Commit `f6117b8b` merged into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=9`: P1-PRE, P1-1, P1-2, P1-3, P1-4, P1-GOV, P2-PRE, P2-1, P2-2).
+- **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
+- **Board Inventory**: `done=9`, `in_progress=0`, `review=0`, `backlog=7`.
+- **Next Ready Tasks**: Phase 2 Remediations (`SLAAT-P2-3`, `SLAAT-P2-4`).
+

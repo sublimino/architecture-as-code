@@ -6,7 +6,7 @@ captured by this preflight. All four target cards branch from
 `integration/slaat-whole-system-adversarial` @ `7ddc84f0ef76f5c7b4a35c7b7456396ee9f13b78`
 (see preflight errata for the base-drift note).
 
-## SLAAT-P2-1 — Ingress Route Protection & Network Microsegmentation
+## SLAAT-P2-1  -  Ingress Route Protection & Network Microsegmentation
 
 | Finding | Severity | Reproduced | Evidence |
 | :--- | :--- | :--- | :--- |
@@ -19,21 +19,21 @@ Target files confirmed to exist and be writable: per-app `base/networkpolicy.yam
 manifests exist under `d2-signalloom/apps/*/base/` and `d2-signalloom/infra/*/configs/base/`
 (13 files located, sampled `d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml`
 confirmed writable). **Open gap:** no `d2-signalloom`-rooted manifest declares
-`namespace: backend` or `namespace: frontend` directly — P2-1 will need to locate
+`namespace: backend` or `namespace: frontend` directly  -  P2-1 will need to locate
 or create the owning kustomize base for these two namespaces before patching
 (not resolved by this preflight; flagged, not blocking).
 
-## SLAAT-P2-2 — Backend API Auth, Token Expiry & Tenant IDOR
+## SLAAT-P2-2  -  Backend API Auth, Token Expiry & Tenant IDOR
 
 | Finding | Severity | Reproduced | Evidence |
 | :--- | :--- | :--- | :--- |
 | API-F1 no rate limiting middleware anywhere | MEDIUM | static (code-confirmed, not re-probed live) | `ci-evidence/slaat-p1-2-api-findings.json` |
 | API-F2 `cors_allowed_origins` declared, never wired | LOW | static (code-confirmed) | same file |
 
-Target: `d2-signalloom/apps/fe-signalloom/src/` — confirmed writable and
+Target: `d2-signalloom/apps/fe-signalloom/src/`  -  confirmed writable and
 byte-compiles cleanly (`python3 -m compileall`, see Decisions below for the
 required cache-path fix). **Blocking toolchain defect found:** two of the
-three adversarial pytest modules fail to *collect* —
+three adversarial pytest modules fail to *collect*  - 
 `tests/test_adversarial_api_security.py` and `tests/test_tenant_authorization_matrix.py`
 both raise `ImportError: cannot import name '_IncludedRouter' from 'fastapi.routing'`
 (private FastAPI symbol absent from the pinned `fastapi==0.115.6`). Full log:
@@ -43,7 +43,7 @@ is unaffected (36/36 pass standalone). This defect predates this preflight
 be fixed before SLAAT-P2-2 can prove its fixes with these two suites, per the
 mission's "every fix has an accompanying automated test" rule.
 
-## SLAAT-P2-3 — SPIFFE Workload API & OpenBao Policy Hardening
+## SLAAT-P2-3  -  SPIFFE Workload API & OpenBao Policy Hardening
 
 | Finding | Severity | Reproduced | Evidence |
 | :--- | :--- | :--- | :--- |
@@ -57,11 +57,11 @@ Root cause confirmed by direct source inspection:
 `default_lease_ttl=768h`. File confirmed writable. The equivalent
 `signalloom-cardvault-agent` role stanza is in the same file.
 
-## SLAAT-P2-4 — Agent Sandbox Confinement & Landlock LSM Policy
+## SLAAT-P2-4  -  Agent Sandbox Confinement & Landlock LSM Policy
 
 | Finding | Severity | Reproduced | Evidence |
 | :--- | :--- | :--- | :--- |
-| SENTINEL-F1 deployed eBPF probe is socket-state-only; zero syscall telemetry for process spawning / unshare(CLONE_NEWPID) | HIGH | **yes, exactly** | `ci-evidence/slaat-p2-pre-repro-sentinel-evasion.json` — 9/9 probes pass, including `live.evasion-burst-generates-no-syscall-telemetry` |
+| SENTINEL-F1 deployed eBPF probe is socket-state-only; zero syscall telemetry for process spawning / unshare(CLONE_NEWPID) | HIGH | **yes, exactly** | `ci-evidence/slaat-p2-pre-repro-sentinel-evasion.json`  -  9/9 probes pass, including `live.evasion-burst-generates-no-syscall-telemetry` |
 
 Target: `d2-signalloom/apps/signalloom-stun-sentinel` (deployed image's wiring)
 and/or `d2-signalloom/apps/stun-sentinel/bpf/sentinel_probe.c` (the fuller,

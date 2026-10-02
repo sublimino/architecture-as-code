@@ -171,7 +171,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | :-------- | :----- | :------ | :--- |
 | P1 | `SLAAT-P1-PRE` | Phase 1 Pre-Flight Check & Baseline Assessment | none | Verify repository baseline, clean git status, cluster readiness, test fixtures, and adversarial probe tooling. | `unit` | `S` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P1 | `SLAAT-P1-1` | Ingress Gateway & Network Isolation Attack Probing | `SLAAT-P1-PRE` | Probe Envoy Gateway HTTPRoutes, TLS certificate termination, and NetworkPolicy isolation across all namespaces. | `integration` | `M` | `daily` | pass : delivered: eff8ecb8b2998406076e5f9f5998a377c2cb7824 (see Errata : SLAAT-P1-1) | $0.00 | 0 | 0s | none |
-| P1 | `SLAAT-P1-2` | Backend API & Multi-Tenant IDOR Adversarial Fuzzing | `SLAAT-P1-PRE` | Fuzz FastAPI routes, Dex OIDC authentication, Bearer token replay, tenant isolation, and enrollment endpoints. | `contract` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P1 | `SLAAT-P1-2` | Backend API & Multi-Tenant IDOR Adversarial Fuzzing | `SLAAT-P1-PRE` | Fuzz FastAPI routes, Dex OIDC authentication, Bearer token replay, tenant isolation, and enrollment endpoints. | `contract` | `L` | `daily` | pass : delivered: 2dbb32e2272ea5d5ebb534c464dbbc27e2da1aa4 (see Errata : SLAAT-P1-2) | $0.00 | 0 | 0s | none |
 | P1 | `SLAAT-P1-3` | SPIFFE Identity & OpenBao JWT Privilege Escalation Probing | `SLAAT-P1-PRE` | Probe SPIRE Workload API policies, OpenBao JWT roles, token TTLs, and cross-tenant credential delegation risks. | `integration` | `M` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P1 | `SLAAT-P1-4` | Sentinel eBPF & Landlock Sandbox Confinement Escape Attacks | `SLAAT-P1-PRE` | Execute sandbox breakout probes, test cgroup freeze enforcement, and probe Landlock LSM containment. | `integration` | `M` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P1 | `SLAAT-P1-GOV` | Phase 1 Governor Gate: Vulnerability Dossier & Attack Log | `SLAAT-P1-1`, `SLAAT-P1-2`, `SLAAT-P1-3`, `SLAAT-P1-4` | Aggregate all adversarial probe results, compile vulnerability dossier, and merge evidence to integration branch. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
@@ -332,4 +332,15 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
   (`kubectl get pods -A -l slaat.controlplane.io/probe=p1-1`) after every run
   in this session, including the final clean re-run with no manual
   leftover processes present.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAAT-P1-2 Backend API & Multi-Tenant IDOR Adversarial Fuzzing
+**Created:** 2026-10-02 01:35:43+01:00
+**Last Updated:** 2026-10-02 01:35:43+01:00
+**Status:** Completed
+**Commit:** 2dbb32e2272ea5d5ebb534c464dbbc27e2da1aa4
+**Governor merge:** merged cleanly at a6e4bb8f
+**Decisions:** Offline-first (hermetic pytest, both tenants' keys controlled precisely) plus a live read-only probe for the unauthenticated-boundary subset, since the live cluster's API_SUBJECT_TENANTS has only one real tenant and no mintable Dex token for a second subject. Followed SLAAT-P1-1's repo-root scripts/test/docs/ci-evidence convention over the card's literal "strictly src/tests/ and scripts/" merge-boundary text, since the Deliverables list names exactly those repo-root paths. Delivered the auth-tamper deliverable as pytest (not bats) : pure-Python backend, no bats convention for backend logic here.
+**Deviations:** Card's literal live endpoints (localhost:8000/8080), `test/test_api_auth_tamper.py`, `test/api-idor-probes.py`, `security/payloads.txt` don't match this repo's layout or the app's DATABASE_URL-required startup; substituted the hermetic pytest convention plus a live probe against the real kind-osramp deployment instead. "Go backend"/"GraphQL" in the card's Objective don't apply : this is pure Python/FastAPI, no GraphQL surface exists.
+**Notes:** Discovered and precisely verified (not duplicated from existing EAP/DB_ROUTES sweeps) 5 real findings : see dossier F1-F5 : plus one pre-existing, NOT-caused-by-this-card defect (F6: duplicate router mounting inflates route counts and breaks several pre-existing inventory-exactness tests; reproduced identically with this card's 4 new files removed from disk entirely).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

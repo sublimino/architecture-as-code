@@ -13,6 +13,10 @@ const (
 	// PermissionCrossTenantRead lets a principal read observations of every tenant, and untagged
 	// observations, instead of only its own tenant's.
 	PermissionCrossTenantRead Permission = "tenant:cross-read"
+	// PermissionCrossTenantWrite lets a principal write observations naming any tenant (or none),
+	// as the stun-sentinel does for every workload it watches. Without it a principal's writes are
+	// bound to its own tenant.
+	PermissionCrossTenantWrite Permission = "tenant:cross-write"
 )
 
 // ObservationTenantLabel is the only tenant attribution an observation carries.

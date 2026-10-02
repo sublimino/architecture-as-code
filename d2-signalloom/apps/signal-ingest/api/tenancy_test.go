@@ -12,6 +12,7 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
 // Review finding (2026-10-02): no read handler consulted the principal's tenant, so ANY principal
@@ -307,5 +308,115 @@ func TestScopeHelpersFailClosedOnMissingTenancy(t *testing.T) {
 	}
 	if s.visible(&model.ProvisionalActor{ID: "mixed", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}, {ObservationID: "untagged"}}}) {
 		t.Fatal("an actor with mixed-tenant evidence is visible to a tenant-scoped principal")
+	}
+}
+
+const (
+	writerAToken     = "wwwwTenantAwriter000000000000000000000000000"
+	crossWriterToken = "cccCrossTenantWriter0000000000000000000000000"
+)
+
+func writeRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
+	t.Helper()
+	delegate, _, _ := testJWTDelegate(t)
+	expires, _ := time.Parse(time.DateOnly, StaticBearerSunset)
+	a, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
+		{Name: "writer-a", Token: writerAToken, Subject: "static-key/writer-a", TenantID: "tenant-a",
+			Permissions: []Permission{PermissionObservationWrite, PermissionCollectorWrite}, ExpiresAt: expires},
+		{Name: "cross-writer", Token: crossWriterToken, Subject: "static-key/cross-writer", TenantID: "kusari",
+			Permissions: []Permission{PermissionObservationWrite, PermissionCrossTenantWrite}, ExpiresAt: expires},
+	}, delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aw := audit.NewFakeWriter()
+	h, _ := newTestHandlersWithAudit(t, aw)
+	router, err := NewProtectedRouter(h, a, aw, http.NotFoundHandler(), RouterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return router, h
+}
+
+func postObservations(t *testing.T, router http.Handler, token string, tenants ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	var batch []model.Observation
+	for i, tenant := range tenants {
+		o := model.Observation{ID: "w-" + string(rune('0'+i)), Timestamp: time.Now().UTC(), Layer: model.LayerEndpointHost,
+			Fidelity: model.FidelityStrong, Source: "test", Confidence: 0.5, RawEvidenceRef: "ref", Labels: map[string]string{}}
+		if tenant != "" {
+			o.Labels[ObservationTenantLabel] = tenant
+		}
+		batch = append(batch, o)
+	}
+	body, _ := json.Marshal(batch)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/observations", strings.NewReader(string(body)))
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	return w
+}
+
+func storedTenants(t *testing.T, h *Handlers) []string {
+	t.Helper()
+	obs, err := h.Store.QueryRange(context.Background(), store.Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, o := range obs {
+		out = append(out, o.ID+"="+o.Labels[ObservationTenantLabel])
+	}
+	sort.Strings(out)
+	return out
+}
+
+// A tenant-scoped writer writes its own tenant: an untagged observation is stamped with it, and a
+// batch naming any other tenant is refused whole (403, nothing stored).
+func TestObservationWritesAreBoundToTheWritersTenant(t *testing.T) {
+	router, h := writeRouter(t)
+	if w := postObservations(t, router, writerAToken, "", "tenant-a"); w.Code != http.StatusCreated {
+		t.Fatalf("own-tenant batch: %d %s, want 201", w.Code, w.Body.String())
+	}
+	if got := strings.Join(storedTenants(t, h), ","); got != "w-0=tenant-a,w-1=tenant-a" {
+		t.Fatalf("stored %s, want both stamped tenant-a", got)
+	}
+	for _, foreign := range []string{"tenant-b", "__unattributed__", "kusarі"} { // last is a Cyrillic і
+		router, h := writeRouter(t)
+		w := postObservations(t, router, writerAToken, "tenant-a", foreign)
+		if w.Code != http.StatusForbidden || strings.TrimSpace(w.Body.String()) != `{"error":"tenant_mismatch"}` {
+			t.Fatalf("tenant-a writing %q: %d %s, want 403 tenant_mismatch", foreign, w.Code, w.Body.String())
+		}
+		if got := storedTenants(t, h); len(got) != 0 {
+			t.Fatalf("a refused batch stored %v", got)
+		}
+	}
+}
+
+// The sentinel is a cross-tenant writer: the payload's tenant stands, including the quarantine
+// tenant for an unmapped workload, and an untagged observation stays untagged.
+func TestCrossTenantWriterKeepsThePayloadTenant(t *testing.T) {
+	router, h := writeRouter(t)
+	if w := postObservations(t, router, crossWriterToken, "tenant-b", "__unattributed__", ""); w.Code != http.StatusCreated {
+		t.Fatalf("cross-tenant batch: %d %s, want 201", w.Code, w.Body.String())
+	}
+	if got := strings.Join(storedTenants(t, h), ","); got != "w-0=tenant-b,w-1=__unattributed__,w-2=" {
+		t.Fatalf("stored %s", got)
+	}
+}
+
+// Seeding writes fixtures as the seeding principal's tenant, so a tenant-scoped key can read back
+// what it seeded and nothing it did not.
+func TestSeededFixturesBelongToTheSeedingTenant(t *testing.T) {
+	router, h := writeRouter(t)
+	postJSON(t, router, writerAToken, "/api/v1/collectors/seed", http.StatusCreated)
+	got := storedTenants(t, h)
+	if len(got) == 0 {
+		t.Fatal("seed stored nothing")
+	}
+	for _, row := range got {
+		if !strings.HasSuffix(row, "=tenant-a") {
+			t.Fatalf("seeded fixture %s is not tenant-a's", row)
+		}
 	}
 }

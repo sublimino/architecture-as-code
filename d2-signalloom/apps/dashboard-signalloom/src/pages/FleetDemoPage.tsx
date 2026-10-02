@@ -872,7 +872,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   {recoverLoading ? <ButtonWait testId="fleet-recover-loader" label="Recovering" /> : 'Recover Fleet'}
                 </button>
                 <HelpHint label="What the Recover Fleet control does" testId="fleet-recover-help">
-                  Restores credentials to every stunned agent and marks it running again, in dependency order so nothing is brought back before the agent it relies on. It reverses a stun; it does not redeploy anything that was torn down.
+                  Restores credentials to every stunned agent and marks it running again, in dependency order so nothing is brought back before the agent it relies on. It reverses a stun; it does not redeploy anything that was torn down. From this dashboard it answers 403 by design: un-containing the whole fleet needs the operator key, which the dashboard does not hold.
                 </HelpHint>
               </div>
               <LoadingState

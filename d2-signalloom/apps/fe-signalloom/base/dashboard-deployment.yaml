@@ -45,9 +45,27 @@ spec:
             readOnlyRootFilesystem: true
             runAsUser: 101
             runAsGroup: 101
+          env:
+            # The dashboard's fleet-manager caller key (scopes stun, deploy,
+            # scan, reset; NOT recover). nginx injects it on /fleet-api/ only
+            # after GET /api/v1/auth/check has accepted the browser's token as
+            # a superadmin's (nginx.conf). Rendered into the config at start by
+            # the image's envsubst entrypoint, never baked into the image.
+            # Optional: without it the dashboard still serves and every gated
+            # fleet call is refused 401 by fleet-manager (16-fleet-gate.envsh).
+            - name: FLEET_DASHBOARD_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: dashboard
+                  optional: true
           volumeMounts:
             - name: nginx-tmp
               mountPath: /tmp
+            # The envsubst entrypoint writes the rendered nginx config here;
+            # the root filesystem is read-only.
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
           resources:
             requests:
               cpu: 25m
@@ -56,4 +74,6 @@ spec:
               memory: 128Mi
       volumes:
         - name: nginx-tmp
+          emptyDir: {}
+        - name: nginx-conf
           emptyDir: {}

@@ -73,8 +73,12 @@ location_matrix() {
 	    while stack and depth <= stack[-1][1]:
 	        prefix, _, body = stack.pop()
 	        text = '\n'.join(body)
+	        # A location gated by auth_request is authenticated even though it
+	        # replaces the browser's Authorization (dashboard /fleet-api/: the
+	        # gate checks the browser token, then a server-held key is sent).
 	        forwards_auth = bool(re.search(
-	            r'proxy_set_header\s+Authorization\s+\$http_authorization', text))
+	            r'proxy_set_header\s+Authorization\s+\$http_authorization', text)
+	            or re.search(r'^\s*auth_request\s+\S+;', text, re.M))
 	        # Mutation is denied if a limit_except allows only safe methods AND
 	        # its body denies everything else.
 	        le = re.search(r'limit_except\s+([A-Z\s]+)\{([^}]*)\}', text)

@@ -25,7 +25,14 @@ RUN printf 'workload=dashboard-signalloom\nsource_id=%s\ngit_ref=%s\n' \
       "$SOURCE_ID" "${GIT_REF:-unknown}" > /build-id
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx.conf is rendered at container start by the image's envsubst entrypoint,
+# so the dashboard's fleet-manager key comes from a Secret and is never baked
+# into the image. Only these variables are substituted; every other $name in
+# nginx.conf is an nginx variable.
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+ENV NGINX_ENVSUBST_FILTER="^(FLEET_DASHBOARD_KEY|NGINX_LOCAL_RESOLVERS)$"
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY 16-fleet-gate.envsh /docker-entrypoint.d/16-fleet-gate.envsh
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY --from=build /build-id /etc/osramp-build-id
 EXPOSE 8080

@@ -170,3 +170,35 @@ spec:
                       path: stun-sentinel
                     - key: expires
                       path: stun-sentinel.expires
+              - secret:
+                  name: signal-ingest-key-fe-signalloom-gateway
+                  optional: true
+                  items:
+                    - key: token
+                      path: fe-signalloom-gateway
+                    - key: expires
+                      path: fe-signalloom-gateway.expires
+              - secret:
+                  name: signal-ingest-key-signalfusion-demo
+                  optional: true
+                  items:
+                    - key: token
+                      path: signalfusion-demo
+                    - key: expires
+                      path: signalfusion-demo.expires
+              - secret:
+                  name: signal-ingest-key-sldc-live-bats
+                  optional: true
+                  items:
+                    - key: token
+                      path: sldc-live-bats
+                    - key: expires
+                      path: sldc-live-bats.expires
+              - secret:
+                  name: signal-ingest-key-sldc-evidence-reader
+                  optional: true
+                  items:
+                    - key: token
+                      path: sldc-evidence-reader
+                    - key: expires
+                      path: sldc-evidence-reader.expires

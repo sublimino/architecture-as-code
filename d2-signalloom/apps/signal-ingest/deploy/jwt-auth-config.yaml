@@ -57,13 +57,36 @@ data:
   # api.TestStaticKeysShippedGrantExactlyTheContract (shippedKeyGrants).
   # Subjects are deliberately not SPIFFE IDs: a static key must never be
   # mistaken for a verified SVID in an audit record.
-  #   stun-sentinel  the eBPF correlator: POST /api/v1/observations only, for
-  #                  whatever tenant the workload maps to (or __unattributed__),
-  #                  hence tenant:cross-write.
+  #   stun-sentinel          the eBPF correlator: POST observations for
+  #                          whatever tenant the workload maps to (or
+  #                          __unattributed__), hence tenant:cross-write.
+  #   fe-signalloom-gateway  the dashboard's proxies, acting for the verified
+  #                          user's tenant (tenant:act-for); tenant:cross-read
+  #                          only takes effect for a superadmin's "*".
+  #   signalfusion-demo      scripts/signalfusion-demo.sh (operator tool).
+  #   sldc-live-bats         test/sfas-live-acceptance.bats (operator tool).
+  #   sldc-evidence-reader   e2e Step 4: reads kusari's observations only.
   SIGNAL_AUTH_STATIC_KEYS: |
     [
       {"name": "stun-sentinel", "subject": "static-key/stun-sentinel",
-       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"]}
+       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"]},
+      {"name": "fe-signalloom-gateway", "subject": "static-key/fe-signalloom-gateway",
+       "tenant": "fe-signalloom", "actor_ids": ["*"],
+       "permissions": ["tenant:act-for", "tenant:cross-read",
+                       "observations:read", "observations:write", "stream:read",
+                       "actors:list", "actors:read", "actors:write",
+                       "analysis:read", "analysis:run", "collectors:write",
+                       "risk:read", "delegations:write"]},
+      {"name": "signalfusion-demo", "subject": "static-key/signalfusion-demo",
+       "tenant": "tenant-demo", "actor_ids": ["*"],
+       "permissions": ["tenant:cross-read", "health:read",
+                       "observations:write", "collectors:write", "analysis:run",
+                       "analysis:read", "actors:list", "actors:read", "actors:write"]},
+      {"name": "sldc-live-bats", "subject": "static-key/sldc-live-bats",
+       "tenant": "tenant-demo",
+       "permissions": ["tenant:cross-read", "health:read", "actors:list"]},
+      {"name": "sldc-evidence-reader", "subject": "static-key/sldc-evidence-reader",
+       "tenant": "kusari", "permissions": ["observations:read"]}
     ]
   SIGNAL_AUTH_STATIC_KEYS_DIR: /etc/signal-ingest/static-keys
 ---

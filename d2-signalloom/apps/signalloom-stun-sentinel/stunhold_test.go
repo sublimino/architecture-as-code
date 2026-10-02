@@ -256,3 +256,35 @@ func TestUnconfirmableResumeKeepsTheFreezeAndRequeues(t *testing.T) {
 		t.Fatal("a resume the API server could not confirm thawed the pod")
 	}
 }
+
+// Release order, on its merits (W6): thaw FIRST, then lift the network drop.
+// A release reached through the hold set is an authorised resume, so the only
+// question left is which failure mode a partial release leaves behind. Thaw
+// first leaves a running pod that is still network-isolated until the detach
+// retries; detach first can leave a frozen pod that never comes back (no veth
+// before its sandbox joined a netns). So: the cgroup is already thawed when
+// the drop filter is removed, and the filter IS removed when the veth resolves.
+func TestReleaseThawsBeforeItLiftsTheNetworkDrop(t *testing.T) {
+	h := newHoldHarness(t)
+	var thawedAtDetach []bool
+	run := h.r.tc.run
+	h.r.tc.run = func(name string, args ...string) ([]byte, error) {
+		if len(args) > 1 && args[0] == "filter" && args[1] == "del" {
+			thawedAtDetach = append(thawedAtDetach, !h.frozen())
+		}
+		return run(name, args...)
+	}
+	h.reconcile(h.setLabels(stunTriple))   // stunned: frozen and network-dropped
+	h.reconcile(h.setLabels(resumeTriple)) // authorised resume
+	if h.frozen() {
+		t.Fatal("an authorised resume left the pod frozen")
+	}
+	if len(thawedAtDetach) != 2 {
+		t.Fatalf("drop filter deletes = %d, want ingress and egress removed once the veth resolves", len(thawedAtDetach))
+	}
+	for i, thawed := range thawedAtDetach {
+		if !thawed {
+			t.Fatalf("filter delete %d ran while the pod was still frozen: the network release came before the thaw", i)
+		}
+	}
+}

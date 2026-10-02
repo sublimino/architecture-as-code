@@ -217,15 +217,16 @@ class TestCrossTenantFixtureIsolation:
             assert bid.startswith("tenant-b:"), f"Bob agent {bid} has wrong prefix"
 
     def test_alice_cannot_transition_bob_agent(self, client):
-        """Transition endpoint uses principal.tenant, so Alice acting on a
-        Bob agent ID should create it under Alice's namespace, not touch Bob's."""
+        """Transition endpoint uses principal.tenant, so a Bob agent ID does not
+        exist in Alice's tenant: 404, and Bob's record is untouched."""
         bob_agent_id = "tenant-b:agent-1"
         resp = client.post(
             f"/api/agents/{bob_agent_id}/transition",
             headers=ALICE(),
             json={"to_state": "decommissioned", "reason": "cross-tenant attack"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["error"]["code"] == "agent_not_found"
         # Check that Bob's agent is unchanged
         bob_agents = client.get("/api/agents", headers=BOB()).json()
         for agent in bob_agents["agents"]:
@@ -288,27 +289,20 @@ class TestCrossTenantFixtureIsolation:
 # =========================================================================
 
 class TestSynthAgentCreation:
-    """When a transition targets a non-existent agent, _synth_agent creates
-    one from nothing. This is a data integrity concern."""
+    """A transition used to synthesise any agent it could not find, so any id
+    could be transitioned into existence. It now refuses with 404."""
 
-    def test_transition_creates_phantom_agent(self, client):
-        """Transitioning a non-existent agent should either 404 or create it
-        under the caller's tenant. Currently it creates one via _synth_agent
-        and stores it in the per-tenant dict, but the agents list endpoint
-        reads from the same store. The synth agent IS stored, but the agents
-        list may not iterate the same way. Document the behaviour."""
+    def test_transition_of_an_unknown_agent_is_404_not_a_phantom(self, client):
         fake_id = "totally-made-up-agent-id"
         resp = client.post(
             f"/api/agents/{fake_id}/transition",
             headers=ALICE(),
             json={"to_state": "active", "reason": "testing synth"},
         )
-        # The endpoint accepts it (creates via _synth_agent) — this is a data
-        # integrity concern: any agent_id can be transitioned into existence
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["agent_id"] == fake_id
-        assert body["to_state"] == "active"
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["error"]["code"] == "agent_not_found"
+        listed = client.get("/api/agents", headers=ALICE()).json()["agents"]
+        assert fake_id not in {a["id"] for a in listed}
 
     def test_credential_issue_for_nonexistent_agent_returns_404(self, client):
         """Issuing credentials for a non-existent agent correctly returns 404.

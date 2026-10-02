@@ -73,6 +73,12 @@ esac
 # Matched first: these jsonpaths would otherwise fall into the Step 1 catch-alls.
 case "${ARGS}" in
   *"get pod"*"name=stun-sentinel"*) echo -n "stun-sentinel-x7k2p"; exit 0 ;;
+  *"get pod"*"io/stun-reason}"*)
+      # step5_stun_not_from_sentinel: a stun someone else wrote, e.g. a
+      # dashboard click, is not the sentinel's detection being recorded.
+      if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
+      else echo -n "stun-sentinel detection: sys_enter_openat /etc/passwd"; fi
+      exit 0 ;;
   *"get --raw"*"pods/stun-sentinel-x7k2p:8081/proxy/healthz"*)
       # Every read is a later moment: reconcile_count advances (unless the
       # reconciler is idle) and, from the second read on, a resync has run.
@@ -316,6 +322,7 @@ MUTATIONS=(
   "step5_still_serving|5|a frozen pod still answering network traffic fails"
   "step5_thawed_by_resync|5|a freeze the reconciler thaws on its next resync fails"
   "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
+  "step5_stun_not_from_sentinel|5|a stun record that does not name the sentinel's detection fails"
 )
 
 declare -a PLAN=()

@@ -462,6 +462,13 @@ export -f registry_row observations_json sensitive_openat_observations \
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
     [ "$output" = "disabled" ]
 
+    # Whose stun is it: the sentinel's detection, recorded by fleet-manager's
+    # cascade (the one pin writer), names the syscall and the provoked target.
+    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}'
+    [[ "$output" == "stun-sentinel detection: sys_enter_openat /etc/"* ]]
+    local stun_reason="$output"
+
     # Persistence: the sentinel's own reconciler used to thaw this freeze on
     # its next informer resync (measured live: ~14 s). Wait out one full resync
     # interval, as the sentinel publishes it, plus at least one reconcile pass,
@@ -521,6 +528,7 @@ export -f registry_row observations_json sensitive_openat_observations \
         echo "${kernel_state}"
         echo "flux_reconcile_deployment: disabled"
         echo "flux_reconcile_pod: disabled"
+        echo "stun_reason: ${stun_reason}"
         echo "frozen_after_resync: 1 (resync_seconds=${resync}, reconcile_count ${rc0} -> advanced)"
         echo "restartCount: ${restarts}"
         echo "cadvisor_cpu_seconds: ${c1} -> ${c2}"

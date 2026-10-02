@@ -126,27 +126,16 @@ spec:
       roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-workloads}
       subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
 
-    # ── ClusterRole + Binding: cluster-scoped resources ─────────────
-    # The sentinel's ebpf-sentinel-rbac.yaml creates a ClusterRole
-    # granting nodes get/list and a ClusterRoleBinding. A namespace
-    # RoleBinding cannot grant cluster-scoped access, and Kubernetes
-    # RBAC escalation prevention requires the creating SA to already
-    # hold any permissions it grants via a ClusterRole.
-    - apiVersion: rbac.authorization.k8s.io/v1
-      kind: ClusterRole
-      metadata: {name: agent-swarm-flux-cluster-rbac}
-      rules:
-        - apiGroups: [rbac.authorization.k8s.io]
-          resources: [clusterroles, clusterrolebindings]
-          verbs: [get, list, watch, create, update, patch, delete]
-        - apiGroups: [""]
-          resources: [nodes]
-          verbs: [get, list]
-    - apiVersion: rbac.authorization.k8s.io/v1
-      kind: ClusterRoleBinding
-      metadata: {name: agent-swarm-flux-cluster-rbac}
-      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-cluster-rbac}
-      subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
+    # ── ClusterRole + Binding "agent-swarm-flux-cluster-rbac": REMOVED ──
+    # They granted agent-swarm-flux create/update/delete on clusterroles and
+    # clusterrolebindings, plus nodes get/list, solely so Flux could apply the
+    # sentinel's node-reader ClusterRole and ClusterRoleBinding. Those are gone
+    # (ebpf-sentinel-rbac.yaml tombstone: nothing reads nodes), and no path this
+    # identity applies renders any cluster-scoped RBAC. A grant to create
+    # ClusterRoleBindings is a grant to bind oneself any ClusterRole, so it may
+    # not exist without a consumer. test/agent-swarm-flux-rbac.bats fails in
+    # either direction: cluster-scoped RBAC without the grant, or the grant
+    # without cluster-scoped RBAC.
 
     # ── OCI source for agent-swarm artifacts ──────────────────────────
     - apiVersion: source.toolkit.fluxcd.io/v1

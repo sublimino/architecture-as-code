@@ -733,7 +733,7 @@ VALID_LIFECYCLE_STATES: frozenset[str] = frozenset({
 #: requires a new registration, not a transition - the audit trail must not
 #: show a decommissioned agent silently coming back to life.
 VALID_TRANSITIONS: dict[str, frozenset[str]] = {
-    "discovered": frozenset({"governed", "active", "registered", "enrolled", "in_review", "ignored"}),
+    "discovered": frozenset({"governed", "active", "registered", "enrolled"}),
     "registered": frozenset({"enrolled", "active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
     "enrolled":   frozenset({"active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
     "active":     frozenset({"governed", "suspended", "stunned", "revoked", "decommissioned"}),

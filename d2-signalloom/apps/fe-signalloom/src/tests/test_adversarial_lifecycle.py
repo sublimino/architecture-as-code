@@ -266,6 +266,19 @@ class TestStateMachineConsistency:
                     f"which is not in VALID_LIFECYCLE_STATES"
                 )
 
+    def test_models_transition_targets_are_valid_internal_states(self):
+        """The routers/agents.py graph (models.LIFECYCLE_TRANSITIONS) obeys the
+        same rule against its own vocabulary; discovery statuses such as
+        in_review and ignored are not lifecycle states."""
+        from models import LIFECYCLE_TRANSITIONS, VALID_INTERNAL_STATES
+
+        for from_state, targets in LIFECYCLE_TRANSITIONS.items():
+            for target in targets:
+                assert target in VALID_INTERNAL_STATES, (
+                    f"LIFECYCLE_TRANSITIONS[{from_state!r}] includes {target!r} "
+                    f"which is not in VALID_INTERNAL_STATES"
+                )
+
     def test_terminal_states_have_no_outbound_edges(self):
         """Revoked and decommissioned must be absorbing states."""
         for terminal in ("revoked", "decommissioned"):

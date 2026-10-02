@@ -11,11 +11,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
@@ -752,5 +754,41 @@ func TestStaticBearerAcceptsAnExpiryOnTheSunset(t *testing.T) {
 	cfg := testStaticConfig() // expires exactly on the sunset
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("an expiry on the sunset itself must be accepted: %v", err)
+	}
+}
+
+// TestStaticBearerIngestsTheSentinelsRealPayloads drives the correlator's golden
+// wire payload through the real router with the static credential, both as
+// attributed (tenant_id kusari) and as the sentinel posts an unmapped workload
+// (tenant_id identity.QuarantineTenant). Observation tenancy is a label, not a
+// claim bound to the principal, so the quarantine marker must land rather than
+// be refused by the tenant gate meant for principals.
+func TestStaticBearerIngestsTheSentinelsRealPayloads(t *testing.T) {
+	raw, err := os.ReadFile("../../stun-sentinel/pkg/correlator/testdata/ingest-observation.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegate, _, _ := testJWTDelegate(t)
+	a, err := NewStaticBearerAuthenticator(testStaticConfig(), delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range []string{"kusari", identity.QuarantineTenant} {
+		t.Run(tenant, func(t *testing.T) {
+			var batch []map[string]any
+			if err := json.Unmarshal(raw, &batch); err != nil {
+				t.Fatal(err)
+			}
+			batch[0]["labels"].(map[string]any)["tenant_id"] = tenant
+			body, _ := json.Marshal(batch)
+			router, _ := newStaticBearerRouter(t, a)
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/observations", bytes.NewReader(body))
+			r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, r)
+			if w.Code != http.StatusCreated || strings.TrimSpace(w.Body.String()) != `{"ingested":1}` {
+				t.Fatalf("sentinel payload with tenant_id %q: %d %s, want 201 {\"ingested\":1}", tenant, w.Code, w.Body.String())
+			}
+		})
 	}
 }

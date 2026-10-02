@@ -181,7 +181,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P2 | `SLAAT-P2-3` | SPIFFE Workload API & OpenBao Policy Hardening Fixes | `SLAAT-P2-PRE` | Restrict OpenBao JWT role claims, enforce short token lifetimes, and eliminate wildcard SPIFFE selectors. | `integration` | `M` | `daily` | pass : delivered: 16c80559d023ffd933a112e1a95234020ad6e7c4 (see Errata : SLAAT-P2-3) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-4` | Agent Sandbox Confinement & Landlock LSM Policy Fixes | `SLAAT-P2-PRE` | Seal sandbox breakout vectors, enforce Landlock filesystem rules, and harden eBPF detection alarms. | `integration` | `M` | `daily` | pass : delivered: 708facadab6db37f3a414c86a76d0fe1c1c2622f (see Errata : SLAAT-P2-4) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-GOV` | Phase 2 Governor Gate: Remediations Integration & Rebuild | `SLAAT-P2-1`, `SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4` | Reconcile all remediations, verify clean compilation and unit tests, and prove invariant boundary compliance. | `e2e` | `L` | `daily` | pass : delivered: 849bb2455986877918a221f73dc164a66bb56dfa (see Errata : SLAAT-P2-GOV) | $0.00 | 0 | 0s | none |
-| P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | pass : delivered: cb3f584351da2542a783705030ca4d9a5b3a4a9c (see Errata : SLAAT-P3-PRE) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-GOV` | Final Mission Governor Gate: Certification & Hand-Off | `SLAAT-P3-1`, `SLAAT-P3-2` | Generate final certification report, consolidate errata ledgers, verify clean git status, and close mission. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
@@ -561,4 +561,23 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 **Notes:**
 - Integration branch refs/heads/integration/slaat-whole-system-adversarial certified as hardened baseline for Phase 3.
 - All 24 vulnerability findings from Phase 1 successfully mitigated with zero functional regressions.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAAT-P3-PRE Phase 3 Pre-Flight Check & Test Environment Refresh
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-02 12:18:00+01:00
+**Last Updated:** 2026-10-02 12:18:00+01:00
+**Status:** Completed
+**Commit:** cb3f584351da2542a783705030ca4d9a5b3a4a9c
+**Governor merge:** delivered in 61ecc22b (integration/slaat-whole-system-adversarial)
+**Decisions:**
+- Reconciled Phase 3 baseline readiness: integration branch carries all 5 Phase 2 remediation cards cleanly merged.
+- Verified live Kind cluster health: node osramp-control-plane Ready, all system pods 1/1 Running or Completed.
+- Audited PostgreSQL persistence: confirmed active connection acceptance and 34 initialized public tables.
+- Audited OpenBao: confirmed unsealed status and operational HTTP API.
+- Audited Envoy Gateway: confirmed programmed Gateway resource and listener responsiveness on NodePort 31613.
+- Calibrated toolchains and caches: validated BATS 1.13.0, pytest 9.1.1, go 1.26.2 with CGO_ENABLED=0, kubectl v1.36.0, curl, jq, and bun 1.4.0.
+**Notes:**
+- Deliverables authored: docs/slaat/p3-pre/preflight-attestation-report.md, docs/slaat/p3-pre/preflight-env.json, and ci-evidence/slaat-p3-pre-env-attestation.json.
+- Environment attested and ready for Phase 3 attack replay (SLAAT-P3-1) and acceptance verification (SLAAT-P3-2).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

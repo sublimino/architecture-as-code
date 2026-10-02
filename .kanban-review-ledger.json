@@ -273,6 +273,26 @@
     "verdict": "APPROVED",
     "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
   },
+  "94159": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "94159",
+        "reviewed_at": "2026-10-02T11:03:27.274Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Phase 2 Governor Gate certified: all 4 planes verified with zero regressions"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "94159",
+    "reviewed_at": "2026-10-02T11:03:27.274Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Phase 2 Governor Gate certified: all 4 planes verified with zero regressions"
+  },
   "97551": {
     "task_id": "97551",
     "reviewed_at": "2026-09-05T15:40:27Z",

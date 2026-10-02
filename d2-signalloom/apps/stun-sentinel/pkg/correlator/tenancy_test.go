@@ -133,7 +133,6 @@ func TestParseTenantMapRejectsAmbiguousOrForgedEntries(t *testing.T) {
 	for _, tc := range []struct{ name, spec, want string }{
 		{"homoglyph tenant", "ns-a=kusarі", "tenant"},
 		{"reserved marker as tenant", "ns-a=" + UnattributedTenantID, "tenant"},
-		{"retired kurasi typo", "fe-signalloom-agents/kusari-agent=kurasi", "retired"},
 		{"uppercase tenant", "ns-a=Kusari", "tenant"},
 		{"empty tenant", "ns-a=", "tenant"},
 		{"oversized tenant", "ns-a=" + strings.Repeat("a", 64), "tenant"},

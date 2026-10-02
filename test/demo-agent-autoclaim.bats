@@ -30,7 +30,8 @@ setup() {
 
   cat >"${FAKE}/bin/kubectl" <<'STUB'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >>"${FAKE_LOG}"
+all="$*"
+printf '%s\n' "${all%%$'\n'*}" >>"${FAKE_LOG}"  # one line per call
 args=" $* "
 case "${args}" in
   *" version "*) exit 0 ;;

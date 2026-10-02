@@ -42,8 +42,12 @@ STUB
 	cat >"$BIN/kubectl" <<'STUB'
 #!/usr/bin/env bash
 printf 'kubectl %s\n' "$*" >>"$CALLS"
-[[ -n "${FAKE_SECRET_B64:-}" && "$*" == *"get secret signal-ingest-key-signalfusion-demo"* ]] || exit 1
-printf '%s' "$FAKE_SECRET_B64"
+# Act 1's preflight (cluster-info, get ns) succeeds; the key Secret exists only when a test says so.
+if [[ "$*" == *"get secret signal-ingest-key-signalfusion-demo"* ]]; then
+	[[ -n "${FAKE_SECRET_B64:-}" ]] || exit 1
+	printf '%s' "$FAKE_SECRET_B64"
+fi
+exit 0
 STUB
 	chmod +x "$BIN/curl" "$BIN/kubectl"
 	export PATH="$BIN:$PATH"

@@ -699,6 +699,21 @@ run_stage \
   "stage1c-acceptance-coverage.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/acceptance-spec-coverage.bats"
 
+# SLER-P6-3 multi-plane containment acceptance, and its own wiring guard as a
+# separate stage, mirroring vm-pipeline.sh stages 1c3 and 1c4 (the reasons for
+# two stages are written there). Offline, no cluster, ~2s. Registered here
+# because nothing about it is lane-specific: it arrived in the CI lane alone,
+# which test/terraform-dual-lane-registration.bats reported.
+run_stage \
+  "SLER multi-plane containment acceptance" \
+  "stage1c3-multiplane-acceptance.tap" \
+  "cd ${WORK_DIR} && ${MAKE_BIN} test-sler-multiplane-acceptance"
+
+run_stage \
+  "SLER acceptance coverage and wiring guard" \
+  "stage1c4-acceptance-plane-coverage.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sler-p6-3-multiplane-acceptance.bats"
+
 # Guards vm-pipeline.sh's hand-copy of demo-signalloom-up, which this file does
 # not have. Run anyway: v1 is frozen but still the CI lane, and a demo run is a
 # free opportunity to notice that its copy has drifted a fifth time.
@@ -791,7 +806,10 @@ run_stage \
      test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
      test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
      test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
-     test/tetragon-telemetry-stream.bats test/wait-deadline.bats"
+     test/tetragon-telemetry-stream.bats test/wait-deadline.bats \
+     test/wait-job.bats test/wait-pods-service.bats \
+     test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
+     test/landlock-containment-probes.bats test/sfas-p1-2-nono-ingest.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists
@@ -1189,6 +1207,15 @@ run_stage \
   "In-cluster agent discovery and auto-claim integration" \
   "stage7d-autoclaim.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/signalloom-autoclaim.bats"
+
+# Stage 7e: SFAS live dossier authorization and stun containment acceptance.
+# Same tier and same command as vm-pipeline.sh stage 7e; it needs the deployed
+# signal-ingest and dashboard, which this lane has at this point as much as
+# the CI lane does.
+run_stage \
+  "SFAS live dossier authorization and stun containment acceptance" \
+  "stage7e-sfas-live.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sfas-live-acceptance.bats"
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════

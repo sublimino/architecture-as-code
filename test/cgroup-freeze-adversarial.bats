@@ -23,6 +23,9 @@
 # fixtures. Each test then asserts one property of the resulting artifact,
 # matching the structure test/cgroup-freeze-stun.bats already established.
 
+# shellcheck source=../scripts/lib/live-gate.sh
+source "${BATS_TEST_DIRNAME}/../scripts/lib/live-gate.sh"
+
 setup_file() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   export REPO_ROOT
@@ -45,7 +48,9 @@ have_cluster() {
   command -v kubectl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
   command -v go >/dev/null 2>&1 || return 1
-  docker inspect osramp-control-plane >/dev/null 2>&1 || return 1
+  # Live is opt-in (SLDC_LIVE=1) and must be reachable through KUBECONFIG;
+  # `docker inspect` alone ignored KUBECONFIG=/dev/null and reached the node.
+  sldc_live_gate kind-osramp osramp-control-plane || return 1
   return 0
 }
 

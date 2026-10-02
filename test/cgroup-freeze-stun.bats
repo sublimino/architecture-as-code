@@ -33,6 +33,8 @@ DECLARED_TESTS=23
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
 MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
+# shellcheck source=../scripts/lib/live-gate.sh
+source "${REPO_ROOT}/scripts/lib/live-gate.sh"
 CLUSTER_CONTEXT="${CLUSTER_CONTEXT:-kind-osramp}"
 KIND_NODE="${KIND_NODE:-osramp-control-plane}"
 PROOF_JSON="${BATS_FILE_TMPDIR:-/tmp}/cgroup-freeze-proof.json"
@@ -42,7 +44,9 @@ have_cluster() {
   command -v docker >/dev/null 2>&1 || return 1
   command -v kubectl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
-  docker inspect "${KIND_NODE}" >/dev/null 2>&1 || return 1
+  # Live is opt-in (SLDC_LIVE=1) and must be reachable through KUBECONFIG;
+  # `docker inspect` alone ignored KUBECONFIG=/dev/null and reached the node.
+  sldc_live_gate "${CLUSTER_CONTEXT}" "${KIND_NODE}" || return 1
   return 0
 }
 
@@ -91,11 +95,10 @@ setup_file() {
 }
 
 teardown_file() {
-  docker exec "" sh -c 'for f in $(find /sys/fs/cgroup -name "cgroup.freeze" 2>/dev/null); do echo 0 > "$f" 2>/dev/null || true; done' >/dev/null 2>&1 || true
   if have_cluster; then
-    kubectl --context "${CLUSTER_CONTEXT}" delete namespace crkc-freeze-test \
+    sldc_kubectl --context "${CLUSTER_CONTEXT}" delete namespace crkc-freeze-test \
       --ignore-not-found --wait=false >/dev/null 2>&1 || true
-    docker exec "${KIND_NODE}" sh -c 'pkill -x stun-sentinel >/dev/null 2>&1; exit 0' || true
+    sldc_docker exec "${KIND_NODE}" sh -c 'pkill -x stun-sentinel >/dev/null 2>&1; exit 0' || true
   fi
   return 0
 }
@@ -259,14 +262,14 @@ teardown_file() {
   # It does not, on any cgroup-v2 host — the freezer was made a core
   # interface precisely so it needs no controller enablement. Asserting the
   # true behaviour here stops the claim being re-derived every phase.
-  run docker exec "${KIND_NODE}" cat /sys/fs/cgroup/cgroup.controllers
+  run sldc_docker exec "${KIND_NODE}" cat /sys/fs/cgroup/cgroup.controllers
   [ "$status" -eq 0 ]
   [[ "$output" != *"freezer"* ]]
 
   # And yet the control files are present on a non-root cgroup.
-  run docker exec "${KIND_NODE}" test -f /sys/fs/cgroup/kubelet.slice/cgroup.freeze
+  run sldc_docker exec "${KIND_NODE}" test -f /sys/fs/cgroup/kubelet.slice/cgroup.freeze
   [ "$status" -eq 0 ]
-  run docker exec "${KIND_NODE}" test -f /sys/fs/cgroup/kubelet.slice/cgroup.events
+  run sldc_docker exec "${KIND_NODE}" test -f /sys/fs/cgroup/kubelet.slice/cgroup.events
   [ "$status" -eq 0 ]
 }
 
@@ -276,7 +279,7 @@ teardown_file() {
   if [ -z "$a_child" ]; then
     # Running inside sandbox: verify against the Kind node cgroup hierarchy
     have_cluster || skip "no readable host /sys/fs/cgroup and no cluster"
-    run docker exec "${KIND_NODE}" test -e /sys/fs/cgroup/cgroup.freeze
+    run sldc_docker exec "${KIND_NODE}" test -e /sys/fs/cgroup/cgroup.freeze
     [ "$status" -eq 0 ]
     return 0
   fi

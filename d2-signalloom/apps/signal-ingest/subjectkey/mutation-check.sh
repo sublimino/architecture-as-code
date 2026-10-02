@@ -74,7 +74,7 @@ mutate() {
     local out rc
     out="$(go test -count=1 -run "$filter" "$pkg" 2>&1)" && rc=0 || rc=$?
     # An observed FAIL is required. rc!=0 alone could mean a panic in an unrelated test.
-    if [[ $rc -ne 0 ]] && printf '%s' "$out" | grep -q -- '--- FAIL\|^FAIL'; then
+    if [[ $rc -ne 0 ]] && grep -q -- '--- FAIL\|^FAIL' <<<"$out"; then
       printf '  \033[1;32mKILLED\033[0m  %-46s %s\n' "$name" \
         "$(printf '%s' "$out" | grep -m1 -- '--- FAIL' | sed 's/^ *//' | cut -c1-70)"
       KILLED=$((KILLED + 1))

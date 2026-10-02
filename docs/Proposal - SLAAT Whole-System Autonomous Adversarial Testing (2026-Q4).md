@@ -182,7 +182,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P2 | `SLAAT-P2-4` | Agent Sandbox Confinement & Landlock LSM Policy Fixes | `SLAAT-P2-PRE` | Seal sandbox breakout vectors, enforce Landlock filesystem rules, and harden eBPF detection alarms. | `integration` | `M` | `daily` | pass : delivered: 708facadab6db37f3a414c86a76d0fe1c1c2622f (see Errata : SLAAT-P2-4) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-GOV` | Phase 2 Governor Gate: Remediations Integration & Rebuild | `SLAAT-P2-1`, `SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4` | Reconcile all remediations, verify clean compilation and unit tests, and prove invariant boundary compliance. | `e2e` | `L` | `daily` | pass : delivered: 849bb2455986877918a221f73dc164a66bb56dfa (see Errata : SLAAT-P2-GOV) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | pass : delivered: cb3f584351da2542a783705030ca4d9a5b3a4a9c (see Errata : SLAAT-P3-PRE) | $0.00 | 0 | 0s | none |
-| P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | pass : delivered: 97a4c179a64af061e1a68172693d82dd1caba379 (see Errata : SLAAT-P3-1) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-GOV` | Final Mission Governor Gate: Certification & Hand-Off | `SLAAT-P3-1`, `SLAAT-P3-2` | Generate final certification report, consolidate errata ledgers, verify clean git status, and close mission. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 
@@ -581,3 +581,24 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 - Deliverables authored: docs/slaat/p3-pre/preflight-attestation-report.md, docs/slaat/p3-pre/preflight-env.json, and ci-evidence/slaat-p3-pre-env-attestation.json.
 - Environment attested and ready for Phase 3 attack replay (SLAAT-P3-1) and acceptance verification (SLAAT-P3-2).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAAT-P3-1 Full Adversarial Attack Replay & Exploit Defense Verification
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-02 12:49:00+01:00
+**Last Updated:** 2026-10-02 12:49:00+01:00
+**Status:** Completed
+**Commit:** 97a4c179a64af061e1a68172693d82dd1caba379
+**Governor merge:** delivered in c2d6851e (integration/slaat-whole-system-adversarial)
+**Decisions:**
+- Replayed all 24 Phase 1 vulnerability findings across all four planes against the hardened baseline.
+- Plane 1 (Network): verified default-deny and gateway admissions via test/adversarial-network-probes.bats and test/network-microsegmentation-hardening.bats (35 tests passing).
+- Plane 2 (API): verified IDOR and unauthenticated route defenses via test_adversarial_api_security.py and test_api_auth_remediation.py (226 tests passing).
+- Plane 3 (SPIFFE/OpenBao): verified workload attestation, 300s TTL ceiling, glob claims, and KV isolation via test/spiffe-openbao-policy-hardening.bats, test/openbao-security-probes.bats, and test/spiffe-openbao-adversarial.bats (38 tests passing).
+- Plane 4 (Sandbox): verified Landlock LSM path denials and eBPF burst detection via test/sandbox-confinement-hardening.bats, test/landlock-adversarial-escape.bats, and test/landlock-containment-probes.bats (39 tests passing).
+- Authored unified execution suites: scripts/run-all-adversarial-replays.sh and scripts/run-full-adversarial-regression.sh.
+**Notes:**
+- Deliverables authored: docs/slaat/p3-1/attack-replay-verification-report.md and ci-evidence/slaat-p3-1-attack-replay.json.
+- Observed exploit defense rate: 100.0% (24/24 exploits defended, zero breaches).
+- Ready for SLAAT-P3-2 Whole-Platform Acceptance & Multiplane Regression Suite.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

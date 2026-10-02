@@ -320,3 +320,21 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
     roles issuing 32-day tokens against the mission's 5-minute cap.
 - **Phase 1 Status**: Certified complete. `status=pass proceed=yes blocking_drift=no`.
 - **Next Ready Phase**: `SLAAT-P2-PRE` (Phase 2 Pre-Flight Check & Remediation Triage).
+
+---
+
+## 15. Active Execution Status: SLAAT-P2-PRE (985de)
+
+- **Timestamp**: 2026-10-02T05:48:00Z
+- **Board Column**: `in_progress`
+- **Assigned Role**: `preflight`
+- **Runtime**: `kpai` / Claude Code under Sonnet 5
+- **Worktree**: `/home/andy/src/.worktrees/985de/osramp-demo`
+- **Active Task**: Phase 2 Pre-Flight Check & Remediation Triage
+- **Actions in Flight**:
+  - Triaging 24 Phase 1 findings cataloged in `docs/slaat-phase1-adversarial-dossier.md` and `ci-evidence/slaat-phase1-consolidated-findings.json` (1 CRITICAL: `SPIFFE-F1` 32-day JWT TTL; 3 HIGH: `SENTINEL-F1` syscall telemetry, `API-F1` audience binding, `API-F2` tenant claims; 5 MEDIUM, 11 LOW, 4 INFO).
+  - Validating toolchains, test harnesses, and compilation baselines across ingress, API, SPIFFE/OpenBao, and Landlock/Sentinel confinement.
+  - Setting up Phase 2 fail/fix triage matrix and reproducible failure manifests.
+- **Diagnostic State**: `kanban-check.sh doctor` reports `doc=clean`, zero exceptions.
+- **Review Ledger**: Synchronized across principal repository and integration branch at `840870a2`.
+

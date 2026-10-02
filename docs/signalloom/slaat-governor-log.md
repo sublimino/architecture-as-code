@@ -262,3 +262,28 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Card State: Advanced to `done` column (`done=4`: P1-PRE, P1-1, P1-2, P1-3).
 - **Next Ready Card**: `SLAAT-P1-4` (`9b991`) [READY]
   - Task: Sentinel eBPF & Landlock Sandbox Confinement Escape Attacks.
+
+---
+
+## 13. Milestone Completion: SLAAT-P1-4 (9b991) [DONE] & Dispatch of SLAAT-P1-GOV (feab3)
+
+- **Timestamp**: `2026-10-02T04:52:00Z`
+- **Completed Card**: `SLAAT-P1-4` (`9b991`) [DONE]
+  - Deliverables: 14 files (+2,444 lines) delivered at commits `e0395647` and `2b8ec0d2`:
+    - `test/landlock-adversarial-escape.bats` (15 test cases: sensitive-path reads, symlink traversal, proc inspection, ptrace, unshare).
+    - `test/landlock-containment-probes.bats` (13 test cases: syscall and filesystem escape boundary probes).
+    - `test/cgroup-freeze-adversarial.bats` (14 test cases: cgroup-freeze containment latency and thread freeze tests).
+    - `scripts/stress-agent-cgroups.sh` (cgroup resource limit, fork-bomb churn, and OOM stress testing script).
+    - `scripts/probe-sentinel-evasion.sh` (Sentinel eBPF sensor evasion probing script: 9 live probes).
+    - `scripts/test-agent-sandbox-escape.sh` (16 live Landlock escape probe battery).
+    - `docs/slaat/p1-4/sentinel-landlock-confinement-adversarial-dossier.md` (19.4 KB comprehensive dossier).
+    - `ci-evidence/slaat-p1-4-confinement-findings.json`, `ci-evidence/slaat-p1-4-landlock-escape-probe-records.json`, `ci-evidence/slaat-p1-4-sentinel-evasion-probe-records.json`, `ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json`.
+    - `Makefile` & `scripts/ci/vm-pipeline.sh` (registered test targets).
+  - Integration Merge: Commit `ce04aa51` incorporates all deliverables and normalized errata into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=5`: P1-PRE, P1-1, P1-2, P1-3, P1-4).
+- **All Phase 1 Probes Complete**:
+  - All four adversarial probe domains (Network Isolation, Backend API IDOR, SPIFFE/OpenBao Privilege Escalation, Sentinel/Landlock Confinement) are 100% completed, corroborated, and merged into the integration branch.
+- **Next Ready Card**: `SLAAT-P1-GOV` (`feab3`) [READY]
+  - Task: Phase 1 Governor Gate: Vulnerability Dossier & Attack Log.
+  - Purpose: Aggregate findings from P1-1 through P1-4, compile authoritative vulnerability dossier, establish severity taxonomy, and open Phase 2 (Remediations).

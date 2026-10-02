@@ -92,6 +92,16 @@ stringData:
         hash: $2b$10$gNhgjlqGP5VFva0S/bJtz.J2h0UTQAqYNh0OQRsJdCbRR0Yf.gitq
         username: viewer
         userID: viewer
+      # The Kusari EAP pilot operator. It is the one identity that maps to
+      # tenant kusari (fe-signalloom API_SUBJECT_TENANTS), so a claim of
+      # kusari-agent made through the product lands in that tenant. Before it,
+      # no subject mapped to kusari and the pilot's agent_registry row could
+      # only be written outside the product. Not a superadmin.
+      - email: kusari-operator@signalloom.local
+        # bcrypt("kusari-operator") — local-demo credential only (see docs/signalloom).
+        hash: $2b$10$rmTC5VFwYrTONVhU92H4zeEefnvwNDtLhAg9/ywt5W.Efe7WQrxf6
+        username: kusari-operator
+        userID: kusari-operator
 ---
 apiVersion: apps/v1
 kind: Deployment

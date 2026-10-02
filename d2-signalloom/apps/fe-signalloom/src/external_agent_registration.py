@@ -858,6 +858,9 @@ async def claim_external_agent_handler(
             },
         )
 
+    # reg (Postgres branch) and reg_item (in-memory branch) are each bound on one branch only;
+    # reading reg_item here raised UnboundLocalError on every DB-backed claim, swallowed below.
+    spine_host_id = reg["host_id"] if pool is not None else (reg_item["host_id"] if reg_item else "external-host")
     try:
         # Was `tenant_id=tenant_id`, a keyword the function never had: every call raised
         # TypeError into the except below and no external-agent claim ever reached the spine.
@@ -869,7 +872,7 @@ async def claim_external_agent_handler(
             claim_id=claim_id,
             capabilities=["agent:operate", "external_linux_agent"],
             containment_claims=["containment:nono_0.73.0", "containment:landlock"],
-            metadata={"host_id": reg_item["host_id"] if reg_item else "external-host", "agent_id": agent_id},
+            metadata={"host_id": spine_host_id, "agent_id": agent_id},
         )
     except Exception as exc:
         logger.warning("Spine sync failed for external agent claim: %s", exc)

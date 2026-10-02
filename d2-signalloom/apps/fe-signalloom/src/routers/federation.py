@@ -378,6 +378,10 @@ async def proxy_federation_request(
             "host",
             "x-spiffe-id",
             "x-spiffe-svid",
+            # signal-ingest scopes a gateway request to this tenant. A client must never be able
+            # to name it, whatever credential a later change sends alongside.
+            "x-signalloom-acting-tenant",
+            "x-signalloom-acting-subject",
         ):
             headers[k] = v
 

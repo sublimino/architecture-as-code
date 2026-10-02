@@ -69,6 +69,20 @@ def build_external_agent_containment_claims(
     return sorted(list(set(claims)))
 
 
+def _delegation_headers(tenant: str | None, subject: str, claim_id: str) -> dict[str, str] | None:
+    """Gateway headers acting for the claiming tenant, or None (and a warning) when there is no
+    usable tenant or key: a delegation edge is tenant data, never written unscoped."""
+    # Imported here: api_compat imports this module, and ingest_client imports api_compat.
+    from api_compat import APIError
+    from ingest_client import ingest_headers_for_tenant
+
+    try:
+        return ingest_headers_for_tenant(tenant, subject)
+    except APIError as exc:
+        logger.warning("delegation sync for claim %s not sent to signal-ingest: %s", claim_id, exc.code)
+        return None
+
+
 async def sync_claim_delegation_to_spine(
     agent_id: str,
     operator_id: str,
@@ -76,6 +90,9 @@ async def sync_claim_delegation_to_spine(
     capabilities: list[str] | None = None,
     containment_claims: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
+    *,
+    tenant: str | None = None,
+    subject: str = "system:claim-sync",
 ) -> bool:
     """Synchronize an agent claim into the Actor-Resolution Spine in signal-ingest.
 
@@ -84,6 +101,9 @@ async def sync_claim_delegation_to_spine(
     """
     if not SIGNAL_INGEST_URL:
         return True
+    headers = _delegation_headers(tenant, subject, claim_id)
+    if headers is None:
+        return False
 
     caps = capabilities or ["agent:operate"]
     containment = containment_claims or []
@@ -101,7 +121,7 @@ async def sync_claim_delegation_to_spine(
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(f"{SIGNAL_INGEST_URL}/api/v1/delegations", json=payload)
+            resp = await client.post(f"{SIGNAL_INGEST_URL}/api/v1/delegations", json=payload, headers=headers)
             if resp.status_code in (200, 201):
                 logger.info("Synchronized claim %s to signal-ingest spine", claim_id)
                 return True
@@ -117,10 +137,16 @@ async def sync_claim_delegation_to_spine(
 async def clamp_claim_delegation_in_spine(
     agent_id: str,
     claim_id: str,
+    *,
+    tenant: str | None = None,
+    subject: str = "system:claim-sync",
 ) -> bool:
     """Terminate or clamp a delegation edge in signal-ingest upon claim release."""
     if not SIGNAL_INGEST_URL:
         return True
+    headers = _delegation_headers(tenant, subject, claim_id)
+    if headers is None:
+        return False
 
     payload = {
         "delegate_actor_id": agent_id,
@@ -130,7 +156,7 @@ async def clamp_claim_delegation_in_spine(
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
-                f"{SIGNAL_INGEST_URL}/api/v1/delegations/clamp", json=payload
+                f"{SIGNAL_INGEST_URL}/api/v1/delegations/clamp", json=payload, headers=headers
             )
             if resp.status_code in (200, 204):
                 logger.info("Clamped delegation for claim %s in signal-ingest spine", claim_id)

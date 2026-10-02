@@ -728,6 +728,75 @@ func TestFreezePodPropagatesResolutionFailure(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SLAAT-P2-4/F2: fallback-discovery time budget
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// On a shared, contended kind node the depth-bounded walkForPod fallback was
+// observed taking long enough to blow past a caller's own timeout (an
+// intermittent HTTP 504, 2 of 5 stress runs) even though the actual
+// Freeze() write+poll afterwards always completed inside its 50ms deadline.
+// These tests prove the walk now carries its own independent time budget,
+// and that a genuine "pod not found" is never misreported as a timeout (or
+// vice versa) -- the two require different operational responses.
+
+func withShrunkDiscoveryBudget(t *testing.T, d time.Duration) {
+	t.Helper()
+	original := maxDiscoveryBudget
+	maxDiscoveryBudget = d
+	t.Cleanup(func() { maxDiscoveryBudget = original })
+}
+
+func TestResolvePodCgroupReportsDiscoveryDeadlineUnderContention(t *testing.T) {
+	root := t.TempDir()
+	// A real subtree so the walk has somewhere to descend into; none of it
+	// matches the target pod, so the fast candidate-path check misses and
+	// control reaches walkForPod's budget check.
+	if err := os.MkdirAll(filepath.Join(root, "kubepods.slice", "unrelated.slice"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Already expired before the walk starts: this is the "arbitrarily slow
+	// host" case made deterministic, not a race against a real clock.
+	withShrunkDiscoveryBudget(t, -1*time.Second)
+
+	f := New(root)
+	_, err := f.ResolvePodCgroup(testUID)
+	if !errors.Is(err, ErrDiscoveryDeadline) {
+		t.Fatalf("error = %v, want ErrDiscoveryDeadline", err)
+	}
+	if errors.Is(err, ErrCgroupNotFound) {
+		t.Fatalf("a discovery-deadline timeout must not also satisfy ErrCgroupNotFound: %v", err)
+	}
+}
+
+func TestResolvePodCgroupGenuineAbsenceIsNotADeadline(t *testing.T) {
+	// Budget is untouched: a pod that genuinely is not present must still
+	// resolve quickly to ErrCgroupNotFound, not get reclassified as a
+	// timeout now that one exists.
+	f := New(t.TempDir())
+	_, err := f.ResolvePodCgroup(testUID)
+	if !errors.Is(err, ErrCgroupNotFound) {
+		t.Fatalf("error = %v, want ErrCgroupNotFound", err)
+	}
+	if errors.Is(err, ErrDiscoveryDeadline) {
+		t.Fatalf("a genuine not-found must not also be a discovery deadline: %v", err)
+	}
+}
+
+func TestFreezePodPropagatesDiscoveryDeadlineDistinctlyFromNotFound(t *testing.T) {
+	root := t.TempDir()
+	withShrunkDiscoveryBudget(t, -1*time.Second)
+
+	f := New(root, WithFreezeCredentialValidator(allowCredential("t")))
+	res, err := f.FreezePod(testUID, "t")
+	if !errors.Is(err, ErrDiscoveryDeadline) {
+		t.Fatalf("error = %v, want ErrDiscoveryDeadline", err)
+	}
+	if res == nil || res.Frozen {
+		t.Error("a discovery-deadline failure must not report Frozen = true")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Freeze and governance
 // ─────────────────────────────────────────────────────────────────────────────
 

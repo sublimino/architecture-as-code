@@ -28,13 +28,17 @@
       "~/.config/gh/",
       "~/.docker/config.json",
       "~/.kube/config",
+      "~/.kube/",
       "~/.netrc",
       "~/.git-credentials",
       "~/.claude/",
       "~/.andy_sync/",
       "/etc/shadow",
       "/etc/gshadow",
-      "/run/user/1000/gnupg/"
+      "/run/user/1000/gnupg/",
+      "/proc/sys/",
+      "/sys/fs/cgroup/",
+      "/root/"
     ]
   },
   "environment": {

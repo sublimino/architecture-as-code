@@ -13,7 +13,15 @@ setup() {
   d2="$repo_root/d2-signalloom"
   mod_dir="$d2/apps/signalloom-stun-sentinel"
   dockerfile="$mod_dir/Dockerfile"
-  build_line="$(rg -A1 '^swarm-stun-sentinel-image:' "$d2/Makefile" | rg 'docker build')"
+  # The recipe as make runs it: backslash continuations joined, then split into
+  # its `;`-separated commands, keeping the docker build. Reading only the line
+  # after the target broke the day the tag stopped being a literal and the
+  # recipe computed it first.
+  build_line="$(awk '
+    /^swarm-stun-sentinel-image:/ { r = 1; next }
+    r && !/^\t/ { exit }
+    r { s = s $0; if (s ~ /\\$/) { sub(/\\$/, " ", s); next } print s; s = "" }
+  ' "$d2/Makefile" | tr ';' '\n' | rg 'docker build')"
   # Context is the last argument of the recipe, relative to d2-signalloom/.
   context="$d2/$(awk '{print $NF}' <<<"$build_line")"
   context="$(cd "$context" && pwd)"

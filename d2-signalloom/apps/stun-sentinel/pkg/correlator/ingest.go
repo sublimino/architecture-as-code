@@ -32,10 +32,10 @@ const (
 )
 
 func (o TelemetryObservation) toIngest() ingestObservation {
-	labels := make(map[string]string, len(o.Labels)+7)
-	for k, v := range o.Labels {
-		labels[k] = v
-	}
+	// Only the sentinel's own keys. Pod labels are chosen by whoever deploys
+	// the pod, so they are attacker-influenced and must not ride along (review
+	// M5), and signal-ingest's segment store admits a closed key set (M4).
+	labels := make(map[string]string, 8)
 	for k, v := range map[string]string{
 		"syscall": o.Syscall, "target": o.Target, "pod_name": o.PodName,
 		"namespace": o.Namespace, "tenant_id": o.TenantID, "severity": o.Severity,
@@ -50,7 +50,7 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 		actor = o.PodName
 	}
 	return ingestObservation{
-		ID:             fmt.Sprintf("%s:%s/%s:%s:%s", ingestSource, o.Namespace, o.PodName, o.Timestamp, o.Syscall),
+		ID:             fmt.Sprintf("%s:%s/%s:%s:%s:%s", ingestSource, o.Namespace, o.PodName, o.Timestamp, o.Syscall, o.Target),
 		Timestamp:      o.Timestamp,
 		Layer:          ingestLayer,
 		Fidelity:       ingestFidelity,

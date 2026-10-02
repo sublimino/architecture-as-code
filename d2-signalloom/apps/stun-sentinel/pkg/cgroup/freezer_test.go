@@ -21,7 +21,7 @@ import (
 // cgroup-v2 hierarchy. Nothing here needs a cluster, a kernel feature, or
 // root. The one behaviour a temp directory cannot reproduce is the kernel
 // flipping `frozen 0` to `frozen 1` in response to a write, so the mock
-// provides that transition explicitly — which is precisely what lets us test
+// provides that transition explicitly -- which is precisely what lets us test
 // the "it never froze" path that a real kernel makes hard to produce on
 // demand.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,7 +378,7 @@ func TestParsePopulatedState(t *testing.T) {
 
 func TestOwnFreezeSettingReadsTheControlFileNotEvents(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
-	// cgroup.freeze says 0 while cgroup.events says frozen 1 — the exact
+	// cgroup.freeze says 0 while cgroup.events says frozen 1 -- the exact
 	// signature of an ancestor-held freeze.
 	if err := os.WriteFile(filepath.Join(dir, freezeFile), []byte("0\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -401,7 +401,7 @@ func TestOwnFreezeSettingReadsTheControlFileNotEvents(t *testing.T) {
 
 // An EMPTY cgroup reports `frozen 1` immediately and unconditionally. Freezing
 // the wrong cgroup, or one whose target already exited, therefore produces the
-// most convincing possible evidence — instant success, flawless latency — for
+// most convincing possible evidence -- instant success, flawless latency -- for
 // a containment that contained nothing.
 func TestFreezeRefusesToClaimSuccessOnAnEmptyCgroup(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 0\nfrozen 1\n", true)
@@ -436,7 +436,7 @@ func TestFreezeSucceedsWhenPopulatedFlagIsSetEvenIfProcsUnreadable(t *testing.T)
 }
 
 // A cgroup whose events file omits `populated` but which demonstrably holds
-// PIDs must not be rejected — the census is the fallback evidence.
+// PIDs must not be rejected -- the census is the fallback evidence.
 func TestFreezeAcceptsCgroupWithPIDsButNoPopulatedFlag(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "frozen 1\n", true)
 	if err := os.WriteFile(filepath.Join(dir, procsFile), []byte("4242\n"), 0o644); err != nil {
@@ -459,7 +459,7 @@ func TestFreezeAcceptsCgroupWithPIDsButNoPopulatedFlag(t *testing.T) {
 // cgroup.events reports the EFFECTIVE frozen state, inheriting a freeze from
 // any ancestor; cgroup.freeze holds only this cgroup's own setting. When our
 // write lands but the effective state stays frozen, the freeze is held higher
-// up the tree — waiting longer cannot help, and reporting a generic timeout
+// up the tree -- waiting longer cannot help, and reporting a generic timeout
 // would send an operator to the wrong place.
 func TestUnfreezeReportsAncestorHeldFreeze(t *testing.T) {
 	dir := mockCgroup(t, filepath.Join(t.TempDir(), "cg"), "populated 1\nfrozen 1\n", true)
@@ -632,7 +632,7 @@ func TestFreezeReturnsDeadlineErrorWhenNeverFrozen(t *testing.T) {
 	if !strings.Contains(err.Error(), "frozen 0") {
 		t.Errorf("error %q should name the observed state", err)
 	}
-	// The write still happened — the failure is in confirmation, not in the
+	// The write still happened -- the failure is in confirmation, not in the
 	// attempt, and the error must not imply otherwise.
 	if got := readFreezeControl(t, dir); got != "1" {
 		t.Errorf("cgroup.freeze = %q, want \"1\"; the write should still have been attempted", got)
@@ -1038,7 +1038,7 @@ func TestListProcsEmptyCgroupReturnsEmptySlice(t *testing.T) {
 //
 // The scenario: a process forks a child while the freeze is being asserted.
 // cgroup-v2 freezes the whole subtree atomically in-kernel, so the child is
-// frozen too — but only a census taken AFTER the frozen state is confirmed
+// frozen too -- but only a census taken AFTER the frozen state is confirmed
 // will contain it. This test reproduces that ordering: the child PID is
 // written into cgroup.procs at the same moment the state settles, and it must
 // appear in FreezeResult.PIDs.
@@ -1069,7 +1069,7 @@ func TestFreezeCensusIsTakenAfterConfirmationAndSeesForkedChild(t *testing.T) {
 		t.Fatal("Frozen = false")
 	}
 	if want := []int{4242, 4243}; !reflect.DeepEqual(res.PIDs, want) {
-		t.Errorf("post-freeze PIDs = %v, want %v — the census must run after confirmation, "+
+		t.Errorf("post-freeze PIDs = %v, want %v -- the census must run after confirmation, "+
 			"or a process forked during the freeze is missing from the audit record", res.PIDs, want)
 	}
 }

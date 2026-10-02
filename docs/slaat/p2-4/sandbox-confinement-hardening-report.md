@@ -14,10 +14,10 @@ Landlock filesystem policy per this card's Approach.
 | `/proc/sys/` | named explicitly by this card's Approach |
 | `/sys/fs/cgroup/` | named explicitly; also the host cgroup hierarchy the sentinel itself needs exclusive write access to |
 | `/root/` | "root execution paths" |
-| `~/.kube/` | broadened from the existing `~/.kube/config` (kept, for backward compatibility with the SLAAT-P1-4 structural test) to the whole directory — a kubeconfig can also live as `~/.kube/cache/*` or a context-specific file |
+| `~/.kube/` | broadened from the existing `~/.kube/config` (kept, for backward compatibility with the SLAAT-P1-4 structural test) to the whole directory -- a kubeconfig can also live as `~/.kube/cache/*` or a context-specific file |
 
 Verified live against the real kernel via `scripts/test-agent-sandbox-escape.sh`
-(16/16 probes pass, unchanged from SLAAT-P1-4's baseline — the new deny
+(16/16 probes pass, unchanged from SLAAT-P1-4's baseline -- the new deny
 entries are additive, not a behavior change for any existing probe) and
 `scripts/test-worktree-confinement.sh` (21/21 probes pass). Both harnesses
 are read-only against the profile; no probe in either targets the four new
@@ -34,7 +34,7 @@ the whole cgroup-v2 hierarchy bounded only by *depth*
 (`maxDiscoveryDepth = 6`), never by *wall-clock time*. On a shared,
 contended kind node every directory in that walk costs a real
 stat/open/read syscall that now queues behind other I/O, so the walk could
-run long enough to blow past a caller's own timeout — observed as an
+run long enough to blow past a caller's own timeout -- observed as an
 intermittent HTTP 504 (2 of 5 stress runs) even though the actual
 `Freeze()` write+poll, once the path was found, always completed inside its
 50ms deadline.
@@ -43,7 +43,7 @@ intermittent HTTP 504 (2 of 5 stress runs) even though the actual
 - `maxDiscoveryBudget` (2s) bounds the walk's wall-clock time independently
   of its depth.
 - A new sentinel error, `ErrDiscoveryDeadline`, is returned distinctly from
-  `ErrCgroupNotFound` when the budget is exceeded — the previous code
+  `ErrCgroupNotFound` when the budget is exceeded -- the previous code
   silently collapsed "timed out" into "not found", which hid the finding
   and gives the caller the wrong operational response (give up vs. retry).
 - `cmd/stun-sentinel/main.go`'s `statusFor` maps `ErrDiscoveryDeadline` to
@@ -61,35 +61,35 @@ trips and is distinct from not-found, in both `ResolvePodCgroup` and
 **Root cause.** `pkg/correlator.SentinelProbeManager.handleRecord` drops any
 syscall event that does not match `IsSensitivePath` *before* pod lookup,
 normalization, or freeze. A rapid process-spawn burst (200 execve calls)
-touches no sensitive path, so every single event in it was discarded —
+touches no sensitive path, so every single event in it was discarded --
 live-reproduced by `SLAAT-P2-PRE` as `SENTINEL-F1`.
 
 **Fix** (`pkg/correlator/ebpf_correlator.go`, `types.go`):
 - A `burstTracker` counts EXECVE events per cgroup within a sliding window
   (`DefaultEvasiveBurstThreshold=20` events / `DefaultEvasiveBurstWindow=1s`,
   overridable via `WithEvasiveBurstThreshold`). Reaching the threshold
-  reports and, for a governed agent pod, freezes — independently of, and
+  reports and, for a governed agent pod, freezes -- independently of, and
   checked before, the sensitive-path filter.
 - Reaching threshold resets the window, so a sustained attacker is
   re-flagged every window rather than alerting once and going silent.
 - **Separately discovered while instrumenting this**: `dispatchWorker`
   discarded `dispatchObservation`'s error outright
   (`_ = m.dispatchObservation(obs)`), so a detection's only trace was the
-  signal-ingest HTTP POST — if that POST failed, there was zero evidence
+  signal-ingest HTTP POST -- if that POST failed, there was zero evidence
   anywhere `kubectl logs` could show. Every observation (sensitive-path or
   burst) is now logged to stdout as a structured `ebpf_detection` /
   `ebpf_detection_dispatch_failed` JSON line *before* the POST is attempted.
 
 Proven by ten new unit tests across `pipeline_test.go` (burst trips exactly
 at threshold, no false positive below it, re-trips after a window reset,
-refuses freeze outside policy — mirroring the existing sensitive-path
+refuses freeze outside policy -- mirroring the existing sensitive-path
 test shapes) and `ebpf_correlator_test.go` (stdout logging survives a
 simulated signal-ingest outage).
 
 ## 4. Live verification and the deployment finding
 
 Both fixes above are **proven at the Go unit-test level**
-(`test/sandbox-confinement-hardening.bats`, tests 4–6), which is
+(`test/sandbox-confinement-hardening.bats`, tests 4--6), which is
 deterministic and hermetic.
 
 **Live verification of the burst detector was attempted and is
@@ -109,7 +109,7 @@ card:
    with all four tracepoints at startup.
 3. This means the correlator's ring-buffer consumption is not delivering
    events end-to-end in this environment when built from this branch's
-   current source — a **pre-existing wiring/behavior gap that predates
+   current source -- a **pre-existing wiring/behavior gap that predates
    this card** (this card did not touch `signalloom-stun-sentinel/main.go`,
    the file that wires the loader and the informer).
 4. The **previously-running image** (`v0.2.0`, tagged `import-2026-10-01`)
@@ -121,8 +121,8 @@ card:
    more-advanced source not yet merged into
    `integration/slaat-whole-system-adversarial`.
 5. **Decision**: rolled the shared DaemonSet back to `v0.2.0` rather than
-   leave a correlator that delivers zero events — including for the
-   already-shipped sensitive-path detector — on the cluster every other
+   leave a correlator that delivers zero events -- including for the
+   already-shipped sensitive-path detector -- on the cluster every other
    SLAAT card also depends on. Regressing a working control to add an
    unverifiable one is not an acceptable trade.
 
@@ -144,7 +144,7 @@ delta, and only then redeploy this card's burst-detector fix live.
 already carry `runAsNonRoot`, non-root UID, `readOnlyRootFilesystem: true`,
 `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]` (sentinel adds
 back only `SYS_PTRACE`/`BPF`/`NET_ADMIN`/`SYS_ADMIN`, each commented with
-why), and `resources.limits` — this card found nothing to add here.
+why), and `resources.limits` -- this card found nothing to add here.
 
 New script `scripts/verify-cgroup-enforcement.sh` proves these limits are
 *enforced by the kernel*, not merely declared: `memory.max`/`cpu.max` on a
@@ -160,18 +160,18 @@ config change, which this card's Out of Scope list names directly
 
 ## Evidence index
 
-- `ci-evidence/slaat-p2-4-landlock-escape-battery.json` — 16/16,
+- `ci-evidence/slaat-p2-4-landlock-escape-battery.json` -- 16/16,
   `scripts/test-agent-sandbox-escape.sh`.
-- `ci-evidence/slaat-p2-4-worktree-confinement.json` — 21/21,
+- `ci-evidence/slaat-p2-4-worktree-confinement.json` -- 21/21,
   `scripts/test-worktree-confinement.sh`.
-- `ci-evidence/slaat-p2-4-cgroup-enforcement.json` — 5/5,
+- `ci-evidence/slaat-p2-4-cgroup-enforcement.json` -- 5/5,
   `scripts/verify-cgroup-enforcement.sh`.
-- `ci-evidence/slaat-p2-4-sentinel-evasion-post-fix-source-level.json` —
+- `ci-evidence/slaat-p2-4-sentinel-evasion-post-fix-source-level.json` --
   the live probe run against the (subsequently rolled back) `v0.2.2-slaat-p2-4`
   image; see §4 for why its burst-detection fields read `FAIL`.
-- `test/sandbox-confinement-hardening.bats` — 11/11 (new suite).
-- `test/landlock-adversarial-escape.bats` — 15/15 (2 honest skips, §4).
-- `test/landlock-containment-probes.bats` — 13/13 (unchanged).
-- `test/worktree-landlock-confinement.bats` — 36/36 (unchanged).
-- `d2-signalloom/apps/stun-sentinel/pkg/{cgroup,correlator}` — all unit
+- `test/sandbox-confinement-hardening.bats` -- 11/11 (new suite).
+- `test/landlock-adversarial-escape.bats` -- 15/15 (2 honest skips, §4).
+- `test/landlock-containment-probes.bats` -- 13/13 (unchanged).
+- `test/worktree-landlock-confinement.bats` -- 36/36 (unchanged).
+- `d2-signalloom/apps/stun-sentinel/pkg/{cgroup,correlator}` -- all unit
   tests green, including 16 new tests this card adds.

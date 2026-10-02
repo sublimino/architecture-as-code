@@ -7,22 +7,22 @@
 # @doc     docs/slaat/p1-4/sentinel-landlock-confinement-adversarial-dossier.md
 # @spec    SLAAT-P1-4
 #
-# SLAAT-P1-4 — Landlock sandbox ESCAPE-SCENARIO suite: symlink traversal,
+# SLAAT-P1-4 -- Landlock sandbox ESCAPE-SCENARIO suite: symlink traversal,
 # /proc inspection, ptrace attachment, unshare namespace creation, forbidden
 # fd inheritance, and a background-thread exfiltration race. Complements
 # test/landlock-containment-probes.bats, which covers the literal syscall
-# probes (O_CREAT on /etc, raw sockets) and the named sensitive-path reads —
+# probes (O_CREAT on /etc, raw sockets) and the named sensitive-path reads --
 # this file covers the SCENARIO-shaped attacks from the card's Objective and
 # Approach that are not simple single-syscall checks.
 #
-# Both files assert against ONE run of scripts/test-agent-sandbox-escape.sh —
+# Both files assert against ONE run of scripts/test-agent-sandbox-escape.sh --
 # each runs it independently in its own setup_file() (not shared across
 # files) so either suite is green or red on its own, matching the convention
 # every other live suite in this repo already uses
 # (test/cgroup-freeze-stun.bats, test/worktree-landlock-confinement.bats).
 #
 # Also runs scripts/probe-sentinel-evasion.sh once, live, against the
-# deployed sentinel — the eBPF telemetry half of this card's adversarial
+# deployed sentinel -- the eBPF telemetry half of this card's adversarial
 # battery, reported here because it shares this file's "can the kernel-level
 # defense be evaded" framing.
 
@@ -42,14 +42,14 @@ setup_file() {
     echo "# running the live escape battery once for the whole file..." >&3
     bash "${ESCAPE_HARNESS}" --json "${ESCAPE_PROOF}" >"${ESCAPE_LOG}" 2>&1 || true
   else
-    echo "# nono and/or Landlock unavailable — escape-scenario tests will skip" >&3
+    echo "# nono and/or Landlock unavailable -- escape-scenario tests will skip" >&3
   fi
 
   if have_live_cluster; then
     echo "# running the live sentinel evasion probe once for the whole file..." >&3
     bash "${EVASION_HARNESS}" --json "${EVASION_PROOF}" >"${EVASION_LOG}" 2>&1 || true
   else
-    echo "# no live kind-osramp cluster — eBPF evasion tests will skip" >&3
+    echo "# no live kind-osramp cluster -- eBPF evasion tests will skip" >&3
   fi
 }
 
@@ -78,7 +78,7 @@ require_escape_proof() {
     [[ -s "${ESCAPE_LOG}" ]] && sed 's/^/#   /' "${ESCAPE_LOG}" >&3
     return 1
   fi
-  skip "no sandbox — live harness cannot run"
+  skip "no sandbox -- live harness cannot run"
 }
 
 require_live_cluster() {
@@ -92,7 +92,7 @@ require_evasion_proof() {
     [[ -s "${EVASION_LOG}" ]] && sed 's/^/#   /' "${EVASION_LOG}" >&3
     return 1
   fi
-  skip "no live cluster — evasion probe cannot run"
+  skip "no live cluster -- evasion probe cannot run"
 }
 
 # require_burst_fix_deployed guards the two SLAAT-P2-4 burst-detection
@@ -106,7 +106,7 @@ require_evasion_proof() {
 # v0.2.0 image rather than leave a regressed correlator on the cluster every
 # other SLAAT card also depends on. These two tests therefore skip, with
 # this explanation, until a follow-up card resolves the pipeline gap and a
-# fixed image is actually running — they must NOT silently report a false
+# fixed image is actually running -- they must NOT silently report a false
 # pass against an image that cannot possibly carry the fix, and must NOT
 # report a hard fail that reads as a regression in THIS card's own code
 # (which is proven correct at the unit level in
@@ -250,7 +250,7 @@ evasion_field() {
   [ "$declared" -ge 10 ]
 
   if ! sandbox_available && ! have_live_cluster; then
-    echo "NOTE: ${declared} LIVE tests were skipped — no sandbox and no live cluster." >&3
+    echo "NOTE: ${declared} LIVE tests were skipped -- no sandbox and no live cluster." >&3
     return 0
   fi
 

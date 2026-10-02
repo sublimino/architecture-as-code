@@ -41,7 +41,7 @@
     {
       "id": "live.cpu-bandwidth-controller-actually-throttles-under-stress",
       "description": "nr_throttled in the pod-level cgroup's cpu.stat advances after a 4-way CPU-burn burst inside an isolated, throwaway 100m-quota pod this script owns",
-      "expectation": "nr_throttled after > nr_throttled before — proves the quota is enforced by the kernel, not merely written to a file",
+      "expectation": "nr_throttled after > nr_throttled before -- proves the quota is enforced by the kernel, not merely written to a file",
       "verdict": "pass",
       "evidence": "stress_cgroup_resolved=yes before=4 after=57",
       "note": ""

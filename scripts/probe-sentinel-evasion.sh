@@ -33,7 +33,7 @@
 # source or config at runtime; it drives activity FROM an unrelated agent pod
 # and observes the sentinel's own logs. (The SLAAT-P2-4 card itself DID
 # rebuild and redeploy the sentinel image from this branch's source, as a
-# separate, logged step — this script only verifies the result.)
+# separate, logged step -- this script only verifies the result.)
 set -uo pipefail
 
 readonly DECLARED_PROBES=9
@@ -93,7 +93,7 @@ have_cluster() {
 
 preflight() {
   if ! have_cluster; then
-    log "no live kind-osramp cluster (docker/kubectl/jq/node/namespace) — this probe requires the real deployment"
+    log "no live kind-osramp cluster (docker/kubectl/jq/node/namespace) -- this probe requires the real deployment"
     exit 3
   fi
 }
@@ -104,9 +104,9 @@ record() {
   EXECUTED=$((EXECUTED + 1))
   local verdict="fail"
   if [[ "${ok}" == "1" ]]; then
-    verdict="pass"; PASS=$((PASS + 1)); log "  ok   ${id} — ${desc}"
+    verdict="pass"; PASS=$((PASS + 1)); log "  ok   ${id} -- ${desc}"
   else
-    FAIL=$((FAIL + 1)); log "  FAIL ${id} — ${desc}"
+    FAIL=$((FAIL + 1)); log "  FAIL ${id} -- ${desc}"
   fi
   RESULTS+=("$(jq -nc \
     --arg id "${id}" --arg d "${desc}" --arg e "${expect}" \
@@ -144,7 +144,7 @@ main() {
   deployed_sec="$(grep -oE 'SEC\("[a-z_/]+"\)' "${SENTINEL_BPF_DEPLOYED}" 2>/dev/null | sort -u | tr '\n' ' ')"
   record "static.deployed-probe-is-socket-state-only" \
     "d2-signalloom/apps/signalloom-stun-sentinel's eBPF source attach points" \
-    "exactly tp_btf/inet_sock_set_state — no syscall tracepoint of any kind" \
+    "exactly tp_btf/inet_sock_set_state -- no syscall tracepoint of any kind" \
     "$([[ "${deployed_sec}" == *"inet_sock_set_state"* && "${deployed_sec}" != *"sys_enter"* ]] && echo 1 || echo 0)" \
     "attach_points=[${deployed_sec}]"
 
@@ -155,11 +155,11 @@ main() {
     "openat/openat2/execve/connect tracepoints exist in-repo; NOT instantiated by any cmd/ main()" \
     "$([[ "${undeployed_sec}" == *"sys_enter_execve"* ]] && ! grep -q "ebpf\.\|correlator\." "${STUN_SENTINEL_CMD_MAIN}" 2>/dev/null && echo 1 || echo 0)" \
     "attach_points=[${undeployed_sec}] cmd_main_references_ebpf_or_correlator=$(grep -c "ebpf\.\|correlator\." "${STUN_SENTINEL_CMD_MAIN}" 2>/dev/null || echo 0)" \
-    "the capability is implemented and unit-tested, not merely absent — it is dormant, a wiring gap rather than a design gap"
+    "the capability is implemented and unit-tested, not merely absent -- it is dormant, a wiring gap rather than a design gap"
 
   record "static.deployed-signalloom-variant-does-wire-its-own-probe" \
     "d2-signalloom/apps/signalloom-stun-sentinel/main.go references its ebpf/telemetry package (the socket-state-only one)" \
-    "reference present — confirms the live pod's instrumentation IS the socket-state-only path, not merely unbuilt" \
+    "reference present -- confirms the live pod's instrumentation IS the socket-state-only path, not merely unbuilt" \
     "$(grep -lq "ebpf\." "${SIGNALLOOM_CMD_MAIN}" 2>/dev/null && echo 1 || echo 0)" \
     "$(grep -c "ebpf\." "${SIGNALLOOM_CMD_MAIN}" 2>/dev/null || echo 0) reference(s) found"
 
@@ -172,7 +172,7 @@ main() {
     "$([[ "${health}" == *'"status":"ok"'* ]] && echo 1 || echo 0)" \
     "response=${health:0:200}"
 
-  # ── Live: baseline — the syscall probe loader actually attached ──────────
+  # ── Live: baseline -- the syscall probe loader actually attached ──────────
   # SLAAT-P2-4: main.go logs "ebpf_probe_attached" exactly once at startup
   # (pkg/ebpf.NewLoader succeeded and all four tracepoints are live); this is
   # the liveness signal this script can rely on existing in THIS branch's
@@ -227,7 +227,7 @@ main() {
   burst_detection_count="$(grep -c "\"syscall\":\"evasive_syscall_burst\"" <<<"${post_logs}" || true)"
   record "live.evasion-burst-is-detected-and-alarmed" \
     "sentinel stdout in the 3s window after the burst contains an ebpf_detection record for the burst" \
-    "at least one evasive_syscall_burst detection logged — this is the remediation of SLAAT-P1-4/F1 and SLAAT-P2-PRE's SENTINEL-F1" \
+    "at least one evasive_syscall_burst detection logged -- this is the remediation of SLAAT-P1-4/F1 and SLAAT-P2-PRE's SENTINEL-F1" \
     "$([[ "${burst_detection_count}" -gt 0 ]] && echo 1 || echo 0)" \
     "burst_detection_log_lines=${burst_detection_count}" \
     "pre-remediation this probe (SLAAT-P1-4) found zero telemetry for this exact burst shape; SLAAT-P2-4 added rate-based detection independent of the sensitive-path filter, plus unconditional stdout logging so a detection cannot be lost to a signal-ingest outage"
@@ -247,21 +247,21 @@ main() {
   post_control_count="$(sentinel_logs 400 | grep -c "\"syscall\":\"evasive_syscall_burst\"" || true)"
   record "live.sub-threshold-execve-does-not-false-positive" \
     "5 execve calls (well under the default threshold of 20/1s) do not add a new evasive_syscall_burst detection" \
-    "detection count unchanged by the sub-threshold activity — confirms this is a RATE detector, not an everything-is-flagged one" \
+    "detection count unchanged by the sub-threshold activity -- confirms this is a RATE detector, not an everything-is-flagged one" \
     "$([[ "${post_control_count}" -le "$((pre_control_count + 1))" ]] && echo 1 || echo 0)" \
     "before=${pre_control_count} after=${post_control_count}" \
     "allows +1 rather than requiring exact equality: a slow prior-window trip settling during this probe's own sleep is possible and is not what this control is checking for"
 
   # ── Observational: the reconciler's own logging shape, recorded because it
   #    was found while reading these logs and is relevant to the cgroup-freeze
-  #    half of this card — not probed further here (see
+  #    half of this card -- not probed further here (see
   #    test/cgroup-freeze-adversarial.bats for the live freeze/thaw battery).
   local unstun_count stun_count
   unstun_count="$(grep -c '"event":"unstun"' <<<"${post_logs}" || true)"
   stun_count="$(grep -c '"event":"stun"' <<<"${post_logs}" || true)"
   record "observation.reconciler-logs-a-decision-every-cycle-for-every-pod" \
     "the live sentinel logs an 'unstun'/containment_released line for every known agent pod on every reconcile tick, independent of whether anything was ever frozen" \
-    "informational — distinguishes a verbose always-log reconciler from an anomalous freeze/thaw loop" \
+    "informational -- distinguishes a verbose always-log reconciler from an anomalous freeze/thaw loop" \
     "1" \
     "unstun_mentions_in_200_lines=${unstun_count} stun_mentions_in_200_lines=${stun_count}" \
     "no stun (freeze) events observed in this window; the volume of unstun lines is reconciliation-tick logging, not evidence of pods actually cycling frozen/thawed"
@@ -272,7 +272,7 @@ main() {
   [[ "${FAIL}" -eq 0 && "${arity_ok}" -eq 1 ]] || overall="pass-with-findings"
 
   log ""
-  log "probes: ${PASS}/${EXECUTED} passed (declared ${DECLARED_PROBES}) — ${overall}"
+  log "probes: ${PASS}/${EXECUTED} passed (declared ${DECLARED_PROBES}) -- ${overall}"
 
   local artifact
   artifact="$(jq -n \

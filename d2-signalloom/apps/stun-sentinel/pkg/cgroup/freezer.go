@@ -7,9 +7,9 @@
 // # Why the freezer, and why it is not a controller
 //
 // In cgroup v2 the freezer is a *core* interface, not a controller. It is
-// exposed as two files present on every non-root cgroup — `cgroup.freeze`
+// exposed as two files present on every non-root cgroup -- `cgroup.freeze`
 // (write "1" to freeze, "0" to thaw) and `cgroup.events` (read back a
-// `frozen 0|1` line) — and it therefore requires no entry in
+// `frozen 0|1` line) -- and it therefore requires no entry in
 // `cgroup.controllers` and no `cgroup.subtree_control` enablement. Any
 // preflight that greps `cgroup.controllers` for the string "freezer" will
 // find nothing on a perfectly capable host; that is expected, not a fault.
@@ -82,7 +82,7 @@ var maxDiscoveryBudget = 2 * time.Second
 
 // Typed errors. Callers distinguish these with errors.Is. Collapsing them
 // into a single error value would make "the path is absent", "I am not
-// permitted to write" and "it did not freeze in time" indistinguishable —
+// permitted to write" and "it did not freeze in time" indistinguishable --
 // three outcomes with three different operational responses.
 var (
 	// ErrCgroupNotFound means no cgroup directory carrying a cgroup.freeze
@@ -90,7 +90,7 @@ var (
 	ErrCgroupNotFound = errors.New("cgroup: freezer path not found")
 
 	// ErrPermission means the control file exists but the process may not
-	// write it — almost always a missing hostPath mount or a non-privileged
+	// write it -- almost always a missing hostPath mount or a non-privileged
 	// securityContext on the DaemonSet.
 	ErrPermission = errors.New("cgroup: permission denied writing freezer control file")
 
@@ -113,7 +113,7 @@ var (
 	// immediately and unconditionally. Without this check, freezing the
 	// wrong cgroup, a cgroup whose target already exited, or a cgroup the
 	// target escaped from all return success in ~0ms with a perfect-looking
-	// latency — the most convincing possible evidence for a containment that
+	// latency -- the most convincing possible evidence for a containment that
 	// contained nothing.
 	ErrCgroupEmpty = errors.New("cgroup: no processes in cgroup, freeze contained nothing")
 
@@ -316,7 +316,7 @@ func normaliseUID(podUID string) (dashed, underscored string, err error) {
 // place pod cgroups. The list is plural on purpose.
 //
 // The cgroup path of a pod is a function of the runtime's cgroup driver AND
-// the systemd slice the kubelet itself runs in — neither of which is derivable
+// the systemd slice the kubelet itself runs in -- neither of which is derivable
 // from the pod UID. On a stock systemd-driver node the root is
 // `kubepods.slice`; on a Kind node the kubelet runs inside a `kubelet.slice`
 // unit so the root becomes `kubelet.slice/kubelet-kubepods.slice`; with the
@@ -381,8 +381,8 @@ func (f *Freezer) candidatePaths(dashed, underscored string) []string {
 }
 
 // isFreezableCgroup reports whether dir is a cgroup-v2 directory exposing the
-// freezer control file. Presence of cgroup.freeze — not merely of the
-// directory — is the selection criterion, because an empty directory of the
+// freezer control file. Presence of cgroup.freeze -- not merely of the
+// directory -- is the selection criterion, because an empty directory of the
 // right name proves nothing.
 func isFreezableCgroup(dir string) bool {
 	st, err := os.Stat(filepath.Join(dir, freezeFile))
@@ -720,8 +720,8 @@ func (f *Freezer) FreezeWithOptions(ctx context.Context, cgroupPath, credential 
 	}
 
 	// Emptiness gate. An empty cgroup reports `frozen 1` immediately, so
-	// without this the most vacuous possible outcome — freezing a cgroup
-	// with nothing in it — returns success with a flawless sub-millisecond
+	// without this the most vacuous possible outcome -- freezing a cgroup
+	// with nothing in it -- returns success with a flawless sub-millisecond
 	// latency. The census is therefore load-bearing, not informational:
 	// containment that contained no process is a failure, and the caller
 	// needs to know so it can escalate rather than stand down.

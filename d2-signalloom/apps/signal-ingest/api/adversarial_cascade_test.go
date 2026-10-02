@@ -120,7 +120,12 @@ func TestAdversarialCascade_Vector1_CascadingImpersonation(t *testing.T) {
 
 // Vector 2: Cyclic Delegation loop
 // Malicious agents attempt to inject circular delegation chains to induce unbounded recursion.
-// Assert cycle detection trips in <5ms and reports cycleDetected or rejects registration.
+// Assert the traversal stops at the first revisited node and reports cycleDetected.
+//
+// The halt is asserted by the chain the API returns, not by a stopwatch: a
+// 3-node cycle must come back as exactly its 3 hops. Without the visited-set
+// check the walk runs to the depth cap (8 hops) instead. The 5ms wall-clock
+// bound this used to carry measured the scheduler and failed under load.
 func TestAdversarialCascade_Vector2_CyclicDelegation(t *testing.T) {
 	mux, repo, _ := setupCascadeTestAPI(t)
 	ctx := context.Background()
@@ -160,16 +165,9 @@ func TestAdversarialCascade_Vector2_CyclicDelegation(t *testing.T) {
 		CreatedAt:        now,
 	})
 
-	// Benchmark cycle query latency (< 5ms SLA)
-	start := time.Now()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/actors/cycle-node-c/authorization", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	elapsed := time.Since(start)
-
-	if elapsed > 5*time.Millisecond {
-		t.Fatalf("cycle detection SLA exceeded: took %v (limit: 5ms)", elapsed)
-	}
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200 query response, got %d: %s", rec.Code, rec.Body.String())
@@ -182,6 +180,13 @@ func TestAdversarialCascade_Vector2_CyclicDelegation(t *testing.T) {
 
 	if !chain.CycleDetected {
 		t.Errorf("expected cycleDetected == true, got false")
+	}
+	var hops []string
+	for _, d := range chain.DelegationChain {
+		hops = append(hops, d.AuthzRef)
+	}
+	if strings.Join(hops, ",") != "del-b-c,del-a-b,del-c-a" {
+		t.Errorf("expected the walk to stop at the first revisited node after 3 hops [del-b-c del-a-b del-c-a], got %v", hops)
 	}
 	if chain.Complete {
 		t.Errorf("expected complete == false for cyclic delegation, got true")

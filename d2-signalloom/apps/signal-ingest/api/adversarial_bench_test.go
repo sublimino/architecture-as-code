@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -142,7 +143,16 @@ func BenchmarkAdversarialLoad(b *testing.B) {
 	}
 }
 
-// TestAdversarialSustainedLoad verifies that 1,000 invalid req/s does not exhaust memory or leak persistent state.
+// TestAdversarialSustainedLoad fires 1,000 concurrent forged delegation requests
+// and asserts what the platform must guarantee under that load: every one is
+// refused for the forged attestation, and none leaves state behind -- no
+// delegation and no auto-provisioned actor for either party.
+//
+// It deliberately asserts no wall-clock latency. A p99 over 1,000 goroutines
+// measures the scheduler and whatever else the machine is running, not this
+// handler: the 25ms ceiling it used to carry failed 6 runs in 40 with the CPUs
+// saturated and passed every run on an idle box, with identical code. The
+// latency SLA lives in BenchmarkAdversarialLoad, which is the instrument for it.
 func TestAdversarialSustainedLoad(t *testing.T) {
 	s := store.NewMemoryStore()
 	repo := identity.NewMemoryRepository()
@@ -161,12 +171,9 @@ func TestAdversarialSustainedLoad(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	const totalRequests = 1000
+	const principal = "nonexistent-principal"
 	var wg sync.WaitGroup
 	errCh := make(chan error, totalRequests)
-	durations := make([]time.Duration, totalRequests)
-	var durMu sync.Mutex
-
-	startTotal := time.Now()
 
 	for i := 0; i < totalRequests; i++ {
 		wg.Add(1)
@@ -175,7 +182,7 @@ func TestAdversarialSustainedLoad(t *testing.T) {
 
 			payload := CreateDelegationRequest{
 				DelegateActorID:  fmt.Sprintf("adversarial-agent-%d", seq),
-				PrincipalActorID: "nonexistent-principal",
+				PrincipalActorID: principal,
 				AuthzRef:         fmt.Sprintf("forged-claim-%d", seq),
 				Signature:        "forged-signature",
 				Capabilities:     []string{"admin:cluster"},
@@ -185,42 +192,41 @@ func TestAdversarialSustainedLoad(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/delegations", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
-
-			t0 := time.Now()
 			mux.ServeHTTP(rec, req)
-			d := time.Since(t0)
 
-			durMu.Lock()
-			durations[seq] = d
-			durMu.Unlock()
-
-			if rec.Code != http.StatusForbidden && rec.Code != http.StatusBadRequest {
-				errCh <- fmt.Errorf("request %d expected HTTP 403/400, got %d", seq, rec.Code)
+			if rec.Code != http.StatusForbidden {
+				errCh <- fmt.Errorf("request %d: expected HTTP 403, got %d: %s", seq, rec.Code, rec.Body.String())
+				return
+			}
+			var refusal map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &refusal); err != nil {
+				errCh <- fmt.Errorf("request %d: undecodable refusal %q: %v", seq, rec.Body.String(), err)
+				return
+			}
+			if refusal["violation"] != "AttestationFailed" {
+				errCh <- fmt.Errorf("request %d: expected violation AttestationFailed, got %v", seq, refusal["violation"])
 			}
 		}(i)
 	}
 
 	wg.Wait()
 	close(errCh)
-
-	totalDuration := time.Since(startTotal)
 	for err := range errCh {
 		t.Errorf("sustained load error: %v", err)
 	}
 
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i] < durations[j]
-	})
-
-	p50 := durations[totalRequests*50/100]
-	p95 := durations[totalRequests*95/100]
-	p99 := durations[totalRequests*99/100]
-
-	t.Logf("Sustained load complete: %d requests in %v (throughput: %.1f req/s)",
-		totalRequests, totalDuration, float64(totalRequests)/totalDuration.Seconds())
-	t.Logf("Latency percentiles: p50=%v, p95=%v, p99=%v", p50, p95, p99)
-
-	if p99 > 25*time.Millisecond {
-		t.Errorf("p99 latency %v exceeded 25ms SLA ceiling", p99)
+	ctx := context.Background()
+	asOf := time.Now().UTC().Add(time.Hour)
+	if _, err := repo.GetActor(ctx, principal); !errors.Is(err, identity.ErrActorNotFound) {
+		t.Errorf("a refused request auto-provisioned the principal %q (err=%v)", principal, err)
+	}
+	if dels, err := repo.GetDelegationsForPrincipalAsOf(ctx, principal, asOf); err != nil || len(dels) != 0 {
+		t.Errorf("refused requests persisted %d delegation(s) for %q (err=%v)", len(dels), principal, err)
+	}
+	for i := 0; i < totalRequests; i++ {
+		delegate := fmt.Sprintf("adversarial-agent-%d", i)
+		if _, err := repo.GetActor(ctx, delegate); !errors.Is(err, identity.ErrActorNotFound) {
+			t.Fatalf("a refused request auto-provisioned the delegate %q (err=%v)", delegate, err)
+		}
 	}
 }

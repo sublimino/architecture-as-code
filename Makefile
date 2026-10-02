@@ -592,6 +592,10 @@ test-slaat-p3-1-identity-probes: ## SLAAT-P3-1 SPIFFE identity replay probes. Ne
 	bash test/spiffe-identity-probes.sh
 
 
+.PHONY: test-slaat-p3-1-identity-probes
+test-slaat-p3-1-identity-probes: ## SLAAT-P3-1 SPIFFE identity replay probes. Needs a live kind-osramp cluster; records a skip without one. Not part of test-all-offline.
+	bash test/spiffe-identity-probes.sh
+
 .PHONY: test-slaat-p1-2-api-probes
 test-slaat-p1-2-api-probes: ## SLAAT-P1-2 live backend API probe: unauthenticated/forged-token fail-closed boundaries. Needs a live kind-osramp cluster; not part of test-all-offline (the pytest suites it complements already run there).
 	scripts/probe-api-idor-boundaries.sh

@@ -156,7 +156,7 @@ spire_cli() { # workload|hub ARGS...
   local ctx=$SLDC_OSRAMP_CTX; [ "$1" = hub ] && ctx=$SLDC_HUB_CTX; shift
   "$KUBECTL_BIN" --context "$ctx" -n spire-system exec -i spire-server-0 -c spire-server -- /opt/spire/bin/spire-server "$@"
 }
-entry_id() { spire_cli "$1" entry show -spiffeID "$2" 2>/dev/null | awk '/^Entry ID/ {print $4; exit}'; }
+entry_id() { spire_cli "$1" entry show -spiffeID "$2" 2>/dev/null | awk '!f && /^Entry ID/ {print $4; f = 1}'; }
 delete_entry() { local id; id=$(entry_id "$1" "$2"); [ -z "$id" ] || spire_cli "$1" entry delete -entryID "$id" >/dev/null; }
 ensure_entry() { # side spiffeID args...
   local side=$1 id=$2; shift 2

@@ -188,7 +188,7 @@ record() { # id status detail remedy
 # version it exists to reject.
 pin_for() { # var_name
   local var="$1" line
-  line="$(grep -E "^(readonly[[:space:]]+)?${var}=" "${VMSC_PIN_FILE}" 2>/dev/null | head -1)" || return 1
+  line="$(grep -E "^(readonly[[:space:]]+)?${var}=" "${VMSC_PIN_FILE}" 2>/dev/null | sed -n 1p)" || return 1
   [ -n "$line" ] || return 1
   line="${line#*=}"
   line="${line%%#*}"

@@ -208,7 +208,7 @@ FETCH_OUTPUT="$(kubectl -n "${NS}" logs pod/tenant-app)"
 echo "Fetch Output:"
 echo "${FETCH_OUTPUT}"
 
-FETCHED_ID="$(echo "${FETCH_OUTPUT}" | grep -E 'SPIFFE ID:' | awk '{print $NF}' | head -n 1)"
+FETCHED_ID="$(echo "${FETCH_OUTPUT}" | grep -E 'SPIFFE ID:' | awk '{print $NF}' | sed -n 1p)"
 echo "Fetched SPIFFE ID: ${FETCHED_ID}"
 
 if [ "${FETCHED_ID}" = "${EXPECTED_SPIFFE_ID}" ]; then

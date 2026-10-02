@@ -1,10 +1,10 @@
 {
   "shortcode": "CLOUDAUDIT",
   "card": "P1-PRE",
-  "timestamp": "2026-09-02T07:19:28Z",
-  "commit": "6c5744493515b9d42eb8e4112f701151a9d564f3",
+  "timestamp": "2026-10-02T22:54:35Z",
+  "commit": "ff31769166076a7267b027d2c0cb8e840b62936a",
   "go_version": "1.26.2",
-  "audit_policy": "/home/andy/src/cp/osramp-demo/d2-signalloom/infra/audit-policy.yaml",
+  "audit_policy": "/home/andy/src/.worktrees/osramp-demo/sldc2/early-exit-sweep/d2-signalloom/infra/audit-policy.yaml",
   "frostdb_compatible": true,
   "status": "pass",
   "proceed": true

@@ -99,7 +99,7 @@ DEADLINE_NS=$(( START_NS + 30 * 1000000000 ))
 while (( $(date +%s%N) < DEADLINE_NS )); do
   BODY="$(curl -sf --max-time 2 "${METRICS_URL}" 2>/dev/null || true)"
   if [[ -n "${BODY}" ]]; then
-    RECEIVED="$(printf '%s\n' "${BODY}" | awk '/^tetragon_events_received_total /{print $2; exit}')"
+    RECEIVED="$(printf '%s\n' "${BODY}" | awk '!f && /^tetragon_events_received_total / {print $2; f = 1}')"
     RECEIVED="${RECEIVED:-0}"
     (( RECEIVED > 0 )) && break
   fi
@@ -119,13 +119,13 @@ DEADLINE_NS=$(( $(date +%s%N) + 60 * 1000000000 ))
 BODY=""
 while (( $(date +%s%N) < DEADLINE_NS )); do
   BODY="$(curl -sf --max-time 2 "${METRICS_URL}" 2>/dev/null || true)"
-  RECEIVED="$(printf '%s\n' "${BODY}" | awk '/^tetragon_events_received_total /{print $2; exit}')"
+  RECEIVED="$(printf '%s\n' "${BODY}" | awk '!f && /^tetragon_events_received_total / {print $2; f = 1}')"
   RECEIVED="${RECEIVED:-0}"
   (( RECEIVED >= EVENT_COUNT )) && break
   sleep 0.02
 done
 
-metric() { printf '%s\n' "${BODY}" | awk -v k="$1" '$1==k{print $2; exit}'; }
+metric() { printf '%s\n' "${BODY}" | awk -v k="$1" '!f && $1==k {print $2; f = 1}'; }
 
 RECEIVED="$(metric tetragon_events_received_total)";      RECEIVED="${RECEIVED:-0}"
 INGESTED="$(metric tetragon_flow_events_ingested_total)"; INGESTED="${INGESTED:-0}"

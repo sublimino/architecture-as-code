@@ -112,7 +112,7 @@ pytest_cmd() {
 run() {
   ( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
       $(pytest_cmd) -o addopts= "$1" -q 2>&1 ) \
-    | grep -E "^E +AssertionError" | head -2
+    | grep -E "^E +AssertionError" | sed -n 1,2p
 }
 
 # Did pytest actually execute the guard, or did it fail to start?

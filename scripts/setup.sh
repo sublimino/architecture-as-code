@@ -206,7 +206,7 @@ install_tools() {
   echo
   echo "tool versions:"
   for tool in kind kubectl kustomize flux helm cosign jq yq skopeo syft grype witness govulncheck vexctl bats go; do
-    printf '  %-12s %s\n' "${tool}" "$(command -v ${tool} >/dev/null && ${tool} version --short 2>/dev/null | head -1 || command -v ${tool} || echo MISSING)"
+    printf '  %-12s %s\n' "${tool}" "$(command -v ${tool} >/dev/null && ${tool} version --short 2>/dev/null | sed -n 1p || command -v ${tool} || echo MISSING)"
   done
 }
 

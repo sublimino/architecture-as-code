@@ -199,7 +199,7 @@ check_adc() {
   fi
 
   email="$(curl -s --max-time 15 "https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}" 2>/dev/null |
-    sed -n 's/.*"email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    sed -n 's/.*"email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n 1p)"
   if [ -z "$email" ]; then
     report UNKNOWN "ADC identity" "token minted but the identity could not be resolved"
     return 0
@@ -228,7 +228,7 @@ check_adc() {
   *) report UNKNOWN "ADC reaches project" "unexpected HTTP ${code} from cloudresourcemanager" ;;
   esac
 
-  quota="$(sed -n 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$adc_file" | head -1)"
+  quota="$(sed -n 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$adc_file" | sed -n 1p)"
   if [ -n "$quota" ] && [ "$quota" != "$project" ]; then
     report UNKNOWN "ADC quota project" "'${quota}' is not '${project}'; API calls bill and quota there"
     fix "gcloud auth application-default set-quota-project ${project}"

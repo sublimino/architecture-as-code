@@ -392,7 +392,7 @@ pipeline_anchor="$(anchor_line "$PIPELINE")"
 
 while read -r recipe_line step; do
   [ -z "$step" ] && continue
-  hit="$(printf '%s\n' "$pipeline" | awk -v s="$step" '$2 == s { print $1; exit }')"
+  hit="$(printf '%s\n' "$pipeline" | awk -v s="$step" '!f && $2 == s { print $1; f = 1 }')"
   reason="$(allow_reason "$step" || true)"
   # A script step is not "built". Saying BUILT of `agent-trust-local.sh up`
   # would misdescribe the one class of step this guard was widened to see.

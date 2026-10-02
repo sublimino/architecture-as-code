@@ -165,7 +165,7 @@ check() {
 echo "=== baseline: the suite must be green before any mutation ==="
 if ! bats "$SUITE" >/dev/null 2>&1; then
   echo "HARNESS ERROR: suite is not green before mutation" >&2
-  bats "$SUITE" 2>&1 | sed -n 's/^not ok [0-9]* //p' | head -20 >&2
+  bats "$SUITE" 2>&1 | sed -n 's/^not ok [0-9]* //p' | sed -n 1,20p >&2
   exit 2
 fi
 echo "  green."

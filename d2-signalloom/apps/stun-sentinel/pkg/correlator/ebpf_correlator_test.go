@@ -80,7 +80,11 @@ func TestLookupPodByPID(t *testing.T) {
 
 // TestNormalizeTelemetryObservation validates the conversion of binary SyscallEvent into TelemetryObservation.
 func TestNormalizeTelemetryObservation(t *testing.T) {
-	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil)
+	tenants, err := ParseTenantMap("tenant-kusari=kusari")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil, WithTenantMap(tenants))
 
 	var comm [16]byte
 	copy(comm[:], "cat\x00")
@@ -193,7 +197,7 @@ func TestDispatchObservation(t *testing.T) {
 			return
 		}
 		authHeader := r.Header.Get("Authorization")
-		if authHeader != "Bearer sentinel-in-cluster-token" {
+		if authHeader != "Bearer "+testIngestToken {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -219,7 +223,7 @@ func TestDispatchObservation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	mgr := NewSentinelProbeManager(nil, server.URL, nil)
+	mgr := NewSentinelProbeManager(nil, server.URL, nil, WithBearerToken(testIngestToken))
 
 	testObs := TelemetryObservation{
 		Timestamp:      time.Now().UTC().Format(time.RFC3339Nano),
@@ -263,16 +267,25 @@ func TestDispatchObservation(t *testing.T) {
 	}
 }
 
-// TestCanonicalTenantNormalization verifies that canonical 'kusari' tenant labels are normalized.
-func TestCanonicalTenantNormalization(t *testing.T) {
-	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil)
+// TestKusariAgentIsAttributedToKusariByItsServiceAccount pins the live Step 4
+// expectation (tenant_id == kusari) to the kusari-agent Deployment as it ships:
+// namespace fe-signalloom-agents, serviceAccountName kusari-agent, and no
+// `tenant` label at all. It was kusari before only because every pod defaulted
+// to kusari (review M5).
+func TestKusariAgentIsAttributedToKusariByItsServiceAccount(t *testing.T) {
+	tenants, err := ParseTenantMap("fe-signalloom-agents/kusari-agent=kusari")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil, WithTenantMap(tenants))
 
-	pod := CreateTestPod("tenant-kusari", "kusari-agent", "33333333-4444-5555-6666-777777777777", "kusari-agent", "kusari")
-	raw := SyscallEvent{Type: SyscallTypeOpenat}
+	pod := CreateTestPod("fe-signalloom-agents", "kusari-agent-5d8c", "33333333-4444-5555-6666-777777777777", "kusari-agent", "")
+	delete(pod.Labels, "tenant")
+	pod.Labels["signalloom.ai/tenant"] = "kusari"
+	pod.Spec.ServiceAccountName = "kusari-agent"
 
-	obs := mgr.NormalizeObservation(raw, pod)
-	if obs.TenantID != "kusari" {
-		t.Errorf("expected TenantID 'kusari', got '%s'", obs.TenantID)
+	if got := mgr.NormalizeObservation(SyscallEvent{Type: SyscallTypeOpenat}, pod).TenantID; got != "kusari" {
+		t.Errorf("expected TenantID 'kusari', got '%s'", got)
 	}
 }
 
@@ -351,7 +364,7 @@ func TestLogDispatchFailureRecordsTheErrorAlongsideTheObservation(t *testing.T) 
 func TestDispatchWorkerLogsEveryObservationIndependentlyOfIngestReachability(t *testing.T) {
 	buf := withCapturedCorrelatorLog(t)
 	// No httptest server backing this URL: every dispatch attempt fails.
-	m := NewSentinelProbeManager(nil, "http://127.0.0.1:1/unreachable", nil)
+	m := NewSentinelProbeManager(nil, "http://127.0.0.1:1/unreachable", nil, WithBearerToken(testIngestToken))
 	m.queue <- TelemetryObservation{PodName: "agent-2", Syscall: SyscallNameEvasiveBurst}
 	close(m.queue)
 

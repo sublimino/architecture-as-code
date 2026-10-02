@@ -32,7 +32,6 @@ import (
 // Default paths and endpoints
 const (
 	DefaultIngestURL    = "http://signal-ingest:8082"
-	DefaultBearerToken  = "sentinel-in-cluster-token"
 	DefaultProcRoot     = "/proc"
 	DefaultQueueSize    = 10000
 	DefaultWorkerCount  = 8
@@ -116,11 +115,22 @@ func WithProcRoot(procRoot string) Option {
 	}
 }
 
-// WithBearerToken overrides the default Authorization Bearer token.
+// ErrIngestTokenMissing is returned instead of posting when no ingest
+// credential is configured. There is deliberately no default: the old one,
+// "sentinel-in-cluster-token", was a public string in this file.
+var ErrIngestTokenMissing = errors.New("no signal-ingest bearer configured (SIGNAL_INGEST_TOKEN from Secret stun-sentinel-ingest-token); observation not posted")
+
+// WithBearerToken sets the signal-ingest bearer. Surrounding whitespace (a
+// trailing newline from a Secret file) is dropped; a blank token is no token.
 func WithBearerToken(token string) Option {
 	return func(m *SentinelProbeManager) {
-		m.bearerToken = token
+		m.bearerToken = strings.TrimSpace(token)
 	}
+}
+
+// IngestTokenConfigured reports whether observations can be posted at all.
+func (m *SentinelProbeManager) IngestTokenConfigured() bool {
+	return m.bearerToken != ""
 }
 
 // WithSensitiveList overrides the default sensitive prefix list.
@@ -199,6 +209,7 @@ type SentinelProbeManager struct {
 	httpClient    *http.Client
 	bearerToken   string
 	procRoot      string
+	tenants       *TenantMap
 
 	mu      sync.RWMutex
 	podMap  map[string]*corev1.Pod // keyed by pod UID (dashed, underscored) and container IDs
@@ -233,7 +244,6 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 		ingestURL:      ingestURL,
 		sensitiveList:  append([]string(nil), DefaultSensitivePrefixes...),
 		freezeManager:  fm,
-		bearerToken:    DefaultBearerToken,
 		procRoot:       DefaultProcRoot,
 		podMap:         make(map[string]*corev1.Pod),
 		queue:          make(chan TelemetryObservation, DefaultQueueSize),
@@ -495,18 +505,15 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 			} else if actor, ok := pod.Labels["app"]; ok && actor != "" {
 				obs.ActorID = actor
 			}
-
-			// Canonical Tenant Vector (Shared Pattern 1)
-			if tenant, ok := pod.Labels["tenant"]; ok && tenant != "" {
-				obs.TenantID = tenant
-			} else if tenant, ok := pod.Labels["kusari"]; ok && tenant != "" {
-				obs.TenantID = DefaultTenantID
-			}
 		}
 	}
 
-	if obs.TenantID == "" {
-		obs.TenantID = DefaultTenantID
+	// Tenancy comes from the operator's map, keyed by where the pod runs and
+	// as whom -- never from its labels, which its creator writes (review M5).
+	// An unmapped workload is marked, not dropped and not defaulted.
+	obs.TenantID = UnattributedTenantID
+	if pod != nil {
+		obs.TenantID = m.tenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName)
 	}
 
 	return obs
@@ -704,6 +711,12 @@ func (m *SentinelProbeManager) dispatchWorker(ctx context.Context) {
 			}
 			logObservation(obs)
 			err := m.dispatchObservation(obs)
+			if errors.Is(err, ErrIngestTokenMissing) {
+				// Not a dispatch failure: nothing was sent. Counted on its own
+				// so the stats line says why dispatch_ok is not moving.
+				m.stats.ingestTokenMissing.Add(1)
+				continue
+			}
 			m.recordDispatch(err)
 			if err != nil {
 				logDispatchFailure(obs, err)
@@ -761,6 +774,9 @@ func writeCorrelatorEvent(ev correlatorEvent) {
 
 // dispatchObservation transmits a single TelemetryObservation to signal-ingest via HTTP POST.
 func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) error {
+	if m.bearerToken == "" {
+		return ErrIngestTokenMissing
+	}
 	payload, err := json.Marshal([]ingestObservation{obs.toIngest()})
 	if err != nil {
 		return err
@@ -773,9 +789,7 @@ func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if m.bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+m.bearerToken)
-	}
+	req.Header.Set("Authorization", "Bearer "+m.bearerToken)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

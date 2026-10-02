@@ -46,7 +46,7 @@ func TestDispatchPostsAnArrayInSignalIngestsObservationShape(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
-	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil)
+	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 
 	if err := m.dispatchObservation(sampleObservation()); err != nil {
 		t.Fatal(err)
@@ -79,8 +79,19 @@ func TestDispatchPostsAnArrayInSignalIngestsObservationShape(t *testing.T) {
 	}
 }
 
+// sampleUnattributedObservation is a workload the operator's tenant map does
+// not name (review M5). It travels with signal-ingest's reserved quarantine
+// tenant rather than being dropped or filed under kusari.
+func sampleUnattributedObservation() TelemetryObservation {
+	o := sampleObservation()
+	o.ActorID, o.PodName, o.TenantID = "cardvault-agent", "agent-cardvault-5b7c", UnattributedTenantID
+	return o
+}
+
 func TestIngestPayloadMatchesTheGoldenContract(t *testing.T) {
-	got, err := json.MarshalIndent([]ingestObservation{sampleObservation().toIngest()}, "", "  ")
+	got, err := json.MarshalIndent([]ingestObservation{
+		sampleObservation().toIngest(), sampleUnattributedObservation().toIngest(),
+	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +126,11 @@ func TestNormalizeObservationDoesNotAliasThePodsLabelMap(t *testing.T) {
 // cluster they are attacker-influenced; they also blew through signal-ingest's
 // closed segment label allow-list. The wire now carries the sentinel's own
 // keys and nothing else.
+//
+// Correction: that change (39605eb2) also claimed a pod label could not
+// override tenant_id. It could -- NormalizeObservation copied tenant_id FROM
+// the pod's `tenant` label, before this filter ever ran. Attribution now comes
+// from the operator's TenantMap; see tenancy_test.go.
 func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	o := sampleObservation()
 	o.Labels = map[string]string{"syscall": "forged", "tenant_id": "other-tenant", "evil": "x"}

@@ -30,9 +30,6 @@ const (
 	// Direct reaction outcomes
 	ReactionCgroupFrozen = "cgroup_frozen"
 	ReactionNone         = "none"
-
-	// Default tenant identity (Canonical Tenant Vector - Kusari)
-	DefaultTenantID = "kusari"
 )
 
 // SyscallEvent represents the binary layout of raw syscall events emitted by kernel eBPF probes.

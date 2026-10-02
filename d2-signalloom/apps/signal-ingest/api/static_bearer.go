@@ -77,6 +77,7 @@ var KnownPermissions = map[Permission]bool{
 	PermissionPrivacyAdmin:     true,
 	PermissionCrossTenantRead:  true,
 	PermissionCrossTenantWrite: true,
+	PermissionActForTenant:     true,
 }
 
 // StaticBearerConfig is one named static key: its value, the single principal it maps to, and
@@ -229,23 +230,10 @@ func (c StaticBearerConfig) validateSecret(now time.Time) error {
 //  3. Every other value — including a malformed or expired JWT — goes to the
 //     delegate untouched.
 func (a *StaticBearerAuthenticator) Authenticate(r *http.Request) (Principal, error) {
-	values := r.Header.Values("Authorization")
-	if len(values) != 1 || !strings.HasPrefix(values[0], "Bearer ") {
+	k, ok := a.match(r)
+	if !ok {
 		return a.delegate.Authenticate(r)
 	}
-	presented := sha256.Sum256([]byte(strings.TrimPrefix(values[0], "Bearer ")))
-	// Compare against every key without stopping at a match, so the time taken says neither
-	// which key nor whether any key matched.
-	match := -1
-	for i := range a.keys {
-		if hmac.Equal(presented[:], a.keys[i].digest[:]) {
-			match = i
-		}
-	}
-	if match < 0 {
-		return a.delegate.Authenticate(r)
-	}
-	k := a.keys[match]
 	if !a.now().Before(k.expiresAt) {
 		slog.Warn("static key refused: past its expiry", "key", k.name, "expired", k.expiresAt.UTC().Format(time.DateOnly))
 		return Principal{}, ErrStaticBearerExpired
@@ -266,5 +254,83 @@ func (a *StaticBearerAuthenticator) Authenticate(r *http.Request) (Principal, er
 	for _, actor := range k.binding.ActorIDs {
 		p.ActorIDs[actor] = true
 	}
+	if !p.Permissions[PermissionActForTenant] {
+		return p, nil // ActingTenantHeader is ignored for every other key
+	}
+
+	// A gateway acts for the tenant it names. ActingTenantGate answers a missing or malformed
+	// header with 400 before this runs; failing closed here keeps that true without the gate.
+	acting, code := actingTenant(r)
+	if code != "" {
+		return Principal{}, ErrInvalidCredential
+	}
+	if acting == "*" {
+		if !p.Permissions[PermissionCrossTenantRead] {
+			return Principal{}, ErrInvalidCredential
+		}
+		// Reads across tenants; writes need a tenant, so with none they are refused.
+		p.TenantID = ""
+		slog.Info("static key acting for ALL tenants", "key", k.name,
+			"user_subject", r.Header.Get(ActingSubjectHeader))
+		return p, nil
+	}
+	// Acting for one tenant: the cross-read held for "*" must not leak into a scoped request.
+	delete(p.Permissions, PermissionCrossTenantRead)
+	p.TenantID = acting
 	return p, nil
+}
+
+// match finds the key the request presents, comparing against every key without stopping at a
+// match, so the time taken says neither which key nor whether any key matched.
+func (a *StaticBearerAuthenticator) match(r *http.Request) (staticKey, bool) {
+	values := r.Header.Values("Authorization")
+	if len(values) != 1 || !strings.HasPrefix(values[0], "Bearer ") {
+		return staticKey{}, false
+	}
+	presented := sha256.Sum256([]byte(strings.TrimPrefix(values[0], "Bearer ")))
+	match := -1
+	for i := range a.keys {
+		if hmac.Equal(presented[:], a.keys[i].digest[:]) {
+			match = i
+		}
+	}
+	if match < 0 {
+		return staticKey{}, false
+	}
+	return a.keys[match], true
+}
+
+// ActingTenantGate answers, before authorization runs, the two refusals a gateway key's request
+// can earn from its acting tenant: 400 for a missing or malformed ActingTenantHeader (never an
+// unscoped read), and 403 cross_tenant_read_required for "*" from a key without cross-read. Every
+// other request passes untouched; for keys without tenant:act-for the header is ignored.
+func (a *StaticBearerAuthenticator) ActingTenantGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		k, ok := a.match(r)
+		if !ok || !k.grants(PermissionActForTenant) || !a.now().Before(k.expiresAt) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		acting, code := actingTenant(r)
+		if code != "" {
+			slog.Warn("gateway request refused", "key", k.name, "reason", code)
+			writeError(w, http.StatusBadRequest, code)
+			return
+		}
+		if acting == "*" && !k.grants(PermissionCrossTenantRead) {
+			slog.Warn("gateway request refused", "key", k.name, "reason", "cross_tenant_read_required")
+			writeError(w, http.StatusForbidden, "cross_tenant_read_required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (k staticKey) grants(p Permission) bool {
+	for _, have := range k.binding.Permissions {
+		if have == p {
+			return true
+		}
+	}
+	return false
 }

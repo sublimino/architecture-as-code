@@ -149,3 +149,24 @@ func TestGatewayStillRefusesAConfiguredButEmptyJWKS(t *testing.T) {
 		t.Fatalf("configured empty JWKS: (%T, %v), want (nil, error)", gw, err)
 	}
 }
+
+// main must put ActingTenantGate in front of the router, or a gateway request with no acting
+// tenant would reach the handlers (as a 401) instead of earning its 400.
+func TestAPIHandlerPutsTheActingTenantGateInFront(t *testing.T) {
+	clearAuthEnv(t)
+	spec := `[{"name":"fe-signalloom-gateway","subject":"static-key/fe-signalloom-gateway","tenant":"fe-signalloom","permissions":["observations:read","tenant:act-for"]}]`
+	setStaticKeys(t, spec, map[string]string{"fe-signalloom-gateway": testBearerToken})
+	gw, err := gatewayFromEnv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached := false
+	h := apiHandler(gw, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/observations", nil)
+	r.Header.Set("Authorization", "Bearer "+testBearerToken)
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest || reached {
+		t.Fatalf("gateway request without an acting tenant: %d (router reached=%v), want 400 before the router", w.Code, reached)
+	}
+}

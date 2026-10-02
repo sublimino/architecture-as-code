@@ -408,6 +408,15 @@ func gatewayFromEnv(ctx context.Context) (api.Authenticator, error) {
 	return gateway, nil
 }
 
+// apiHandler is what the API port serves: the protected router, behind ActingTenantGate when
+// static keys are configured (the gate answers a gateway key's missing acting tenant with 400).
+func apiHandler(gateway api.Authenticator, router http.Handler) http.Handler {
+	if keys, ok := gateway.(*api.StaticBearerAuthenticator); ok {
+		return keys.ActingTenantGate(router)
+	}
+	return router
+}
+
 // ProbePortEnvVar names the port of the probe-only listener (api.NewProbeHandler).
 const ProbePortEnvVar = "SIGNAL_INGEST_PROBE_PORT"
 
@@ -726,7 +735,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      protectedRouter,
+		Handler:      apiHandler(gateway, protectedRouter),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,

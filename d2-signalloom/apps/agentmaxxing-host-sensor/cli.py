@@ -154,7 +154,10 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     if args.tenant_id:
         payload["tenant_id"] = args.tenant_id
 
-    endpoint_url = f"{args.base_url.rstrip('/')}{args.enroll_path}"
+    raw_path = (args.enroll_path or "").strip().strip("/")
+    enroll_path = f"/{raw_path}" if raw_path else "/enroll"
+    base_url = (args.base_url or "").strip().rstrip("/")
+    endpoint_url = f"{base_url}{enroll_path}"
     req = urllib.request.Request(
         endpoint_url,
         data=json.dumps(payload).encode("utf-8"),
@@ -266,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_enroll.add_argument("--token", type=str, required=True, help="Operator-issued enrollment token")
     p_enroll.add_argument("--base-url", type=str, default="http://localhost:8080", help="Signal Loom base URL")
-    p_enroll.add_argument("--enroll-path", type=str, default="/api/v1/external-agents/enroll", help="Enrollment endpoint path")
+    p_enroll.add_argument("--enroll-path", type=str, default="/api/v1/external-agents/enroll", help="Enrollment endpoint path (e.g. /enroll or /api/v1/external-agents/enroll)")
     p_enroll.add_argument("--agent-id", type=str, default="agentmaxxing-linux-001", help="Agent identifier")
     p_enroll.add_argument("--host-id", type=str, default="amx-host-001", help="Host identifier")
     p_enroll.add_argument("--key-id", type=str, default="key-agentmaxxing-001", help="Agent signing key identifier")

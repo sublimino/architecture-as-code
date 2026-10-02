@@ -1,0 +1,10 @@
+#!/bin/sh
+# Sourced by the nginx entrypoint before 20-envsubst-on-templates.sh renders
+# nginx.conf (see the /fleet-api/ blocks there). An absent dashboard fleet key
+# becomes an explicit, logged empty value: nginx then sends "Bearer " and
+# fleet-manager answers 401, rather than nginx refusing to start on an unset
+# variable and taking the whole dashboard down with the Fleet page.
+if [ -z "${FLEET_DASHBOARD_KEY:-}" ]; then
+  echo "16-fleet-gate: FLEET_DASHBOARD_KEY is not set; every gated /fleet-api/ call will be refused 401 by fleet-manager" >&2
+fi
+export FLEET_DASHBOARD_KEY="${FLEET_DASHBOARD_KEY:-}"

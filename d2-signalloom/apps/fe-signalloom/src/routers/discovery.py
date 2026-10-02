@@ -185,7 +185,7 @@ async def claim_discovered_workload(
                         last_transition_at, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4, 'Discovered workload claimed via discovery portal', 'active', 'active',
-                        'Discovered Workload', 83, 'anthropic', $5,
+                        'Custom', 83, 'anthropic', $5,
                         NOW(), NOW(), NOW()
                     )
                     ON CONFLICT (tenant_id, name) DO UPDATE SET

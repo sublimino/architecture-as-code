@@ -32,9 +32,17 @@ echo "Stopping lingering kubectl port-forwards..."
 pkill -f 'kubectl.*port-forward' 2>/dev/null || true
 
 # 2. Delete Kind clusters
+#
+# The cluster list is read IN FULL before it is searched. It used to be
+# `kind get clusters | grep -qx "$cluster"` under pipefail: grep -q exits at
+# the first match, kind is SIGPIPEd if it is still writing, the pipeline
+# returns 141, and the cluster is read as absent -- so osramp, listed first,
+# was silently not deleted whenever the scheduler let grep finish before kind
+# (65/228 runs under CPU load), and the teardown still reported PASS.
 if command -v kind >/dev/null 2>&1; then
+  clusters="$(kind get clusters 2>/dev/null || true)"
   for cluster in signalloom-hub osramp; do
-    if kind get clusters 2>/dev/null | grep -qx "$cluster"; then
+    if grep -qx "$cluster" <<<"$clusters"; then
       echo "Deleting Kind cluster $cluster..."
       if ! kind delete cluster --name "$cluster"; then
         echo "ERROR: kind delete cluster --name $cluster failed" >&2

@@ -87,7 +87,7 @@ nd_report() {
 # here means the key was never emitted at all, i.e. the report is truncated.
 nd_field() {
   local report="$1" key="$2"
-  printf '%s\n' "$report" | sed -n "s/^${key}=//p" | head -1
+  printf '%s\n' "$report" | sed -n "s/^${key}=//p" | sed -n 1p
 }
 
 # The positive control for the whole report. probe.sh's last line is

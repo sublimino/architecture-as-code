@@ -29,7 +29,7 @@ if [ "${ALL_EXIST}" = true ]; then
   echo "==> All OSRAMP namespaces already exist."
   for ns in "${NAMESPACES[@]}"; do
     echo "    --- ${ns} ---"
-    kubectl get pods -n "${ns}" --no-headers 2>/dev/null | head -5
+    kubectl get pods -n "${ns}" --no-headers 2>/dev/null | sed -n 1,5p
   done
   echo ""
   echo "    To force re-deploy, run osramp-down.sh first."

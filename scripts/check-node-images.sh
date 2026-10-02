@@ -176,7 +176,7 @@ while read -r ref; do
   # Name the workload that wants it. "2 images absent" sends the reader
   # nowhere; "fe-signalloom/proxy-def (Pending) wants fake-integration-proxy:dev"
   # sends them somewhere.
-  wanted_by="$(printf '%s\n' "$workloads" | awk -v r="$ref" '$4 == r { printf "%s/%s (%s)", $1, $2, $3; exit }')"
+  wanted_by="$(printf '%s\n' "$workloads" | awk -v r="$ref" '!f && $4 == r { printf "%s/%s (%s)", $1, $2, $3; f = 1 }')"
   details="${details}$(printf 'ABSENT  %-52s %s' "$ref" "$wanted_by")"$'\n'
 done <<<"$(printf '%s\n' "$workloads" | awk '{print $4}' | sort -u)"
 

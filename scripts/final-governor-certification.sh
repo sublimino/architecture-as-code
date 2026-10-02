@@ -67,7 +67,7 @@ verify_signoffs() {
     local digest_file="$1" who entry sig as ok out="[]" all=true
     IFS=',' read -r -a required <<<"${APPROVERS}"
     for who in "${required[@]}"; do
-        entry=$(jq -c --arg w "${who}" '.approvers[]? | select(.identity==$w)' "${SIGNOFF}" | head -1)
+        entry=$(jq -c --arg w "${who}" '.approvers[]? | select(.identity==$w)' "${SIGNOFF}" | sed -n 1p)
         ok=false
         if [ -n "${entry}" ]; then
             sig=$(jq -r '.signature_file' <<<"${entry}"); as=$(jq -r '.allowed_signers' <<<"${entry}")
@@ -141,7 +141,7 @@ for i in $(seq 1 "${RUNS}"); do
     if [ "${skipped}" -ne 0 ] || [ "${passed}" -eq 0 ]; then
         status="fail"; reason="run ${i} had ${skipped} skipped / ${passed} passed; a skip or empty run is not green"; break
     fi
-    planned=$(sed -nE 's/^1\.\.([0-9]+)$/\1/p' "${run_dir}/tap.txt" | head -1)
+    planned=$(sed -nE 's/^1\.\.([0-9]+)$/\1/p' "${run_dir}/tap.txt" | sed -n 1p)
     if [ "${planned:-0}" -ne "${passed}" ]; then
         status="fail"; reason="run ${i} reported ${passed} of ${planned:-no} planned tests; a short run is not green"; break
     fi

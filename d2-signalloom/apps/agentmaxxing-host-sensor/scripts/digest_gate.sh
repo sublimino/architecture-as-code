@@ -121,7 +121,7 @@ verify_agent_binary() {
     if [[ -n "${AGENT_EXPECTED_DIGEST:-}" ]]; then
         expected_digest="$AGENT_EXPECTED_DIGEST"
     elif [[ -f "$AGENT_DIGEST_FILE" ]]; then
-        expected_digest="$(awk '{print $1}' "$AGENT_DIGEST_FILE" | head -n 1)"
+        expected_digest="$(awk '{print $1}' "$AGENT_DIGEST_FILE" | sed -n 1p)"
     else
         log_crit "No expected digest provided (neither AGENT_EXPECTED_DIGEST env nor $AGENT_DIGEST_FILE found)."
         return 1

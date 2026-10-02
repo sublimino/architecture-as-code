@@ -87,7 +87,7 @@ cmd_headers() {
 	node="$(resolve_node)"
 	# -v=8 logs response headers on stderr; the body is discarded.
 	ct="$(kc get --raw "$(proxy_path "$node")" -v=8 2>&1 >/dev/null |
-		sed -n 's/^.*Content-Type: *//p' | head -n1 | tr -d '\r')"
+		sed -n 's/^.*Content-Type: *//p' | sed -n 1p | tr -d '\r')"
 	jq -n --arg ct "$ct" '{
 		content_type: $ct,
 		exposition_0_0_4: ($ct | test("^text/plain; *version=0\\.0\\.4"))
@@ -100,7 +100,7 @@ cmd_schema() {
 	[[ -f "$file" ]] || die "schema: no such file $file"
 	for m in "${REQUIRED_METRICS[@]}"; do
 		name="${m%%:*}" type="${m##*:}"
-		declared="$(sed -n "s/^# TYPE $name \\([a-z]*\\)\$/\\1/p" "$file" | head -n1)"
+		declared="$(sed -n "s/^# TYPE $name \\([a-z]*\\)\$/\\1/p" "$file" | sed -n 1p)"
 		samples="$(grep -c "^$name{" "$file" || true)"
 		labels="$(grep -m1 "^$name{" "$file" | sed -E 's/^[^{]*\{//; s/\}.*$//' |
 			grep -oE '(^|,)[a-z_]+=' | tr -d ',=' | sort -u | paste -sd, - || true)"

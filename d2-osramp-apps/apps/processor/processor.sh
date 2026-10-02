@@ -595,7 +595,7 @@ analyze_npm_installation() {
 
   # Show directory structure (top level only)
   info "Directory structure:"
-  ls -la "$package_path" | head -20
+  ls -la "$package_path" | sed -n 1,20p
 
   # Generate comprehensive result summary including SBOM data
   local result_data=$(jq -n \

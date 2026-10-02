@@ -90,7 +90,7 @@ elif [ -f "$target" ]; then
     exit 1
   fi
   names="$(LC_ALL=C tar -tzf "$target")"
-  top="$(printf '%s\n' "$names" | head -n 1)"
+  top="$(printf '%s\n' "$names" | sed -n 1p)"
   top="${top%%/*}"
   archive_ok=1
   if ! grep -Eq '^kusari-eap-evidence-[0-9]{8}T[0-9]{6}Z$' <<<"$top"; then

@@ -152,7 +152,7 @@ bao_value_is_live() {
 
 bao_token() {
   kubectl -n "$NAMESPACE_BAO" get deployment openbao -o jsonpath='{range .spec.template.spec.containers[*]}{range .env[*]}{.name}={.value}{"\n"}{end}{end}' 2>/dev/null \
-    | awk -F= '/^BAO_DEV_ROOT_TOKEN_ID=/{print $2; exit}'
+    | awk -F= '!f && /^BAO_DEV_ROOT_TOKEN_ID=/ {print $2; f = 1}'
 }
 
 spire_pod() {

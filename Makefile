@@ -2335,7 +2335,7 @@ define gcp_tf_assert_prefix
 		echo "       Refusing to plan or apply against an unverified state prefix."; \
 		exit 3; \
 	fi; \
-	resolved="$$(sed -n 's/.*"prefix"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$backend_state" | head -1)"; \
+	resolved="$$(sed -n 's/.*"prefix"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$backend_state" | sed -n 1p)"; \
 	if [ -z "$$resolved" ]; then \
 		echo "ERROR: the resolved backend configuration names no prefix."; \
 		echo "       Read from: $$backend_state"; \

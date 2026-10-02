@@ -30,10 +30,10 @@ fi
 
 # 2. C / BPF Compiler Toolchain Check
 if command -v clang >/dev/null 2>&1; then
-  CLANG_VER="$(clang --version | head -n 1)"
+  CLANG_VER="$(clang --version | sed -n 1p)"
   log_pass "Clang compiler available: ${CLANG_VER}"
 elif command -v gcc >/dev/null 2>&1; then
-  GCC_VER="$(gcc --version | head -n 1)"
+  GCC_VER="$(gcc --version | sed -n 1p)"
   log_pass "C toolchain available: ${GCC_VER} (CO-RE bytecode builder active)"
 else
   log_fail "No C compiler toolchain found in PATH"

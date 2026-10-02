@@ -45,7 +45,7 @@ GIT_SHA="$(/usr/bin/git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 PROOF_ERRORS=()
 
 if cluster_output="$("${KUBECTL}" cluster-info 2>&1)"; then
-  CLUSTER_INFO="$(printf '%s\n' "${cluster_output}" | head -n 1)"
+  CLUSTER_INFO="$(printf '%s\n' "${cluster_output}" | sed -n 1p)"
 else
   CLUSTER_INFO="ERROR: kubectl cluster-info failed"
   PROOF_ERRORS+=("cluster-info")

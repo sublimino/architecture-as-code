@@ -614,7 +614,7 @@ $(printf '%s' "$agent_log" | indent)"
     fi
     if grep -qF '[step-2]' <<<"$agent_log"; then
       local step2_line
-      step2_line="$(grep -F '[step-2]' <<<"$agent_log" | head -n 1)"
+      step2_line="$(grep -F '[step-2]' <<<"$agent_log" | sed -n 1p)"
       log "  [step-2] 🚫 Control Plane Policy : Access Denied by OpenBao (${step2_line#*FAILED: })"
     fi
     log "  [result] Authorization Enforced  : Agent hard-blocked before reaching Step 3 (KV Secret) or Step 4 (CardVault API)"

@@ -50,6 +50,28 @@ data:
   SIGNAL_INGEST_URL: "http://signal-ingest.fe-signalloom.svc.cluster.local:8082"
   # fleet-manager's stun cascade, same FQDN rule as SIGNAL_INGEST_URL.
   FLEET_MANAGER_URL: "http://fleet-manager.fe-signalloom.svc.cluster.local:8082"
-  # kusari-agent/deployment.yaml: namespace fe-signalloom-agents,
-  # serviceAccountName kusari-agent.
-  SENTINEL_TENANT_MAP: "fe-signalloom-agents/kusari-agent=kusari"
+  # One entry per swarm agent's namespace/serviceAccount, mapped to the tenant
+  # its manifest declares in signalloom.ai/tenant. kusari-agent's SA runs
+  # kusari-agent/deployment.yaml. test/agent-swarm-tenancy.bats fails if an agent
+  # is missing here or the map disagrees with its label.
+  SENTINEL_TENANT_MAP: |
+    fe-signalloom-agents/agent-cardvault=controlplane
+    fe-signalloom-agents/agent-nono-evidenced=tenant-demo
+    fe-signalloom-agents/agent-standard-baseline=tenant-demo
+    fe-signalloom-agents/cpai-engineer=controlplane
+    fe-signalloom-agents/hosted-daytona-coder=controlplane
+    fe-signalloom-agents/kagent-chaos-prober=tenant-demo
+    fe-signalloom-agents/kagent-commit-summariser=tenant-demo
+    fe-signalloom-agents/kagent-compliance-checker=tenant-demo
+    fe-signalloom-agents/kagent-finops-optimizer=tenant-demo
+    fe-signalloom-agents/kagent-incident-responder=tenant-demo
+    fe-signalloom-agents/kagent-k8s-reader=tenant-demo
+    fe-signalloom-agents/kagent-network-auditor=tenant-demo
+    fe-signalloom-agents/kagent-security-analyst=tenant-demo
+    fe-signalloom-agents/kusari-agent=kusari
+    fe-signalloom-agents/nono-containment-probe=controlplane
+    fe-signalloom-agents/prod-deploy-gate=controlplane
+    fe-signalloom-agents/prompt-commit-summarizer=controlplane
+    fe-signalloom-agents/swarm-governor=controlplane
+    fe-signalloom-agents/triage-ci-worker=controlplane
+    fe-signalloom-agents/zulip-chat-agent=controlplane

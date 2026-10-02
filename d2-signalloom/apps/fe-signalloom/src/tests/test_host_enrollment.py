@@ -142,6 +142,68 @@ def test_host_enrollment_happy_path(client: TestClient, operator_principal: api_
     assert claimed_events[0]["detail"]["agent_id"] == agent_id
 
 
+def test_host_enrollment_root_route_identical_to_v1(client: TestClient, operator_principal: api_compat.Principal):
+    """Assert POST /enroll succeeds identically to POST /v1/external-agents/enroll."""
+    agent_id = "agentmaxxing-linux-root-001"
+    host_id = "amx-host-root-001"
+
+    # 1. Pre-register external agent
+    reg_req = ExternalAgentRegistrationRequest(
+        agent_id=agent_id,
+        host_id=host_id,
+        host_os="linux",
+        runtime_profile="nono-0.73.0-standard",
+        allocated_token_budget=150000,
+    )
+    reg_resp = asyncio.run(register_external_agent_handler(reg_req, operator_principal))
+    assert reg_resp.enrollment_status == "pending"
+
+    # 2. Issue one-time enrollment token
+    token_resp = asyncio.run(issue_enrollment_token_for_agent(agent_id, "tenant-a", operator_principal, ttl_seconds=3600))
+    token = token_resp.enrollment_token
+    assert token
+
+    # 3. Redeem token via POST /enroll
+    enrollment_payload = load_fixture("valid-enrollment.v1.json")
+    enrollment_payload["agent_id"] = agent_id
+    enrollment_payload["host_id"] = host_id
+    enrollment_payload["client_nonce"] = "nonce-root-enroll-identical-test"
+
+    resp = client.post(
+        "/enroll",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json=enrollment_payload,
+    )
+
+    assert resp.status_code == 201, f"Expected 201 from /enroll, got {resp.status_code}: {resp.text}"
+    data = resp.json()
+
+    # Validate against EnrollmentResult contract identically to /v1/external-agents/enroll
+    result = EnrollmentResult.model_validate(data)
+    assert result.schema_version == "1.0.0"
+    assert result.tenant_id == "tenant-a"
+    assert result.agent_id == agent_id
+    assert result.host_id == host_id
+    assert result.enrollment_state == "enrolled"
+    assert result.credential_kind == "existing-mtls-identity"
+    assert result.credential_scope == "audit-upload-only"
+    assert result.credential_bootstrap == "pre-provisioned-out-of-band"
+    assert result.credential_reference.startswith("spiffe://signalloom.demo/ns/eap-")
+    assert result.credential_reference.endswith(f"/sa/agent-{agent_id}")
+    assert result.revocation_endpoint == f"/v1/external-agents/{agent_id}/revocations"
+    assert result.svid_path == "jwt-svid-fetch"
+
+    # Verify audit event was logged identically
+    audit_events = api_compat._AUDIT_EVENTS.get("tenant-a", [])
+    claimed_events = [e for e in audit_events if e["event_type"] == "external_agent.claimed"]
+    assert len(claimed_events) >= 1
+    assert claimed_events[-1]["detail"]["agent_id"] == agent_id
+
+
+
 def test_single_use_consumption_and_replay_rejection(client: TestClient, operator_principal: api_compat.Principal):
     """Assert token is single-use and subsequent replays with different nonces are rejected."""
     agent_id = "agentmaxxing-linux-001"

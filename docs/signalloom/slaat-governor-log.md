@@ -241,3 +241,24 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Worktree: `/home/andy/.cline/worktrees/9f076/osramp-demo` (derived from integration head `917565ce`).
   - Agent: `kpai` running under Claude Code session, executing Algorithm pre-execution checks and probing SPIFFE/OpenBao contracts.
   - Doctor Health: `kanban-check.sh doctor` reports `doc=clean` with zero exceptions.
+
+---
+
+## 12. Milestone Completion: SLAAT-P1-3 (9f076) [DONE] & Ready SLAAT-P1-4 (9b991)
+
+- **Timestamp**: `2026-10-02T03:04:00Z`
+- **Completed Card**: `SLAAT-P1-3` (`9f076`) [DONE]
+  - Deliverables: 9 files (+1,722 lines) committed at `c0f4d19792ced89b5ca1abc90264f18a6f820286`:
+    - `test/spiffe-openbao-adversarial.bats` (16 test cases: SPIFFE attestation, forged-identity denial, token TTLs, cross-tenant isolation).
+    - `test/openbao-security-probes.bats` (8 test cases: role authentication, secret path ACL traversal, rogue certificate login).
+    - `test/spiffe-identity-probes.sh` (registration entry selector audit, namespace tampering, process impersonation probes).
+    - `scripts/probe-spiffe-privilege-escalation.sh` (live probing harness: 34 probes, signature stripping, alg:none bypass checks).
+    - `scripts/probe-openbao-acls.sh` (policy-boundary audit, live SPIRE entry to OpenBao role delegation cross-reference).
+    - `docs/slaat/p1-3/spiffe-openbao-privilege-escalation-dossier.md` (comprehensive audit dossier).
+    - `ci-evidence/slaat-p1-3-spiffe-findings.json`, `ci-evidence/slaat-p1-3-live-probe-records.json`, `ci-evidence/slaat-p1-3-acl-audit-evidence.json`.
+  - Integration Merge: Commit `25d4d97f` merged worker deliverables into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Errata and Work Decomposition: Recorded at commit `220ac70e`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=4`: P1-PRE, P1-1, P1-2, P1-3).
+- **Next Ready Card**: `SLAAT-P1-4` (`9b991`) [READY]
+  - Task: Sentinel eBPF & Landlock Sandbox Confinement Escape Attacks.

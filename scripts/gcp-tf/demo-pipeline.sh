@@ -809,7 +809,9 @@ run_stage \
      test/tetragon-telemetry-stream.bats test/wait-deadline.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
-     test/landlock-containment-probes.bats"
+     test/landlock-containment-probes.bats \
+     test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats \
+     test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists
@@ -1180,6 +1182,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap \
      d2-signalloom/test/runtime.bats \
      d2-signalloom/test/test-1-runtime.bats \
+     d2-signalloom/test/spire-jwks-live.bats \
      d2-signalloom/test/supercred-demo-api.bats \
      d2-signalloom/test/api-route-liveness.bats"
 
@@ -1216,6 +1219,24 @@ run_stage \
   "SFAS live dossier authorization and stun containment acceptance" \
   "stage7e-sfas-live.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sfas-live-acceptance.bats test/sfas-p1-2-nono-ingest.bats"
+
+# Stage 7f: SLAAT live adversarial probes. Network microsegmentation, OpenBao
+# and SPIFFE privilege escalation, sandbox confinement and cold-start
+# persistence, all asserted against the converged estate. Each skips or fails
+# without a cluster (cold-start-persistence-verification.bats has no skip at
+# all), so none belongs in the static stage 1g. They create only ephemeral probe
+# pods and tear nothing down. Mirrored in the other lane at the same stage.
+run_stage \
+  "SLAAT live adversarial probes" \
+  "stage7f-slaat-live.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap \
+     test/adversarial-network-probes.bats \
+     test/cold-start-persistence-verification.bats \
+     test/network-microsegmentation-hardening.bats \
+     test/openbao-security-probes.bats \
+     test/sandbox-confinement-hardening.bats \
+     test/spiffe-openbao-adversarial.bats \
+     test/spiffe-openbao-policy-hardening.bats"
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════

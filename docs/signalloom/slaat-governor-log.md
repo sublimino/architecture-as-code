@@ -448,3 +448,29 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
 - **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
 - **Board Inventory**: `done=10`, `in_progress=0`, `review=0`, `backlog=6`.
 - **Next Ready Tasks**: Phase 2 Remediations (`SLAAT-P2-4`: Agent Sandbox Confinement & Landlock LSM Policy Fixes).
+
+
+---
+
+## 21. Milestone Completion: SLAAT-P2-4 (fdb35) [DONE]
+
+- **Timestamp**: 2026-10-02T10:35:00Z
+- **Completed Card**: `SLAAT-P2-4` (`fdb35`) [DONE]
+  - Task: Agent Sandbox Confinement & Landlock LSM Policy Fixes.
+  - Deliverables: 15 files committed at `708facad` / `b9876454` and merged into `refs/heads/integration/slaat-whole-system-adversarial` at `bed5445a`:
+    - `d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go` & `main_test.go`: Added outer request deadline handlers and typed 503 handling for `ErrDiscoveryDeadline`.
+    - `d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go` & `freezer_test.go`: Bounded discovery budget (`maxDiscoveryBudget = 2s`) and `ErrDiscoveryDeadline`.
+    - `d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go`, `ebpf_correlator_test.go`, `pipeline_test.go`, `types.go`: Added `burstTracker` and `SyscallNameEvasiveBurst` ("evasive_syscall_burst") with immediate freeze reaction, closing the 200-spawn evasion vector (`SENTINEL-F1`).
+    - `nono/profiles/worktree-agent.json`: Added filesystem deny rules for `~/.kube/`, `/proc/sys/`, `/sys/fs/cgroup/`, and `/root/`.
+    - `scripts/verify-cgroup-enforcement.sh`: Live cgroup v2 verification script (5/5 probes pass).
+    - `test/sandbox-confinement-hardening.bats`: 11/11 tests passing.
+    - `test/landlock-adversarial-escape.bats`: 15/15 tests passing.
+    - Machine-readable evidence: `ci-evidence/slaat-p2-4-cgroup-enforcement.json`, `ci-evidence/slaat-p2-4-landlock-escape-battery.json`, `ci-evidence/slaat-p2-4-sentinel-evasion-post-fix-source-level.json`, `ci-evidence/slaat-p2-4-worktree-confinement.json`.
+    - Report: `docs/slaat/p2-4/sandbox-confinement-hardening-report.md`.
+  - Integration Merge: Commit `bed5445a` merged into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=11`: P1-PRE, P1-1, P1-2, P1-3, P1-4, P1-GOV, P2-PRE, P2-1, P2-2, P2-3, P2-4).
+- **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
+- **Board Inventory**: `done=11`, `in_progress=0`, `review=0`, `backlog=5`.
+- **Next Ready Tasks**: Phase 2 Governor Gate (`SLAAT-P2-GOV`: Remediations Integration & Rebuild).
+

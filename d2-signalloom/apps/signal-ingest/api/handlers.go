@@ -362,12 +362,17 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		q.Limit = n
 	}
 
+	// Tenancy filter runs before the limit; see scopeObservations.
+	tenant, all := observationReadScope(r)
+	limit := q.Limit
+	q.Limit = 0
 	obs, err := h.Store.QueryRange(r.Context(), q)
 	if err != nil {
 		slog.Error("query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	obs = scopeObservations(obs, tenant, all, limit)
 
 	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that
 	// declared the field an array then dereferences null and crashes — which is
@@ -590,8 +595,10 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if lastEventID != "" {
 		if t, err := time.Parse(time.RFC3339, lastEventID); err == nil {
-			obs, err := h.Store.QueryRange(r.Context(), store.Query{After: t, Limit: 100})
+			obs, err := h.Store.QueryRange(r.Context(), store.Query{After: t})
 			if err == nil {
+				tenant, all := observationReadScope(r)
+				obs = scopeObservations(obs, tenant, all, 100)
 				for _, o := range obs {
 					data, _ := json.Marshal(o)
 					fmt.Fprintf(w, "id: %s\nevent: observation\ndata: %s\n\n", o.Timestamp.UTC().Format(time.RFC3339), string(data))

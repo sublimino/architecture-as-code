@@ -405,6 +405,8 @@ func authenticate(t *testing.T, a api.Authenticator, token string) (api.Principa
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/observations", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
+	// The gateway key acts for a tenant; every other key ignores this header.
+	r.Header.Set(api.ActingTenantHeader, "kusari")
 	return a.Authenticate(r)
 }
 

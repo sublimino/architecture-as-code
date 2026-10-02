@@ -151,7 +151,7 @@ assert_never_leaked() { # assert_never_leaked VALUE
 }
 
 @test "--from-stdin installs the given token in both Secrets without echoing it" {
-	run bash -c "printf '%s\n' '$GOOD_TOKEN' | '$SCRIPT' --context kind-osramp --from-stdin"
+	run bash -c "printf '%s\n' '$GOOD_TOKEN' | '$SCRIPT' --context kind-osramp --key stun-sentinel --from-stdin"
 	[ "$status" -eq 0 ]
 	[ "$(token kind-osramp "$ISSUER_NS" "$ISSUER")" = "$GOOD_TOKEN" ]
 	[ "$(token kind-osramp "$CONSUMER_NS" "$CONSUMER")" = "$GOOD_TOKEN" ]
@@ -159,7 +159,7 @@ assert_never_leaked() { # assert_never_leaked VALUE
 }
 
 @test "--from-stdin refuses a token under 32 bytes (exit 4) and writes nothing" {
-	run bash -c "printf '%s' 'sentinel-in-cluster-token' | '$SCRIPT' --context kind-osramp --from-stdin"
+	run bash -c "printf '%s' 'sentinel-in-cluster-token' | '$SCRIPT' --context kind-osramp --key stun-sentinel --from-stdin"
 	[ "$status" -eq 4 ]
 	[[ "$output" == *"at least 32 bytes"* ]]
 	[ "$(applies)" -eq 0 ]
@@ -167,7 +167,7 @@ assert_never_leaked() { # assert_never_leaked VALUE
 }
 
 @test "--from-stdin refuses a token with whitespace inside (exit 4)" {
-	run bash -c "printf 'abcdefghijklmnop qrstuvwxyz0123456789' | '$SCRIPT' --context kind-osramp --from-stdin"
+	run bash -c "printf 'abcdefghijklmnop qrstuvwxyz0123456789' | '$SCRIPT' --context kind-osramp --key stun-sentinel --from-stdin"
 	[ "$status" -eq 4 ]
 	[[ "$output" == *"whitespace"* ]]
 	[ "$(applies)" -eq 0 ]

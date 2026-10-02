@@ -33,6 +33,7 @@ not opt in.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -203,7 +204,7 @@ _GUARD_SCRIPT = """#!/bin/sh
 # Written by tests/conftest.py. A unit test reached a real cluster/runtime CLI.
 printf "hermetic guard: unit suite invoked real '%s'\\n" "$(basename "$0") $*" >&2
 if [ "${HERMETIC_GUARD_SELFTEST:-}" != "1" ]; then
-  printf '%s\\n' "$(basename "$0") $*" >> "$HERMETIC_GUARD_DIR/invocations.log"
+  printf '%s  [%s]\\n' "$(basename "$0") $*" "${PYTEST_CURRENT_TEST:-unknown test}" >> "$HERMETIC_GUARD_DIR/invocations.log"
 fi
 exit 97
 """
@@ -247,6 +248,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         if reporter is not None:
             reporter.write_line(f"hermetic guard: {len(calls)} real cluster/runtime CLI call(s): {calls[:10]}", red=True)
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    guard_dir = os.environ.get("HERMETIC_GUARD_DIR")
+    if guard_dir and Path(guard_dir).name.startswith("fe-hermetic-guard-"):
+        shutil.rmtree(guard_dir, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

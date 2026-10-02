@@ -20,7 +20,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from api_compat import authenticated_tenant
+from api_compat import Principal, authenticated_principal, authenticated_tenant
 from db.connection import set_pool_for_testing
 from main import app
 
@@ -42,8 +42,14 @@ def _no_pool():
 @pytest.fixture(autouse=True)
 def _auth_override():
     app.dependency_overrides[authenticated_tenant] = lambda: "tenant-demo"
+    # The policies proxy takes the full principal (bundle and rollback
+    # requests are audited with the actor), so it is overridden too.
+    app.dependency_overrides[authenticated_principal] = lambda: Principal(
+        tenant="tenant-demo", subject="route-collision-test", email=None,
+    )
     yield
     app.dependency_overrides.pop(authenticated_tenant, None)
+    app.dependency_overrides.pop(authenticated_principal, None)
 
 
 @pytest.fixture()

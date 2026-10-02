@@ -72,8 +72,8 @@ subnet_holder() {
   local n
   while IFS= read -r n; do
     [ -n "$n" ] || continue
-    if "$DOCKER_BIN" network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null \
-      | tr ' ' '\n' | grep -qx -- "$SLDC_BRIDGE_CIDR"; then
+    if grep -qx -- "$SLDC_BRIDGE_CIDR" <<<"$("$DOCKER_BIN" network inspect "$n" \
+      --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | tr ' ' '\n')"; then
       printf '%s\n' "$n"
       return 0
     fi
@@ -228,7 +228,7 @@ wire_dns() {
 check_coredns_logs() {
   local k="$1" logs
   logs="$("$k" -n kube-system logs -l k8s-app=kube-dns --tail=200 2>/dev/null || true)"
-  if printf '%s\n' "$logs" | grep -Eqi 'Loop \(|plugin/loop|Error during parsing|Corefile:[0-9]+ -'; then
+  if grep -Eqi 'Loop \(|plugin/loop|Error during parsing|Corefile:[0-9]+ -' <<<"$logs"; then
     printf '%s\n' "$logs" | grep -Ei 'loop|parsing|Corefile' >&2
     sldc_die "dns: CoreDNS logs report a loop or Corefile syntax error ($k)"
   fi
@@ -250,7 +250,7 @@ verify_dns() {
   deadline=$(( $(date +%s) + SLDC_DNS_TIMEOUT ))
   while :; do
     out="$(kosr -n default exec deploy/probe -- nslookup "$name" 2>&1 || true)"
-    if printf '%s\n' "$out" | awk '/^Name:/{n=1} n && /^Address/{print $NF}' | grep -qx -- "$SLDC_HUB_IP"; then
+    if grep -qx -- "$SLDC_HUB_IP" <<<"$(printf '%s\n' "$out" | awk '/^Name:/{n=1} n && /^Address/{print $NF}')"; then
       sldc_log "verify: $name -> $SLDC_HUB_IP from inside $SLDC_OSRAMP_CTX deploy/probe"
       return 0
     fi

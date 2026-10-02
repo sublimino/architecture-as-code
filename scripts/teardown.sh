@@ -28,7 +28,7 @@ fi
 
 teardown_env() {
   # 1. Delete the kind cluster (takes every in-cluster workload with it).
-  if command -v kind >/dev/null 2>&1 && kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+  if command -v kind >/dev/null 2>&1 && grep -qx "${CLUSTER_NAME}" <<<"$(kind get clusters 2>/dev/null)"; then
     echo "deleting kind cluster '${CLUSTER_NAME}'"
     kind delete cluster --name "${CLUSTER_NAME}" || true
   else

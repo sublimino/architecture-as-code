@@ -156,7 +156,7 @@ echo "[envoy-gateway-audit] === TLS version and cipher enforcement (pinned min==
 for v in 1.0 1.1 1.2 1.3; do
   slaat_portforward_wait_ready 127.0.0.1 "${SLAAT_GW_LOCAL_PORT}" 15 || true
   tls_out="$(curl -ks "${RESOLVE_ARGS[@]}" --max-time 5 "--tlsv${v}" "--tls-max" "${v}" -v -o /dev/null "${BASE}/" 2>&1)"
-  if echo "${tls_out}" | grep -q "SSL connection using TLSv${v}"; then
+  if grep -q "SSL connection using TLSv${v}" <<<"${tls_out}"; then
     negotiated="TLSv${v}"
     verdict=pass
   else

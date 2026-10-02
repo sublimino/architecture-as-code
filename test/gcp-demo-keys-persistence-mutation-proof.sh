@@ -127,8 +127,8 @@ expect_red() {
     return 0
   fi
 
-  if printf '%s\n' "$out" | grep -qF "not ok" && \
-     printf '%s\n' "$out" | grep -F "not ok" | grep -qF "$testname"; then
+  if grep -qF "not ok" <<<"$out" && \
+     grep -qF "$testname" <<<"$(printf '%s\n' "$out" | grep -F "not ok")"; then
     grn "  ${label}: red, and the failing test is the intended one."
     PASS=$((PASS + 1))
   else

@@ -32,7 +32,7 @@ if ! kubectl get nodes --no-headers >/dev/null 2>&1; then
   else
     printf '%b  ✓ Docker daemon is available%b\n' "$GRN" "$RST"
     printf '  Docker server version: %s\n' "$(docker version --format '{{.Server.Version}}' 2>/dev/null || printf '<unknown>')"
-    if command -v kind >/dev/null 2>&1 && kind get clusters 2>/dev/null | grep -Fxq "$cluster_name"; then
+    if command -v kind >/dev/null 2>&1 && grep -Fxq "$cluster_name" <<<"$(kind get clusters 2>/dev/null)"; then
       printf '%b  ✓ Kind cluster %s exists%b\n' "$GRN" "$cluster_name" "$RST"
     else
       printf '%b  ✗ Kind cluster %s does not exist%b\n' "$RED" "$cluster_name" "$RST"
@@ -187,7 +187,7 @@ else
     # Signature failure: a stale cache.db owned by the wrong uid in the
     # persistent host cache, corrupted by concurrent/killed `make up` runs.
     zot_logs=$(kubectl -n registry logs "$zot_name" -c zot --tail=20 2>/dev/null || true)
-    if echo "$zot_logs" | grep -qiE 'cache\.db|permission denied'; then
+    if grep -qiE 'cache\.db|permission denied' <<<"$zot_logs"; then
       printf '%b  ✗ zot cannot write its cache (permission denied on cache.db)%b\n' "$RED" "$RST"
       printf '    → the persistent host cache holds a stale file owned by the wrong uid\n'
       recommend "Reset the zot cache: make zot-cache-reset && kubectl -n registry delete pod -l app=zot"
@@ -219,7 +219,7 @@ if [[ "$mirror_up" -lt 5 ]]; then
   recommend "Restart the pull-through caches: bash scripts/registry-cache.sh up"
 fi
 # An empty hosts.toml silently disables the mirror for that registry.
-if docker ps --filter "name=^/${cluster_name}-control-plane$" --format '{{.Names}}' 2>/dev/null | grep -q .; then
+if grep -q . <<<"$(docker ps --filter "name=^/${cluster_name}-control-plane$" --format '{{.Names}}' 2>/dev/null)"; then
   empty_hosts=$(docker exec "${cluster_name}-control-plane" sh -c 'for d in /etc/containerd/certs.d/*/; do [ -s "${d}hosts.toml" ] || echo "${d}"; done' 2>/dev/null || true)
   if [[ -n "$empty_hosts" ]]; then
     printf '%b  ⚠ empty containerd hosts.toml (mirror bypassed):%b\n%s\n' "$YEL" "$RST" "$empty_hosts"

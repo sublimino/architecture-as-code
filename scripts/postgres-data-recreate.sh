@@ -39,7 +39,7 @@ CLUSTER_NAME="$CLUSTER_NAME" DOCKER_BIN="$DOCKER_BIN" POSTGRES_DATA_DIR="$POSTGR
 mkdir -p "$POSTGRES_DATA_DIR"
 
 # If Kind control-plane container is running, prepare permissions
-if "$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
+if grep -qx "$CONTAINER" <<<"$("$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null)"; then
   "$DOCKER_BIN" exec "$CONTAINER" mkdir -p /var/local/signalloom-postgres-data
   "$DOCKER_BIN" exec "$CONTAINER" chown -R 70:70 /var/local/signalloom-postgres-data
   "$DOCKER_BIN" exec "$CONTAINER" chmod 0700 /var/local/signalloom-postgres-data

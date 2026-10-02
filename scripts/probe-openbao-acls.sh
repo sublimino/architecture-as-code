@@ -154,7 +154,7 @@ print(bc.get('sub', '') or bs)
   fi
 
   if [ -n "${ROLE_FILTER}" ]; then
-    if echo "${role_names}" | grep -qx "${ROLE_FILTER}"; then
+    if grep -qx "${ROLE_FILTER}" <<<"${role_names}"; then
       role_detail="$(BAO "bao read auth/jwt/role/${ROLE_FILTER}")"
       record "ACL-ROLE-FOCUS" "requested-role-lookup" "role-exists" "found" "pass" "Role '${ROLE_FILTER}' exists. Detail: ${role_detail}"
     else

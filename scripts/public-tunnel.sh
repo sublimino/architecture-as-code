@@ -300,7 +300,7 @@ pid_on_port() {
 }
 
 port_forward_healthy() {
-  (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ":${LOCAL_PORT} "
+  grep -q ":${LOCAL_PORT} " <<<"$(ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null)"
 }
 
 pid_alive() {

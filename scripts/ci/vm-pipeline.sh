@@ -290,8 +290,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   echo "WARNING: signalloom-local.sh up exited non-zero — attempting direct ResourceSet activation"
   # Ensure signalloom-apps inputs are populated even if the sequential
   # activation timed out before reaching them.
-  kubectl -n flux-system get resourceset signalloom-apps -o jsonpath='{.spec.inputs}' 2>/dev/null \
-    | grep -q 'tenant' || {
+  apps_inputs="$(kubectl -n flux-system get resourceset signalloom-apps -o jsonpath='{.spec.inputs}' 2>/dev/null || true)"
+  grep -q 'tenant' <<<"$apps_inputs" || {
     echo "==> Directly patching signalloom-apps inputs..."
     kubectl -n flux-system patch resourceset signalloom-apps --type=merge -p '{
       "spec": {

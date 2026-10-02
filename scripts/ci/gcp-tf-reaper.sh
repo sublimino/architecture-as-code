@@ -191,7 +191,7 @@ has_demo_markers() {
   local name="$1" kind="$2" env="$3"
 
   [ "$kind" = "$DEMO_KIND" ] && return 0
-  printf '%s' "$env" | grep -Eq "$DEMO_ENV_PATTERN" && return 0
+  grep -Eq "$DEMO_ENV_PATTERN" <<<"$env" && return 0
   case "$name" in
     *"$DEMO_NAME_SUBSTRING"*) return 0 ;;
   esac
@@ -281,7 +281,7 @@ main() {
     fi
 
     # ── Gate 2 — an adversarial or mistaken `ci-lane = demo-1` is not a lane ─
-    if ! printf '%s' "$lane" | grep -Eq "$LANE_LABEL_PATTERN"; then
+    if ! grep -Eq "$LANE_LABEL_PATTERN" <<<"$lane"; then
       printf '    skip %-24s REFUSED: ci-lane label %s is not a CI lane key\n' "$name" "$lane"
       skipped=$((skipped + 1))
       continue

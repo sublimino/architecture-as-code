@@ -141,8 +141,8 @@ printf '[5/5] assertions\n'
 for m in tetragon_events_received_total tetragon_flow_events_ingested_total \
          tetragon_events_dropped_total tetragon_stream_errors_total \
          tetragon_events_skipped_total; do
-  printf '%s\n' "${BODY}" | grep -q "^# HELP ${m} " || fail "metric ${m} is absent from /metrics"
-  printf '%s\n' "${BODY}" | grep -q "^# TYPE ${m} counter$" || fail "metric ${m} has no counter TYPE line"
+  grep -q "^# HELP ${m} " <<<"${BODY}" || fail "metric ${m} is absent from /metrics"
+  grep -q "^# TYPE ${m} counter$" <<<"${BODY}" || fail "metric ${m} has no counter TYPE line"
 done
 info "all five metric series present with HELP and TYPE"
 

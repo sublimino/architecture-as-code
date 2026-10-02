@@ -115,12 +115,12 @@ else
   status_rc=$?
   url="$("$tunnel" url 2>/dev/null)"
 
-  if echo "$status_out" | grep -qi 'BROKEN'; then
+  if grep -qi 'BROKEN' <<<"$status_out"; then
     row "tailscale tunnel" "BROKEN" "tunnel active but backend is down"
     row "" "" "repair with: make serve or make funnel"
   elif [ "$status_rc" -eq 0 ] && [ -n "$url" ]; then
     mode="tailscale"
-    if echo "$status_out" | grep -qi 'mode:[[:space:]]*funnel'; then
+    if grep -qi 'mode:[[:space:]]*funnel' <<<"$status_out"; then
       mode="tailscale (funnel)"
     fi
     row "$mode" "PRESENT" "$url"
@@ -193,7 +193,7 @@ else
   # path fail with "agent refused operation", which reads as a VM fault and is a
   # local one.
   out="$(env SSH_AUTH_SOCK='' timeout 45 "$gcp_ci" status 2>&1 | head -2)"
-  if echo "$out" | grep -q 'QUERY_FAILED'; then
+  if grep -q 'QUERY_FAILED' <<<"$out"; then
     row "signalloom-ci" "UNKNOWN" "query failed — the active account cannot see the project"
   else
     row "signalloom-ci" "PRESENT" "$(echo "$out" | head -1 | cut -c1-70)"
@@ -204,7 +204,7 @@ fi
 echo
 bold "What to hand someone"
 echo
-if [ -n "${url:-}" ] && ! echo "${status_out:-}" | grep -qi 'BROKEN'; then
+if [ -n "${url:-}" ] && ! grep -qi 'BROKEN' <<<"${status_out:-}"; then
   echo "  ${url}   (local Kind via Tailscale — dies with this laptop)"
 else
   echo "  Nothing is publicly routable right now."

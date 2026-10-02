@@ -213,7 +213,7 @@ fi
 
 # ── Go 1.24.5 ────────────────────────────────────────────────────────
 GO_VERSION="1.24.5"
-if ! go version 2>/dev/null | grep -q "go${GO_VERSION}"; then
+if ! grep -q "go${GO_VERSION}" <<<"$(go version 2>/dev/null)"; then
   log "installing Go ${GO_VERSION}"
   # Untarring over an existing /usr/local/go leaves the previous toolchain's
   # stale files behind (upstream's own install docs require the rm first).
@@ -226,21 +226,21 @@ export PATH="/usr/local/go/bin:${PATH}"
 
 # ── kind 0.29.0 ──────────────────────────────────────────────────────
 KIND_VERSION="0.29.0"
-if ! kind version 2>/dev/null | grep -q "${KIND_VERSION}"; then
+if ! grep -q "${KIND_VERSION}" <<<"$(kind version 2>/dev/null)"; then
   log "installing kind ${KIND_VERSION}"
   install_binary "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-${OS}-${ARCH}" "${BIN}/kind"
 fi
 
 # ── kubectl (matches kind node image) ────────────────────────────────
 KUBECTL_VERSION="1.33.2"
-if ! kubectl version --client 2>/dev/null | grep -q "v${KUBECTL_VERSION}"; then
+if ! grep -q "v${KUBECTL_VERSION}" <<<"$(kubectl version --client 2>/dev/null)"; then
   log "installing kubectl ${KUBECTL_VERSION}"
   install_binary "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl" "${BIN}/kubectl"
 fi
 
 # ── kustomize 5.8.1 ──────────────────────────────────────────────────
 KUSTOMIZE_VERSION="5.8.1"
-if ! kustomize version 2>/dev/null | grep -q "${KUSTOMIZE_VERSION}"; then
+if ! grep -q "${KUSTOMIZE_VERSION}" <<<"$(kustomize version 2>/dev/null)"; then
   log "installing kustomize ${KUSTOMIZE_VERSION}"
   install_from_tarball "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_${OS}_${ARCH}.tar.gz" kustomize kustomize
 fi
@@ -252,21 +252,21 @@ fi
 # disagreements are forward (go 1.23.10→1.24.5, kustomize 5.6.0→5.8.1, bats
 # 1.11.0→1.14.0) and are the intended newer pins.
 HELM_VERSION="3.18.4"
-if ! helm version 2>/dev/null | grep -q "v${HELM_VERSION}"; then
+if ! grep -q "v${HELM_VERSION}" <<<"$(helm version 2>/dev/null)"; then
   log "installing helm ${HELM_VERSION}"
   install_from_tarball "https://get.helm.sh/helm-v${HELM_VERSION}-${OS}-${ARCH}.tar.gz" helm --strip-components=1 "${OS}-${ARCH}/helm"
 fi
 
 # ── flux 2.6.4 ───────────────────────────────────────────────────────
 FLUX_VERSION="2.6.4"
-if ! flux version --client 2>/dev/null | grep -q "${FLUX_VERSION}"; then
+if ! grep -q "${FLUX_VERSION}" <<<"$(flux version --client 2>/dev/null)"; then
   log "installing flux ${FLUX_VERSION}"
   install_from_tarball "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_${OS}_${ARCH}.tar.gz" flux flux
 fi
 
 # ── crane 0.20.3 ─────────────────────────────────────────────────────
 CRANE_VERSION="0.20.3"
-if ! crane version 2>/dev/null | grep -q "${CRANE_VERSION}"; then
+if ! grep -q "${CRANE_VERSION}" <<<"$(crane version 2>/dev/null)"; then
   log "installing crane ${CRANE_VERSION}"
   install_from_tarball "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" crane crane
 fi
@@ -278,7 +278,7 @@ fi
 # --registry-referrers-mode. test/cosign-signing-consistency.bats asserts no call
 # site passes that flag; revisit both if this pin ever moves.
 COSIGN_VERSION="3.0.6"
-if ! cosign version 2>/dev/null | grep -q "v${COSIGN_VERSION}"; then
+if ! grep -q "v${COSIGN_VERSION}" <<<"$(cosign version 2>/dev/null)"; then
   log "installing cosign ${COSIGN_VERSION}"
   install_binary "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-${OS}-${ARCH}" "${BIN}/cosign"
 fi
@@ -337,12 +337,12 @@ install_anchore_tool() { # name version sha256
   return "$rc"
 }
 
-if ! syft version 2>/dev/null | grep -q "${SYFT_VERSION}"; then
+if ! grep -q "${SYFT_VERSION}" <<<"$(syft version 2>/dev/null)"; then
   log "installing syft ${SYFT_VERSION}"
   install_anchore_tool syft "${SYFT_VERSION}" "${SYFT_SHA256}"
 fi
 
-if ! grype version 2>/dev/null | grep -q "${GRYPE_VERSION}"; then
+if ! grep -q "${GRYPE_VERSION}" <<<"$(grype version 2>/dev/null)"; then
   log "installing grype ${GRYPE_VERSION}"
   install_anchore_tool grype "${GRYPE_VERSION}" "${GRYPE_SHA256}"
 fi
@@ -358,7 +358,7 @@ fi
 # two ever disagree, whichever installer runs FIRST wins and the other pin is
 # a lie — this one runs first.
 VEXCTL_VERSION="0.3.0"
-if ! vexctl version 2>/dev/null | grep -q "${VEXCTL_VERSION}"; then
+if ! grep -q "${VEXCTL_VERSION}" <<<"$(vexctl version 2>/dev/null)"; then
   log "installing vexctl ${VEXCTL_VERSION}"
   install_binary "https://github.com/openvex/vexctl/releases/download/v${VEXCTL_VERSION}/vexctl-linux-amd64" "${BIN}/vexctl"
 fi
@@ -380,7 +380,7 @@ fi
 # (3.39.10) so a tunnel defect reproduces identically in both places.
 NGROK_VERSION="3.39.10"
 NGROK_SHA256="14003f665c900744c653fe62832ad380a9c14c9649b413a61e25d642428371e8"
-if ! ngrok version 2>/dev/null | grep -q "${NGROK_VERSION}"; then
+if ! grep -q "${NGROK_VERSION}" <<<"$(ngrok version 2>/dev/null)"; then
   log "installing ngrok ${NGROK_VERSION}"
   tmp="$(mktemp -d)"
   curl -fsSL -o "${tmp}/ngrok.deb" \
@@ -482,6 +482,7 @@ verify_against_sidecar() { # file sidecar_url
 # guaranteed on the base image, and this script runs BEFORE setup.sh installs
 # anything, so a missing decompressor here would fail as a tar error rather than
 # as a missing package.
+# pipefail-safe: `node --version` prints one short line in a single write, then exits
 if ! node --version 2>/dev/null | grep -q "^v${NODE_VERSION}$"; then
   log "installing node ${NODE_VERSION}"
   node_tmp="$(mktemp -d)"
@@ -507,6 +508,7 @@ fi
 # guarantees unzip on the base image — demo-vm.sh's prerequisite list names
 # unzip as deliberately absent, and setup.sh (which provides it) runs AFTER
 # this script.
+# pipefail-safe: `bun --version` prints one short line in a single write, then exits
 if ! bun --version 2>/dev/null | grep -q "^${BUN_VERSION}$"; then
   log "installing bun ${BUN_VERSION}"
   if ! command -v unzip >/dev/null 2>&1; then
@@ -536,6 +538,7 @@ fi
 #
 # astral publish a per-artefact `.sha256` sidecar containing a single
 # `<sha>  <name>` line, which verify_against_sidecar reads the same way.
+# pipefail-safe: `uv --version` prints one short line in a single write, then exits
 if ! uv --version 2>/dev/null | grep -q "${UV_VERSION}"; then
   log "installing uv ${UV_VERSION}"
   uv_tmp="$(mktemp -d)"
@@ -556,7 +559,7 @@ fi
 
 # ── bats 1.14.0 ──────────────────────────────────────────────────────
 BATS_VERSION="1.14.0"
-if ! bats --version 2>/dev/null | grep -q "${BATS_VERSION}"; then
+if ! grep -q "${BATS_VERSION}" <<<"$(bats --version 2>/dev/null)"; then
   log "installing bats ${BATS_VERSION}"
   tmp="$(mktemp -d)"
   git clone --depth 1 --branch "v${BATS_VERSION}" https://github.com/bats-core/bats-core.git "${tmp}/bats" 2>/dev/null

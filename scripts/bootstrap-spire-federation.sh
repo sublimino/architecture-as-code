@@ -159,7 +159,7 @@ step_federate() {
 # --- registration entries -----------------------------------------------------
 ensure_entry() {
   local id="$1"; shift
-  if spire_workload entry show -spiffeID "$id" 2>/dev/null | grep -q 'Entry ID'; then
+  if grep -q 'Entry ID' <<<"$(spire_workload entry show -spiffeID "$id" 2>/dev/null)"; then
     log "entry exists: $id"; return 0
   fi
   spire_workload entry create -spiffeID "$id" "$@" >/dev/null
@@ -170,7 +170,7 @@ step_entries() {
   # /spire/* is reserved for server-issued IDs; SPIRE 1.11 rejects a
   # registration entry there, so the node alias lives under /k8s-cluster/.
   local node="spiffe://$WORKLOAD_TD/k8s-cluster/$WORKLOAD_CLUSTER" fed="spiffe://$HUB_TD"
-  if ! spire_workload entry show -spiffeID "$node" 2>/dev/null | grep -q 'Entry ID'; then
+  if ! grep -q 'Entry ID' <<<"$(spire_workload entry show -spiffeID "$node" 2>/dev/null)"; then
     spire_workload entry create -node -spiffeID "$node" -selector "k8s_psat:cluster:$WORKLOAD_CLUSTER" >/dev/null
   fi
   # PF-2: the live DaemonSet is stun-sentinel, not signalloom-stun-sentinel.

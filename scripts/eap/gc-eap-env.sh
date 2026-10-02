@@ -61,10 +61,10 @@ fi
 
 # 2. Check Tailscale node / serve entries in live mode
 if [[ "${TAILSCALE_MOCK:-0}" != "1" ]] && command -v tailscale >/dev/null 2>&1; then
-  if tailscale status --json 2>/dev/null | grep -q "$HOST"; then
+  if grep -q "$HOST" <<<"$(tailscale status --json 2>/dev/null)"; then
     RESIDUALS+=("tailscale_node:$HOST")
   fi
-  if tailscale serve status --json 2>/dev/null | grep -q "$HOST"; then
+  if grep -q "$HOST" <<<"$(tailscale serve status --json 2>/dev/null)"; then
     RESIDUALS+=("tailscale_serve:$HOST")
   fi
 fi

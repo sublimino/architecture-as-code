@@ -174,7 +174,7 @@ flux push artifact "${ARTIFACT}" \
   --insecure-registry >/dev/null
 echo "unsigned artifact pushed; asking Flux to reconcile"
 reconcile_frontend
-if frontend_ready_status | grep -q False; then
+if grep -q False <<<"$(frontend_ready_status)"; then
   echo "BLOCKED: Flux rejected the unsigned artifact; the workload stays on the last verified state"
 else
   # The trap restores on the way out, so this no longer strands the registry.
@@ -191,7 +191,7 @@ echo "signed artifact pushed (${digest}); asking Flux to reconcile"
 # does not trigger a redundant second restore.
 REVOKED=0
 reconcile_frontend
-if frontend_ready_status | grep -q True; then
+if grep -q True <<<"$(frontend_ready_status)"; then
   echo "RESTORED: signed artifact verified and reconciled to the cluster"
 else
   die "artifact still not verified; inspect: kubectl -n frontend describe ocirepository apps"

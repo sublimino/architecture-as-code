@@ -41,44 +41,31 @@
 # below probes signal-ingest DIRECTLY so a missing route is read at the hop
 # where it is still legible, before the proxy masks it as a connectivity fault.
 #
-# ─── Why a GET probe is the registration test, including for POST routes ─────
+# ─── How the upstream tier reads registration ────────────────────────────────
 #
-# Go's ServeMux distinguishes the cases we care about without executing the
-# handler:
+# Until signal-ingest enforced authentication, a GET probe told registered from
+# missing without running a handler: 200, 405 for a POST-only route, and Go's
+# plain-text `404 page not found` for an unregistered path. Behind
+# api.ProtectedRouter that is gone. Authentication runs before routing, so an
+# anonymous probe is 401 on every path. An authenticated GET on a POST-only
+# route is 403 unregistered_route, because ServeMux reports no pattern for a
+# method mismatch. And an authenticated POST runs the handler: collectors/seed
+# seeds the store. That is the thing this suite must never do on a cluster that
+# is usually mid-rehearsal.
 #
-#   GET /api/v1/coverage        -> 200   registered, and this method
-#   GET /api/v1/correlate       -> 405   registered POST-only, method rejected
-#   GET /api/v1/does-not-exist  -> 404   NOT REGISTERED
-#
-# That matters because three of the proxied routes are POST — correlate,
-# promote and collectors/seed — and this suite must not fire them. Probing
-# registration by actually POSTing would seed the store and mutate actor state
-# on a cluster that is usually mid-rehearsal.
-#
-# ─── Why the status code alone is NOT enough, and what is ────────────────────
-#
-# "404 means absent" is false for the parameterised routes, and believing it
-# cost this suite a false positive on its first run. A registered pattern whose
-# handler cannot find the resource answers 404 too:
-#
-#   GET /api/v1/actors/anything   -> 404  application/json  {"error":"actor not found"}
-#   GET /api/v1/does-not-exist    -> 404  text/plain        404 page not found
-#
-# The mux and the handler are told apart by the BODY, not the code. Go's
-# net/http writes the literal bytes `404 page not found\n` with a text/plain
-# content type when no pattern matches; every handler in signal-ingest answers
-# JSON. So absence is "404 AND Go's plain-text body", which is exact.
-#
-# That discriminator is the same fact as the mask described above: it is
-# precisely because the body is `404 page not found` and not JSON that
-# _proxy()'s resp.json() raises and the portal reports 502. One string explains
-# both why this bug was hard to see and how this test sees it.
+# So the tier reads the RUNNING process's route table instead. ProtectedRouter
+# logs one JSON line per route it registers, "HTTP authorization route
+# registered", with the method and pattern.
+# api.TestEveryRegisteredRouteIsAnnouncedInTheStartupLog pins that contract.
+# A {param} segment matches any concrete segment and the method must match,
+# exactly as ServeMux decides. An empty readback (the log rotated) fails
+# loudly. It is never taken to mean "nothing is missing".
 
 DEX_NS="inf-signalloom"
 FE_NS="fe-signalloom"
 DEX_LOCAL_PORT="${DEX_LOCAL_PORT:-15561}"
 PORTAL_LOCAL_PORT="${PORTAL_LOCAL_PORT:-18001}"
-INGEST_LOCAL_PORT="${INGEST_LOCAL_PORT:-18083}"
+ROUTE_LOG_MSG="HTTP authorization route registered"
 
 DASH_SRC="${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src"
 SIGNAL_FUSION="${BATS_TEST_DIRNAME}/../apps/fe-signalloom/src/signal_fusion.py"
@@ -140,22 +127,18 @@ start_forwards() {
   kubectl -n "$FE_NS" port-forward svc/fe-signalloom "${PORTAL_LOCAL_PORT}:8000" \
     >"$BATS_TEST_TMPDIR/portal-pf.log" 2>&1 &
   PORTAL_PID=$!
-  kubectl -n "$FE_NS" port-forward svc/signal-ingest "${INGEST_LOCAL_PORT}:8082" \
-    >"$BATS_TEST_TMPDIR/ingest-pf.log" 2>&1 &
-  INGEST_PID=$!
   wait_tcp 127.0.0.1 "$DEX_LOCAL_PORT" 30 || { cat "$BATS_TEST_TMPDIR/dex-pf.log" >&2; return 1; }
   wait_tcp 127.0.0.1 "$PORTAL_LOCAL_PORT" 30 || { cat "$BATS_TEST_TMPDIR/portal-pf.log" >&2; return 1; }
-  wait_tcp 127.0.0.1 "$INGEST_LOCAL_PORT" 30 || { cat "$BATS_TEST_TMPDIR/ingest-pf.log" >&2; return 1; }
 }
 
 teardown() {
-  for pid in "${DEX_PID:-}" "${PORTAL_PID:-}" "${INGEST_PID:-}"; do
+  for pid in "${DEX_PID:-}" "${PORTAL_PID:-}"; do
     if [ -n "$pid" ]; then
       kill "$pid" >/dev/null 2>&1 || true
       wait "$pid" 2>/dev/null || true
     fi
   done
-  unset DEX_PID PORTAL_PID INGEST_PID
+  unset DEX_PID PORTAL_PID
   return 0
 }
 
@@ -242,53 +225,9 @@ for portal_path, method, upstream in pairs:
 PY
 }
 
-probe_ingest() {
-  curl -sS -m 10 -o /dev/null -w '%{http_code}' \
-    "http://127.0.0.1:${INGEST_LOCAL_PORT}${1}"
-}
+# shellcheck source=helpers/ingest-routes.bash
+source "${BATS_TEST_DIRNAME}/helpers/ingest-routes.bash"
 
-# Is this path absent from the RUNNING signal-ingest's mux?
-#
-# Prints "absent", "present", or "unreachable" — never a bare status code,
-# because the caller must not be able to re-derive "404 means absent", which is
-# the wrong rule (see the header: a registered pattern's handler answers 404
-# with JSON when the resource does not exist).
-#
-# Absence is the conjunction of the status AND Go's exact unrouted body. Both
-# halves are required: the body alone would match a handler that happened to
-# echo that text, and the status alone is the false positive this had.
-#
-# Body and status are captured through a FILE rather than a trailing -w field.
-# Reading them from one string was the first attempt and it was wrong in a way
-# that passed: Go's unrouted body already ends in a newline, so the separator
-# and the body's own terminator collided, `${body%$'\n'*}` left a trailing
-# newline on the body, the equality against "404 page not found" never held,
-# and EVERY path — registered or not — was judged present. The sweep above went
-# green while its probe could not see absence at all. The falsification test is
-# what surfaced that, and it is why that test exists.
-ingest_route_absent() {
-  local path="$1" code body
-  code="$(curl -sS -m 10 -o "$BATS_TEST_TMPDIR/ingest-probe" -w '%{http_code}' \
-    "http://127.0.0.1:${INGEST_LOCAL_PORT}${path}" 2>/dev/null)" || {
-    printf 'unreachable'
-    return 0
-  }
-  # $(<file) drops trailing newlines, which is the whole point here.
-  body="$(<"$BATS_TEST_TMPDIR/ingest-probe")"
-  case "$code" in
-  000 | '') printf 'unreachable' ;;
-  404)
-    if [ "$body" = "404 page not found" ]; then
-      printf 'absent'
-    else
-      # A 404 from a handler that ran. The route exists; the resource does not,
-      # which is not this suite's question.
-      printf 'present'
-    fi
-    ;;
-  *) printf 'present' ;;
-  esac
-}
 
 probe_portal() {
   local path="$1" token="${2:-}"
@@ -519,32 +458,37 @@ PY
 
 # ─── Tier 2: the upstream the portal proxies to ──────────────────────────────
 
+# The live route table, or a loud failure. An empty readback must never be read
+# as "nothing is missing" — that is a loop over the empty set.
+ingest_routes_or_fail() {
+  INGEST_ROUTES="$(running_ingest_routes)"
+  [ -n "$INGEST_ROUTES" ] || {
+    echo "signal-ingest's log holds no '${ROUTE_LOG_MSG}' lines: the startup log has" >&2
+    echo "rotated, or the running image predates ProtectedRouter. Cannot tell which routes" >&2
+    echo "it serves. Restart it to re-announce: kubectl -n ${FE_NS} rollout restart deploy/signal-ingest" >&2
+    return 1
+  }
+}
+
 @test "ROUTELIVE every upstream path the portal proxies to is registered on the RUNNING signal-ingest" {
-  local table missing=() method portal upstream code
+  local table missing=() method portal upstream
   table="$(signal_fusion_upstreams)"
   [ -n "$table" ]
+  ingest_routes_or_fail
 
   while IFS=$'\t' read -r method portal upstream; do
     [ -n "$upstream" ] || continue
-    case "$(ingest_route_absent "$upstream")" in
-    absent) missing+=("${method} ${upstream}  (proxied from ${portal})") ;;
-    unreachable)
-      # A probe that did not complete is not evidence that the route is there.
-      # Failing loudly here is the difference between this guard and one that
-      # manufactures confidence when the cluster is unreachable.
-      echo "probe of ${upstream} did not complete; signal-ingest unreachable" >&2
-      return 1
-      ;;
-    esac
+    [ "$(ingest_route_absent "$method" "$upstream" "$INGEST_ROUTES")" = absent ] &&
+      missing+=("${method} ${upstream}  (proxied from ${portal})")
   done <<<"$table"
 
   [ "${#missing[@]}" -eq 0 ] || {
     echo "The portal proxies to these paths; the RUNNING signal-ingest has no such route:" >&2
     printf '  %s\n' "${missing[@]}" >&2
     echo >&2
-    echo "The portal will answer 502 upstream_unavailable for each — NOT 404 — because" >&2
-    echo "_proxy() cannot parse Go's plain-text 404 body. Rebuild and roll:" >&2
-    echo "  make images-signalfusion && kubectl -n ${FE_NS} rollout restart deploy/signal-ingest" >&2
+    echo "Behind ProtectedRouter an authenticated request to an unregistered route is" >&2
+    echo "403 unregistered_route. Rebuild, publish and roll:" >&2
+    echo "  make -C d2-signalloom signal-ingest-image-publish && flux reconcile kustomization apps -n ${FE_NS}" >&2
     return 1
   }
 }
@@ -557,9 +501,10 @@ PY
   # working. A synthetic path that is definitely not registered must be seen as
   # missing by the same code paths the sweeps use, or those sweeps prove nothing.
   local absent="/api/v1/route-liveness-falsification-$$"
+  ingest_routes_or_fail
 
-  local verdict code
-  verdict="$(ingest_route_absent "$absent")"
+  local verdict
+  verdict="$(ingest_route_absent GET "$absent" "$INGEST_ROUTES")"
   [ "$verdict" = "absent" ] || {
     echo "an unregistered path on signal-ingest was judged '${verdict}'." >&2
     echo "The upstream sweep cannot see a missing route, so its clean result" >&2
@@ -567,27 +512,24 @@ PY
     return 1
   }
 
-  # The 405/404 split the header relies on, asserted rather than assumed: a
-  # registered POST-only route must not read as absent under a GET probe.
-  code="$(probe_ingest "/api/v1/correlate")"
-  [ "$code" = "405" ] || {
-    echo "GET /api/v1/correlate answered ${code}; expected 405." >&2
-    echo "If a registered POST route now reads 404, the upstream sweep will" >&2
-    echo "report false drift on every POST route. If it reads 200, the GET" >&2
-    echo "probe is executing handlers and must be replaced." >&2
+  # The method is part of the registration: correlate is POST-only, so a POST
+  # reads present and a GET reads absent. If both read the same, the sweep is
+  # ignoring the method and would pass a route registered under the wrong verb.
+  [ "$(ingest_route_absent POST /api/v1/correlate "$INGEST_ROUTES")" = present ] &&
+    [ "$(ingest_route_absent GET /api/v1/correlate "$INGEST_ROUTES")" = absent ] || {
+    echo "POST/GET /api/v1/correlate were not told apart by method." >&2
     return 1
   }
 
   # And the discrimination that the first version of this suite got wrong: a
-  # registered pattern whose handler 404s must read 'present', not 'absent'.
-  # Without this, the sweep silently returns to reporting every parameterised
-  # route as missing — which is exactly how it failed on 2026-08-18.
-  verdict="$(ingest_route_absent "/api/v1/actors/route-liveness-probe")"
+  # parameterised pattern must match a concrete segment. Without this, the
+  # sweep reports every parameterised route as missing — which is exactly how
+  # it failed on 2026-08-18.
+  verdict="$(ingest_route_absent GET /api/v1/actors/route-liveness-probe "$INGEST_ROUTES")"
   [ "$verdict" = "present" ] || {
     echo "GET /api/v1/actors/<unknown> was judged '${verdict}', expected 'present'." >&2
-    echo "That path IS a registered pattern; its handler simply has no such" >&2
-    echo "actor. Judging it absent makes every parameterised route a false" >&2
-    echo "positive and this suite unusable." >&2
+    echo "That path IS a registered pattern. Judging it absent makes every" >&2
+    echo "parameterised route a false positive and this suite unusable." >&2
     return 1
   }
 

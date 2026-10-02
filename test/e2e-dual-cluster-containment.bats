@@ -37,6 +37,9 @@
 #   NS                  agent namespace               (default: fe-signalloom-agents)
 #   EVIDENCE_DIR        evidence root                 (default: ~/kusari-e2e/<ts>)
 #   SLDC_OBS_WINDOW_MS  Step 4 correlation window     (default: 15000)
+#   SLDC_FLEET_URL      fleet-manager base URL for Step 6's recovery (default:
+#                       a kubectl port-forward to svc/fleet-manager)
+#   FLEET_AGENT_ID      the kusari agent's fleet DAG id (default: agent-kusari-agent)
 #   SLDC_SKIP_BRIDGE    set to 1 to skip the docker bridge assertion
 #   SLDC_CLAIM_CMD      Step 2 claim command   (default: scripts/demo-agent-autoclaim.sh)
 #   SLDC_CLAIM_USER     Dex user that claims   (default: kusari-operator@signalloom.local)
@@ -66,6 +69,8 @@ setup_file() {
     export TENANT="${TENANT:-kusari}"
     export TENANT_HASH="${TENANT_HASH:-4b53ab6b}"
     export OBS_WINDOW_MS="${SLDC_OBS_WINDOW_MS:-15000}"
+    export FLEET_NS="${FLEET_NS:-fe-signalloom}"
+    export FLEET_AGENT_ID="${FLEET_AGENT_ID:-agent-kusari-agent}"
 
     # The agent_registry database is a separate injectable boundary from the hub
     # control plane. Appendix F.1 places it on the hub; the live estate runs it
@@ -291,8 +296,67 @@ resync_elapsed() {
     [ -n "${rc}" ] && [ "${rc}" -gt "$4" ]
 }
 
+cgroup_reports_thawed() {
+    ${DOCKER_BIN} exec "${NODE}" sh -c "cat $1/cgroup.events" 2>/dev/null \
+        | grep -q '^frozen 0$'
+}
+
+# fleet_operator_header writes fleet-manager's operator caller key, as an
+# Authorization header, to a 0600 file in this run's private tmpdir and echoes
+# the path. The key moves only through files and pipes, never argv: it is the
+# break-glass credential that may /recover.
+fleet_operator_header() {
+    local dir="${BATS_FILE_TMPDIR}" b64 hdr
+    b64="${dir}/fleet-operator.b64"; hdr="${dir}/fleet-operator.hdr"
+    (
+        umask 077
+        ${K_WORKLOAD} get secret fleet-manager-caller-keys -n "${FLEET_NS}" \
+            -o 'jsonpath={.data.operator}' >"${b64}" 2>/dev/null || exit 1
+        [ -s "${b64}" ] || exit 1
+        { printf 'Authorization: Bearer '; base64 -d <"${b64}"; printf '\n'; } >"${hdr}" || exit 1
+    ) || { rm -f "${b64}" "${hdr}"; return 1; }
+    rm -f "${b64}"
+    echo "${hdr}"
+}
+
+# fleet_url echoes fleet-manager's base URL: SLDC_FLEET_URL, or a port-forward
+# this suite starts (its PID is recorded for teardown_file).
+fleet_url() {
+    if [ -n "${SLDC_FLEET_URL:-}" ]; then echo "${SLDC_FLEET_URL}"; return 0; fi
+    local log="${BATS_FILE_TMPDIR}/fleet-pf.log" port="" i
+    if [ -s "${BATS_FILE_TMPDIR}/fleet-pf.port" ]; then
+        echo "http://127.0.0.1:$(cat "${BATS_FILE_TMPDIR}/fleet-pf.port")"; return 0
+    fi
+    ${K_WORKLOAD} port-forward -n "${FLEET_NS}" svc/fleet-manager :8082 >"${log}" 2>&1 &
+    echo $! >"${BATS_FILE_TMPDIR}/fleet-pf.pid"
+    for i in $(seq 1 50); do
+        port="$(sed -nE 's/^Forwarding from 127\.0\.0\.1:([0-9]+) .*/\1/p' "${log}" | head -1)"
+        [ -n "${port}" ] && break
+        sleep 0.2
+    done
+    [ -n "${port}" ] || return 1
+    echo "${port}" >"${BATS_FILE_TMPDIR}/fleet-pf.port"
+    echo "http://127.0.0.1:${port}"
+}
+
+# fleet_recover_kusari asks fleet-manager to recover exactly this suite's
+# agent (an explicit agent_ids list never touches other cards' stuns) and
+# echoes the HTTP status. The body lands in fleet-recover.json.
+fleet_recover_kusari() {
+    local hdr url
+    hdr="$(fleet_operator_header)" || { echo "no-operator-key"; return 1; }
+    url="$(fleet_url)" || { rm -f "${hdr}"; echo "no-fleet-url"; return 1; }
+    curl -sS --max-time 60 -o "${BATS_FILE_TMPDIR}/fleet-recover.json" -w '%{http_code}' \
+        -X POST -H @"${hdr}" -H 'Content-Type: application/json' \
+        --data "{\"agent_ids\":[\"${FLEET_AGENT_ID}\"]}" \
+        "${url}/api/v1/fleet/recover"
+    local rc=$?
+    rm -f "${hdr}"
+    return "${rc}"
+}
+
 export -f registry_row claim_kusari_agent observations_json sensitive_openat_observations \
-          have_sensitive_openat cgroup_reports_frozen cadvisor_sample \
+          have_sensitive_openat cgroup_reports_frozen cgroup_reports_thawed cadvisor_sample \
           sentinel_health resync_elapsed
 
 @test "Step 1: Kusari workload deployment reconciled by Flux on the workload cluster" {
@@ -599,9 +663,64 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     ( cd "${EVIDENCE_DIR}" && sha256sum ./* >audit-signature.sha256 2>/dev/null ) || true
 }
 
+@test "Step 6: Authorised recovery clears the stun record and both Flux pins, and the pod thaws" {
+    # A recorded stun outlives the suite: fleet-manager pinned the Pod and the
+    # Deployment and the sentinel holds the freeze until an authorised resume.
+    # Without this the next run starts against a frozen, pinned kusari pod.
+    # /resume needs a dual-signed operator token no estate provisions, so the
+    # authorised path is /recover with the operator caller key, naming only
+    # this suite's agent.
+    local pod_name; pod_name="$(agent_pod_field 'metadata.name')"
+    [ -n "$pod_name" ]
+    local cg; cg="$(pod_cgroup_dir)"
+    [ -n "$cg" ]
+
+    run fleet_recover_kusari
+    [ "$status" -eq 0 ]
+    [ "$output" = "200" ] || [ "$output" = "207" ]
+    local recover_status="$output"
+
+    # The pins are removed, not blanked: Flux reconciles both objects again.
+    run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+
+    # The stun record says released: an affirmative resume, reason blanked.
+    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
+        -o 'jsonpath={.metadata.labels.signalloom\.io/stunned}'
+    [ "$output" = "false" ]
+    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}'
+    [ -z "$output" ]
+
+    # Kernel ground truth: the sentinel thaws on the affirmative resume.
+    WAIT_QUIET=1 run _wait_retry 60 "cgroup.events frozen 0 for ${pod_name}" \
+        "cgroup_reports_thawed '${cg}'"
+    [ "$status" -eq 0 ]
+
+    {
+        echo "recover_status: ${recover_status}"
+        echo "flux_reconcile_deployment: (absent)"
+        echo "flux_reconcile_pod: (absent)"
+        echo "stunned: false"
+        echo "kernel: frozen 0"
+    } >"${EVIDENCE_DIR}/step6-recovery.txt"
+}
+
 teardown_file() {
-    # Thaw ONLY the cgroup this suite froze. See the header: a blanket thaw
-    # across the node would undo other cards' deliberate freezes.
+    # Safety net for a run that failed before Step 6: recover this suite's
+    # agent (idempotent, never anyone else's), then thaw ONLY the cgroup this
+    # suite froze. See the header: a blanket thaw across the node would undo
+    # other cards' deliberate freezes.
+    fleet_recover_kusari >/dev/null 2>&1 || true
+    if [ -s "${BATS_FILE_TMPDIR}/fleet-pf.pid" ]; then
+        kill "$(cat "${BATS_FILE_TMPDIR}/fleet-pf.pid")" >/dev/null 2>&1 || true
+    fi
     local uid slice cg
     uid="$(${KUBECTL} --context "${WL_CONTEXT}" get pod -n "${NS}" -l "${AGENT_SELECTOR}" \
         -o 'jsonpath={.items[0].metadata.uid}' 2>/dev/null || true)"

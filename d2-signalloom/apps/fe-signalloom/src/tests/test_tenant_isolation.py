@@ -721,6 +721,7 @@ def _template_for(concrete: str) -> str:
 #: reason.  An entry here is a claim that the route holds no tenant data; if
 #: that stops being true the sweep must gain it.
 NOT_DATABASE_BACKED: list[tuple[str, str]] = [
+    ("GET", "/api/v1/auth/check"),                       # role check only, no data; covered by test_auth_check
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results

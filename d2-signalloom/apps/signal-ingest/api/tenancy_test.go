@@ -22,15 +22,19 @@ import (
 // explicit PermissionCrossTenantRead grant.
 
 const (
-	tenantAToken = "aaaaTenantAkey00000000000000000000000000000"
-	tenantBToken = "bbbbTenantBkey00000000000000000000000000000"
-	crossToken   = "xxxxCrossTenantKey0000000000000000000000000"
+	tenantAToken       = "aaaaTenantAkey00000000000000000000000000000"
+	tenantBToken       = "bbbbTenantBkey00000000000000000000000000000"
+	crossToken         = "xxxxCrossTenantKey0000000000000000000000000"
+	gatewayToken       = "ggggGatewayActsForTenants000000000000000000"
+	gatewayScopedToken = "ggggGatewayWithoutCrossRead0000000000000000"
 )
 
 // tenancyActors maps the observation an actor was resolved from to the actor's ID.
 var tenancyActors = map[string]string{}
 
-func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
+// tenancyRouter is the production chain: ActingTenantGate in front of ProtectedRouter, over static
+// keys for two tenants, a cross-tenant reader, and two gateway keys (with and without cross-read).
+func tenancyRouter(t *testing.T) (http.Handler, *Handlers) {
 	t.Helper()
 	delegate, _, _ := testJWTDelegate(t)
 	expires := time.Now().Add(24 * time.Hour)
@@ -43,6 +47,10 @@ func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 		{Name: "reader-b", Token: tenantBToken, Subject: "static-key/reader-b", TenantID: "tenant-b", Permissions: read, ActorIDs: anyActor, ExpiresAt: expires},
 		{Name: "reader-all", Token: crossToken, Subject: "static-key/reader-all", TenantID: "tenant-a",
 			Permissions: append([]Permission{PermissionCrossTenantRead}, read...), ActorIDs: anyActor, ExpiresAt: expires},
+		{Name: "gateway", Token: gatewayToken, Subject: "static-key/fe-signalloom-gateway", TenantID: "fe-signalloom",
+			Permissions: append([]Permission{PermissionActForTenant, PermissionCrossTenantRead, PermissionObservationWrite}, read...), ActorIDs: anyActor, ExpiresAt: expires},
+		{Name: "gateway-scoped", Token: gatewayScopedToken, Subject: "static-key/gateway-scoped", TenantID: "fe-signalloom",
+			Permissions: append([]Permission{PermissionActForTenant}, read...), ActorIDs: anyActor, ExpiresAt: expires},
 	}, delegate)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +85,7 @@ func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return router, h
+	return a.ActingTenantGate(router), h
 }
 
 func getObservationIDs(t *testing.T, router http.Handler, token, query string) []string {

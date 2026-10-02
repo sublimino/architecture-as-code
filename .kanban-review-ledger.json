@@ -74,6 +74,26 @@
     "verdict": "APPROVED",
     "reason": "Phase-4 preflight verified: all four acceptance suites green (test-signal-ingest, frostdb, attested-test, tamper-demo), spine surface verified, preflight proof recorded in commit 5fd7743d"
   },
+  "28303": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "28303",
+        "reviewed_at": "2026-10-02T11:21:50.609Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Phase 3 Pre-Flight certified: cluster and test rigs ready"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "28303",
+    "reviewed_at": "2026-10-02T11:21:50.609Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Phase 3 Pre-Flight certified: cluster and test rigs ready"
+  },
   "36157": {
     "task_id": "36157",
     "reviewed_at": "2026-09-05T15:35:26Z",
@@ -272,6 +292,26 @@
     "reviewer": "Council of Agents",
     "verdict": "APPROVED",
     "reason": "Retention controller delivered across 35 sinks with 74 tests and 15 mutation kills"
+  },
+  "94159": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "94159",
+        "reviewed_at": "2026-10-02T11:03:27.274Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "Phase 2 Governor Gate certified: all 4 planes verified with zero regressions"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "94159",
+    "reviewed_at": "2026-10-02T11:03:27.274Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "Phase 2 Governor Gate certified: all 4 planes verified with zero regressions"
   },
   "97551": {
     "task_id": "97551",
@@ -4575,6 +4615,26 @@
     "run_count": 0,
     "task_id": "da4ef",
     "reviewed_at": "2026-10-02T07:48:16.728Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Manual review verified"
+  },
+  "fdb35": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "fdb35",
+        "reviewed_at": "2026-10-02T10:30:58.537Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "Manual review verified"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "fdb35",
+    "reviewed_at": "2026-10-02T10:30:58.537Z",
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "model": null,

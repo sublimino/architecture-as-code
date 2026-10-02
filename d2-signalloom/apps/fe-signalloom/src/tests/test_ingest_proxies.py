@@ -139,3 +139,39 @@ def test_an_unauthenticated_caller_is_401_and_nothing_is_sent(outbound):
     assert client.get("/api/signals/observations").status_code == 401
     assert client.get("/api/v1/telemetry/coding-agents").status_code == 401
     assert outbound == []
+
+
+def test_the_federation_proxy_never_forwards_a_client_written_acting_tenant(outbound):
+    forged = {"X-SignalLoom-Acting-Tenant": "*", "X-SignalLoom-Acting-Subject": "root"}
+    call(USER, "GET", "/api/v1/federation/peers", headers=forged)
+    req = only(outbound, "/api/v1/federation/peers")
+    assert "x-signalloom-acting-tenant" not in req.headers
+    assert "x-signalloom-acting-subject" not in req.headers
+
+
+# The claim flows sync delegation edges into signal-ingest outside any request handler, so they name
+# the claiming tenant explicitly. Without one they send nothing rather than an unscoped write.
+import asyncio  # noqa: E402
+
+import agent_claim  # noqa: E402
+
+
+@pytest.fixture()
+def ingest_url(monkeypatch):
+    monkeypatch.setattr(agent_claim, "SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+
+def test_a_claim_delegation_acts_for_the_claiming_tenant(outbound, ingest_url):
+    assert asyncio.run(agent_claim.sync_claim_delegation_to_spine("agent-1", "op-1", "claim-1", tenant="kusari", subject="alice"))
+    assert asyncio.run(agent_claim.clamp_claim_delegation_in_spine("agent-1", "claim-1", tenant="kusari", subject="alice"))
+    for path in ("/api/v1/delegations", "/api/v1/delegations/clamp"):
+        req = only(outbound, path)
+        assert req.headers["authorization"] == f"Bearer {GATEWAY_KEY}"
+        assert req.headers["x-signalloom-acting-tenant"] == "kusari"
+
+
+@pytest.mark.parametrize("tenant", [None, "", "*", "kusarі"])
+def test_a_claim_delegation_without_a_usable_tenant_sends_nothing(outbound, ingest_url, tenant):
+    assert not asyncio.run(agent_claim.sync_claim_delegation_to_spine("agent-1", "op-1", "claim-1", tenant=tenant))
+    assert not asyncio.run(agent_claim.clamp_claim_delegation_in_spine("agent-1", "claim-1", tenant=tenant))
+    assert outbound == []

@@ -267,3 +267,16 @@ def _eap_teardown_no_cluster_kubectl_stub(request: pytest.FixtureRequest, monkey
     monkeypatch.setattr(environment_teardown, "run_bounded", _stub_run_bounded)
     yield
 
+
+
+@pytest.fixture(autouse=True)
+def _signal_ingest_gateway_key(tmp_path_factory, monkeypatch):
+    """Mount a test gateway key for the signal-ingest proxies (ingest_client).
+
+    Every route that calls signal-ingest now presents fe-signalloom's gateway key, read from the
+    file SIGNAL_INGEST_KEY_FILE names, and refuses with 503 when it is absent rather than sending
+    an anonymous request. Tests that exercise the absent-key path override the variable themselves.
+    """
+    path = tmp_path_factory.mktemp("ingest-key") / "token"
+    path.write_text("test-gateway-key-" + "k" * 32)
+    monkeypatch.setenv("SIGNAL_INGEST_KEY_FILE", str(path))

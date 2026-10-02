@@ -4470,6 +4470,7 @@ async def _execute_claim(
         "operator_id": getattr(body, "operator_id", None) or principal_actor,
         "claim_id": claim_id,
         "capabilities": getattr(body, "capabilities", None) or ["agent:operate"],
+        # signal-ingest scopes the delegation edge to this tenant (gateway acting tenant).
         "tenant": tenant_id,
         "subject": principal_actor,
     }

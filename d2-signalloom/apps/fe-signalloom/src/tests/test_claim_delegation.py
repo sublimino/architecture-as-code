@@ -231,6 +231,8 @@ def test_api_claim_delegation_roundtrip(client: TestClient) -> None:
         assert call_kwargs["operator_id"] == ALICE_EMAIL
         assert call_kwargs["claim_id"] == claim_id
         assert call_kwargs["capabilities"] == ["agent:operate"]
+        # The edge is written for the claimant's tenant; without it nothing reaches signal-ingest.
+        assert call_kwargs["tenant"] == TENANT_A
 
         # 3. Release claim triggers spine clamp
         del_resp = client.delete(f"/api/v1/agents/claim/{claim_id}", headers=_bearer())
@@ -241,6 +243,7 @@ def test_api_claim_delegation_roundtrip(client: TestClient) -> None:
         clamp_kwargs = clamp_mock.await_args.kwargs
         assert clamp_kwargs["agent_id"] == agent_id
         assert clamp_kwargs["claim_id"] == claim_id
+        assert clamp_kwargs["tenant"] == TENANT_A
 
 
 def test_api_claim_delegation_explicit_operator(client: TestClient) -> None:

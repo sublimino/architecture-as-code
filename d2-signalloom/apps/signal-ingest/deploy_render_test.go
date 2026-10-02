@@ -316,11 +316,8 @@ func containerEnv(t *testing.T, r rendered, root string, fileOverrides map[strin
 
 func setContainerEnv(t *testing.T, env map[string]string) {
 	t.Helper()
-	clearStaticBearerEnv(t)
-	for _, k := range []string{"SIGNAL_AUTH_AUDIENCE", "SIGNAL_AUTH_TRUST_DOMAIN", "SIGNAL_AUTH_JWKS",
-		"SIGNAL_AUTH_JWKS_FILE", "SIGNAL_AUTH_JWKS_REFRESH", "SIGNAL_AUTH_BINDINGS", ProbePortEnvVar} {
-		t.Setenv(k, "")
-	}
+	clearAuthEnv(t)
+	t.Setenv(ProbePortEnvVar, "")
 	for k, v := range env {
 		t.Setenv(k, v)
 	}

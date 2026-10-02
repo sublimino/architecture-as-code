@@ -23,6 +23,7 @@ from risk import install_risk_api
 from routers.connectors import install_connectors_api
 from routers.discovery import install_discovery_api
 from routers.agents import install_agents_api
+from auth_check import install_auth_check_api
 from routers.policy_engine import install_policy_engine_api
 from scenario_seeding import install_scenario_seeding_api
 from signal_fusion import install_signal_fusion_api
@@ -94,6 +95,7 @@ install_environment_routing_api(app)
 install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
 install_scenario_seeding_api(app)
+install_auth_check_api(app)
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,
 # dependency or handler can read them, for http and websocket scopes alike.

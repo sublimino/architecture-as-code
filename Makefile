@@ -775,7 +775,9 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# Always-deployed has to mean always-built; the /demo-api proxy in
 	# dashboard-signalloom/nginx.conf depends on it either way.
 	$(MAKE) demo-signalloom-supercred-images
-	$(MAKE) demo-signalloom-signalfusion-images
+	# signal-ingest is deployed under its immutable src-<digest> tag from zot
+	# (SLTM Phase 1); signal-ingest:local is no longer referenced by the manifest.
+	$(MAKE) -C d2-signalloom signal-ingest-image-publish
 	# The dashboard renders the Agent Trust Topology panel unconditionally, but
 	# the ResourceSet backing it ships with `inputs: []` and only materialises
 	# when scripts/agent-trust-local.sh patches concrete values in. Nothing here
@@ -808,6 +810,10 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up
+	# Static caller keys (SLTM ADR-03): signal-ingest's named keys and
+	# fleet-manager's caller keys, minted in-cluster once the namespaces exist.
+	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	# ─── The whole-estate assertion, last because it needs everything up ──────
 	#
 	# check-backends reads nginx.conf's proxy_pass set — which IS the set of
@@ -1017,6 +1023,12 @@ demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-a
 demo-signalloom-signalfusion-images: ## Build Signal Fusion images (signal-ingest) + load into kind (verified).
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/signalfusion-images.sh load
 
+.PHONY: sldc-ingest-keys fleet-manager-keys
+sldc-ingest-keys: ## Mint/converge every signal-ingest key and consumer Secret on CONTEXT (idempotent; cluster required).
+	./scripts/sldc-ingest-bearer.sh --context $(CONTEXT)
+fleet-manager-keys: ## Mint/converge fleet-manager caller keys on CONTEXT (idempotent; cluster required).
+	./scripts/fleet-manager-caller-keys.sh --context $(CONTEXT)
+
 .PHONY: demo-signalloom-supercred-runner-image
 demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.
 
@@ -1112,11 +1124,16 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
 	test/sentinel-capabilities.bats test/sentinel-image-provenance.bats \
 	d2-signalloom/test/stun-sentinel-daemonset.bats test/demo-agent-autoclaim.bats \
-	test/dex-subject-tenants.bats test/pipefail-grep-q-lint.bats test/teardown-kind-race.bats
+	test/dex-subject-tenants.bats test/pipefail-grep-q-lint.bats test/teardown-kind-race.bats \
+	test/sldc-ingest-bearer.bats test/signalfusion-demo-auth.bats d2-signalloom/test/ingest-routes-offline.bats \
+	test/agent-swarm-tenancy.bats test/agent-swarm-flux-rbac.bats test/cgroup-freeze-live-gate.bats \
+	test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api \
-	d2-signalloom/apps/signal-ingest/model
+	d2-signalloom/apps/signal-ingest/model d2-signalloom/apps/signal-ingest/store \
+	d2-signalloom/apps/signal-ingest/internal d2-signalloom/apps/signal-ingest/audit \
+	d2-signalloom/apps/fleet-manager
 # Package specs run as `go test .` (NOT ./...), for a directory whose subtree
 # holds a test that mutates tracked files. signal-ingest's root package carries
 # the static-bearer wiring test -- the only proof the credential is wired into
@@ -1131,6 +1148,10 @@ test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytes
 	for d in $(SLDC_GO_DIRS); do (cd $$d && go test -count=1 ./...) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; done; \
 	for d in $(SLDC_GO_PKGS); do (cd $$d && go test -count=1 .) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; done; \
 	python3 -m pytest -q d2-signalloom/apps/fe-signalloom/src/tests/test_cadvisor_poller.py test/unit/test_tenant_hash.py || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+	(cd d2-signalloom/apps/signal-ingest && go test -tags frostdb -count=1 ./store/...) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+	(cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run -q --python 3.12 --with pytest --with pytest-asyncio --with respx --with-requirements requirements.txt python -m pytest -q -p no:cacheprovider \
+		tests/test_ingest_client.py tests/test_ingest_proxies.py tests/test_external_agent_spine_sync.py tests/test_demo_runner_child_env.py \
+		tests/test_claim_tenancy.py tests/test_auth_check.py tests/test_claim_registry_integration.py) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status
 

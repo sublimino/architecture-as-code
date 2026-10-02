@@ -8,14 +8,18 @@ Handles:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from api_compat import (
+    Principal,
+    _audit_outbound_request,
     _error_response,
+    authenticated_principal,
     authenticated_tenant,
 )
 from policy_evaluation import (
@@ -170,7 +174,7 @@ async def list_policies(
 @router.post("/v1/policies/bundles")
 async def register_bundle(
     request: Request,
-    tenant_id: str = Depends(authenticated_tenant),
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> Response:
     """Register a new policy bundle with upfront CEL validation."""
     content_type = request.headers.get("content-type", "")
@@ -201,37 +205,58 @@ async def register_bundle(
                 },
             )
 
-    from routers.policy_engine import proxy_policy_engine
-    resp = await proxy_policy_engine(request, "bundles", "policies", tenant_id=tenant_id)
-    if resp.status_code != 502:
-        return resp
-
-    # Hermetic local fallback when upstream policy-engine is offline
-    bundle_id = body.get("id") or f"{body.get('framework_id', 'custom')}-{body.get('version', 'v1.0.0')}"
-    return JSONResponse(
-        status_code=201,
-        content={
-            "id": bundle_id,
+    # Recorded before the policy-engine is asked, so a bundle cannot be
+    # registered unrecorded. The hash is of the exact bytes forwarded.
+    await _audit_outbound_request(
+        principal,
+        "policy.bundle_submitted",
+        {
             "framework_id": body.get("framework_id"),
             "version": body.get("version"),
-            "author": tenant_id or "system",
-            "rules": rules,
+            "rule_count": len(rules),
+            "bundle_sha256": hashlib.sha256(await request.body()).hexdigest(),
         },
+        "Registering a policy bundle",
     )
+
+    # No local fallback: the bundle exists only if the policy-engine stored it,
+    # so an unreachable engine is reported as such rather than as a 201.
+    from routers.policy_engine import proxy_policy_engine
+    return await proxy_policy_engine(request, "bundles", "policies", tenant_id=principal.tenant)
 
 
 @router.post("/api/v1/policies/rollback")
 @router.post("/v1/policies/rollback")
 async def rollback_bundle(
     request: Request,
-    tenant_id: str = Depends(authenticated_tenant),
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> Response:
     """Rollback policy bundle to an earlier version."""
     content_type = request.headers.get("content-type", "")
     if content_type and not content_type.lower().startswith("application/json"):
         return _error_response(400, "invalid_content_type", "Content-Type must be application/json")
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return _error_response(400, "invalid_json", f"Malformed JSON request body: {exc}")
+    if not isinstance(body, dict):
+        return _error_response(400, "invalid_json", "Request body must be a JSON object")
+    # The policy-engine requires both (handlers.go HandleRollback); checking
+    # here keeps a request it would reject out of the audit trail.
+    for field in ("framework_id", "target_version"):
+        if not isinstance(body.get(field), str) or not body[field]:
+            return _error_response(400, "invalid_rollback", f"{field} is required")
+
+    # Recorded before the policy-engine is asked, so a rollback cannot happen
+    # unrecorded.
+    await _audit_outbound_request(
+        principal,
+        "policy.rollback_requested",
+        {"framework_id": body["framework_id"], "target_version": body["target_version"]},
+        "Rolling back a policy bundle",
+    )
     from routers.policy_engine import proxy_policy_engine
-    return await proxy_policy_engine(request, "rollback", "policies", tenant_id=tenant_id)
+    return await proxy_policy_engine(request, "rollback", "policies", tenant_id=principal.tenant)
 
 
 def install_policies_api(app: Any) -> None:

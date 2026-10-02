@@ -61,6 +61,8 @@ const EVENT_TYPES = [
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged',
   'compliance.reassess_requested', 'compliance.scan_completed',
+  // Requests forwarded to an upstream service, recorded before forwarding.
+  'policy.bundle_submitted', 'policy.rollback_requested', 'rbac.scan_requested',
   'api_key.created', 'api_key.rotated',
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
@@ -105,6 +107,9 @@ const EVENT_COLORS: Record<string, string> = {
   'violation.acknowledged': 'var(--amber)',
   'compliance.reassess_requested': 'var(--cyan)',
   'compliance.scan_completed': 'var(--cyan)',
+  'policy.bundle_submitted': 'var(--violet)',
+  'policy.rollback_requested': 'var(--violet)',
+  'rbac.scan_requested': 'var(--cyan)',
   'api_key.created': 'var(--teal)',
   'api_key.rotated': 'var(--cyan)',
   'nhi.enrolled': 'var(--teal)',

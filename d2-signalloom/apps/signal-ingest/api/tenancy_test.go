@@ -26,6 +26,9 @@ const (
 	crossToken   = "xxxxCrossTenantKey0000000000000000000000000"
 )
 
+// tenancyActors maps the observation an actor was resolved from to the actor's ID.
+var tenancyActors = map[string]string{}
+
 func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	t.Helper()
 	delegate, _, _ := testJWTDelegate(t)
@@ -33,7 +36,7 @@ func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	if sunset, _ := time.Parse(time.DateOnly, StaticBearerSunset); expires.After(sunset) {
 		expires = sunset
 	}
-	read := []Permission{PermissionObservationRead, PermissionStream}
+	read := []Permission{PermissionObservationRead, PermissionStream, PermissionActorList, PermissionActorRead, PermissionAnalysisRead}
 	a, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
 		{Name: "reader-a", Token: tenantAToken, Subject: "static-key/reader-a", TenantID: "tenant-a", Permissions: read, ExpiresAt: expires},
 		{Name: "reader-b", Token: tenantBToken, Subject: "static-key/reader-b", TenantID: "tenant-b", Permissions: read, ExpiresAt: expires},
@@ -60,6 +63,14 @@ func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	}
 	if err := h.Store.Append(context.Background(), obs); err != nil {
 		t.Fatal(err)
+	}
+	for i, o := range obs[:3] { // one actor per tenant-a, tenant-b and untagged observation
+		o.ActorHint = "agent-" + string(rune('a'+i))
+		actor, err := h.Engine.Resolve(o)
+		if err != nil {
+			t.Fatalf("resolve %s: %v", o.ID, err)
+		}
+		tenancyActors[o.ID] = actor.ID
 	}
 	router, err := NewProtectedRouter(h, a, aw, http.NotFoundHandler(), RouterOptions{})
 	if err != nil {
@@ -143,5 +154,73 @@ func TestObservationStreamReplayIsScopedToThePrincipalsTenant(t *testing.T) {
 		if strings.Contains(body, foreign) {
 			t.Fatalf("tenant-a replay carries %s: %s", foreign, body)
 		}
+	}
+}
+
+func getJSON(t *testing.T, router http.Handler, token, path string, wantStatus int, into any) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, bearerRequest(http.MethodGet, path, token))
+	if w.Code != wantStatus {
+		t.Fatalf("GET %s: %d %s, want %d", path, w.Code, w.Body.String(), wantStatus)
+	}
+	if into != nil {
+		if err := json.Unmarshal(w.Body.Bytes(), into); err != nil {
+			t.Fatalf("GET %s body: %v (%s)", path, err, w.Body.String())
+		}
+	}
+	return strings.TrimSpace(w.Body.String())
+}
+
+// An actor's tenant is the tenant of the observations it was correlated from. A principal sees an
+// actor only when every evidence observation is its own tenant's; anything else is cross-tenant.
+func TestActorReadsAreScopedToThePrincipalsTenant(t *testing.T) {
+	router, _ := tenancyRouter(t)
+	own, foreign, untagged := tenancyActors["obs-0-tenant-a"], tenancyActors["obs-1-tenant-b"], tenancyActors["obs-2-"]
+	if own == "" || foreign == "" || untagged == "" || own == foreign || own == untagged {
+		t.Fatalf("fixture actors not distinct: %v", tenancyActors)
+	}
+
+	var actors []model.ProvisionalActor
+	getJSON(t, router, tenantAToken, "/api/v1/actors", http.StatusOK, &actors)
+	if len(actors) != 1 || actors[0].ID != own {
+		t.Fatalf("tenant-a lists %d actors %+v, want only %s", len(actors), actors, own)
+	}
+	getJSON(t, router, crossToken, "/api/v1/actors", http.StatusOK, &actors)
+	if len(actors) != 3 {
+		t.Fatalf("cross-tenant key lists %d actors, want 3", len(actors))
+	}
+
+	getJSON(t, router, tenantAToken, "/api/v1/actors/"+own, http.StatusOK, nil)
+	for _, id := range []string{foreign, untagged} {
+		// Exactly the body a genuinely absent actor gets: no existence oracle across tenants.
+		if body := getJSON(t, router, tenantAToken, "/api/v1/actors/"+id, http.StatusNotFound, nil); body != `{"error":"actor not found"}` {
+			t.Fatalf("tenant-a GET actor %s body = %s", id, body)
+		}
+	}
+	getJSON(t, router, tenantBToken, "/api/v1/actors/"+foreign, http.StatusOK, nil)
+	getJSON(t, router, crossToken, "/api/v1/actors/"+untagged, http.StatusOK, nil)
+}
+
+func TestActorAuthorizationIsScopedToThePrincipalsTenant(t *testing.T) {
+	router, _ := tenancyRouter(t)
+	foreign := tenancyActors["obs-1-tenant-b"]
+	getJSON(t, router, tenantAToken, "/api/v1/actors/"+tenancyActors["obs-0-tenant-a"]+"/authorization", http.StatusOK, nil)
+	if body := getJSON(t, router, tenantAToken, "/api/v1/actors/"+foreign+"/authorization", http.StatusNotFound, nil); !strings.Contains(body, "not found") {
+		t.Fatalf("tenant-a authorization for a tenant-b actor: %s", body)
+	}
+}
+
+// Aggregates count only what the principal may read.
+func TestStoreStatsCountOnlyThePrincipalsTenant(t *testing.T) {
+	router, _ := tenancyRouter(t)
+	var stats StoreStatsResponse
+	getJSON(t, router, tenantAToken, "/api/v1/store/stats", http.StatusOK, &stats)
+	if stats.TotalObservations != 2 || stats.ActorCount != 1 {
+		t.Fatalf("tenant-a stats: %d observations, %d actors; want 2 and 1", stats.TotalObservations, stats.ActorCount)
+	}
+	getJSON(t, router, crossToken, "/api/v1/store/stats", http.StatusOK, &stats)
+	if stats.TotalObservations != 5 || stats.ActorCount != 3 {
+		t.Fatalf("cross-tenant stats: %d observations, %d actors; want 5 and 3", stats.TotalObservations, stats.ActorCount)
 	}
 }

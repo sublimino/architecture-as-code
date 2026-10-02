@@ -86,7 +86,9 @@ def client_for(monkeypatch: pytest.MonkeyPatch, async_client_cls):
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
     monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
-    monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a"})
+    monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a", "root-admin": "tenant-a"})
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {"root-admin"})
+    monkeypatch.setattr(settings, "api_superadmin_emails", set())
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: TestJWKClient())
     monkeypatch.setattr(rbac_correlation, "httpx", SimpleNamespace(AsyncClient=async_client_cls, HTTPError=httpx.HTTPError))
     set_pool_for_testing(ReadyPool())
@@ -569,10 +571,31 @@ def test_afm_get_cluster_jobs_success(monkeypatch):
         "/clusters/local/jobs?limit=50": FakeResponse([{"id": "job-1", "status": "completed"}]),
     }
     with client_for(monkeypatch, fake_client_cls(routes)) as client:
-        response = client.get("/afm/clusters/local/jobs")
+        response = client.get("/afm/clusters/local/jobs", headers=bearer(token_for("root-admin")))
 
     assert response.status_code == 200
     assert response.json() == [{"id": "job-1", "status": "completed"}]
+
+
+@pytest.mark.parametrize(("headers", "status", "code"), [
+    ({}, 401, None),
+    ({"Authorization": "Bearer not-a-jwt"}, 401, None),
+    ("alice", 403, "superadmin_required"),
+], ids=["anonymous", "garbage-token", "tenant-user"])
+def test_afm_get_cluster_jobs_is_superadmin_only(monkeypatch, headers, status, code):
+    routes = {
+        "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
+        "/clusters/local/jobs?limit=50": FakeResponse([{"id": "job-1", "status": "completed"}]),
+    }
+    if headers == "alice":
+        headers = bearer(token_for("alice"))
+    with client_for(monkeypatch, fake_client_cls(routes)) as client:
+        response = client.get("/afm/clusters/local/jobs", headers=headers)
+
+    assert response.status_code == status, response.text
+    assert "job-1" not in response.text
+    if code:
+        assert response.json()["error"]["code"] == code
 
 
 def test_afm_get_cluster_jobs_unknown_cluster_returns_404(monkeypatch):
@@ -580,7 +603,7 @@ def test_afm_get_cluster_jobs_unknown_cluster_returns_404(monkeypatch):
         "/clusters": FakeResponse([{"id": "local", "name": "Local Cluster"}]),
     }
     with client_for(monkeypatch, fake_client_cls(routes)) as client:
-        response = client.get("/afm/clusters/non-existent-cluster/jobs")
+        response = client.get("/afm/clusters/non-existent-cluster/jobs", headers=bearer(token_for("root-admin")))
 
     assert response.status_code == 404
     error = response.json()["error"]

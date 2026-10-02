@@ -74,15 +74,12 @@ ANONYMOUS_ROUTES: dict[tuple[str, str], str] = {
 #: Every entry names the owner; none may be an EAP path.  Out of EAPR-P2-1's
 #: scope (the card names the five EAP routers); recorded in the errata for the
 #: Governor.
-DELEGATED_AUTH_ROUTES: dict[tuple[str, str], str] = {
-    ("POST", "/api/v1/telemetry/coding-agents"): (
-        "SLCD-P5-1 BFF proxy (coding_agent_telemetry.py): Authorization forwarded to signal-ingest, "
-        "which verifies it; no principal check in this process"
-    ),
-    ("GET", "/api/v1/telemetry/coding-agents"): "SLCD-P5-1 BFF proxy; auth enforced by signal-ingest",
-    ("GET", "/api/v1/telemetry/coding-agents/aggregate"): "SLCD-P5-1 BFF proxy; auth enforced by signal-ingest",
-    ("POST", "/api/v1/telemetry/coding-agents/ordering"): "SLCD-P5-1 BFF proxy; auth enforced by signal-ingest",
-}
+DELEGATED_AUTH_ROUTES: dict[tuple[str, str], str] = {}
+# Empty since 2026-10-02. The four SLCD coding-agent telemetry routes were listed here: they
+# forwarded the caller's Authorization to signal-ingest unchecked. signal-ingest only ever accepted
+# workload credentials, never a dashboard token, so the forward could only 401; the proxies now
+# authenticate the principal locally and present fe-signalloom's gateway key acting for the
+# principal's tenant (ingest_client.py). They are in the default-deny sweep like every other route.
 
 PROBE_DEADLINE_SECONDS = 3.0
 NON_HEX_KEY = "ZZ/..zz!"
@@ -230,48 +227,33 @@ def test_guard_no_eap_path_is_anonymous() -> None:
     assert not delegated, f"EAP paths must never delegate their principal check: {delegated}"
 
 
-def test_guard_delegated_auth_routes_are_exactly_the_telemetry_proxy() -> None:
-    """The delegated list may only ever name the SLCD proxy module, and every entry must still exist."""
-    by_key = {
-        (method, route.path): route
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in (route.methods or ())
+def test_guard_no_route_delegates_its_principal_check() -> None:
+    """Nothing is forwarded for an unidentified caller any more; the telemetry proxy is swept."""
+    assert DELEGATED_AUTH_ROUTES == {}
+    # Flattened here (newer FastAPI wraps included routers), so this guard does not depend on the
+    # shared HTTP_OPERATIONS helper seeing every route.
+    def flat(routes):
+        for r in routes:
+            inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
+            if inner and not isinstance(r, APIRoute):
+                yield from flat(inner)
+            else:
+                yield r
+
+    swept = {
+        (method, r.path)
+        for r in flat(app.routes)
+        if isinstance(r, APIRoute)
+        for method in (r.methods or ())
+        if (method, r.path) not in ANONYMOUS_ROUTES and (method, r.path) not in DELEGATED_AUTH_ROUTES
     }
-    stale = sorted(set(DELEGATED_AUTH_ROUTES) - set(by_key))
-    assert not stale, f"DELEGATED_AUTH_ROUTES names routes the app no longer has: {stale}"
-    modules = {_module_of(by_key[key]) for key in DELEGATED_AUTH_ROUTES}
-    assert modules == {"coding_agent_telemetry"}, f"delegated-auth exemptions outside the SLCD proxy: {modules}"
-    assert all(reason.strip() for reason in DELEGATED_AUTH_ROUTES.values()), "every exemption needs a reason"
-    proxied = {key for key, route in by_key.items() if _module_of(route) == "coding_agent_telemetry"}
-    assert proxied == set(DELEGATED_AUTH_ROUTES), (
-        f"the proxy module gained or lost operations; the list must match exactly: {sorted(proxied ^ set(DELEGATED_AUTH_ROUTES))}"
-    )
-
-
-@pytest.mark.parametrize(
-    ("method", "path"), sorted(DELEGATED_AUTH_ROUTES), ids=[f"{m} {p}" for m, p in sorted(DELEGATED_AUTH_ROUTES)]
-)
-def test_guard_delegated_auth_routes_reach_the_upstream_without_a_principal_check(
-    method: str, path: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Documents the shape the exemption covers: an anonymous call is forwarded, not refused here.
-
-    The upstream is pointed at a closed local port (no DNS, no network), so the
-    proxy answers 502 at once — proof the handler ran for a caller this process
-    never identified.  If this ever turns into a 401 the route has gained a
-    local principal check and belongs in the default-deny sweep instead.
-    """
-    import coding_agent_telemetry
-
-    monkeypatch.setattr(coding_agent_telemetry, "_SIGNAL_INGEST_URL", "http://127.0.0.1:9")
-    kwargs = {"json": {}} if method == "POST" else {}
-    response = _run_with_deadline(lambda: TestClient(app).request(method, path, **kwargs), f"{method} {path}")
-    assert response.status_code == 502, (
-        f"{method} {path} answered {response.status_code}; 401 means it now checks the principal locally "
-        f"and must leave DELEGATED_AUTH_ROUTES"
-    )
-    assert response.json()["error"]["code"] == "upstream_unavailable"
+    for key in [
+        ("POST", "/api/v1/telemetry/coding-agents"),
+        ("GET", "/api/v1/telemetry/coding-agents"),
+        ("GET", "/api/v1/telemetry/coding-agents/aggregate"),
+        ("POST", "/api/v1/telemetry/coding-agents/ordering"),
+    ]:
+        assert key in swept, f"{key} is not in the default-deny sweep"
 
 
 class _RecordingUpstream(BaseHTTPRequestHandler):
@@ -313,33 +295,33 @@ def recording_upstream(monkeypatch: pytest.MonkeyPatch):
         server.server_close()
 
 
-def test_guard_delegated_auth_is_really_delegated(recording_upstream) -> None:
-    """The exemption's reason is a claim; this is its proof.
+def test_telemetry_proxy_refuses_anonymous_locally_and_sends_only_the_gateway_key(recording_upstream) -> None:
+    """The telemetry routes no longer forward an unidentified caller, nor the caller's own token.
 
-    Against a recording upstream: the anonymous call is forwarded with no
-    Authorization and the upstream's 401 comes back unrewritten; a bearer is
-    forwarded byte-for-byte; a forged identity header never reaches the
-    upstream because the strip middleware ran first.
+    Anonymous: 401 from this process and the upstream is never contacted. Authenticated: the
+    upstream receives fe-signalloom's gateway key and the principal's tenant as the acting tenant,
+    never the caller's bearer and never a client-forged identity header.
     """
+    from api_compat import Principal, authenticated_principal
+
     client = TestClient(app)
     anonymous = client.get("/api/v1/telemetry/coding-agents")
     assert anonymous.status_code == 401
-    assert anonymous.json()["error"]["code"] == "unauthenticated", "the upstream verdict must propagate, not be rewritten"
-    assert "authorization" not in recording_upstream.seen[-1]
+    assert recording_upstream.seen == [], "an anonymous caller reached the upstream"
 
-    token = "Bearer not-a-real-token.exact.bytes"
-    forwarded = client.get(
-        "/api/v1/telemetry/coding-agents",
-        headers={"Authorization": token, "X-SPIFFE-ID": "spiffe://forged/ns/x/sa/y", "X-Tenant-Id": "tenant-b"},
-    )
-    assert forwarded.status_code == 401  # the stub refuses everything; the point is what it received
+    app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-a", subject="alice", email=None)
+    try:
+        client.get(
+            "/api/v1/telemetry/coding-agents",
+            headers={"Authorization": "Bearer user-token.exact.bytes", "X-SPIFFE-ID": "spiffe://forged/ns/x/sa/y", "X-Tenant-Id": "tenant-b"},
+        )
+    finally:
+        app.dependency_overrides.pop(authenticated_principal, None)
     upstream_saw = recording_upstream.seen[-1]
-    assert upstream_saw.get("authorization") == token, "Authorization must be forwarded byte-for-byte"
-    assert "x-spiffe-id" not in upstream_saw and "x-tenant-id" not in upstream_saw, (
-        "a forged identity header reached the upstream; the strip middleware must run before the proxy"
-    )
-
-
+    assert upstream_saw.get("authorization", "").startswith("Bearer ")
+    assert "user-token" not in upstream_saw.get("authorization", ""), "the caller's own token was forwarded"
+    assert upstream_saw.get("x-signalloom-acting-tenant") == "tenant-a"
+    assert "x-spiffe-id" not in upstream_saw and "x-tenant-id" not in upstream_saw
 #: The EAP surface, pinned.  ``test_guard_sweep_covers_the_eap_routers`` has a
 #: floor; a floor lets routes vanish (an import error in one router, a mount
 #: dropped by mistake) while the sweep stays green.  Set equality does not.  A

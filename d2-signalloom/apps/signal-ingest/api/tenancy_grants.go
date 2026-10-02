@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"regexp"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
@@ -18,7 +19,39 @@ const (
 	// as the stun-sentinel does for every workload it watches. Without it a principal's writes are
 	// bound to its own tenant.
 	PermissionCrossTenantWrite Permission = "tenant:cross-write"
+	// PermissionActForTenant lets a gateway (fe-signalloom) act for the tenant it names in
+	// ActingTenantHeader: the request is scoped to that tenant, never to the gateway's own. Only a
+	// static key can hold it in practice; for every principal without it the header is ignored.
+	PermissionActForTenant Permission = "tenant:act-for"
 )
+
+// ActingTenantHeader carries the verified user tenant a gateway acts for, or "*" for a superadmin
+// (honoured only with PermissionCrossTenantRead as well).
+const ActingTenantHeader = "X-SignalLoom-Acting-Tenant"
+
+// ActingSubjectHeader carries the gateway's user subject. It grants nothing; it is logged on
+// every all-tenants request so a superadmin read is attributable to a person.
+const ActingSubjectHeader = "X-SignalLoom-Acting-Subject"
+
+// actingTenantPattern is the tenant-id shape: ASCII only, so a look-alike cannot pass for another
+// tenant, and no leading underscore, so the quarantine tenant cannot be acted for.
+var actingTenantPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// actingTenant reads ActingTenantHeader. It returns the tenant ("*" for all) or an error code for
+// the 400 the gate answers with.
+func actingTenant(r *http.Request) (string, string) {
+	values := r.Header.Values(ActingTenantHeader)
+	switch {
+	case len(values) == 0 || (len(values) == 1 && values[0] == ""):
+		return "", "acting_tenant_required"
+	case len(values) > 1:
+		return "", "acting_tenant_invalid"
+	case values[0] == "*" || actingTenantPattern.MatchString(values[0]):
+		return values[0], ""
+	default:
+		return "", "acting_tenant_invalid"
+	}
+}
 
 // ObservationTenantLabel is the only tenant attribution an observation carries.
 const ObservationTenantLabel = "tenant_id"

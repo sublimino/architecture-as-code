@@ -779,7 +779,8 @@ run_stage \
      test/p6-teardown-preflight.bats test/p6-teardown-safety.bats \
      test/phase1-governor-verification.bats test/phase2-governor-verification.bats \
      test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
-     test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats"
+     test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
+     test/demo-agent-autoclaim.bats test/dex-subject-tenants.bats"
 
 # Stage 1i: Audit-guard reintroduction proof (12 cases)
 #

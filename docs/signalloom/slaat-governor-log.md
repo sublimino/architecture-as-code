@@ -424,3 +424,27 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
 - **Board Inventory**: `done=9`, `in_progress=0`, `review=0`, `backlog=7`.
 - **Next Ready Tasks**: Phase 2 Remediations (`SLAAT-P2-3`, `SLAAT-P2-4`).
 
+
+---
+
+## 20. Milestone Completion: SLAAT-P2-3 (da4ef) [DONE]
+
+- **Timestamp**: 2026-10-02T08:48:00Z
+- **Completed Card**: `SLAAT-P2-3` (`da4ef`) [DONE]
+  - Task: SPIFFE Workload API & OpenBao Policy Hardening Fixes.
+  - Deliverables: 10 files (+977/-8 lines) committed at `16c80559` / `ae35e6d5` and merged into `refs/heads/integration/slaat-whole-system-adversarial` at `6c01b315`:
+    - `d2-signalloom/infra/inf-bao/configs/base/openbao-bootstrap.yaml`: Hardened role `signalloom-fe-signalloom` with `token_ttl: 300`, `token_max_ttl: 300`, `token_type: batch` to eliminate 768h (32-day) lease TTL window. Added `force: "true"` annotation.
+    - `d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml`: Hardened role `signalloom-cardvault-agent` with `token_ttl: 300`, `token_max_ttl: 300`, `token_type: batch`. Added `force: "true"` annotation.
+    - `d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml`: Added `bound_claims_type: "glob"`, `token_ttl: 300`, `token_type: batch` to role `signalloom-agent-generic`. Added `force: "true"` annotation and config-hash pod-template annotation.
+    - `test/spiffe-openbao-policy-hardening.bats`: 14/14 tests passing hermetically and against live cluster.
+    - `test/spiffe-openbao-adversarial.bats` (16/16) and `test/openbao-security-probes.bats` (8/8) verified with zero regressions.
+    - `ci-evidence/slaat-p2-3-postfix-openbao-acls.json` and `ci-evidence/slaat-p2-3-postfix-spiffe.json`: Live postfix verification records.
+    - `ci-evidence/slaat-p2-3-spiffe-remediation.json`: Comprehensive post-fix verification telemetry.
+    - `docs/slaat/p2-3/before-fix-role-state.json` and `docs/slaat/p2-3/after-fix-role-state.json`: State captures before and after fix.
+    - `docs/slaat/p2-3/spiffe-openbao-policy-hardening-report.md`: Detailed hardening report with F1-F6 evaluation and F7 disclosure.
+  - Integration Merge: Commit `6c01b315` merged into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=10`: P1-PRE, P1-1, P1-2, P1-3, P1-4, P1-GOV, P2-PRE, P2-1, P2-2, P2-3).
+- **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
+- **Board Inventory**: `done=10`, `in_progress=0`, `review=0`, `backlog=6`.
+- **Next Ready Tasks**: Phase 2 Remediations (`SLAAT-P2-4`: Agent Sandbox Confinement & Landlock LSM Policy Fixes).

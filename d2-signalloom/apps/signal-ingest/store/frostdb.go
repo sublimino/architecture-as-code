@@ -373,7 +373,7 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 		for _, k := range dynNames {
 			v, ok := o.Labels[k]
 			if ok {
-				builder.Field(idx).(*array.StringBuilder).Append(v)
+				builder.Field(idx).(*array.StringBuilder).Append(redactLabelValue(k, v))
 			} else {
 				builder.Field(idx).(*array.StringBuilder).AppendNull()
 			}

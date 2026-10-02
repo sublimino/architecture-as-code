@@ -8,7 +8,7 @@
 # @spec    SLAAT-P2-4
 # @tests   test/sandbox-confinement-hardening.bats
 #
-# SLAAT-P2-4 — confirms cgroup v2 CPU and memory governance (Deliverable:
+# SLAAT-P2-4 -- confirms cgroup v2 CPU and memory governance (Deliverable:
 # "Configure Linux cgroup v2 memory and CPU controllers with hard memory
 # ceilings, CPU bandwidth quotas, and process limits") is not merely
 # declared in a Kubernetes manifest but actually ENFORCED by the kernel for
@@ -87,7 +87,7 @@ have_cluster() {
 
 preflight() {
   if ! have_cluster; then
-    log "no live kind-osramp cluster (docker/kubectl/jq/node/namespace) — this probe requires the real deployment"
+    log "no live kind-osramp cluster (docker/kubectl/jq/node/namespace) -- this probe requires the real deployment"
     exit 3
   fi
 }
@@ -98,9 +98,9 @@ record() {
   EXECUTED=$((EXECUTED + 1))
   local verdict="fail"
   if [[ "${ok}" == "1" ]]; then
-    verdict="pass"; PASS=$((PASS + 1)); log "  ok   ${id} — ${desc}"
+    verdict="pass"; PASS=$((PASS + 1)); log "  ok   ${id} -- ${desc}"
   else
-    FAIL=$((FAIL + 1)); log "  FAIL ${id} — ${desc}"
+    FAIL=$((FAIL + 1)); log "  FAIL ${id} -- ${desc}"
   fi
   RESULTS+=("$(jq -nc \
     --arg id "${id}" --arg d "${desc}" --arg e "${expect}" \
@@ -262,7 +262,7 @@ EOF
   throttled_after="${throttled_after:-0}"
   record "live.cpu-bandwidth-controller-actually-throttles-under-stress" \
     "nr_throttled in the pod-level cgroup's cpu.stat advances after a 4-way CPU-burn burst inside an isolated, throwaway 100m-quota pod this script owns" \
-    "nr_throttled after > nr_throttled before — proves the quota is enforced by the kernel, not merely written to a file" \
+    "nr_throttled after > nr_throttled before -- proves the quota is enforced by the kernel, not merely written to a file" \
     "$([[ -n "${stress_pod_cg}" && "${throttled_after}" -gt "${throttled_before}" ]] && echo 1 || echo 0)" \
     "stress_cgroup_resolved=$([[ -n "${stress_pod_cg}" ]] && echo yes || echo no) before=${throttled_before} after=${throttled_after}"
 
@@ -284,7 +284,7 @@ EOF
   [[ "${FAIL}" -eq 0 && "${arity_ok}" -eq 1 ]] || overall="pass-with-findings"
 
   log ""
-  log "probes: ${PASS}/${EXECUTED} passed (declared ${DECLARED_PROBES}) — ${overall}"
+  log "probes: ${PASS}/${EXECUTED} passed (declared ${DECLARED_PROBES}) -- ${overall}"
 
   local artifact
   artifact="$(jq -n \

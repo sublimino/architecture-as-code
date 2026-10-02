@@ -18,7 +18,7 @@
     {
       "id": "static.deployed-probe-is-socket-state-only",
       "description": "d2-signalloom/apps/signalloom-stun-sentinel's eBPF source attach points",
-      "expectation": "exactly tp_btf/inet_sock_set_state — no syscall tracepoint of any kind",
+      "expectation": "exactly tp_btf/inet_sock_set_state -- no syscall tracepoint of any kind",
       "verdict": "pass",
       "evidence": "attach_points=[SEC(\"license\") SEC(\"tp_btf/inet_sock_set_state\") ]",
       "note": ""
@@ -29,12 +29,12 @@
       "expectation": "openat/openat2/execve/connect tracepoints exist in-repo; NOT instantiated by any cmd/ main()",
       "verdict": "pass",
       "evidence": "attach_points=[SEC(\"tracepoint/syscalls/sys_enter_connect\") SEC(\"tracepoint/syscalls/sys_enter_execve\") SEC(\"tracepoint/syscalls/sys_enter_openat\") SEC(\"tracepoint/syscalls/sys_enter_openat2\") ] cmd_main_references_ebpf_or_correlator=0\n0",
-      "note": "the capability is implemented and unit-tested, not merely absent — it is dormant, a wiring gap rather than a design gap"
+      "note": "the capability is implemented and unit-tested, not merely absent -- it is dormant, a wiring gap rather than a design gap"
     },
     {
       "id": "static.deployed-signalloom-variant-does-wire-its-own-probe",
       "description": "d2-signalloom/apps/signalloom-stun-sentinel/main.go references its ebpf/telemetry package (the socket-state-only one)",
-      "expectation": "reference present — confirms the live pod's instrumentation IS the socket-state-only path, not merely unbuilt",
+      "expectation": "reference present -- confirms the live pod's instrumentation IS the socket-state-only path, not merely unbuilt",
       "verdict": "pass",
       "evidence": "1 reference(s) found",
       "note": ""
@@ -66,7 +66,7 @@
     {
       "id": "live.evasion-burst-is-detected-and-alarmed",
       "description": "sentinel stdout in the 3s window after the burst contains an ebpf_detection record for the burst",
-      "expectation": "at least one evasive_syscall_burst detection logged — this is the remediation of SLAAT-P1-4/F1 and SLAAT-P2-PRE's SENTINEL-F1",
+      "expectation": "at least one evasive_syscall_burst detection logged -- this is the remediation of SLAAT-P1-4/F1 and SLAAT-P2-PRE's SENTINEL-F1",
       "verdict": "fail",
       "evidence": "burst_detection_log_lines=0",
       "note": "pre-remediation this probe (SLAAT-P1-4) found zero telemetry for this exact burst shape; SLAAT-P2-4 added rate-based detection independent of the sensitive-path filter, plus unconditional stdout logging so a detection cannot be lost to a signal-ingest outage"
@@ -74,7 +74,7 @@
     {
       "id": "live.sub-threshold-execve-does-not-false-positive",
       "description": "5 execve calls (well under the default threshold of 20/1s) do not add a new evasive_syscall_burst detection",
-      "expectation": "detection count unchanged by the sub-threshold activity — confirms this is a RATE detector, not an everything-is-flagged one",
+      "expectation": "detection count unchanged by the sub-threshold activity -- confirms this is a RATE detector, not an everything-is-flagged one",
       "verdict": "pass",
       "evidence": "before=0 after=0",
       "note": "allows +1 rather than requiring exact equality: a slow prior-window trip settling during this probe's own sleep is possible and is not what this control is checking for"
@@ -82,7 +82,7 @@
     {
       "id": "observation.reconciler-logs-a-decision-every-cycle-for-every-pod",
       "description": "the live sentinel logs an 'unstun'/containment_released line for every known agent pod on every reconcile tick, independent of whether anything was ever frozen",
-      "expectation": "informational — distinguishes a verbose always-log reconciler from an anomalous freeze/thaw loop",
+      "expectation": "informational -- distinguishes a verbose always-log reconciler from an anomalous freeze/thaw loop",
       "verdict": "pass",
       "evidence": "unstun_mentions_in_200_lines=342 stun_mentions_in_200_lines=0",
       "note": "no stun (freeze) events observed in this window; the volume of unstun lines is reconciliation-tick logging, not evidence of pods actually cycling frozen/thawed"

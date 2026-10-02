@@ -519,7 +519,7 @@ func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 
 // handleHealth proves the daemon can write the host cgroup hierarchy. A
 // read-only hostPath mount passes every other check and fails only here,
-// which is exactly the misconfiguration this endpoint exists to surface —
+// which is exactly the misconfiguration this endpoint exists to surface --
 // before an incident rather than during one.
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	if err := s.freezer.HealthCheck(); err != nil {

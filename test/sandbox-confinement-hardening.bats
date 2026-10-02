@@ -8,7 +8,7 @@
 # @spec    SLAAT-P2-4
 # @tests   scripts/verify-cgroup-enforcement.sh, scripts/test-agent-sandbox-escape.sh
 #
-# SLAAT-P2-4 — remediation regression suite for this card's three hardening
+# SLAAT-P2-4 -- remediation regression suite for this card's three hardening
 # streams:
 #   1. Landlock filesystem denial now covers /proc/sys/, /sys/fs/cgroup/,
 #      /root/, and the whole ~/.kube/ directory (card Approach: "explicitly
@@ -56,7 +56,7 @@ setup_file() {
     echo "# running scripts/verify-cgroup-enforcement.sh once for the whole file..." >&3
     bash "${CGROUP_SCRIPT}" --json "${CGROUP_PROOF}" >"${CGROUP_LOG}" 2>&1 || true
   else
-    echo "# no live kind-osramp cluster — live cgroup-enforcement tests will skip" >&3
+    echo "# no live kind-osramp cluster -- live cgroup-enforcement tests will skip" >&3
   fi
 }
 
@@ -69,7 +69,7 @@ have_cluster() {
 }
 
 require_cluster() {
-  have_cluster || skip "no live kind-osramp cluster — this test requires the real deployment"
+  have_cluster || skip "no live kind-osramp cluster -- this test requires the real deployment"
 }
 
 require_cgroup_proof() {
@@ -79,7 +79,7 @@ require_cgroup_proof() {
     [[ -s "${CGROUP_LOG}" ]] && sed 's/^/#   /' "${CGROUP_LOG}" >&3
     return 1
   fi
-  skip "no cluster — live harness cannot run"
+  skip "no cluster -- live harness cannot run"
 }
 
 cgroup_field() {

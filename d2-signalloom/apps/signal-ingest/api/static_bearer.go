@@ -1,36 +1,26 @@
 package api
 
-// TEMPORARY — remove by StaticBearerSunset.
+// Named static keys: inbound authentication for callers that cannot hold a JWT-SVID.
 //
-// This file exists for one reason: the stun-sentinel correlator posts its
-// observations with a static bearer token compiled into its binary
-// (DefaultBearerToken in d2-signalloom/apps/stun-sentinel/pkg/correlator/
-// ebpf_correlator.go), and signal-ingest only accepts JWT-SVIDs. Every
-// correlator POST is therefore a 401 and no observation lands.
+// Andy, 2026-10-02: "keep inbound authentication as simple as possible so we can do it from lots
+// of different places … a bearer token with a long key is the simplest way … I specifically don't
+// want the SPIRE server to run in the remote signal generating endpoint … we'll have to use a
+// static key for now." So each caller gets its own key, and everything here is built so a key
+// cannot quietly become broad:
 //
-// The agreed stopgap is to teach signal-ingest about exactly one static
-// credential while the correlator is moved onto the JWT-SVID it already has a
-// binding for. Everything here is built so the stopgap cannot quietly become
-// permanent or quietly become broad:
+//   - Absent unless SIGNAL_AUTH_STATIC_KEYS names keys (static_keys.go). No keys means
+//     byte-identical behaviour to a build without this file.
+//   - Each key carries one principal, one tenant and an explicit permission list validated
+//     against the real vocabulary. It never consults AuthConfig.Bindings, so it cannot inherit a
+//     JWT principal's scope. Keys are distinct: no shared names, no shared values.
+//   - The subject may not be a SPIFFE ID, so an audit record produced by a key can never be
+//     mistaken for one produced by a verified SVID.
+//   - Every key carries a deadline, enforced at request time.
+//   - The value is held only as a SHA-256 digest and is never logged; the key NAME is logged on
+//     every authentication.
 //
-//   - It is absent unless every SIGNAL_AUTH_STATIC_BEARER_* variable is set.
-//     No variables means byte-identical behaviour to a build without this file.
-//   - A partially configured credential refuses startup. There is no path by
-//     which a missing principal or an empty token degrades to accept-anything.
-//   - The credential carries one principal, one tenant and an explicit
-//     permission list validated against the real vocabulary. It never consults
-//     AuthConfig.Bindings, so it cannot inherit a JWT principal's scope.
-//   - The subject may not be a SPIFFE ID, so an audit record produced by this
-//     credential can never be mistaken for one produced by a verified SVID.
-//   - It carries a deadline, enforced at request time, and
-//     TestStaticBearerSunsetHasNotPassed fails once that deadline passes.
-//
-// Residual risk, accepted for this phase: this is a shared secret. Anything
-// that can reach signal-ingest and knows the string can write observations and
-// seed collectors for the configured tenant. It is not a secret in any real
-// sense — the value is a literal in the correlator's source and therefore in
-// git and in the image — so the bound is the scope and the deadline, not the
-// confidentiality of the token.
+// Residual risk: a key is a shared secret. Anything that holds it and can reach signal-ingest acts
+// as that key's principal until its expiry. The bound is the scope, the expiry and the Secret.
 
 import (
 	"crypto/hmac"
@@ -39,7 +29,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -86,9 +76,10 @@ var KnownPermissions = map[Permission]bool{
 	PermissionPrivacyAdmin:     true,
 }
 
-// StaticBearerConfig is one static credential: the token, the single principal
-// it maps to, and exactly the permissions that principal gets.
+// StaticBearerConfig is one named static key: its value, the single principal it maps to, and
+// exactly the permissions that principal gets. One key per caller.
 type StaticBearerConfig struct {
+	Name        string
 	Token       string
 	Subject     string
 	TenantID    string
@@ -97,51 +88,83 @@ type StaticBearerConfig struct {
 	ExpiresAt   time.Time
 }
 
-// StaticBearerAuthenticator accepts one configured token and delegates
-// everything else, unchanged, to the JWT authenticator.
-type StaticBearerAuthenticator struct {
-	delegate Authenticator
-	now      func() time.Time
+// staticKeyNamePattern keeps a key name usable as a file name, a Secret-name suffix and a log
+// value: no separators, no traversal, no upper case.
+var staticKeyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 
-	// digest is SHA-256 of the token. Holding the digest rather than the
-	// plaintext means comparison is over two fixed-length values (so it leaks
-	// neither content nor length through timing) and a struct dump cannot
-	// disclose the secret.
+type staticKey struct {
+	name string
+	// digest is SHA-256 of the key value. Holding the digest rather than the plaintext means
+	// comparison is over two fixed-length values (so it leaks neither content nor length through
+	// timing) and a struct dump cannot disclose the secret.
 	digest    [sha256.Size]byte
 	binding   PrincipalBinding
 	subject   string
 	expiresAt time.Time
 }
 
-// NewStaticBearerAuthenticator validates cfg and wraps delegate. Any defect in
-// cfg is an error: the caller is expected to refuse startup, never to continue
-// without the gate it asked for.
+// StaticBearerAuthenticator accepts the configured named keys and delegates everything else,
+// unchanged, to the JWT authenticator.
+type StaticBearerAuthenticator struct {
+	delegate Authenticator
+	now      func() time.Time
+	keys     []staticKey
+}
+
+// NewStaticBearerAuthenticator is NewStaticKeyAuthenticator for a single key.
 func NewStaticBearerAuthenticator(cfg StaticBearerConfig, delegate Authenticator) (*StaticBearerAuthenticator, error) {
+	return NewStaticKeyAuthenticator([]StaticBearerConfig{cfg}, delegate)
+}
+
+// NewStaticKeyAuthenticator validates every key and wraps delegate. Any defect — an invalid key,
+// two keys with one name, two keys with one value — is an error: the caller is expected to refuse
+// startup, never to continue without the gate it asked for.
+func NewStaticKeyAuthenticator(cfgs []StaticBearerConfig, delegate Authenticator) (*StaticBearerAuthenticator, error) {
 	if delegate == nil {
-		return nil, errors.New("static bearer requires a delegate authenticator")
+		return nil, errors.New("static keys require a delegate authenticator")
 	}
-	if err := cfg.validate(); err != nil {
-		return nil, err
+	if len(cfgs) == 0 {
+		return nil, errors.New("static key authenticator configured with no keys")
 	}
-	slog.Warn("TEMPORARY static bearer credential enabled; a shared secret now authenticates one principal",
-		"subject", cfg.Subject,
-		"tenant", cfg.TenantID,
-		"permissions", cfg.Permissions,
-		"actor_ids", cfg.ActorIDs,
-		"expires", cfg.ExpiresAt.UTC().Format(time.DateOnly),
-		"remove_by", StaticBearerSunset,
-		"replacement", "JWT-SVID for spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel")
-	return &StaticBearerAuthenticator{
-		delegate:  delegate,
-		now:       time.Now,
-		digest:    sha256.Sum256([]byte(cfg.Token)),
-		subject:   cfg.Subject,
-		binding:   PrincipalBinding{TenantID: cfg.TenantID, Permissions: cfg.Permissions, ActorIDs: cfg.ActorIDs},
-		expiresAt: cfg.ExpiresAt,
-	}, nil
+	a := &StaticBearerAuthenticator{delegate: delegate, now: time.Now}
+	names := map[string]bool{}
+	digests := map[[sha256.Size]byte]string{}
+	for _, cfg := range cfgs {
+		if err := cfg.validate(); err != nil {
+			return nil, fmt.Errorf("static key %q: %w", cfg.Name, err)
+		}
+		if names[cfg.Name] {
+			return nil, fmt.Errorf("static key %q is configured twice", cfg.Name)
+		}
+		names[cfg.Name] = true
+		digest := sha256.Sum256([]byte(cfg.Token))
+		if other, dup := digests[digest]; dup {
+			return nil, fmt.Errorf("static keys %q and %q share one value; every caller needs its own key", other, cfg.Name)
+		}
+		digests[digest] = cfg.Name
+		a.keys = append(a.keys, staticKey{
+			name:      cfg.Name,
+			digest:    digest,
+			subject:   cfg.Subject,
+			binding:   PrincipalBinding{TenantID: cfg.TenantID, Permissions: cfg.Permissions, ActorIDs: cfg.ActorIDs},
+			expiresAt: cfg.ExpiresAt,
+		})
+		slog.Warn("static key enabled; a shared secret authenticates one principal",
+			"key", cfg.Name,
+			"subject", cfg.Subject,
+			"tenant", cfg.TenantID,
+			"permissions", cfg.Permissions,
+			"actor_ids", cfg.ActorIDs,
+			"expires", cfg.ExpiresAt.UTC().Format(time.DateOnly),
+			"remove_by", StaticBearerSunset)
+	}
+	return a, nil
 }
 
 func (c StaticBearerConfig) validate() error {
+	if !staticKeyNamePattern.MatchString(c.Name) {
+		return fmt.Errorf("static key name %q must match %s", c.Name, staticKeyNamePattern)
+	}
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New("static bearer token must not be empty")
 	}
@@ -201,90 +224,37 @@ func (a *StaticBearerAuthenticator) Authenticate(r *http.Request) (Principal, er
 		return a.delegate.Authenticate(r)
 	}
 	presented := sha256.Sum256([]byte(strings.TrimPrefix(values[0], "Bearer ")))
-	if !hmac.Equal(presented[:], a.digest[:]) {
+	// Compare against every key without stopping at a match, so the time taken says neither
+	// which key nor whether any key matched.
+	match := -1
+	for i := range a.keys {
+		if hmac.Equal(presented[:], a.keys[i].digest[:]) {
+			match = i
+		}
+	}
+	if match < 0 {
 		return a.delegate.Authenticate(r)
 	}
-	if !a.now().Before(a.expiresAt) {
+	k := a.keys[match]
+	if !a.now().Before(k.expiresAt) {
+		slog.Warn("static key refused: past its expiry", "key", k.name, "expired", k.expiresAt.UTC().Format(time.DateOnly))
 		return Principal{}, ErrStaticBearerExpired
 	}
+	slog.Info("static key authenticated", "key", k.name, "subject", k.subject)
 	// Fresh maps per request: a handler must not be able to widen a later
 	// request's scope. Mirrors how JWTAuthenticator builds its principal.
 	p := Principal{
-		Subject:     a.subject,
-		TenantID:    a.binding.TenantID,
-		ExpiresAt:   a.expiresAt,
-		Permissions: make(map[Permission]bool, len(a.binding.Permissions)),
-		ActorIDs:    make(map[string]bool, len(a.binding.ActorIDs)),
+		Subject:     k.subject,
+		TenantID:    k.binding.TenantID,
+		ExpiresAt:   k.expiresAt,
+		Permissions: make(map[Permission]bool, len(k.binding.Permissions)),
+		ActorIDs:    make(map[string]bool, len(k.binding.ActorIDs)),
 	}
-	for _, permission := range a.binding.Permissions {
+	for _, permission := range k.binding.Permissions {
 		p.Permissions[permission] = true
 	}
-	for _, actor := range a.binding.ActorIDs {
+	for _, actor := range k.binding.ActorIDs {
 		p.ActorIDs[actor] = true
 	}
 	return p, nil
-}
-
-// StaticBearerConfigFromEnv reads the SIGNAL_AUTH_STATIC_BEARER_* variables.
-//
-// It returns (nil, nil) when none of them is set — the shipped default, in
-// which signal-ingest behaves exactly as it does without this file. If any one
-// of them is set, all of the required ones must be present and valid, and
-// anything else is an error for the caller to refuse startup on. There is
-// deliberately no middle ground: a half-configured credential is a
-// misconfiguration, not a reason to accept a weaker gate.
-func StaticBearerConfigFromEnv() (*StaticBearerConfig, error) {
-	token := os.Getenv("SIGNAL_AUTH_STATIC_BEARER_TOKEN")
-	subject := os.Getenv("SIGNAL_AUTH_STATIC_BEARER_SUBJECT")
-	tenant := os.Getenv("SIGNAL_AUTH_STATIC_BEARER_TENANT")
-	permissions := os.Getenv("SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS")
-	actors := os.Getenv("SIGNAL_AUTH_STATIC_BEARER_ACTORS")
-	expires := os.Getenv("SIGNAL_AUTH_STATIC_BEARER_EXPIRES")
-
-	if token == "" && subject == "" && tenant == "" && permissions == "" && actors == "" && expires == "" {
-		return nil, nil
-	}
-	if expires == "" {
-		return nil, errors.New("SIGNAL_AUTH_STATIC_BEARER_EXPIRES is required when any SIGNAL_AUTH_STATIC_BEARER_* variable is set")
-	}
-	expiresAt, err := time.Parse(time.DateOnly, expires)
-	if err != nil {
-		return nil, fmt.Errorf("SIGNAL_AUTH_STATIC_BEARER_EXPIRES must be a YYYY-MM-DD date, got %q", expires)
-	}
-	cfg := StaticBearerConfig{
-		Token:       token,
-		Subject:     subject,
-		TenantID:    tenant,
-		Permissions: parsePermissionList(permissions),
-		ActorIDs:    splitAndTrim(actors),
-		ExpiresAt:   expiresAt,
-	}
-	if err := cfg.validate(); err != nil {
-		// cfg.validate never includes the token in its message, so this
-		// wrapping cannot leak it either.
-		return nil, fmt.Errorf("SIGNAL_AUTH_STATIC_BEARER_* configuration invalid: %w", err)
-	}
-	return &cfg, nil
-}
-
-func parsePermissionList(raw string) []Permission {
-	parts := splitAndTrim(raw)
-	out := make([]Permission, 0, len(parts))
-	for _, p := range parts {
-		out = append(out, Permission(p))
-	}
-	return out
-}
-
-func splitAndTrim(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	var out []string
-	for _, part := range strings.Split(raw, ",") {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
 }

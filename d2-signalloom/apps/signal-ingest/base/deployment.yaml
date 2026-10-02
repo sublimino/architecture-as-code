@@ -23,6 +23,9 @@ spec:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
+        # Group-owns projected volumes (the static-key files are 0440), so the
+        # non-root process can read its keys and nothing else in the pod can.
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -34,7 +37,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-9bf19ffc3a4f6987
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-7372ad045a574021
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -112,19 +115,9 @@ spec:
                   key: IDENTITY_ENCRYPTION_KEY
             - name: SIGNAL_INGEST_PROBE_PORT
               value: "8083"
-            # TEMPORARY static bearer (../deploy/jwt-auth-config.yaml): the
-            # token is a credential, so it comes from a Secret minted at
-            # bootstrap by scripts/sldc-ingest-bearer.sh, never from git or a
-            # ConfigMap. Not optional: a missing Secret holds the new pod in
-            # CreateContainerConfigError, naming the Secret, while the old pod
-            # keeps serving — rather than starting a half-configured gate.
-            - name: SIGNAL_AUTH_STATIC_BEARER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: signal-ingest-static-bearer
-                  key: token
-          # SIGNAL_AUTH_* (JWT-SVID audience, trust domain, JWKS file, bindings)
-          # and the non-secret static-bearer scope. main exits 1 without them.
+          # SIGNAL_AUTH_*: the non-secret half of every static key, and the
+          # (disabled-by-default) JWT-SVID settings. main exits 1 with neither
+          # a static key nor a JWKS.
           envFrom:
             - configMapRef:
                 name: signal-ingest-jwt-auth
@@ -135,6 +128,13 @@ spec:
             # shipped key set is empty and the binary refuses to boot on it.
             - name: signal-auth-jwks
               mountPath: /etc/signal-ingest/auth
+              readOnly: true
+            # One file per static key, /etc/signal-ingest/static-keys/<name>,
+            # each projected from that key's own Secret (minted by
+            # scripts/sldc-ingest-bearer.sh). A file, not env: a value never
+            # shows in `kubectl describe pod` or /proc/<pid>/environ.
+            - name: signal-ingest-static-keys
+              mountPath: /etc/signal-ingest/static-keys
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
@@ -153,3 +153,18 @@ spec:
         - name: signal-auth-jwks
           configMap:
             name: signal-ingest-jwks
+        # optional: true per source, so one caller's Secret not yet minted
+        # disables that caller's key (logged at ERROR) instead of holding the
+        # whole pod in ContainerCreating. Every key named in
+        # SIGNAL_AUTH_STATIC_KEYS needs a source here; asserted by
+        # TestReconciledManifestTakesKeyValuesFromSecretsOnly.
+        - name: signal-ingest-static-keys
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: signal-ingest-key-stun-sentinel
+                  optional: true
+                  items:
+                    - key: token
+                      path: stun-sentinel

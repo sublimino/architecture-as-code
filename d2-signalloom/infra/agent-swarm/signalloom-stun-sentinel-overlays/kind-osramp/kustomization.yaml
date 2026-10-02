@@ -1,9 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# kind-osramp. The image is side-loaded by `kind load docker-image` rather than
-# pulled, so the registry-qualified base reference is retagged to the local
-# name that `make -C d2-signalloom swarm-stun-sentinel-image` produces.
+# kind-osramp. The image is the in-cluster zot reference every other estate
+# image uses, published under its source-commit tag by
+# `make -C d2-signalloom sentinel-image-publish CLUSTER_NAME=osramp` (verified
+# kind load onto the node, plus a push to zot so a rebuilt node can be
+# reloaded from the registry rather than from someone's laptop). It used to be
+# the short name stun-sentinel:v0.2.0, a tag reused for ~7 builds.
+#
+# This is the path the flux ResourceSet agent-swarm deploys
+# (d2-osramp-fleet/tenants/base/agent-swarm.yaml), so this file, not the base,
+# decides what runs on kind-osramp.
 #
 # The ingest URL is stated explicitly even though it currently matches the base
 # default. That is the point of the overlay: when this cluster's ingest moves,
@@ -19,7 +26,7 @@ resources:
 # overlay. This overlay changes WHERE the image comes from, not WHICH version.
 images:
   - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
-    newName: stun-sentinel
+    newName: zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel
 
 patches:
   - target:

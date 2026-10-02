@@ -96,12 +96,13 @@ spec:
         - operator: Exists
       containers:
         - name: sentinel
-          # Overlay-overridable via the `images:` entry in kustomization.yaml:
-          # a kind cluster retags to its locally loaded image, a remote cluster
-          # points newName at its own registry. Registry-qualified and pinned
-          # so a remote cluster can pull it without an overlay at all, and so a
-          # rollout does not depend on when a node last pulled :latest.
-          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:v0.2.0
+          # The tag is the source commit that last changed the image inputs,
+          # written by `make -C d2-signalloom sentinel-image-pin` and checked
+          # by test/sentinel-image-provenance.bats. Never hand-edit it to a
+          # version name: v0.2.0 was reused for ~7 different builds. Overlays
+          # change only newName (the kind clusters use the in-cluster zot
+          # repository) and inherit this tag.
+          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:9222d462b39a
           # IfNotPresent, never Never: Never cannot pull, so it makes this base
           # unusable anywhere the image was not side-loaded first.
           imagePullPolicy: IfNotPresent

@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# kind-signalloom-hub. Same side-loaded image story as kind-osramp.
+# kind-signalloom-hub. Same zot image and source-commit tag as kind-osramp;
+# publish with `make -C d2-signalloom sentinel-image-publish
+# CLUSTER_NAME=signalloom-hub`. No Flux runs here, so this overlay is applied
+# by hand (kubectl apply -k).
 #
 # The ingest URL below is the hub's OWN in-cluster Service: a sentinel reports
 # to the ingest on its own cluster. If the hub should instead collect osramp's
@@ -20,7 +23,7 @@ resources:
 # overlay. This overlay changes WHERE the image comes from, not WHICH version.
 images:
   - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
-    newName: stun-sentinel
+    newName: zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel
 
 patches:
   - target:

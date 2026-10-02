@@ -1,0 +1,238 @@
+"""A claim binds a workload only into the tenant the platform declared for it.
+
+The Kusari pilot's agent was claimed into tenant-demo with a fabricated
+``claude-3-5-sonnet`` model: every claim path claimed into whoever asked, and
+three of them invented the model. These tests drive the real endpoints with a
+workload source in discovery's contract shape (fake-integration-proxy
+``GET /agents``: ``id``, ``name``, ``agent_name``, ``namespace``, ``tenant``,
+``model``) and assert the exact status and error code of every refusal.
+"""
+from __future__ import annotations
+
+import socket
+import time
+from types import SimpleNamespace
+from typing import Any
+
+import httpx
+import jwt
+import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
+
+import api_compat
+import claim_tenancy
+from api_compat import settings
+from db.connection import set_pool_for_testing
+from main import app
+
+KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+NS = "fe-signalloom-agents"
+KUSARI_OP = "kusari-operator"
+DEMO_USER = "demo-claimant"
+SUBJECT_TENANTS = {KUSARI_OP: "kusari", DEMO_USER: "tenant-demo"}
+
+WORKLOADS: list[dict[str, Any]] = [
+    {"id": "agent-kusari-abc", "name": "Kusari Agent (stub)", "agent_name": "kusari-agent",
+     "namespace": NS, "tenant": "kusari", "model": "deterministic"},
+    {"id": "demo-bot-1", "name": "demo-bot", "agent_name": "demo-bot",
+     "namespace": NS, "tenant": "tenant-demo", "model": "gpt-4o"},
+    {"id": "unlabelled-1", "name": "unlabelled", "agent_name": "unlabelled",
+     "namespace": NS, "tenant": None, "model": "gpt-4o"},
+    {"id": "nomodel-1", "name": "nomodel", "agent_name": "nomodel",
+     "namespace": NS, "tenant": "kusari", "model": None},
+    {"id": "homoglyph-1", "name": "homoglyph", "agent_name": "homoglyph",
+     "namespace": NS, "tenant": "kusarі", "model": "deterministic"},
+    {"id": "twin-a", "name": "twin", "agent_name": "twin", "namespace": NS, "tenant": "kusari", "model": "m"},
+    {"id": "twin-b", "name": "twin", "agent_name": "twin", "namespace": NS, "tenant": "kusari", "model": "m"},
+]
+
+
+def _bearer(subject: str) -> dict[str, str]:
+    now = int(time.time())
+    token = jwt.encode(
+        {"iss": "https://issuer.test/dex", "aud": "signalloom-api", "iat": now, "nbf": now,
+         "exp": now + 300, "azp": "signalloom-dashboard", "sub": subject,
+         "email": f"{subject}@signalloom.test"},
+        KEY, algorithm="RS256", headers={"kid": "test-key", "typ": "JWT"},
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+class _JWK:
+    def get_signing_key_from_jwt(self, token: str) -> SimpleNamespace:
+        return SimpleNamespace(key=KEY.public_key())
+
+
+class _ReadyPool:
+    async def close(self) -> None:
+        pass
+
+
+@pytest.fixture
+def client(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
+    monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
+    monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
+    monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
+    monkeypatch.setattr(settings, "api_subject_tenants", dict(SUBJECT_TENANTS))
+    monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _JWK())
+
+    async def _no_pool() -> None:
+        return None
+
+    async def _workloads() -> list[dict[str, Any]]:
+        return [dict(w) for w in WORKLOADS]
+
+    monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
+    monkeypatch.setattr(claim_tenancy, "workload_source", _workloads)
+
+    def _no_network(*_a: Any, **_k: Any) -> None:
+        raise AssertionError("external network access is forbidden in these tests")
+
+    monkeypatch.setattr(socket.socket, "connect", _no_network)
+    for t in ("kusari", "tenant-demo"):
+        api_compat.reset_tenant_state(t)
+    set_pool_for_testing(_ReadyPool())
+    try:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            yield c
+    finally:
+        set_pool_for_testing(None)
+        for t in ("kusari", "tenant-demo"):
+            api_compat.reset_tenant_state(t)
+
+
+def _claim(client: TestClient, subject: str, pod_name: str, **extra: Any):
+    body = {"pod_name": pod_name, "namespace": NS,
+            "spiffe_id": f"spiffe://signalloom.demo/ns/{NS}/sa/{pod_name}", **extra}
+    return client.post("/api/v1/agents/claim", json=body, headers=_bearer(subject))
+
+
+def _error(res: Any) -> str:
+    return res.json()["error"]["code"]
+
+
+def _claimed_models(client: TestClient, subject: str) -> dict[str, str]:
+    res = client.get("/api/v1/agents/claims", headers=_bearer(subject))
+    assert res.status_code == 200, res.text
+    return {c["pod_name"]: c["model"] for c in res.json()["claims"]}
+
+
+def test_the_declared_tenant_claims_its_workload_and_the_model_is_the_workloads(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "kusari-agent")
+    assert res.status_code == 200, res.text
+    assert _claimed_models(client, KUSARI_OP) == {"kusari-agent": "deterministic"}
+
+
+def test_another_tenant_is_refused_403_without_naming_the_owner(client: TestClient) -> None:
+    res = _claim(client, DEMO_USER, "kusari-agent")
+    assert res.status_code == 403, res.text
+    assert _error(res) == "cross_tenant_forbidden"
+    assert "kusari\"" not in res.text.replace("kusari-agent", "")
+    assert _claimed_models(client, DEMO_USER) == {}
+
+
+def test_the_display_name_resolves_to_the_same_workload_and_the_same_refusal(client: TestClient) -> None:
+    res = _claim(client, DEMO_USER, "Kusari Agent (stub)")
+    assert res.status_code == 403, res.text
+    assert _error(res) == "cross_tenant_forbidden"
+
+
+def test_an_unlabelled_workload_is_refused_403(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "unlabelled")
+    assert res.status_code == 403, res.text
+    assert _error(res) == "workload_tenant_undeclared"
+
+
+def test_a_homoglyph_tenant_label_is_a_different_tenant(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "homoglyph")
+    assert res.status_code == 403, res.text
+    assert _error(res) == "cross_tenant_forbidden"
+
+
+def test_a_workload_with_no_model_label_is_refused_422(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "nomodel")
+    assert res.status_code == 422, res.text
+    assert _error(res) == "workload_model_undeclared"
+
+
+def test_an_asserted_model_the_workload_does_not_declare_is_refused_422(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "kusari-agent", model="claude-3-5-sonnet")
+    assert res.status_code == 422, res.text
+    assert _error(res) == "model_mismatch"
+    assert _claimed_models(client, KUSARI_OP) == {}
+
+
+def test_the_matching_asserted_model_is_accepted(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "kusari-agent", model="deterministic")
+    assert res.status_code == 200, res.text
+
+
+def test_an_unknown_workload_is_404(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "no-such-agent")
+    assert res.status_code == 404, res.text
+    assert _error(res) == "workload_not_found"
+
+
+def test_a_name_two_workloads_answer_to_is_409(client: TestClient) -> None:
+    res = _claim(client, KUSARI_OP, "twin")
+    assert res.status_code == 409, res.text
+    assert _error(res) == "workload_ambiguous"
+
+
+def test_the_same_name_in_another_namespace_is_not_the_workload(client: TestClient) -> None:
+    body = {"pod_name": "kusari-agent", "namespace": "default",
+            "spiffe_id": "spiffe://signalloom.demo/ns/default/sa/kusari-agent"}
+    res = client.post("/api/v1/agents/claim", json=body, headers=_bearer(KUSARI_OP))
+    assert res.status_code == 404, res.text
+    assert _error(res) == "workload_not_found"
+
+
+def test_discovery_down_fails_closed_503(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(claim_tenancy, "workload_source", claim_tenancy._discovery_workloads)
+
+    class _Down:
+        def __init__(self, *_a: Any, **_k: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "_Down":
+            return self
+
+        async def __aexit__(self, *_a: Any) -> None:
+            return None
+
+        async def get(self, url: str) -> Any:
+            raise httpx.ConnectError("refused", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(claim_tenancy.httpx, "AsyncClient", _Down)
+    res = _claim(client, KUSARI_OP, "kusari-agent")
+    assert res.status_code == 503, res.text
+    assert _error(res) == "discovery_unavailable"
+
+
+def test_autoclaim_claims_only_the_callers_declared_workloads_with_their_models(client: TestClient) -> None:
+    res = client.post("/api/v1/agents/autoclaim-discovered", headers=_bearer(KUSARI_OP))
+    assert res.status_code == 200, res.text
+    claimed = {c["pod_name"]: c["model"] for c in res.json()["claimed"]}
+    # twin/twin is ambiguous and nomodel has no model: neither is claimable.
+    assert claimed == {"kusari-agent": "deterministic"}
+    res = client.post("/api/v1/agents/autoclaim-discovered", headers=_bearer(DEMO_USER))
+    assert {c["pod_name"]: c["model"] for c in res.json()["claimed"]} == {"demo-bot": "gpt-4o"}
+
+
+def test_autoclaim_with_nothing_claimable_claims_nothing_and_invents_nothing(client: TestClient) -> None:
+    res = client.post("/api/v1/agents/autoclaim-discovered", json={"namespace": "empty-ns"},
+                      headers=_bearer(KUSARI_OP))
+    assert res.status_code == 200, res.text
+    assert res.json() == {"claimed": [], "total_claimed": 0}
+    assert _claimed_models(client, KUSARI_OP) == {}
+
+
+def test_discovery_claim_route_refuses_another_tenant_403(client: TestClient) -> None:
+    body = {"agent_id": "kusari-agent", "namespace": NS}
+    res = client.post("/api/v1/discovery/claim", json=body, headers=_bearer(DEMO_USER))
+    assert res.status_code == 403, res.text
+    assert _error(res) == "cross_tenant_forbidden"
+    res = client.post("/api/v1/discovery/claim", json=body, headers=_bearer(KUSARI_OP))
+    assert res.status_code == 200, res.text

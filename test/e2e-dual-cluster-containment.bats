@@ -17,7 +17,9 @@
 #     server and would mask the network quarantine the containment applies.
 #     The single exception is the PostgreSQL query in Step 2 (no psql client on
 #     the host, and the database is deliberately not exposed); it is a read-only
-#     SELECT and is documented as such.
+#     SELECT and is documented as such. Step 2's claim, when it makes one, runs
+#     scripts/demo-agent-autoclaim.sh, which reaches the API from inside the
+#     dashboard pod; that is the product's claim path, not a probe.
 #   * No bare `sleep`. Every wait is a deadline-bounded poll from
 #     scripts/lib/wait.sh.
 #   * Teardown thaws ONLY the cgroup this suite froze. `kind-osramp` is shared:
@@ -36,6 +38,9 @@
 #   EVIDENCE_DIR        evidence root                 (default: ~/kusari-e2e/<ts>)
 #   SLDC_OBS_WINDOW_MS  Step 4 correlation window     (default: 15000)
 #   SLDC_SKIP_BRIDGE    set to 1 to skip the docker bridge assertion
+#   SLDC_CLAIM_CMD      Step 2 claim command   (default: scripts/demo-agent-autoclaim.sh)
+#   SLDC_CLAIM_USER     Dex user that claims   (default: kusari-operator@signalloom.local)
+#   SLDC_CLAIM_PASSWORD its password           (default: the local-demo kusari-operator)
 #
 # Mutation proof: test/e2e-mutation-proof.sh drives this file against a fake
 # kubectl and inverts one behaviour per step, proving each assertion fails when
@@ -188,6 +193,19 @@ registry_row() {
         "${REGISTRY_SQL}" 2>/dev/null
 }
 
+# claim_kusari_agent claims kusari-agent through the product, as the one Dex
+# subject mapped to tenant kusari. The model and harness come from the pod's own
+# labels inside the claim script. The registry row is NEVER written with SQL:
+# the row Step 2 once passed on was, and nothing in the product could recreate it.
+claim_kusari_agent() {
+    SLAC_KUBE_CONTEXT="${WL_CONTEXT}" \
+    AGENT_NAMESPACE="${NS}" \
+    DEMO_DEX_USER="${SLDC_CLAIM_USER:-kusari-operator@signalloom.local}" \
+    DEX_DEMO_PASSWORD="${SLDC_CLAIM_PASSWORD:-kusari-operator}" \
+    SLAC_DEMO_RESULT_FILE="${EVIDENCE_DIR}/step2-claim-result.json" \
+        "${SLDC_CLAIM_CMD:-${REPO_ROOT}/scripts/demo-agent-autoclaim.sh}" --workload kusari-agent
+}
+
 # observations_json reads the ingest feed. Without a lower bound the store
 # answers with its OLDEST `limit` observations, so once more than 50 sentinel
 # observations had accumulated the provoked one was never returned and Step 4
@@ -236,7 +254,7 @@ cgroup_reports_frozen() {
         | grep -q '^frozen 1$'
 }
 
-export -f registry_row observations_json sensitive_openat_observations \
+export -f registry_row claim_kusari_agent observations_json sensitive_openat_observations \
           have_sensitive_openat cgroup_reports_frozen cadvisor_sample
 
 @test "Step 1: Kusari workload deployment reconciled by Flux on the workload cluster" {
@@ -283,8 +301,25 @@ export -f registry_row observations_json sensitive_openat_observations \
 }
 
 @test "Step 2: Tenant registration and database claim for tenant kusari" {
-    # Poll: the registration worker writes the row asynchronously after the
-    # workload appears, so an immediate SELECT legitimately returns 0 rows.
+    # The model the claim must record is the one the workload declares.
+    local label_model
+    label_model="$(agent_pod_field 'metadata.labels.signalloom\.ai/model')"
+    [ -n "$label_model" ]
+
+    # No worker claims on its own, so when there is no row yet Step 2 makes the
+    # claim through the product. A row left by an earlier run is not re-claimed;
+    # it is held to the same assertions below. The claim script also grades
+    # compliance and audit, which are not Step 2's contract, so its exit code is
+    # recorded as evidence and the row decides.
+    local claimed=false claim_rc=null
+    if ! registry_row | grep -q kusari-agent; then
+        claimed=true
+        run claim_kusari_agent
+        claim_rc="$status"
+        printf '%s\n' "$output" >"${EVIDENCE_DIR}/step2-claim.log"
+    fi
+
+    # Poll: the API commits the row in its own transaction.
     WAIT_QUIET=1 run _wait_retry 60 "agent_registry row for kusari-agent" \
         "registry_row | grep -q kusari-agent"
     [ "$status" -eq 0 ]
@@ -293,24 +328,31 @@ export -f registry_row observations_json sensitive_openat_observations \
     [ "$status" -eq 0 ]
     local row="$output"
     [ -n "$row" ]
+    # Exactly one: a second row in another tenant is a split claim.
+    [ "$(grep -c . <<<"$row")" -eq 1 ]
 
     # Canonical tenant vector: tenant is exactly `kusari`, hash 4b53ab6b. The
     # retired typo `kurasi` must fail closed (Shared Pattern 1).
     [[ "$row" != *kurasi* ]]
     [[ "$row" == *"|${TENANT}|"* ]]
 
+    # Read from the workload, never invented: autoclaim once wrote
+    # claude-3-5-sonnet for a pod labelled signalloom.ai/model=deterministic.
     local model_name; model_name="$(printf '%s' "$row" | awk -F'|' '{print $3}')"
     [ -n "$model_name" ]
+    [ "$model_name" = "$label_model" ]
 
     run bash -c "SIGNAL_LOOM_EAP_SALT=\"\${SIGNAL_LOOM_EAP_SALT:-signalloom-eap-salt-2026-q3}\" python3 '${REPO_ROOT}/scripts/derive_tenant_hash.py' '${TENANT}'"
     [ "$status" -eq 0 ]
     [[ "$output" == *"${TENANT_HASH}"* ]]
 
-    printf '{"query":%s,"row":%s,"tenant":"%s","tenant_hash":"%s","model_name":%s}\n' \
+    printf '{"query":%s,"row":%s,"tenant":"%s","tenant_hash":"%s","model_name":%s,"label_model":%s,"claimed_this_run":%s,"claim_exit":%s}\n' \
         "$(printf '%s' "${REGISTRY_SQL}" | jq -Rs .)" \
         "$(printf '%s' "$row" | jq -Rs .)" \
         "${TENANT}" "${TENANT_HASH}" \
         "$(printf '%s' "$model_name" | jq -Rs .)" \
+        "$(printf '%s' "$label_model" | jq -Rs .)" \
+        "${claimed}" "${claim_rc}" \
         >"${EVIDENCE_DIR}/step2-registry-claim.json"
 }
 

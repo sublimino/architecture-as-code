@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api"
 )
@@ -24,7 +25,7 @@ func (s stubAuthenticator) Authenticate(*http.Request) (api.Principal, error) {
 // bytes, base64url, 43 characters.
 const testBearerToken = "qV3x9Lw2pN7cR1tY8kD4hF6jS0aZ5mE2uB7oG3iX1wQ"
 
-const testSentinelKeySpec = `[{"name":"stun-sentinel","subject":"static-bearer/stun-sentinel-correlator","tenant":"kusari","permissions":["observations:write"],"expires":"` + api.StaticBearerSunset + `"}]`
+const testSentinelKeySpec = `[{"name":"stun-sentinel","subject":"static-bearer/stun-sentinel-correlator","tenant":"kusari","permissions":["observations:write"]}]`
 
 func clearAuthEnv(t *testing.T) {
 	t.Helper()
@@ -40,6 +41,10 @@ func setStaticKeys(t *testing.T, specs string, values map[string]string) {
 	dir := t.TempDir()
 	for name, v := range values {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(v), 0o400); err != nil {
+			t.Fatal(err)
+		}
+		expires := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.DateOnly)
+		if err := os.WriteFile(filepath.Join(dir, name+api.StaticKeyExpirySuffix), []byte(expires), 0o400); err != nil {
 			t.Fatal(err)
 		}
 	}

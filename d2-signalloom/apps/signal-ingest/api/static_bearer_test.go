@@ -40,7 +40,7 @@ func testStaticConfig() StaticBearerConfig {
 		Subject:     testStaticSubject,
 		TenantID:    "kusari",
 		Permissions: []Permission{PermissionObservationWrite, PermissionCollectorWrite},
-		ExpiresAt:   time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC),
+		ExpiresAt:   time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(24 * time.Hour),
 	}
 }
 
@@ -495,38 +495,20 @@ func TestStaticBearerPrincipalCarriesTheDeadline(t *testing.T) {
 	}
 }
 
-// TestStaticBearerSunsetHasNotPassed is a deliberate time bomb. It is the one
-// test in this file designed to start failing on its own, and the failure is
-// the deliverable: it means the temporary credential has outlived its agreed
-// window and must now be removed.
-func TestStaticBearerSunsetHasNotPassed(t *testing.T) {
-	deadline, err := time.Parse(time.DateOnly, StaticBearerSunset)
-	if err != nil {
-		t.Fatalf("StaticBearerSunset %q is not a YYYY-MM-DD date: %v", StaticBearerSunset, err)
+// Review M3, carried into the per-key lifetime (Andy/lead 2026-10-02): the deadline is enforced by
+// the binary, not only by whatever a Secret says. No key may be valid for more than
+// MaxStaticKeyLifetime from now, so an issued key cannot be made effectively permanent, and the
+// fixed global sunset that would have 401'd every caller on one day is gone.
+func TestStaticKeyLifetimeIsBoundedByTheBinary(t *testing.T) {
+	cfg := testStaticConfig()
+	cfg.ExpiresAt = time.Now().Add(MaxStaticKeyLifetime + 24*time.Hour)
+	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "90 days") {
+		t.Fatalf("validate() = %v, want a refusal naming the 90-day lifetime", err)
 	}
-	if time.Now().UTC().Before(deadline) {
-		return
+	cfg.ExpiresAt = time.Now().Add(MaxStaticKeyLifetime - 24*time.Hour)
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("an expiry inside the lifetime must be accepted: %v", err)
 	}
-	t.Fatalf(`the signal-ingest static bearer credential expired on %s and must now be removed.
-
-This test is not broken. It is the sunset gate for the temporary shared secret
-that lets the stun-sentinel correlator POST observations without a JWT-SVID.
-
-To fix it, do the work the credential was deferring:
-  1. Give the correlator a real JWT-SVID. It already runs as
-     spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel, which is
-     already bound in deploy/jwt-auth-config.yaml with
-     ["observations:write","collectors:write"] — so no new binding is needed.
-     Replace DefaultBearerToken in
-     d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go with a
-     token read from the mounted SPIRE JWT-SVID.
-  2. Delete the SIGNAL_AUTH_STATIC_BEARER_* keys from
-     d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml and the
-     signalloom.ai/expires annotation with them.
-  3. Delete api/static_bearer.go, this file, and the main.go wiring block.
-
-Do NOT extend StaticBearerSunset to make this pass. Extending it is a decision
-for Andy, not for whoever is holding the failing build.`, StaticBearerSunset)
 }
 
 // --- The secret never leaks -----------------------------------------------
@@ -547,7 +529,7 @@ func TestStaticBearerEnabledWarningOmitsTheToken(t *testing.T) {
 	if strings.Contains(logged, testSentinelToken) {
 		t.Fatalf("startup log leaks the token: %s", logged)
 	}
-	for _, want := range []string{testStaticSubject, StaticBearerSunset} {
+	for _, want := range []string{testStaticSubject, testStaticConfig().ExpiresAt.Format(time.DateOnly)} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("startup log omits %q: %s", want, logged)
 		}
@@ -622,26 +604,6 @@ func assertNoTokenLeak(t *testing.T, aw *audit.FakeWriter, bodies string) {
 		if strings.Contains(string(raw), testSentinelToken) {
 			t.Errorf("audit record %d leaks the static bearer token: %s", i, raw)
 		}
-	}
-}
-
-// Review M3 (2026-10-02): the sunset lived only in a test and in YAML. Editing
-// the ConfigMap's expiry extended the credential with no code change, because
-// validate() checked only that some date was present. The binary now refuses
-// any configured expiry later than StaticBearerSunset.
-func TestStaticBearerRefusesAnExpiryLaterThanTheSunset(t *testing.T) {
-	cfg := testStaticConfig()
-	cfg.ExpiresAt = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	err := cfg.validate()
-	if err == nil || !strings.Contains(err.Error(), StaticBearerSunset) {
-		t.Fatalf("validate() = %v, want a refusal that names the sunset %s", err, StaticBearerSunset)
-	}
-}
-
-func TestStaticBearerAcceptsAnExpiryOnTheSunset(t *testing.T) {
-	cfg := testStaticConfig() // expires exactly on the sunset
-	if err := cfg.validate(); err != nil {
-		t.Fatalf("an expiry on the sunset itself must be accepted: %v", err)
 	}
 }
 

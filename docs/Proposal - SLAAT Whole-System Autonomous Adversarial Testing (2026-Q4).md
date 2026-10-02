@@ -420,9 +420,9 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 #### Errata — SLAAT-P2-PRE (preflight)
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-10-02 06:04:25+01:00
-**Last Updated:** 2026-10-02 06:11:00+01:00
+**Last Updated:** 2026-10-02 06:13:00+01:00
 **Status:** pass
-**Commit:** PENDING-FILLED-POST-COMMIT
+**Commit:** `4f9916e19ac8f5266d9129095d10244d582e0fe7`
 
 ##### Task identity
 - Card: `SLAAT-P2-PRE`, worktree `/home/andy/src/.worktrees/985de/osramp-demo`, detached task base `840870a22abad62793e4e1718d691f8b2caef2b1`.

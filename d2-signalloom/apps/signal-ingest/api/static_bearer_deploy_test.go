@@ -56,7 +56,29 @@ func loadDeployedAuthConfigMap(t *testing.T) deployedConfigMap {
 // exact permission set each caller gets. A key added to the ConfigMap without a row here, or a
 // permission added to a row's caller in YAML only, fails TestStaticKeysShippedGrantExactlyTheContract.
 var shippedKeyGrants = map[string][]Permission{
+	// The eBPF correlator: POST /api/v1/observations for whichever tenant the workload maps to.
 	"stun-sentinel": {PermissionObservationWrite, PermissionCrossTenantWrite},
+	// fe-signalloom: exactly what its proxies call (signal_fusion, risk, coding-agent telemetry,
+	// claim delegation sync), acting for the verified user's tenant; cross-read only for "*".
+	"fe-signalloom-gateway": {PermissionActForTenant, PermissionCrossTenantRead,
+		PermissionObservationRead, PermissionObservationWrite, PermissionStream,
+		PermissionActorList, PermissionActorRead, PermissionActorWrite,
+		PermissionAnalysisRead, PermissionAnalysisRun, PermissionCollectorWrite,
+		PermissionRiskRead, PermissionDelegationWrite},
+	// scripts/signalfusion-demo.sh: healthz, seed, correlate, inject, actors, coverage, promote.
+	"signalfusion-demo": {PermissionCrossTenantRead, PermissionHealth,
+		PermissionObservationWrite, PermissionCollectorWrite, PermissionAnalysisRun,
+		PermissionAnalysisRead, PermissionActorList, PermissionActorRead, PermissionActorWrite},
+	// test/sfas-live-acceptance.bats: healthz, readyz, the authorization query.
+	"sldc-live-bats": {PermissionCrossTenantRead, PermissionHealth, PermissionActorList},
+	// e2e Step 4: reads kusari's observations, nothing else.
+	"sldc-evidence-reader": {PermissionObservationRead},
+}
+
+// shippedKeyTenants pins each key's tenant.
+var shippedKeyTenants = map[string]string{
+	"stun-sentinel": "kusari", "fe-signalloom-gateway": "fe-signalloom", "signalfusion-demo": "tenant-demo",
+	"sldc-live-bats": "tenant-demo", "sldc-evidence-reader": "kusari",
 }
 
 // loadShippedStaticKeys runs the shipped ConfigMap through the real loader, with a distinct
@@ -122,8 +144,17 @@ func TestStaticKeysShippedGrantExactlyTheContract(t *testing.T) {
 			t.Errorf("shipped key %s has no row in shippedKeyGrants", k.Name)
 			continue
 		}
-		p, err := a.Authenticate(bearerRequest(http.MethodGet, "/api/v1/observations", k.Token))
-		if err != nil {
+		if k.TenantID != shippedKeyTenants[k.Name] {
+			t.Errorf("key %s tenant = %q, want %q", k.Name, k.TenantID, shippedKeyTenants[k.Name])
+		}
+		// Configured grants, checked on the config rather than on a principal: an act-for key's
+		// principal is shaped by the acting tenant, which is the act-for tests' subject.
+		got := map[Permission]bool{}
+		for _, perm := range k.Permissions {
+			got[perm] = true
+		}
+		p := Principal{Permissions: got}
+		if _, err := a.Authenticate(actingRequest(http.MethodGet, "/api/v1/observations", k.Token, "kusari")); err != nil {
 			t.Fatalf("key %s does not authenticate with the shipped config: %v", k.Name, err)
 		}
 		granted := map[Permission]bool{}

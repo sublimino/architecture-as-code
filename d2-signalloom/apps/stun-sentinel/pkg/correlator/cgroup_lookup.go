@@ -15,10 +15,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// cgroupIndexMinInterval bounds how often a cache miss may re-walk the cgroup
-// tree, so a burst of events from an unknown cgroup cannot become a storm of
-// filesystem walks.
-const cgroupIndexMinInterval = time.Second
+// cgroupMissTTL is how long an inode that is in no pod's cgroup is remembered
+// as a miss. Misses are cached PER INODE: host processes produce a steady
+// stream of them, and a global walk throttle let that noise spend every
+// re-walk, so a new pod's first sensitive opens were dropped (review M1).
+const (
+	cgroupMissTTL     = 5 * time.Second
+	cgroupMissMaxSize = 4096
+)
 
 // WithCgroupRoot sets the cgroup-v2 mount the correlator walks to map an
 // event's cgroup inode to a pod. The sentinel mounts the host's at CGROUP_ROOT.
@@ -37,10 +41,20 @@ func (m *SentinelProbeManager) lookupPodByCgroupID(id uint64) *corev1.Pod {
 	}
 	m.cgMu.Lock()
 	uid, ok := m.cgroupIndex[id]
-	if !ok && time.Since(m.cgroupIndexedAt) >= cgroupIndexMinInterval {
-		m.cgroupIndex, m.cgroupPaths = indexPodCgroups(m.cgroupRoot)
-		m.cgroupIndexedAt = time.Now()
-		uid, ok = m.cgroupIndex[id]
+	if !ok {
+		now := time.Now()
+		if until, known := m.cgroupMisses[id]; !known || now.After(until) {
+			m.cgroupIndex, m.cgroupPaths = indexPodCgroups(m.cgroupRoot)
+			m.cgroupWalks.Add(1)
+			m.cgroupIndexedAt = now
+			uid, ok = m.cgroupIndex[id]
+			if !ok {
+				if m.cgroupMisses == nil || len(m.cgroupMisses) >= cgroupMissMaxSize {
+					m.cgroupMisses = make(map[uint64]time.Time)
+				}
+				m.cgroupMisses[id] = now.Add(cgroupMissTTL)
+			}
+		}
 	}
 	m.cgMu.Unlock()
 	if !ok {
@@ -81,7 +95,9 @@ func (m *SentinelProbeManager) cgroupPathFor(id uint64, pid uint32) string {
 	m.cgMu.Lock()
 	p := m.cgroupPaths[id]
 	m.cgMu.Unlock()
-	if p != "" {
+	if p != "" || m.cgroupRoot != "" {
+		// With a cgroup root the PID cannot be trusted to be this event's
+		// process (review H1), so never describe the event by a PID's cgroup.
 		return p
 	}
 	data, err := os.ReadFile(filepath.Join(m.procRoot, strconv.FormatUint(uint64(pid), 10), "cgroup"))
@@ -116,4 +132,29 @@ func (m *SentinelProbeManager) podByUID(uid string) *corev1.Pod {
 		}
 	}
 	return nil
+}
+
+// pidInEventCgroup reports whether pid really is in the event's cgroup. The
+// probe's PID is the kernel root-namespace PID, which on a nested node (kind)
+// can name an unrelated process. Inside a cgroup namespace /proc/<pid>/cgroup
+// reads "0::/../../<slice>/<scope>", so the check matches the container scope
+// directory, which is unique per container, rather than a joined path.
+func (m *SentinelProbeManager) pidInEventCgroup(pid uint32, id uint64) bool {
+	m.cgMu.Lock()
+	p := m.cgroupPaths[id]
+	m.cgMu.Unlock()
+	if p == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(m.procRoot, strconv.FormatUint(uint64(pid), 10), "cgroup"))
+	if err != nil {
+		return false
+	}
+	scope := "/" + filepath.Base(p)
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if rest, ok := strings.CutPrefix(line, "0::"); ok {
+			return strings.HasSuffix(rest, scope)
+		}
+	}
+	return false
 }

@@ -226,14 +226,16 @@ setup() {
     local out rc=0
     out="$(bash "$repo_root/d2-signalloom/test/audit-guard-reintroduction-proof.sh" 2>&1)" || rc=$?
 
-    local red
-    red="$(echo "$out" | grep -c 'RED as required')"
-
     if [ "$rc" -ne 0 ]; then
         echo "proof exited $rc"
         echo "$out" | tail -8
         false
     fi
+
+    # awk, not grep -c: grep exits 1 on a zero count, which aborted this test
+    # at the assignment, before either diagnostic could print.
+    local red
+    red="$(printf '%s\n' "$out" | awk '/RED as required/ { n++ } END { print n + 0 }')"
 
     if [ "$red" -ne 12 ]; then
         echo "FLOOR BREACH: only $red of 12 proof cases fired"

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
 // Tenancy grants. Permissions in the ordinary sense, so a static key or a JWT binding names them
@@ -47,4 +48,84 @@ func scopeObservations(obs []model.Observation, tenant string, all bool, limit i
 		out = out[:limit]
 	}
 	return out
+}
+
+// actorScope decides actor visibility for one request. An actor's tenant is the tenant of the
+// observations it was correlated from: a scoped principal sees it only when its evidence chain is
+// non-empty and every evidence observation is labelled with the principal's tenant. An actor with
+// mixed, unknown or no evidence is cross-tenant only.
+type actorScope struct {
+	all       bool
+	tenant    string
+	obsTenant map[string]string
+}
+
+func (h *Handlers) actorScopeFor(r *http.Request) (actorScope, error) {
+	tenant, all := observationReadScope(r)
+	s := actorScope{all: all, tenant: tenant}
+	if all {
+		return s, nil
+	}
+	obs, err := h.Store.QueryRange(r.Context(), store.Query{})
+	if err != nil {
+		return s, err
+	}
+	s.obsTenant = make(map[string]string, len(obs))
+	for _, o := range obs {
+		s.obsTenant[o.ID] = o.Labels[ObservationTenantLabel]
+	}
+	return s, nil
+}
+
+func (s actorScope) visible(a *model.ProvisionalActor) bool {
+	if a == nil {
+		return false
+	}
+	if s.all {
+		return true
+	}
+	if s.tenant == "" || len(a.EvidenceChain) == 0 {
+		return false
+	}
+	for _, ev := range a.EvidenceChain {
+		if s.obsTenant[ev.ObservationID] != s.tenant {
+			return false
+		}
+	}
+	return true
+}
+
+func (s actorScope) filter(actors []*model.ProvisionalActor) []*model.ProvisionalActor {
+	if s.all {
+		return actors
+	}
+	out := make([]*model.ProvisionalActor, 0, len(actors))
+	for _, a := range actors {
+		if s.visible(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// scopedActors is Engine.GetActors as the request's principal may see it.
+func (h *Handlers) scopedActors(r *http.Request) ([]*model.ProvisionalActor, error) {
+	s, err := h.actorScopeFor(r)
+	if err != nil {
+		return nil, err
+	}
+	return s.filter(h.Engine.GetActors()), nil
+}
+
+// scopedActor is Engine.GetActor as the request's principal may see it: an actor of another
+// tenant is nil, exactly like an absent one, so the reply cannot confirm it exists.
+func (h *Handlers) scopedActor(r *http.Request, id string) (*model.ProvisionalActor, error) {
+	s, err := h.actorScopeFor(r)
+	if err != nil {
+		return nil, err
+	}
+	if a := h.Engine.GetActor(id); s.visible(a) {
+		return a, nil
+	}
+	return nil, nil
 }

@@ -389,7 +389,11 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
-	actors := h.Engine.GetActors()
+	actors, err := h.scopedActors(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	if limit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && limit > 0 && len(actors) > limit {
 		actors = actors[:limit]
 	}
@@ -401,7 +405,11 @@ func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	actor := h.Engine.GetActor(id)
+	actor, err := h.scopedActor(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	if actor == nil {
 		writeError(w, http.StatusNotFound, "actor not found")
 		return
@@ -445,6 +453,13 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Correlation runs over the whole store; what it reports back is scoped like any read.
+	scope, err := h.actorScopeFor(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	actors = scope.filter(actors)
 	returnedActors := actors
 	if limit := requestLimit(r, len(actors)); limit < len(returnedActors) {
 		returnedActors = returnedActors[:limit]
@@ -499,6 +514,8 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to query store")
 		return
 	}
+	tenant, all := observationReadScope(r)
+	obs = scopeObservations(obs, tenant, all, 0)
 
 	byLayer := make(map[string]int)
 	byFidelity := make(map[string]int)
@@ -513,7 +530,11 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	actors := h.Engine.GetActors()
+	actors, err := h.scopedActors(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query store")
+		return
+	}
 	byStatus := make(map[string]int)
 	for _, a := range actors {
 		byStatus[string(a.Status)]++

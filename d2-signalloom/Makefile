@@ -245,8 +245,9 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 # GC left ImagePullBackOff with no way to rebuild "the same" image. The tag is
 # now `src-` + 12 hex of scripts/lib/source-id.sh's fingerprint: a
 # deterministic tar of exactly the paths the Dockerfile COPYs, the estate's
-# one definition of "which source tree is this image" (signal-ingest uses the
-# same scheme). It tracks content, so a rebase or merge that rewrites commit
+# one definition of "which source tree is this image" (signal-ingest also
+# tags src-<content digest>, but over its `go list -deps` inputs and with 16
+# hex). It tracks content, so a rebase or merge that rewrites commit
 # hashes does not move it, and an edit to any COPYd file does. A build refuses
 # uncommitted or untracked inputs, so a published tag is reproducible from git.
 #

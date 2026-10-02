@@ -183,7 +183,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P2 | `SLAAT-P2-GOV` | Phase 2 Governor Gate: Remediations Integration & Rebuild | `SLAAT-P2-1`, `SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4` | Reconcile all remediations, verify clean compilation and unit tests, and prove invariant boundary compliance. | `e2e` | `L` | `daily` | pass : delivered: 849bb2455986877918a221f73dc164a66bb56dfa (see Errata : SLAAT-P2-GOV) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | pass : delivered: cb3f584351da2542a783705030ca4d9a5b3a4a9c (see Errata : SLAAT-P3-PRE) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | pass : delivered: 97a4c179a64af061e1a68172693d82dd1caba379 (see Errata : SLAAT-P3-1) | $0.00 | 0 | 0s | none |
-| P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | pass : delivered: 796b33cb90d9c55108019071030a507fdebdc6b6 (see Errata : SLAAT-P3-2) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-GOV` | Final Mission Governor Gate: Certification & Hand-Off | `SLAAT-P3-1`, `SLAAT-P3-2` | Generate final certification report, consolidate errata ledgers, verify clean git status, and close mission. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 
 ### Spec: Errata
@@ -601,4 +601,26 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 - Observed exploit defense rate: 100.0% (24/24 exploits defended, zero breaches).
 - Ready for SLAAT-P3-2 Whole-Platform Acceptance & Multiplane Regression Suite.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAAT-P3-2 Whole-Platform Acceptance & Multiplane Regression Suite
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-02 12:57:00+01:00
+**Last Updated:** 2026-10-02 12:57:00+01:00
+**Status:** Completed
+**Commit:** 796b33cb90d9c55108019071030a507fdebdc6b6
+**Governor merge:** delivered in dc8501c8 (integration/slaat-whole-system-adversarial)
+**Decisions:**
+- Executed platform acceptance across foundation, persistence, OCI registry cache, and frontend layers.
+- Reconciled cluster health via make healthcheck: all 28 Kustomizations and 8 ResourceSets clean.
+- Verified database and cache persistence via test/cold-start-persistence-verification.bats, test/postgres-persistence.bats (7/7 passing), and test/zot-cache.bats (3/3 passing).
+- Verified frontend component suites via test-dashboard-weave (93/93 passing across 5 test files).
+- Verified KPAI agent sandboxing and harness contract via test-kpai (76/76 passing).
+- Verified FrostDB correlation and redaction invariants via test-signal-ingest-frostdb.
+- Authored scripts/verify-cold-start-readiness.sh and test/cold-start-persistence-verification.bats.
+**Notes:**
+- Deliverables authored: docs/slaat/p3-2/whole-platform-acceptance-report.md and ci-evidence/slaat-p3-2-platform-acceptance.json.
+- Zero functional regressions observed following the Phase 2 remediations.
+- Ready for SLAAT-P3-GOV Final Mission Governor Gate: Certification & Hand-Off.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

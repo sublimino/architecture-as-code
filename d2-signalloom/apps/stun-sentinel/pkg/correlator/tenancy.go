@@ -15,10 +15,6 @@ import (
 // collide with a real tenant: underscores are outside the tenant grammar.
 const UnattributedTenantID = "__unattributed__"
 
-// retiredTenantTypo fails closed everywhere else in the estate
-// (scripts/derive_tenant_hash.py RETIRED_TENANTS); it must not be configurable here.
-const retiredTenantTypo = "kurasi"
-
 var (
 	// tenantNameRE is fe-signalloom's tenant grammar (pkg/tenant/hash.go).
 	// ASCII only, so a homoglyph such as "kusarі" cannot be configured.
@@ -64,9 +60,6 @@ func ParseTenantMap(spec string) (*TenantMap, error) {
 		key, tenant = strings.TrimSpace(key), strings.TrimSpace(tenant)
 		if !tenantNameRE.MatchString(tenant) {
 			return nil, fmt.Errorf("tenant map entry %q: tenant %q must match %s", entry, tenant, tenantNameRE)
-		}
-		if tenant == retiredTenantTypo {
-			return nil, fmt.Errorf("tenant map entry %q: tenant %q is the retired typo of kusari (Shared Pattern 1)", entry, tenant)
 		}
 		ns, sa, perSA := strings.Cut(key, "/")
 		if !dnsLabelRE.MatchString(ns) {

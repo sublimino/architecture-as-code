@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api_compat
+import declared_workloads
 from api_compat import settings
 from conftest import EAP_TENANT_A, eap_bearer
 from main import app
@@ -54,7 +55,9 @@ def test_transition_answers_503_and_records_nothing_when_the_database_is_down(un
         assert "agent-x" not in api_compat._AGENTS.get(EAP_TENANT_A, {})
 
 
-def test_claim_answers_503_and_records_nothing_when_the_database_is_down(unreachable_database) -> None:
+def test_claim_answers_503_and_records_nothing_when_the_database_is_down(unreachable_database, monkeypatch) -> None:
+    # A claimable workload, so the claim gets past tenancy to the pool gate.
+    declared_workloads.install(monkeypatch).declare("workload-x", EAP_TENANT_A)
     client = TestClient(app, raise_server_exceptions=False)
     response = client.post(
         "/api/v1/discovery/claim",

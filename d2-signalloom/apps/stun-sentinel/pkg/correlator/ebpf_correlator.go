@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf/ringbuf"
@@ -152,6 +153,8 @@ type SentinelProbeManager struct {
 	cgroupIndex     map[uint64]string // cgroup inode -> pod UID
 	cgroupPaths     map[uint64]string // cgroup inode -> path below the cgroup root
 	cgroupIndexedAt time.Time
+	cgroupMisses    map[uint64]time.Time // inode -> until when it is a known miss
+	cgroupWalks     atomic.Uint64
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -514,19 +517,24 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	filename := ev.Filename
 	targetPID := ev.PID
 
-	if _, ok := m.sensitiveTarget(filename, targetPID); !ok {
+	if _, ok := m.sensitiveTarget(filename, targetPID, ev.CgroupID); !ok {
 		m.stats.notSensitive.Add(1)
 		return TelemetryObservation{}, false
 	}
 
-	// The cgroup inode first: it is namespace-independent. The PID is the
-	// kernel's root-namespace PID, which the sentinel cannot see on kind.
-	pod := m.lookupPodByCgroupID(ev.CgroupID)
-	if pod == nil {
+	// With a cgroup root the inode is authoritative: it is the same in every
+	// namespace. The PID is the kernel's root-namespace PID, which on a nested
+	// node can name an unrelated process, so falling back to it froze the
+	// wrong pod (review H1). The PID path remains only for a sentinel run
+	// without a cgroup root, where nothing better exists.
+	var pod *corev1.Pod
+	if m.cgroupRoot != "" {
+		pod = m.lookupPodByCgroupID(ev.CgroupID)
+	} else {
 		pod = m.lookupPodByPID(targetPID)
-	}
-	if pod == nil && raw.TGID != 0 {
-		pod = m.lookupPodByPID(raw.TGID)
+		if pod == nil && raw.TGID != 0 {
+			pod = m.lookupPodByPID(raw.TGID)
+		}
 	}
 	if pod == nil {
 		m.stats.noPod.Add(1)
@@ -551,8 +559,13 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 // joined to the process cwd; if the cwd is unreadable the process has exited
 // and there is nothing left to freeze. dirfd-relative opens and symlinks are
 // not resolved here (the probe does not capture dirfd or the opened inode).
-func (m *SentinelProbeManager) sensitiveTarget(filename string, pid uint32) (string, bool) {
+func (m *SentinelProbeManager) sensitiveTarget(filename string, pid uint32, cgroupID uint64) (string, bool) {
 	if filename != "" && !path.IsAbs(filename) {
+		// A relative path needs the process's cwd. Trust the PID only once it
+		// is proven to be in the event's cgroup (review H1).
+		if m.cgroupRoot != "" && (m.lookupPodByCgroupID(cgroupID) == nil || !m.pidInEventCgroup(pid, cgroupID)) {
+			return "", false
+		}
 		cwd, err := os.Readlink(filepath.Join(m.procRoot, strconv.FormatUint(uint64(pid), 10), "cwd"))
 		if err != nil || !path.IsAbs(cwd) {
 			return "", false

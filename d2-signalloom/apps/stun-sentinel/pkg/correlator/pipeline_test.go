@@ -193,7 +193,7 @@ func TestSensitiveTargetResolvesRelativePathsAgainstProcessCwd(t *testing.T) {
 		{9, "passwd", "", false}, // cwd unreadable: the process is gone, nothing left to freeze
 	}
 	for _, c := range cases {
-		abs, ok := m.sensitiveTarget(c.name, c.pid)
+		abs, ok := m.sensitiveTarget(c.name, c.pid, 0)
 		if ok != c.sensitive || (c.abs != "" && abs != c.abs) {
 			t.Errorf("pid %d %q: got (%q, %v), want (%q, %v)", c.pid, c.name, abs, ok, c.abs, c.sensitive)
 		}

@@ -93,3 +93,10 @@ func TestCgroupLookupIgnoresAPodSliceWhosePodIsNotInTheIndex(t *testing.T) {
 		t.Fatalf("ok=%v freezes=%d: an unindexed pod must not be resolved or frozen", ok, *calls)
 	}
 }
+
+// withPID overwrites the pid and tgid of a raw record.
+func withPID(b []byte, pid uint32) []byte {
+	binary.NativeEndian.PutUint32(b[16:], pid)
+	binary.NativeEndian.PutUint32(b[20:], pid)
+	return b
+}

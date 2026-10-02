@@ -7,15 +7,20 @@
 #    2026-10-02: "a bearer token with a long key is the simplest way … I
 #    specifically don't want the SPIRE server to run in the remote signal
 #    generating endpoint … we'll have to use a static key for now." So these
-#    are TEMPORARY in intent and every key carries an expiry.
+#    are TEMPORARY in intent and every key carries an expiry, at most 90 days
+#    out (api.MaxStaticKeyLifetime, enforced by the binary); a key is WARNed
+#    about 14 days before it lapses.
 #    The list below is the NON-secret half: name, subject, tenant, exact
-#    permissions, expiry. Each key's VALUE is a random 32-byte token minted by
-#    scripts/sldc-ingest-bearer.sh into Secret signal-ingest-key-<name> (and a
-#    consumer copy in the caller's namespace). ../base/deployment.yaml projects
-#    those Secrets as files under /etc/signal-ingest/static-keys/<name>. A key
-#    value is never in this ConfigMap, env, argv, git or a log; the key NAME is
-#    logged on every authentication. A key whose Secret is missing is disabled
-#    (logged at ERROR) and the others keep working.
+#    permissions. Each key's VALUE (a random 32-byte token) and its EXPIRY are
+#    minted together by scripts/sldc-ingest-bearer.sh into Secret
+#    signal-ingest-key-<name> (keys token, expires), with a consumer copy of
+#    the value in the caller's namespace; --rotate renews both.
+#    ../base/deployment.yaml projects them as /etc/signal-ingest/static-keys/
+#    <name> and <name>.expires. A key value is never in this ConfigMap, env,
+#    argv, git or a log; the key NAME is logged on every authentication.
+#    A defect in this ConfigMap refuses startup; a missing, short, undated,
+#    expired or over-long key in a Secret disables that key only (ERROR log)
+#    and the others keep working.
 #
 # 2. JWT-SVIDs (OFF here). kind-osramp runs no SPIRE for callers, so
 #    SIGNAL_AUTH_JWKS_FILE is not set and every JWT is refused with 401. To
@@ -30,12 +35,6 @@ metadata:
   labels:
     app.kubernetes.io/name: signal-ingest
     signalloom.io/card: SLDC-P2-2
-  annotations:
-    # The static keys below expire on this date. The annotation is here so
-    # `kubectl get cm signal-ingest-jwt-auth -o yaml` answers "when does this go
-    # away" without reading Go. Asserted equal to api.StaticBearerSunset and to
-    # every key's expiry by TestStaticKeysShippedExpiryMatchesSunset.
-    signalloom.ai/expires: "2026-11-12"
 data:
   SIGNAL_AUTH_AUDIENCE: signal-ingest
   SIGNAL_AUTH_TRUST_DOMAIN: osramp.local
@@ -64,8 +63,7 @@ data:
   SIGNAL_AUTH_STATIC_KEYS: |
     [
       {"name": "stun-sentinel", "subject": "static-key/stun-sentinel",
-       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"],
-       "expires": "2026-11-12"}
+       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"]}
     ]
   SIGNAL_AUTH_STATIC_KEYS_DIR: /etc/signal-ingest/static-keys
 ---

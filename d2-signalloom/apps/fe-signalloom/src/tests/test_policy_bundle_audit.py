@@ -131,3 +131,25 @@ async def test_bundle_is_not_reported_created_when_the_policy_engine_is_unreacha
 
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "upstream_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path, payload", [
+    ("/api/v1/policies/bundles", BUNDLE),
+    ("/api/v1/policies/rollback", ROLLBACK),
+])
+async def test_policy_change_is_refused_when_the_audit_database_is_down(monkeypatch, path, payload):
+    async def no_pool() -> None:
+        return None
+
+    monkeypatch.setattr(api_compat.settings, "database_url", "postgresql://unused:unused@127.0.0.1:1/unused")
+    monkeypatch.setattr(api_compat, "_get_pool", no_pool)
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.post(f"{POLICY_ENGINE_URL}{path}")
+        response = await _post(path, payload)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "database_unavailable"
+    assert not route.called
+    with api_compat._STORE_LOCK:
+        assert api_compat._AUDIT_EVENTS.get(EAP_TENANT_A, []) == []

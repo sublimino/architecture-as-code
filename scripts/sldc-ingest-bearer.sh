@@ -3,40 +3,50 @@
 # @tests test/sldc-ingest-bearer.bats
 # @doc d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml
 #
-# sldc-ingest-bearer.sh — mint, converge or rotate the shared ingest credential.
+# sldc-ingest-bearer.sh — the issuer of signal-ingest's named static keys.
 #
-#   sldc-ingest-bearer.sh --context CTX              create if absent, else converge / no-op
-#   sldc-ingest-bearer.sh --context CTX --rotate     replace with a newly generated token
-#   ... | sldc-ingest-bearer.sh --context CTX --from-stdin   install the token read from stdin
+#   sldc-ingest-bearer.sh --context CTX [--key NAME]...          create if absent, else converge / no-op
+#   sldc-ingest-bearer.sh --context CTX [--key NAME]... --rotate replace with newly generated values
+#   ... | sldc-ingest-bearer.sh --context CTX --key NAME --from-stdin   install the value read from stdin
 #
-# One random token (32 bytes, base64url) held in two Secrets with the same value:
-#   signal-ingest-static-bearer/token  in fe-signalloom          issuer: signal-ingest
-#   stun-sentinel-ingest-token/token   in fe-signalloom-agents   consumer: the sentinel
+# Without --key, every key in KEYS below. One key per caller, each a random
+# 32-byte token (base64url) held in two Secrets with the same value:
+#   issuer    fe-signalloom/signal-ingest-key-<name>, key token, projected into
+#             signal-ingest as /etc/signal-ingest/static-keys/<name>
+#   consumer  <namespace>/<secret> from KEYS, key token, read by the caller
+#             (none for a key whose caller is an operator tool outside the
+#             cluster; it reads the issuer Secret)
 #
-# The token is never printed, never placed in argv, never written to a ConfigMap.
+# A value is never printed, never placed in argv, never written to a ConfigMap.
 # It travels only through shell variables and the stdin of `kubectl apply`
 # (printf is a builtin, so nothing is exec'd with it). Writes are server-side
 # apply, so no kubectl.kubernetes.io/last-applied-configuration annotation
 # carries a second copy of the Secret's data.
 #
-# Idempotent: with both Secrets present, equal and ≥32 bytes, a run writes
-# nothing. If they disagree, or only one exists, the issuer's value is copied
-# to the other (the issuer is what signal-ingest authenticates against). A
-# stored value under 32 bytes is replaced.
+# Idempotent per key: with both Secrets present, equal and ≥32 bytes, a run
+# writes nothing. If they disagree, or only one exists, the issuer's value is
+# copied to the other (the issuer is what signal-ingest authenticates
+# against). A stored value under 32 bytes is replaced.
 #
-# Running pods read the token from env at start: after a rotation, restart
-# deploy/signal-ingest and ds/stun-sentinel (printed on stderr).
+# Running pods read the keys at start: after a rotation, restart
+# deploy/signal-ingest and the caller (printed on stderr).
 #
-# Injectable: KUBECTL_BIN (default kubectl).
+# Injectable: KUBECTL_BIN (default kubectl), SLDC_INGEST_KEYS (registry rows).
 # Exit codes: 0 ok (created, converged, rotated or unchanged), 2 usage,
-# 3 kubectl failed (cluster unreachable, forbidden), 4 invalid token on stdin.
+# 3 kubectl failed (cluster unreachable, forbidden), 4 invalid value on stdin.
 
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 
 ISSUER_NS=fe-signalloom
-ISSUER=signal-ingest-static-bearer
-CONSUMER_NS=fe-signalloom-agents
-CONSUMER=stun-sentinel-ingest-token
+ISSUER_PREFIX=signal-ingest-key-
+# name|consumer-namespace|consumer-secret|restart-target   (empty consumer: none)
+KEYS=(
+	"stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun-sentinel"
+)
+# Tests (and a one-off operator) may substitute the registry: newline-separated rows.
+if [[ -n "${SLDC_INGEST_KEYS:-}" ]]; then
+	mapfile -t KEYS <<<"$SLDC_INGEST_KEYS"
+fi
 MIN_BYTES=32
 FIELD_MANAGER=sldc-ingest-bearer
 
@@ -77,34 +87,29 @@ write_token() {
 
 valid() { [[ ${#1} -ge $MIN_BYTES ]]; }
 
-main() {
-	CONTEXT="" ROTATE="" FROM_STDIN=""
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-		--context)
-			[[ -n "${2:-}" ]] || die 2 "--context needs a value"
-			CONTEXT="$2"
-			shift 2
-			;;
-		--rotate) ROTATE=1; shift ;;
-		--from-stdin) FROM_STDIN=1; shift ;;
-		-h | --help) usage; return 0 ;;
-		*) usage; die 2 "unknown argument: $1" ;;
-		esac
+# key_row NAME -> the KEYS row, or nothing.
+key_row() {
+	local row
+	for row in "${KEYS[@]}"; do
+		[[ "${row%%|*}" == "$1" ]] && { printf '%s' "$row"; return 0; }
 	done
-	[[ -n "$CONTEXT" ]] || { usage; die 2 "--context is required"; }
+	return 1
+}
 
-	local issuer consumer want action
-	if [[ -n "$FROM_STDIN" ]]; then
-		IFS= read -r want || [[ -n "$want" ]] || die 4 "no token on stdin"
-		[[ "$want" != *[[:space:]]* ]] || die 4 "token on stdin contains whitespace"
-		valid "$want" || die 4 "token on stdin must be at least $MIN_BYTES bytes"
+# converge_key ROW STDIN_VALUE: create, converge, rotate or leave one key.
+converge_key() {
+	local name consumer_ns consumer_secret restart issuer consumer want action
+	IFS='|' read -r name consumer_ns consumer_secret restart <<<"$1"
+	local issuer_secret="${ISSUER_PREFIX}${name}"
+
+	issuer=$(read_token "$ISSUER_NS" "$issuer_secret") || exit $?
+	consumer=""
+	if [[ -n "$consumer_ns" ]]; then
+		consumer=$(read_token "$consumer_ns" "$consumer_secret") || exit $?
 	fi
 
-	issuer=$(read_token "$ISSUER_NS" "$ISSUER") || exit $?
-	consumer=$(read_token "$CONSUMER_NS" "$CONSUMER") || exit $?
-
-	if [[ -n "$FROM_STDIN" ]]; then
+	if [[ -n "$2" ]]; then
+		want="$2"
 		action=installed
 	elif [[ -n "$ROTATE" ]] || { [[ -n "$issuer" ]] && ! valid "$issuer"; }; then
 		want=$(generate_token)
@@ -119,22 +124,61 @@ main() {
 		want=$(generate_token)
 		action=created
 	fi
-	valid "$want" || die 3 "generated token is shorter than $MIN_BYTES bytes; /dev/urandom unreadable?"
+	valid "$want" || die 3 "generated value is shorter than $MIN_BYTES bytes; /dev/urandom unreadable?"
 
-	if [[ "$issuer" == "$want" && "$consumer" == "$want" ]]; then
-		log "$ISSUER_NS/$ISSUER and $CONSUMER_NS/$CONSUMER in $CONTEXT: unchanged"
+	if [[ "$issuer" == "$want" && ( -z "$consumer_ns" || "$consumer" == "$want" ) ]]; then
+		log "key $name in $CONTEXT: unchanged"
 		return 0
 	fi
 	# Consumer first: if the issuer write then fails, signal-ingest still holds
-	# the old token and a re-run converges the sentinel back to it.
-	[[ "$consumer" == "$want" ]] || write_token "$CONSUMER_NS" "$CONSUMER" "$want"
-	[[ "$issuer" == "$want" ]] || write_token "$ISSUER_NS" "$ISSUER" "$want"
-	log "$ISSUER_NS/$ISSUER and $CONSUMER_NS/$CONSUMER in $CONTEXT: $action"
-	if [[ -n "$issuer$consumer" ]]; then
-		log "running pods read the token at start; load it with:"
-		log "  $KUBECTL_BIN --context $CONTEXT -n $ISSUER_NS rollout restart deploy/signal-ingest"
-		log "  $KUBECTL_BIN --context $CONTEXT -n $CONSUMER_NS rollout restart ds/stun-sentinel"
+	# the old value and a re-run converges the caller back to it.
+	if [[ -n "$consumer_ns" && "$consumer" != "$want" ]]; then
+		write_token "$consumer_ns" "$consumer_secret" "$want"
 	fi
+	[[ "$issuer" == "$want" ]] || write_token "$ISSUER_NS" "$issuer_secret" "$want"
+	log "key $name in $CONTEXT: $action"
+	if [[ -n "$issuer$consumer" ]]; then
+		log "  running pods read keys at start; load it with:"
+		log "    $KUBECTL_BIN --context $CONTEXT -n $ISSUER_NS rollout restart deploy/signal-ingest"
+		[[ -z "$restart" ]] || log "    $KUBECTL_BIN --context $CONTEXT -n $consumer_ns rollout restart $restart"
+	fi
+}
+
+main() {
+	CONTEXT="" ROTATE="" FROM_STDIN=""
+	local selected=() row
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--context)
+			[[ -n "${2:-}" ]] || die 2 "--context needs a value"
+			CONTEXT="$2"
+			shift 2
+			;;
+		--key)
+			[[ -n "${2:-}" ]] || die 2 "--key needs a value"
+			row=$(key_row "$2") || die 2 "unknown key: $2 (known: $(printf '%s ' "${KEYS[@]%%|*}"))"
+			selected+=("$row")
+			shift 2
+			;;
+		--rotate) ROTATE=1; shift ;;
+		--from-stdin) FROM_STDIN=1; shift ;;
+		-h | --help) usage; return 0 ;;
+		*) usage; die 2 "unknown argument: $1" ;;
+		esac
+	done
+	[[ -n "$CONTEXT" ]] || { usage; die 2 "--context is required"; }
+	((${#selected[@]})) || selected=("${KEYS[@]}")
+
+	local stdin_value=""
+	if [[ -n "$FROM_STDIN" ]]; then
+		[[ ${#selected[@]} -eq 1 ]] || die 2 "--from-stdin installs one key: name it with --key"
+		IFS= read -r stdin_value || [[ -n "$stdin_value" ]] || die 4 "no value on stdin"
+		[[ "$stdin_value" != *[[:space:]]* ]] || die 4 "value on stdin contains whitespace"
+		valid "$stdin_value" || die 4 "value on stdin must be at least $MIN_BYTES bytes"
+	fi
+	for row in "${selected[@]}"; do
+		converge_key "$row" "$stdin_value"
+	done
 }
 
 main "$@"

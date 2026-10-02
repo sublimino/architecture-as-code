@@ -98,6 +98,7 @@ from api_compat import settings, reset_tenant_state
 from audit_ingest import compute_expected_entry_hash
 from db.connection import set_pool_for_testing
 from main import app
+from tests import declared_workloads
 
 # ---------------------------------------------------------------------------
 # Identities.  Always two tenants, plus one subject with no tenant at all.
@@ -485,6 +486,7 @@ def client(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", no_network)
     set_pool_for_testing(SimpleNamespace(close=_noop_close))
     with TestClient(app, raise_server_exceptions=False) as test_client:
+        test_client.workloads = declared_workloads.install(monkeypatch)
         yield test_client
 
 
@@ -1223,6 +1225,12 @@ def test_audit_session_db_reads_bind_the_callers_tenant(client, recording_db):
     assert offenders == [], f"audit session reads issued cross-tenant-reachable SQL: {offenders}"
 
 
+def _owned(client, pod: str, tenant: str = TENANT_A) -> str:
+    """Declare ``pod`` as a running workload GitOps labelled into ``tenant``."""
+    client.workloads.declare(pod, tenant)
+    return pod
+
+
 def _claim_body(pod: str) -> dict[str, Any]:
     return {
         "pod_name": pod,
@@ -1236,7 +1244,7 @@ def _claim_body(pod: str) -> dict[str, Any]:
 
 def test_claim_is_not_retrievable_by_another_tenant(client):
     """ISC-24."""
-    pod = f"adv-pod-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"adv-pod-{uuid.uuid4().hex[:8]}")
     granted = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
     assert granted.status_code == 200, granted.text
     claim_id = granted.json()["claim_id"]
@@ -1249,7 +1257,7 @@ def test_claim_is_not_retrievable_by_another_tenant(client):
 
 def test_claim_list_is_partitioned(client):
     """ISC-25."""
-    pod = f"adv-pod-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"adv-pod-{uuid.uuid4().hex[:8]}")
     assert client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod)).status_code == 200
 
     listed = client.get("/api/agents/claims", headers=bearer(BOB))
@@ -1265,9 +1273,12 @@ def test_claim_list_is_partitioned(client):
 
 def test_claiming_an_agent_owned_by_another_tenant_is_a_conflict(client):
     """ISC-26: the card's headline assertion."""
-    pod = f"contested-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"contested-{uuid.uuid4().hex[:8]}")
     assert client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod)).status_code == 200
 
+    # GitOps moved the workload to tenant B while A's claim is still live: the
+    # label check passes for B, so the claim-conflict check is what refuses.
+    client.workloads.relabel(pod, TENANT_B)
     stolen = client.post("/api/agents/claim", headers=bearer(BOB), json=_claim_body(pod))
     assert stolen.status_code == 409, f"tenant B claimed tenant A's agent: {stolen.status_code}"
     assert stolen.json()["error"]["code"] == "claim_conflict"
@@ -1275,8 +1286,11 @@ def test_claiming_an_agent_owned_by_another_tenant_is_a_conflict(client):
 
 def test_claim_conflict_response_leaks_nothing(client):
     """ISC-27: a refusal must not become a reconnaissance channel."""
-    pod = f"contested-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"contested-{uuid.uuid4().hex[:8]}")
     client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
+    # GitOps moved the workload to tenant B while A's claim is still live: the
+    # label check passes for B, so the claim-conflict check is what refuses.
+    client.workloads.relabel(pod, TENANT_B)
     stolen = client.post("/api/agents/claim", headers=bearer(BOB), json=_claim_body(pod))
 
     body = stolen.text
@@ -1296,9 +1310,12 @@ def test_claim_conflict_does_not_name_the_owning_tenant(client):
     Falsified by mutation ``claim_conflict_discloses_owner``, which restores the
     original message on the in-memory branch.
     """
-    pod = f"contested-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"contested-{uuid.uuid4().hex[:8]}")
     assert client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod)).status_code == 200
 
+    # GitOps moved the workload to tenant B while A's claim is still live: the
+    # label check passes for B, so the claim-conflict check is what refuses.
+    client.workloads.relabel(pod, TENANT_B)
     stolen = client.post("/api/agents/claim", headers=bearer(BOB), json=_claim_body(pod))
     assert stolen.status_code == 409, stolen.text
     assert stolen.json()["error"]["code"] == "claim_conflict"
@@ -1317,12 +1334,12 @@ def test_conflict_fires_on_agent_id_collision_as_well_as_pod_name(client):
 
     A tenant renaming the pod while keeping the agent id must not slip past.
     """
-    pod = f"contested-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"contested-{uuid.uuid4().hex[:8]}")
     granted = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
     assert granted.status_code == 200, granted.text
     agent_id = granted.json()["agent_id"]
 
-    renamed = _claim_body(f"{pod}-renamed")
+    renamed = _claim_body(_owned(client, f"{pod}-renamed", TENANT_B))
     renamed["agent_id"] = agent_id
     stolen = client.post("/api/agents/claim", headers=bearer(BOB), json=renamed)
     assert stolen.status_code == 409, "a renamed pod carrying the same agent_id was claimed"
@@ -1335,7 +1352,7 @@ def test_same_tenant_reclaim_is_idempotent_not_a_conflict(client):
     A service that returned 409 to every claim would satisfy ISC-26 through
     ISC-28 without holding any boundary at all.
     """
-    pod = f"mine-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"mine-{uuid.uuid4().hex[:8]}")
     first = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
     second = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
 
@@ -1351,13 +1368,14 @@ def test_released_claim_does_not_block_another_tenant(client):
     squatting, and the assertion also proves the conflict is not simply
     "anything with this pod name is forbidden".
     """
-    pod = f"handover-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"handover-{uuid.uuid4().hex[:8]}")
     granted = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
     assert granted.status_code == 200, granted.text
 
     released = client.delete(f"/api/agents/claim/{granted.json()['claim_id']}", headers=bearer(ALICE))
     assert released.status_code == 200, released.text
 
+    client.workloads.relabel(pod, TENANT_B)  # GitOps handed the workload to tenant B
     handover = client.post("/api/agents/claim", headers=bearer(BOB), json=_claim_body(pod))
     assert handover.status_code == 200, f"a released claim still blocked a new tenant: {handover.text}"
 
@@ -1370,7 +1388,7 @@ def test_cross_tenant_conflict_is_checked_on_the_database_branch(client, recordi
     on the in-memory loop alone would leave the SQL untested, which is the
     shape of defect this file exists to catch.
     """
-    pod = f"dbcheck-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"dbcheck-{uuid.uuid4().hex[:8]}")
     client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
 
     conflict_lookups = [
@@ -1601,7 +1619,10 @@ def test_concurrent_claims_of_one_pod_yield_exactly_one_owner(client):
     believe they govern the same workload, which is the failure this endpoint
     exists to prevent.
     """
-    pod = f"race-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"race-{uuid.uuid4().hex[:8]}")
+    # Two variants of the race. Labelled for A, B is refused by the label check
+    # whatever the interleaving. Relabelled for B mid-flight is the conflict race
+    # below, which is the one the claim-conflict lookup has to win.
 
     def attempt(subject: str) -> int:
         return client.post("/api/agents/claim", headers=bearer(subject), json=_claim_body(pod)).status_code
@@ -1609,8 +1630,15 @@ def test_concurrent_claims_of_one_pod_yield_exactly_one_owner(client):
     with ThreadPoolExecutor(max_workers=2) as pool:
         first, second = pool.map(attempt, (ALICE, BOB))
 
+    assert (first, second) == (200, 403), f"unexpected race outcome: {(first, second)}"
+
+    # Now GitOps hands the workload to B while A's claim is live, and both race
+    # again: B must be refused by the conflict check, never granted.
+    client.workloads.relabel(pod, TENANT_B)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = pool.map(attempt, (ALICE, BOB))
     outcomes = sorted([first, second])
-    assert outcomes in ([200, 409], [409, 200], [200, 200]), f"unexpected race outcome: {outcomes}"
+    assert outcomes in ([403, 409],), f"unexpected race outcome: {outcomes}"
 
     # Whatever the interleaving, the pod must end up owned by exactly one tenant.
     owners = {
@@ -1677,7 +1705,7 @@ def test_no_response_to_one_tenant_names_another_tenants_data(client):
     in any response served to tenant B -- across every refusal a hostile caller
     can provoke.  Falsified by mutation ``claim_conflict_discloses_owner``.
     """
-    pod = f"alice-secret-{uuid.uuid4().hex[:8]}"
+    pod = _owned(client, f"alice-secret-{uuid.uuid4().hex[:8]}")
     granted = client.post("/api/agents/claim", headers=bearer(ALICE), json=_claim_body(pod))
     assert granted.status_code == 200, granted.text
     alice_claim_id = granted.json()["claim_id"]
@@ -1700,6 +1728,9 @@ def test_no_response_to_one_tenant_names_another_tenants_data(client):
     # A 404 that echoes back the identifier you asked about is not a
     # disclosure -- it is your own input coming home -- and asserting otherwise
     # would fail correct code.  What matters is anything Bob did NOT supply.
+    # Relabelled to tenant B, so B's claim reaches the claim-conflict refusal,
+    # the one that used to disclose the owner (F-1).
+    client.workloads.relabel(pod, TENANT_B)
     probes = [
         (client.post("/api/agents/claim", headers=bearer(BOB), json=_claim_body(pod)), {pod}),
         (client.get(f"/api/agents/claim/{alice_claim_id}", headers=bearer(BOB)), {alice_claim_id}),

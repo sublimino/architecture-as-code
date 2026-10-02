@@ -61,6 +61,11 @@ itself. So when there is no row, Step 2 claims `kusari-agent` through
 `POST /api/v1/agents/claim`. It claims as `kusari-operator`, the one Dex subject
 that `API_SUBJECT_TENANTS` maps to tenant `kusari`. The claim script reads the
 model and harness from the pod's labels and refuses a pod with no model label.
+The API refuses the claim unless the workload's `signalloom.ai/tenant` label is
+the claimant's tenant (`403 cross_tenant_forbidden`). It also refuses a
+workload with no tenant label (`403 workload_tenant_undeclared`) and records
+the workload's own model. The full list of refusals is in
+`d2-signalloom/apps/fe-signalloom/src/claim_tenancy.py`.
 A row from an earlier run is not claimed again. The same assertions apply to it.
 The claim script also grades compliance and audit, which Step 2 does not assert.
 Step 2 records the script's exit code in `step2-registry-claim.json`, and the

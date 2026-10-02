@@ -71,7 +71,11 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	actor := h.Engine.GetActor(id)
+	actor, err := h.scopedActor(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	if actor == nil {
 		if repo := h.resolveRepository(); repo != nil {
 			if snap, err := repo.GetActiveGraphForActorAsOf(r.Context(), id, queryTime); err == nil && snap != nil {
@@ -170,7 +174,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 
 	// If filtered by actor_id
 	if actorID := r.URL.Query().Get("actor_id"); actorID != "" {
-		actor := h.Engine.GetActor(actorID)
+		actor, err := h.scopedActor(r, actorID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
 		if actor == nil {
 			if repo := h.resolveRepository(); repo != nil {
 				if snap, err := repo.GetActiveGraphForActorAsOf(ctx, actorID, queryTime); err == nil && snap != nil {
@@ -250,7 +258,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 
 	// If filtered by action or observation ID
 	if action := r.URL.Query().Get("action"); action != "" {
-		actors := h.Engine.GetActors()
+		actors, err := h.scopedActors(r)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
 		for _, a := range actors {
 			for _, ev := range a.EvidenceChain {
 				if ev.ObservationID == action || strings.Contains(strings.ToLower(ev.Contribution), strings.ToLower(action)) {
@@ -270,12 +282,18 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Estate-wide authorization chains query
-	actors := h.Engine.GetActors()
+	scope, err := h.actorScopeFor(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	actors := scope.filter(h.Engine.GetActors())
 	seenActorIDs := make(map[string]bool)
 	for _, a := range actors {
 		seenActorIDs[a.ID] = true
 	}
-	if h.Engine != nil {
+	// A quarantine record carries no evidence chain, so its tenant is unknown: cross-tenant only.
+	if h.Engine != nil && scope.all {
 		for qActorID, qRec := range h.Engine.GetQuarantinedActors() {
 			if !seenActorIDs[qActorID] {
 				actors = append(actors, &model.ProvisionalActor{
@@ -370,79 +388,79 @@ func (h *Handlers) BuildAuthorizationChain(ctx context.Context, actor *model.Pro
 	cycleDetected := false
 
 	if repo := h.resolveRepository(); repo != nil {
-			now := time.Now().UTC()
-			if actor.ResolvedAt != nil && !actor.ResolvedAt.IsZero() {
-				now = *actor.ResolvedAt
+		now := time.Now().UTC()
+		if actor.ResolvedAt != nil && !actor.ResolvedAt.IsZero() {
+			now = *actor.ResolvedAt
+		}
+		dels, isCycle, err := repo.FindTransitiveDelegations(ctx, actor.ID, now, 8)
+		if err == nil && len(dels) > 0 {
+			delegationChain = dels
+			cycleDetected = isCycle
+			terminalPrincipal := dels[len(dels)-1].PrincipalActorID
+			if isSelfIdentity(principal, actor) || len(dels) > 1 {
+				principal = terminalPrincipal
 			}
-			dels, isCycle, err := repo.FindTransitiveDelegations(ctx, actor.ID, now, 8)
-			if err == nil && len(dels) > 0 {
-				delegationChain = dels
-				cycleDetected = isCycle
-				terminalPrincipal := dels[len(dels)-1].PrincipalActorID
-				if isSelfIdentity(principal, actor) || len(dels) > 1 {
-					principal = terminalPrincipal
-				}
-				if actsOnBehalfOf == "" {
-					if len(dels) == 1 {
-						actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", dels[0].DelegateActorID, dels[0].PrincipalActorID, dels[0].AuthzRef)
-					} else {
-						var hops []string
-						for _, d := range dels {
-							hops = append(hops, fmt.Sprintf("%s -> %s", d.DelegateActorID, d.PrincipalActorID))
-						}
-						actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s via chain [%s]", agentIdentity, terminalPrincipal, strings.Join(hops, ", "))
+			if actsOnBehalfOf == "" {
+				if len(dels) == 1 {
+					actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", dels[0].DelegateActorID, dels[0].PrincipalActorID, dels[0].AuthzRef)
+				} else {
+					var hops []string
+					for _, d := range dels {
+						hops = append(hops, fmt.Sprintf("%s -> %s", d.DelegateActorID, d.PrincipalActorID))
 					}
-				}
-			}
-			// Also check by canonical ID and aliases
-			if actsOnBehalfOf == "" || isSelfIdentity(principal, actor) {
-				candidates := append([]string{actor.CanonicalID}, actor.Aliases...)
-				for _, candidate := range candidates {
-					if candidate == "" {
-						continue
-					}
-					aliasDels, isCycle, err := repo.FindTransitiveDelegations(ctx, candidate, now, 8)
-					if err == nil && len(aliasDels) > 0 {
-						delegationChain = aliasDels
-						cycleDetected = isCycle
-						terminalPrincipal := aliasDels[len(aliasDels)-1].PrincipalActorID
-						if isSelfIdentity(principal, actor) || len(aliasDels) > 1 {
-							principal = terminalPrincipal
-						}
-						if actsOnBehalfOf == "" {
-							if len(aliasDels) == 1 {
-								actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", aliasDels[0].DelegateActorID, aliasDels[0].PrincipalActorID, aliasDels[0].AuthzRef)
-							} else {
-								var hops []string
-								for _, d := range aliasDels {
-									hops = append(hops, fmt.Sprintf("%s -> %s", d.DelegateActorID, d.PrincipalActorID))
-								}
-								actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s via chain [%s]", agentIdentity, terminalPrincipal, strings.Join(hops, ", "))
-							}
-						}
-						break
-					}
-				}
-			}
-
-			// If no active delegations found at 'now', check if actor or its aliases had delegations that were revoked
-			if len(delegationChain) == 0 && actor.Status != "revoked" {
-				candidates := append([]string{actor.ID, actor.CanonicalID}, actor.Aliases...)
-				for _, cand := range candidates {
-					if cand == "" {
-						continue
-					}
-					if actRec, err := repo.GetActor(ctx, cand); err == nil && actRec != nil && (actRec.Status == "revoked" || actRec.Status == model.ActorRevoked) {
-						actor.Status = "revoked"
-						break
-					}
-					if pastDels, err := repo.GetDelegationsForDelegateAsOf(ctx, cand, now.Add(-24*time.Hour)); err == nil && len(pastDels) > 0 {
-						actor.Status = "revoked"
-						break
-					}
+					actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s via chain [%s]", agentIdentity, terminalPrincipal, strings.Join(hops, ", "))
 				}
 			}
 		}
+		// Also check by canonical ID and aliases
+		if actsOnBehalfOf == "" || isSelfIdentity(principal, actor) {
+			candidates := append([]string{actor.CanonicalID}, actor.Aliases...)
+			for _, candidate := range candidates {
+				if candidate == "" {
+					continue
+				}
+				aliasDels, isCycle, err := repo.FindTransitiveDelegations(ctx, candidate, now, 8)
+				if err == nil && len(aliasDels) > 0 {
+					delegationChain = aliasDels
+					cycleDetected = isCycle
+					terminalPrincipal := aliasDels[len(aliasDels)-1].PrincipalActorID
+					if isSelfIdentity(principal, actor) || len(aliasDels) > 1 {
+						principal = terminalPrincipal
+					}
+					if actsOnBehalfOf == "" {
+						if len(aliasDels) == 1 {
+							actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s (authz: %s)", aliasDels[0].DelegateActorID, aliasDels[0].PrincipalActorID, aliasDels[0].AuthzRef)
+						} else {
+							var hops []string
+							for _, d := range aliasDels {
+								hops = append(hops, fmt.Sprintf("%s -> %s", d.DelegateActorID, d.PrincipalActorID))
+							}
+							actsOnBehalfOf = fmt.Sprintf("%s acts-on-behalf-of %s via chain [%s]", agentIdentity, terminalPrincipal, strings.Join(hops, ", "))
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// If no active delegations found at 'now', check if actor or its aliases had delegations that were revoked
+		if len(delegationChain) == 0 && actor.Status != "revoked" {
+			candidates := append([]string{actor.ID, actor.CanonicalID}, actor.Aliases...)
+			for _, cand := range candidates {
+				if cand == "" {
+					continue
+				}
+				if actRec, err := repo.GetActor(ctx, cand); err == nil && actRec != nil && (actRec.Status == "revoked" || actRec.Status == model.ActorRevoked) {
+					actor.Status = "revoked"
+					break
+				}
+				if pastDels, err := repo.GetDelegationsForDelegateAsOf(ctx, cand, now.Add(-24*time.Hour)); err == nil && len(pastDels) > 0 {
+					actor.Status = "revoked"
+					break
+				}
+			}
+		}
+	}
 
 	// If actsOnBehalfOf is still empty and not revoked, derive from principalID or evidence links
 	if actor.Status == "revoked" || actor.Status == model.ActorRevoked {

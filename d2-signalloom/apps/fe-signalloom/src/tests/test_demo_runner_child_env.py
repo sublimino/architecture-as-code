@@ -68,6 +68,12 @@ REQUIRED_DEMO_CONFIG_ENV = {
         "signal-ingest endpoint for the Signal Fusion acts; without it the script "
         "port-forwards instead, which needs pods/portforward the runner is not granted"
     ),
+    # A file PATH, not the key: the runner mounts the demo's own signal-ingest key Secret and
+    # the script reads it from here. Without it the script falls back to reading the issuer
+    # Secret through kubectl, which the runner's ServiceAccount must not be able to do.
+    "SIGNAL_INGEST_KEY_FILE": (
+        "path of the mounted signalfusion-demo key; every signal-ingest route is authenticated"
+    ),
 }
 
 # Keys the child must NEVER receive. The allowlist is a security boundary, and
@@ -92,6 +98,7 @@ def pod_like_environ(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "CLUSTER_NAME": "kind-osramp",
         "AGENT_NAMESPACE_CANDIDATES": "fe-signalloom-agents fe-signalloom",
         "SIGNAL_INGEST_URL": "http://signal-ingest:8082",
+        "SIGNAL_INGEST_KEY_FILE": "/etc/signalfusion-demo/ingest-key/token",
     }
     for key, value in injected.items():
         monkeypatch.setenv(key, value)

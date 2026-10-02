@@ -1,29 +1,33 @@
-# SLDC-P2-2: signal-ingest JWT-SVID authentication for cross-cluster callers.
+# signal-ingest inbound authentication.
 #
-# signal-ingest runs on kind-signalloom-hub and accepts JWT-SVIDs minted by
-# the workload SPIRE (trust domain osramp.local) on kind-osramp. The hub SPIRE
-# server holds the osramp.local bundle through federation
-# (d2-agent-trust/spire-federation-config.yaml);
-# scripts/bootstrap-spire-federation.sh (step signal-ingest) writes the
-# federated jwt-svid keys into signal-ingest-jwks below. Re-run that step after
-# a SPIRE JWT key rotation; nothing re-syncs the ConfigMap automatically yet
-# (see the SLDC-P2-2 errata follow-ups).
+# Two mechanisms, both behind api.ProtectedRouter, both optional, at least one
+# required (main refuses to boot with neither):
 #
-# The service reads the keys from SIGNAL_AUTH_JWKS_FILE and re-reads them
-# every SIGNAL_AUTH_JWKS_REFRESH (15m). A refresh that fails to parse, or that
-# yields an empty key set, keeps the last good keys. kubelet propagates a
-# ConfigMap update to the mounted file within its sync period, so a rotated
-# SPIRE key is live in under ~16 minutes without a restart.
+# 1. Named static keys (SIGNAL_AUTH_STATIC_KEYS). One key per caller. Andy,
+#    2026-10-02: "a bearer token with a long key is the simplest way … I
+#    specifically don't want the SPIRE server to run in the remote signal
+#    generating endpoint … we'll have to use a static key for now." So these
+#    are TEMPORARY in intent and every key carries an expiry, at most 90 days
+#    out (api.MaxStaticKeyLifetime, enforced by the binary); a key is WARNed
+#    about 14 days before it lapses.
+#    The list below is the NON-secret half: name, subject, tenant, exact
+#    permissions. Each key's VALUE (a random 32-byte token) and its EXPIRY are
+#    minted together by scripts/sldc-ingest-bearer.sh into Secret
+#    signal-ingest-key-<name> (keys token, expires), with a consumer copy of
+#    the value in the caller's namespace; --rotate renews both.
+#    ../base/deployment.yaml projects them as /etc/signal-ingest/static-keys/
+#    <name> and <name>.expires. A key value is never in this ConfigMap, env,
+#    argv, git or a log; the key NAME is logged on every authentication.
+#    A defect in this ConfigMap refuses startup; a missing, short, undated,
+#    expired or over-long key in a Secret disables that key only (ERROR log)
+#    and the others keep working.
 #
-# Wiring onto the Deployment: envFrom configMapRef signal-ingest-jwt-auth, plus
-# signal-ingest-jwks mounted read-only at /etc/signal-ingest/auth. The
-# bootstrap script applies that patch; see patch_signal_ingest() there.
-#
-# Permissions: the card named "telemetry:write" / "violations:publish". Those
-# do not exist in signal-ingest's vocabulary (api/auth.go Permission consts),
-# and an unknown permission grants nothing. POST /api/v1/observations is
-# gated by observations:write, and sentinel violation publishing goes through
-# the collector surface (collectors:write). See the SLDC-P2-2 errata.
+# 2. JWT-SVIDs (OFF here). kind-osramp runs no SPIRE for callers, so
+#    SIGNAL_AUTH_JWKS_FILE is not set and every JWT is refused with 401. To
+#    enable it (the hub does, through scripts/bootstrap-spire-federation.sh),
+#    sync the trust domain's jwt-svid keys into signal-ingest-jwks below and set
+#    SIGNAL_AUTH_JWKS_FILE=/etc/signal-ingest/auth/jwks.json; the bindings below
+#    then apply. An enabled JWKS with an empty key set refuses to boot.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -31,78 +35,74 @@ metadata:
   labels:
     app.kubernetes.io/name: signal-ingest
     signalloom.io/card: SLDC-P2-2
-  annotations:
-    # TEMPORARY static bearer credential below expires on this date. The
-    # annotation is here so `kubectl get cm signal-ingest-jwt-auth -o yaml`
-    # answers "when does this go away" without reading Go. It is asserted
-    # equal to api.StaticBearerSunset by
-    # TestStaticBearerDeployedExpiryMatchesSunset, so the two cannot drift.
-    signalloom.ai/expires: "2026-11-12"
 data:
   SIGNAL_AUTH_AUDIENCE: signal-ingest
   SIGNAL_AUTH_TRUST_DOMAIN: osramp.local
-  SIGNAL_AUTH_JWKS_FILE: /etc/signal-ingest/auth/jwks.json
   SIGNAL_AUTH_JWKS_REFRESH: 15m
   # Canonical tenant is "kusari" (phase pattern 1). Exact-match SPIFFE IDs,
   # no wildcards: signal-ingest bindings are a map keyed by the full subject.
+  # Used only when a JWKS is enabled (see 2 above).
   SIGNAL_AUTH_BINDINGS: |
     {
       "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel": {
         "tenant_id": "kusari",
-        "permissions": ["observations:write", "collectors:write"]
+        "permissions": ["observations:write"]
       },
       "spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent": {
         "tenant_id": "kusari",
         "permissions": ["observations:write"]
       }
     }
-  # ---------------------------------------------------------------------------
-  # TEMPORARY — remove on or before 2026-11-12 (signalloom.ai/expires above).
-  #
-  # The stun-sentinel correlator posts observations with a static bearer token
-  # compiled into its binary (DefaultBearerToken in
-  # d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go).
-  # Nothing accepted that token, so every correlator POST was a 401 and no
-  # observation ever landed. These five keys make signal-ingest accept exactly
-  # that one token, as exactly one principal, with exactly the two permissions
-  # the correlator needs.
-  #
-  # The keys are opt-in: delete all five and signal-ingest behaves as it did
-  # before they existed (a static bearer is a 401). Delete only some and
-  # signal-ingest refuses to start rather than running a half-configured gate.
-  #
-  # The replacement is already provisioned: the correlator runs as
-  # spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel, which is
-  # bound above with the same two permissions. Moving the correlator onto its
-  # JWT-SVID is all that is needed to delete this block.
-  #
-  # This is a SHARED SECRET, and not a secret in any real sense: the value is
-  # a literal in the correlator's source, so it is in git and in the image.
-  # Anything that can reach signal-ingest and knows the string can write
-  # observations and seed collectors for tenant kusari until the expiry. That
-  # is the accepted residual risk for this phase; the bound is the scope and
-  # the date, not the confidentiality. Because the value is already public,
-  # holding it in a ConfigMap rather than a Secret adds no exposure — but the
-  # service reads it from the environment, so an operator who wants it in a
-  # Secret can drop this key and add an equivalent secretKeyRef env entry with
-  # no code change.
-  #
-  # SUBJECT is deliberately not a SPIFFE ID: signal-ingest refuses a
-  # SPIFFE-shaped static subject so that an audit record produced by this
-  # credential can never be mistaken for one produced by a verified SVID.
-  SIGNAL_AUTH_STATIC_BEARER_TOKEN: sentinel-in-cluster-token
-  SIGNAL_AUTH_STATIC_BEARER_SUBJECT: static-bearer/stun-sentinel-correlator
-  SIGNAL_AUTH_STATIC_BEARER_TENANT: kusari
-  SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS: observations:write,collectors:write
-  SIGNAL_AUTH_STATIC_BEARER_EXPIRES: "2026-11-12"
+  # One row per caller; least privilege, pinned row-for-row by
+  # api.TestStaticKeysShippedGrantExactlyTheContract (shippedKeyGrants).
+  # Subjects are deliberately not SPIFFE IDs: a static key must never be
+  # mistaken for a verified SVID in an audit record.
+  #   stun-sentinel          the eBPF correlator: POST observations for
+  #                          whatever tenant the workload maps to (or
+  #                          __unattributed__), hence tenant:cross-write.
+  #   fe-signalloom-gateway  the dashboard's proxies, acting for the verified
+  #                          user's tenant (tenant:act-for); tenant:cross-read
+  #                          only takes effect for a superadmin's "*".
+  #   signalfusion-demo      scripts/signalfusion-demo.sh (operator tool).
+  #   sldc-live-bats         test/sfas-live-acceptance.bats (operator tool).
+  #   sldc-evidence-reader   e2e Step 4: reads kusari's observations only.
+  SIGNAL_AUTH_STATIC_KEYS: |
+    [
+      {"name": "stun-sentinel", "subject": "static-key/stun-sentinel",
+       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"]},
+      {"name": "fe-signalloom-gateway", "subject": "static-key/fe-signalloom-gateway",
+       "tenant": "fe-signalloom", "actor_ids": ["*"],
+       "permissions": ["tenant:act-for", "tenant:cross-read",
+                       "observations:read", "observations:write", "stream:read",
+                       "actors:list", "actors:read", "actors:write",
+                       "analysis:read", "analysis:run", "collectors:write",
+                       "risk:read", "delegations:write"]},
+      {"name": "signalfusion-demo", "subject": "static-key/signalfusion-demo",
+       "tenant": "tenant-demo", "actor_ids": ["*"],
+       "permissions": ["tenant:cross-read", "health:read",
+                       "observations:write", "collectors:write", "analysis:run",
+                       "analysis:read", "actors:list", "actors:read", "actors:write"]},
+      {"name": "sldc-live-bats", "subject": "static-key/sldc-live-bats",
+       "tenant": "tenant-demo",
+       "permissions": ["tenant:cross-read", "health:read", "actors:list"]},
+      {"name": "sldc-evidence-reader", "subject": "static-key/sldc-evidence-reader",
+       "tenant": "kusari", "permissions": ["observations:read"]}
+    ]
+  SIGNAL_AUTH_STATIC_KEYS_DIR: /etc/signal-ingest/static-keys
 ---
 # Populated from the hub SPIRE server's federated osramp.local bundle, keys
 # with use=jwt-svid only. Shipped with an empty key set; signal-ingest fails
 # closed at boot until the bootstrap has synced real keys.
+#
+# ssa: IfNotPresent — Flux creates this ConfigMap once and never overwrites it.
+# Without it every reconcile would put the empty key set back over the synced
+# keys, and the next pod restart would refuse to boot.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: signal-ingest-jwks
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
   labels:
     app.kubernetes.io/name: signal-ingest
     signalloom.io/card: SLDC-P2-2

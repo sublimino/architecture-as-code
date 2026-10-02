@@ -859,8 +859,11 @@ async def claim_external_agent_handler(
         )
 
     try:
+        # Was `tenant_id=tenant_id`, a keyword the function never had: every call raised
+        # TypeError into the except below and no external-agent claim ever reached the spine.
         await sync_claim_delegation_to_spine(
-            tenant_id=tenant_id,
+            tenant=tenant_id,
+            subject=principal.subject,
             agent_id=str(agent_uuid),
             operator_id=principal.subject,
             claim_id=claim_id,
@@ -961,7 +964,10 @@ async def _execute_revocation(
             )
 
             try:
-                await clamp_claim_delegation_in_spine(tenant_id, str(agent_uuid))
+                # Was (tenant_id, agent_uuid) positionally, i.e. agent_id=tenant_id: the clamp
+                # targeted the tenant's name, never the revoked agent. An empty claim id makes
+                # signal-ingest clamp by the delegate (api/delegations.go).
+                await clamp_claim_delegation_in_spine(str(agent_uuid), "", tenant=tenant_id, subject=principal.subject)
             except Exception as exc:
                 logger.warning("Spine clamp failed during revocation: %s", exc)
 
@@ -997,7 +1003,8 @@ async def _execute_revocation(
     )
 
     try:
-        await clamp_claim_delegation_in_spine(tenant_id, str(agent_uuid))
+        # Same fix as above: clamp the revoked agent, for its tenant.
+        await clamp_claim_delegation_in_spine(str(agent_uuid), "", tenant=tenant_id, subject=principal.subject)
     except Exception as exc:
         logger.warning("Spine clamp failed during revocation: %s", exc)
 

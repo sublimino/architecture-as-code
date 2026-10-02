@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,10 +17,6 @@ import (
 const deployedAuthConfigPath = "../deploy/jwt-auth-config.yaml"
 
 const deployedAuthConfigMapName = "signal-ingest-jwt-auth"
-
-// expiryAnnotation makes the credential's deadline visible in the cluster, so
-// `kubectl get cm -o yaml` answers "when does this go away" without reading Go.
-const expiryAnnotation = "signalloom.ai/expires"
 
 type deployedConfigMap struct {
 	Metadata struct {
@@ -54,60 +52,124 @@ func loadDeployedAuthConfigMap(t *testing.T) deployedConfigMap {
 	return deployedConfigMap{}
 }
 
-// TestStaticBearerDeployedExpiryMatchesSunset stops the code constant and the
-// deployed manifest from drifting apart: a credential whose YAML says one date
-// and whose sunset gate says another has no real deadline at all.
-func TestStaticBearerDeployedExpiryMatchesSunset(t *testing.T) {
-	cm := loadDeployedAuthConfigMap(t)
+// shippedKeyGrants is the least-privilege contract for every static key the manifest ships: the
+// exact permission set each caller gets. A key added to the ConfigMap without a row here, or a
+// permission added to a row's caller in YAML only, fails TestStaticKeysShippedGrantExactlyTheContract.
+var shippedKeyGrants = map[string][]Permission{
+	// The eBPF correlator: POST /api/v1/observations for whichever tenant the workload maps to.
+	"stun-sentinel": {PermissionObservationWrite, PermissionCrossTenantWrite},
+	// fe-signalloom: exactly what its proxies call (signal_fusion, risk, coding-agent telemetry,
+	// claim delegation sync), acting for the verified user's tenant; cross-read only for "*".
+	"fe-signalloom-gateway": {PermissionActForTenant, PermissionCrossTenantRead,
+		PermissionObservationRead, PermissionObservationWrite, PermissionStream,
+		PermissionActorList, PermissionActorRead, PermissionActorWrite,
+		PermissionAnalysisRead, PermissionAnalysisRun, PermissionCollectorWrite,
+		PermissionRiskRead, PermissionDelegationWrite},
+	// scripts/signalfusion-demo.sh: healthz, seed, correlate, inject, actors, coverage, promote.
+	"signalfusion-demo": {PermissionCrossTenantRead, PermissionHealth,
+		PermissionObservationWrite, PermissionCollectorWrite, PermissionAnalysisRun,
+		PermissionAnalysisRead, PermissionActorList, PermissionActorRead, PermissionActorWrite},
+	// test/sfas-live-acceptance.bats: healthz, readyz, the authorization query.
+	"sldc-live-bats": {PermissionCrossTenantRead, PermissionHealth, PermissionActorList},
+	// e2e Step 4: reads kusari's observations, nothing else.
+	"sldc-evidence-reader": {PermissionObservationRead},
+}
 
-	if got := cm.Data["SIGNAL_AUTH_STATIC_BEARER_EXPIRES"]; got != StaticBearerSunset {
-		t.Errorf("SIGNAL_AUTH_STATIC_BEARER_EXPIRES = %q, want StaticBearerSunset %q", got, StaticBearerSunset)
+// shippedKeyTenants pins each key's tenant.
+var shippedKeyTenants = map[string]string{
+	"stun-sentinel": "kusari", "fe-signalloom-gateway": "fe-signalloom", "signalfusion-demo": "tenant-demo",
+	"sldc-live-bats": "tenant-demo", "sldc-evidence-reader": "kusari",
+}
+
+// loadShippedStaticKeys runs the shipped ConfigMap through the real loader, with a distinct
+// synthetic value per key standing in for the Secret each key is projected from.
+func loadShippedStaticKeys(t *testing.T) []StaticBearerConfig {
+	t.Helper()
+	cm := loadDeployedAuthConfigMap(t)
+	raw, ok := cm.Data[StaticKeysEnv]
+	if !ok {
+		t.Fatalf("ConfigMap %s carries no %s", deployedAuthConfigMapName, StaticKeysEnv)
 	}
-	if got := cm.Metadata.Annotations[expiryAnnotation]; got != StaticBearerSunset {
-		t.Errorf("%s annotation = %q, want StaticBearerSunset %q", expiryAnnotation, got, StaticBearerSunset)
+	var specs []struct{ Name string }
+	if err := json.Unmarshal([]byte(raw), &specs); err != nil {
+		t.Fatalf("%s is not JSON: %v", StaticKeysEnv, err)
+	}
+	values := map[string]string{}
+	for i, s := range specs {
+		values[s.Name] = fmt.Sprintf("%s-%02d-%s", strings.Repeat("v", 32), i, s.Name)
+	}
+	setStaticKeysEnv(t, raw, values)
+	keys, err := StaticKeysFromEnv()
+	if err != nil {
+		t.Fatalf("shipped static keys rejected by their own loader: %v", err)
+	}
+	if len(keys) != len(specs) {
+		t.Fatalf("loaded %d of %d shipped keys", len(keys), len(specs))
+	}
+	return keys
+}
+
+// TestStaticBearerTokenIsNotInTheShippedManifest: key values are credentials, so they live in
+// per-key Secrets (minted by scripts/sldc-ingest-bearer.sh), never in a ConfigMap and never in git.
+func TestStaticBearerTokenIsNotInTheShippedManifest(t *testing.T) {
+	cm := loadDeployedAuthConfigMap(t)
+	for k := range cm.Data {
+		if strings.Contains(k, "TOKEN") {
+			t.Errorf("ConfigMap %s carries %s; key values belong in Secrets", deployedAuthConfigMapName, k)
+		}
+	}
+	raw, err := os.ReadFile(deployedAuthConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(retiredPublicToken)) {
+		t.Errorf("%s still names the retired public token %q", deployedAuthConfigPath, retiredPublicToken)
 	}
 }
 
-// TestStaticBearerDeployedConfigAuthenticatesTheCorrelator runs the shipped
-// ConfigMap through the real env loader and authenticator, so the assertion is
-// about the manifest that actually reaches the cluster rather than about a
-// config hand-built in a test.
-func TestStaticBearerDeployedConfigAuthenticatesTheCorrelator(t *testing.T) {
-	cm := loadDeployedAuthConfigMap(t)
-	clearStaticBearerEnv(t)
-	for k, v := range cm.Data {
-		if strings.HasPrefix(k, "SIGNAL_AUTH_STATIC_BEARER_") {
-			t.Setenv(k, v)
+// TestStaticKeysShippedGrantExactlyTheContract authenticates every shipped key with the real
+// authenticator and compares its principal's permissions with shippedKeyGrants, both ways.
+func TestStaticKeysShippedGrantExactlyTheContract(t *testing.T) {
+	keys := loadShippedStaticKeys(t)
+	delegate, _, _ := testJWTDelegate(t)
+	a, err := NewStaticKeyAuthenticator(keys, delegate)
+	if err != nil {
+		t.Fatalf("shipped static keys rejected by the constructor: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		seen[k.Name] = true
+		want, ok := shippedKeyGrants[k.Name]
+		if !ok {
+			t.Errorf("shipped key %s has no row in shippedKeyGrants", k.Name)
+			continue
+		}
+		if k.TenantID != shippedKeyTenants[k.Name] {
+			t.Errorf("key %s tenant = %q, want %q", k.Name, k.TenantID, shippedKeyTenants[k.Name])
+		}
+		// Configured grants, checked on the config rather than on a principal: an act-for key's
+		// principal is shaped by the acting tenant, which is the act-for tests' subject.
+		got := map[Permission]bool{}
+		for _, perm := range k.Permissions {
+			got[perm] = true
+		}
+		p := Principal{Permissions: got}
+		if _, err := a.Authenticate(actingRequest(http.MethodGet, "/api/v1/observations", k.Token, "kusari")); err != nil {
+			t.Fatalf("key %s does not authenticate with the shipped config: %v", k.Name, err)
+		}
+		granted := map[Permission]bool{}
+		for _, perm := range want {
+			granted[perm] = true
+		}
+		for permission := range KnownPermissions {
+			if p.Permissions[permission] != granted[permission] {
+				t.Errorf("key %s permission %q: granted=%v, want %v", k.Name, permission, p.Permissions[permission], granted[permission])
+			}
 		}
 	}
-
-	cfg, err := StaticBearerConfigFromEnv()
-	if err != nil {
-		t.Fatalf("shipped static bearer config rejected by its own loader: %v", err)
-	}
-	if cfg == nil {
-		t.Fatalf("%s carries no SIGNAL_AUTH_STATIC_BEARER_* keys", deployedAuthConfigPath)
-	}
-
-	delegate, _, _ := testJWTDelegate(t)
-	a, err := NewStaticBearerAuthenticator(*cfg, delegate)
-	if err != nil {
-		t.Fatalf("shipped static bearer config rejected by the constructor: %v", err)
-	}
-
-	// The token the correlator actually sends must be the token the manifest
-	// configures; otherwise the deployed pair still 401s.
-	p, err := a.Authenticate(bearerRequest(http.MethodPost, "/api/v1/observations", testSentinelToken))
-	if err != nil {
-		t.Fatalf("the correlator's token is not the deployed token: %v", err)
-	}
-	if p.TenantID != "kusari" {
-		t.Errorf("deployed tenant = %q, want kusari", p.TenantID)
-	}
-	granted := map[Permission]bool{PermissionObservationWrite: true, PermissionCollectorWrite: true}
-	for permission := range KnownPermissions {
-		if p.Permissions[permission] != granted[permission] {
-			t.Errorf("deployed permission %q: granted=%v, want %v", permission, p.Permissions[permission], granted[permission])
+	for name := range shippedKeyGrants {
+		if !seen[name] {
+			t.Errorf("shippedKeyGrants names %s, which the manifest does not ship", name)
 		}
 	}
 }
@@ -120,7 +182,7 @@ func TestStaticBearerDeployedConfigIsMarkedTemporary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"TEMPORARY", StaticBearerSunset, "JWT-SVID"} {
+	for _, want := range []string{"TEMPORARY", "90 days", "JWT-SVID"} {
 		if !bytes.Contains(raw, []byte(want)) {
 			t.Errorf("%s does not mention %q", deployedAuthConfigPath, want)
 		}

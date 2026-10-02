@@ -186,17 +186,17 @@ check_kustomizations "olly-replica" "Olly"
 
 # Check key Olly services
 if kubectl get namespace "olly-replica" &>/dev/null; then
-  if kubectl get pods -n olly-replica -l app=olly-sentinel --no-headers 2>/dev/null | grep -q Running; then
+  if grep -q Running <<<"$(kubectl get pods -n olly-replica -l app=olly-sentinel --no-headers 2>/dev/null)"; then
     ok "olly-sentinel: running"
   else
     warn "olly-sentinel: not running"
   fi
-  if kubectl get pods -n olly-replica -l app.kubernetes.io/name=redpanda --no-headers 2>/dev/null | grep -q Running; then
+  if grep -q Running <<<"$(kubectl get pods -n olly-replica -l app.kubernetes.io/name=redpanda --no-headers 2>/dev/null)"; then
     ok "redpanda: running"
   else
     warn "redpanda: not running"
   fi
-  if kubectl get pods -n olly-replica -l common.k8s.elastic.co/type=elasticsearch --no-headers 2>/dev/null | grep -q Running; then
+  if grep -q Running <<<"$(kubectl get pods -n olly-replica -l common.k8s.elastic.co/type=elasticsearch --no-headers 2>/dev/null)"; then
     ok "elasticsearch: running"
   else
     warn "elasticsearch: not running"
@@ -213,9 +213,9 @@ check_kustomizations "backend" "Backend"
 # Check key OSRAMP services
 if kubectl get namespace "backend" &>/dev/null; then
   for svc in postgres nats minio osramp-archivista; do
-    if kubectl get pods -n backend -l app="${svc}" --no-headers 2>/dev/null | grep -q Running; then
+    if grep -q Running <<<"$(kubectl get pods -n backend -l app="${svc}" --no-headers 2>/dev/null)"; then
       ok "backend/${svc}: running"
-    elif kubectl get pods -n backend --no-headers 2>/dev/null | grep -q "${svc}.*Running"; then
+    elif grep -q "${svc}.*Running" <<<"$(kubectl get pods -n backend --no-headers 2>/dev/null)"; then
       ok "backend/${svc}: running"
     else
       warn "backend/${svc}: not running"

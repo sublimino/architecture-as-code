@@ -109,7 +109,7 @@ eap_content_checks() {
   counts="$(grep -Eho 'restartCount:[[:space:]]*[0-9]+' "$dir/step1-flux-reconcile.txt" "$dir/step5-cgroup-freeze.txt" | grep -Eo '[0-9]+$' || true)"
   if ! grep -Eq 'restartCount:[[:space:]]*[0-9]+' "$dir/step5-cgroup-freeze.txt"; then
     eap_fail "step5-cgroup-freeze.txt records no restartCount"
-  elif printf '%s\n' "$counts" | grep -Eqv '^0$'; then
+  elif grep -Eqv '^0$' <<<"$counts"; then
     eap_fail "restartCount is not 0 (found: $(printf '%s' "$counts" | tr '\n' ' '))"
   else
     eap_ok "restartCount is 0 in every text artifact that records it"

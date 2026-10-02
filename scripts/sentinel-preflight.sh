@@ -187,7 +187,7 @@ if [ -n "$openbao_pod" ]; then
   bao_status=$(kubectl -n "$OPENBAO_NAMESPACE" exec "$openbao_pod" -- sh -c 'VAULT_ADDR=http://127.0.0.1:8200 bao status -format=json' 2>&1) || {
     fail openbao-status "${bao_status:-status command failed}"
   }
-  if echo "$bao_status" | grep -q '"initialized": true' && echo "$bao_status" | grep -q '"sealed": false'; then
+  if grep -q '"initialized": true' <<<"$bao_status" && grep -q '"sealed": false' <<<"$bao_status"; then
     pass openbao-status "initialized=true sealed=false"
   else
     fail openbao-status "not initialized and unsealed: ${bao_status:-empty}"

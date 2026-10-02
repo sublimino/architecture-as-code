@@ -125,7 +125,7 @@ pick_open_port() {
 	candidates="$(python3 -c 'import json,sys; print(" ".join(str(p) for p in json.load(open(sys.argv[1])).get("network",{}).get("open_port",[])))' "$PROFILE")"
 	[ -n "$candidates" ] || return 1
 	for port in $candidates; do
-		if ! ss -lnt "sport = :$port" 2>/dev/null | grep -q LISTEN; then
+		if ! grep -q LISTEN <<<"$(ss -lnt "sport = :$port" 2>/dev/null)"; then
 			printf '%s' "$port"
 			return 0
 		fi
@@ -692,7 +692,7 @@ main() {
 	# refused" into an ambiguous result that reads as a successful denial.
 	local p
 	for p in "$OPEN_PORT" "$CLOSED_PORT"; do
-		ss -lnt "sport = :$p" 2>/dev/null | grep -q LISTEN || {
+		grep -q LISTEN <<<"$(ss -lnt "sport = :$p" 2>/dev/null)" || {
 			echo "listener on 127.0.0.1:${p} did not come up; refusing to report probes" >&2
 			return 1
 		}

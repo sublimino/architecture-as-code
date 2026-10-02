@@ -194,10 +194,10 @@ run_case() {
     out="$(bats "$SUITE" 2>&1 || true)"
   fi
 
-  if printf '%s\n' "$out" | sed -n 's/^not ok [0-9]* //p' | grep -qxF "$TESTNAME"; then
+  if grep -qxF "$TESTNAME" <<<"$(printf '%s\n' "$out" | sed -n 's/^not ok [0-9]* //p')"; then
     red=1
   fi
-  if printf '%s\n' "$out" | grep -qF "$want_msg"; then
+  if grep -qF "$want_msg" <<<"$out"; then
     said=1
   fi
 

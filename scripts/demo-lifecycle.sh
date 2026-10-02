@@ -64,9 +64,10 @@ bootstrap_spire_agent_join_token() {
 
 register_spire_proof_identity() {
   local server=(kubectl -n "$BAO_NAMESPACE" exec deployment/spire-server -- /opt/spire/bin/spire-server)
-  if "${server[@]}" entry show -spiffeID "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom" \
-    -parentID "spiffe://signalloom.demo/agent/kind" -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom \
-    | grep -Fq 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom'; then
+  local entries
+  entries="$("${server[@]}" entry show -spiffeID "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom" \
+    -parentID "spiffe://signalloom.demo/agent/kind" -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom || true)"
+  if grep -Fq 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom' <<<"$entries"; then
     return 0
   fi
   "${server[@]}" entry create \

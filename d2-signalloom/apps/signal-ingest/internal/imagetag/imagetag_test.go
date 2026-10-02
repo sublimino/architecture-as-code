@@ -80,12 +80,11 @@ func TestDigestMovesWithContentAndNothingElse(t *testing.T) {
 		t.Error("a file outside the input set moved the digest")
 	}
 
-	// Swapping two files' contents keeps the multiset of content hashes but must still move the
-	// digest: a path is part of what was built.
-	write("a/x.go", "package a // y\n")
-	write("a/y.go", "package a\n")
-	if swapped, _ := Digest(dir, files); swapped == base {
-		t.Error("swapping two files' contents did not move the digest")
+	// Moving a file keeps every content hash but is a different build: the path is part of the
+	// record.
+	write("b/x.go", "package a\n")
+	if moved, _ := Digest(dir, []string{"b/x.go", "a/y.go"}); moved == base {
+		t.Error("moving a file to another path did not move the digest")
 	}
 
 	if _, err := Digest(dir, []string{"a/missing.go"}); err == nil {

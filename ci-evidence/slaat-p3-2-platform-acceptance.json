@@ -1,0 +1,53 @@
+{
+  "schema": "slaat-p3-2-platform-acceptance/v1",
+  "card": "SLAAT-P3-2",
+  "title": "Whole-Platform Acceptance & Multiplane Regression Suite",
+  "evaluated_at": "2026-10-02T11:57:00.596845+00:00",
+  "commit_head": "ae24cf9d7096302febb6ebe06b5ba5fddba66f6e",
+  "status": "pass",
+  "suites": [
+    {
+      "name": "healthcheck",
+      "status": "pass",
+      "scope": "Kind cluster, Flux operator, ResourceSets, Envoy Ingress"
+    },
+    {
+      "name": "test/cold-start-persistence-verification.bats",
+      "status": "pass",
+      "tests": 8
+    },
+    {
+      "name": "test/postgres-persistence.bats",
+      "status": "pass",
+      "tests": 7
+    },
+    {
+      "name": "test/zot-cache.bats",
+      "status": "pass",
+      "tests": 3
+    },
+    {
+      "name": "test-dashboard-weave",
+      "status": "pass",
+      "tests": 93
+    },
+    {
+      "name": "test-kpai",
+      "status": "pass",
+      "tests": 76
+    },
+    {
+      "name": "test-signal-ingest-frostdb",
+      "status": "pass",
+      "scope": "SubjectKey, Scrubber, Redactor, ErasureSaga"
+    }
+  ],
+  "invariants_verified": {
+    "database_persistence": "verified (34 public tables retained, hostPath durable)",
+    "registry_cache": "verified (hostPath caching active, non-root ownership clean)",
+    "openbao_unsealed": "verified (shamir 1/1 unsealed, HTTP API responsive)",
+    "ingress_gateway": "verified (programmed, 1-hop client traffic policy active)",
+    "gitops_reconciliation": "verified (28/28 Kustomizations, 8/8 ResourceSets clean)",
+    "multiplane_regressions": "verified (zero regressions across all 4 planes)"
+  }
+}

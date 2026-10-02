@@ -814,3 +814,24 @@ class ScanTestCase(ProxyServerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaimTenancyFieldsTest(unittest.TestCase):
+    """fe-signalloom's claim_tenancy refuses a claim unless discovery reports the
+    workload's platform-declared tenant (signalloom.ai/tenant) and model. The
+    agent-name label is the name claims and the registry use."""
+
+    def test_a_labelled_pod_reports_its_tenant_and_agent_name(self):
+        pod = agent_pod("agent-kusari-abc", "fe-signalloom-agents")
+        pod["metadata"]["labels"]["signalloom.ai/tenant"] = "kusari"
+        pod["metadata"]["labels"]["signalloom.ai/harness"] = "go-http"
+        agent = server._agent_from_pod(pod)
+        self.assertEqual("kusari", agent["tenant"])
+        self.assertEqual("kusari-abc", agent["agent_name"])
+        self.assertEqual("go-http", agent["harness"])
+        self.assertEqual("openai/gpt-4o", agent["model"])
+        self.assertEqual("gpt-4o", agent["model_label"])
+
+    def test_an_unlabelled_pod_reports_no_tenant_rather_than_a_default(self):
+        agent = server._agent_from_pod(agent_pod("agent-x", "fe-signalloom-agents"))
+        self.assertIsNone(agent["tenant"])

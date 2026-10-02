@@ -621,6 +621,15 @@ def _agent_from_pod(pod: object, namespace: str | None = None) -> dict[str, obje
         "type": labels.get("signalloom.ai/agent-type"),
         "framework": labels.get("signalloom.ai/framework"),
         "model": model_full or model,
+        # The platform-declared owner and the workload's own name and harness.
+        # fe-signalloom's claim_tenancy binds a claim to this tenant only and
+        # refuses a workload that declares none, so it is never defaulted.
+        "tenant": labels.get("signalloom.ai/tenant"),
+        "agent_name": label_name,
+        # The bare signalloom.ai/model label, beside "model" (which prefers the
+        # model-full annotation), so a claimant asserting the label still matches.
+        "model_label": model,
+        "harness": labels.get("signalloom.ai/harness"),
         "state": labels.get("signalloom.ai/state"),
         "created_at": metadata.get("creationTimestamp") if isinstance(metadata, dict) else None,
         "node": spec.get("nodeName"),

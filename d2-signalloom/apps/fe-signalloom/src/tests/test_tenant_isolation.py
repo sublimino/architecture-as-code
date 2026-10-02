@@ -64,6 +64,7 @@ import routers.discovery
 from api_compat import JWTValidationError, settings, validate_jwt
 from db.connection import set_pool_for_testing
 from main import app
+from tests import declared_workloads
 
 # ---------------------------------------------------------------------------
 # Two tenants.  Always two.
@@ -163,6 +164,11 @@ def client(monkeypatch):
         raise AssertionError("external network access is forbidden in API tests")
 
     monkeypatch.setattr(socket.socket, "connect", no_network)
+    # The claim probes' workloads, labelled into Alice's tenant by GitOps, so
+    # the claim routes get past claim_tenancy and reach the database.
+    workloads = declared_workloads.install(monkeypatch)
+    for name in ("probe-workload", "probe-discovery-claim"):
+        workloads.declare(name, TENANT_A)
     set_pool_for_testing(SimpleNamespace(close=_noop_close))
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client

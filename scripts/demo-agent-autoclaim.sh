@@ -329,6 +329,9 @@ READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
    | {
        pod: .metadata.name,
        workload: (.metadata.labels["app.kubernetes.io/name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name),
+       # How discovery names this workload in /api/agents (fake-integration-proxy
+       # _agent_from_pod): display annotation, then agent-name label, then pod.
+       discovered: ((.metadata.annotations // {})["signalloom.ai/agent-display-name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name),
        service_account: (.spec.serviceAccountName // "default"),
        harness: (.metadata.labels["signalloom.ai/harness"] // .metadata.labels["signalloom.ai/framework"] // "kagent"),
        model: (.metadata.labels["signalloom.ai/model"] // (if $only == "" then "anthropic-claude" else "" end))
@@ -337,11 +340,11 @@ READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
   | sort_by([(.workload != "kagent-k8s-reader"), .workload])
 ' <<<"${PODS_JSON}")" || die "could not parse Kubernetes workload inventory" "Inspect kubectl pod JSON"
 
-while IFS=$'\t' read -r workload pod service_account harness model; do
+while IFS=$'\t' read -r workload pod service_account harness discovered model; do
   [[ -n "${workload}" ]] || continue
-  candidate="$(jq -c --arg name "${workload}" '
+  candidate="$(jq -c --arg name "${workload}" --arg discovered "${discovered}" '
     [.agents[]
-     | select(.name == $name)
+     | select(.name == $name or .name == $discovered)
      | select(.record_class == "discovered")
      | select(.is_registry_linked == false)
      | select((.compliance_summary.total_controls // 0) == 0)]
@@ -356,7 +359,9 @@ while IFS=$'\t' read -r workload pod service_account harness model; do
     INITIAL_AGENT="${candidate}"
     break
   fi
-done < <(jq -r '.[] | [.workload, .pod, .service_account, .harness, .model] | @tsv' <<<"${READY_WORKLOADS}")
+# model stays LAST: tab is IFS whitespace, so an empty field anywhere else
+# would collapse and shift every later field left.
+done < <(jq -r '.[] | [.workload, .pod, .service_account, .harness, .discovered, .model] | @tsv' <<<"${READY_WORKLOADS}")
 
 [[ -n "${TARGET_WORKLOAD}" ]] || \
   die "no running unclaimed agent with zero controls was found" \

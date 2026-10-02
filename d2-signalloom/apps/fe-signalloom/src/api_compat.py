@@ -443,6 +443,13 @@ class ClaimRecord(BaseModel):
     agent_id: str | None = None
 
 
+def _claim_record(stored: dict[str, Any]) -> ClaimRecord:
+    """A ClaimRecord from a stored claim. Stores carry extra keys (the external
+    agent store keeps tenant_id), which ClaimRecord forbids: unfiltered, one
+    external claim turned GET /agents/claims into a 500."""
+    return ClaimRecord(**{k: v for k, v in stored.items() if k in ClaimRecord.model_fields})
+
+
 class ClaimListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -4532,7 +4539,7 @@ async def autoclaim_discovered(
             raise
         record = _CLAIMS.get(tenant_id, {}).get(claim_res.claim_id)
         if record:
-            claimed_records.append(ClaimRecord(**record))
+            claimed_records.append(_claim_record(record))
         else:
             pool = await _get_pool()
             if pool is not None:
@@ -4598,7 +4605,7 @@ async def list_agent_claims(
 
     with _STORE_LOCK:
         raw_claims = list(_CLAIMS.get(tenant_id, {}).values())
-    claims = [ClaimRecord(**c) for c in raw_claims]
+    claims = [_claim_record(c) for c in raw_claims]
     return ClaimListResponse(claims=claims, total=len(claims))
 
 
@@ -4637,7 +4644,7 @@ async def get_agent_claim(
         claim = _CLAIMS.get(tenant_id, {}).get(claim_id)
     if claim is None:
         raise APIError(404, "not_found", f"Claim '{claim_id}' not found")
-    return ClaimRecord(**claim)
+    return _claim_record(claim)
 
 
 @router.delete("/v1/agents/claim/{claim_id}", responses=ERROR_RESPONSES)

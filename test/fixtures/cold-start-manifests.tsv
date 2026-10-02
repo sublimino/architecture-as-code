@@ -8,7 +8,7 @@ flux-operator	ResourceSet	d2-osramp-fleet/clusters/local/flux-system/flux-operat
 openbao	Deployment	d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml	quay.io/openbao/openbao:2.1.1	true
 spire-server	StatefulSet	d2-agent-trust/spire-federation-config.yaml	ghcr.io/spiffe/spire-server:1.11.1	true
 spire-agent	Deployment	d2-agent-trust/spire-federation-config.yaml	ghcr.io/spiffe/spire-agent:1.11.1	true
-stun-sentinel	DaemonSet	d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml	ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:src-a0990705f9e6	true
+stun-sentinel	DaemonSet	d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml	ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:src-27c26db6073c	true
 kusari-agent	Deployment	d2-signalloom/infra/agent-swarm/kusari-agent/deployment.yaml	kusari-agent:latest	true
 signal-ingest	Deployment	d2-signalloom/apps/signal-ingest/base/deployment.yaml	signal-ingest:local	true
 fe-signalloom	Deployment	d2-signalloom/apps/fe-signalloom/base/deployment.yaml	${IMAGE_BASE}/signalloom/apps/fe-signalloom:${ARTIFACT_TAG}	true

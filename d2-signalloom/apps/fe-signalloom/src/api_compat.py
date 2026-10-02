@@ -4228,6 +4228,7 @@ async def _execute_claim(
                     lifecycle_state = 'active',
                     status = 'active',
                     compliance_posture = 83,
+                    model_name = EXCLUDED.model_name,
                     last_transition_at = NOW(),
                     updated_at = NOW()
                 RETURNING id""",

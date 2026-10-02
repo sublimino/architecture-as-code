@@ -34,6 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
 from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
+import claim_tenancy
 
 logger = logging.getLogger(__name__)
 
@@ -397,7 +398,9 @@ class AgentClaimRequest(BaseModel):
     namespace: str = "fe-signalloom-agents"
     spiffe_id: str
     harness: str = "claude-code"
-    model: str = "claude-3-5-sonnet"
+    # Optional and never defaulted: the recorded model is the workload's
+    # signalloom.ai/model (claim_tenancy); an asserted one must match it.
+    model: str | None = None
     declared_tools: list[str] = Field(default_factory=list)
     token_budget_limit: int = 100000
     agent_id: str | None = None
@@ -4161,6 +4164,10 @@ async def _execute_claim(
     body: AgentClaimRequest,
     agent_id_override: str | None = None,
 ) -> AgentClaimResponse:
+    # The workload's platform-declared tenant must be the claimant's, and the
+    # model recorded is the workload's own. Every claim path comes through here.
+    target = await claim_tenancy.resolve_claim(body.pod_name, body.namespace, tenant_id, body.model)
+    body = body.model_copy(update={"model": target.model})
     now = _now_iso()
     claim_id = f"claim-{uuid.uuid4().hex[:12]}"
     allocated_budget = body.token_budget_limit if body.token_budget_limit > 0 else 100000
@@ -4489,56 +4496,32 @@ async def autoclaim_discovered(
     body: AutoclaimDiscoveredRequest | None = None,
 ) -> AutoclaimDiscoveredResponse:
     """Reconcile and batch auto-claim all unlinked discovered workloads in the cluster."""
-    raw_discovered = await _fetch_discovered_agents()
     claimed_records: list[ClaimRecord] = []
     tenant_id = principal.tenant
     target_ns = body.namespace if body and body.namespace else None
 
-    discovered_list = list(raw_discovered)
-    if not discovered_list:
-        with _STORE_LOCK:
-            for a in _AGENTS.get(tenant_id, {}).values():
-                if not a.get("is_registry_linked", False) or a.get("record_class") == "discovered":
-                    discovered_list.append({
-                        "name": a.get("name"),
-                        "namespace": a.get("namespace", "fe-signalloom-agents"),
-                        "id": a.get("id"),
-                    })
-        pool = await _get_pool()
-        if pool is not None and not discovered_list:
-            reg_rows = await pool.fetch(
-                """SELECT ar.name, ac.namespace
-                     FROM public.agent_registry ar
-                     LEFT JOIN public.agent_claims ac ON ac.agent_id = ar.id AND ac.tenant_id = ar.tenant_id
-                    WHERE ar.tenant_id = $1""",
-                tenant_id,
-            )
-            for r in reg_rows:
-                discovered_list.append({
-                    "name": r["name"],
-                    "namespace": r["namespace"] or "fe-signalloom-agents",
-                })
-    if target_ns:
-        discovered_list = [d for d in discovered_list if d.get("namespace") == target_ns]
-    if not discovered_list:
-        discovered_list.append({
-            "name": f"agent-{target_ns}" if target_ns else "agent-discovered",
-            "namespace": target_ns or "fe-signalloom-agents",
-        })
-
-    for d in discovered_list:
-        name = str(d.get("name") or "agent-discovered")
-        ns = str(d.get("namespace") or target_ns or "fe-signalloom-agents")
+    # Only live workloads whose platform-declared tenant is the caller's and
+    # that declare a model. Nothing is claimed from the caller's own records,
+    # and nothing is invented when discovery has nothing claimable.
+    workloads = await claim_tenancy.list_workloads()
+    for d in claim_tenancy.claimable(workloads, tenant_id, target_ns):
+        name = str(d.get("agent_name") or d.get("name") or d.get("id"))
+        ns = str(d.get("namespace"))
         req = AgentClaimRequest(
             pod_name=name,
             namespace=ns,
-            spiffe_id=f"spiffe://cluster.local/ns/{ns}/sa/{name}",
-            harness="claude-code",
-            model="claude-3-5-sonnet",
+            spiffe_id=f"spiffe://cluster.local/ns/{ns}/sa/{d.get('service_account') or name}",
+            harness=str(d.get("harness") or d.get("framework") or "unknown"),
+            model=str(d.get("model")),
             declared_tools=[],
             token_budget_limit=100000,
         )
-        claim_res = await _execute_claim(tenant_id, principal.actor, req)
+        try:
+            claim_res = await _execute_claim(tenant_id, principal.actor, req)
+        except APIError as exc:
+            if exc.code in claim_tenancy.REFUSAL_CODES:
+                continue
+            raise
         record = _CLAIMS.get(tenant_id, {}).get(claim_res.claim_id)
         if record:
             claimed_records.append(ClaimRecord(**record))
@@ -4711,7 +4694,7 @@ async def claim_agent_by_id(
     namespace = (body and body.namespace) or agent_res.namespace or "fe-signalloom-agents"
     spiffe_id = (body and body.spiffe_id) or f"spiffe://signalloom.demo/ns/{namespace}/sa/{pod_name}"
     harness = (body and body.harness) or agent_res.framework or "claude-code"
-    model = (body and body.model) or agent_res.model_name or "claude-3-5-sonnet"
+    model = (body and body.model) or agent_res.model_name or None
     token_budget = (body and body.token_budget_limit) or 100000
     declared_tools = (body and body.declared_tools) or []
 

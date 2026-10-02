@@ -29,6 +29,7 @@ from fastapi.testclient import TestClient
 import api_compat
 from api_compat import settings
 from main import app
+from tests import declared_workloads
 
 TEST_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -81,6 +82,11 @@ def setup_test_env(monkeypatch: pytest.MonkeyPatch):
         return None
 
     monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
+    # The workloads these tests claim, labelled into Alice's tenant by GitOps.
+    global WORKLOADS
+    WORKLOADS = declared_workloads.install(monkeypatch)
+    for name in ("discovered-agent-007", "discovered-agent-repeat", "shared-agent-conflict"):
+        WORKLOADS.declare(name, TENANT_A)
 
     api_compat.reset_tenant_state(TENANT_A)
     api_compat.reset_tenant_state(TENANT_B)
@@ -323,7 +329,9 @@ class TestDiscoveryClaimHappyPath:
         )
         assert res_a.status_code == 200
 
-        # Tenant B attempts to claim the same agent
+        # GitOps hands the workload to tenant B while A's claim is live: the
+        # label check passes for B, so the claim-conflict check must refuse.
+        WORKLOADS.relabel(agent_id, TENANT_B)
         res_b = client.post(
             "/api/v1/discovery/claim",
             json={"agent_id": agent_id, "namespace": namespace},

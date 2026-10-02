@@ -28,6 +28,13 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 
+# Per-workload refusals. Batch claiming skips these; 503 is never skipped.
+REFUSAL_CODES = frozenset({
+    "workload_not_found", "workload_ambiguous", "workload_tenant_undeclared",
+    "cross_tenant_forbidden", "workload_model_undeclared", "model_mismatch",
+})
+
+
 @dataclass(frozen=True)
 class ClaimTarget:
     name: str

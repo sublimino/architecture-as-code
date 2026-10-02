@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 import api_compat
+from tests import declared_workloads
 from api_compat import settings
 from db.connection import set_pool_for_testing
 
@@ -286,6 +287,11 @@ def test_autoclaim_discovered_by_namespace(monkeypatch):
             if w["source"] == "local_k8s" and w["namespace"] == "fe-signalloom-agents"
         ]
         assert len(unclaimed) > 0
+        # Autoclaim claims only workloads GitOps labelled into the caller's
+        # tenant (claim_tenancy). Label these into alice's tenant-a.
+        workloads = declared_workloads.install(monkeypatch)
+        for w in unclaimed:
+            workloads.declare(w["name"], "tenant-a", namespace=w["namespace"])
 
         # Run autoclaim for specific namespace
         claim_res = client.post(

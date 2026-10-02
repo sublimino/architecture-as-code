@@ -361,4 +361,23 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Task: Ingress Route Protection & Network Microsegmentation Fixes.
   - Purpose: Harden Envoy Gateway routing, seal unauthenticated bypass paths, and tighten NetworkPolicy rules.
 
+---
+
+## 17. Active Execution Status: SLAAT-P2-1 (5e3be)
+
+- **Timestamp**: 2026-10-02T06:14:00Z
+- **Board Column**: `in_progress`
+- **Assigned Role**: `impl` (Implementation)
+- **Runtime**: `kpai` / Claude Code under Sonnet 5
+- **Worktree**: `/home/andy/.cline/worktrees/5e3be/osramp-demo`
+- **Active Task**: Ingress Route Protection & Network Microsegmentation Fixes
+- **Remediation Scope**:
+  - Remediate findings `NET-1` through `NET-4` and unauthenticated bypass vectors.
+  - Harden Envoy Gateway HTTPRoute definitions and match rules.
+  - Tighten NetworkPolicy ingress/egress rules across `backend`, `frontend`, and agent namespaces.
+  - Verify remediations against `test/adversarial-network-probes.bats`.
+- **Diagnostic State**: `kanban-check.sh doctor` reports `doc=clean`, zero exceptions.
+- **Board Inventory**: `done=7`, `in_progress=1`, `review=0`, `backlog=8`.
+
+
 

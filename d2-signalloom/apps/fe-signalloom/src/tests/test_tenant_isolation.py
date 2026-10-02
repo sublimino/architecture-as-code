@@ -78,6 +78,12 @@ ALICE, TENANT_A = "alice", "tenant-a"
 BOB, TENANT_B = "bob", "tenant-b"
 SUBJECT_TENANTS = {ALICE: TENANT_A, BOB: TENANT_B}
 
+# The EAP sweep POSTs the environment teardown route, whose drain_routes and
+# delete_namespace stages shell out to kubectl. tests/conftest.py stubs that
+# boundary for modules that set this; without it the sweep ran a real
+# `kubectl get httproute` against whatever context was current.
+MOCK_KUBECTL_TEARDOWN = True
+
 ISSUER = "https://issuer.test/dex"
 AUDIENCE = "signalloom-api"
 AZP = "signalloom-dashboard"
@@ -590,15 +596,20 @@ def recording(monkeypatch):
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
-    # `onboarding`, `routers.agents` and `routers.discovery` all do
-    # `from api_compat import _get_pool`, which binds the function object into
-    # each module's own namespace at import time. Patching only
-    # `api_compat._get_pool` leaves those routes talking to the real (absent)
+    # `onboarding` does `from api_compat import _get_pool`, which binds the
+    # function object into its own namespace at import time. Patching only
+    # `api_compat._get_pool` leaves its routes talking to the real (absent)
     # pool, and they then answer from their fixture fallback -- which is a
     # green sweep that never reached a database. Patch every importer.
+    # `routers.agents` and `routers.discovery` gate through
+    # `api_compat._require_pool`, which looks `_get_pool` up in api_compat at
+    # call time, so the patch above already reaches them; the test below
+    # proves it rather than assuming it.
     monkeypatch.setattr(onboarding, "_get_pool", get_pool)
-    monkeypatch.setattr(routers.agents, "_get_pool", get_pool)
-    monkeypatch.setattr(routers.discovery, "_get_pool", get_pool)
+    for module in (routers.agents, routers.discovery):
+        assert not hasattr(module, "_get_pool"), (
+            f"{module.__name__} binds its own _get_pool again; patch it here too"
+        )
     return pool
 
 

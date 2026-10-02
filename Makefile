@@ -587,6 +587,10 @@ test-slaat-p1-1-network-probes: ## SLAAT-P1-1 adversarial probe suite: Envoy Gat
 .PHONY: test-slaat-p2-1-network-hardening
 test-slaat-p2-1-network-hardening: ## SLAAT-P2-1 remediation suite: backend/frontend default-deny, ingress/kagent scoped hardening, ClientTrafficPolicy XFF stripping. Tier 1 is hermetic; Tier 2 needs a live kind-osramp cluster.
 	bats test/network-microsegmentation-hardening.bats
+.PHONY: test-slaat-p3-1-identity-probes
+test-slaat-p3-1-identity-probes: ## SLAAT-P3-1 SPIFFE identity replay probes. Needs a live kind-osramp cluster; records a skip without one. Not part of test-all-offline.
+	bash test/spiffe-identity-probes.sh
+
 
 .PHONY: test-slaat-p1-2-api-probes
 test-slaat-p1-2-api-probes: ## SLAAT-P1-2 live backend API probe: unauthenticated/forged-token fail-closed boundaries. Needs a live kind-osramp cluster; not part of test-all-offline (the pytest suites it complements already run there).

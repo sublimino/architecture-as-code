@@ -84,6 +84,12 @@ FLEET_MANAGER_URL = os.environ.get(
     "http://fleet-manager.fe-signalloom.svc.cluster.local:8082",
 )
 
+#: This service's fleet-manager caller key (scope ``stun`` only), from Secret
+#: ``fleet-manager-caller-keys`` key ``fe-signalloom``. fleet-manager answers
+#: 401 to a stun without a named caller key, so an unset key is reported by
+#: the stun as fleet-manager's refusal, never silently skipped.
+FLEET_MANAGER_STUN_KEY = os.environ.get("FLEET_MANAGER_STUN_KEY", "")
+
 # ---------------------------------------------------------------------------
 # Pydantic response models (UNCHANGED — these are the API contract)
 # ---------------------------------------------------------------------------
@@ -5199,6 +5205,7 @@ async def _perform_cluster_stun(fleet_agent_id: str, reason: str) -> _ClusterStu
             response = await client.post(
                 _fleet_stun_url(fleet_agent_id),
                 json={"agent_id": fleet_agent_id, "reason": reason},
+                headers={"Authorization": f"Bearer {FLEET_MANAGER_STUN_KEY}"} if FLEET_MANAGER_STUN_KEY else None,
             )
     except httpx.HTTPError as exc:
         logger.warning("stun: fleet-manager unreachable", exc_info=True)

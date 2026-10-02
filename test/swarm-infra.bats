@@ -17,9 +17,13 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
     "${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
 }
 
-@test "openbao-agent-generic-role sets token_ttl 30m" {
-  grep -q 'token_ttl.*30m' \
-    "${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
+# SLAAT-P2-3 (16c80559) cut the generic role to 5m non-renewable batch tokens;
+# this used to assert the pre-hardening 30m and was red ever since.
+@test "openbao-agent-generic-role issues 5m non-renewable batch tokens" {
+  local f="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
+  grep -q '"token_ttl": "5m",' "$f"
+  grep -q '"token_max_ttl": "5m",' "$f"
+  grep -q '"token_type": "batch"' "$f"
 }
 
 @test "openbao-agent-generic-role uses audience openbao-supercredential" {

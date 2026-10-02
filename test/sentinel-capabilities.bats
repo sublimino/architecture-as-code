@@ -201,3 +201,39 @@ mount_triples() {
   [ -n "$output" ]
   [ "$output" = "$sa" ] || { echo "sentinel bindings name: $output (DaemonSet runs as $sa)"; return 1; }
 }
+
+# The test above follows ONE roleRef, so it is blind to cluster-scoped grants:
+# agent-swarm/ebpf-sentinel-rbac.yaml carried a node-reader ClusterRoleBinding
+# to the pre-rename SA signalloom-stun-sentinel for the whole life of that test,
+# and it stayed green. This one selects every RoleBinding AND ClusterRoleBinding
+# that is the sentinel's by any of three marks -- its label, its roleRef name,
+# or a subject name -- in every kustomization that renders sentinel RBAC, and
+# requires each to bind exactly the SA the DaemonSet runs as.
+@test "sentinel-capabilities: every sentinel binding, cluster-scoped included, binds only the DaemonSet's SA in every render path" {
+  local root="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
+  local sa ns dir bad="" found=0 out
+  sa="$(kubectl kustomize "${BASE_DIR}" | yq -N 'select(.kind == "DaemonSet") | .spec.template.spec.serviceAccountName')"
+  ns="$(kubectl kustomize "${BASE_DIR}" | yq -N 'select(.kind == "DaemonSet") | .metadata.namespace')"
+  [ "$sa" = "stun-sentinel" ]
+  [ "$ns" = "fe-signalloom-agents" ]
+  for dir in "$root" "$BASE_DIR" "$LEGACY_DIR" "$OVERLAY_OSRAMP" "$OVERLAY_HUB"; do
+    out="$(kubectl kustomize "$dir" | yq -N '
+      select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding")
+      | select(
+          (.metadata.labels."app.kubernetes.io/name" // "") == "stun-sentinel"
+          or (.roleRef.name | test("stun-sentinel"))
+          or ([.subjects[]? | .name | test("stun-sentinel")] | any))
+      | .kind + "/" + .metadata.name as $b
+      | .subjects[] | $b + " -> " + .kind + ":" + (.namespace // "-") + "/" + .name')" || {
+      echo "render failed: ${dir}"; return 1; }
+    [ -n "$out" ] && found=1
+    while read -r line; do
+      [ -n "$line" ] || continue
+      [[ "$line" == *" -> ServiceAccount:${ns}/${sa}" ]] || bad="${bad}  ${dir#"${REPO_ROOT}"/}: ${line}"$'\n'
+    done <<< "$out"
+  done
+  # Mechanism: the sentinel's own RoleBinding must be selected, or this test
+  # is measuring nothing.
+  [ "$found" -eq 1 ]
+  [ -z "$bad" ] || { printf 'sentinel bindings to the wrong subject:\n%s' "$bad"; return 1; }
+}

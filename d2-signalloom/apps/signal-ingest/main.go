@@ -408,6 +408,24 @@ func gatewayFromEnv(ctx context.Context) (api.Authenticator, error) {
 	return gateway, nil
 }
 
+// AuditFileEnvVar names a JSON-lines audit file for a run without DATABASE_URL.
+const AuditFileEnvVar = "SIGNAL_AUDIT_FILE"
+
+// localAuditWriter is the audit sink when no DATABASE_URL is set: a fail-closed file writer at
+// SIGNAL_AUDIT_FILE, or the discarding NopWriter (on which the router refuses to start).
+func localAuditWriter() (audit.AuditWriter, error) {
+	if path := os.Getenv(AuditFileEnvVar); path != "" {
+		w, err := audit.NewFileWriter(path)
+		if err != nil {
+			return nil, err
+		}
+		slog.Info("no DATABASE_URL set, auditing to a local file", "path", path)
+		return w, nil
+	}
+	slog.Info("no DATABASE_URL set, audit writes disabled", "allow_discard", identity.DevOptInAllowed())
+	return audit.NewNopWriter(identity.DevOptInAllowed()), nil
+}
+
 // apiHandler is what the API port serves: the protected router, behind ActingTenantGate when
 // static keys are configured (the gate answers a gateway key's missing acting tenant with 400).
 func apiHandler(gateway api.Authenticator, router http.Handler) http.Handler {
@@ -526,10 +544,15 @@ func main() {
 			auditReady = pw.Ping
 		}
 	} else {
-		// No DSN: audit is deliberately off (local and fixture runs). This is
-		// a configured state, not a degraded one, so readiness stays green.
-		auditWriter = audit.NewNopWriter(identity.DevOptInAllowed())
-		slog.Info("no DATABASE_URL set, audit writes disabled", "allow_discard", identity.DevOptInAllowed())
+		// No DSN: a local or fixture run. SIGNAL_AUDIT_FILE gives it a real,
+		// fail-closed audit sink (the router refuses to start on a discarding
+		// one); without it audit is off and the router will refuse startup.
+		w, err := localAuditWriter()
+		if err != nil {
+			slog.Error("audit file unusable; refusing startup", "error", err)
+			os.Exit(1)
+		}
+		auditWriter = w
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

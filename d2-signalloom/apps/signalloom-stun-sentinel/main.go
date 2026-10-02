@@ -161,6 +161,7 @@ type stunReconciler struct {
 	dryRun         bool
 	reconcileCount *atomic.Int64
 	selfSkipped    sync.Map // pod key -> struct{}: self_pod_skipped logged once
+	holds          *stunHolds // nil: no correlator freeze holds
 }
 
 func (r *stunReconciler) forget(key string) {
@@ -223,6 +224,7 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 	r.kernel.publish(pod, cgroupPath, stunned)
 
 	if stunned {
+		r.holds.observeStunned(pod)
 		if err := r.freezer.freeze(cgroupPath); err != nil {
 			return fmt.Errorf("freeze: %w", err)
 		}
@@ -266,11 +268,19 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		return nil
 	}
 
+	verdict, gen, err := r.holds.decide(pod)
+	if verdict == verdictKeep {
+		return err
+	}
 	// Release order: thaw FIRST. The network layer must never block a
 	// release: a pod frozen before its sandbox joined a netns has no
 	// resolvable veth, and looking the veth up first left it frozen forever.
-	if err := r.freezer.unfreeze(cgroupPath); err != nil {
+	thawed, err := r.holds.thaw(pod.UID, verdict == verdictRelease, gen, func() error { return r.freezer.unfreeze(cgroupPath) })
+	if err != nil {
 		return fmt.Errorf("unfreeze: %w", err)
+	}
+	if !thawed {
+		return nil
 	}
 	if err := r.probes.release(pod, cgroupPath, ""); err != nil {
 		return fmt.Errorf("release liveness probes: %w", err)
@@ -327,9 +337,10 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 }
 
 // newCorrelatorFreezeManager hands the eBPF correlator the same freezer engine,
-// and so the same dry-run and credential policy, as the reconciler.
-func newCorrelatorFreezeManager(f *cgroupFreezer) *correlator.FreezeManager {
-	return correlator.NewFreezeManager(f.engine, f.freezeToken)
+// and so the same dry-run and credential policy, as the reconciler, through
+// the holds that keep the reconciler from thawing a correlator freeze.
+func newCorrelatorFreezeManager(h *stunHolds) *correlator.FreezeManager {
+	return correlator.NewReasonedFreezeManager(h.freezeFor)
 }
 
 // correlatorOptions turns the operator's configuration into correlator options
@@ -395,6 +406,7 @@ func main() {
 	probes.dryRun = cfg.DryRun
 
 	reconciler := newStunReconciler(freezer, tc, probes)
+	reconciler.holds = newStunHolds(freezer)
 	reconciler.dryRun = cfg.DryRun
 	reconciler.reconcileCount = reconcileCount
 
@@ -435,6 +447,12 @@ func main() {
 	)
 	informer := factory.Core().V1().Pods().Informer()
 	controller := newController(informer, reconciler)
+	reconciler.holds.notify = controller.queue.Add
+	reconciler.holds.getPod = func(namespace, name string) (*corev1.Pod, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), kernelAPITimeout)
+		defer cancel()
+		return clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	}
 
 	factory.Start(ctx.Done())
 	// Initialize and start in-sentinel pure-Go eBPF probe loader & correlator (SLDC-P1-1, SLDC-P1-2)
@@ -457,7 +475,7 @@ func main() {
 			},
 		})
 
-		freezeMgr := newCorrelatorFreezeManager(freezer)
+		freezeMgr := newCorrelatorFreezeManager(reconciler.holds)
 		opts, events := correlatorOptions(cfg)
 		for _, ev := range events {
 			logEvent(ev)

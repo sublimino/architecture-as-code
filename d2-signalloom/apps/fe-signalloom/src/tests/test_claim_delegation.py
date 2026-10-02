@@ -27,6 +27,7 @@ from api_compat import settings
 from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
 from db.connection import set_pool_for_testing
 from main import app
+from tests import declared_workloads
 
 TEST_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -84,6 +85,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         return None
 
     monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
+    # The workloads these tests claim, labelled into Alice's tenant by GitOps.
+    workloads = declared_workloads.install(monkeypatch)
+    for name in ("agent-worker-42", "agent-worker-custom"):
+        workloads.declare(name, TENANT_A)
 
     def reject_external_network(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("external network access is forbidden in these tests")

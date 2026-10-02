@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 import api_compat
+import claim_tenancy
 from api_compat import (
     APIError,
     ERROR_RESPONSES,
@@ -150,6 +151,9 @@ async def claim_discovered_workload(
 
     # 7. Persistence and state transition to Governed
     try:
+        # The workload's platform-declared tenant must be the claimant's; the
+        # model recorded is the workload's own (claim_tenancy).
+        target = await claim_tenancy.resolve_claim(req.agent_id, req.namespace, tenant_id)
         pool = await _get_pool()
         if pool is not None:
             async with _write(pool) as conn:
@@ -181,7 +185,7 @@ async def claim_discovered_workload(
                         last_transition_at, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4, 'Discovered workload claimed via discovery portal', 'active', 'active',
-                        'Discovered Workload', 83, 'anthropic', 'claude-3-5-sonnet',
+                        'Discovered Workload', 83, 'anthropic', $5,
                         NOW(), NOW(), NOW()
                     )
                     ON CONFLICT (tenant_id, name) DO UPDATE SET
@@ -191,6 +195,7 @@ async def claim_discovered_workload(
                         last_transition_at = NOW(),
                         updated_at = NOW()""",
                     agent_uuid, tenant_id, req.agent_id, req.agent_id.replace("-", " ").title(),
+                    target.model,
                 )
 
                 # Insert claim record
@@ -200,11 +205,11 @@ async def claim_discovered_workload(
                         harness, model, status, allocated_token_budget, claimed_at
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6,
-                        'discovered', 'claude-3-5-sonnet', 'granted', $7, NOW()
+                        'discovered', $8, 'granted', $7, NOW()
                     )
                     ON CONFLICT (claim_id) DO NOTHING""",
                     claim_id, tenant_id, agent_uuid, req.agent_id, req.namespace,
-                    server_spiffe_id, req.token_budget_limit,
+                    server_spiffe_id, req.token_budget_limit, target.model,
                 )
 
                 # Audit log

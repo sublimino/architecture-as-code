@@ -74,6 +74,14 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 	[ "$(grep -c '^kind delete' "$STUB_LOG")" -eq 2 ]
 }
 
+@test "teardown fails, and deletes nothing, when kind cannot list clusters" {
+	KIND_GET_RC=1 run --separate-stderr bash "$teardown_sh"
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"kind get clusters failed"* ]]
+	[[ "$output" != *"VERDICT: PASS"* ]]
+	[ "$(grep -c '^kind delete' "$STUB_LOG")" -eq 0 ]
+}
+
 @test "teardown fails when a cluster delete fails" {
 	KIND_DELETE_RC=1 run --separate-stderr bash "$teardown_sh"
 	[ "$status" -eq 1 ]

@@ -40,7 +40,11 @@ pkill -f 'kubectl.*port-forward' 2>/dev/null || true
 # was silently not deleted whenever the scheduler let grep finish before kind
 # (65/228 runs under CPU load), and the teardown still reported PASS.
 if command -v kind >/dev/null 2>&1; then
-  clusters="$(kind get clusters 2>/dev/null || true)"
+  if ! clusters="$(kind get clusters 2>/dev/null)"; then
+    echo "ERROR: kind get clusters failed; cannot tell which clusters to delete" >&2
+    FAILURES=$((FAILURES + 1))
+    clusters=""
+  fi
   for cluster in signalloom-hub osramp; do
     if grep -qx "$cluster" <<<"$clusters"; then
       echo "Deleting Kind cluster $cluster..."

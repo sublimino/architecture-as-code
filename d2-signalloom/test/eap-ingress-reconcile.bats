@@ -14,6 +14,20 @@ setup() {
   export TAILSCALE_MOCK_DIR="$TEST_TMP_DIR/mock"
   mkdir -p "$TAILSCALE_MOCK_DIR"
   export SIGNAL_LOOM_EAP_SALT="test-eap-salt-2026"
+
+  # gc-eap-env.sh probes and DELETES the kusari HTTPRoute and eap-a0314bec
+  # namespace with whatever kubectl is on PATH. Run against an operator's
+  # kubeconfig, the "clean state" test below deleted the live kusari
+  # environment. A fake kubectl (every object absent, deletes succeed) and
+  # tailscale (no node) take their place, and both log what they were asked.
+  export KUBECONFIG=/dev/null
+  export FAKE_CLI_LOG="$TEST_TMP_DIR/cli.log"
+  : > "$FAKE_CLI_LOG"
+  mkdir -p "$TEST_TMP_DIR/bin"
+  printf '#!/bin/sh\nprintf "kubectl %%s\\n" "$*" >> "$FAKE_CLI_LOG"\ncase "$1" in get) exit 1 ;; esac\nexit 0\n' > "$TEST_TMP_DIR/bin/kubectl"
+  printf '#!/bin/sh\nprintf "tailscale %%s\\n" "$*" >> "$FAKE_CLI_LOG"\nexit 1\n' > "$TEST_TMP_DIR/bin/tailscale"
+  chmod +x "$TEST_TMP_DIR/bin/kubectl" "$TEST_TMP_DIR/bin/tailscale"
+  export PATH="$TEST_TMP_DIR/bin:$PATH"
 }
 
 teardown() {
@@ -98,6 +112,9 @@ EOF
   [ "$status" -eq 1 ]
   [[ "$output" == *"RESIDUAL_FOUND: 1 residual item(s) cleaned up"* ]]
   [ ! -d "$TAILSCALE_MOCK_DIR/sl-eap-a0314bec" ]
+  # The cleanup's kubectl deletes reached the fake, not a cluster.
+  grep -qxF "kubectl delete httproute sl-eap-a0314bec -n fe-signalloom --ignore-not-found --wait=false" "$FAKE_CLI_LOG"
+  grep -qxF "kubectl delete namespace eap-a0314bec --ignore-not-found --wait=false" "$FAKE_CLI_LOG"
 
   # Subsequent GC run must exit 0 cleanly
   run "$SCRIPT_DIR/gc-eap-env.sh" --hash a0314bec

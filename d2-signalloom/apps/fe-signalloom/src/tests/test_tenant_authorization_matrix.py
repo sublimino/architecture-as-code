@@ -162,14 +162,16 @@ def _route_has_auth_dependency(route: APIRoute) -> bool:
 #: authenticated_principal/authenticated_tenant: the one-time external-host
 #: enrollment token exchange authenticates via its own single-use bearer
 #: token (SHA-256 hash compare-and-set), checked by hand inside
-#: ``enroll_host_handler`` -- not a JWT. Mounted under three aliases
-#: (``router``, ``api_router``, ``compat_router`` in host_enrollment.py).
+#: ``enroll_host_handler`` -- not a JWT. Mounted under four aliases
+#: (``router``, ``api_router``, ``compat_router`` and, since eb189766, the
+#: bare ``/enroll`` on ``root_router`` that the gateway and host sensor use).
 #: See the dedicated CAS/replay suite in ``test_enrollment_cas_race_adversarial.py``.
 _KNOWN_NON_JWT_ROUTES = frozenset(
     {
         ("POST", "/v1/external-agents/enroll"),
         ("POST", "/api/v1/external-agents/enroll"),
         ("POST", "/api/external-agents/enroll"),
+        ("POST", "/enroll"),
     }
 )
 
@@ -253,6 +255,21 @@ def test_every_in_scope_route_has_a_tenant_binding_dependency(route: APIRoute):
         "authenticated_principal/authenticated_tenant dependency anywhere in its "
         "dependency tree -- this is a BOLA/anonymous-access gap"
     )
+
+
+def test_non_jwt_exemptions_are_only_the_enrollment_token_exchange():
+    """The exemption list can only ever name the enrollment handler, so it
+    cannot be used to wave an unrelated anonymous route through the sweep."""
+    from host_enrollment import enroll_host_handler
+
+    exempt = {
+        (method, route.path): route.endpoint
+        for route in IN_SCOPE_ROUTES
+        for method in route.methods or ()
+        if (method, route.path) in _KNOWN_NON_JWT_ROUTES
+    }
+    assert set(exempt) == set(_KNOWN_NON_JWT_ROUTES)
+    assert all(endpoint is enroll_host_handler for endpoint in exempt.values()), exempt
 
 
 def test_non_jwt_exemption_routes_are_still_unauthenticated_reachable(client: TestClient):

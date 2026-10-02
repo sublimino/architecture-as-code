@@ -57,10 +57,12 @@ const LIMIT = 50
 // CHECK constraint, or tests/test_audit_event_types.py fails.
 const EVENT_TYPES = [
   // Emitted by the API today.
-  'agent.created', 'agent.transitioned', 'agent.stunned', 'agent.stun_failed', 'agent.stun_simulated',
+  'agent.created', 'agent.claimed', 'agent.transitioned', 'agent.stunned', 'agent.stun_failed', 'agent.stun_simulated',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged',
   'compliance.reassess_requested', 'compliance.scan_completed',
+  // Requests forwarded to an upstream service, recorded before forwarding.
+  'policy.bundle_submitted', 'policy.rollback_requested', 'rbac.scan_requested',
   'api_key.created', 'api_key.rotated',
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
@@ -99,11 +101,15 @@ const EVENT_COLORS: Record<string, string> = {
   'agent.stun_simulated': 'var(--cyan)', // routine: nothing was enforced, the taxonomy has no muted bucket
   'agent.credential_revoked': 'var(--error)',
   'agent.created': 'var(--teal)',
+  'agent.claimed': 'var(--teal)',
   'agent.transitioned': 'var(--violet)',
   'agent.credential_issued': 'var(--cyan)',
   'violation.acknowledged': 'var(--amber)',
   'compliance.reassess_requested': 'var(--cyan)',
   'compliance.scan_completed': 'var(--cyan)',
+  'policy.bundle_submitted': 'var(--violet)',
+  'policy.rollback_requested': 'var(--violet)',
+  'rbac.scan_requested': 'var(--cyan)',
   'api_key.created': 'var(--teal)',
   'api_key.rotated': 'var(--cyan)',
   'nhi.enrolled': 'var(--teal)',

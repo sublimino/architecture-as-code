@@ -28,7 +28,7 @@ from api_compat import (
     _STORE_LOCK,
     _audit_log,
     _canonical_lifecycle_state,
-    _get_pool,
+    _require_pool,
     _now_iso,
     _record_memory_audit,
     _synth_agent,
@@ -108,7 +108,7 @@ async def transition_agent_state(
             return _make_error(status, code, spiffe_err or "Invalid SPIFFE ID")
 
     # 2. Determine current state and validate transition
-    pool = await _get_pool()
+    pool = await _require_pool("Transitioning an agent")
     if pool is not None:
         async with _write(pool) as conn:
             agent_uuid = api_compat._try_uuid(agent_id)

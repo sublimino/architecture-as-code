@@ -733,7 +733,7 @@ VALID_LIFECYCLE_STATES: frozenset[str] = frozenset({
 #: requires a new registration, not a transition - the audit trail must not
 #: show a decommissioned agent silently coming back to life.
 VALID_TRANSITIONS: dict[str, frozenset[str]] = {
-    "discovered": frozenset({"governed", "active", "registered", "enrolled", "in_review", "ignored"}),
+    "discovered": frozenset({"governed", "active", "registered", "enrolled"}),
     "registered": frozenset({"enrolled", "active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
     "enrolled":   frozenset({"active", "governed", "suspended", "stunned", "revoked", "decommissioned"}),
     "active":     frozenset({"governed", "suspended", "stunned", "revoked", "decommissioned"}),
@@ -2704,6 +2704,29 @@ def _record_memory_audit(
         if len(events) > _MEMORY_AUDIT_LIMIT:
             del events[: len(events) - _MEMORY_AUDIT_LIMIT]
     return event
+
+
+async def _audit_outbound_request(
+    principal: Principal,
+    event_type: str,
+    detail: dict[str, Any],
+    what: str,
+) -> None:
+    """Record that ``principal`` is about to ask another service to change state.
+
+    For handlers whose mutation happens in an upstream service (a policy
+    bundle in the policy-engine, a scan in KubeSec-AFM), so there is no local
+    write to share a transaction with. The caller writes this *before* the
+    outbound call: if it fails, the request fails and the upstream is never
+    asked, so no upstream change can happen unrecorded. The event names a
+    request, not an outcome; the outcome belongs to the upstream.
+    """
+    pool = await _require_pool(what)
+    if pool is None:
+        _record_memory_audit(principal.tenant, event_type, None, None, principal.actor, detail)
+        return
+    async with _write(pool) as conn:
+        await _audit_log(conn, principal.tenant, event_type, None, None, principal.actor, detail)
 
 
 def reset_tenant_state(tenant_id: str) -> None:

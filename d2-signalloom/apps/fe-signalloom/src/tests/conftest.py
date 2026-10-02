@@ -15,10 +15,16 @@ Three things live here, and only three:
 2. ``fresh_tenant_ownership`` — an explicit (not autouse) empty
    ``customer_hash -> tenant`` ownership map for tests that seed two tenants.
 
-3. ``_eap_teardown_no_cluster_kubectl_stub`` — stubs the kubectl subprocess
-   boundary used by the two cluster-dependent teardown stages (drain_routes,
-   delete_namespace) when no cluster is reachable, for modules that opt in
-   via ``MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER = True``. See its docstring.
+3. ``_eap_teardown_kubectl_stub`` — stubs the kubectl subprocess boundary
+   used by the two cluster-dependent teardown stages (drain_routes,
+   delete_namespace), for modules that opt in via
+   ``MOCK_KUBECTL_TEARDOWN = True``. See its docstring.
+
+4. ``pytest_configure`` — the hermetic cluster guard.  Before any test runs it
+   puts guard executables for every cluster/runtime CLI first on ``PATH`` and
+   points ``KUBECONFIG`` at an empty config, so no test can act on a real
+   cluster whatever the caller's environment holds.  A guard that was reached
+   fails the session in ``pytest_sessionfinish``.
 
 Nothing else is autouse.  In particular no fixture here sets ``DATABASE_URL``,
 touches ``api_compat._get_pool`` or changes ``settings`` for modules that did
@@ -27,7 +33,10 @@ not opt in.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -186,45 +195,84 @@ def _eap_test_salt(monkeypatch: pytest.MonkeyPatch):
     yield
 
 
-def _kubeconfig_readable() -> bool:
-    """True if kubectl has at least one usable (existing + actually openable) kubeconfig entry.
+#: Every CLI that can act on a cluster, a mesh or a container runtime.  The
+#: unit suite reaches none of them: tests/conftest.py shadows each with a guard.
+GUARDED_CLUSTER_CLIS: tuple[str, ...] = ("kubectl", "docker", "podman", "helm", "flux", "kind", "tailscale", "bao")
+HERMETIC_GUARD_EXIT = 97
 
-    Mirrors kubectl's own resolution order (``$KUBECONFIG``, colon-separated,
-    falling back to ``~/.kube/config``) rather than shelling out and parsing
-    its stderr text. This is the exact condition behind the sandbox failure
-    these fixtures work around: ``error loading config file ".../config":
-    ... permission denied``.
+_GUARD_SCRIPT = """#!/bin/sh
+# Written by tests/conftest.py. A unit test reached a real cluster/runtime CLI.
+printf "hermetic guard: unit suite invoked real '%s'\\n" "$(basename "$0") $*" >&2
+if [ "${HERMETIC_GUARD_SELFTEST:-}" != "1" ]; then
+  printf '%s  [%s]\\n' "$(basename "$0") $*" "${PYTEST_CURRENT_TEST:-unknown test}" >> "$HERMETIC_GUARD_DIR/invocations.log"
+fi
+exit 97
+"""
 
-    Deliberately does NOT use ``os.access()``: under this sandbox's Landlock
-    policy, ``os.path.isfile()`` and ``os.access(path, os.R_OK)`` both report
-    the file as present and readable while the actual ``open()`` syscall
-    kubectl (and Python) issue gets ``EACCES`` -- the access-check family only
-    consults permission bits, not the sandbox's runtime deny list. Only a real
-    open proves anything.
+_EMPTY_KUBECONFIG = "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\ncurrent-context: \"\"\n"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Make the suite hermetic before any test module is imported.
+
+    Guards for every CLI in ``GUARDED_CLUSTER_CLIS`` go first on ``PATH``; each
+    exits ``HERMETIC_GUARD_EXIT`` and logs the call.  ``KUBECONFIG`` points at
+    a readable config that names no cluster, so even a kubectl found by
+    absolute path has nothing to talk to.  The overrides that name a kubectl
+    binary directly are removed so resolution goes through ``PATH``; tests that
+    need a fake kubectl set them with ``monkeypatch``.
     """
-    kubeconfig = os.environ.get("KUBECONFIG") or os.path.join(os.path.expanduser("~"), ".kube", "config")
-    for path in kubeconfig.split(os.pathsep):
-        if not path:
-            continue
-        try:
-            with open(path, "rb"):
-                return True
-        except OSError:
-            continue
-    return False
+    guard_dir = Path(tempfile.mkdtemp(prefix="fe-hermetic-guard-"))
+    for cli in GUARDED_CLUSTER_CLIS:
+        path = guard_dir / cli
+        path.write_text(_GUARD_SCRIPT)
+        path.chmod(0o755)
+    (guard_dir / "invocations.log").write_text("")
+    kubeconfig = guard_dir / "kubeconfig"
+    kubeconfig.write_text(_EMPTY_KUBECONFIG)
+    os.environ["HERMETIC_GUARD_DIR"] = str(guard_dir)
+    os.environ["PATH"] = f"{guard_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+    os.environ["KUBECONFIG"] = str(kubeconfig)
+    for override in ("SIGNALLOOM_KUBECTL", "SIGNALLOOM_TEARDOWN_KUBECTL", "DOCKER_HOST"):
+        os.environ.pop(override, None)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail the run if any test reached a guarded CLI, even if it passed."""
+    guard_dir = os.environ.get("HERMETIC_GUARD_DIR")
+    if not guard_dir:
+        return
+    calls = (Path(guard_dir) / "invocations.log").read_text().splitlines()
+    if calls:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_line(f"hermetic guard: {len(calls)} real cluster/runtime CLI call(s): {calls[:10]}", red=True)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    guard_dir = os.environ.get("HERMETIC_GUARD_DIR")
+    if guard_dir and Path(guard_dir).name.startswith("fe-hermetic-guard-"):
+        shutil.rmtree(guard_dir, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
-def _eap_teardown_no_cluster_kubectl_stub(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+def _eap_teardown_kubectl_stub(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     """Stub the kubectl subprocess boundary for cluster-dependent teardown
-    stages when no cluster is reachable (e.g. this sandbox's kubeconfig is
-    unreadable), so the real 5-stage teardown pipeline can still be exercised
-    end-to-end offline.
+    stages, so the real 5-stage teardown pipeline can be exercised end-to-end
+    in a unit suite.
 
-    Opt in via ``MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER = True`` at module scope
-    (same pattern as ``EAP_AUTHENTICATED`` above) — only the two acceptance
-    suites that drive the real teardown pipeline set this flag, so no other
-    suite's behaviour changes.
+    Opt in via ``MOCK_KUBECTL_TEARDOWN = True`` at module scope (same pattern
+    as ``EAP_AUTHENTICATED`` above) — only the suites that drive the real
+    teardown pipeline set this flag, so no other suite's behaviour changes.
+
+    The stub is unconditional.  It used to switch itself off whenever a
+    kubeconfig could be opened, on the theory that a cluster-equipped runner
+    should run the stages for real; in practice that meant a developer
+    machine with a working kubeconfig ran ``kubectl delete httproute`` and
+    ``kubectl delete namespace`` for test tenants against whichever shared
+    cluster its current context named.  Live teardown belongs to the live
+    suites, never to this one.
 
     This patches exactly one function, ``environment_teardown.run_bounded``
     — the bounded-subprocess helper every teardown stage shells out
@@ -241,14 +289,8 @@ def _eap_teardown_no_cluster_kubectl_stub(request: pytest.FixtureRequest, monkey
     ``run_bounded`` at all — they take an injectable ``client`` — so a
     failure injected there (e.g. ``test_teardown_stage_failure_sets_teardown_failed``)
     is completely unaffected by this stub and still fails for its own reason.
-
-    If a real, readable kubeconfig is present (e.g. on cluster-equipped CI),
-    this fixture is a no-op and the stages run for real, unchanged.
     """
-    if not getattr(request.module, "MOCK_KUBECTL_TEARDOWN_IF_NO_CLUSTER", False):
-        yield
-        return
-    if _kubeconfig_readable():
+    if not getattr(request.module, "MOCK_KUBECTL_TEARDOWN", False):
         yield
         return
 

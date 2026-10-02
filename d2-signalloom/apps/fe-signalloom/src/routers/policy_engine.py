@@ -244,10 +244,11 @@ async def proxy_compliance_route(
 )
 async def proxy_policies_route(
     request: Request,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     subpath: str = "",
-    tenant_id: str = Depends(authenticated_tenant),
 ) -> Response:
     """Proxy policy evaluation and bundle requests to upstream policy-engine or local handlers."""
+    tenant_id = principal.tenant
     clean_subpath = subpath.lstrip("/")
     if clean_subpath == "validate":
         from routers.policies import validate_policy_expression
@@ -257,10 +258,10 @@ async def proxy_policies_route(
         return await evaluate_policies(request, tenant_id=tenant_id)
     if clean_subpath == "bundles" and request.method == "POST":
         from routers.policies import register_bundle
-        return await register_bundle(request, tenant_id=tenant_id)
+        return await register_bundle(request, principal=principal)
     if clean_subpath == "rollback" and request.method == "POST":
         from routers.policies import rollback_bundle
-        return await rollback_bundle(request, tenant_id=tenant_id)
+        return await rollback_bundle(request, principal=principal)
     return await proxy_policy_engine(request, subpath, "policies", tenant_id=tenant_id)
 
 

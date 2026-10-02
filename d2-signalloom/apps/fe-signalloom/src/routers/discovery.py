@@ -30,7 +30,7 @@ from api_compat import (
     _STORE_LOCK,
     _audit_log,
     _error_response,
-    _get_pool,
+    _require_pool,
     _now_iso,
     _record_memory_audit,
     _write,
@@ -154,7 +154,7 @@ async def claim_discovered_workload(
         # The workload's platform-declared tenant must be the claimant's; the
         # model recorded is the workload's own (claim_tenancy).
         target = await claim_tenancy.resolve_claim(req.agent_id, req.namespace, tenant_id)
-        pool = await _get_pool()
+        pool = await _require_pool("Claiming a discovered workload")
         if pool is not None:
             async with _write(pool) as conn:
                 # Check for cross-tenant conflict

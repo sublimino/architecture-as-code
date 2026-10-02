@@ -128,6 +128,28 @@ spec:
                   # let it start and quietly post telemetry into a name that
                   # does not resolve.
                   optional: false
+            # Workload -> tenant attribution; see configmap.yaml. Not optional
+            # for the same reason as SIGNAL_INGEST_URL.
+            - name: SENTINEL_TENANT_MAP
+              valueFrom:
+                configMapKeyRef:
+                  name: stun-sentinel-config
+                  key: SENTINEL_TENANT_MAP
+                  optional: false
+            # The signal-ingest bearer. Created (with the same value as the
+            # issuer's signal-ingest-static-bearer in fe-signalloom) by
+            # scripts/sldc-ingest-bearer.sh; never committed, never in argv,
+            # never in a ConfigMap. The binary has no default. OPTIONAL on
+            # purpose: a missing Secret must not stop the pod, because that
+            # would stop the freeze. Without it the sentinel logs
+            # ingest_token_missing at startup, counts ingest_token_missing in
+            # its stats line, and posts nothing.
+            - name: SIGNAL_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stun-sentinel-ingest-token
+                  key: token
+                  optional: true
             - name: STUN_FREEZE_TOKEN
               valueFrom:
                 secretKeyRef:

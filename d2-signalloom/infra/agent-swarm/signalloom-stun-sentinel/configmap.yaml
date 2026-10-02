@@ -19,6 +19,23 @@
 #   never reaches fe-signalloom. The FQDN skips the search path entirely.
 #   It resolves only because the DaemonSet sets
 #   dnsPolicy: ClusterFirstWithHostNet — see daemonset.yaml.
+#
+# SENTINEL_TENANT_MAP is the ONLY source of an observation's tenant_id
+# (review M5). It used to be read from the pod's own `tenant` label and default
+# to kusari, so whoever created a pod chose its tenant and every unlabelled pod
+# was kusari's. Entries are `namespace=tenant` or
+# `namespace/serviceAccount=tenant`, comma- or newline-separated; anything not
+# listed is reported as tenant_id "__unattributed__" (still detected, still
+# frozen). An invalid map attributes nothing and logs tenant_map_invalid.
+#
+# fe-signalloom-agents is shared by every swarm agent, so it is mapped per
+# service account, never as a whole namespace. Residual, stated plainly: any
+# principal that can create pods in a namespace can run them as ANY service
+# account there (today hosted-daytona-coder's Role can create pods in
+# fe-signalloom-agents), so the namespace's pod-create RBAC is the real
+# boundary. This ConfigMap is written only by the agent-swarm-flux identity; no
+# agent's Role grants configmaps. No credential belongs in this file — the
+# ingest bearer is Secret stun-sentinel-ingest-token.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -31,3 +48,6 @@ metadata:
     signalloom.ai/role: "sentinel"
 data:
   SIGNAL_INGEST_URL: "http://signal-ingest.fe-signalloom.svc.cluster.local:8082"
+  # kusari-agent/deployment.yaml: namespace fe-signalloom-agents,
+  # serviceAccountName kusari-agent.
+  SENTINEL_TENANT_MAP: "fe-signalloom-agents/kusari-agent=kusari"

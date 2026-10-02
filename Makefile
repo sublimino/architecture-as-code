@@ -150,6 +150,24 @@ test-signalloom-security-validation-evidence: ## Verify Signal Loom fail-closed 
 test-worktree-confinement: ## Prove Rule SP-1 against the live kernel and regenerate the evidence artifact (nono + Landlock required).
 	./scripts/test-worktree-confinement.sh
 
+# SLAAT-P1-4: same shape as test-worktree-confinement above — a Makefile
+# target rather than a CI stage, because each proves a live kernel/cluster
+# control the CI VM does not have. The static halves of all three are in CI
+# via test/landlock-containment-probes.bats, test/landlock-adversarial-escape.bats,
+# and test/cgroup-freeze-adversarial.bats (stage 1g), which skip their live
+# tests and say how many they skipped.
+.PHONY: test-agent-sandbox-escape
+test-agent-sandbox-escape: ## Run the live Landlock escape adversarial battery (nono + Landlock required).
+	./scripts/test-agent-sandbox-escape.sh
+
+.PHONY: probe-sentinel-evasion
+probe-sentinel-evasion: ## Run the live eBPF telemetry evasion probe against the deployed sentinel (kind-osramp required).
+	./scripts/probe-sentinel-evasion.sh
+
+.PHONY: stress-agent-cgroups
+stress-agent-cgroups: ## Run the live adversarial cgroup-freeze and OOM battery against an isolated sentinel instance (kind-osramp required).
+	./scripts/stress-agent-cgroups.sh
+
 ##@ Cluster lifecycle
 
 .PHONY: cluster

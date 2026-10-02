@@ -726,6 +726,8 @@ run_stage \
      test/wait-job.bats \
      test/admission-node-guard.bats test/baoaudit-p2-preflight.bats \
      test/baoaudit-preflight.bats test/cgroup-freeze-stun.bats \
+     test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
+     test/landlock-containment-probes.bats \
      test/sentinel-capabilities.bats \
      test/cloudaudit-e2e.bats test/cloudaudit-negative-mutations.bats \
      test/cloudaudit-p2-preflight.bats test/cloudaudit-preflight.bats \

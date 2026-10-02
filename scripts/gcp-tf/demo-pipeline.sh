@@ -830,7 +830,7 @@ run_stage \
 # clusters and is owned by make test-e2e-dual-cluster-containment instead.
 run_stage \
   "SLDC dual-cluster EAP pilot (offline)" \
-  "stage1k-sldc-offline.tap" \
+  "stage1s-sldc-offline.tap" \
   "cd ${WORK_DIR} && KUBECONFIG=/dev/null ${BATS_BIN} --tap \
      test/dual-cluster-networking.bats test/e2e-scratch-coldstart-replay.bats \
      test/eap-evidence-adversarial.bats test/eap-evidence-attestation.bats \

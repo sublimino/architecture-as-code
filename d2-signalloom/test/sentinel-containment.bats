@@ -135,9 +135,10 @@ cluster_up() {
   # release is reported and the detach is retried.
   command -v go >/dev/null || { echo "go is required to run the sentinel reconciler test" >&2; return 1; }
   run env CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" \
-    go test -C "${SENTINEL_DIR}" -count=1 -run '^TestUnstunThawsEvenWhenVethCannotBeResolved$' -v .
+    go test -C "${SENTINEL_DIR}" -count=1 -run '^(TestUnstunThawsEvenWhenVethCannotBeResolved|TestReleaseThawsBeforeItLiftsTheNetworkDrop)$' -v .
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
   [[ "$output" == *"--- PASS: TestUnstunThawsEvenWhenVethCannotBeResolved"* ]]
+  [[ "$output" == *"--- PASS: TestReleaseThawsBeforeItLiftsTheNetworkDrop"* ]]
 }
 
 @test "sentinel: DaemonSet manifest declares necessary host privileges" {

@@ -1,0 +1,93 @@
+{
+  "schema": "slaat-p2-3-spiffe-remediation/v1",
+  "mission": "SLAAT",
+  "phase": "P2",
+  "card": "SLAAT-P2-3",
+  "title": "SPIFFE Workload API & OpenBao Policy Hardening Fixes",
+  "generated_at": "2026-10-02T07:24:13Z",
+  "repo_head_before_fix": "3addf856249a7a8568a81c81a07753aafccd767b",
+  "cluster_context": "kind-osramp",
+  "findings_addressed": [
+    {
+      "id": "SLAAT-P1-3-F1",
+      "severity": "CRITICAL",
+      "title": "signalloom-cardvault-agent and signalloom-fe-signalloom JWT roles issued 768h (32-day) tokens instead of the mission's 5-minute hard cap",
+      "status": "fixed",
+      "fix": "Added token_ttl=5m, token_max_ttl=5m, token_type=batch to both roles.",
+      "files_changed": [
+        "d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml",
+        "d2-signalloom/infra/inf-bao/configs/base/openbao-bootstrap.yaml"
+      ],
+      "before": {
+        "signalloom-cardvault-agent": {"token_ttl": 0, "token_max_ttl": 0, "token_type": "default", "effective_token_ttl_seconds": 2764800},
+        "signalloom-fe-signalloom": {"token_ttl": 0, "token_max_ttl": 0, "token_type": "default", "effective_token_ttl_seconds": 2764800}
+      },
+      "after": {
+        "signalloom-cardvault-agent": {"token_ttl": 300, "token_max_ttl": 300, "token_type": "batch"},
+        "signalloom-fe-signalloom": {"token_ttl": 300, "token_max_ttl": 300, "token_type": "batch"}
+      },
+      "live_verification": {
+        "evidence_files": ["docs/slaat/p2-3/before-fix-role-state.json", "docs/slaat/p2-3/after-fix-role-state.json", "ci-evidence/slaat-p2-3-postfix-spiffe.json"],
+        "probe_records_now_passing": ["SPIFFE-3", "TTL-signalloom-cardvault-agent", "TTL-signalloom-fe-signalloom"],
+        "dynamic_login_result": "bao write auth/jwt/login role=signalloom-cardvault-agent jwt=<real SVID> -> token_duration=5m (was 768h)"
+      }
+    },
+    {
+      "id": "SLAAT-P1-3-F2",
+      "severity": "MEDIUM (fails closed)",
+      "title": "signalloom-agent-generic role's bound_claims glob never matched a real SPIFFE sub because bound_claims_type defaulted to \"string\"",
+      "status": "fixed",
+      "fix": "Added bound_claims_type=glob to the role write.",
+      "files_changed": [
+        "d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
+      ],
+      "before": {"signalloom-agent-generic": {"bound_claims_type": "string"}},
+      "after": {"signalloom-agent-generic": {"bound_claims_type": "glob"}},
+      "live_verification": {
+        "evidence_files": ["docs/slaat/p2-3/before-fix-role-state.json", "docs/slaat/p2-3/after-fix-role-state.json", "ci-evidence/slaat-p2-3-postfix-spiffe.json"],
+        "probe_records_now_passing": ["SPIFFE-12"],
+        "dynamic_login_result": "bao write auth/jwt/login role=signalloom-agent-generic jwt=<real agent-cardvault SVID, aud=openbao-supercredential> -> login succeeded (was: 400 claim \"sub\" does not match any associated bound claim values)"
+      }
+    }
+  ],
+  "findings_discovered_this_card": [
+    {
+      "id": "SLAAT-P2-3-F7",
+      "severity": "MEDIUM (fails closed -- correctness/availability defect, not an active bypass)",
+      "title": "signalloom-agent-templated's identity-templated KV policy path is unreachable by anyone, including the legitimate agent, for reasons independent of F2",
+      "status": "discovered-not-fixed",
+      "discovered_via": "Live positive-control KV read attempted against signalloom-agent-generic's post-F2-fix issued token, going one step beyond the Required Tests to confirm the templated policy this card's fix was meant to finally unlock actually grants read access.",
+      "root_causes": [
+        "auth/jwt is a single shared mount across signalloom-cardvault-agent, signalloom-fe-signalloom, signalloom-agent-generic, and agent-trust-*; OpenBao keys an identity-entity alias by (mount_accessor, sub-claim-value), so the same SPIFFE identity logging in via different roles on that mount shares one alias record whose metadata is overwritten (not merged) by whichever role logged in most recently.",
+        "Only signalloom-agent-generic declares claim_mappings {sub: sub}; every other role sharing the mount does not, so a login via any other role for the same identity clobbers alias.metadata.sub.",
+        "The raw sub claim is a full spiffe:// URI; its // is collapsed by standard HTTP path normalization (reproduced against OpenBao's own bao CLI), so even a correctly-resolved template segment does not survive the request path unmangled."
+      ],
+      "live_verification": "kubectl exec against the real kind-osramp OpenBao: three templated-path shapes tried (de-prefixed guess, literal spiffe:// prefix, list-on-prefix) all returned 403 preflight capability check, including for the legitimate agent reading its own intended path.",
+      "fails_closed": true,
+      "regression_introduced_by_this_card": false,
+      "recommendation": "Retire signalloom-agent-templated/signalloom-agent-generic in favour of per-agent roles matching scripts/kagent-credentials.sh's already-correct bound_subject + dedicated-policy pattern, or give each multi-role identity a role-scoped alias instead of a mount-scoped one. Not fixed here: requires a design decision, not a one-field surgical edit, and is not named in this card's Objective/Approach/Deliverables.",
+      "recommended_phase": "SLAAT-P2-GOV triage or a new Phase 3 finding"
+    }
+  ],
+  "findings_deferred": [
+    {"id": "SLAAT-P1-3-F3", "severity": "LOW", "reason": "Delegation gap (risk-reader/investigator) is deliberately unreachable today: both identities are labelled agent-trust.signalloom.io/scaffold=true and scripts/agent-trust-local.sh asserts their egress to OpenBao is network-denied by design. Provisioning an OpenBao role they cannot reach would not close a real gap."},
+    {"id": "SLAAT-P1-3-F4", "severity": "LOW", "reason": "SPIRE agent insecure_bootstrap/skip_kubelet_verification are demo-appropriate per the P1-3 dossier's own framing ('before any non-local deployment'); flipping either on the shared live cluster risks SVID-issuance loss for every concurrent sibling card with no tested rollback."},
+    {"id": "SLAAT-P1-3-F5", "severity": "INFO", "reason": "agent-cardvault hostPath-vs-spiffe-csi-driver volume migration requires a live Deployment rollout on a cluster other sibling cards are actively using; deferred to keep this card's blast radius to declarative role/policy edits only."},
+    {"id": "SLAAT-P1-3-F6", "severity": "INFO", "reason": "Static root token is a pre-existing accepted demo convention per the P1-3 dossier; rotating it touches every bootstrap Job's BAO_TOKEN env and risks locking out live re-bootstraps."}
+  ],
+  "regression_checks": {
+    "probe_spiffe_privilege_escalation": {"record_count": 19, "fail_count_before": 4, "fail_count_after": 0},
+    "probe_openbao_acls_wildcard_check": {"policy_boundary_records": 4, "fail_count": 0, "note": "delegation-coverage records (6 gaps) unchanged by this card, matching findings_deferred"},
+    "bats_spiffe_openbao_adversarial": "16/16 pass",
+    "bats_openbao_security_probes": "8/8 pass",
+    "bats_spiffe_openbao_policy_hardening": "14/14 pass (new suite)",
+    "pytest_d2_agent_trust_test_contracts": "8/8 pass"
+  },
+  "unauthorized_access_summary": {
+    "unauthorized_role_logins_succeeded": 0,
+    "cross_tenant_kv_reads_succeeded": 0,
+    "forged_identity_attestation_succeeded": 0,
+    "signature_forgery_accepted": false,
+    "alg_none_forgery_accepted": false
+  }
+}

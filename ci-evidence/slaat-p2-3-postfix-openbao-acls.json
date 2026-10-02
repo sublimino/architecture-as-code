@@ -1,0 +1,98 @@
+{
+  "schema": "slaat-p1-3-openbao-acl-audit/v1",
+  "card": "SLAAT-P1-3",
+  "component": "probe-openbao-acls",
+  "generated_at": "2026-10-02T07:19:05Z",
+  "record_count": 11,
+  "fail_count": 7,
+  "records": [
+    {
+      "id": "ACL-POLICY-agent-trust-acme-payments",
+      "vector": "policy-boundary-audit",
+      "expectation": "tenant-scoped-paths-only",
+      "observed": "scoped",
+      "severity": "pass",
+      "detail": "Policy 'agent-trust-acme-payments' paths are scoped to a single tenant/agent/identity-templated subtree. Rules: path \"kv/data/signalloom/agent-trust/acme/payments/*\" { capabilities = [\"read\"] }"
+    },
+    {
+      "id": "ACL-POLICY-signalloom-agent-templated",
+      "vector": "policy-boundary-audit",
+      "expectation": "tenant-scoped-paths-only",
+      "observed": "scoped",
+      "severity": "pass",
+      "detail": "Policy 'signalloom-agent-templated' paths are scoped to a single tenant/agent/identity-templated subtree. Rules: # Templated policy: each agent can only read secrets scoped to its own\n# SPIFFE ID. The alias metadata is populated by the JWT auth method from\n# the token's `sub` claim.\n#\n# Path shape: secret/data/agents/<spiffe-id>/*\n# The SPIFFE ID contains slashes which OpenBao handles as nested path\n# segments \u2014 this is intentional and matches the secret tree layout.\npath \"kv/data/agents/{{identity.entity.aliases.auth_jwt.metadata.sub}}/*\" {\n  capabilities = [\"read\", \"list\"]\n}"
+    },
+    {
+      "id": "ACL-POLICY-signalloom-cardvault-agent",
+      "vector": "policy-boundary-audit",
+      "expectation": "tenant-scoped-paths-only",
+      "observed": "scoped",
+      "severity": "pass",
+      "detail": "Policy 'signalloom-cardvault-agent' paths are scoped to a single tenant/agent/identity-templated subtree. Rules: path \"kv/data/signalloom/cardvault-agent\" {\n  capabilities = [\"read\"]\n}"
+    },
+    {
+      "id": "ACL-POLICY-signalloom-fe-signalloom",
+      "vector": "policy-boundary-audit",
+      "expectation": "tenant-scoped-paths-only",
+      "observed": "scoped",
+      "severity": "pass",
+      "detail": "Policy 'signalloom-fe-signalloom' paths are scoped to a single tenant/agent/identity-templated subtree. Rules: path \"kv/data/signalloom/fe-signalloom\" { capabilities = [\"read\"] }"
+    },
+    {
+      "id": "ACL-GAP-1",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "no-role-bound",
+      "severity": "fail",
+      "detail": "SPIFFE identity spiffe://signalloom.demo/ns/eap-208e2692/sa/tenant-app has a live SPIRE registration entry but no auth/jwt role's bound_claims.sub or bound_subject matches it -- a delegation gap. This identity can obtain a valid SVID but has no path to an OpenBao credential."
+    },
+    {
+      "id": "ACL-GAP-2",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "no-role-bound",
+      "severity": "fail",
+      "detail": "SPIFFE identity spiffe://signalloom.demo/ns/eap-6f82ad81/sa/tenant-app has a live SPIRE registration entry but no auth/jwt role's bound_claims.sub or bound_subject matches it -- a delegation gap. This identity can obtain a valid SVID but has no path to an OpenBao credential."
+    },
+    {
+      "id": "ACL-GAP-3",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "no-role-bound",
+      "severity": "fail",
+      "detail": "SPIFFE identity spiffe://signalloom.demo/ns/eap-794113c6/sa/tenant-app has a live SPIRE registration entry but no auth/jwt role's bound_claims.sub or bound_subject matches it -- a delegation gap. This identity can obtain a valid SVID but has no path to an OpenBao credential."
+    },
+    {
+      "id": "ACL-GAP-4",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "no-role-bound",
+      "severity": "fail",
+      "detail": "SPIFFE identity spiffe://signalloom.demo/ns/eap-a0314bec/sa/tenant-app has a live SPIRE registration entry but no auth/jwt role's bound_claims.sub or bound_subject matches it -- a delegation gap. This identity can obtain a valid SVID but has no path to an OpenBao credential."
+    },
+    {
+      "id": "ACL-GAP-5",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "no-role-bound",
+      "severity": "fail",
+      "detail": "SPIFFE identity spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/risk/agent/risk-reader has a live SPIRE registration entry but no auth/jwt role's bound_claims.sub or bound_subject matches it -- a delegation gap. This identity can obtain a valid SVID but has no path to an OpenBao credential."
+    },
+    {
+      "id": "ACL-GAP-6",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "no-role-bound",
+      "severity": "fail",
+      "detail": "SPIFFE identity spiffe://signalloom.demo/platform/signalloom/tenant/northstar/project/investigations/agent/investigator has a live SPIRE registration entry but no auth/jwt role's bound_claims.sub or bound_subject matches it -- a delegation gap. This identity can obtain a valid SVID but has no path to an OpenBao credential."
+    },
+    {
+      "id": "ACL-GAP-SUMMARY",
+      "vector": "delegation-coverage-audit",
+      "expectation": "every-registered-identity-has-a-bound-role",
+      "observed": "6-gaps",
+      "severity": "fail",
+      "detail": "6 registered SPIRE identities have no matching OpenBao JWT role (see ACL-GAP-* records)."
+    }
+  ]
+}

@@ -1,13 +1,8 @@
-# eBPF Stun Sentinel RBAC, cluster-scoped half only.
+# eBPF Stun Sentinel RBAC -- tombstones only. This file declares no objects.
 #
-# The sentinel needs:
-#   - PATCH on pods (to set signalloom.ai/state=stunned)
-#   - GET/LIST on pods (to discover agent pods by label)
-#   - GET on nodes (to read cgroup paths for eBPF attachment)
-#   - CREATE on events (to emit Kubernetes events on stun actions)
-#
-# This is deliberately scoped to fe-signalloom-agents only — the sentinel
-# has no business touching pods in other namespaces.
+# Every grant the sentinel holds lives in signalloom-stun-sentinel/rbac.yaml,
+# reconciled by the agent-signalloom-stun-sentinel Kustomization. The entries
+# below record what used to be declared here and why it must not come back.
 ---
 # The namespaced Role and RoleBinding "stun-sentinel" USED to live here. They
 # now have exactly one owner: signalloom-stun-sentinel/rbac.yaml, reconciled by
@@ -20,32 +15,13 @@
 # test/sentinel-capabilities.bats and d2-signalloom/test/stun-sentinel-daemonset.bats fail on any
 # object owned by both, or any stun-sentinel binding that names another SA.
 ---
-# Cluster-scoped: the sentinel reads node cgroup paths for eBPF program
-# attachment points. This is read-only and cannot be namespace-scoped.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: stun-sentinel-node-reader
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
-rules:
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: stun-sentinel-node-reader
-  labels:
-    app.kubernetes.io/name: stun-sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: stun-sentinel-node-reader
-subjects:
-  - kind: ServiceAccount
-    name: stun-sentinel
-    namespace: fe-signalloom-agents
+# The ClusterRole and ClusterRoleBinding "stun-sentinel-node-reader" USED to
+# live here, granting nodes get/list "to read cgroup paths for eBPF attachment".
+# Nothing reads nodes: the sentinel resolves cgroups from the host filesystem
+# (/host-cgroup) and its pods by label, and no code path in
+# apps/signalloom-stun-sentinel or apps/stun-sentinel calls the nodes API. The
+# binding first named the pre-rename SA signalloom-stun-sentinel, which no
+# workload runs as; rebinding it to stun-sentinel would only have made an
+# unused grant live. Do not re-add it:
+# test/sentinel-capabilities.bats fails on any sentinel binding, namespaced or
+# cluster-scoped, whose subject is not the SA the DaemonSet runs as.

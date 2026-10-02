@@ -237,18 +237,63 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 # COPYs both apps/stun-sentinel (the library module providing pkg/{ebpf,correlator},
 # unified in 6e50309f) and apps/signalloom-stun-sentinel (the main package), so a
 # narrower context fails on the first COPY. Broken since that unification; the
-# image had to be built by hand. Tag matches the canonical manifest's overlay.
-SENTINEL_IMAGE_TAG ?= v0.2.0
-# Tagged TWICE on purpose. The canonical manifest pins the registry reference
-# so a remote cluster really pulls it; a kind cluster has no such registry, so
-# `kind load docker-image <canonical>` side-loads it and imagePullPolicy
-# IfNotPresent finds it locally. Tagging only the short name left the base
-# manifest unpullable and the DaemonSet in ImagePullBackOff (2026-10-01).
+# image had to be built by hand.
+#
+# THE TAG IS THE SOURCE COMMIT, never a hand-picked version. `v0.2.0` was
+# reused for about seven different builds and side-loaded each time, so the
+# tag said nothing about the code inside and a node replacement or image GC
+# left ImagePullBackOff with no way to rebuild "the same" image. The tag is
+# now the 12-hex commit that last changed the image's inputs (the two
+# directories the Dockerfile COPYs), and a build refuses uncommitted inputs,
+# so one tag can only ever name one source tree.
+#
+# Two references, one tag:
+#   canonical  ghcr.io/...             the base daemonset.yaml, for a remote cluster
+#   zot        zot.registry.svc...     the kind overlays; the in-cluster registry every
+#                                      other estate image is published to
+# test/sentinel-image-provenance.bats renders both overlays and fails when
+# the deployed tag is mutable or is not the current source commit.
+SENTINEL_IMAGE_INPUTS := apps/stun-sentinel apps/signalloom-stun-sentinel
 SENTINEL_IMAGE_CANONICAL ?= ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
-swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image (superset binary: informer + reconciler + eBPF + correlator + freezer).
-	docker build -t stun-sentinel:$(SENTINEL_IMAGE_TAG) \
-		-t $(SENTINEL_IMAGE_CANONICAL):$(SENTINEL_IMAGE_TAG) \
+SENTINEL_IMAGE_ZOT ?= zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel
+# The host-side address of the same zot repository (scripts/push-local-image.sh
+# port-forwards svc/zot to localhost:5001).
+SENTINEL_IMAGE_PUSH ?= localhost:5001/acme/images/signalloom/apps/stun-sentinel
+SENTINEL_DAEMONSET := infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml
+CLUSTER_NAME ?= osramp
+
+.PHONY: sentinel-image-source-commit sentinel-image-tag sentinel-image-pin sentinel-image-publish
+
+# rev-list, not log: plumbing ignores log.showSignature and friends, so the
+# output is exactly one hash whatever the user's git config.
+sentinel-image-source-commit: ## Print the commit that last changed the sentinel image's inputs (no cleanliness check).
+	@c=$$(git rev-list -1 HEAD -- $(SENTINEL_IMAGE_INPUTS)) && [ -n "$$c" ] && printf '%s\n' "$${c:0:12}"
+
+sentinel-image-tag: ## Print the immutable sentinel image tag; refuses when the image's inputs have uncommitted changes.
+	@dirty=$$(git status --porcelain --untracked-files=all -- $(SENTINEL_IMAGE_INPUTS)); \
+	if [ -n "$$dirty" ]; then \
+		echo "sentinel-image-tag: refusing a -dirty build; uncommitted changes in the image inputs:" >&2; \
+		printf '%s\n' "$$dirty" >&2; exit 1; \
+	fi; \
+	$(MAKE) -s --no-print-directory sentinel-image-source-commit
+
+swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image, tagged with its source commit.
+	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
+	echo "building $(SENTINEL_IMAGE_ZOT):$$tag"; \
+	docker build -t $(SENTINEL_IMAGE_ZOT):$$tag \
+		-t $(SENTINEL_IMAGE_CANONICAL):$$tag \
 		-f apps/signalloom-stun-sentinel/Dockerfile apps/
+
+sentinel-image-pin: ## Point the base DaemonSet (and so both overlays) at the current source-commit tag.
+	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
+	perl -pi -e 's#^(\s*image: \Q$(SENTINEL_IMAGE_CANONICAL)\E:)\S+#$${1}'"$$tag"'#' $(SENTINEL_DAEMONSET); \
+	grep -q "image: $(SENTINEL_IMAGE_CANONICAL):$$tag" $(SENTINEL_DAEMONSET) || { echo "sentinel-image-pin: $(SENTINEL_DAEMONSET) was not updated" >&2; exit 1; }; \
+	echo "pinned $(SENTINEL_DAEMONSET) to :$$tag"
+
+sentinel-image-publish: swarm-stun-sentinel-image ## Load the source-commit image onto kind CLUSTER_NAME and publish it to zot (cluster required).
+	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
+	CLUSTER_NAME=$(CLUSTER_NAME) ../scripts/kind-load-verified.sh $(SENTINEL_IMAGE_ZOT):$$tag && \
+	../scripts/push-local-image.sh $(SENTINEL_IMAGE_ZOT):$$tag $(SENTINEL_IMAGE_PUSH):$$tag
 
 swarm-kusari-image: ## Build kusari-agent stub image (Tier 9 Kusari pilot stand-in)
 	docker build -t kusari-agent:latest apps/kusari-agent/

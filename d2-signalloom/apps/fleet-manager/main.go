@@ -135,6 +135,8 @@ type server struct {
 	replayLedger      *ReplayLedger
 	resumePolicy      ResumeTokenPolicy
 	attestationEngine *attestation.AttestationEngine
+	// callerKeys gates every mutating route; nil answers them all 401.
+	callerKeys *callerKeys
 }
 
 // degradedReporter is implemented by the clients that keep a fail-closed
@@ -470,6 +472,23 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// routes mounts every handler. Mutating routes sit behind a caller key with
+// the matching scope; read-only routes stay open.
+func (s *server) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/v1/fleet/topology", s.handleTopology)
+	mux.HandleFunc("/api/v1/fleet/deploy", s.callerKeys.require(scopeDeploy, s.handleDeploy))
+	mux.HandleFunc("/api/v1/fleet/stun/", s.callerKeys.require(scopeStun, s.handleStun))
+	mux.HandleFunc("/api/v1/fleet/resume", s.callerKeys.require(scopeResume, s.handleResume))
+	mux.HandleFunc("/api/v1/fleet/resume/", s.callerKeys.require(scopeResume, s.handleResume))
+	mux.HandleFunc("/api/v1/fleet/scan", s.callerKeys.require(scopeScan, s.handleScan))
+	mux.HandleFunc("/api/v1/fleet/recover", s.callerKeys.require(scopeRecover, s.handleRecover))
+	mux.HandleFunc("/api/v1/fleet/reset", s.callerKeys.require(scopeReset, s.handleReset))
+	registerConsistencyRoutes(mux, s)
+	return mux
+}
+
 func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -643,21 +662,26 @@ func main() {
 		attestationEngine: attEngine,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/api/v1/fleet/topology", s.handleTopology)
-	mux.HandleFunc("/api/v1/fleet/deploy", s.handleDeploy)
-	mux.HandleFunc("/api/v1/fleet/stun/", s.handleStun)
-	mux.HandleFunc("/api/v1/fleet/resume", s.handleResume)
-	mux.HandleFunc("/api/v1/fleet/resume/", s.handleResume)
-	mux.HandleFunc("/api/v1/fleet/scan", s.handleScan)
-	mux.HandleFunc("/api/v1/fleet/recover", s.handleRecover)
-	mux.HandleFunc("/api/v1/fleet/reset", s.handleReset)
-	registerConsistencyRoutes(mux, s)
+	// A key defect does not crash the process (break-glass must stay
+	// reachable, as for the fleet client above): every mutating route then
+	// answers 401 until it is fixed, and this line says why.
+	if keys, err := loadCallerKeys(os.Environ()); err != nil {
+		slog.Error("caller keys invalid; every mutating fleet route will answer 401", "error", err)
+	} else {
+		s.callerKeys = keys
+		names := make([]string, 0, len(keys.keys))
+		for _, k := range keys.keys {
+			names = append(names, k.name)
+		}
+		if len(names) == 0 {
+			slog.Warn("no caller keys configured; every mutating fleet route will answer 401")
+		}
+		slog.Info("caller keys loaded", "callers", names)
+	}
 
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      s.routes(),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

@@ -198,19 +198,38 @@ async def claim_discovered_workload(
                     target.model,
                 )
 
-                # Insert claim record
-                await conn.execute(
-                    """INSERT INTO public.agent_claims (
-                        claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
-                        harness, model, status, allocated_token_budget, claimed_at
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6,
-                        'discovered', $8, 'granted', $7, NOW()
-                    )
-                    ON CONFLICT (claim_id) DO NOTHING""",
-                    claim_id, tenant_id, agent_uuid, req.agent_id, req.namespace,
-                    server_spiffe_id, req.token_budget_limit, target.model,
+                # A same-tenant re-claim refreshes the live claim. A second
+                # INSERT would violate uq_agent_claims_active_tenant_agent (036)
+                # and 500, which is what this route did against a real database.
+                existing_claim = await conn.fetchrow(
+                    """SELECT claim_id FROM public.agent_claims
+                        WHERE tenant_id = $1 AND agent_id = $2
+                          AND status = 'granted' AND released_at IS NULL""",
+                    tenant_id, agent_uuid,
                 )
+                if existing_claim is not None:
+                    claim_id = existing_claim["claim_id"]
+                    await conn.execute(
+                        """UPDATE public.agent_claims
+                              SET pod_name = $3, namespace = $4, spiffe_id = $5, model = $6,
+                                  allocated_token_budget = $7, claimed_at = NOW()
+                            WHERE claim_id = $1 AND tenant_id = $2""",
+                        claim_id, tenant_id, req.agent_id, req.namespace, server_spiffe_id,
+                        target.model, req.token_budget_limit,
+                    )
+                else:
+                    await conn.execute(
+                        """INSERT INTO public.agent_claims (
+                            claim_id, tenant_id, agent_id, pod_name, namespace, spiffe_id,
+                            harness, model, status, allocated_token_budget, claimed_at
+                        ) VALUES (
+                            $1, $2, $3, $4, $5, $6,
+                            'discovered', $8, 'granted', $7, NOW()
+                        )
+                        ON CONFLICT (claim_id) DO NOTHING""",
+                        claim_id, tenant_id, agent_uuid, req.agent_id, req.namespace,
+                        server_spiffe_id, req.token_budget_limit, target.model,
+                    )
 
                 # Audit log
                 await _audit_log(

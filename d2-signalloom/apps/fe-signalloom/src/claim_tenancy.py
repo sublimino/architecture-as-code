@@ -117,7 +117,10 @@ def authorize(
             422, "workload_model_undeclared",
             f"Workload '{name}' declares no signalloom.ai/model; refusing to record an invented model",
         )
-    if asserted_model is not None and asserted_model != model:
+    # An asserted model may name the workload's model or its bare
+    # signalloom.ai/model label; the recorded model is always the workload's.
+    accepted = {model, _label(workload.get("model_label"))} - {""}
+    if asserted_model is not None and asserted_model not in accepted:
         raise api_compat.APIError(
             422, "model_mismatch", f"Workload '{name}' declares model '{model}', not '{asserted_model}'"
         )

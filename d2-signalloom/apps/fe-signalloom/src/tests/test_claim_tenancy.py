@@ -36,7 +36,7 @@ WORKLOADS: list[dict[str, Any]] = [
     {"id": "agent-kusari-abc", "name": "Kusari Agent (stub)", "agent_name": "kusari-agent",
      "namespace": NS, "tenant": "kusari", "model": "deterministic"},
     {"id": "demo-bot-1", "name": "demo-bot", "agent_name": "demo-bot",
-     "namespace": NS, "tenant": "tenant-demo", "model": "gpt-4o"},
+     "namespace": NS, "tenant": "tenant-demo", "model": "openai/gpt-4o", "model_label": "gpt-4o"},
     {"id": "unlabelled-1", "name": "unlabelled", "agent_name": "unlabelled",
      "namespace": NS, "tenant": None, "model": "gpt-4o"},
     {"id": "nomodel-1", "name": "nomodel", "agent_name": "nomodel",
@@ -169,6 +169,15 @@ def test_the_matching_asserted_model_is_accepted(client: TestClient) -> None:
     assert res.status_code == 200, res.text
 
 
+def test_the_bare_model_label_is_an_accepted_assertion_and_the_full_model_is_recorded(client: TestClient) -> None:
+    res = _claim(client, DEMO_USER, "demo-bot", model="gpt-4o")
+    assert res.status_code == 200, res.text
+    assert _claimed_models(client, DEMO_USER) == {"demo-bot": "openai/gpt-4o"}
+    res = _claim(client, DEMO_USER, "demo-bot", model="gpt-4")
+    assert res.status_code == 422, res.text
+    assert _error(res) == "model_mismatch"
+
+
 def test_an_unknown_workload_is_404(client: TestClient) -> None:
     res = _claim(client, KUSARI_OP, "no-such-agent")
     assert res.status_code == 404, res.text
@@ -218,7 +227,7 @@ def test_autoclaim_claims_only_the_callers_declared_workloads_with_their_models(
     # twin/twin is ambiguous and nomodel has no model: neither is claimable.
     assert claimed == {"kusari-agent": "deterministic"}
     res = client.post("/api/v1/agents/autoclaim-discovered", headers=_bearer(DEMO_USER))
-    assert {c["pod_name"]: c["model"] for c in res.json()["claimed"]} == {"demo-bot": "gpt-4o"}
+    assert {c["pod_name"]: c["model"] for c in res.json()["claimed"]} == {"demo-bot": "openai/gpt-4o"}
 
 
 def test_autoclaim_with_nothing_claimable_claims_nothing_and_invents_nothing(client: TestClient) -> None:

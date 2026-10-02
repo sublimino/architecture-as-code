@@ -40,7 +40,7 @@ func TestStatsRecordDispatchFailureInsteadOfSwallowingIt(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil)
+	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 
 	m.recordDispatch(m.dispatchObservation(TelemetryObservation{}))
 
@@ -58,7 +58,7 @@ func TestStatsRecordDispatchSuccess(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
-	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil)
+	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 
 	m.recordDispatch(m.dispatchObservation(TelemetryObservation{}))
 
@@ -72,7 +72,7 @@ func TestDispatchWorkerCountsFailuresItUsedToDiscard(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil)
+	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 
 	m.queue <- TelemetryObservation{}
 	close(m.queue)

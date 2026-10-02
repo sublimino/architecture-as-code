@@ -180,7 +180,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P2 | `SLAAT-P2-2` | Backend API Auth, Token Expiry & Tenant IDOR Fixes | `SLAAT-P2-PRE` | Remediate API authorization flaws, enforce strict tenant token boundaries, and secure agent enrollment. | `contract` | `L` | `daily` | pass : delivered: f6117b8b30b786700618bfad9064aa3c5de03893 (see Errata : SLAAT-P2-2) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-3` | SPIFFE Workload API & OpenBao Policy Hardening Fixes | `SLAAT-P2-PRE` | Restrict OpenBao JWT role claims, enforce short token lifetimes, and eliminate wildcard SPIFFE selectors. | `integration` | `M` | `daily` | pass : delivered: 16c80559d023ffd933a112e1a95234020ad6e7c4 (see Errata : SLAAT-P2-3) | $0.00 | 0 | 0s | none |
 | P2 | `SLAAT-P2-4` | Agent Sandbox Confinement & Landlock LSM Policy Fixes | `SLAAT-P2-PRE` | Seal sandbox breakout vectors, enforce Landlock filesystem rules, and harden eBPF detection alarms. | `integration` | `M` | `daily` | pass : delivered: 708facadab6db37f3a414c86a76d0fe1c1c2622f (see Errata : SLAAT-P2-4) | $0.00 | 0 | 0s | none |
-| P2 | `SLAAT-P2-GOV` | Phase 2 Governor Gate: Remediations Integration & Rebuild | `SLAAT-P2-1`, `SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4` | Reconcile all remediations, verify clean compilation and unit tests, and prove invariant boundary compliance. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P2 | `SLAAT-P2-GOV` | Phase 2 Governor Gate: Remediations Integration & Rebuild | `SLAAT-P2-1`, `SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4` | Reconcile all remediations, verify clean compilation and unit tests, and prove invariant boundary compliance. | `e2e` | `L` | `daily` | pass : delivered: 849bb2455986877918a221f73dc164a66bb56dfa (see Errata : SLAAT-P2-GOV) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
@@ -544,4 +544,21 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 - Full remediation report: docs/slaat/p2-4/sandbox-confinement-hardening-report.md.
 - Machine-readable evidence: ci-evidence/slaat-p2-4-cgroup-enforcement.json, ci-evidence/slaat-p2-4-landlock-escape-battery.json, ci-evidence/slaat-p2-4-sentinel-evasion-post-fix-source-level.json, ci-evidence/slaat-p2-4-worktree-confinement.json.
 - Zero regressions across all unit and live test suites.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAAT-P2-GOV Phase 2 Governor Gate: Remediations Integration & Rebuild
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-02 12:00:00+01:00
+**Last Updated:** 2026-10-02 12:00:00+01:00
+**Status:** Completed
+**Commit:** 849bb2455986877918a221f73dc164a66bb56dfa
+**Governor merge:** delivered in 849bb245 (integration/slaat-whole-system-adversarial)
+**Decisions:**
+- Reconciled and certified all Phase 2 remediation cards: SLAAT-P2-PRE, SLAAT-P2-1, SLAAT-P2-2, SLAAT-P2-3, and SLAAT-P2-4.
+- Fixed FastAPI routing compatibility in tests/test_tenant_isolation.py, tests/test_tenant_authorization_matrix.py, tests/test_adversarial_api_security.py, and policy_engine.py to recursively inspect _IncludedRouter while preserving compatibility across FastAPI 0.115 and 0.140+.
+- Independently executed and certified all 4 security planes: Plane 1 Network Microsegmentation (14/14 PASS), Plane 2 API Auth and Security (226/226 PASS, Tenant Isolation 153/153 PASS), Plane 3 SPIFFE and OpenBao (38/38 PASS), Plane 4 Sandbox Confinement and Landlock (26/26 PASS), Go binaries in stun-sentinel (12/12 PASS), and Kustomize overlays (4/4 PASS).
+- Authored and verified Phase 2 Governor Security Attestation Report (docs/slaat/SLAAT-P2-GOVERNOR-REPORT.md) and Consolidated Remediation Report (docs/slaat-phase2-remediation-report.md) with 0 docs-lint findings.
+**Notes:**
+- Integration branch refs/heads/integration/slaat-whole-system-adversarial certified as hardened baseline for Phase 3.
+- All 24 vulnerability findings from Phase 1 successfully mitigated with zero functional regressions.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

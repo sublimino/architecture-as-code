@@ -1096,6 +1096,12 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
         "connection; without one it mutates the in-memory fixture store, the "
         "same no-database demo path as api_compat's siblings."
     ),
+    ("api_compat.py", "_audit_outbound_request"): (
+        "The no-DSN branch of the helper that records a request to an upstream "
+        "service (policy bundle submission and rollback, AFM cluster scans). It "
+        "goes through _require_pool, so a configured deployment with an "
+        "unreachable database answers 503 and never reaches this line."
+    ),
     ("discovery.py", "claim_discovered_workload"): (
         "The `pool is None` branch of the discovery claim. With a pool the "
         "handler writes agent_registry and agent_claims and audits agent.claimed "
@@ -1272,6 +1278,17 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
     ),
     ("environment_routing.py", "teardown_environment"): (
         "LEGITIMATE. Environment teardown purges in-memory routing/cluster allocations; audit event is recorded durably."
+    ),
+    ("api_compat.py", "_audit_outbound_request"): (
+        "LEGITIMATE. The state change is in another service: a policy bundle "
+        "registered or rolled back in the policy-engine, a scan queued in "
+        "KubeSec-AFM. There is no local write to bind a transaction to, so "
+        "ordering is the guarantee instead, as for the demo runner: every "
+        "caller writes this row before the outbound call, so a failed audit "
+        "write means the upstream is never asked. The event names a request "
+        "(bundle_submitted, rollback_requested, scan_requested), not an outcome, "
+        "because the outcome belongs to the upstream and is returned to the "
+        "caller rather than asserted here."
     ),
     ("scenario_seeding.py", "api_execute_scenario"): (
         "LEGITIMATE. Scenario execution seeds synthetic multiplane telemetry into GLOBAL_SCENARIO_MANAGER; "

@@ -175,6 +175,11 @@ const stageMap = [
   // belongs in the product categories of the report, not with the harness
   // self-checks.
   { file: 'stage1k-exec-probe-ban.tap', parser: parseTap, source: 'bats-exec-probe-ban', category: 'contract' },
+  // 1c3 (SLER-P6-3 multi-plane containment acceptance) and 1s (the offline SLDC
+  // dual-cluster suites, previously a second 'stage1k' that shared exec-probe-ban's
+  // suffix) ran without a row, so their results never reached the report.
+  { file: 'stage1c3-multiplane-acceptance.tap', parser: parseTap, source: 'bats-multiplane-acceptance', category: 'security' },
+  { file: 'stage1s-sldc-offline.tap', parser: parseTap, source: 'bats-sldc-offline', category: 'contract' },
   // 1k asserts a property of the product's manifests -- that every RBAC binding
   // resolves to a ServiceAccount and a Role that exist -- so it is 'contract'
   // alongside 1g, not 'meta'.

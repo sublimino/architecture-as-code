@@ -182,3 +182,30 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Worktree: `/home/andy/src/.worktrees/9f44a/osramp-demo` (derived from integration head `4ac3ecfc`).
   - Runtime: Active Claude Code session running smoothly, inspecting prior deliverables and mapping API surface.
 
+---
+
+## 9. Autonomous Controller Cycle (Tick #11) & SLAAT-P1-2 Probing Verification
+
+- **Timestamp**: `2026-10-02T01:17:00Z`
+- **Controller Cycle**: Tick #11 executed via `CycleInput.ts`
+- **Board Inventory**: `done=2` (SLAAT-P1-PRE, SLAAT-P1-1), `in_progress=1` (SLAAT-P1-2), `backlog=13`
+- **Diagnostic State**: `kanban-check.sh doctor` reports `doc=clean`, zero exceptions.
+- **Active Task Progress**:
+  - `SLAAT-P1-2` (`9f44a`) active in `/home/andy/src/.worktrees/9f44a/osramp-demo`.
+  - Authored test suites:
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_adversarial_api_security.py` (unauthenticated mutation sweep, SQLi input patterns, malformed JSON fuzzing).
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_token_adversarial_verification.py` (token expiration, tampering, signature stripping).
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_enrollment_cas_race_adversarial.py` (enrollment CAS race, replay resistance, atomic token consumption).
+    - `d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_authorization_matrix.py` (cross-tenant IDOR access matrix).
+  - Authored live cluster boundary probe:
+    - `scripts/probe-api-idor-boundaries.sh` (live probe against `fe-signalloom-api` service on cluster `kind-osramp`).
+    - Verified execution output recorded to `ci-evidence/slaat-p1-2-live-probe-evidence.json`.
+  - Test runner status: Suite execution running to isolate new test pass rates against pre-existing test baselines.
+- **Frontend & Tailscale Status**:
+  - Local HTTP endpoint: `http://127.0.0.1:3484/osramp-demo?task=ec835` verified HTTP 200 OK.
+  - Tailscale endpoint: `https://ftna-kanban.taild4da3.ts.net/osramp-demo?task=ec835` confirmed stopped on host (BackendState: NeedsLogin). Running `sudo tailscale up` on the host console outside the sandbox is required to route external MagicDNS.
+- **Peer Coordination**:
+  - Peer session `@osramp-demo-65` is concurrently landing sentinel and EAP fixes on `feat/signal-loop-and-bootstrap-refactor` (commits `1ac816c2`, `29162e22`, `7f8eb0b0`, `380dd5a5`, `a63b1a06`).
+  - Governor worktree `/home/andy/src/.worktrees/osramp-demo/slaat-whole-system-adversarial/governor` remains clean and isolated on `refs/heads/integration/slaat-whole-system-adversarial` without interfering with peer development.
+
+

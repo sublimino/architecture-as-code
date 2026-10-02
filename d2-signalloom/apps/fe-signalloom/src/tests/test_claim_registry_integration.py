@@ -280,3 +280,12 @@ def test_the_discovery_list_shows_undeclared_models_as_unknown(operator) -> None
     # metadata model) are both listed with no model, not a guessed one.
     assert models[("local_k8s", "ext-list")] is None
     assert models[("external_services", "ext-list")] is None
+
+
+def test_autoclaim_on_the_database_returns_its_claims(scratch) -> None:
+    # Autoclaim on the database branch records and returns the workload's model.
+    client, workloads, _dsn = scratch
+    workloads.declare("auto-db", TENANT, model="deterministic")
+    res = client.post("/api/v1/agents/autoclaim-discovered", headers=_bearer())
+    assert res.status_code == 200, res.text
+    assert {c["pod_name"]: c["model"] for c in res.json()["claimed"]} == {"auto-db": "deterministic"}

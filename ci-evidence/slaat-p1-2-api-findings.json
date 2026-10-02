@@ -1,0 +1,136 @@
+{
+  "mission": "SLAAT",
+  "phase": "P1",
+  "card": "SLAAT-P1-2",
+  "title": "Backend API & Multi-Tenant IDOR Adversarial Fuzzing",
+  "target": "d2-signalloom/apps/fe-signalloom",
+  "generated_by": "d2-signalloom/apps/fe-signalloom/src/tests/{test_token_adversarial_verification,test_adversarial_api_security,test_enrollment_cas_race_adversarial,test_tenant_authorization_matrix}.py + scripts/probe-api-idor-boundaries.sh",
+  "summary": {
+    "new_test_cases": 373,
+    "new_test_cases_passed": 373,
+    "new_test_cases_skipped_documented_exemption": 5,
+    "live_probes_run": 7,
+    "live_probes_passed": 7,
+    "exploitable_bypasses_found": 0,
+    "sql_injection_found": false,
+    "jwt_verification_bypass_found": false,
+    "cross_tenant_data_leak_found": false
+  },
+  "findings": [
+    {
+      "id": "SLAAT-P1-2-F1",
+      "title": "No rate limiting middleware installed anywhere in the application",
+      "severity": "MEDIUM",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "main.py (application-wide)",
+      "description": "No slowapi/rate-limiter dependency or middleware exists anywhere in fe-signalloom. 50 rapid identical unauthenticated requests never receive a 429.",
+      "evidence": [
+        "tests/test_adversarial_api_security.py::test_no_rate_limiting_middleware_is_installed",
+        "static search: rg -ni \"ratelimit|rate_limit|slowapi|limiter\" across all app .py files returns no limiter implementation"
+      ],
+      "remediation": "Add an ASGI rate limiter scoped at minimum to JWT-verification-failure paths and the external-agent enrollment/token endpoints.",
+      "remediation_phase": "SLAAT-P2-2"
+    },
+    {
+      "id": "SLAAT-P1-2-F2",
+      "title": "Settings.cors_allowed_origins declared but never wired to CORSMiddleware",
+      "severity": "LOW-MEDIUM",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "config.py / main.py",
+      "description": "config.py declares an intended CORS allow-list but main.py never installs CORSMiddleware; the setting is dead configuration.",
+      "evidence": [
+        "tests/test_adversarial_api_security.py::test_cors_allowed_origins_setting_is_not_wired_to_any_middleware"
+      ],
+      "remediation": "Wire CORSMiddleware using the existing setting, or remove the setting if CORS is intentionally handled at the Gateway.",
+      "remediation_phase": "SLAAT-P2-2"
+    },
+    {
+      "id": "SLAAT-P1-2-F3",
+      "title": "routers.policies's own CEL-validate/evaluate/bundle routes have no auth dependency; currently unreachable only by router-registration-order accident",
+      "severity": "MEDIUM",
+      "status": "confirmed, not currently exploitable",
+      "exploitable_today": false,
+      "component": "routers/policies.py, routers/policy_engine.py, main.py install order",
+      "description": "validate_policy_expression / evaluate_policies / register_bundle / rollback_bundle declare no auth dependency. They are shadowed at runtime by routers.policy_engine's authenticated wildcard proxy route, registered earlier in app.routes. This is an accidental consequence of install_compatibility_api/install_policy_engine_api call order and an identity-based dedup guard, not a declared contract.",
+      "evidence": [
+        "tests/test_tenant_authorization_matrix.py::test_every_in_scope_route_has_a_tenant_binding_dependency (structural: no dependency found)",
+        "tests/test_tenant_authorization_matrix.py::test_policies_router_own_routes_are_unreachable_dead_code (runtime: confirmed 401 via shadowing, with an authenticated-token control case confirming the proxy answers)"
+      ],
+      "remediation": "Delete the dead routers.policies routes, or give them their own explicit Depends(authenticated_tenant) so safety does not depend on routing order.",
+      "remediation_phase": "SLAAT-P2-2"
+    },
+    {
+      "id": "SLAAT-P1-2-F4",
+      "title": "Ad-hoc per-router error messages occasionally include raw exception text",
+      "severity": "LOW",
+      "status": "confirmed",
+      "exploitable_today": "partial (no stack trace/schema observed, only exception message text)",
+      "component": "routers/discovery.py (claim_discovered_workload)",
+      "description": "A broad except Exception path returns f\"Failed to parse request: {exc}\" directly, inconsistent with api_compat.py's centralized generic error envelope. Tested with malformed UTF-8 input: no path/stack leak observed, only a UnicodeDecodeError description.",
+      "evidence": [
+        "tests/test_adversarial_api_security.py::test_invalid_utf8_body_does_not_500_or_leak_raw_exception_text"
+      ],
+      "remediation": "Route through api_compat.install_api_exception_handlers's generic envelope instead of ad-hoc per-router messages.",
+      "remediation_phase": "SLAAT-P2-2"
+    },
+    {
+      "id": "SLAAT-P1-2-F5",
+      "title": "threading.Lock held across an await in enroll_host_handler's in-memory fallback path",
+      "severity": "LOW",
+      "status": "confirmed, not currently exploitable",
+      "exploitable_today": false,
+      "component": "host_enrollment.py (_HOST_ENROLL_LOCK, in-memory branch)",
+      "description": "The in-memory fallback branch holds a plain threading.Lock across an await on _audit_log_enrollment(None, ...). Verified not exploitable today: that await never truly suspends when conn is None (its only real awaits are gated behind `if conn is not None`), proven empirically by a 16-task true asyncio-concurrency race completing cleanly within a 15s bound. Fragile invariant, not an enforced one -- a future change adding a real await on that path would reintroduce a single-coroutine deadlock.",
+      "evidence": [
+        "tests/test_enrollment_cas_race_adversarial.py::test_true_asyncio_concurrent_redemption_exactly_one_winner"
+      ],
+      "remediation": "Replace _HOST_ENROLL_LOCK with an asyncio.Lock for the in-memory path, or document/assert the no-real-await invariant explicitly.",
+      "remediation_phase": "SLAAT-P2-2"
+    },
+    {
+      "id": "SLAAT-P1-2-F6",
+      "title": "Pre-existing duplicate router registration breaks route-inventory invariant tests (not caused by this card)",
+      "severity": "LOW (test-health / build integrity, not a security boundary bypass)",
+      "status": "confirmed pre-existing on integration branch, reproduced with this card's new files entirely absent from disk",
+      "exploitable_today": false,
+      "component": "main.py install_*_api call sequence (routers.agents/discovery/policy_engine/federation each mounted twice: once via api_compat.install_compatibility_api, once via their own main.py-level install call)",
+      "description": "FastAPI emits 'Duplicate Operation ID' warnings for routers.agents's routes; this inflates route counts past what several pre-existing inventory-exactness tests expect (test_tenant_isolation.py::test_the_route_sweep_covers_every_authenticated_api_route, test_eap_default_deny.py's pinned-inventory guards, and others). Reproduced in complete isolation with all four of this card's new test files removed from disk, and with only the affected pre-existing files run -- confirms this is a baseline defect on integration/slaat-whole-system-adversarial, not a regression introduced by SLAAT-P1-2. A separate pre-existing bug (list_discovery_workloads() got an unexpected keyword argument 'request') was also reproduced in isolation in tests/test_connectors.py::test_connector_toggle_syncs_with_discovery, likewise confirmed unrelated to this card.",
+      "evidence": [
+        "Full-suite run with new files present: 66 failed, 2357 passed, 104 skipped (/tmp/slaat-full-run3.log at generation time)",
+        "Isolated re-run of only the four affected pre-existing files (test_tenant_isolation.py, test_eap_default_deny.py, test_eap_forged_headers.py, test_eap_anonymous_surface.py) with this card's four new test files moved off disk entirely: IDENTICAL 14 failures reproduced",
+        "Isolated single-test reproduction of a second, unrelated pre-existing failure (test_connectors.py::test_connector_toggle_syncs_with_discovery) with zero SLAAT-P1-2 files loaded"
+      ],
+      "remediation": "Out of this card's merge boundary (no production router-wiring changes). Recommend a dedicated hardening card dedupe main.py's install_*_api calls against api_compat.install_compatibility_api's inclusions.",
+      "remediation_phase": "unscheduled -- flag for triage, not SLAAT-P2-2 specifically"
+    }
+  ],
+  "no_findings_confirmed_hardened": [
+    {
+      "area": "SQL injection",
+      "description": "All six dynamic-WHERE-clause f-string SQL sites verified to interpolate only $N placeholders and fixed identifiers; SQL-injection-shaped values confirmed inert as ordinary data.",
+      "evidence": ["tests/test_adversarial_api_security.py::test_known_fstring_sql_site_only_interpolates_safelisted_names", "tests/test_adversarial_api_security.py::test_sqli_shaped_*"]
+    },
+    {
+      "area": "JWT/OIDC verification bypass",
+      "description": "alg:none, RS256->HS256 confusion, kid substitution/omission, signature stripping, payload tampering, duplicate-key/non-object/JSON-constant payloads, expired/not-yet-valid tokens, wrong aud/iss/azp, and forged tenant claims all fail closed.",
+      "evidence": ["tests/test_token_adversarial_verification.py (36 test cases)"]
+    },
+    {
+      "area": "Multi-tenant IDOR/BOLA (connectors, agents, external-agent registration, host enrollment)",
+      "description": "Cross-tenant probes against 8 routers not reached by prior EAP/DB_ROUTES sweeps found no data leak or cross-tenant mutation.",
+      "evidence": ["tests/test_tenant_authorization_matrix.py"]
+    },
+    {
+      "area": "Enrollment CAS/replay",
+      "description": "True asyncio-concurrency race (16 tasks) yields exactly one winner with no deadlock; bit-flip token tampering rejected without burning the real token; cross-agent token binding enforced.",
+      "evidence": ["tests/test_enrollment_cas_race_adversarial.py"]
+    }
+  ],
+  "live_probe_evidence_file": "ci-evidence/slaat-p1-2-live-probe-evidence.json",
+  "dossier": "docs/slaat/p1-2/backend-api-vulnerability-and-tenant-isolation-dossier.md",
+  "authorization_matrix": "docs/slaat/p1-2/authorization-matrix.md",
+  "rate_limiting_audit": "docs/slaat/p1-2/rate-limiting-and-cors-audit.md",
+  "hardening_checklist": "docs/slaat/p1-2/backend-api-hardening-checklist.md"
+}

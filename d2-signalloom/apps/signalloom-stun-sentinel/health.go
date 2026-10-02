@@ -21,6 +21,9 @@ type HealthResponse struct {
 	CgroupDriver   string `json:"cgroup_driver"`
 	TCReady        bool   `json:"tc_ready"`
 	ReconcileCount int64  `json:"reconcile_count"`
+	// ResyncSeconds is the pod informer's resync interval, so a containment
+	// check can wait out one resync instead of guessing a sleep.
+	ResyncSeconds int64 `json:"resync_seconds"`
 }
 
 // HealthServer serves HTTP health and readiness probes on a configured address (default :8081).
@@ -68,6 +71,7 @@ func (h *HealthServer) Handler() http.Handler {
 			CgroupDriver:   h.cgroupDriver,
 			TCReady:        tcReady,
 			ReconcileCount: count,
+			ResyncSeconds:  int64(informerResync / time.Second),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

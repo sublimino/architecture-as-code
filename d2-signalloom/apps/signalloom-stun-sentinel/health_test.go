@@ -134,3 +134,18 @@ func TestHealthServerGracefulLifecycle(t *testing.T) {
 		t.Fatal("health server did not shut down within deadline")
 	}
 }
+
+// The e2e Step 5 waits out one resync before re-reading the kernel; the value
+// it reads must be the interval the informer actually runs with.
+func TestHealthPublishesTheInformerResyncInterval(t *testing.T) {
+	srv := &HealthServer{tcReady: func() bool { return true }}
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	var resp HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(informerResync / time.Second); resp.ResyncSeconds != want || want <= 0 {
+		t.Fatalf("resync_seconds = %d, want %d", resp.ResyncSeconds, want)
+	}
+}

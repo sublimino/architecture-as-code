@@ -69,6 +69,31 @@ case "${ARGS}" in
   *cluster-info*)         echo "Kubernetes control plane is running at https://127.0.0.1:1"; exit 0 ;;
 esac
 
+# ── Step 5: the sentinel's health and its stun record ────────────────────────
+# Matched first: these jsonpaths would otherwise fall into the Step 1 catch-alls.
+case "${ARGS}" in
+  *"get pod"*"name=stun-sentinel"*) echo -n "stun-sentinel-x7k2p"; exit 0 ;;
+  *"get --raw"*"pods/stun-sentinel-x7k2p:8081/proxy/healthz"*)
+      # Every read is a later moment: reconcile_count advances (unless the
+      # reconciler is idle) and, from the second read on, a resync has run.
+      n=$(( $(cat "${STATE}/health_reads" 2>/dev/null || echo 0) + 1 ))
+      echo "${n}" >"${STATE}/health_reads"
+      rc=$(( 100 + n ))
+      [ "${MUT}" = "step5_reconciler_idle" ] && rc=100
+      [ "${n}" -gt 1 ] && touch "${STATE}/resynced"
+      printf '{"status":"ok","reconcile_count":%s,"resync_seconds":1,"stun_record_failures":0}\n' "${rc}"
+      exit 0 ;;
+  *"get pod"*"io/stun-source}"*)
+      [ "${MUT}" = "step5_no_stun_record" ] && exit 0
+      echo -n "stun-sentinel"; exit 0 ;;
+  *"get pod"*"io/stun-reason}"*)
+      echo -n "stun-sentinel detection: sys_enter_openat /etc/passwd"; exit 0 ;;
+  *"get deploy"*"io/stun-source}"*) echo -n "stun-sentinel"; exit 0 ;;
+  *"get deploy"*"io/stunned}"*)
+      [ "${MUT}" = "step5_no_owner_record" ] && exit 0
+      echo -n "true"; exit 0 ;;
+esac
+
 # ── Step 1: Flux Kustomization + Deployment + Pod ────────────────────────────
 case "${ARGS}" in
   *"get kustomization"*'type=="Ready"'*)
@@ -219,6 +244,10 @@ esac
 case "${ARGS}" in
   *"find /sys/fs/cgroup"*) echo "${CG}"; exit 0 ;;
   *cgroup.events*)
+      # The legacy-reconciler defect: frozen, then thawed by the next resync.
+      if [ "${MUT}" = "step5_thawed_by_resync" ] && [ -f "${STATE}/resynced" ]; then
+          echo "populated 1"; echo "frozen 0"; exit 0
+      fi
       if [ -f "${STATE}/frozen" ] && [ "${MUT}" != "step5_freeze_disabled" ]; then
           echo "populated 1"; echo "frozen 1"
       else
@@ -294,6 +323,10 @@ MUTATIONS=(
   "step5_no_pod_suppression|5|a Pod without reconcile=disabled fails (Pattern 4)"
   "step5_cpu_still_burning|5|a CPU counter that keeps advancing is not a 0.000 mCPU flatline"
   "step5_still_serving|5|a frozen pod still answering network traffic fails"
+  "step5_thawed_by_resync|5|a freeze the reconciler thaws on its next resync fails"
+  "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
+  "step5_no_stun_record|5|a freeze with no sentinel stun record on the Pod fails"
+  "step5_no_owner_record|5|a Deployment without the owner stun record fails"
 )
 
 declare -a PLAN=()

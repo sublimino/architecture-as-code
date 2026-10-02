@@ -236,8 +236,31 @@ cgroup_reports_frozen() {
         | grep -q '^frozen 1$'
 }
 
+# sentinel_pod names the stun-sentinel DaemonSet pod on the workload node:
+# the one whose reconciler owns this pod's cgroup.
+sentinel_pod() {
+    ${K_WORKLOAD} get pod -n "${NS}" -l app.kubernetes.io/name=stun-sentinel \
+        --field-selector "spec.nodeName=${NODE}" -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null
+}
+
+# sentinel_health reads the sentinel's own /healthz through the API server pod
+# proxy: reconcile_count and the informer resync_seconds it runs with.
+sentinel_health() {
+    ${K_WORKLOAD} get --raw "/api/v1/namespaces/${NS}/pods/$1:8081/proxy/healthz" 2>/dev/null
+}
+
+# resync_elapsed <sentinel> <since-epoch> <resync-seconds> <reconcile-count-then>
+# holds once a full resync interval has passed since <since-epoch> AND the
+# sentinel has reconciled since: the thaw this guards against was a resync.
+resync_elapsed() {
+    [ "$(( $(date +%s) - $2 ))" -gt "$3" ] || return 1
+    local rc; rc="$(sentinel_health "$1" | jq -r '.reconcile_count // empty')"
+    [ -n "${rc}" ] && [ "${rc}" -gt "$4" ]
+}
+
 export -f registry_row observations_json sensitive_openat_observations \
-          have_sensitive_openat cgroup_reports_frozen cadvisor_sample
+          have_sensitive_openat cgroup_reports_frozen cadvisor_sample \
+          sentinel_health resync_elapsed
 
 @test "Step 1: Kusari workload deployment reconciled by Flux on the workload cluster" {
     run ${K_WORKLOAD} get kustomization "${KUSTOMIZATION}" -n "${NS}" \
@@ -411,7 +434,7 @@ export -f registry_row observations_json sensitive_openat_observations \
         >>"${EVIDENCE_DIR}/step4-correlation-window.txt"
 }
 
-@test "Step 5: Pod is frozen, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts" {
+@test "Step 5: Pod is frozen and stays frozen past a resync, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts" {
     local pod_name; pod_name="$(agent_pod_field 'metadata.name')"
     [ -n "$pod_name" ]
 
@@ -438,6 +461,43 @@ export -f registry_row observations_json sensitive_openat_observations \
     run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
     [ "$output" = "disabled" ]
+
+    # The stun record: the sentinel's detection, not a label someone else
+    # wrote, names its source and the syscall/target on the Pod, and the owning
+    # Deployment carries the owner record a replacement pod is judged by.
+    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-source}'
+    [ "$output" = "stun-sentinel" ]
+    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}'
+    [[ "$output" == *"sys_enter_openat /etc/"* ]]
+    local stun_reason="$output"
+    run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stunned}'
+    [ "$output" = "true" ]
+    run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-source}'
+    [ "$output" = "stun-sentinel" ]
+
+    # Persistence: the sentinel's own reconciler used to thaw this freeze on
+    # its next informer resync (measured live: ~14 s). Wait out one full resync
+    # interval, as the sentinel publishes it, plus at least one reconcile pass,
+    # then re-read the kernel. Not a guessed sleep: both bounds are read.
+    local sentinel; sentinel="$(sentinel_pod)"
+    [ -n "$sentinel" ]
+    local health resync rc0 since
+    health="$(sentinel_health "$sentinel")"
+    resync="$(printf '%s' "$health" | jq -r '.resync_seconds // 0')"
+    rc0="$(printf '%s' "$health" | jq -r '.reconcile_count // empty')"
+    [ "$resync" -gt 0 ]
+    [ -n "$rc0" ]
+    since="$(date +%s)"
+    WAIT_QUIET=1 run _wait_retry "$(( resync * 2 + 60 ))" "one sentinel resync after the freeze" \
+        "resync_elapsed '${sentinel}' ${since} ${resync} ${rc0}"
+    [ "$status" -eq 0 ]
+    run ${DOCKER_BIN} exec "${NODE}" sh -c "cat ${cg}/cgroup.events"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"frozen 1"* ]]
 
     # Forensic Preservation Contract (H1): strictly zero restarts. A single
     # restart means the kubelet liveness probe killed the container and the
@@ -478,6 +538,10 @@ export -f registry_row observations_json sensitive_openat_observations \
         echo "${kernel_state}"
         echo "flux_reconcile_deployment: disabled"
         echo "flux_reconcile_pod: disabled"
+        echo "stun_source: stun-sentinel"
+        echo "stun_reason: ${stun_reason}"
+        echo "deployment_stun_record: signalloom.io/stunned=true"
+        echo "frozen_after_resync: 1 (resync_seconds=${resync}, reconcile_count ${rc0} -> advanced)"
         echo "restartCount: ${restarts}"
         echo "cadvisor_cpu_seconds: ${c1} -> ${c2}"
         echo "delta_mcpu: ${mcpu}"
@@ -497,6 +561,13 @@ teardown_file() {
     uid="$(${KUBECTL} --context "${WL_CONTEXT}" get pod -n "${NS}" -l "${AGENT_SELECTOR}" \
         -o 'jsonpath={.items[0].metadata.uid}' 2>/dev/null || true)"
     if [ -n "${uid}" ]; then
+        # The authorised resume: the affirmative triple fleet-manager Recover
+        # writes. The freeze is recorded on the pod, so a bare cgroup thaw
+        # would be re-frozen on the next resync; this one makes the sentinel
+        # thaw and clear the stun record and Shared Pattern 4 pins.
+        ${KUBECTL} --context "${WL_CONTEXT}" label pod -n "${NS}" -l "${AGENT_SELECTOR}" \
+            signalloom.ai/state=active signalloom.io/stunned=false signalloom.io/containment-mode=none \
+            --overwrite --field-manager=flux-client-side-apply >/dev/null 2>&1 || true
         slice="pod${uid//-/_}.slice"
         cg="$(${DOCKER_BIN:-docker} exec "${NODE}" sh -c \
             "find /sys/fs/cgroup -maxdepth 6 -type d -name '*${slice}' 2>/dev/null | head -1" 2>/dev/null || true)"

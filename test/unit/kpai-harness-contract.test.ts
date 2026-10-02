@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
@@ -425,9 +425,20 @@ describe("artifact freshness", () => {
     expect(existsSync(SCRIPT_PATH)).toBe(true);
   });
 
-  test("the artifact is not older than the generator that produced it", () => {
-    const artifactMtime = statSync(ARTIFACT_PATH).mtimeMs;
-    const scriptMtime = statSync(SCRIPT_PATH).mtimeMs;
-    expect(artifactMtime).toBeGreaterThanOrEqual(scriptMtime);
+  test("the generator has not changed since the artifact was generated", () => {
+    // Measured in history, not mtimes. git does not preserve mtimes, so in a
+    // fresh clone or worktree the two files' mtimes are checkout order, and an
+    // mtime comparison passes or fails by accident.
+    const git = ["git", "-c", "log.showSignature=false", "-C", REPO_ROOT];
+    const dirty = (path: string) => capture([...git, "status", "--porcelain", "--", path]) !== "";
+    if (dirty(SCRIPT_PATH)) {
+      // An edited generator is only fresh if the artifact was regenerated too.
+      expect(dirty(ARTIFACT_PATH)).toBe(true);
+      return;
+    }
+    const artifactCommit = capture([...git, "log", "-1", "--format=%H", "--", ARTIFACT_PATH]);
+    expect(artifactCommit).toMatch(SHA1_RE);
+    const laterGeneratorCommits = capture([...git, "rev-list", `${artifactCommit}..HEAD`, "--", SCRIPT_PATH]);
+    expect(laterGeneratorCommits).toBe("");
   });
 });

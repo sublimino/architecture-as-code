@@ -1,0 +1,58 @@
+[
+  {
+    "name": "enroll-invalid-bearer",
+    "method": "POST",
+    "path": "/api/v1/external-agents/enroll",
+    "status": 401,
+    "body": "{\"schema_version\":\"1.0.0\",\"error_code\":\"unauthenticated\",\"message\":\"Invalid Authorization header format; Bearer token required\",\"request_id\":\"req-eaa32e8f09ac48bb\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "unauth-connectors-create",
+    "method": "POST",
+    "path": "/api/v1/connectors",
+    "status": 401,
+    "body": "{\"error\":{\"code\":\"authentication_required\",\"message\":\"Bearer authentication is required\"}}",
+    "verdict": "pass"
+  },
+  {
+    "name": "unauth-agent-transition",
+    "method": "POST",
+    "path": "/api/v1/agents/probe-dummy-id/transition",
+    "status": 401,
+    "body": "{\"error\":{\"code\":\"authentication_required\",\"message\":\"Bearer authentication is required\"}}",
+    "verdict": "pass"
+  },
+  {
+    "name": "unauth-discovery-claim",
+    "method": "POST",
+    "path": "/api/v1/discovery/claim",
+    "status": 401,
+    "body": "{\"error\":{\"code\":\"authentication_required\",\"message\":\"Bearer authentication is required\"}}",
+    "verdict": "pass"
+  },
+  {
+    "name": "unauth-external-agent-register",
+    "method": "POST",
+    "path": "/api/v1/external-agents/registrations",
+    "status": 401,
+    "body": "{\"error\":{\"code\":\"authentication_required\",\"message\":\"Bearer authentication is required\"}}",
+    "verdict": "pass"
+  },
+  {
+    "name": "forged-jwt-connectors",
+    "method": "POST",
+    "path": "/api/v1/connectors",
+    "status": 401,
+    "body": "{\"error\":{\"code\":\"invalid_token\",\"message\":\"Bearer token is invalid\"}}",
+    "verdict": "pass"
+  },
+  {
+    "name": "garbage-bearer-agents",
+    "method": "POST",
+    "path": "/api/v1/agents/probe-dummy-id/transition",
+    "status": 401,
+    "body": "{\"error\":{\"code\":\"invalid_token\",\"message\":\"Bearer token is invalid\"}}",
+    "verdict": "pass"
+  }
+]

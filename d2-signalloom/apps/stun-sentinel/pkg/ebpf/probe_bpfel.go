@@ -12,6 +12,8 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type probeSentinelPathScratch struct{ Path [256]int8 }
+
 type probeSyscallEventT struct {
 	TsNs     uint64
 	CgroupId uint64
@@ -79,8 +81,10 @@ type probeProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type probeMapSpecs struct {
-	Drops  *ebpf.MapSpec `ebpf:"drops"`
-	Events *ebpf.MapSpec `ebpf:"events"`
+	Drops       *ebpf.MapSpec `ebpf:"drops"`
+	Events      *ebpf.MapSpec `ebpf:"events"`
+	PathScratch *ebpf.MapSpec `ebpf:"path_scratch"`
+	Prefiltered *ebpf.MapSpec `ebpf:"prefiltered"`
 }
 
 // probeObjects contains all objects after they have been loaded into the kernel.
@@ -102,14 +106,18 @@ func (o *probeObjects) Close() error {
 //
 // It can be passed to loadProbeObjects or ebpf.CollectionSpec.LoadAndAssign.
 type probeMaps struct {
-	Drops  *ebpf.Map `ebpf:"drops"`
-	Events *ebpf.Map `ebpf:"events"`
+	Drops       *ebpf.Map `ebpf:"drops"`
+	Events      *ebpf.Map `ebpf:"events"`
+	PathScratch *ebpf.Map `ebpf:"path_scratch"`
+	Prefiltered *ebpf.Map `ebpf:"prefiltered"`
 }
 
 func (m *probeMaps) Close() error {
 	return _ProbeClose(
 		m.Drops,
 		m.Events,
+		m.PathScratch,
+		m.Prefiltered,
 	)
 }
 

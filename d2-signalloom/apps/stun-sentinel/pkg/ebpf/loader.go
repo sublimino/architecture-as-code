@@ -198,9 +198,20 @@ func (l *Loader) Programs() map[string]*ebpf.Program {
 // Drops returns how many records the kernel discarded because the ring buffer
 // was full, summed over CPUs.
 func (l *Loader) Drops() (uint64, error) {
+	return sumPerCPU(l.objs.Drops, "drop")
+}
+
+// Prefiltered returns how many openat/openat2 records the probe kept out of
+// the ring because the path could not be sensitive (bpf/path_prefilter.h),
+// summed over CPUs.
+func (l *Loader) Prefiltered() (uint64, error) {
+	return sumPerCPU(l.objs.Prefiltered, "prefilter")
+}
+
+func sumPerCPU(m *ebpf.Map, what string) (uint64, error) {
 	var perCPU []uint64
-	if err := l.objs.Drops.Lookup(uint32(0), &perCPU); err != nil {
-		return 0, fmt.Errorf("read drop counter: %w", err)
+	if err := m.Lookup(uint32(0), &perCPU); err != nil {
+		return 0, fmt.Errorf("read %s counter: %w", what, err)
 	}
 	var total uint64
 	for _, n := range perCPU {

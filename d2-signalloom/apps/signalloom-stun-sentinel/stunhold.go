@@ -53,7 +53,10 @@ type stunHolds struct {
 	// never be confirmed, so a held pod stays frozen.
 	getPod func(namespace, name string) (*corev1.Pod, error)
 	notify func(key string) // enqueues the pod on the controller after a freeze
-	now    func() time.Time
+	// recordStun hands a NEW hold to the stun recorder (fleet-manager); it
+	// runs on its own goroutine so the ring-buffer loop never waits on HTTP.
+	recordStun func(pod *corev1.Pod, reason string)
+	now        func() time.Time
 
 	mu   sync.Mutex
 	held map[types.UID]*stunHold
@@ -85,7 +88,19 @@ func (s *stunHolds) freezeFor(pod *corev1.Pod, syscall, target string) error {
 	if s.notify != nil {
 		s.notify(pod.Namespace + "/" + pod.Name)
 	}
+	if !existed && s.recordStun != nil {
+		go s.recordStun(pod.DeepCopy(), stunReasonFor(syscall, target))
+	}
 	return nil
+}
+
+// awaitingRecord reports whether pod still has a hold nobody has recorded:
+// the condition under which a failed stun delivery is worth retrying.
+func (s *stunHolds) awaitingRecord(pod *corev1.Pod) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h, ok := s.held[pod.UID]
+	return ok && !h.adopted
 }
 
 // observeStunned adopts a hold once the pod is seen stunned: from here an

@@ -4,10 +4,14 @@
 #
 # @id      adversarial-network-probes
 # @target  scripts/envoy-gateway-audit.sh, scripts/probe-network-isolation.sh
-# @doc     docs/slaat/p1-1/ingress-network-isolation-adversarial-audit-report.md
-# @spec    SLAAT-P1-1
+# @doc     docs/slaat/p1-1/ingress-network-isolation-adversarial-audit-report.md,
+#          docs/slaat/p2-1/network-microsegmentation-hardening-report.md
+# @spec    SLAAT-P1-1, SLAAT-P2-1
 #
-# SLAAT-P1-1 — Ingress Gateway & Network Isolation Attack Probing.
+# SLAAT-P1-1 -- Ingress Gateway & Network Isolation Attack Probing.
+# SLAAT-P2-1 replayed this exact suite after remediation and updated the
+# three NetworkPolicy assertions below from FINDING (vulnerable) to FIXED
+# (remediated) -- see each test's comment for the precise before/after.
 #
 # Adversarial probe suite against the live Envoy Gateway and the cluster's
 # NetworkPolicy microsegmentation boundary. Read-only: every probe is a
@@ -24,10 +28,10 @@
 #
 # On skipping. If the cluster is absent, skip and say so. If the cluster is
 # present and a script still produces nothing, that is a suite failure, not a
-# quieter pass — a broken live harness must not read as green.
+# quieter pass -- a broken live harness must not read as green.
 
 export PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
-DECLARED_TESTS=20
+DECLARED_TESTS=21
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
 CLUSTER_CONTEXT="${SLAAT_KUBE_CONTEXT:-kind-osramp}"
@@ -51,7 +55,7 @@ require_evidence() {
     [[ -s "${log}" ]] && sed 's/^/#   /' "${log}" >&3
     return 1
   fi
-  skip "no cluster '${CLUSTER_CONTEXT}' — live probe suite cannot run"
+  skip "no cluster '${CLUSTER_CONTEXT}' -- live probe suite cannot run"
 }
 
 setup_file() {
@@ -59,7 +63,7 @@ setup_file() {
   rm -f "${GW_AUDIT_JSON}" "${NETISO_JSON}" "${GW_HARNESS_LOG}" "${NETISO_HARNESS_LOG}"
 
   if ! have_cluster; then
-    echo "# no cluster '${CLUSTER_CONTEXT}' — live tests will skip" >&3
+    echo "# no cluster '${CLUSTER_CONTEXT}' -- live tests will skip" >&3
     return 0
   fi
 
@@ -218,25 +222,56 @@ teardown_file() {
   [ "$output" = "blocked" ]
 }
 
-@test "network isolation: FINDING — frontend can reach backend/minio, backend/nats and backend/postgres with no NetworkPolicy on either side" {
+@test "network isolation: FIXED (SLAAT-P2-1) -- backend/minio and backend/postgres are no longer reachable from a generic frontend pod" {
+  # LAT-5 (backend/nats) is deliberately EXCLUDED here: SLAAT-P2-1 added an
+  # explicit allow (frontend -> backend nats:4222) because all three frontend
+  # workers are legitimate NATS consumers (see
+  # d2-osramp-apps/components/backend/base/networkpolicy.yaml). A generic,
+  # unlabelled probe pod living in `frontend` now correctly matches that
+  # intentional allow, so LAT-5 reads "reachable" by design, not as a gap --
+  # see the next test for the one-target precision check that distinguishes
+  # "any frontend pod" from "only osramp-archiver" on backend/postgres.
   require_evidence "${NETISO_JSON}" "${NETISO_HARNESS_LOG}" "probe-network-isolation.sh"
-  run jq -r '[.records[] | select(.id == "LAT-4" or .id == "LAT-5" or .id == "LAT-6") | .observed] | unique | .[]' "${NETISO_JSON}"
+  run jq -r '[.records[] | select(.id == "LAT-4" or .id == "LAT-6") | .observed] | unique | .[]' "${NETISO_JSON}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "blocked" ]
+}
+
+@test "network isolation: FIXED (SLAAT-P2-1) -- frontend's legitimate NATS egress (LAT-5) still works after remediation" {
+  # Proves the backend/frontend default-deny didn't also break the traffic
+  # the mission's own failure-mode list warns about ("breaking legitimate
+  # internal communication between frontend and backend pods").
+  require_evidence "${NETISO_JSON}" "${NETISO_HARNESS_LOG}" "probe-network-isolation.sh"
+  run jq -r '.records[] | select(.id == "LAT-5") | .observed' "${NETISO_JSON}"
   [ "$status" -eq 0 ]
   [ "$output" = "reachable" ]
 }
 
-@test "network isolation: FINDING — the gateway control-plane namespace's metrics port is reachable from an unprivileged tenant pod" {
+@test "network isolation: FIXED (SLAAT-P2-1) -- the gateway control-plane namespace's metrics port is no longer reachable from an unprivileged tenant pod" {
   require_evidence "${NETISO_JSON}" "${NETISO_HARNESS_LOG}" "probe-network-isolation.sh"
   run jq -r '.records[] | select(.id == "LAT-9") | .observed' "${NETISO_JSON}"
   [ "$status" -eq 0 ]
-  [ "$output" = "reachable" ]
+  [ "$output" = "blocked" ]
 }
 
-@test "network isolation: FINDING — backend, frontend, fe-k8s-afm, ingress, cpai and kagent carry no blanket default-deny" {
+@test "network isolation: FIXED (SLAAT-P2-1) -- backend and frontend now carry a blanket default-deny; ingress/kagent remain scoped by design" {
+  # backend and frontend got the full podSelector:{} Ingress+Egress
+  # default-deny pattern (same shape as inf-signalloom). ingress and kagent
+  # deliberately do NOT: both run controllers that watch the whole cluster
+  # via the k8s apiserver (envoy-gateway's Gateway-API watch,
+  # kagent-controller's WATCH_NAMESPACES=""), so SLAAT-P2-1 closed their
+  # demonstrated ingress-exposure findings (LAT-9 above; kagent-controller/
+  # kagent-ui/kagent-tools-metrics in
+  # d2-signalloom/infra/kagent/base/networkpolicy.yaml) WITHOUT touching
+  # Egress, rather than risk the card's own named hard-blocker ("permanent
+  # loss of ... API server connectivity"). cpai and fe-k8s-afm are untouched:
+  # single-pod namespaces outside this card's merge boundary
+  # (d2-cpai/d2-k8s-afm are neither d2-infra nor d2-signalloom/infra) --
+  # see docs/slaat/p2-1/network-microsegmentation-hardening-report.md.
   require_evidence "${NETISO_JSON}" "${NETISO_HARNESS_LOG}" "probe-network-isolation.sh"
   run jq -r '[.records[] | select(.priority == "tenant" and .severity == "fail") | .namespace] | sort | join(",")' "${NETISO_JSON}"
   [ "$status" -eq 0 ]
-  [ "$output" = "backend,cpai,fe-k8s-afm,frontend,ingress,kagent" ]
+  [ "$output" = "cpai,fe-k8s-afm,ingress,kagent" ]
 }
 
 @test "network isolation: postgresql control-plane exec check is informational, not a network-path proof" {
@@ -251,7 +286,7 @@ teardown_file() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 @test "findings manifest: ci-evidence/slaat-p1-1-network-findings.json was generated and is well-formed" {
-  [[ -s "${FINDINGS_JSON}" ]] || skip "no cluster '${CLUSTER_CONTEXT}' — findings manifest not regenerated this run"
+  [[ -s "${FINDINGS_JSON}" ]] || skip "no cluster '${CLUSTER_CONTEXT}' -- findings manifest not regenerated this run"
   run jq -e '.schema == "slaat-p1-1-network-findings/v1" and (.total_record_count > 0)' "${FINDINGS_JSON}"
   [ "$status" -eq 0 ]
 }

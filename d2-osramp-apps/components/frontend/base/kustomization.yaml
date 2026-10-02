@@ -8,3 +8,4 @@ resources:
   - archiver.yaml
   - listener.yaml
   - osramp-purl.yaml
+  - networkpolicy.yaml

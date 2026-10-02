@@ -809,7 +809,7 @@ run_stage \
      test/tetragon-telemetry-stream.bats test/wait-deadline.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
-     test/landlock-containment-probes.bats test/sfas-p1-2-nono-ingest.bats"
+     test/landlock-containment-probes.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists
@@ -1209,13 +1209,12 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/signalloom-autoclaim.bats"
 
 # Stage 7e: SFAS live dossier authorization and stun containment acceptance.
-# Same tier and same command as vm-pipeline.sh stage 7e; it needs the deployed
-# signal-ingest and dashboard, which this lane has at this point as much as
-# the CI lane does.
+# Same tier and same suites as vm-pipeline.sh stage 7e. Both need the deployed
+# estate: signal-ingest, the dashboard, and agent-nono-evidenced's pod logs.
 run_stage \
   "SFAS live dossier authorization and stun containment acceptance" \
   "stage7e-sfas-live.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sfas-live-acceptance.bats"
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sfas-live-acceptance.bats test/sfas-p1-2-nono-ingest.bats"
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════

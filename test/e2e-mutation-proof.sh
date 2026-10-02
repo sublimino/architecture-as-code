@@ -160,6 +160,17 @@ case "${ARGS}" in
       exit 0 ;;
 esac
 
+# ── Step 4: the evidence-reader key and the port-forward it reads through ───
+# Every signal-ingest route is authenticated (SLTM Phase 1), so the suite
+# reads observations with the kusari-scoped sldc-evidence-reader key through
+# a port-forward. The fake curl below checks the key before serving the feed.
+case "${ARGS}" in
+  *"get secret signal-ingest-key-sldc-evidence-reader"*)
+      [ "${MUT}" = "step4_reader_key_wrong" ] && { printf '%s' 'not-the-key' | base64 -w0; exit 0; }
+      printf '%s' "${SLDC_FAKE_READER_KEY}" | base64 -w0; exit 0 ;;
+  *port-forward*) exec sleep 60 ;;
+esac
+
 # ── Step 4: signal-ingest observations; emitting one arms the freeze ─────────
 case "${ARGS}" in
   *"get --raw"*observations*)
@@ -274,7 +285,25 @@ esac
 exit 0
 FAKE_DOCKER
 
-chmod +x "${WORK}/bin/kubectl" "${WORK}/bin/docker"
+cat >"${WORK}/bin/curl" <<'FAKE_CURL'
+#!/usr/bin/env bash
+# signal-ingest behind the port-forward: 401 unless the header FILE carries the
+# reader key, then the same observation feed the apiserver path used to serve.
+set -uo pipefail
+hdr="" url=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -H) case "$2" in @*) hdr="${2#@}" ;; esac; shift 2 ;;
+        -m|-o) shift 2 ;;
+        http*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+case "${url}" in */api/v1/observations*) ;; *) exit 0 ;; esac
+[ -n "${hdr}" ] && grep -qxF "Authorization: Bearer ${SLDC_FAKE_READER_KEY}" "${hdr}" || exit 22
+exec kubectl get --raw "/api/v1/namespaces/fe-signalloom/services/signal-ingest:8082/proxy${url#http://127.0.0.1:*/}"
+FAKE_CURL
+chmod +x "${WORK}/bin/kubectl" "${WORK}/bin/docker" "${WORK}/bin/curl"
 
 # The suite calls `python3 scripts/derive_tenant_hash.py` in Step 2; that is the
 # real, already-verified generator (SLDC-P3-1) and is left unfaked.
@@ -294,6 +323,7 @@ run_suite() {
         TERM=dumb LC_ALL=C.UTF-8 \
         MUT="${mut}" \
         SLDC_FAKE_STATE="${state}" \
+        SLDC_FAKE_READER_KEY="sldc-evidence-reader-fixture-key-0123456789abcdef" \
         SLDC_KUBECTL=kubectl SLDC_DOCKER=docker \
         DB_CONTEXT=kind-signalloom-hub \
         EVIDENCE_DIR="${ev}" \
@@ -340,6 +370,7 @@ MUTATIONS=(
   "step4_not_sensitive|4|an openat of a non-sensitive path is not accepted as the provocation"
   "step4_stale_timestamp|4|an observation outside the correlation window is rejected"
   "step4_wrong_tenant|4|an observation bound to the wrong tenant is rejected"
+  "step4_reader_key_wrong|4|signal-ingest refuses a read without the evidence-reader key (Step 4 must not pass unauthenticated)"
   "step4_legacy_typo|4|an observation carrying kurasi fails closed"
   "step5_freeze_disabled|5|disabling the cgroup freeze makes Step 5 fail"
   "step5_restart_h1_breach|5|restartCount=1 during the forensic window fails (Option H1)"

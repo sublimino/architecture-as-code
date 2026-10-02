@@ -23,8 +23,11 @@
 #    would therefore read as "the mutation survived" and falsely acquit a
 #    working guard. Every case asserts its pattern selects at least one test
 #    BEFORE mutating.
-#  * A killed harness leaves the repository mutated. An EXIT/INT/TERM trap
-#    restores every touched file, and the run ends by verifying each file's
+#  * A killed harness leaves the repository mutated. The shared rail
+#    (test/helpers/mutation-sentinel.bash) arms a sentinel before each mutation,
+#    so even a SIGKILL leaves a marker and the next run refuses until the tree
+#    is checked. The EXIT trap restores and verifies every guarded file without
+#    rewriting this proof's verdict, and the run ends by verifying each file's
 #    checksum matches what it was at start.
 #  * A sed that matches nothing is a silent no-op that looks like a successful
 #    mutation. Every mutation asserts the file actually changed.
@@ -38,11 +41,11 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ING="${REPO_ROOT}/d2-signalloom/apps/signal-ingest"
-BACKUP_DIR="$(mktemp -d)"
 
-# Files this harness is permitted to mutate, keyed by a short label. Backups are
-# keyed by LABEL, not by basename: three different packages here contain a file
-# called erasure.go, and a basename-keyed backup would restore one over another.
+# Files this harness is permitted to mutate, keyed by a short label. The rail
+# backs them up by repository-relative path, never by basename: three different
+# packages here contain a file called erasure.go, and a basename-keyed backup
+# would restore one over another.
 declare -A TARGETS=(
   [erasure]="${ING}/privacy/erasure.go"
   [hold]="${ING}/privacy/hold.go"
@@ -54,15 +57,19 @@ declare -A TARGETS=(
 
 declare -A ORIGINAL_SUM=()
 
-restore_all() {
-  local label
-  for label in "${!TARGETS[@]}"; do
-    if [[ -f "${BACKUP_DIR}/${label}" ]]; then
-      cp -p "${BACKUP_DIR}/${label}" "${TARGETS[$label]}"
-    fi
-  done
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
+ms_guard_init erasure-legal-hold "${TARGETS[@]}"
+trap ms_guard_on_exit EXIT
+# A signal must take the EXIT path, so the rail restores and verifies.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# restore_case puts every guarded file back and verifies content and mode. It
+# clears the sentinel only when that verification passes.
+restore_case() {
+  ms_guard_restore || { echo "   ✗ restore FAILED verification — sentinel kept; the tree is NOT clean" >&2; exit 1; }
 }
-trap 'restore_all; rm -rf "${BACKUP_DIR}"' EXIT INT TERM
 
 gotest() {
   ( cd "${ING}" && env GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" \
@@ -80,7 +87,6 @@ CASE_NUM=0
 for label in "${!TARGETS[@]}"; do
   path="${TARGETS[$label]}"
   [[ -f "$path" ]] || { echo "FATAL: target ${label} missing at ${path}" >&2; exit 1; }
-  cp -p "$path" "${BACKUP_DIR}/${label}"
   ORIGINAL_SUM[$label]="$(sha256sum "$path" | cut -d' ' -f1)"
 done
 
@@ -118,11 +124,12 @@ run_case() {
 
   local before after
   before="$(sha256sum "$path" | cut -d' ' -f1)"
+  ms_guard_arm "case ${CASE_NUM}: ${desc}"
   perl -0pi -e "${expr}" "$path"
   after="$(sha256sum "$path" | cut -d' ' -f1)"
   if [[ "$before" == "$after" ]]; then
     echo "   ✗ mutation did not change ${path##*/} — the pattern matched nothing (silent no-op)"
-    cp -p "${BACKUP_DIR}/${label}" "$path"
+    restore_case
     FAIL=$((FAIL + 1))
     return
   fi
@@ -145,7 +152,7 @@ run_case() {
     echo "   ⚠ INCONCLUSIVE — the mutation broke the build, so the test never ran"
     echo "     $(grep -m1 -E 'declared and not used|imported and not used|undefined:|build failed' <<<"$out" | sed 's/^[[:space:]]*//')"
     FAIL=$((FAIL + 1))
-    cp -p "${BACKUP_DIR}/${label}" "$path"
+    restore_case
     return
   fi
 
@@ -159,7 +166,7 @@ run_case() {
     FAIL=$((FAIL + 1))
   fi
 
-  cp -p "${BACKUP_DIR}/${label}" "$path"
+  restore_case
   if ! gotest "${pkg}" -run "${pattern}" -count=1 >/dev/null 2>&1; then
     echo "   ✗ the suite did NOT return to green after restore — the harness has corrupted the tree"
     FAIL=$((FAIL + 1))

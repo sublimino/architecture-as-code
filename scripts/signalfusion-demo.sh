@@ -634,9 +634,11 @@ run_all() {
   ok "full Signal Fusion demo complete"
 }
 
-case "${1:-}" in
-  1|2|3|all) load_ingest_key ;;
-esac
+# Before the dispatch (not a second case block: the runner contract test reads
+# the first `case "${1:-}"` as the act list).
+if [[ "${1:-}" =~ ^(1|2|3|all)$ ]]; then
+  load_ingest_key
+fi
 
 case "${1:-}" in
   1) demo_1 ;;

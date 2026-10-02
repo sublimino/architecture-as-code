@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
@@ -454,5 +455,85 @@ func TestRiskNeedsCrossTenantRead(t *testing.T) {
 		if w := serve(router, bearerRequest(http.MethodGet, path, crossToken)); w.Code == http.StatusForbidden {
 			t.Errorf("cross-tenant GET %s refused: %s", path, w.Body.String())
 		}
+	}
+}
+
+// An actor's tenancy is re-derived from its evidence on every read, never cached: the moment a
+// cross-tenant observation is correlated into tenant A's actor, the actor is mixed, and tenant A's
+// next read answers 404 (and stops counting it) exactly as for an actor that does not exist.
+func TestActorBecomingMixedDisappearsFromTheTenantsNextRead(t *testing.T) {
+	delegate, _, _ := testJWTDelegate(t)
+	a, err := NewStaticKeyAuthenticator([]StaticBearerConfig{{Name: "reader-a", Token: tenantAToken, Subject: "static-key/reader-a",
+		TenantID: "tenant-a", ActorIDs: []string{"*"}, ExpiresAt: time.Now().Add(24 * time.Hour),
+		Permissions: []Permission{PermissionActorList, PermissionActorRead, PermissionAnalysisRead}}}, delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aw := audit.NewFakeWriter()
+	h, _ := newTestHandlersWithAudit(t, aw)
+	// A verifier that trusts the collector, so one SPIFFE identity seen in two observations merges
+	// into one actor (the production identity-merge path).
+	eng, err := correlation.NewEngineWithOptionsAndVerifier(h.Store, correlation.NewMemoryResolverStore(),
+		correlation.ResolverOptions{}, correlation.TrustedCollectorAdapter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Engine = eng
+	router, err := NewProtectedRouter(h, a, aw, http.NotFoundHandler(), RouterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spiffe := "spiffe://osramp.local/ns/kusari/sa/agent"
+	observe := func(id, tenant string) string {
+		t.Helper()
+		o := model.Observation{ID: id, Timestamp: time.Now().UTC(), Layer: model.LayerIdentityAuth, Fidelity: model.FidelityStrong,
+			Source: "spire-agent", ActorHint: spiffe, PrincipalID: "system:serviceaccount:kusari:agent", Confidence: 0.9, RawEvidenceRef: "r",
+			Labels: map[string]string{"event_type": "spire_svid_issuance", "spiffe_id": spiffe,
+				"sa_principal": "system:serviceaccount:kusari:agent", ObservationTenantLabel: tenant}}
+		if err := h.Store.Append(context.Background(), []model.Observation{o}); err != nil {
+			t.Fatal(err)
+		}
+		actor, err := h.Engine.Resolve(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return actor.ID
+	}
+
+	// Read by list, stats and the estate authorization listing: this actor's ID is SPIFFE-derived
+	// and contains "//", which ProtectedRouter refuses as a noncanonical path on the {id} routes
+	// (a pre-existing limit, reported separately), so the by-ID read is exercised elsewhere.
+	listed := func() []string {
+		var actors []model.ProvisionalActor
+		getJSON(t, router, tenantAToken, "/api/v1/actors", http.StatusOK, &actors)
+		var ids []string
+		for _, x := range actors {
+			ids = append(ids, x.ID)
+		}
+		return ids
+	}
+	id := observe("own-1", "tenant-a")
+	if got := listed(); len(got) != 1 || got[0] != id {
+		t.Fatalf("before: tenant-a lists %v, want [%s]", got, id)
+	}
+	var stats StoreStatsResponse
+	getJSON(t, router, tenantAToken, "/api/v1/store/stats", http.StatusOK, &stats)
+	if stats.ActorCount != 1 {
+		t.Fatalf("before: tenant-a counts %d actors, want 1", stats.ActorCount)
+	}
+
+	if merged := observe("foreign-1", "tenant-b"); merged != id {
+		t.Fatalf("fixture did not merge: %s vs %s", merged, id)
+	}
+	if got := listed(); len(got) != 0 {
+		t.Fatalf("tenant-a still lists %v after its actor became mixed", got)
+	}
+	if body := getJSON(t, router, tenantAToken, "/api/v1/authorization", http.StatusOK, nil); strings.Contains(body, "spiffe://osramp.local/ns/kusari/sa/agent") {
+		t.Fatalf("tenant-a's estate listing still carries the mixed actor: %s", body)
+	}
+	getJSON(t, router, tenantAToken, "/api/v1/store/stats", http.StatusOK, &stats)
+	if stats.ActorCount != 0 || stats.TotalObservations != 1 {
+		t.Fatalf("after: tenant-a stats %d actors / %d observations, want 0 / 1", stats.ActorCount, stats.TotalObservations)
 	}
 }

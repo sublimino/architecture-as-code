@@ -1,0 +1,145 @@
+{
+  "mission": "SLAAT",
+  "phase": "P1",
+  "card": "SLAAT-P1-3",
+  "title": "SPIFFE Identity & OpenBao JWT Privilege Escalation Probing",
+  "target": "d2-agent-trust, d2-signalloom/infra/inf-bao (live kind-osramp cluster)",
+  "generated_by": "scripts/probe-spiffe-privilege-escalation.sh + test/spiffe-identity-probes.sh + scripts/probe-openbao-acls.sh + test/{spiffe-openbao-adversarial,openbao-security-probes}.bats",
+  "raw_evidence": [
+    "ci-evidence/slaat-p1-3-live-probe-records.json",
+    "ci-evidence/slaat-p1-3-acl-audit-evidence.json"
+  ],
+  "summary": {
+    "live_probes_run": 34,
+    "live_probes_passed": 23,
+    "live_probes_failed": 11,
+    "live_probes_failed_note": "11 raw fail-severity records resolve to 6 distinct findings: F1 is confirmed twice (SPIFFE-3 dynamic login + TTL-signalloom-cardvault-agent static read, plus TTL-signalloom-fe-signalloom on a second role); F2 is SPIFFE-12; F3's 2 in-scope gaps are ACL-GAP-5/6 plus the ACL-GAP-SUMMARY rollup row, which restates the same 6 gaps (2 in-scope + 4 out-of-scope) rather than adding a 7th.",
+    "unauthorized_role_logins_succeeded": 0,
+    "cross_tenant_kv_reads_succeeded": 0,
+    "forged_identity_attestation_succeeded": 0,
+    "signature_forgery_accepted": false,
+    "alg_none_forgery_accepted": false,
+    "token_ttl_violations_found": 2,
+    "delegation_gaps_in_scope": 2,
+    "delegation_gaps_out_of_scope_noted": 4
+  },
+  "findings": [
+    {
+      "id": "SLAAT-P1-3-F1",
+      "title": "signalloom-cardvault-agent and signalloom-fe-signalloom JWT roles issue 768h (32-day) tokens, not the mission's 5-minute hard cap",
+      "severity": "CRITICAL",
+      "status": "confirmed",
+      "exploitable_today": true,
+      "component": "d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml (role signalloom-cardvault-agent), d2-signalloom/infra/inf-bao/configs/base/openbao-bootstrap.yaml (role signalloom-fe-signalloom)",
+      "description": "Both roles define no token_ttl/token_max_ttl, so they inherit the auth/jwt mount's default_lease_ttl=768h (confirmed via `bao read -format=json sys/auth/jwt/tune` -> default_lease_ttl=2764800s). A live login against signalloom-cardvault-agent with a real, correctly-audienced JWT-SVID returned token_duration=768h, token_renewable=true, token_type=default (service token). This directly contradicts the mission's stated invariant that 'Maximum token TTL for agent credentials is hard-capped at 5 minutes to prevent replay vulnerabilities.' The correctly-configured sibling roles (agent-trust-planner, agent-trust-triage, signalloom-agent-generic) all explicitly set token_ttl=5m/token_max_ttl=5m/token_type=batch, proving the architecture knows how to do this -- these two roles are a regression, not a design limitation. Blast radius is partially contained: live probing (SPIFFE-4 through SPIFFE-9) confirmed the issued token's POLICY still correctly restricts it to its own KV path and denies cross-tenant reads and admin-surface access, so this is a replay-window/revocation-latency exposure (a captured token stays valid for 32 days and is renewable) rather than a privilege-escalation path by itself.",
+      "evidence": [
+        "ci-evidence/slaat-p1-3-live-probe-records.json records SPIFFE-3, TTL-signalloom-cardvault-agent, TTL-signalloom-fe-signalloom",
+        "Live: `bao write auth/jwt/login role=signalloom-cardvault-agent jwt=<real SVID>` -> token_duration=768h, token_renewable=true",
+        "Live: `bao read -format=json auth/jwt/role/signalloom-cardvault-agent` -> token_ttl=0, token_max_ttl=0",
+        "Live: `bao read -format=json sys/auth/jwt/tune` -> default_lease_ttl=2764800 (768h)",
+        "Positive control: `bao read auth/jwt/role/agent-trust-planner` -> token_ttl=5m, token_max_ttl=5m, token_type=batch"
+      ],
+      "remediation": "Add token_ttl=5m, token_max_ttl=5m, token_type=batch to both roles, matching the agent-trust-planner/triage pattern.",
+      "remediation_phase": "SLAAT-P2-3"
+    },
+    {
+      "id": "SLAAT-P1-3-F2",
+      "title": "signalloom-agent-generic role's bound_claims glob is non-functional (missing bound_claims_type=glob), permanently denying all 18 registered fleet agents",
+      "severity": "MEDIUM (fails closed -- availability/correctness defect, not an active bypass)",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml",
+      "description": "The role's bound_claims is {\"sub\": \"spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/*\"} with no bound_claims_type field, so OpenBao defaults to bound_claims_type=string -- the trailing '*' is compared as a LITERAL character, never a wildcard. No real SPIFFE sub can ever match a literal trailing asterisk, so EVERY login attempt against this role fails with 'claim \"sub\" does not match any associated bound claim values', regardless of audience correctness. Live-confirmed with a real, correctly-registered, correctly-audienced SVID (agent-cardvault, aud=openbao-supercredential): still rejected on the claim-match step. This is the exact bug class already fixed elsewhere in this same codebase -- d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml's comment block (PF-3) explicitly documents 'bound_claims_type \"glob\" is load-bearing. OpenBao's default is \"string\" ... This mutation test proves this on a live OpenBao' for the signalloom-cardvault-agent and osramp.local agent-cardvault roles -- but the fix was never back-ported to this generic role. Net effect: the fleet-wide 'one role scales to every agent via identity templating' mechanism the file's own comments describe has never worked for any of the 18 registered fe-signalloom-agents/sa/* identities (cpai-engineer, swarm-governor, every kagent-* analyst, etc.). It fails CLOSED, so this is not itself an escalation path, but it means none of those agents can obtain the templated least-privilege KV grant this role exists to provide.",
+      "evidence": [
+        "ci-evidence/slaat-p1-3-live-probe-records.json record SPIFFE-12",
+        "Live: `bao read auth/jwt/role/signalloom-agent-generic` -> bound_claims_type=string (not glob)",
+        "Live: `bao write auth/jwt/login role=signalloom-agent-generic jwt=<real agent-cardvault SVID, aud=openbao-supercredential>` -> 400 'claim \"sub\" does not match any associated bound claim values'",
+        "Precedent: d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml lines 87-95 document the identical bug already found and fixed on two other roles"
+      ],
+      "remediation": "Add \"bound_claims_type\": \"glob\" to the role write in openbao-agent-generic-role.yaml, matching the PF-3 fix already applied to signalloom-cardvault-agent and the osramp.local agent-cardvault role.",
+      "remediation_phase": "SLAAT-P2-3"
+    },
+    {
+      "id": "SLAAT-P1-3-F3",
+      "title": "Two of four live SPIRE-registered agent-trust tenant identities have no corresponding OpenBao JWT role (delegation gap)",
+      "severity": "LOW (availability gap, not a privilege-escalation path)",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "d2-agent-trust/contracts/openbao-role-intent.sh, d2-agent-trust/contracts/spire-registrations.v1.json",
+      "description": "spire-registrations.v1.json registers four agent-trust identities (acme/payments/planner, acme/payments/triage, acme/risk/risk-reader, northstar/investigations/investigator), all with live SPIRE registration entries on the cluster today. openbao-role-intent.sh only provisions a policy and roles for acme/payments (planner, triage) -- risk-reader and investigator have valid, attestable SPIFFE identities but no auth/jwt role anywhere binds their sub claim, so they have no path to an OpenBao credential at all. This is the inverse of a privilege-escalation risk (under-provisioning, not over-provisioning) but is exactly the kind of 'delegation gap' the card's Objective asks this audit to catalog. The probe also surfaced four spiffe://signalloom.demo/ns/eap-*/sa/tenant-app identities in the same unmatched state; those belong to the unrelated EAPR mission (see EAPR-P2-1), which provisions its own non-OpenBao auth path, so they are noted for completeness and explicitly NOT scored as a SLAAT finding (see test/openbao-security-probes.bats, 'delegation gap scope note').",
+      "evidence": [
+        "ci-evidence/slaat-p1-3-acl-audit-evidence.json records ACL-GAP-5, ACL-GAP-6 (in scope); ACL-GAP-1..4 (eap-*, out of scope, noted)",
+        "Live: `spire-server entry show` lists all four agent-trust SPIFFE IDs with k8s selectors; `bao list auth/jwt/role` lists only agent-trust-planner and agent-trust-triage",
+        "d2-agent-trust/contracts/openbao-role-intent.sh hardcodes only the payments tenant/project pair"
+      ],
+      "remediation": "Extend openbao-role-intent.sh (or its equivalent live bootstrap path) to provision a policy + role pair for acme/risk/risk-reader and northstar/investigations/investigator, following the existing planner/triage pattern.",
+      "remediation_phase": "SLAAT-P2-3"
+    },
+    {
+      "id": "SLAAT-P1-3-F4",
+      "title": "SPIRE agent configured with insecure_bootstrap=true and skip_kubelet_verification=true",
+      "severity": "LOW (demo-appropriate; flag before any path toward production)",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml (ConfigMap spire-agent-config)",
+      "description": "insecure_bootstrap=true means the SPIRE agent does not verify the SPIRE server's TLS certificate on its first join -- an attacker positioned on the node-to-server path at bootstrap time could potentially impersonate the server. skip_kubelet_verification=true on the k8s WorkloadAttestor plugin means the agent does not verify the kubelet's TLS certificate when querying pod metadata for attestation -- a MITM on the agent-to-kubelet path could potentially return forged pod metadata, shifting an attested identity to a different namespace/SA/label set. Neither was exploited live in this probe (both require a network position this engagement's scope does not grant), and both are named, well-understood SPIRE hardening knobs appropriate for a local kind demo. Recorded as a hardening item, not an active finding.",
+      "evidence": [
+        "d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml: agent.conf sets insecure_bootstrap=true; WorkloadAttestor \"k8s\" plugin_data sets skip_kubelet_verification=true"
+      ],
+      "remediation": "Before any non-local deployment: set insecure_bootstrap=false with a pinned server bundle for initial trust, and skip_kubelet_verification=false with kubelet_ca_path configured.",
+      "remediation_phase": "SLAAT-P2-3"
+    },
+    {
+      "id": "SLAAT-P1-3-F5",
+      "title": "agent-cardvault's Workload API socket is mounted via raw hostPath rather than the documented spiffe-csi-driver ephemeral volume",
+      "severity": "INFO",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "d2-signalloom (live Deployment agent-cardvault, fe-signalloom-agents namespace)",
+      "description": "d2-agent-trust/AGENTS.md documents spiffe-csi-driver as the standard mechanism for wiring the SPIRE Workload API socket into a pod. The live agent-cardvault pod instead mounts /run/spire/sockets as a plain hostPath Directory volume. Because SPIRE's k8s WorkloadAttestor identifies the calling workload by PID -> container -> pod lookup (not by how the socket was mounted), this alone does not let the pod obtain any identity other than its own attested one -- confirmed live (IDENT-2, IDENT-3: co-location and partial selector matches were both denied). It does widen the PodSecurity/admission exposure surface relative to the CSI-scoped design the documentation describes, and is worth reconciling for consistency.",
+      "evidence": [
+        "kubectl get pod agent-cardvault-* -o json: spec.volumes[].hostPath.path == /run/spire/sockets",
+        "d2-agent-trust/AGENTS.md documents spiffe-csi-driver as the standard mechanism",
+        "ci-evidence/slaat-p1-3-live-probe-records.json records IDENT-2, IDENT-3 (pass -- confirms no independent exploitability from the mount shape alone)"
+      ],
+      "remediation": "Migrate agent-cardvault's Workload API mount to the spiffe-csi-driver ephemeral CSI volume for consistency with the documented pattern used elsewhere in the fleet.",
+      "remediation_phase": "SLAAT-P2-3"
+    },
+    {
+      "id": "SLAAT-P1-3-F6",
+      "title": "Static root token (signalloom-demo-root-token) is hardcoded across multiple live ConfigMaps/Jobs",
+      "severity": "INFO (accepted, pre-existing demo convention)",
+      "status": "confirmed",
+      "exploitable_today": false,
+      "component": "d2-signalloom/infra/inf-bao/configs/base/*.yaml, d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml",
+      "description": "The literal string 'signalloom-demo-root-token' is used as BAO_TOKEN in at least four bootstrap Jobs and this probe's own exec sessions. This is a known, pre-existing, cluster-wide-blast-radius credential with no rotation or lease. It is explicitly a demo convention (named 'demo' in-place) and this audit does not treat it as a new discovery, but it is recorded here per the Objective's request to document all policy risks, and should be the first thing closed before any path toward a shared or production environment.",
+      "evidence": [
+        "grep -rn 'signalloom-demo-root-token' d2-signalloom/infra/inf-bao -> 4+ occurrences across ConfigMaps/Jobs"
+      ],
+      "remediation": "Replace the static root token with a short-lived, auto-unseal-derived admin credential or a dedicated bootstrap AppRole, scoped to setup-time only.",
+      "remediation_phase": "SLAAT-P2-3"
+    }
+  ],
+  "verified_boundaries": [
+    {
+      "id": "SLAAT-P1-3-B1",
+      "title": "SPIRE Workload API correctly denies attestation to unregistered and partially-matching workloads",
+      "evidence": "SPIFFE-1, IDENT-1, IDENT-2, IDENT-3 all pass: an unregistered ServiceAccount co-located with the right namespace and pod-label is denied ('no identity issued'); a registered ServiceAccount missing the required pod-label is also denied, confirming registration-entry selectors are AND-ed, not OR-ed; no live entry relies on a namespace-only selector."
+    },
+    {
+      "id": "SLAAT-P1-3-B2",
+      "title": "OpenBao's JWT auth backend correctly rejects cross-identity, cross-audience, tampered, and alg:none-forged tokens",
+      "evidence": "SPIFFE-10 (wrong sub -> 'invalid subject (sub) claim'), SPIFFE-11 (wrong audience -> 'invalid audience (aud) claim'), SPIFFE-13 (tampered signature -> 'failed to verify id token signature'), SPIFFE-14 (alg:none forgery -> same signature-verification rejection). Signature validation is anchored to SPIRE's live JWKS (jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys for the fe-signalloom mount), not a static or offline key set."
+    },
+    {
+      "id": "SLAAT-P1-3-B3",
+      "title": "Once authenticated, an issued token cannot read cross-tenant KV paths or reach any admin surface",
+      "evidence": "SPIFFE-4 through SPIFFE-9 all pass: the token issued to agent-cardvault reads its own path (200) and is denied (403) on fe-signalloom's secret, another agent's templated path, the agent-trust acme/payments secret, its own role definition, and sys/mounts. The F1 TTL defect is therefore a replay-window exposure, not a privilege-escalation path -- the policy boundary around the long-lived token still holds."
+    },
+    {
+      "id": "SLAAT-P1-3-B4",
+      "title": "Every live OpenBao policy is scoped to a single tenant/agent/identity-templated subtree",
+      "evidence": "ACL-POLICY-* records (probe-openbao-acls.sh pass 1): no policy grants a bare top-level kv/data/<x> catch-all, a cross-tenant wildcard, or any sys/*|auth/* admin-surface path. signalloom-agent-templated correctly uses OpenBao identity-templating ({{identity.entity.aliases.auth_jwt.metadata.sub}}) rather than a static broad path -- it simply cannot be exercised today because of F2."
+    }
+  ]
+}

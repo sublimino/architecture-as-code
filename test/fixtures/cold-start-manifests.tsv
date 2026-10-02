@@ -10,6 +10,6 @@ spire-server	StatefulSet	d2-agent-trust/spire-federation-config.yaml	ghcr.io/spi
 spire-agent	Deployment	d2-agent-trust/spire-federation-config.yaml	ghcr.io/spiffe/spire-agent:1.11.1	true
 stun-sentinel	DaemonSet	d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml	ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:src-27c26db6073c	true
 kusari-agent	Deployment	d2-signalloom/infra/agent-swarm/kusari-agent/deployment.yaml	kusari-agent:latest	true
-signal-ingest	Deployment	d2-signalloom/apps/signal-ingest/base/deployment.yaml	signal-ingest:local	true
+signal-ingest	Deployment	d2-signalloom/apps/signal-ingest/base/deployment.yaml	${IMAGE_BASE}/signalloom/apps/signal-ingest:src-	true
 fe-signalloom	Deployment	d2-signalloom/apps/fe-signalloom/base/deployment.yaml	${IMAGE_BASE}/signalloom/apps/fe-signalloom:${ARTIFACT_TAG}	true
 dashboard-signalloom	Deployment	d2-signalloom/apps/fe-signalloom/base/dashboard-deployment.yaml	${IMAGE_BASE}/signalloom/apps/dashboard-signalloom:${ARTIFACT_TAG}	true

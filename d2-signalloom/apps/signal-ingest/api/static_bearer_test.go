@@ -35,6 +35,7 @@ const testStaticSubject = "static-bearer/stun-sentinel-correlator"
 
 func testStaticConfig() StaticBearerConfig {
 	return StaticBearerConfig{
+		Name:        "stun-sentinel",
 		Token:       testSentinelToken,
 		Subject:     testStaticSubject,
 		TenantID:    "kusari",
@@ -77,40 +78,6 @@ func bearerRequest(method, target, token string) *http.Request {
 	return r
 }
 
-// clearStaticBearerEnv blanks every static-bearer variable so a test starts
-// from the shipped default (feature absent). An empty value and an unset
-// variable are the same thing to the loader, which is itself asserted by
-// TestStaticBearerAbsentFromEnvYieldsNoConfig.
-func clearStaticBearerEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{
-		"SIGNAL_AUTH_STATIC_BEARER_TOKEN",
-		"SIGNAL_AUTH_STATIC_BEARER_SUBJECT",
-		"SIGNAL_AUTH_STATIC_BEARER_TENANT",
-		"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS",
-		"SIGNAL_AUTH_STATIC_BEARER_ACTORS",
-		"SIGNAL_AUTH_STATIC_BEARER_EXPIRES",
-	} {
-		t.Setenv(k, "")
-	}
-}
-
-// --- Off by default -------------------------------------------------------
-
-// TestStaticBearerAbsentFromEnvYieldsNoConfig proves the opt-in: with none of
-// the variables set, the loader reports "no static bearer" rather than an
-// error and rather than a permissive default.
-func TestStaticBearerAbsentFromEnvYieldsNoConfig(t *testing.T) {
-	clearStaticBearerEnv(t)
-	cfg, err := StaticBearerConfigFromEnv()
-	if err != nil {
-		t.Fatalf("absent static bearer config must not be an error: %v", err)
-	}
-	if cfg != nil {
-		t.Fatalf("absent static bearer config must yield nil, got %+v", cfg)
-	}
-}
-
 // TestStaticBearerOffByDefaultIsStill401 proves behaviour is byte-identical to
 // today when the feature is not configured: the correlator's static token is
 // rejected by the bare JWT authenticator with 401 and the generic body.
@@ -130,88 +97,6 @@ func TestStaticBearerOffByDefaultIsStill401(t *testing.T) {
 	assertNoTokenLeak(t, aw, w.Body.String())
 }
 
-// --- Explicit opt-in: hard startup refusals -------------------------------
-
-// TestStaticBearerConfigFromEnvRefusesPartialConfig proves a partially
-// configured credential is a startup refusal, never a silent accept-anything.
-func TestStaticBearerConfigFromEnvRefusesPartialConfig(t *testing.T) {
-	full := map[string]string{
-		"SIGNAL_AUTH_STATIC_BEARER_TOKEN":       testSentinelToken,
-		"SIGNAL_AUTH_STATIC_BEARER_SUBJECT":     testStaticSubject,
-		"SIGNAL_AUTH_STATIC_BEARER_TENANT":      "kusari",
-		"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "observations:write,collectors:write",
-		"SIGNAL_AUTH_STATIC_BEARER_EXPIRES":     StaticBearerSunset,
-	}
-	tests := []struct {
-		name     string
-		override map[string]string
-	}{
-		{"no subject", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_SUBJECT": ""}},
-		{"no tenant", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TENANT": ""}},
-		{"no permissions", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": ""}},
-		{"no expiry", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_EXPIRES": ""}},
-		{"empty token with a principal named", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": ""}},
-		{"whitespace token", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": "        \t   "}},
-		{"token too short to resist guessing", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": "short"}},
-		{"token one byte under the 32-byte contract", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": strings.Repeat("k", 31)}},
-		{"the retired public correlator literal", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_TOKEN": retiredPublicToken}},
-		{"unknown permission", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "telemetry:write"}},
-		{"one unknown permission among known ones", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS": "observations:write,violations:publish"}},
-		{"expiry not a date", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_EXPIRES": "soon"}},
-		{"subject impersonating a SPIFFE ID", map[string]string{"SIGNAL_AUTH_STATIC_BEARER_SUBJECT": "spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			clearStaticBearerEnv(t)
-			for k, v := range full {
-				t.Setenv(k, v)
-			}
-			for k, v := range tc.override {
-				t.Setenv(k, v)
-			}
-			cfg, err := StaticBearerConfigFromEnv()
-			if err == nil {
-				t.Fatalf("partial static bearer config accepted: %+v", cfg)
-			}
-			if cfg != nil {
-				t.Fatalf("refused config must be nil, got %+v", cfg)
-			}
-			if strings.Contains(err.Error(), testSentinelToken) {
-				t.Fatalf("refusal error leaks the token: %v", err)
-			}
-		})
-	}
-}
-
-// TestStaticBearerConfigFromEnvLoadsCompleteConfig pins the happy path of the
-// loader, including the permission and actor list parsing.
-func TestStaticBearerConfigFromEnvLoadsCompleteConfig(t *testing.T) {
-	clearStaticBearerEnv(t)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TOKEN", testSentinelToken)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_SUBJECT", testStaticSubject)
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_TENANT", "kusari")
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_PERMISSIONS", " observations:write , collectors:write ")
-	t.Setenv("SIGNAL_AUTH_STATIC_BEARER_EXPIRES", StaticBearerSunset)
-
-	cfg, err := StaticBearerConfigFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg == nil {
-		t.Fatal("complete static bearer config not loaded")
-	}
-	if cfg.Token != testSentinelToken || cfg.Subject != testStaticSubject || cfg.TenantID != "kusari" {
-		t.Fatalf("loaded config mismatch: subject=%q tenant=%q", cfg.Subject, cfg.TenantID)
-	}
-	want := []Permission{PermissionObservationWrite, PermissionCollectorWrite}
-	if fmt.Sprint(cfg.Permissions) != fmt.Sprint(want) {
-		t.Fatalf("permissions = %v, want %v", cfg.Permissions, want)
-	}
-	if !cfg.ExpiresAt.Equal(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("expiry = %s, want %s", cfg.ExpiresAt, StaticBearerSunset)
-	}
-}
-
 // TestNewStaticBearerAuthenticatorRefusesInvalidConfig covers the constructor
 // directly, so a programmatic caller cannot bypass the env loader's gates.
 func TestNewStaticBearerAuthenticatorRefusesInvalidConfig(t *testing.T) {
@@ -225,6 +110,9 @@ func TestNewStaticBearerAuthenticatorRefusesInvalidConfig(t *testing.T) {
 		{name: "empty token", mutate: func(c *StaticBearerConfig) { c.Token = "" }},
 		{name: "short token", mutate: func(c *StaticBearerConfig) { c.Token = "abc" }},
 		{name: "31-byte token", mutate: func(c *StaticBearerConfig) { c.Token = strings.Repeat("k", 31) }}, {name: "no subject", mutate: func(c *StaticBearerConfig) { c.Subject = "" }},
+		{name: "no name", mutate: func(c *StaticBearerConfig) { c.Name = "" }},
+		{name: "name with a path separator", mutate: func(c *StaticBearerConfig) { c.Name = "../stun-sentinel" }},
+		{name: "upper-case name", mutate: func(c *StaticBearerConfig) { c.Name = "Stun-Sentinel" }},
 		{name: "no tenant", mutate: func(c *StaticBearerConfig) { c.TenantID = "" }},
 		{name: "no permissions", mutate: func(c *StaticBearerConfig) { c.Permissions = nil }},
 		{name: "unknown permission", mutate: func(c *StaticBearerConfig) {

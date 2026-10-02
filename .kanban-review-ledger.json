@@ -47,6 +47,26 @@
     "verdict": "APPROVED",
     "reason": "CRKC-P3-2 verified: Rule SP-1 worktree Landlock confinement, nono profile, bin/agent-git wrapper, 21/21 probe harness pass, 36/36 BATS pass, runbook documented (commit 6aae8672)"
   },
+  "23160": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "23160",
+        "reviewed_at": "2026-10-02T07:02:56.772Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "Manual review verified"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "23160",
+    "reviewed_at": "2026-10-02T07:02:56.772Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Manual review verified"
+  },
   "24612": {
     "task_id": "24612",
     "reviewed_at": "2026-09-05T21:25:20Z",

@@ -153,8 +153,12 @@ async def get_compliance_summary(
 
 @router.post("/api/v1/compliance/posture/calculate")
 @router.post("/v1/compliance/posture/calculate")
-async def calculate_posture(request: Request) -> Response:
+async def calculate_posture(
+    request: Request,
+    tenant_id: str = Depends(authenticated_tenant),
+) -> Response:
     """Calculate posture score with strict [0.0, 100.0] bounds and double-scaling prevention."""
+    del tenant_id  # auth gate only; this computation reads no tenant-owned data
     try:
         body = await request.json()
     except Exception as exc:

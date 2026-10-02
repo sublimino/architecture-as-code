@@ -332,7 +332,19 @@ def test_connector_toggle_is_isolated_per_tenant_despite_identical_connector_ids
     assert alice_status_after == alice_status_before, "bob's toggle leaked into alice's tenant-scoped connector state"
 
 
+def _seed_agent(tenant: str, agent_id: str) -> None:
+    """A fixture-store agent for ``tenant``. A transition no longer synthesises
+    an agent it cannot find, so the record has to exist first."""
+    api_compat._ensure_seeded(tenant)
+    with api_compat._STORE_LOCK:
+        api_compat._AGENTS[tenant][agent_id] = {
+            "id": agent_id, "tenant_id": tenant, "name": agent_id,
+            "lifecycle_state": "registered", "status": "active",
+        }
+
+
 def test_agent_listing_is_isolated_per_tenant(client: TestClient):
+    _seed_agent(TENANT_A, "matrix-shared-agent-id")
     transition = client.post(
         "/api/v1/agents/matrix-shared-agent-id/transition",
         json={"to_state": "governed", "reason": "probe"},
@@ -346,17 +358,14 @@ def test_agent_listing_is_isolated_per_tenant(client: TestClient):
 
 
 def test_cross_tenant_agent_transition_on_shared_id_does_not_mutate_the_other_tenants_record(client: TestClient):
-    """Documents current behaviour for SLAAT-P1-2 rather than asserting a
-    specific fix: alice transitions ``shared-probe-id`` to 'governed'; bob
-    then transitions the SAME literal ``agent_id`` string. The in-memory
-    store is keyed ``_AGENTS[tenant_id][agent_id]``, so this cannot read or
-    overwrite alice's record -- bob's request, at worst, materialises his own
-    independent record under the same ID (see ``routers/agents.py``'s
-    "unknown id -> synthesize" fallback). Confirms no cross-tenant data
-    leak; the dossier flags the synthesize-on-miss semantics as a separate,
-    lower-severity design question for Phase 2.
+    """Alice transitions her ``shared-probe-id`` to 'governed'; bob then
+    transitions the SAME literal ``agent_id`` string. The store is keyed
+    ``_AGENTS[tenant_id][agent_id]`` and bob's tenant holds no such agent, so
+    his request is refused 404 (it used to synthesise one) and alice's record
+    is untouched.
     """
     agent_id = "shared-probe-id"
+    _seed_agent(TENANT_A, agent_id)
     r1 = client.post(
         f"/api/v1/agents/{agent_id}/transition",
         json={"to_state": "governed", "reason": "alice probe"},
@@ -369,7 +378,8 @@ def test_cross_tenant_agent_transition_on_shared_id_does_not_mutate_the_other_te
         json={"to_state": "suspended", "reason": "bob probe"},
         headers=_bearer(BOB),
     )
-    assert r2.status_code in (200, 400, 409), r2.text
+    assert r2.status_code == 404, r2.text
+    assert r2.json()["error"]["code"] == "agent_not_found"
 
     # Alice's own view of the agent must be unaffected by bob's request.
     alice_list = client.get("/api/v1/agents", headers=_bearer(ALICE)).json()

@@ -55,7 +55,7 @@ current answer. At the time of writing, verified against the cluster:
   longer appears as a live assignment anywhere. The key is supplied by the
   operator through OpenBao as `Secret/kagent-anthropic-key`, in both `kagent`
   and `fe-signalloom-agents`. On **this** branch
-  `infra/kagent/base/controller.yaml` is a one-line comment. Its content was
+  `d2-signalloom/infra/kagent/base/controller.yaml` is a one-line comment. Its content was
   deleted with the rest of the stub manifests, so there is no credential for the
   forbidden-literal guard to tolerate here. (The guard's comment-stripping is
   still doing real work. The literal appears in this file's own prose,

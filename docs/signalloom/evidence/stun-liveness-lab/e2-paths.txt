@@ -1,0 +1,8 @@
+pod=e2-agent-5464646c5b-mvlwx
+pod_slice=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod1123ab29_7c3f_4fda_b05b_b56e5cae42b3.slice
+agent_scope=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod1123ab29_7c3f_4fda_b05b_b56e5cae42b3.slice/cri-containerd-0c757d960cbc55274a2519eaa83046e64dad8560f634b42ff23887240b8bc916.scope
+guardian_scope=/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod1123ab29_7c3f_4fda_b05b_b56e5cae42b3.slice/cri-containerd-65be6cb6699bc99b88d5ba8fd041c25a08afa3c968b670bb919ad74de0724270.scope
+pod_ip=10.0.0.215
+agent_pids_before=3801910 
+FREEZE_T0=22:46:22.406633637
+THAW_T=22:47:47.091534715

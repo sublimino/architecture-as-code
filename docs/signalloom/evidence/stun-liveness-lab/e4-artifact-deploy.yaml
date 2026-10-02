@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e4-agent
+  namespace: kusari-liveness-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e4-agent}
+  template:
+    metadata:
+      labels: {app: e4-agent}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: agent
+        image: kusari-agent:latest
+        imagePullPolicy: Never
+        resources: {limits: {cpu: 50m, memory: 64Mi}}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}

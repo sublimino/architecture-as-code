@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
 )
@@ -55,9 +58,63 @@ type Edge struct {
 	To   string `json:"to"`
 }
 
-// StunRequest is the wire format for POST /api/v1/fleet/stun/{agentId}.
+// StunRequest is the REQUIRED body of POST /api/v1/fleet/stun/{agentId}. An
+// empty body, or one without a non-blank reason, is refused with 400: the
+// reason is written to the provenance annotations, and a canned default there
+// records a reason nobody gave.
 type StunRequest struct {
+	// AgentID, when present, must equal the agent in the URL path. The path is
+	// authoritative; a body naming a different agent is a caller bug.
 	AgentID string `json:"agent_id"`
+	// Reason is written to the stun-reason annotations. Required; at most
+	// MaxStunReasonRunes printable runes.
+	Reason string `json:"reason"`
+}
+
+// maxStunBodyBytes caps the stun body. A 256-rune reason is at most 1 KiB of
+// UTF-8; the rest is JSON framing and an agent id.
+const maxStunBodyBytes = 4 << 10
+
+// decodeStunRequest reads the stun body and returns the effective
+// reason. Every rejection is a 400 before any enforcement call is made.
+//
+// The body's agent_id may name either what the path carried or the DAG id it
+// resolved to; fe-signalloom echoes the path value, which is often a pod name.
+func decodeStunRequest(r *http.Request, pathAgentID, resolvedID string) (string, error) {
+	var req StunRequest
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxStunBodyBytes))
+	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("invalid stun body: %v", err)
+	}
+	if req.AgentID != "" && req.AgentID != pathAgentID && req.AgentID != resolvedID {
+		return "", fmt.Errorf("agent_id %q in body contradicts %q in path", req.AgentID, pathAgentID)
+	}
+	return validateStunReason(req.Reason)
+}
+
+// errStunReasonRequired is the exact wire error for a stun without a reason.
+var errStunReasonRequired = errors.New("reason is required")
+
+// validateStunReason requires and bounds a caller-supplied reason. It rejects rather than
+// sanitises: a reason that was silently rewritten is a provenance record that
+// no longer says what the caller said.
+func validateStunReason(reason string) (string, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "", errStunReasonRequired
+	}
+	if !utf8.ValidString(reason) {
+		return "", errors.New("reason is not valid UTF-8")
+	}
+	if n := utf8.RuneCountInString(reason); n > MaxStunReasonRunes {
+		return "", fmt.Errorf("reason is %d characters, maximum %d", n, MaxStunReasonRunes)
+	}
+	for _, r := range reason {
+		if !unicode.IsPrint(r) {
+			return "", fmt.Errorf("reason contains non-printable character %U", r)
+		}
+	}
+	return reason, nil
 }
 
 // ErrorResponse is a standard error envelope.
@@ -190,12 +247,24 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.dag.GetAgent(agentID) == nil {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown agent: %s", agentID))
+	// The dashboard and the integration proxy send pod names; the DAG knows
+	// agent ids. Resolve before anything else so a 404 means "no such agent"
+	// and never "you used the pod's name".
+	w.Header().Set(requestedAgentHeader, agentID)
+	resolved, err := s.resolveAgentID(r.Context(), agentID)
+	if err != nil {
+		writeUnknownAgent(w, resolved)
+		return
+	}
+	slog.Info("stun target resolved", "requested_id", agentID, "agent", resolved.ID, "resolved_by", resolved.By)
+
+	reason, err := decodeStunRequest(r, agentID, resolved.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	result, err := s.orchestrator.Stun(r.Context(), agentID)
+	result, err := s.orchestrator.Stun(withAgentResolution(r.Context(), resolved), resolved.ID, reason)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -309,6 +378,19 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Namespace == "" && req.Token.Namespace != "" {
 		req.Namespace = req.Token.Namespace
+	}
+	// Same resolution as stun: a pod name maps onto its DAG agent, and the
+	// token's agent binding is then checked against the resolved id. An id no
+	// branch resolves is a 404 before any token verification.
+	if req.AgentID != "" {
+		w.Header().Set(requestedAgentHeader, req.AgentID)
+		resolved, err := s.resolveAgentID(r.Context(), req.AgentID)
+		if err != nil {
+			writeUnknownAgent(w, resolved)
+			return
+		}
+		slog.Info("resume target resolved", "requested_id", req.AgentID, "agent", resolved.ID, "resolved_by", resolved.By)
+		req.AgentID = resolved.ID
 	}
 	if req.IdempotencyKey == "" {
 		req.IdempotencyKey = fmt.Sprintf("resume-%s-%s", req.AgentID, req.Token.TokenID)
@@ -571,6 +653,7 @@ func main() {
 	mux.HandleFunc("/api/v1/fleet/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/fleet/recover", s.handleRecover)
 	mux.HandleFunc("/api/v1/fleet/reset", s.handleReset)
+	registerConsistencyRoutes(mux, s)
 
 	srv := &http.Server{
 		Addr:         ":" + port,

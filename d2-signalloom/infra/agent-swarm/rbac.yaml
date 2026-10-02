@@ -97,13 +97,6 @@ metadata:
     signalloom.ai/agent: "true"
     signalloom.ai/role: containment
     app.kubernetes.io/part-of: signalloom-swarm
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: signalloom-stun-sentinel
-  namespace: fe-signalloom-agents
-  labels:
-    signalloom.ai/agent: "true"
-    signalloom.ai/role: sentinel
-    app.kubernetes.io/part-of: signalloom-swarm
+# The stun sentinel's SA is stun-sentinel, declared beside its DaemonSet in
+# signalloom-stun-sentinel/service-account.yaml. An SA here named
+# signalloom-stun-sentinel was used by no pod; see stun-sentinel-daemonset.bats.

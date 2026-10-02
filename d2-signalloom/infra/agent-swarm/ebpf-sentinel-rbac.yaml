@@ -1,5 +1,4 @@
-# eBPF Stun Sentinel RBAC — the DaemonSet that monitors agent pods for
-# policy violations and triggers the stun sequence.
+# eBPF Stun Sentinel RBAC, cluster-scoped half only.
 #
 # The sentinel needs:
 #   - PATCH on pods (to set signalloom.ai/state=stunned)
@@ -18,7 +17,8 @@
 # Kustomization reconciled last won, so the running sentinel's
 # `auth can-i list pods` flipped between yes and no and its pod index stayed
 # empty (SLDC-P5-PRE B5; re-observed live 2026-10-01). Do not re-add them:
-# test/sentinel-capabilities.bats fails on any object owned by both.
+# test/sentinel-capabilities.bats and d2-signalloom/test/stun-sentinel-daemonset.bats fail on any
+# object owned by both, or any stun-sentinel binding that names another SA.
 ---
 # Cluster-scoped: the sentinel reads node cgroup paths for eBPF program
 # attachment points. This is read-only and cannot be namespace-scoped.
@@ -47,5 +47,5 @@ roleRef:
   name: stun-sentinel-node-reader
 subjects:
   - kind: ServiceAccount
-    name: signalloom-stun-sentinel
+    name: stun-sentinel
     namespace: fe-signalloom-agents

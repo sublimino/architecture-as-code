@@ -1,0 +1,4 @@
+# observed 2026-09-29 22:58:14 +0100; NOT created or modified by this lab
+kubelet-kubepods-besteffort.slice/kubelet-kubepods-besteffort-pod52ad8754_6101_4d6d_a64c_3cc06ee53895.slice/cgroup.freeze
+kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod53235433_9cbb_4280_ad6f_9292e90946fc.slice/cgroup.freeze
+kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-poddd8f32eb_1bcc_48fd_9b23_78578e19ee0b.slice/cgroup.freeze

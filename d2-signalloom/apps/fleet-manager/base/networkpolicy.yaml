@@ -29,6 +29,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: dashboard-signalloom
+        # The fe-signalloom API calls POST /api/v1/fleet/stun/{agentId}
+        # server-side (kusari-e2e). Its pods carry only
+        # app.kubernetes.io/name=fe-signalloom, so neither selector above
+        # admits them. Same namespace, so a podSelector is enough.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
       ports:
         - port: http
           protocol: TCP
@@ -51,4 +58,17 @@ spec:
     - to: []
       ports:
         - port: 8200
+          protocol: TCP
+    # Allow the SPIRE server API (entry eviction / re-entry). Scoped to the
+    # spire-server pods; the matching ingress is inf-bao's
+    # allow-fleet-manager-to-spire.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: spire-server
+      ports:
+        - port: 8081
           protocol: TCP

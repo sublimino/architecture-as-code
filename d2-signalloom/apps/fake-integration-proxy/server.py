@@ -457,6 +457,30 @@ def _kagent_state(status: object) -> str | None:
     return None
 
 
+KERNEL_FROZEN_ANNOTATION = "signalloom.io/kernel-frozen"
+KERNEL_OBSERVED_AT_ANNOTATION = "signalloom.io/kernel-observed-at"
+
+
+def _kernel_state(annotations: dict[str, object]) -> dict[str, object]:
+    """Kernel freezer truth as published by the stun-sentinel, or "unknown".
+
+    The sentinel reads `cgroup.events` on the node and writes two annotations.
+    This is the only source: the stun label, lifecycle state and pod phase are
+    control-plane claims and say nothing about the cgroup, so nothing here is
+    inferred from them. Absent or unrecognised values are "unknown", never
+    "running" — a missing observation is not evidence of a live process.
+    """
+    raw = annotations.get(KERNEL_FROZEN_ANNOTATION)
+    state = {"true": "frozen", "false": "running"}.get(
+        raw.strip().lower() if isinstance(raw, str) else "", "unknown"
+    )
+    observed = annotations.get(KERNEL_OBSERVED_AT_ANNOTATION)
+    return {
+        "kernel_state": state,
+        "kernel_observed_at": observed if isinstance(observed, str) and observed else None,
+    }
+
+
 def _agent_from_kagent_cr(cr: object, namespace: str | None = None) -> dict[str, object] | None:
     """Project an Agent.kagent.dev CR onto the same record shape as `_agent_from_pod`.
 
@@ -507,6 +531,9 @@ def _agent_from_kagent_cr(cr: object, namespace: str | None = None) -> dict[str,
         # Inventory needs; the swarm manifests create one SA per agent under that
         # name in d2-signalloom/infra/agent-swarm/<agent>/serviceaccount.yaml.
         "service_account": name,
+        # A declaration has no cgroup; the annotations will not be there, so
+        # this reports "unknown" rather than a kernel state nobody observed.
+        **_kernel_state(annotations),
     }
 
 
@@ -534,14 +561,13 @@ def _resolve_agent_namespace(
     fails when the two drift apart.
 
     PODS ONLY, DELIBERATELY — do not add an Agent.kagent.dev fallback here.
-    Both callers consume pod semantics: `_handle_agent_compliance` reads
-    `pod.spec.containers[].securityContext` and posts it to the policy engine,
-    and `_handle_agent_stun` PATCHes pod labels. A CR has no containers, so the
-    policy engine would score an empty list as **passing** — a governance
-    dashboard asserting a compliance verdict it never computed — and the stun
-    PATCH would target a resource `agent-inventory-reader` has no write verb
-    for. A pod-less declaration genuinely has no pod-level compliance; 404 is
-    the honest answer. Pinned by
+    The caller consumes pod semantics: `_handle_agent_compliance` reads
+    `pod.spec.containers[].securityContext` and posts it to the policy engine.
+    A CR has no containers, so the policy engine would score an empty list as
+    **passing** — a governance dashboard asserting a compliance verdict it
+    never computed. (The stun handler that also patched pods here is retired;
+    see `_handle_agent_stun_gone`.) A pod-less declaration genuinely has no
+    pod-level compliance; 404 is the honest answer. Pinned by
     `test_a_cr_backed_agent_gets_404_not_a_fabricated_verdict`.
     """
     candidates = _agent_discovery_namespaces()
@@ -605,6 +631,7 @@ def _agent_from_pod(pod: object, namespace: str | None = None) -> dict[str, obje
         # rather than guess it. Absent stays None — defaulting to "default"
         # would render a SPIFFE ID that was never registered.
         "service_account": spec.get("serviceAccountName"),
+        **_kernel_state(annotations),
     }
     # SuperCred enrichment: expose identity-chain and compliance metadata.
     if labels.get("signalloom.ai/supercred") == "true":
@@ -1728,61 +1755,22 @@ class ProxyHandler(BaseHTTPRequestHandler):
             print(f"compliance check failed: {exc}", file=sys.stderr, flush=True)
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
 
-    def _handle_agent_stun(self, agent_id: str, requested_namespace: str | None = None) -> None:
-        """POST /agents/<id>/stun — revoke agent credentials and mark as stunned."""
-        try:
-            token = _read_service_account_token()
-            context = _kubernetes_ssl_context()
-            base_url = _kubernetes_api_base()
-            resolved = _resolve_agent_namespace(
-                base_url, token, context, agent_id, requested_namespace
-            )
-            if resolved is None:
-                self._json(
-                    HTTPStatus.NOT_FOUND,
-                    {
-                        "error": f"agent {agent_id} not found",
-                        "namespaces": _agent_discovery_namespaces(),
-                    },
-                )
-                return
-            namespace, _pod = resolved
-            # Label the pod as stunned
-            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            patch = {
-                "metadata": {
-                    "labels": {
-                        "signalloom.ai/state": "stunned",
-                        "signalloom.io/stunned": "true",
-                        "signalloom.io/containment-mode": "frozen",
-                    },
-                    "annotations": {
-                        "signalloom.ai/stunned-at": now,
-                        "signalloom.ai/stun-reason": "compliance-failure: securityContext not set",
-                        "signalloom.io/stun-reason": "compliance-failure: securityContext not set",
-                    },
-                }
-            }
-            patch_url = (
-                f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}"
-                f"/pods/{quote(agent_id, safe='')}"
-            )
-            _patch_kubernetes_json(patch_url, token, context, patch, field_manager="flux-client-side-apply")
-            self._json(HTTPStatus.OK, {
-                "agent_id": agent_id,
-                "namespace": namespace,
-                "state": "stunned",
-                "stunned_at": now,
-                "message": f"Agent {agent_id} stunned: credentials revoked, state marked as stunned",
-            })
-        except error.HTTPError as exc:
-            if exc.code == 404:
-                self._json(HTTPStatus.NOT_FOUND, {"error": f"agent {agent_id} not found"})
-            else:
-                self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
-        except Exception as exc:
-            print(f"stun failed: {exc}", file=sys.stderr, flush=True)
-            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+    def _handle_agent_stun_gone(self) -> None:
+        """POST /agents/<id>/stun — retired; the stun lives in fleet-manager.
+
+        This handler used to relabel the pod with a hard-coded reason and reply
+        that the agent's credentials were revoked, while revoking nothing. The
+        real containment cascade is fleet-manager's, reached through
+        fe-signalloom's authenticated ``POST /api/agents/{id}/stun``, which
+        records one result per enforcement plane.
+
+        410 rather than 404 so a stale caller learns the route moved instead of
+        concluding the agent does not exist. Nothing is looked up or patched.
+        """
+        self._json(HTTPStatus.GONE, {
+            "error": "stun moved to the fleet-manager cascade",
+            "use": "POST /api/agents/{id}/stun on fe-signalloom",
+        })
 
     def _handle_control(self) -> bool:
         path = urlparse(self.path).path
@@ -1840,8 +1828,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             agent_id = path.split("/")[2]
             self._handle_agent_compliance(agent_id, self._requested_namespace())
         elif path.startswith("/agents/") and path.endswith("/stun") and self.command == "POST":
-            agent_id = path.split("/")[2]
-            self._handle_agent_stun(agent_id, self._requested_namespace())
+            self._handle_agent_stun_gone()
         elif self._handle_control() or self._handle_business():
             return
         else:

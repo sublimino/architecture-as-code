@@ -1,0 +1,8 @@
+LAST                   COUNT   REASON      MSG
+2026-09-29T21:48:22Z   1       Scheduled   Successfully assigned kusari-liveness-lab/e3-agent-5798757f69-q9r59 to osramp-control-plane
+2026-09-29T21:48:23Z   1       Pulled      Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:48:23Z   1       Created     Container created
+2026-09-29T21:48:23Z   1       Started     Container started
+2026-09-29T21:48:23Z   1       Pulled      Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:48:23Z   1       Created     Container created
+2026-09-29T21:48:24Z   1       Started     Container started

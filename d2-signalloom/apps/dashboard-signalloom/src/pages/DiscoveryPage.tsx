@@ -12,7 +12,7 @@ import type {
   AgentResponse,
 } from '../types/api'
 import { colors } from '../styles/tokens'
-import StatusBadge from '../components/StatusBadge'
+import StatusBadge, { KernelStateBadge, hasKernelSplitBrain } from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import DataTable, { type Column } from '../components/DataTable'
@@ -591,7 +591,10 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: Wo
 
       {/* Discovery Status */}
       <td style={td}>
-        <StatusBadge status={workload.status} variant="lifecycle" />
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+          <StatusBadge status={workload.status} variant="lifecycle" />
+          <KernelStateBadge view={workload} testId={`kernel-state-badge-${workload.id}`} />
+        </div>
       </td>
 
 
@@ -791,7 +794,8 @@ export default function DiscoveryPage() {
         const isDiscovered = w.status === 'discovered'
         const isRevoked = w.status === 'revoked'
         const isInReview = w.status === 'in_review'
-        if (!isUnowned && !isDiscovered && !isRevoked && !isInReview) return false
+        const isSplitBrain = hasKernelSplitBrain(w)
+        if (!isUnowned && !isDiscovered && !isRevoked && !isInReview && !isSplitBrain) return false
       }
 
       if (sourceFilter !== 'all' && w.source !== sourceFilter) return false

@@ -267,3 +267,79 @@ swarm_script() {
 	verify="$(grep -cE 'missing\+=\(' <<<"$script" || true)"
 	[ "$verify" -gt 0 ]
 }
+
+# ── grep -q never feeds a pipe ─────────────────────────────────────────────
+#
+# openbao-fleet-manager-bootstrap asserted its policy with
+#
+#   bao policy read fleet-manager | grep -q 'revoke-accessor' | grep -q 'lookup-accessor'
+#
+# `grep -q` writes nothing to stdout, so the second grep always reads an empty
+# stream and exits 1. Under `sh -e` the Job therefore failed on every run, with
+# a policy that was correct. Checking two strings needs the text read once and
+# grepped twice.
+
+# Every shell script an inf-bao manifest carries: ConfigMap data values and the
+# last element of each Job container's command+args (the `sh -ec <script>` form).
+all_job_scripts() {
+	find "$root/d2-signalloom/infra/inf-bao" -name '*.yaml' -print0 | sort -z |
+		while IFS= read -r -d '' f; do
+			yq -N -r '
+				(select(.kind == "ConfigMap") | .data | to_entries[] | .value),
+				(select(.kind == "Job" or .kind == "CronJob")
+					| (.spec.template.spec // .spec.jobTemplate.spec.template.spec)
+					| .containers[] | ((.command // []) + (.args // [])) | .[-1])
+			' "$f" 2>/dev/null | sed "s|^|${f#"$root"/}: |"
+		done
+}
+
+@test "the job-script extraction sees the fleet-manager bootstrap assertions" {
+	# Mechanism-presence check for the guard below.
+	run all_job_scripts
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"openbao-fleet-manager-bootstrap.yaml: "*"bao policy read fleet-manager"* ]]
+}
+
+@test "no inf-bao job script pipes the silent output of grep -q into another command" {
+	run all_job_scripts
+	[ "$status" -eq 0 ]
+	offenders="$(printf '%s\n' "$output" | rg -e 'grep -q[^|]*\|' || true)"
+	if [ -n "$offenders" ]; then
+		printf 'grep -q produces no output, so a pipe after it always reads empty:\n%s\n' "$offenders" >&2
+		return 1
+	fi
+}
+
+@test "the fleet-manager bootstrap assertions pass under sh -e against a correct policy" {
+	# Run the manifest's own assertion block, verbatim, with a stub `bao` that
+	# returns what a correctly bootstrapped OpenBao returns.
+	manifest="$root/d2-signalloom/infra/inf-bao/configs/base/openbao-fleet-manager-bootstrap.yaml"
+	script="$BATS_TEST_TMPDIR/assert.sh"
+	yq -N -r 'select(.kind == "Job") | .spec.template.spec.containers[0].command[-1]' "$manifest" |
+		sed -n '/# --- Assert the outcome/,$p' >"$script"
+	grep -q 'bao policy read fleet-manager' "$script"
+
+	mkdir -p "$BATS_TEST_TMPDIR/bin"
+	cat >"$BATS_TEST_TMPDIR/bin/bao" <<'STUB'
+#!/bin/sh
+case "$*" in
+"read -field=bound_subject auth/jwt/role/fleet-manager")
+	echo 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager' ;;
+"policy read fleet-manager")
+	printf '%s\n' 'path "auth/token/accessors" { capabilities = ["list"] }' \
+		'path "auth/token/lookup-accessor" { capabilities = ["update"] }' \
+		'path "auth/token/revoke-accessor" { capabilities = ["update"] }' ;;
+*) echo "unexpected bao $*" >&2; exit 2 ;;
+esac
+STUB
+	chmod +x "$BATS_TEST_TMPDIR/bin/bao"
+
+	PATH="$BATS_TEST_TMPDIR/bin:$PATH" run sh -e "$script"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"fleet-manager bootstrap complete"* ]]
+
+	# And it must still fail when the policy lacks a path.
+	sed -i '/lookup-accessor/d' "$BATS_TEST_TMPDIR/bin/bao"
+	PATH="$BATS_TEST_TMPDIR/bin:$PATH" run sh -e "$script"
+	[ "$status" -ne 0 ]
+}

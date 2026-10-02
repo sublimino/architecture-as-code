@@ -1,0 +1,24 @@
+== 22:45:02.220061746 still frozen
+{"allocatedResources":{"cpu":"10m","memory":"16Mi"},"containerID":"containerd://3c65b4d44e2fd6a04ec52da0e35d7401cb1c79bdecdb01c9c4b44c6b5ebba342","image":"docker.io/library/kusari-agent:latest","imageID":"docker.io/library/import-2026-09-28@sha256:b98ea5dd69c4a6eda464f1712527b6f26c0e3e4c441e389bd691ecc3850fe9c8","lastState":{},"name":"agent","ready":false,"resources":{"limits":{"cpu":"100m","memory":"64Mi"},"requests":{"cpu":"10m","memory":"16Mi"}},"restartCount":1,"started":false,"state":{"waiting":{"message":"context deadline exceeded","reason":"RunContainerError"}},"user":{"linux":{"gid":65532,"supplementalGroups":[65532],"uid":65532}},"volumeMounts":[{"mountPath":"/tmp","name":"tmp"}]}
+NAME                        READY   STATUS              RESTARTS   AGE     IP           NODE                   NOMINATED NODE   READINESS GATES
+e1-agent-66bf787859-k98pj   0/1     RunContainerError   1          4m14s   10.0.0.121   osramp-control-plane   <none>           <none>
+1
+populated 1
+frozen 1
+/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod09d1a66b_5428_4a81_9b59_144430a833b9.slice/cri-containerd-3c65b4d44e2fd6a04ec52da0e35d7401cb1c79bdecdb01c9c4b44c6b5ebba342.scope/
+3795871
+populated 1
+frozen 1
+/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod09d1a66b_5428_4a81_9b59_144430a833b9.slice/cri-containerd-6769e6b5673fe515ee9e25d6bf95d71176e4e87724e3c26ef6f9b7b6641545ad.scope/
+3793534
+populated 1
+frozen 1
+/sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod09d1a66b_5428_4a81_9b59_144430a833b9.slice/cri-containerd-c781a1c713605d2fbf59801dd1fbc62b38a6fc2f23308a275ea861a2db5c0dd2.scope/
+3797438
+populated 1
+frozen 1
+{"restartCount":1,"state":{"waiting":{"message":"context deadline exceeded","reason":"RunContainerError"}},"lastState":{}}
+3793558 gone
+3795871 6
+3797438 6
+3793534 pause

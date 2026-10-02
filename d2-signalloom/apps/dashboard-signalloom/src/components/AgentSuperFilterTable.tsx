@@ -115,7 +115,9 @@ function defaultExtractFields<T>(item: T): AgentFilterFields {
   const lastAssessed = rec.last_assessed ?? rec.lastAssessed ?? rec.last_observed_at ?? (rec.timestamps as Record<string, unknown> | undefined)?.last_observed_at ?? null
 
   const sLower = state.toLowerCase()
+  const splitBrain = Array.isArray(rec.split_brain) && rec.split_brain.length > 0
   const requiresAttention = Boolean(
+    splitBrain ||
     rec.requires_attention ||
     rec.requiresAttention ||
     sLower === 'suspended' ||

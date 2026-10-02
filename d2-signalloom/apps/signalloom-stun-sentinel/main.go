@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -28,10 +29,31 @@ const (
 	stunnedValue         = "stunned"
 	watchNamespace       = "fe-signalloom-agents"
 	defaultCgroupRoot    = "/sys/fs/cgroup"
+	informerResync       = 30 * time.Second
+	// The sentinel's own identity. Its DaemonSet pods carry the informer's
+	// selector (signalloom.ai/agent=true), so they must be excluded by name.
+	sentinelServiceAccount = "stun-sentinel"
+	sentinelAppName        = "stun-sentinel"
 )
 
-func isPodStunned(pod *corev1.Pod) bool {
-	if pod == nil || pod.Labels == nil {
+// isSentinelPod: a pod of this DaemonSet. The sentinel never freezes, isolates
+// or annotates itself, whatever labels it carries.
+func isSentinelPod(pod *corev1.Pod) bool {
+	return pod.Spec.ServiceAccountName == sentinelServiceAccount ||
+		pod.Labels["app.kubernetes.io/name"] == sentinelAppName
+}
+
+// ownerStunLookup answers the fourth stun term: does the pod's controller
+// chain (ReplicaSet -> Deployment) carry signalloom.io/stunned=true?
+type ownerStunLookup interface {
+	ownerStunned(*corev1.Pod) bool
+}
+
+// isPodStunned ORs the three pod labels and, when owners is non-nil, the
+// owner-chain stun record. Labels are checked first: no API call for a pod
+// that is already labelled.
+func isPodStunned(pod *corev1.Pod, owners ownerStunLookup) bool {
+	if pod == nil {
 		return false
 	}
 	if pod.Labels[labelStunnedAI] == stunnedValue {
@@ -41,6 +63,9 @@ func isPodStunned(pod *corev1.Pod) bool {
 		return true
 	}
 	if pod.Labels[labelContainmentMode] == "frozen" {
+		return true
+	}
+	if owners != nil && owners.ownerStunned(pod) {
 		return true
 	}
 	return false
@@ -108,6 +133,9 @@ func (c *controller) processNextWorkItem() bool {
 		return true
 	}
 	if !exists { // Pod deletion ends the cgroup and host veth lifecycle.
+		if f, ok := c.reconciler.(interface{ forget(string) }); ok {
+			f.forget(key)
+		}
 		c.queue.Forget(key)
 		return true
 	}
@@ -129,8 +157,15 @@ type stunReconciler struct {
 	freezer        *cgroupFreezer
 	tc             *tcDropFilter
 	probes         *probePreserver
+	kernel         *kernelPublisher // nil: kernel state is not published
 	dryRun         bool
 	reconcileCount *atomic.Int64
+	selfSkipped    sync.Map // pod key -> struct{}: self_pod_skipped logged once
+}
+
+func (r *stunReconciler) forget(key string) {
+	r.kernel.forget(key)
+	r.selfSkipped.Delete(key)
 }
 
 func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePreserver) *stunReconciler {
@@ -146,6 +181,14 @@ func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePr
 }
 
 func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
+	if isSentinelPod(pod) {
+		if _, seen := r.selfSkipped.LoadOrStore(pod.Namespace+"/"+pod.Name, struct{}{}); !seen {
+			logEvent(stunEvent{Timestamp: now(), Event: "self_pod_skipped", Pod: pod.Name, Namespace: pod.Namespace,
+				UID: string(pod.UID), Decision: "never_contain_self", Details: map[string]interface{}{
+					"service_account": pod.Spec.ServiceAccountName, "stunned_labels": isPodStunned(pod, nil)}})
+		}
+		return nil
+	}
 	start := time.Now()
 	if r.reconcileCount != nil {
 		r.reconcileCount.Add(1)
@@ -158,15 +201,28 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		return nil
 	}
 
+	// The owner lookup is needed before the cgroup is resolved: a pod whose
+	// cgroup cannot be found is only an error when something says it is stunned,
+	// and that includes its controller's stun record.
+	var owners ownerStunLookup
+	if r.kernel != nil {
+		owners = r.kernel
+	}
+
 	cgroupPath, err := r.freezer.resolvePodCgroup(string(pod.UID))
 	if err != nil {
-		if !isPodStunned(pod) {
+		if !isPodStunned(pod, owners) {
 			return nil
 		}
 		return fmt.Errorf("resolve cgroup: %w", err)
 	}
 
-	if isPodStunned(pod) {
+	// Kernel truth FIRST, before any veth/tc work: it must publish even while
+	// the veth step fails.
+	stunned := isPodStunned(pod, owners)
+	r.kernel.publish(pod, cgroupPath, stunned)
+
+	if stunned {
 		if err := r.freezer.freeze(cgroupPath); err != nil {
 			return fmt.Errorf("freeze: %w", err)
 		}
@@ -210,27 +266,46 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		return nil
 	}
 
-	veth, err := r.tc.findHostVeth(cgroupPath)
-	if err != nil {
-		if !r.probes.isPreserved(string(pod.UID)) {
-			return nil
-		}
-		return fmt.Errorf("find veth before unfreezing pod: %w", err)
-	}
-	if err := r.probes.release(pod, cgroupPath, veth); err != nil {
-		return fmt.Errorf("release liveness probes: %w", err)
-	}
-	if err := r.tc.detachDrop(veth); err != nil {
-		return fmt.Errorf("detach drop filter: %w", err)
-	}
+	// Release order: thaw FIRST. The network layer must never block a
+	// release: a pod frozen before its sandbox joined a netns has no
+	// resolvable veth, and looking the veth up first left it frozen forever.
 	if err := r.freezer.unfreeze(cgroupPath); err != nil {
 		return fmt.Errorf("unfreeze: %w", err)
+	}
+	if err := r.probes.release(pod, cgroupPath, ""); err != nil {
+		return fmt.Errorf("release liveness probes: %w", err)
 	}
 
 	var count int64
 	if r.reconcileCount != nil {
 		count = r.reconcileCount.Load()
 	}
+
+	veth, netErr := r.tc.findHostVeth(cgroupPath)
+	if netErr != nil {
+		netErr = fmt.Errorf("find veth after unfreezing pod: %w", netErr)
+	} else if err := r.tc.detachDrop(veth); err != nil {
+		netErr = fmt.Errorf("detach drop filter after unfreezing pod: %w", err)
+	}
+	if netErr != nil {
+		// Thawed, but the drop filter may still be attached. Returning the
+		// error requeues the detach; the thaw is already done.
+		logEvent(stunEvent{
+			Timestamp:      now(),
+			Event:          "unstun_partial",
+			Pod:            pod.Name,
+			Namespace:      pod.Namespace,
+			UID:            string(pod.UID),
+			DryRun:         r.dryRun,
+			CgroupPath:     cgroupPath,
+			HostVeth:       veth,
+			Decision:       "thawed_network_release_pending",
+			ReconcileCount: count,
+			Error:          netErr.Error(),
+		})
+		return netErr
+	}
+
 	decision := "containment_released"
 	if r.dryRun {
 		decision = "containment_release_planned_dry_run"
@@ -262,6 +337,9 @@ func main() {
 
 	reconcileCount := &atomic.Int64{}
 	healthSrv := newHealthServer(cfg.HealthAddr, cfg.DryRun, cfg.CgroupRoot, reconcileCount)
+	// Set once the clientset exists; read concurrently by /metrics.
+	var kernelRef atomic.Pointer[kernelPublisher]
+	healthSrv.frozenUnlabelled = func() int { return kernelRef.Load().frozenUnlabelledCount() }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -319,7 +397,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 30*time.Second,
+	reconciler.kernel = newKernelPublisher(clientsetAPI{cs: clientset}, informerResync, cfg.DryRun)
+	kernelRef.Store(reconciler.kernel)
+
+	factory := informers.NewSharedInformerFactoryWithOptions(clientset, informerResync,
 		informers.WithNamespace(cfg.WatchNamespace),
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) { options.LabelSelector = "signalloom.ai/agent=true" }),
 	)

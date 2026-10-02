@@ -78,7 +78,7 @@ func benchmarkStunAtFleetSize(b *testing.B, n int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := orch.Stun(ctx, "agent-root"); err != nil {
+		if _, err := orch.Stun(ctx, "agent-root", ""); err != nil {
 			b.Fatalf("stun: %v", err)
 		}
 	}

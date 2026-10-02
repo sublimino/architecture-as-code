@@ -285,7 +285,8 @@ describe('/agents reflects each demo step', () => {
     renderPage(<AgentsPage />)
     await screen.findByText('Inventory Agent')
     expect(screen.queryByText(AGENT_NAME)).not.toBeInTheDocument()
-    expect(screen.getByText('Showing 6 of 6 agents')).toBeInTheDocument()
+    // Six registry agents plus the kernel split-brain fixture (agent-sir-lancelot).
+    expect(screen.getByText('Showing 7 of 7 agents')).toBeInTheDocument()
   })
 })
 

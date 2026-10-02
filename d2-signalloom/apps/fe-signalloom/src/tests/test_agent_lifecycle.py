@@ -129,21 +129,27 @@ class TestAgentLifecycleMapping:
         }
         resp = _agent_response_from_row(row, _dummy_compliance(), discovered_overlay=overlay)
         assert resp.lifecycle_state == "Suspended"
+        # A stun record without a stun audit row showing bao and spire
+        # contained is not evidence the credentials were revoked.
         assert resp.credential_state is not None
-        assert resp.credential_state.status == "revoked"
+        assert resp.credential_state.status == "unknown"
         assert resp.credential_state.reason == "Process anomaly detected by Sentinel"
 
     def test_ebpf_kernel_telemetry_included_for_suspended_and_stunned(self) -> None:
-        # Suspended agent has eBPF telemetry
+        # Suspended agent reports telemetry, but with no sentinel annotation the
+        # kernel outcome is unknown; the lifecycle alone may not claim a freeze.
         suspended_row = _make_db_row(lifecycle_state="suspended")
         resp_suspended = _agent_response_from_row(suspended_row, _dummy_compliance())
         assert resp_suspended.kernel_telemetry is not None
-        assert resp_suspended.kernel_telemetry.cgroup_state == "frozen"
-        assert resp_suspended.kernel_telemetry.traffic_control_state == "drop"
-        assert resp_suspended.kernel_telemetry.ebpf_active is True
+        assert resp_suspended.kernel_telemetry.cgroup_state == "unknown"
+        assert resp_suspended.kernel_telemetry.source == "unavailable"
+        assert resp_suspended.kernel_telemetry.traffic_control_state == "unknown"
+        assert resp_suspended.kernel_telemetry.ebpf_active is None
+        # Containment was requested; nothing observed it take effect.
         assert resp_suspended.operational_state is not None
-        assert resp_suspended.operational_state.containment.process_freeze == "active"
-        assert resp_suspended.operational_state.containment.network_isolation == "active"
+        assert resp_suspended.operational_state.containment.process_freeze == "requested"
+        assert resp_suspended.operational_state.containment.network_isolation == "requested"
+        assert resp_suspended.operational_state.containment.source == "unavailable"
 
         # Governed agent has clean operational state
         active_row = _make_db_row(lifecycle_state="active")
@@ -158,9 +164,18 @@ class TestAgentLifecycleMapping:
         resp_revoked = _agent_response_from_row(revoked_row, _dummy_compliance())
         assert resp_revoked.lifecycle_state == "Revoked"
         assert resp_revoked.credential_state is not None
-        assert resp_revoked.credential_state.status == "revoked"
+        assert resp_revoked.credential_state.status == "unknown"
         assert resp_revoked.operational_state is not None
-        assert resp_revoked.operational_state.containment.credential_revocation == "active"
+        # The revoked lifecycle alone is not evidence that credentials were
+        # revoked; that comes from the stun audit planes or credential_revoked.
+        assert resp_revoked.operational_state.containment.credential_revocation == "unknown"
+        assert resp_revoked.operational_state.containment.credential_source == "unavailable"
+        revoked_row["credential_revoked"] = True
+        resp_flagged = _agent_response_from_row(revoked_row, _dummy_compliance())
+        assert resp_flagged.credential_state is not None
+        assert resp_flagged.credential_state.status == "revoked"
+        assert resp_flagged.operational_state is not None
+        assert resp_flagged.operational_state.containment.credential_revocation == "active"
 
     def test_mutation_proof_removing_mapping_fails(self) -> None:
         """Mutation proof: If serializer emitted raw DB strings, tests asserting canonical set would fail."""

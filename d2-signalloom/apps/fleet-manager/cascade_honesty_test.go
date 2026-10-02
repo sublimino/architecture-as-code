@@ -150,7 +150,7 @@ func TestStun_UnreadableState_ReportsUnknownNotRunning(t *testing.T) {
 	client := newFailingClient()
 	client.getStateErr = fmt.Errorf("pods \"agent-solo\" is forbidden")
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestStun_UnreadableStateOnly_IsPartialNotContained(t *testing.T) {
 	client := newFailingClient()
 	client.getStateErr = fmt.Errorf("apiserver timeout")
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestStun_RevokeFailure_IsRecordedNotSwallowed(t *testing.T) {
 	client := newFailingClient()
 	client.revokeErr = fmt.Errorf("openbao unreachable")
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestStun_SetStateFailure_DoesNotReportStunned(t *testing.T) {
 	client.states["agent-solo"] = StateRunning
 	client.setStateErr = fmt.Errorf("conflict: object has been modified")
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestStun_AllThreeFailuresInjected_ReportsTotalFailure(t *testing.T) {
 	client.revokeErr = fmt.Errorf("revoke refused")
 	client.setStateErr = fmt.Errorf("patch refused")
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestStun_ReadSucceedsButBothEnforcementStepsFail_IsNeverContained(t *testin
 	client.revokeErr = fmt.Errorf("openbao 503")
 	client.setStateErr = fmt.Errorf("apiserver 503")
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestStun_TargetMissingFromDAG_ReportsNotFound(t *testing.T) {
 		once.Do(func() { delete(dag.agents, vanishing) })
 	}
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-cardvault")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-cardvault", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestStun_RetryOnAlreadyStunnedTarget_ReportsNoSpuriousFailure(t *testing.T)
 	client := newFailingClient()
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	first, err := orch.Stun(context.Background(), "agent-solo")
+	first, err := orch.Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("first stun: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestStun_RetryOnAlreadyStunnedTarget_ReportsNoSpuriousFailure(t *testing.T)
 		t.Fatalf("premise broken: first stun should have contained, got %q", first.OverallOutcome)
 	}
 
-	second, err := orch.Stun(context.Background(), "agent-solo")
+	second, err := orch.Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("second stun: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestStun_DAGMutatedMidCascade_BindsToASingleObservation(t *testing.T) {
 		}
 	}
 
-	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo")
+	result, err := NewCascadeOrchestrator(dag, client, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestHandleStun_RevokeFailure_DoesNotReturn200(t *testing.T) {
 	client.revokeErr = fmt.Errorf("openbao unreachable")
 	s := serverWithClient(t, dag, client)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", strings.NewReader(`{"reason":"cascade_honesty_test: status mapping"}`))
 	w := httptest.NewRecorder()
 	s.handleStun(w, req)
 
@@ -586,7 +586,7 @@ func TestHandleStun_TotalFailure_Returns500(t *testing.T) {
 	client.setStateErr = fmt.Errorf("patch refused")
 	s := serverWithClient(t, dag, client)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-llm-classifier", strings.NewReader(`{"reason":"cascade_honesty_test: status mapping"}`))
 	w := httptest.NewRecorder()
 	s.handleStun(w, req)
 
@@ -770,7 +770,7 @@ func TestHonestyFix_IsIndependentOfTheClientImplementation(t *testing.T) {
 	dag := singleAgentDAG(t, "fe-signalloom-agents")
 
 	healthy := newFailingClient()
-	ok, err := NewCascadeOrchestrator(dag, healthy, 0).Stun(context.Background(), "agent-solo")
+	ok, err := NewCascadeOrchestrator(dag, healthy, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("healthy client: %v", err)
 	}
@@ -782,7 +782,7 @@ func TestHonestyFix_IsIndependentOfTheClientImplementation(t *testing.T) {
 	broken.getStateErr = fmt.Errorf("x")
 	broken.revokeErr = fmt.Errorf("y")
 	broken.setStateErr = fmt.Errorf("z")
-	bad, err := NewCascadeOrchestrator(singleAgentDAG(t, "fe-signalloom-agents"), broken, 0).Stun(context.Background(), "agent-solo")
+	bad, err := NewCascadeOrchestrator(singleAgentDAG(t, "fe-signalloom-agents"), broken, 0).Stun(context.Background(), "agent-solo", "")
 	if err != nil {
 		t.Fatalf("broken client: %v", err)
 	}

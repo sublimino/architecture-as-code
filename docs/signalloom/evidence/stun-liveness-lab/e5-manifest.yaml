@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e5-agent
+  namespace: kusari-liveness-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e5-agent}
+  template:
+    metadata:
+      labels: {app: e5-agent}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: agent
+        image: kusari-agent:latest
+        imagePullPolicy: Never
+        ports: [{name: http, containerPort: 8080}]
+        # Both probes on the AGENT container target the GUARDIAN's port (pod IP is shared).
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8081}
+          periodSeconds: 15
+          failureThreshold: 3
+          timeoutSeconds: 1
+        readinessProbe:
+          httpGet: {path: /healthz, port: 8081}
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 1
+        resources:
+          limits: {cpu: 100m, memory: 64Mi}
+          requests: {cpu: 5m, memory: 16Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: [{name: tmp, mountPath: /tmp}]
+      - name: guardian
+        image: docker.io/bitnamilegacy/kubectl:1.31
+        imagePullPolicy: Never
+        command: [perl, /scripts/guardian.pl]
+        env: [{name: PORT, value: "8081"}]
+        ports: [{name: guardian, containerPort: 8081}]
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8081}
+          periodSeconds: 15
+          failureThreshold: 3
+          timeoutSeconds: 1
+        resources:
+          limits: {cpu: 50m, memory: 64Mi}
+          requests: {cpu: 5m, memory: 16Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes:
+      - {name: tmp, emptyDir: {}}
+      - name: scripts
+        configMap: {name: lab-scripts}

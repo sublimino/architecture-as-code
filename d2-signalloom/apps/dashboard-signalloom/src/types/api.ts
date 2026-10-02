@@ -35,8 +35,12 @@ export interface AgentCreateRequest {
  * never been touched, and every consumer treats absence as "nothing to say".
  */
 export interface AgentCredentialState {
-  /** Whether the agent can currently authenticate to the platform. */
-  status: 'active' | 'revoked'
+  /**
+   * Whether the agent can currently authenticate to the platform. "unknown"
+   * when a stun or revoked lifecycle suggests revocation but no stun audit
+   * row (bao and spire contained) or registry flag evidences it.
+   */
+  status: 'active' | 'revoked' | 'unknown'
   /**
    * Why the credentials are in this state, in plain language.
    *
@@ -53,8 +57,9 @@ export interface AgentCredentialState {
 export interface SentinelKernelTelemetry {
   cgroup_state: 'frozen' | 'thawed' | 'none' | 'unknown'
   traffic_control_state: 'drop' | 'allow' | 'unknown'
-  ebpf_active?: boolean
-  ebpf_program_attached?: boolean
+  ebpf_active?: boolean | null
+  ebpf_program_attached?: boolean | null
+  veth_interface?: string | null
   observed_at?: string | null
   last_observed_at?: string | null
   sentinel_ack?: boolean
@@ -62,6 +67,8 @@ export interface SentinelKernelTelemetry {
   sentinel_drop_count?: number
   sentinel_last_ack_at?: string | null
   containment_probe_state?: 'confirmed' | 'pending' | 'unconfirmed'
+  /** Where cgroup_state came from; "unavailable" means nobody observed the cgroup. */
+  source?: 'sentinel-annotation' | 'unavailable' | null
 }
 
 export interface RuntimeMetadata {
@@ -105,7 +112,11 @@ export interface IdentityMetadata {
 export interface ContainmentMeasures {
   process_freeze: 'active' | 'inactive' | 'requested' | 'unsupported'
   network_isolation: 'active' | 'inactive' | 'requested' | 'unsupported'
-  credential_revocation: 'active' | 'inactive' | 'requested' | 'unsupported'
+  credential_revocation: 'active' | 'inactive' | 'requested' | 'unsupported' | 'unknown'
+  /** Whether process_freeze / network_isolation rest on an observation. */
+  source?: 'sentinel-annotation' | 'unavailable' | null
+  /** Where credential_revocation came from: the last stun's bao/spire planes, the registry flag, or nothing. */
+  credential_source?: 'stun-audit' | 'registry' | 'unavailable' | null
 }
 
 export interface OperationalStateMetadata {
@@ -148,6 +159,8 @@ export interface EnrichedAgentRecord {
   timestamps: TimestampsMetadata
 }
 
+export type KernelState = 'frozen' | 'running' | 'unknown'
+
 export interface AgentResponse {
   id: string
   name: string
@@ -165,6 +178,15 @@ export interface AgentResponse {
   created_at: string | null
   credential_state?: AgentCredentialState | null
   kernel_telemetry?: SentinelKernelTelemetry | null
+  /**
+   * Kernel freezer truth from the stun-sentinel's cgroup annotations, carried
+   * by discovery. Absent or "unknown" means nobody observed the cgroup; the UI
+   * must not read it as running.
+   */
+  kernel_state?: KernelState | null
+  kernel_observed_at?: string | null
+  /** Named disagreements between kernel_state and the stun record. */
+  split_brain?: string[] | null
   protected_namespaces?: string[]
 
   // Workload / Kubernetes preserved discovery fields
@@ -466,8 +488,41 @@ export interface StunProxyReport {
   message?: string | null
 }
 
+/**
+ * POST /agents/{id}/stun body. The reason is the operator's stated intent,
+ * required by the server (422 without it, 1..256 chars) and recorded against
+ * the actor it reads off the token. It is an input to the action, like
+ * TransitionRequest.reason, not a claim about what the action did.
+ */
+export interface StunAgentRequest {
+  reason: string
+}
+
+/**
+ * One containment plane's report from a stun. Known planes are freeze, bao,
+ * spire, mesh, admission and gitops; known outcomes are contained, partial,
+ * not_found and failed. Both are typed as open strings because the server may
+ * grow either vocabulary, and the UI must render an unknown word as unknown
+ * rather than fail to compile against it.
+ */
+export interface PlaneResult {
+  plane: string
+  outcome: string
+  error?: string
+  timestamp: string
+  latency_ms?: number
+  details?: Record<string, unknown>
+}
+
 export interface StunAgentResponse {
   agent_id: string
+  /** The operator's reason, as the server recorded it. */
+  reason: string
+  /** contained, partial, failed or simulated; open for the same reason as PlaneResult. */
+  overall_outcome: string
+  /** HTTP status the fleet manager answered with, or null when it was not reached. */
+  fleet_manager_status: number | null
+  planes: PlaneResult[]
   from_state: string
   /** Lifecycle vocabulary, not UI wording: a stun lands the agent in
    *  'suspended' (migration 009). Mirrors TransitionResponse's naming. */
@@ -937,6 +992,9 @@ export interface DiscoveryWorkload {
   last_seen_at?: string | null
   recommendations?: ControlRecommendations
   metadata?: Record<string, any>
+  kernel_state?: KernelState | null
+  kernel_observed_at?: string | null
+  split_brain?: string[] | null
 }
 
 export interface DiscoveryWorkloadsSummary {

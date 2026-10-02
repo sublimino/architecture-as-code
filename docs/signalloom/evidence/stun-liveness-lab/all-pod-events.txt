@@ -1,0 +1,51 @@
+LAST                   COUNT   REASON      OBJ                         MSG
+2026-09-29T21:40:48Z   1       Scheduled   e1-agent-66bf787859-k98pj   Successfully assigned kusari-liveness-lab/e1-agent-66bf787859-k98pj to osramp-control-plane
+2026-09-29T21:42:04Z   1       Killing     e1-agent-66bf787859-k98pj   Container agent failed liveness probe, will be restarted
+2026-09-29T21:42:04Z   3       Unhealthy   e1-agent-66bf787859-k98pj   Liveness probe failed: Get "http://10.0.0.121:8080/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-09-29T21:42:30Z   15      Unhealthy   e1-agent-66bf787859-k98pj   Readiness probe failed: Get "http://10.0.0.121:8080/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-09-29T21:42:34Z   1       Unhealthy   e1-agent-66bf787859-k98pj   Readiness probe failed: Get "http://10.0.0.121:8080/healthz": read tcp 10.0.0.77:45544->10.0.0.121:8080: read: connection reset by peer
+2026-09-29T21:42:59Z   6       Unhealthy   e1-agent-66bf787859-k98pj   Readiness probe failed: Get "http://10.0.0.121:8080/healthz": dial tcp 10.0.0.121:8080: connect: connection refused
+2026-09-29T21:44:35Z   3       Created     e1-agent-66bf787859-k98pj   Container created
+2026-09-29T21:44:35Z   3       Pulled      e1-agent-66bf787859-k98pj   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:45:18Z   2       Started     e1-agent-66bf787859-k98pj   Container started
+2026-09-29T21:45:37Z   1       Scheduled   toolcheck                   Successfully assigned kusari-liveness-lab/toolcheck to osramp-control-plane
+2026-09-29T21:45:38Z   1       Pulled      toolcheck                   Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:45:38Z   1       Created     toolcheck                   Container created
+2026-09-29T21:45:38Z   1       Started     toolcheck                   Container started
+2026-09-29T21:46:06Z   1       Killing     e1-agent-66bf787859-k98pj   Stopping container agent
+2026-09-29T21:46:07Z   1       Scheduled   e2-agent-5464646c5b-mvlwx   Successfully assigned kusari-liveness-lab/e2-agent-5464646c5b-mvlwx to osramp-control-plane
+2026-09-29T21:46:08Z   1       Pulled      e2-agent-5464646c5b-mvlwx   Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:46:08Z   1       Created     e2-agent-5464646c5b-mvlwx   Container created
+2026-09-29T21:46:08Z   1       Started     e2-agent-5464646c5b-mvlwx   Container started
+2026-09-29T21:46:08Z   1       Created     e2-agent-5464646c5b-mvlwx   Container created
+2026-09-29T21:46:08Z   1       Pulled      e2-agent-5464646c5b-mvlwx   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:46:09Z   1       Started     e2-agent-5464646c5b-mvlwx   Container started
+2026-09-29T21:46:09Z   1       Unhealthy   e2-agent-5464646c5b-mvlwx   Readiness probe failed: Get "http://10.0.0.215:8081/healthz": dial tcp 10.0.0.215:8081: connect: connection refused
+2026-09-29T21:48:22Z   1       Scheduled   e3-agent-5798757f69-q9r59   Successfully assigned kusari-liveness-lab/e3-agent-5798757f69-q9r59 to osramp-control-plane
+2026-09-29T21:48:23Z   1       Pulled      e3-agent-5798757f69-q9r59   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:48:23Z   1       Created     e3-agent-5798757f69-q9r59   Container created
+2026-09-29T21:48:23Z   1       Started     e3-agent-5798757f69-q9r59   Container started
+2026-09-29T21:48:23Z   1       Pulled      e3-agent-5798757f69-q9r59   Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:48:23Z   1       Created     e3-agent-5798757f69-q9r59   Container created
+2026-09-29T21:48:24Z   1       Started     e3-agent-5798757f69-q9r59   Container started
+2026-09-29T21:51:19Z   1       Pulled      client                      Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:51:19Z   1       Scheduled   client                      Successfully assigned kusari-liveness-lab/client to osramp-control-plane
+2026-09-29T21:51:20Z   1       Created     client                      Container created
+2026-09-29T21:51:20Z   1       Started     client                      Container started
+2026-09-29T21:52:35Z   1       Scheduled   e4-agent-7c867d4d88-h65pk   Successfully assigned kusari-liveness-lab/e4-agent-7c867d4d88-h65pk to osramp-control-plane
+2026-09-29T21:52:36Z   1       Pulled      e4-agent-7c867d4d88-h65pk   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:52:36Z   1       Created     e4-agent-7c867d4d88-h65pk   Container created
+2026-09-29T21:52:37Z   1       Started     e4-agent-7c867d4d88-h65pk   Container started
+2026-09-29T21:52:46Z   1       Scheduled   e4-agent-7c867d4d88-hnfmp   Successfully assigned kusari-liveness-lab/e4-agent-7c867d4d88-hnfmp to osramp-control-plane
+2026-09-29T21:52:47Z   1       Created     e4-agent-7c867d4d88-hnfmp   Container created
+2026-09-29T21:52:47Z   1       Pulled      e4-agent-7c867d4d88-hnfmp   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:52:48Z   1       Started     e4-agent-7c867d4d88-hnfmp   Container started
+2026-09-29T21:52:58Z   1       Killing     e4-agent-7c867d4d88-hnfmp   Stopping container agent
+2026-09-29T21:53:38Z   1       Scheduled   e5-agent-6cc5c479b9-s9ltg   Successfully assigned kusari-liveness-lab/e5-agent-6cc5c479b9-s9ltg to osramp-control-plane
+2026-09-29T21:53:39Z   1       Pulled      e5-agent-6cc5c479b9-s9ltg   Container image "kusari-agent:latest" already present on machine and can be accessed by the pod
+2026-09-29T21:53:39Z   1       Created     e5-agent-6cc5c479b9-s9ltg   Container created
+2026-09-29T21:53:39Z   1       Pulled      e5-agent-6cc5c479b9-s9ltg   Container image "docker.io/bitnamilegacy/kubectl:1.31" already present on machine and can be accessed by the pod
+2026-09-29T21:53:39Z   1       Started     e5-agent-6cc5c479b9-s9ltg   Container started
+2026-09-29T21:53:39Z   1       Created     e5-agent-6cc5c479b9-s9ltg   Container created
+2026-09-29T21:53:40Z   1       Started     e5-agent-6cc5c479b9-s9ltg   Container started
+2026-09-29T21:53:40Z   1       Unhealthy   e5-agent-6cc5c479b9-s9ltg   Readiness probe failed: Get "http://10.0.0.121:8081/healthz": dial tcp 10.0.0.121:8081: connect: connection refused

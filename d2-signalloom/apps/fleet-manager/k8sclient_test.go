@@ -68,6 +68,10 @@ func agentPod(name, state string, extraLabels map[string]string) *corev1.Pod {
 			Namespace: testNamespace,
 			Labels:    labels,
 		},
+		// Every real pod has a ServiceAccount (the API server defaults it), and
+		// the credential planes now read the SPIFFE subject from it. Swarm
+		// agents like agent-cardvault use their own name as the SA.
+		Spec: corev1.PodSpec{ServiceAccountName: name},
 	}
 }
 

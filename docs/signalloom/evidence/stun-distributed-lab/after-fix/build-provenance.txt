@@ -1,0 +1,1 @@
+stun-sentinel:lab2 built from feat/kusari-e2e/fix-c-kernel-truth @ 1c3dd8b889c60a404a2c12cb00454d50a3b60063 image sha256:ae7bf7805d5cfc9a03364505486b9a81c195b64c0f05176361bf8a3c162aa2f6

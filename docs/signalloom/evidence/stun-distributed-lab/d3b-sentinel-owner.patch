@@ -1,0 +1,75 @@
+--- /tmp/w6-lab/ctx/signalloom-stun-sentinel/main.go	2026-09-29 23:30:17.447296731 +0100
++++ main.go	2026-09-29 23:35:44.959331665 +0100
+@@ -129,6 +129,7 @@
+ 	probes         *probePreserver
+ 	dryRun         bool
+ 	reconcileCount *atomic.Int64
++	clientset      kubernetes.Interface
+ }
+ 
+ func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePreserver) *stunReconciler {
+@@ -154,7 +155,15 @@
+ 		return fmt.Errorf("resolve cgroup: %w", err)
+ 	}
+ 
+-	if isPodStunned(pod) {
++	stunned := isPodStunned(pod)
++	if !stunned && r.clientset != nil {
++		owned, err := ownerStunned(r.clientset, pod)
++		if err != nil {
++			return fmt.Errorf("owner stun lookup: %w", err)
++		}
++		stunned = owned
++	}
++	if stunned {
+ 		if err := r.freezer.freeze(cgroupPath); err != nil {
+ 			return fmt.Errorf("freeze: %w", err)
+ 		}
+@@ -298,6 +307,7 @@
+ 		os.Exit(1)
+ 	}
+ 
++	reconciler.clientset = clientset
+ 	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 30*time.Second,
+ 		informers.WithNamespace(cfg.WatchNamespace),
+ 		informers.WithTweakListOptions(func(options *metav1.ListOptions) { options.LabelSelector = "signalloom.ai/agent=true" }),
+--- /dev/null	2026-09-04 19:30:43.411722057 +0100
++++ owner.go	2026-09-29 23:35:09.361299669 +0100
+@@ -0,0 +1,37 @@
++package main
++
++import (
++	"context"
++
++	corev1 "k8s.io/api/core/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/client-go/kubernetes"
++)
++
++// ownerStunned (W6 lab patch) honours signalloom.io/stunned=true on the pod's controlling
++// ReplicaSet or its Deployment. API errors are returned, never read as "not stunned".
++func ownerStunned(cs kubernetes.Interface, pod *corev1.Pod) (bool, error) {
++	for _, ref := range pod.OwnerReferences {
++		if ref.Kind != "ReplicaSet" || ref.Controller == nil || !*ref.Controller {
++			continue
++		}
++		rs, err := cs.AppsV1().ReplicaSets(pod.Namespace).Get(context.TODO(), ref.Name, metav1.GetOptions{})
++		if err != nil {
++			return false, err
++		}
++		if rs.Annotations[labelStunnedIO] == "true" {
++			return true, nil
++		}
++		for _, o := range rs.OwnerReferences {
++			if o.Kind != "Deployment" {
++				continue
++			}
++			d, err := cs.AppsV1().Deployments(pod.Namespace).Get(context.TODO(), o.Name, metav1.GetOptions{})
++			if err != nil {
++				return false, err
++			}
++			return d.Annotations[labelStunnedIO] == "true", nil
++		}
++	}
++	return false, nil
++}

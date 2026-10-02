@@ -21,7 +21,9 @@ from main import app
 
 EAP_AUTHENTICATED = True
 
-PATH = "/api/v1/agents/{agent_id}/transition"
+# Two live routes: api_compat serves /api/agents/{id}/transition, routers/agents.py
+# serves /api/v1/, /v1/ and the bare /agents/ forms.
+PATHS = ["/api/v1/agents/{agent_id}/transition", "/api/agents/{agent_id}/transition"]
 BODY = {"to_state": "governed", "reason": "operator check"}
 
 
@@ -69,14 +71,15 @@ def _assert_not_found(response, agent_id: str) -> None:
     assert agent_id in response.json()["error"]["message"]
 
 
-def test_unknown_agent_transition_is_404_and_audited_as_failed_with_a_database(monkeypatch) -> None:
+@pytest.mark.parametrize("path", PATHS)
+def test_unknown_agent_transition_is_404_and_audited_as_failed_with_a_database(monkeypatch, path) -> None:
     pool = _NoAgentPool()
 
     async def get_pool() -> _NoAgentPool:
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
-    response = _client().post(PATH.format(agent_id="ghost-agent"), json=BODY, headers=eap_bearer())
+    response = _client().post(path.format(agent_id="ghost-agent"), json=BODY, headers=eap_bearer())
 
     _assert_not_found(response, "ghost-agent")
     writes = [(q, a) for q, a in pool.statements if q.lstrip().upper().startswith(("INSERT", "UPDATE"))]
@@ -88,8 +91,9 @@ def test_unknown_agent_transition_is_404_and_audited_as_failed_with_a_database(m
     assert any('"outcome": "not_found"' in str(arg) for arg in audits[0]), audits[0]
 
 
-def test_unknown_agent_transition_is_404_and_audited_as_failed_without_a_database() -> None:
-    response = _client().post(PATH.format(agent_id="ghost-agent"), json=BODY, headers=eap_bearer())
+@pytest.mark.parametrize("path", PATHS)
+def test_unknown_agent_transition_is_404_and_audited_as_failed_without_a_database(path) -> None:
+    response = _client().post(path.format(agent_id="ghost-agent"), json=BODY, headers=eap_bearer())
 
     _assert_not_found(response, "ghost-agent")
     with api_compat._STORE_LOCK:

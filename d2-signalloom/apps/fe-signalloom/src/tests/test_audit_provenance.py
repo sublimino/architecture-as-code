@@ -1081,6 +1081,12 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
         "pressing the control is itself worth a record even when the platform "
         "does nothing with it."
     ),
+    ("api_compat.py", "transition_agent"): (
+        "The no-DSN branch, behind _require_pool: a transition requested for an "
+        "agent the fixture store does not hold is recorded as "
+        "agent.transition_failed (outcome not_found) before the 404. With a pool "
+        "the same row is written on the transaction's connection."
+    ),
     ("api_compat.py", "_execute_claim"): (
         "Fixture path for agent claims when no database pool is available."
     ),

@@ -63,10 +63,19 @@ POD="agent-kusari-5685ff664b-kv25k"
 UID_="e02fe214-5d7c-423b-9fa9-f933932d6679"
 
 frozen() { [ -f "${STATE}/frozen" ]; }
+recovered() { [ -f "${STATE}/recovered" ]; }
 
 case "${ARGS}" in
   *"version --client"*)   echo '{"clientVersion":{"gitVersion":"v1.31.0"}}'; exit 0 ;;
   *cluster-info*)         echo "Kubernetes control plane is running at https://127.0.0.1:1"; exit 0 ;;
+esac
+
+# ── Step 6: fleet-manager's operator key (base64, as a Secret stores it) ─────
+case "${ARGS}" in
+  *"get secret fleet-manager-caller-keys"*"-n fe-signalloom"*".data.operator"*)
+      printf '%s' "${FAKE_OPERATOR_KEY}" | base64 | tr -d '\n'; exit 0 ;;
+  *"get pod"*"labels.signalloom\.io/stunned}"*)
+      if recovered; then echo -n "false"; else echo -n "true"; fi; exit 0 ;;
 esac
 
 # ── Step 5: the sentinel's own health (resync interval, reconcile count) ─────
@@ -74,6 +83,8 @@ esac
 case "${ARGS}" in
   *"get pod"*"name=stun-sentinel"*) echo -n "stun-sentinel-x7k2p"; exit 0 ;;
   *"get pod"*"io/stun-reason}"*)
+      # After an authorised recovery fleet-manager blanks the reason.
+      recovered && [ "${MUT}" != "step6_record_left" ] && exit 0
       # step5_stun_not_from_sentinel: a stun someone else wrote, e.g. a
       # dashboard click, is not the sentinel's detection being recorded.
       if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
@@ -101,6 +112,8 @@ case "${ARGS}" in
   *"get deploy"*readyReplicas*) echo -n "1/1"; exit 0 ;;
   *"get deploy"*reconcile*)
       [ "${MUT}" = "step5_no_flux_suppression" ] && exit 0
+      # Recovery removes the pin, unless the teardown left it behind.
+      recovered && [ "${MUT}" != "step6_left_deployment_pin" ] && exit 0
       echo -n "disabled"; exit 0 ;;
   *"get deploy"*)         exit 0 ;;
 esac
@@ -116,6 +129,7 @@ case "${ARGS}" in
   *"get pod"*imageID*)          echo -n "docker.io/library/kusari-agent:latest"; exit 0 ;;
   *"get pod"*reconcile*)
       [ "${MUT}" = "step5_no_pod_suppression" ] && exit 0
+      recovered && [ "${MUT}" != "step6_left_pod_pin" ] && exit 0
       echo -n "disabled"; exit 0 ;;
 esac
 
@@ -251,6 +265,10 @@ esac
 case "${ARGS}" in
   *"find /sys/fs/cgroup"*) echo "${CG}"; exit 0 ;;
   *cgroup.events*)
+      # An authorised recovery thaws the pod (the sentinel honours the resume).
+      if [ -f "${STATE}/recovered" ] && [ "${MUT}" != "step6_left_frozen" ]; then
+          echo "populated 1"; echo "frozen 0"; exit 0
+      fi
       # The legacy-reconciler defect: frozen, then thawed by the next resync.
       if [ "${MUT}" = "step5_thawed_by_resync" ] && [ -f "${STATE}/resynced" ]; then
           echo "populated 1"; echo "frozen 0"; exit 0
@@ -274,7 +292,34 @@ esac
 exit 0
 FAKE_DOCKER
 
-chmod +x "${WORK}/bin/kubectl" "${WORK}/bin/docker"
+# fleet-manager's POST /recover. It accepts only the operator key, from a
+# header FILE (curl -H @file), and only a recovery naming exactly the kusari
+# agent; then the pins, the record and the freeze are released.
+cat >"${WORK}/bin/curl" <<'FAKE_CURL'
+#!/usr/bin/env bash
+STATE="${SLDC_FAKE_STATE:?}"
+args="$*"
+case "${args}" in *"${FAKE_OPERATOR_KEY}"*) echo "key in argv" >&2; exit 97 ;; esac
+case "${args}" in *"http://fleet-manager.fake:8082/api/v1/fleet/recover"*) ;; *) exit 7 ;; esac
+hdr=""; out=""; data=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -H) case "$2" in @*) hdr="${2#@}" ;; esac; shift 2 ;;
+    -o) out="$2"; shift 2 ;;
+    --data) data="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+code=200
+[ -n "${hdr}" ] && grep -qx "Authorization: Bearer ${FAKE_OPERATOR_KEY}" "${hdr}" || code=401
+[ "${data}" = '{"agent_ids":["agent-kusari-agent"]}' ] || code=400
+[ "${MUT:-}" = "step6_recover_refused" ] && code=403
+[ -n "${out}" ] && printf '{"overall_outcome":"%s"}' "$([ "${code}" = 200 ] && echo contained || echo refused)" >"${out}"
+[ "${code}" = 200 ] && touch "${STATE}/recovered"
+printf '%s' "${code}"
+FAKE_CURL
+
+chmod +x "${WORK}/bin/kubectl" "${WORK}/bin/docker" "${WORK}/bin/curl"
 
 # The suite calls `python3 scripts/derive_tenant_hash.py` in Step 2; that is the
 # real, already-verified generator (SLDC-P3-1) and is left unfaked.
@@ -301,6 +346,8 @@ run_suite() {
         WAIT_QUIET=1 WAIT_DEADLINE_SCALE=0.05 WAIT_SLEEP=0.05 WAIT_HEARTBEAT_START=0 \
         SIGNAL_LOOM_EAP_SALT=signalloom-eap-salt-2026-q3 \
         SLDC_CLAIM_CMD="${WORK}/bin/claim" \
+        SLDC_FLEET_URL=http://fleet-manager.fake:8082 \
+        FAKE_OPERATOR_KEY=fake-operator-key-0123456789abcdef0123 \
         bats --tap "${SUITE}" >"${log}" 2>&1
     return $?
 }
@@ -350,6 +397,11 @@ MUTATIONS=(
   "step5_thawed_by_resync|5|a freeze the reconciler thaws on its next resync fails"
   "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
   "step5_stun_not_from_sentinel|5|a stun record that does not name the sentinel's detection fails"
+  "step6_recover_refused|6|a recovery fleet-manager refused is not a clean teardown"
+  "step6_left_deployment_pin|6|teardown that left the Deployment's reconcile=disabled pin fails"
+  "step6_left_pod_pin|6|teardown that left the Pod's reconcile=disabled pin fails"
+  "step6_record_left|6|teardown that left the stun reason on the pod fails"
+  "step6_left_frozen|6|teardown that left the cgroup frozen fails"
 )
 
 declare -a PLAN=()
@@ -371,10 +423,11 @@ for entry in "${PLAN[@]}"; do
         log="${WORK}/log-baseline.tap"
         run_suite none "${log}"; rc=$?
         if [ "${rc}" -eq 0 ] && step_passed "${log}" 1 && step_passed "${log}" 2 \
-           && step_passed "${log}" 3 && step_passed "${log}" 4 && step_passed "${log}" 5; then
-            echo "ok ${n} - baseline: all five steps pass against unmutated fixtures"
+           && step_passed "${log}" 3 && step_passed "${log}" 4 && step_passed "${log}" 5 \
+           && step_passed "${log}" 6; then
+            echo "ok ${n} - baseline: all six steps pass against unmutated fixtures"
         else
-            echo "not ok ${n} - baseline: all five steps pass against unmutated fixtures"
+            echo "not ok ${n} - baseline: all six steps pass against unmutated fixtures"
             failures=$(( failures + 1 ))
             sed 's/^/  # /' "${log}"
         fi

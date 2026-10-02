@@ -19,7 +19,7 @@ func TestCorrelatorFreezeIsAuthorisedByTheReconcilerEngine(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-kusari", Name: "agent", UID: "771fb437-10ec-47dc-89a0-538e1fc16d3f"},
 		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
 	}
-	if err := newCorrelatorFreezeManager(f).FreezePod(pod); err != nil {
+	if err := newCorrelatorFreezeManager(newStunHolds(f)).FreezePod(pod); err != nil {
 		t.Fatalf("correlator freeze refused by the sentinel's own engine: %v", err)
 	}
 }

@@ -841,6 +841,7 @@ run_stage \
      test/phase1-governor-verification.bats test/phase2-governor-verification.bats \
      test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
      test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
+     test/demo-agent-autoclaim.bats test/dex-subject-tenants.bats \
      test/sentinel-capabilities.bats"
 
 run_stage \

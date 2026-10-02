@@ -436,7 +436,14 @@ func TestTargetIdentityAlignment(t *testing.T) {
 	}
 }
 
-// 9. Concurrency & load test: 100 concurrent containment events; measure latency
+// 9. Concurrency & load test: 100 concurrent containment events.
+//
+// Asserts what concurrency can actually break: every event attests and verifies,
+// and each verified envelope carries its own event and idempotency key and a
+// distinct statement digest, so no record is crossed with another under load.
+// It deliberately asserts no wall-clock latency: an average over 100 goroutines
+// measured the scheduler, and failed (7.5ms > 5ms) during a parallel Go sweep
+// on the same code that passes idle.
 func TestConcurrentBatchAttestationLoad(t *testing.T) {
 	signer, _ := GenerateInMemoryEd25519Signer()
 	history := NewKeyHistoryStore()
@@ -446,10 +453,8 @@ func TestConcurrentBatchAttestationLoad(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(batchSize)
 
-	durations := make([]time.Duration, batchSize)
+	results := make([]*VerificationResult, batchSize)
 	errorsChan := make(chan error, batchSize)
-
-	startTotal := time.Now()
 
 	for i := 0; i < batchSize; i++ {
 		idx := i
@@ -459,48 +464,44 @@ func TestConcurrentBatchAttestationLoad(t *testing.T) {
 			req.EventID = fmt.Sprintf("evt-batch-%03d", idx)
 			req.IdempotencyKey = fmt.Sprintf("idem-%03d", idx)
 
-			t0 := time.Now()
 			_, dsseBytes, err := engine.AttestContainment(context.Background(), req)
 			if err != nil {
 				errorsChan <- fmt.Errorf("event %d attest error: %w", idx, err)
 				return
 			}
-			durations[idx] = time.Since(t0)
-
-			// Verify in parallel as well
-			if _, err := engine.Verify(dsseBytes); err != nil {
+			res, err := engine.Verify(dsseBytes)
+			if err != nil {
 				errorsChan <- fmt.Errorf("event %d verify error: %w", idx, err)
 				return
 			}
+			results[idx] = res
 		}()
 	}
 
 	wg.Wait()
 	close(errorsChan)
-
-	totalElapsed := time.Since(startTotal)
-
 	for err := range errorsChan {
 		t.Errorf("batch failure: %v", err)
 	}
 
-	// Calculate average latency
-	var totalDuration time.Duration
-	var maxDuration time.Duration
-	for _, d := range durations {
-		totalDuration += d
-		if d > maxDuration {
-			maxDuration = d
+	digests := make(map[string]int, batchSize)
+	for idx, res := range results {
+		if res == nil {
+			continue // already reported above
 		}
-	}
-	avgLatency := totalDuration / time.Duration(batchSize)
-
-	t.Logf("100-Event Concurrent Attestation Load Test Passed: Total Time=%v, Avg Latency/Event=%v, Max Latency=%v",
-		totalElapsed, avgLatency, maxDuration)
-
-	// Invariant: In-process signing must be fast (avg < 5ms per event under batch load)
-	if avgLatency > 5*time.Millisecond {
-		t.Errorf("average attestation latency %v exceeds 5ms threshold", avgLatency)
+		if !res.Valid {
+			t.Errorf("event %d: verification result is not valid", idx)
+		}
+		if want := fmt.Sprintf("evt-batch-%03d", idx); res.Record.EventID != want {
+			t.Errorf("event %d: envelope carries event %q, want %q", idx, res.Record.EventID, want)
+		}
+		if want := fmt.Sprintf("idem-%03d", idx); res.Record.IdempotencyKey != want {
+			t.Errorf("event %d: envelope carries idempotency key %q, want %q", idx, res.Record.IdempotencyKey, want)
+		}
+		if prev, dup := digests[res.StatementDigest]; dup {
+			t.Errorf("events %d and %d share statement digest %s", prev, idx, res.StatementDigest)
+		}
+		digests[res.StatementDigest] = idx
 	}
 }
 

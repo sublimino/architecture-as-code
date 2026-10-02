@@ -714,6 +714,17 @@ run_stage \
   "stage1c4-acceptance-plane-coverage.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sler-p6-3-multiplane-acceptance.bats"
 
+# Stage 1c5: the dashboard's /fleet-api/ gate in the real nginx image, against
+# stub upstreams on a throwaway docker network. It needs docker and two images
+# it refuses to pull itself, so it is excluded from the d2-signalloom glob
+# (EXCLUDED_BATS) and runs here, where the images are pulled first. No cluster.
+run_stage \
+  "Dashboard fleet-api gate in the real nginx image" \
+  "stage1c5-dashboard-fleet-gate.tap" \
+  "cd ${WORK_DIR} && docker pull -q nginxinc/nginx-unprivileged:1.27-alpine && \
+   docker pull -q python:3.12-alpine && \
+   ${BATS_BIN} --tap d2-signalloom/test/dashboard-fleet-gate.bats"
+
 # Guards vm-pipeline.sh's hand-copy of demo-signalloom-up, which this file does
 # not have. Run anyway: v1 is frozen but still the CI lane, and a demo run is a
 # free opportunity to notice that its copy has drifted a fifth time.
@@ -809,7 +820,12 @@ run_stage \
      test/tetragon-telemetry-stream.bats test/wait-deadline.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
-     test/landlock-containment-probes.bats"
+     test/landlock-containment-probes.bats \
+     test/teardown-kind-race.bats test/cgroup-freeze-live-gate.bats \
+     test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats \
+     test/signalfusion-demo-auth.bats test/sldc-ingest-bearer.bats \
+     test/sentinel-image-provenance.bats test/pipefail-grep-q-lint.bats \
+     test/sltm-probe-apikey.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists
@@ -1181,6 +1197,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap \
      d2-signalloom/test/runtime.bats \
      d2-signalloom/test/test-1-runtime.bats \
+     d2-signalloom/test/spire-jwks-live.bats \
      d2-signalloom/test/supercred-demo-api.bats \
      d2-signalloom/test/api-route-liveness.bats"
 
@@ -1217,6 +1234,22 @@ run_stage \
   "SFAS live dossier authorization and stun containment acceptance" \
   "stage7e-sfas-live.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/sfas-live-acceptance.bats test/sfas-p1-2-nono-ingest.bats"
+
+# Stage 7f: SLAAT live adversarial probes and the cold-start persistence check.
+# Runtime, not static: each probes the DEPLOYED platform (the SLAAT suites
+# create and delete labelled probe pods; cold-start execs pg_isready and bao
+# status in live pods, with no skip). In the static stage they would either
+# skip or, in the demo lane, which does not tear down, probe whatever cluster
+# survived the last run before this tree is deployed.
+run_stage \
+  "SLAAT live adversarial probes and cold-start persistence" \
+  "stage7f-slaat-live-probes.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap \
+     test/adversarial-network-probes.bats test/network-microsegmentation-hardening.bats \
+     test/openbao-security-probes.bats test/sandbox-confinement-hardening.bats \
+     test/spiffe-openbao-adversarial.bats test/spiffe-openbao-policy-hardening.bats \
+     test/cold-start-persistence-verification.bats"
+
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════

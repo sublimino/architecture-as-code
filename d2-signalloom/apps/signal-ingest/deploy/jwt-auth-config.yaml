@@ -58,11 +58,13 @@ data:
   # api.TestStaticKeysShippedGrantExactlyTheContract (shippedKeyGrants).
   # Subjects are deliberately not SPIFFE IDs: a static key must never be
   # mistaken for a verified SVID in an audit record.
-  #   stun-sentinel  the eBPF correlator: POST /api/v1/observations only.
+  #   stun-sentinel  the eBPF correlator: POST /api/v1/observations only, for
+  #                  whatever tenant the workload maps to (or __unattributed__),
+  #                  hence tenant:cross-write.
   SIGNAL_AUTH_STATIC_KEYS: |
     [
       {"name": "stun-sentinel", "subject": "static-key/stun-sentinel",
-       "tenant": "kusari", "permissions": ["observations:write"],
+       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"],
        "expires": "2026-11-12"}
     ]
   SIGNAL_AUTH_STATIC_KEYS_DIR: /etc/signal-ingest/static-keys

@@ -245,3 +245,32 @@ def test_discovery_claim_route_refuses_another_tenant_403(client: TestClient) ->
     assert _error(res) == "cross_tenant_forbidden"
     res = client.post("/api/v1/discovery/claim", json=body, headers=_bearer(KUSARI_OP))
     assert res.status_code == 200, res.text
+
+
+def test_claim_and_release_sync_the_spine_under_the_claimants_tenant(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # agent_claim's spine sync and clamp send NOTHING without a tenant (they act
+    # for that tenant via the gateway key), so a claim path that omits it
+    # silently stops recording delegation edges.
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def _sync(**kw: Any) -> bool:
+        calls.append(("sync", kw))
+        return True
+
+    async def _clamp(**kw: Any) -> bool:
+        calls.append(("clamp", kw))
+        return True
+
+    monkeypatch.setattr(api_compat, "sync_claim_delegation_to_spine", _sync)
+    monkeypatch.setattr(api_compat, "clamp_claim_delegation_in_spine", _clamp)
+
+    res = _claim(client, KUSARI_OP, "kusari-agent")
+    assert res.status_code == 200, res.text
+    claim_id = res.json()["claim_id"]
+    rel = client.delete(f"/api/v1/agents/claim/{claim_id}", headers=_bearer(KUSARI_OP))
+    assert rel.status_code == 200, rel.text
+
+    assert [(kind, kw.get("tenant")) for kind, kw in calls] == [("sync", "kusari"), ("clamp", "kusari")]
+    assert calls[0][1].get("subject")

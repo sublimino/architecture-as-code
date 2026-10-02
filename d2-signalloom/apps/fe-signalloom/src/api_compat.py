@@ -4470,6 +4470,8 @@ async def _execute_claim(
         "operator_id": getattr(body, "operator_id", None) or principal_actor,
         "claim_id": claim_id,
         "capabilities": getattr(body, "capabilities", None) or ["agent:operate"],
+        "tenant": tenant_id,
+        "subject": principal_actor,
     }
     if getattr(body, "containment_claims", None) is not None:
         sync_kwargs["containment_claims"] = body.containment_claims
@@ -4674,7 +4676,7 @@ async def release_agent_claim(
                 agent_id = str(claim["agent_id"])
 
     if agent_id:
-        await clamp_claim_delegation_in_spine(agent_id=agent_id, claim_id=claim_id)
+        await clamp_claim_delegation_in_spine(agent_id=agent_id, claim_id=claim_id, tenant=tenant_id)
 
     return {"status": "released", "claim_id": claim_id}
 

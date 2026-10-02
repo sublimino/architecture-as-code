@@ -61,6 +61,15 @@ spec:
           env:
             - name: SL_ENV
               value: demo
+            # fleet-manager caller key for POST /stun (scope stun only); see
+            # apps/fleet-manager/callerauth.go. Optional: without it the stun
+            # reaches fleet-manager and is refused 401, which the audit records.
+            - name: FLEET_MANAGER_STUN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: fe-signalloom
+                  optional: true
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

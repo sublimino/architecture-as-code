@@ -366,6 +366,29 @@ func httpAuthenticator(jwt api.Authenticator) (api.Authenticator, error) {
 	return api.NewStaticBearerAuthenticator(*staticBearer, jwt)
 }
 
+// ProbePortEnvVar names the port of the probe-only listener (api.NewProbeHandler).
+const ProbePortEnvVar = "SIGNAL_INGEST_PROBE_PORT"
+
+// probePort is the port the kubelet probes. The API port cannot serve them: every route there is
+// authenticated and the kubelet sends no credential.
+func probePort() string {
+	if p := os.Getenv(ProbePortEnvVar); p != "" {
+		return p
+	}
+	return "8083"
+}
+
+// newProbeServer serves liveness and readiness, and nothing else, on probePort.
+func newProbeServer(h *api.Handlers) *http.Server {
+	return &http.Server{
+		Addr:         ":" + probePort(),
+		Handler:      api.NewProbeHandler(h),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -690,12 +713,22 @@ func main() {
 		}
 	}()
 
+	probeSrv := newProbeServer(handlers)
+	go func() {
+		slog.Info("signal-ingest probe listener starting", "port", probePort())
+		if err := probeSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("probe listener failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
 	<-ctx.Done()
 	slog.Info("shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	_ = probeSrv.Shutdown(shutdownCtx)
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 		os.Exit(1)

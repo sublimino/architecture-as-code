@@ -9,3 +9,7 @@ resources:
   - networkpolicy.yaml
   - deployment.yaml
   - service.yaml
+  # Every route is authenticated (api.ProtectedRouter), and main refuses to
+  # start without SIGNAL_AUTH_* configuration. This is that configuration;
+  # without it an image built from HEAD exits 1 on boot.
+  - ../deploy

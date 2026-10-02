@@ -2896,7 +2896,7 @@ def _make_agent(
     last_transition_at: str | None = None,
     last_transition_by: str | None = None,
     eu_ai_act_risk_class: str | None = "limited",
-    model_name: str | None = "gpt-5.4",
+    model_name: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": agent_id,
@@ -4016,7 +4016,8 @@ async def create_agent(
                 "registered",
                 now,
                 eu_ai_act_risk_class="limited",
-                model_name="gpt-5.4-mini",
+                # AgentCreateRequest declares no model, so none is recorded.
+                model_name=None,
             )
             _AGENTS[tenant_id][agent_id] = agent
             return AgentResponse(**agent)
@@ -4221,7 +4222,7 @@ async def _execute_claim(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Signal Loom Built', 83, 'anthropic', $6,
+                    'Signal Loom Built', 83, NULL, $6,
                     NOW(), NOW(), NOW()
                 )
                 ON CONFLICT (tenant_id, name) DO UPDATE SET
@@ -8306,7 +8307,7 @@ async def list_discovery_workloads(
                         status=st,
                         owner=r["owner"],
                         spiffe_id=spiffe,
-                        model=r["model_name"] or "claude-3-5-sonnet",
+                        model=r["model_name"],
                         last_seen_at=_ts(r["created_at"]),
                         recommendations=ControlRecommendationsModel(
                             config="pass" if st == "governed" else "recommended",
@@ -8361,7 +8362,7 @@ async def list_discovery_workloads(
                         status=st,
                         owner=meta.get("owner"),
                         spiffe_id=f"spiffe://signalloom.demo/ext/{agent_name}" if enrolled else None,
-                        model=meta.get("model") or "gemini-1.5-pro",
+                        model=meta.get("model"),
                         last_seen_at=_ts(r["enrolled_at"]) or _ts(r["created_at"]),
                         recommendations=ControlRecommendationsModel(
                             config="recommended",
@@ -8492,7 +8493,7 @@ async def list_discovery_workloads(
                             discovery_state=st,
                             owner=ag.get("owner"),
                             spiffe_id=f"spiffe://signalloom.svc.cluster.local/ns/{ns}/sa/{ag.get('name')}" if is_linked else None,
-                            model=ag.get("model_name") or "claude-3-5-sonnet",
+                            model=ag.get("model_name"),
                             last_seen_at=ag.get("created_at"),
                             recommendations=recs,
                             control_recommendations=recs,
@@ -8534,7 +8535,7 @@ async def list_discovery_workloads(
                             discovery_state=st,
                             owner=meta.get("owner"),
                             spiffe_id=f"spiffe://signalloom.demo/ext/{ag_id}" if enrolled else None,
-                            model=meta.get("model") or "gemini-1.5-pro",
+                            model=meta.get("model"),
                             last_seen_at=reg.get("last_observed_at") or reg.get("created_at"),
                             recommendations=recs,
                             control_recommendations=recs,

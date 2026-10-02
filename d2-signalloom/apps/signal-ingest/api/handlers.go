@@ -306,6 +306,11 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if err := bindWriteTenancy(r, observations); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
 	if err := h.Store.Append(r.Context(), observations); err != nil {
 		slog.Error("append failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store observations")
@@ -472,6 +477,10 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 	obs := collectors.SeedAll(time.Now().UTC())
+	if err := bindWriteTenancy(r, obs); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err := h.Store.Append(r.Context(), obs); err != nil {
 		slog.Error("seed failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to seed fixtures")

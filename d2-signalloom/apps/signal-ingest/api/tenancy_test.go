@@ -420,3 +420,18 @@ func TestSeededFixturesBelongToTheSeedingTenant(t *testing.T) {
 		}
 	}
 }
+
+// Write binding fails closed where the router cannot reach: no principal, or a principal with no
+// tenant, writes nothing rather than an untagged (cross-tenant) row.
+func TestWriteBindingFailsClosedOnMissingTenancy(t *testing.T) {
+	batch := func() []model.Observation { return []model.Observation{{ID: "x", Labels: map[string]string{}}} }
+	bare := httptest.NewRequest(http.MethodPost, "/api/v1/observations", nil)
+	if err := bindWriteTenancy(bare, batch()); err == nil {
+		t.Fatal("a request with no principal was allowed to write")
+	}
+	noTenant := bare.WithContext(context.WithValue(bare.Context(), principalContextKey{},
+		Principal{Subject: "s", Permissions: map[Permission]bool{PermissionObservationWrite: true}}))
+	if err := bindWriteTenancy(noTenant, batch()); err == nil {
+		t.Fatal("a principal with no tenant was allowed to write")
+	}
+}

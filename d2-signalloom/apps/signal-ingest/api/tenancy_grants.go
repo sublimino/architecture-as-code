@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
@@ -132,4 +133,39 @@ func (h *Handlers) scopedActor(r *http.Request, id string) (*model.ProvisionalAc
 		return a, nil
 	}
 	return nil, nil
+}
+
+// errTenantMismatch is a write naming a tenant other than the writer's.
+var errTenantMismatch = errors.New("tenant_mismatch")
+
+// bindWriteTenancy enforces write tenancy on a batch in place. A principal holding
+// PermissionCrossTenantWrite keeps every observation's tenant as sent. Any other principal writes
+// only its own tenant: an untagged observation is stamped with it, and one naming any other tenant
+// (including the quarantine tenant, or a look-alike) refuses the whole batch. A request with no
+// principal or no tenant writes nothing.
+func bindWriteTenancy(r *http.Request, observations []model.Observation) error {
+	p, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		return errTenantMismatch
+	}
+	if p.Permissions[PermissionCrossTenantWrite] {
+		return nil
+	}
+	if p.TenantID == "" {
+		return errTenantMismatch
+	}
+	for i := range observations {
+		if t, set := observations[i].Labels[ObservationTenantLabel]; set && t != p.TenantID {
+			return errTenantMismatch
+		}
+	}
+	for i := range observations {
+		labels := make(map[string]string, len(observations[i].Labels)+1)
+		for k, v := range observations[i].Labels {
+			labels[k] = v
+		}
+		labels[ObservationTenantLabel] = p.TenantID
+		observations[i].Labels = labels
+	}
+	return nil
 }

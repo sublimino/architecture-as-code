@@ -61,7 +61,7 @@ func loadDeployedAuthConfigMap(t *testing.T) deployedConfigMap {
 // exact permission set each caller gets. A key added to the ConfigMap without a row here, or a
 // permission added to a row's caller in YAML only, fails TestStaticKeysShippedGrantExactlyTheContract.
 var shippedKeyGrants = map[string][]Permission{
-	"stun-sentinel": {PermissionObservationWrite},
+	"stun-sentinel": {PermissionObservationWrite, PermissionCrossTenantWrite},
 }
 
 // loadShippedStaticKeys runs the shipped ConfigMap through the real loader, with a distinct

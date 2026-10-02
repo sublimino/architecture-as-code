@@ -657,7 +657,10 @@ func TestStaticBearerIngestsTheSentinelsRealPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	delegate, _, _ := testJWTDelegate(t)
-	a, err := NewStaticBearerAuthenticator(testStaticConfig(), delegate)
+	cfg := testStaticConfig()
+	// The sentinel watches every workload, so its key carries the cross-tenant write grant.
+	cfg.Permissions = append(cfg.Permissions, PermissionCrossTenantWrite)
+	a, err := NewStaticBearerAuthenticator(cfg, delegate)
 	if err != nil {
 		t.Fatal(err)
 	}

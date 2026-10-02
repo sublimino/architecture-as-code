@@ -212,9 +212,24 @@ claim_kusari_agent() {
 # failed with the observation sitting in the store (measured 2026-10-02: the
 # newest returned was 19h old). OBS_AFTER bounds the query to the provocation.
 observations_json() {
-    ${K_WORKLOAD} get --raw \
-        "/api/v1/namespaces/${INGEST_NS}/services/signal-ingest:8082/proxy/api/v1/observations?limit=50${OBS_AFTER:+&after=${OBS_AFTER}}" \
-        2>/dev/null
+    # Every signal-ingest route is authenticated and the apiserver service proxy
+    # cannot carry a credential for it. Read through a port-forward with the
+    # sldc-evidence-reader key (kusari, observations:read only), handed to curl
+    # as a header FILE: never argv, removed after. 3>&- keeps the background
+    # port-forward off bats' fd 3, which would otherwise hold the run open.
+    local port="${INGEST_EVIDENCE_PORT:-28092}" hdr pf rc=0 key
+    key="$(${K_WORKLOAD} -n "${INGEST_NS}" get secret signal-ingest-key-sldc-evidence-reader \
+        -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d 2>/dev/null)" || return 1
+    [ -n "$key" ] || { echo "no sldc-evidence-reader key; run scripts/sldc-ingest-bearer.sh --key sldc-evidence-reader" >&2; return 1; }
+    hdr="$(mktemp "${BATS_TEST_TMPDIR:-/tmp}/evidence-auth.XXXXXX")"
+    ( umask 077; printf 'Authorization: Bearer %s\n' "$key" >"$hdr" )
+    ${K_WORKLOAD} -n "${INGEST_NS}" port-forward svc/signal-ingest "${port}:8082" >/dev/null 2>&1 3>&- &
+    pf=$!
+    for _ in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:${port}/" && break; sleep 0.25; done
+    curl -fsS -m 10 -H @"$hdr" \
+        "http://127.0.0.1:${port}/api/v1/observations?limit=50${OBS_AFTER:+&after=${OBS_AFTER}}" || rc=$?
+    kill "$pf" 2>/dev/null; wait "$pf" 2>/dev/null; rm -f "$hdr"
+    return $rc
 }
 
 # sensitive_openat_observations filters the feed down to the openat events this

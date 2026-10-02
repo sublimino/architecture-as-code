@@ -166,6 +166,31 @@ func TestObservationIDCarriesATargetDigestNotThePath(t *testing.T) {
 	}
 }
 
+// The same leak through the other two stored strings. Nothing in the repo
+// parses a path out of raw_evidence_ref (frostdb keeps a keyed digest of it,
+// correlation and the dashboard treat it as opaque), so it carries the digest.
+// The path survives only in labels.target, which signal-ingest redacts.
+func TestEvidenceRefAndDescriptionCarryNoTargetPath(t *testing.T) {
+	o := sampleObservation()
+	o.Target = "/home/alice/.ssh/id_rsa"
+	got := o.toIngest()
+	digest := targetDigest(o.Target)
+	if want := "ebpf://" + o.Syscall + "/" + digest; got.RawEvidenceRef != want {
+		t.Fatalf("raw_evidence_ref = %q, want %q", got.RawEvidenceRef, want)
+	}
+	for field, v := range map[string]string{"raw_evidence_ref": got.RawEvidenceRef, "description": got.Description} {
+		if strings.Contains(v, "alice") || strings.Contains(v, "/home/") || strings.Contains(v, o.Target) {
+			t.Fatalf("%s carries the raw target path: %q", field, v)
+		}
+	}
+	if !strings.Contains(got.Description, digest) || !strings.Contains(got.Description, o.Namespace+"/"+o.PodName) {
+		t.Fatalf("description %q lost the target digest or the pod", got.Description)
+	}
+	if got.Labels["target"] != o.Target {
+		t.Fatalf("labels.target = %q: the path must still reach signal-ingest there, where it is redacted", got.Labels["target"])
+	}
+}
+
 func TestObservationIDsDifferForDifferentTargetsAtTheSameInstant(t *testing.T) {
 	a, b := sampleObservation(), sampleObservation()
 	b.Target = "/etc/shadow"

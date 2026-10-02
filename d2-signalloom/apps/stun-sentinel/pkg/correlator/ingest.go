@@ -35,9 +35,10 @@ const (
 	ingestConfidence = 0.95
 )
 
-// targetDigest stands in for the target path in the observation id: the id is
-// stored verbatim, while signal-ingest redacts labels.target, so a raw path
-// (a home-directory username) must not ride in the id. 64 bits keeps ids
+// targetDigest stands in for the target path in the id, raw_evidence_ref and
+// description: those are stored as sent, while signal-ingest redacts
+// labels.target, so a raw path (a home-directory username) must ride only in
+// labels.target. No consumer parses a path out of raw_evidence_ref. 64 bits keeps ids
 // distinct per target at any realistic rate of opens per pod per nanosecond.
 func targetDigest(target string) string {
 	sum := sha256.Sum256([]byte(target))
@@ -62,16 +63,17 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 	if actor == "" {
 		actor = o.PodName
 	}
+	digest := targetDigest(o.Target)
 	return ingestObservation{
-		ID:             fmt.Sprintf("%s:%s/%s:%s:%s:%s", ingestSource, o.Namespace, o.PodName, o.Timestamp, o.Syscall, targetDigest(o.Target)),
+		ID:             fmt.Sprintf("%s:%s/%s:%s:%s:%s", ingestSource, o.Namespace, o.PodName, o.Timestamp, o.Syscall, digest),
 		Timestamp:      o.Timestamp,
 		Layer:          ingestLayer,
 		Fidelity:       ingestFidelity,
 		Source:         ingestSource,
 		Confidence:     ingestConfidence,
 		ActorID:        actor,
-		RawEvidenceRef: fmt.Sprintf("ebpf://%s%s", o.Syscall, o.Target),
+		RawEvidenceRef: fmt.Sprintf("ebpf://%s/%s", o.Syscall, digest),
 		Labels:         labels,
-		Description:    fmt.Sprintf("%s %s by %s/%s", o.Syscall, o.Target, o.Namespace, o.PodName),
+		Description:    fmt.Sprintf("%s target %s by %s/%s", o.Syscall, digest, o.Namespace, o.PodName),
 	}
 }

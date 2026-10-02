@@ -1,0 +1,73 @@
+# SLAAT-P2-1: the ingress namespace (Envoy Gateway's own control plane) had
+# zero NetworkPolicy coverage. SLAAT-P1-1 (LAT-9) found the metrics port
+# (19001) reachable, unauthenticated, from any unprivileged tenant pod in the
+# cluster.
+#
+# Deliberately scoped to Ingress only, on exactly the two workloads involved
+# -- NOT a namespace-wide default-deny. envoy-gateway watches Gateway API
+# resources across the whole cluster via the k8s apiserver, and the data
+# plane's envoy-ingress-cluster pods proxy to backends in every tenant
+# namespace the Gateway allows (fe-signalloom, fe-k8s-afm, ingress itself,
+# per cluster-gateway.yaml's allowedRoutes). A blanket Egress default-deny
+# here would need a hand-maintained allowlist of every current and future
+# routed backend, which is exactly the kind of fix that "breaks legitimate
+# application traffic between frontend, backend, and database components" --
+# one of this card's named failure modes. Restricting the control-plane
+# ingress surface closes the demonstrated finding without that risk.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-envoy-gateway-control-plane
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: envoy-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # The data-plane proxy's own xDS/ratelimit/wasm/webhook connections stay
+    # same-namespace; nothing outside `ingress` has a legitimate reason to
+    # reach these.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 18000 # grpc (xDS)
+        - protocol: TCP
+          port: 18001 # ratelimit
+        - protocol: TCP
+          port: 18002 # wasm
+        - protocol: TCP
+          port: 19001 # metrics -- the LAT-9 finding
+        - protocol: TCP
+          port: 9443 # webhook (failurePolicy: Ignore on the one
+          # MutatingWebhookConfiguration that calls this port, so restricting
+          # it cannot cascade into a cluster-wide admission failure)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-envoy-proxy-control-ports
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # The external data-plane listeners (NodePort 80/443 -> targetPort
+    # 10080/10443) must stay reachable from anywhere -- this is the actual
+    # internet-facing ingress path.
+    - ports:
+        - protocol: TCP
+          port: 10080
+        - protocol: TCP
+          port: 10443
+    # Metrics, same restriction and same reasoning as the control-plane
+    # policy above.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 19001

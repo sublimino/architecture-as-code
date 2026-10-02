@@ -180,6 +180,11 @@ const stageMap = [
   // suffix) ran without a row, so their results never reached the report.
   { file: 'stage1c3-multiplane-acceptance.tap', parser: parseTap, source: 'bats-multiplane-acceptance', category: 'security' },
   { file: 'stage1s-sldc-offline.tap', parser: parseTap, source: 'bats-sldc-offline', category: 'contract' },
+  // Three more stages that ran unheard: the SLER acceptance coverage guard and
+  // the 7d/7e runtime stages.
+  { file: 'stage1c4-acceptance-plane-coverage.tap', parser: parseTap, source: 'bats-acceptance-plane-coverage', category: 'meta' },
+  { file: 'stage7d-autoclaim.tap', parser: parseTap, source: 'bats-autoclaim-integration', category: 'e2e' },
+  { file: 'stage7e-sfas-live.tap', parser: parseTap, source: 'bats-sfas-live-acceptance', category: 'security' },
   // 1k asserts a property of the product's manifests -- that every RBAC binding
   // resolves to a ServiceAccount and a Role that exist -- so it is 'contract'
   // alongside 1g, not 'meta'.

@@ -1,13 +1,13 @@
 {
   "schema": "slaat-p1-3-live-probe-records/v1",
   "card": "SLAAT-P1-3",
-  "generated_at": "2026-10-02T01:56:30Z",
+  "generated_at": "2026-10-02T11:48:08Z",
   "cluster_context": "kind-osramp",
-  "repo_head": "917565cea0d10049e8f32a1fb4654bcc6b48decc",
+  "repo_head": "3bcba6717885cc22776454c6c989cd2c683777d0",
   "components": {
     "spiffe_openbao_probe": {
       "record_count": 19,
-      "fail_count": 4
+      "fail_count": 0
     },
     "spiffe_identity_probe": {
       "record_count": 3,
@@ -15,7 +15,7 @@
     }
   },
   "total_record_count": 22,
-  "total_fail_count": 4,
+  "total_fail_count": 0,
   "records": [
     {
       "id": "SPIFFE-1",
@@ -23,7 +23,7 @@
       "expectation": "denied",
       "observed": "denied",
       "severity": "pass",
-      "detail": "Unregistered ServiceAccount slaat-p1-3-evil-3971130, co-located in fe-signalloom-agents with matching labels, correctly refused a JWT-SVID: : code = PermissionDenied desc = no identity issued\npod \"slaat-p1-3-evil-3971130\" deleted from fe-signalloom-agents namespace\npod fe-signalloom-agents/slaat-p1-3-evil-3971130 terminated (Error)"
+      "detail": "Unregistered ServiceAccount slaat-p1-3-evil-3777415, co-located in fe-signalloom-agents with matching labels, correctly refused a JWT-SVID: : code = PermissionDenied desc = no identity issued\npod \"slaat-p1-3-evil-3777415\" deleted from fe-signalloom-agents namespace\npod fe-signalloom-agents/slaat-p1-3-evil-3777415 terminated (Error)"
     },
     {
       "id": "SPIFFE-2",
@@ -37,9 +37,9 @@
       "id": "SPIFFE-3",
       "vector": "openbao-jwt-login",
       "expectation": "token_ttl<=300s",
-      "observed": "token_duration=768h (2764800s)",
-      "severity": "fail",
-      "detail": "signalloom-cardvault-agent issued a token valid for 768h, far exceeding the mission's stated 5-minute hard cap. Root cause: the role defines no token_ttl/token_max_ttl, so it inherits the auth/jwt mount's default_lease_ttl=768h."
+      "observed": "token_duration=5m",
+      "severity": "pass",
+      "detail": "signalloom-cardvault-agent token duration is within the 5-minute cap."
     },
     {
       "id": "SPIFFE-4",
@@ -109,9 +109,9 @@
       "id": "SPIFFE-12",
       "vector": "openbao-jwt-bound-claims",
       "expectation": "login-succeeds-for-registered-fleet-agents",
-      "observed": "claim-mismatch-for-every-agent",
-      "severity": "fail",
-      "detail": "signalloom-agent-generic role is missing bound_claims_type=glob. Its bound_claims.sub literal '*' never matches a real SPIFFE sub, so EVERY one of the 18 registered fe-signalloom-agents/sa/* identities is permanently denied by this role -- a correctness defect that happens to fail closed. Same bug class previously fixed (bound_claims_type=glob added) in openbao-supercred-bootstrap.yaml's two roles per the documented PF-3 precedent; this role was never updated to match."
+      "observed": "login-succeeded",
+      "severity": "pass",
+      "detail": "signalloom-agent-generic accepted a correctly-audienced, registered SVID."
     },
     {
       "id": "SPIFFE-13",
@@ -157,17 +157,17 @@
       "id": "TTL-signalloom-cardvault-agent",
       "vector": "role-ttl-audit",
       "expectation": "token_ttl<=300s",
-      "observed": "effective_token_ttl_seconds=2764800",
-      "severity": "fail",
-      "detail": "Role auth/jwt/role/signalloom-cardvault-agent: resolved effective token_ttl=2764800s. -- role sets NO explicit token_ttl, inherits the auth/jwt mount's default_lease_ttl"
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/signalloom-cardvault-agent: resolved effective token_ttl=300s."
     },
     {
       "id": "TTL-signalloom-fe-signalloom",
       "vector": "role-ttl-audit",
       "expectation": "token_ttl<=300s",
-      "observed": "effective_token_ttl_seconds=2764800",
-      "severity": "fail",
-      "detail": "Role auth/jwt/role/signalloom-fe-signalloom: resolved effective token_ttl=2764800s. -- role sets NO explicit token_ttl, inherits the auth/jwt mount's default_lease_ttl"
+      "observed": "effective_token_ttl_seconds=300",
+      "severity": "pass",
+      "detail": "Role auth/jwt/role/signalloom-fe-signalloom: resolved effective token_ttl=300s."
     },
     {
       "id": "IDENT-1",

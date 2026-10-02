@@ -378,6 +378,26 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
   - Verify remediations against `test/adversarial-network-probes.bats`.
 - **Diagnostic State**: `kanban-check.sh doctor` reports `doc=clean`, zero exceptions.
 - **Board Inventory**: `done=7`, `in_progress=1`, `review=0`, `backlog=8`.
+---
 
+## 18. Milestone Completion: SLAAT-P2-1 (5e3be) [DONE]
 
-
+- **Timestamp**: 2026-10-02T07:08:00Z
+- **Completed Card**: `SLAAT-P2-1` (`5e3be`) [DONE]
+  - Task: Ingress Route Protection & Network Microsegmentation Fixes.
+  - Deliverables: 14 files (+1636 lines) committed at `acc1e7c7` and merged into `refs/heads/integration/slaat-whole-system-adversarial`:
+    - `d2-infra/components/ingress/configs/base/clienttrafficpolicy.yaml`: ClientTrafficPolicy stripping client XFF/X-Real-IP, 1-hop trust boundary.
+    - `d2-infra/components/ingress/configs/base/networkpolicy.yaml`: Envoy Gateway metrics (19001) and control ports (18000/18001/18002/9443) restricted to same-namespace Ingress.
+    - `d2-osramp-apps/components/backend/base/networkpolicy.yaml`: Blanket default-deny (Ingress+Egress), scoped allows for intra-namespace, DNS, frontend->nats:4222, frontend/osramp-archiver->postgres:5432, fe-signalloom->archivista:8082.
+    - `d2-osramp-apps/components/frontend/base/networkpolicy.yaml`: Blanket default-deny (zero Ingress, scoped Egress to DNS, backend/nats, backend/postgres).
+    - `d2-signalloom/infra/kagent/base/networkpolicy.yaml`: Ingress-only policies for kagent-controller (8083), kagent-ui (8080), kagent-tools-metrics (8085).
+    - `test/network-microsegmentation-hardening.bats`: 14/14 tests passing hermetically and against live cluster.
+    - `test/adversarial-network-probes.bats`: 21/21 tests passing post-remediation.
+    - `ci-evidence/slaat-p2-1-network-remediation.json`: Comprehensive post-fix verification telemetry.
+    - `docs/slaat/p2-1/network-microsegmentation-hardening-report.md`: Complete architectural rationale and port mapping.
+  - Integration Merge: Commit `acc1e7c7` merged into `refs/heads/integration/slaat-whole-system-adversarial`.
+  - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
+  - Card State: Advanced to `done` column (`done=8`: P1-PRE, P1-1, P1-2, P1-3, P1-4, P1-GOV, P2-PRE, P2-1).
+- **Diagnostic State**: `kanban-check.sh doctor` clean (`doc=clean`), zero exceptions.
+- **Board Inventory**: `done=8`, `in_progress=0`, `review=0`, `backlog=8`.
+- **Next Ready Tasks**: Phase 2 Remediations (`SLAAT-P2-2`, `SLAAT-P2-3`, `SLAAT-P2-4`).

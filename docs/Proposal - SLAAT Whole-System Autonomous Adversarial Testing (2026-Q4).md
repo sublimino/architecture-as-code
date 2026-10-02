@@ -184,7 +184,7 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P3 | `SLAAT-P3-PRE` | Phase 3 Pre-Flight Check & Test Environment Refresh | `SLAAT-P2-GOV` | Re-attest fresh Kind cluster, reset database state, and calibrate re-test execution rigs. | `unit` | `S` | `daily` | pass : delivered: cb3f584351da2542a783705030ca4d9a5b3a4a9c (see Errata : SLAAT-P3-PRE) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | pass : delivered: 97a4c179a64af061e1a68172693d82dd1caba379 (see Errata : SLAAT-P3-1) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | pass : delivered: 796b33cb90d9c55108019071030a507fdebdc6b6 (see Errata : SLAAT-P3-2) | $0.00 | 0 | 0s | none |
-| P3 | `SLAAT-P3-GOV` | Final Mission Governor Gate: Certification & Hand-Off | `SLAAT-P3-1`, `SLAAT-P3-2` | Generate final certification report, consolidate errata ledgers, verify clean git status, and close mission. | `e2e` | `L` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P3 | `SLAAT-P3-GOV` | Final Mission Governor Gate: Certification & Hand-Off | `SLAAT-P3-1`, `SLAAT-P3-2` | Generate final certification report, consolidate errata ledgers, verify clean git status, and close mission. | `e2e` | `L` | `daily` | pass : delivered: 24fb88772b71284fb424c03c368b460241ba8b41 (see Errata : SLAAT-P3-GOV) | $0.00 | 0 | 0s | none |
 
 ### Spec: Errata
 
@@ -623,4 +623,20 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 - Ready for SLAAT-P3-GOV Final Mission Governor Gate: Certification & Hand-Off.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
-
+#### Errata — SLAAT-P3-GOV Final Mission Governor Gate: Certification & Hand-Off
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-02 13:03:00+01:00
+**Last Updated:** 2026-10-02 13:03:00+01:00
+**Status:** Completed
+**Commit:** 24fb88772b71284fb424c03c368b460241ba8b41
+**Governor merge:** delivered in 24fb8877 (integration/slaat-whole-system-adversarial)
+**Decisions:**
+- Reconciled and certified all 16 mission cards across Phase 1, Phase 2, and Phase 3.
+- Authored final mission certification report: docs/slaat/FINAL-MISSION-CERTIFICATION-REPORT.md.
+- Verified 100% defense rate against all 24 Phase 1 vulnerability vectors replayed in Phase 3.
+- Verified whole-platform acceptance, database persistence, and multiplane regression tests with zero regressions.
+- Audited git working tree and kanban board state: all 16 cards delivered and verified.
+**Notes:**
+- Deliverable authored: docs/slaat/FINAL-MISSION-CERTIFICATION-REPORT.md (docs-lint clean).
+- SLAAT mission fully accomplished and ready for final delivery hand-off.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

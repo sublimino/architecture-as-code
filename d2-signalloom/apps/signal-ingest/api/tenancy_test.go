@@ -34,9 +34,6 @@ func tenancyRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	t.Helper()
 	delegate, _, _ := testJWTDelegate(t)
 	expires := time.Now().Add(24 * time.Hour)
-	if sunset, _ := time.Parse(time.DateOnly, StaticBearerSunset); expires.After(sunset) {
-		expires = sunset
-	}
 	// actor_ids "*" passes the router's per-actor allow-list on the {id} routes, so what is left to
 	// decide the reply is tenancy alone.
 	anyActor := []string{"*"}
@@ -319,7 +316,7 @@ const (
 func writeRouter(t *testing.T) (*ProtectedRouter, *Handlers) {
 	t.Helper()
 	delegate, _, _ := testJWTDelegate(t)
-	expires, _ := time.Parse(time.DateOnly, StaticBearerSunset)
+	expires := time.Now().Add(24 * time.Hour)
 	a, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
 		{Name: "writer-a", Token: writerAToken, Subject: "static-key/writer-a", TenantID: "tenant-a",
 			Permissions: []Permission{PermissionObservationWrite, PermissionCollectorWrite}, ExpiresAt: expires},

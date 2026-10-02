@@ -256,7 +256,8 @@ func containerEnv(t *testing.T, r rendered, root string, fileOverrides map[strin
 	}
 	secret := func(name string) map[string]string {
 		if strings.HasPrefix(name, keySecretPrefix) {
-			return map[string]string{"token": keyValue(strings.TrimPrefix(name, keySecretPrefix))}
+			return map[string]string{"token": keyValue(strings.TrimPrefix(name, keySecretPrefix)),
+				"expires": time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.DateOnly)}
 		}
 		s, ok := bootstrapSecrets[name]
 		if !ok {
@@ -520,16 +521,23 @@ func TestReconciledManifestTakesKeyValuesFromSecretsOnly(t *testing.T) {
 				continue
 			}
 			for _, it := range src.Secret.Items {
-				if it.Key != "token" {
-					t.Errorf("Secret %s projects key %q, want token", src.Secret.Name, it.Key)
+				name := strings.TrimPrefix(src.Secret.Name, keySecretPrefix)
+				switch {
+				case it.Key == "token" && it.Path == name:
+				case it.Key == "expires" && it.Path == name+api.StaticKeyExpirySuffix:
+				default:
+					t.Errorf("Secret %s projects %s -> %s; want token -> %s and expires -> %s%s",
+						src.Secret.Name, it.Key, it.Path, name, name, api.StaticKeyExpirySuffix)
 				}
 				projected[it.Path] = src.Secret.Name
 			}
 		}
 	}
 	for _, name := range shippedKeyNames(t, r) {
-		if got := projected[name]; got != keySecretPrefix+name {
-			t.Errorf("key %s is projected from %q, want Secret %s%s", name, got, keySecretPrefix, name)
+		for _, path := range []string{name, name + api.StaticKeyExpirySuffix} {
+			if got := projected[path]; got != keySecretPrefix+name {
+				t.Errorf("%s is projected from %q, want Secret %s%s", path, got, keySecretPrefix, name)
+			}
 		}
 	}
 	var mounted bool

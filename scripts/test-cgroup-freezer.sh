@@ -37,6 +37,8 @@ readonly DECLARED_PROBES=12
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 readonly MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
+# shellcheck source=lib/live-gate.sh
+source "${SCRIPT_DIR}/lib/live-gate.sh"
 
 CLUSTER_CONTEXT="${CLUSTER_CONTEXT:-kind-osramp}"
 KIND_NODE="${KIND_NODE:-osramp-control-plane}"
@@ -58,8 +60,8 @@ EXECUTED=0
 declare -a RESULTS=()
 
 log()  { printf '%s\n' "$*" >&2; }
-node() { docker exec "${KIND_NODE}" "$@"; }
-nsh()  { docker exec "${KIND_NODE}" sh -c "$1"; }
+node() { sldc_docker exec "${KIND_NODE}" "$@"; }
+nsh()  { sldc_docker exec "${KIND_NODE}" sh -c "$1"; }
 
 # probe NAME CONDITION_DESCRIPTION ACTUAL EXPECTED_PREDICATE
 record() {
@@ -108,8 +110,10 @@ preflight() {
   done
   [[ "${missing}" == "0" ]] || exit 3
 
-  if ! docker inspect "${KIND_NODE}" >/dev/null 2>&1; then
-    log "Kind node container '${KIND_NODE}' is not running — cannot run the live harness."
+  # Opt-in and API reachability through KUBECONFIG come before any docker
+  # call: this harness docker-cp's a binary onto, and pkill's on, a SHARED node.
+  if ! sldc_live_gate "${CLUSTER_CONTEXT}" "${KIND_NODE}"; then
+    log "live harness refused: ${SLDC_LIVE_GATE_REASON}"
     exit 3
   fi
   if ! nsh 'command -v curl >/dev/null'; then
@@ -125,7 +129,7 @@ build_and_install() {
   ( cd "${MODULE_DIR}" && CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false \
       go build -ldflags='-s -w' -o /tmp/stun-sentinel-live ./cmd/stun-sentinel ) || {
     log "build failed"; exit 4; }
-  docker cp /tmp/stun-sentinel-live "${KIND_NODE}:/usr/local/bin/stun-sentinel" >/dev/null || exit 4
+  sldc_docker cp /tmp/stun-sentinel-live "${KIND_NODE}:/usr/local/bin/stun-sentinel" >/dev/null || exit 4
 }
 
 start_daemon() {
@@ -157,10 +161,10 @@ start_burner() {
   # being broken. Wait it out before touching anything.
   local phase i
   for i in $(seq 1 60); do
-    if ! kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+    if ! sldc_kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
       break
     fi
-    phase="$(kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" \
+    phase="$(sldc_kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" \
               -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     if [[ "${phase}" != "Terminating" ]]; then
       break
@@ -169,13 +173,13 @@ start_burner() {
     sleep 1
   done
 
-  if ! kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
-    kubectl --context "${CLUSTER_CONTEXT}" create namespace "${NAMESPACE}" >/dev/null 2>&1 || true
+  if ! sldc_kubectl --context "${CLUSTER_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+    sldc_kubectl --context "${CLUSTER_CONTEXT}" create namespace "${NAMESPACE}" >/dev/null 2>&1 || true
   fi
-  kubectl --context "${CLUSTER_CONTEXT}" delete pod "${POD}" -n "${NAMESPACE}" \
+  sldc_kubectl --context "${CLUSTER_CONTEXT}" delete pod "${POD}" -n "${NAMESPACE}" \
     --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1
 
-  kubectl --context "${CLUSTER_CONTEXT}" apply -f - >/dev/null <<YAML || exit 6
+  sldc_kubectl --context "${CLUSTER_CONTEXT}" apply -f - >/dev/null <<YAML || exit 6
 apiVersion: v1
 kind: Pod
 metadata:
@@ -195,7 +199,7 @@ spec:
       command: ["/bin/sh", "-c", "while :; do :; done"]
 YAML
 
-  kubectl --context "${CLUSTER_CONTEXT}" wait --for=condition=Ready \
+  sldc_kubectl --context "${CLUSTER_CONTEXT}" wait --for=condition=Ready \
     "pod/${POD}" -n "${NAMESPACE}" --timeout=120s >/dev/null || exit 6
 }
 
@@ -204,7 +208,7 @@ cleanup() {
     log "--keep: leaving namespace ${NAMESPACE} and the daemon in place"
     return 0
   fi
-  kubectl --context "${CLUSTER_CONTEXT}" delete namespace "${NAMESPACE}" \
+  sldc_kubectl --context "${CLUSTER_CONTEXT}" delete namespace "${NAMESPACE}" \
     --ignore-not-found --wait=false >/dev/null 2>&1
   nsh 'pkill -x stun-sentinel >/dev/null 2>&1; exit 0'
   # An explicit success: under a future `set -e` the trap's last command
@@ -223,7 +227,7 @@ main() {
   trap cleanup EXIT
 
   local pod_uid cg_expected
-  pod_uid="$(kubectl --context "${CLUSTER_CONTEXT}" get pod "${POD}" -n "${NAMESPACE}" \
+  pod_uid="$(sldc_kubectl --context "${CLUSTER_CONTEXT}" get pod "${POD}" -n "${NAMESPACE}" \
               -o jsonpath='{.metadata.uid}')"
   log "pod ${NAMESPACE}/${POD} uid=${pod_uid}"
 

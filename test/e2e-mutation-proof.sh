@@ -167,6 +167,12 @@ case "${ARGS}" in
           printf '{"id":"stun-sentinel:%s","timestamp":"%s","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat%s","labels":{"syscall":"sys_enter_openat","target":"%s","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","severity":"CRITICAL","direct_reaction":"cgroup_frozen","cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"description":"sys_enter_openat %s"}' \
               "$1" "$1" "$3" "$3" "$2" "${POD}" "${UID_//-/_}" "$3"
       }
+      # The real store answers an UNBOUNDED query with its oldest rows, so a
+      # suite that forgets ?after= only ever sees yesterday's feed.
+      case "${ARGS}" in
+          *"after="*) ;;
+          *) printf '[%s]\n' "$(obs "2026-01-01T00:00:00.000Z" "${tenant}" "${target}")"; exit 0 ;;
+      esac
       if [ "${MUT}" = "step4_stale_timestamp" ]; then
           printf '[%s]\n' "$(obs "${ts}" "${tenant}" "${target}")"
       else

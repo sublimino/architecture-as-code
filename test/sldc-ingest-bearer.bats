@@ -85,10 +85,11 @@ token() { base64 -d <"$FAKE_STATE/$1/$2/$3" 2>/dev/null; }
 
 seed() { # seed CONTEXT NS NAME VALUE
 	mkdir -p "$FAKE_STATE/$1/$2"
-	printf '%s' "$4" | base64 -w0 >"$FAKE_STATE/$1/$2/$3"
+	printf '%s' "$4" | base64 | tr -d '\n' >"$FAKE_STATE/$1/$2/$3"
 }
 
-applies() { rg -c '^.*apply --server-side' "$FAKE_LOG" || true; }
+# rg -c prints nothing (and exits 1) on zero matches, so count with awk.
+applies() { awk '/ apply --server-side/ { n++ } END { print n + 0 }' "$FAKE_LOG"; }
 
 assert_never_leaked() { # assert_never_leaked VALUE
 	! rg -qF -- "$1" "$FAKE_LOG"

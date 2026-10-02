@@ -1111,7 +1111,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
 	test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
 	test/sentinel-capabilities.bats test/sentinel-image-provenance.bats \
-	d2-signalloom/test/stun-sentinel-daemonset.bats
+	d2-signalloom/test/stun-sentinel-daemonset.bats test/demo-agent-autoclaim.bats \
+	test/dex-subject-tenants.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api \

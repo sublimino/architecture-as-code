@@ -115,18 +115,6 @@ func NewLoader(opts LoaderOptions) (l *Loader, err error) {
 		}
 		return nil, fmt.Errorf("load sentinel probe: %w", err)
 	}
-	// Cleanup must hold its OWN pointer. l is a named return, so every
-	// `return nil, err` below assigns nil to it before this defer runs -- and
-	// a nil l here meant a SIGSEGV that took the whole sentinel down rather
-	// than the documented graceful release. See the two TestLoaderClose tests.
-	created := l
-	defer func() {
-		if err != nil {
-			_ = created.Close()
-			l = nil
-		}
-	}()
-
 	if opts.CaptureVerifierLog {
 		l.verifierLogs = make(map[string]string, len(tracepoints))
 		for _, tp := range tracepoints {
@@ -134,19 +122,46 @@ func NewLoader(opts LoaderOptions) (l *Loader, err error) {
 		}
 	}
 
-	for _, tp := range tracepoints {
-		lk, err := link.Tracepoint(tp.group, tp.name, tp.prog(&l.objs), nil)
+	// attachAndOpen releases everything on failure itself. NewLoader used a
+	// deferred cleanup over its NAMED return, and every `return nil, err`
+	// nils that before the defer runs: first a SIGSEGV (95a6ce01), and a
+	// revert of that fix stayed green because nothing could reach the path
+	// without BPF privileges (review M2). The steps are now injectable.
+	if err := l.attachAndOpen(attachTracepoint, func() (*ringbuf.Reader, error) {
+		return ringbuf.NewReader(l.objs.Events)
+	}); err != nil {
+		return nil, err
+	}
+	return l, nil
+}
+
+func attachTracepoint(group, name string, prog *ebpf.Program) (link.Link, error) {
+	return link.Tracepoint(group, name, prog, nil)
+}
+
+// attachAndOpen attaches every tracepoint and opens the ring-buffer reader.
+// On any failure it closes whatever it already attached, plus the loaded
+// programs and maps, before returning the error.
+func (l *Loader) attachAndOpen(
+	attach func(group, name string, prog *ebpf.Program) (link.Link, error),
+	openReader func() (*ringbuf.Reader, error),
+) (err error) {
+	defer func() {
 		if err != nil {
-			return nil, fmt.Errorf("attach tracepoint %s/%s: %w", tp.group, tp.name, err)
+			_ = l.Close()
+		}
+	}()
+	for _, tp := range tracepoints {
+		lk, err := attach(tp.group, tp.name, tp.prog(&l.objs))
+		if err != nil {
+			return fmt.Errorf("attach tracepoint %s/%s: %w", tp.group, tp.name, err)
 		}
 		l.links = append(l.links, lk)
 	}
-
-	l.reader, err = ringbuf.NewReader(l.objs.Events)
-	if err != nil {
-		return nil, fmt.Errorf("open ring buffer reader: %w", err)
+	if l.reader, err = openReader(); err != nil {
+		return fmt.Errorf("open ring buffer reader: %w", err)
 	}
-	return l, nil
+	return nil
 }
 
 // selfPIDNamespace identifies the caller's PID namespace in the form

@@ -6,7 +6,7 @@ metadata:
     # SLAAT-P2-3 (Forge review finding): this card's F1 fix edits the Job's
     # pod template (the embedded bao write command), which is an immutable
     # field once the Job exists. Without `force`, Flux's apply fails with
-    # "field is immutable" on any cluster where this Job already ran — and
+    # "field is immutable" on any cluster where this Job already ran -- and
     # because inf-bao/infra-configs is `wait: true`, that failure blocks
     # every Kustomization that depends on it (agent-trust, apps, olly,
     # agent-swarm). Matches the sibling annotation already present on
@@ -39,7 +39,7 @@ spec:
               bao write auth/jwt/config jwks_url="http://spire-oidc.inf-bao.svc.cluster.local:8008/keys" || true
               # SLAAT-P1-3-F1 (CRITICAL, fixed by SLAAT-P2-3): this role
               # previously declared no token_ttl/token_max_ttl, so it
-              # inherited the auth/jwt mount's default_lease_ttl=768h — a
+              # inherited the auth/jwt mount's default_lease_ttl=768h -- a
               # captured token stayed valid for 32 days against the
               # mission's 5-minute hard cap. token_type=batch matches the
               # non-renewable pattern used by agent-trust-planner/triage.

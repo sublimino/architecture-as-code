@@ -368,6 +368,12 @@ sequenceDiagram
 - **Least privilege by default, read-only by construction.** Any new cluster reader gets its own ServiceAccount and only `get/list/watch` on the exact resources it needs. It never reads Secrets and is never the privileged probe.
 - **Fail closed and loud.** A missing key disables only that caller and is logged; an audit store that is down refuses with 503; nothing fabricates success.
 
+#### Wire contracts fixed for the board
+- **Batch chain (D10):** request headers `X-SignalLoom-Batch-Epoch` (random per sender start), `X-SignalLoom-Batch-Seq` (from 1 within the epoch), `X-SignalLoom-Batch-Prev` (hex SHA-256 of the previous batch body in the epoch; empty for seq 1). The body contract is unchanged. Absent headers mean an unchained sender and are accepted.
+- **Spool (D7):** `/var/lib/signalloom/spool` (hostPath, `0700` dir, `0600` files), bounded by `SIGNAL_INGEST_SPOOL_MAX_BYTES` and `SIGNAL_INGEST_SPOOL_MAX_AGE` (default 8h); a 429 `Retry-After` is honoured.
+- **AFM import key:** named key `afm-importer`, scope `afm:import`, verified by fe-signalloom with `hmac.compare_digest` over SHA-256 digests, from a projected Secret.
+- **Harness:** cards run on the `antigravity` harness, the one with subscription headroom at board creation (Codex throttled, Claude at 54% of its 5-hour window). `start-ready` may rebalance later.
+
 #### Canonical locations
 - `d2-signalloom/apps/signal-ingest/api/{static_bearer,static_keys}.go`: named-key verifier
 - `d2-signalloom/apps/fleet-manager/callerauth.go`: the fleet-manager mirror of the same contract
@@ -391,43 +397,43 @@ sequenceDiagram
 
 | Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
 | :--- | :--- | :--- | :--- | ---: | :--- | :--- |
-| P0 | ajm-auto-kanban; ripwire | Baseline engineer | S | 45m | fast | Prove the board harness, the integration branch and the Phase 1 offline gate before any change. |
-| P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | daily | Map AFM's import contract, its upload API and auth, and where the exporter ships in the probe bundle. |
-| P1-1 | context-mode | Go/Python API engineer | M | 120m | daily | AFM ingest must accept the same named static keys; mirrors a proven contract. |
-| P1-2 | context-mode | Kubernetes engineer | M | 120m | daily | A read-only exporter CronJob in the probe bundle; RBAC and PSS discipline matter more than code volume. |
-| P1-GOV | ajm-auto-kanban | Governor | M | 90m | deep | Merge in order; run the live AFM import from the Kusari cluster once. |
-| P2-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | daily | Map the probe's dispatch path, signal-ingest's key loader and router, and the hostPath and PSS constraints for an on-node spool. |
-| P2-1 | context-mode | Go systems engineer | L | 180m | deep | The spool: bounded, ordered, idempotent replay, 0600 files, honours 429/Retry-After, never blocks detection or freeze (D7). |
-| P2-2 | context-mode | Go API engineer | M | 120m | daily | Hot reload of the key directory with last-good fallback (D8) and per-key token buckets with 429 (D9). |
-| P2-3 | context-mode | Go API engineer | M | 120m | daily | Per-key batch sequence and hash chain with epochs that tolerates spool replay (D10); sender and verifier sides. |
-| P2-GOV | ajm-auto-kanban | Governor | M | 90m | deep | Live partition injection: no loss within the cap; revoke-and-measure ≤ 90 s. |
-| P3-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | daily | Classify every `stun-sentinel` occurrence (1,323 in 275 files): identity-bearing, living doc, or decision record. |
-| P3-1 | context-mode | Platform engineer | L | 180m | deep | The rename touches image, ServiceAccount, RBAC, labels, Flux path and event names; it needs a no-overlap cutover so two probes never freeze the same pod. |
-| P3-2 | context-mode | Test engineer | M | 120m | daily | Rename tests and living docs; add a guard that fails on the old name outside an allow-list. |
-| P3-GOV | ajm-auto-kanban | Governor | M | 90m | deep | Live cutover check: exactly one probe DaemonSet, Step 4 and Step 5 green, no orphaned RBAC. |
-| P4-1 | context-mode | Go API engineer | S | 60m | fast | Actor IDs containing `//` are rejected on every `{id}` route; canonicalise or encode them. |
-| P4-GOV | ajm-auto-kanban | Governor | S | 60m | daily | Final acceptance: every acceptance command, live tiers twice in a row. |
+| P0 | ajm-auto-kanban; ripwire | Baseline engineer | S | 45m | antigravity | Prove the board harness, the integration branch and the Phase 1 offline gate before any change. |
+| P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Map AFM's import contract, its upload API and auth, and where the exporter ships in the probe bundle. |
+| P1-1 | context-mode | Python API engineer | M | 120m | antigravity | AFM's backend lives outside this repo, so the key check sits in a fe-signalloom gateway route plus a NetworkPolicy. |
+| P1-2 | context-mode | Kubernetes engineer | M | 120m | antigravity | A read-only exporter CronJob in the probe bundle; RBAC and PSS discipline matter more than code volume. |
+| P1-GOV | ajm-auto-kanban | Governor | M | 90m | antigravity | Merge in order; run the live AFM import from the Kusari cluster once. |
+| P2-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Map the probe's dispatch path, signal-ingest's key loader and router, and the hostPath and PSS constraints for an on-node spool. |
+| P2-1 | context-mode | Go systems engineer | L | 180m | antigravity | The spool: bounded, ordered, idempotent replay, 0600 files, honours 429/Retry-After, never blocks detection or freeze (D7). |
+| P2-2 | context-mode | Go API engineer | M | 120m | antigravity | Hot reload of the key directory with last-good fallback (D8) and per-key token buckets with 429 (D9). |
+| P2-3 | context-mode | Go API engineer | M | 120m | antigravity | Per-key batch sequence and hash chain with epochs that tolerates spool replay (D10); sender and verifier sides. |
+| P2-GOV | ajm-auto-kanban | Governor | M | 90m | antigravity | Live partition injection: no loss within the cap; revoke-and-measure ≤ 90 s. |
+| P3-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Classify every `stun-sentinel` occurrence (1,323 in 275 files): identity-bearing, living doc, or decision record. |
+| P3-1 | context-mode | Platform engineer | L | 180m | antigravity | The rename touches image, ServiceAccount, RBAC, labels, Flux path and event names; it needs a no-overlap cutover so two probes never freeze the same pod. |
+| P3-2 | context-mode | Test engineer | M | 120m | antigravity | Rename tests and living docs; add a guard that fails on the old name outside an allow-list. |
+| P3-GOV | ajm-auto-kanban | Governor | M | 90m | antigravity | Live cutover check: exactly one probe DaemonSet, Step 4 and Step 5 green, no orphaned RBAC. |
+| P4-1 | context-mode | Go API engineer | S | 60m | antigravity | Actor IDs containing `//` are rejected on every `{id}` route; canonicalise or encode them. |
+| P4-GOV | ajm-auto-kanban | Governor | S | 60m | antigravity | Final acceptance: every acceptance command, live tiers twice in a row. |
 
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | fast | — | — | — | — | — |
-| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | daily | — | — | — | — | — |
-| P1-1 | implementation | AFM ingest authenticates uploads with a named static key (scope `afm:import`, bound to one cluster), 401/403 matrix, no anonymous upload | P1-PRE | AFM unit tests per refusal path; key not in argv or logs; mutation proofs | M | daily | — | — | — | — | — |
-| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | daily | — | — | — | — | — |
-| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | deep | — | — | — | — | — |
-| P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | daily | — | — | — | — | — |
-| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | deep | — | — | — | — | — |
-| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | daily | — | — | — | — | — |
-| P2-3 | implementation | Per-key batch sequence and hash chain with epochs; signal-ingest audits gaps, replays and reordering (D10) | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | daily | — | — | — | — | — |
-| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | deep | — | — | — | — | — |
-| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | daily | — | — | — | — | — |
-| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | deep | — | — | — | — | — |
-| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | daily | — | — | — | — | — |
-| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | deep | — | — | — | — | — |
-| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | fast | — | — | — | — | — |
-| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | daily | — | — | — | — | — |
+| P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | — | — | — | — | — |
+| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | — | — | — | — | — |
+| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | — | — | — | — | — |
+| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | — | — | — | — | — |
+| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | — | — | — | — | — |
+| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
 

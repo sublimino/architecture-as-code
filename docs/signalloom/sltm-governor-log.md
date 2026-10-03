@@ -185,3 +185,27 @@ Mission identity: repository `/home/andy/src/cp/osramp-demo`, shortcode
 - **Lead, 2026-10-03 14:42:37 +0100**: Merged containment `f25e8b0c` (partition-flake: the test now waits causally on spool replay and separates DATA LOSS from never-replayed). Offline **723 ok**. **SLTM live test 18 now fails 4/4 with DATA LOSS** on local kind (`/tmp/sldc2/sltm-pf-{1..4}.log`), against 3/4 passes before. Either the old timing check masked a real P2-1 spool loss, or the new store poll looks in the wrong place. Back to containment (`sldc2/partition-flake-2`), with real data loss as the top priority. **Phase 2's spool claim is reopened until this is explained.**
 - **Lead, 2026-10-03 15:04:45 +0100, SPOOL CLAIM RESTORED**: Merged containment `80b65c8f` (partition-flake-2). The 4/4 "DATA LOSS" was a defect in the previous fix: the poll asked signal-ingest for `limit=1000` above its 100-row cap, got HTTP 400 on every read, and counted each one as absent. Run 4's trace shows the provoker's batch spooled, replayed and ingested ("observations ingested" n=1). The poll now asks at the cap, and each read gets a verdict (found / absent from a complete page / read failed / full page), so only a genuine absence can report DATA LOSS. A drift guard ties the cap to the code. Offline **729 ok**. **SLTM live 19/19 four times in a row** (`/tmp/sldc2/sltm-pf2-{1..4}.log`). The P2-1 spool is sound.
 - **Lead, 2026-10-03 15:21:47 +0100**: **P4-1 done** (50957): signal-ingest accepts percent-encoded double-slash actor IDs on `{id}` routes. Errata uncommitted again; prompted in-session (`f309f111`), released, merged. Restored P3-GOV's displaced tag (5th time). Offline **729 ok**; ingest pin `src-71c3fb00b490a19c` matches a fresh checkout. **15/16 done.** Deployed signal-ingest and fe-signalloom (P4-1 touched risk and fusion) to local kind. Started **P4-GOV** (aab49), the final card, with standing orders: verify only, e2e x2 plus SLTM x2, never widen a test.
+- **P4-GOV (Antigravity governor session), 2026-10-03 15:52:00 +0100, FINAL ACCEPTANCE & SLTM BOARD COMPLETE**:
+  - **Ref & Ancestry Certification:** `refs/heads/integration/sltm-v0.1.0` tip at `2ff21edb2bc0482d7c994dd6427aa67603785881` merges all Phase 0 through Phase 4 cards (P0 through P4-1). P4-1 commit `fc10c498` is an ancestor. Conflict marker scan clean (0 occurrences across tree).
+  - **Deployed Workload Pins:** `signal-ingest:src-71c3fb00b490a19c`, `fe-signalloom:latest`, `signalloom-warden:src-66581dce2356`.
+  - **Clean-Start Verification:** Verified clean state before both runs (no test port-forwards, no leftover scratch pods/jobs in `fe-signalloom-agents`/`fe-k8s-afm`, spool empty at `spool_batches=0`, guard clean across 4,711 files, `git status --porcelain` empty).
+  - **G2 Offline Acceptance Gate (2/2 consecutive green runs, identical totals):**
+    - `KUBECONFIG=/dev/null make test-sldc-offline`: 679 BATS (639 ok, 40 skip), 48 Go packages ok, 90 Pytest ok (+37 subtests), 145 UV Pytest ok (9 skip), 43 Bun ok (`rc=0`).
+    - `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: 19 tests (10 ok, 9 skip offline; `rc=0`).
+    - `KUBECONFIG=/dev/null make test-e2e-containment-mutation-proof`: 44/44 mutations proven (`rc=0`).
+    - `scripts/lint-pipefail-grep-q.sh`: 662 files scanned clean (`rc=0`).
+    - `scripts/check-old-probe-name.sh`: 4,711 files scanned clean (`rc=0`).
+    - `KUBECONFIG=/dev/null make docs-lint`: 670 files clean (`rc=0`).
+  - **G3 Mutation Proofs:** Replayed all 8 phase mutations (P1-1 scope check, P1-2 RBAC secrets, P2-1 401 retry, P2-2 rate limiter, P2-3 replay classification, P3-1 warden label, P3-2 case guard, P4-1 escaped path canonicalization) in throwaway exports; 8/8 proven RED-then-GREEN. `make test-sldc-mutation-proof` passed 20/20 and 22/22 mutations.
+  - **G4 Live Gate:** Live gate open and verified for `kind-osramp` and `kind-signalloom-hub`.
+  - **G5 Live Acceptance Gate (2/2 consecutive green runs, zero skips):**
+    - `SLTM_LIVE=1 SLDC_LIVE=1 make test-sltm-probe-apikey`:
+      - Run 1 (15:37:26 - 15:40:22 +0100): 19/19 passed, 0 failures, 0 skips (`rc=0`).
+      - Run 2 (15:42:26 - 15:46:03 +0100): 19/19 passed, 0 failures, 0 skips (`rc=0`).
+    - `SLDC_LIVE=1 make test-e2e-dual-cluster-containment`:
+      - Run 1 (15:40:29 - 15:42:11 +0100): 6/6 steps ok (`rc=0`).
+      - Run 2 (15:46:24 - 15:48:12 +0100): 6/6 steps ok (`rc=0`).
+    - Post-partition Service selector verified restored (`app.kubernetes.io/name: signal-ingest`) and EndpointSlice active.
+  - **G6 Definition of Done & KPIs:** Zero ingest keys on hub cluster; static keys active and JWT-SVID refused on signal-ingest; probe 201 / anon 401 / probe on read 403; no remote ingest keys; partition tolerance with zero data loss (D7); key revocation <= 90s without pod restart (D8); rate limit 429 and flood isolation (D9); batch chain reorder/replay audit (D10); exactly one probe DaemonSet `signalloom-warden` (1/1 Ready); SPIFFE double-slash IDs readable on all 8 `{id}` routes.
+  - **Proposal & Board State:** Work decomposition table and KPI table updated with measured values; `#### Errata — SLTM-P4-GOV` appended with final status=pass machine tag.
+  - **Board Complete:** 16/16 cards complete. Final integration tip: `2ff21edb2bc0482d7c994dd6427aa67603785881`.

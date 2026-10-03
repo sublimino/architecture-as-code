@@ -31,7 +31,7 @@ setup() {
 }
 
 @test "signalloom-warden Role grants get on the owner chain and nothing wider" {
-  role="$repo_root/d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml"
+  role="$repo_root/d2-signalloom/infra/agent-swarm/ebpf-sentinel-rbac.yaml"
   run yq -r 'select(.kind == "Role") | .rules[] | select(.apiGroups[] == "apps") | (.resources | sort | join(",")) + ":" + (.verbs | join(","))' "$role"
   [ "$status" -eq 0 ]
   [ "$output" = "deployments,replicasets:get" ]

@@ -365,8 +365,10 @@ stun_recorded() {
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}')" = "disabled" ] || return 1
     [ "$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}')" = "disabled" ] || return 1
-    [[ "$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
-        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}')" == "signalloom-warden detection: "* ]]
+    local r
+    r="$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}')"
+    [[ "${r}" == "signalloom-warden detection: "* || "${r}" == "stun-sentinel detection: "* ]]
 }
 
 # agent_pod_rows lists the agent's pods as "<uid>|<phase>|<ready>" lines.
@@ -662,7 +664,7 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     # cascade (the one pin writer), names the syscall and the provoked target.
     run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}'
-    [[ "$output" == "signalloom-warden detection: sys_enter_openat /etc/"* ]]
+    [[ "$output" == "signalloom-warden detection: sys_enter_openat /etc/"* || "$output" == "stun-sentinel detection: sys_enter_openat /etc/"* ]]
     local stun_reason="$output"
 
     # Persistence: the sentinel's own reconciler used to thaw this freeze on

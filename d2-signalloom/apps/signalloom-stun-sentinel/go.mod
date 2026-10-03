@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signalloom-stun-sentinel
 
-go 1.27.0
+go 1.26.0
 
 require (
 	github.com/cilium/ebpf v0.16.0

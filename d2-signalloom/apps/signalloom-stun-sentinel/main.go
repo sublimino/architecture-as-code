@@ -369,11 +369,25 @@ func correlatorOptions(cfg *Config) ([]correlator.Option, []stunEvent) {
 			Details: map[string]interface{}{"entries": tenants.Len()}})
 	}
 	opts = append(opts, correlator.WithTenantMap(tenants))
+
+	// Wire bounded on-node spool and dynamic batching options (SLTM Phase 2)
+	opts = append(opts,
+		correlator.WithSpoolDir(cfg.SpoolDir),
+		correlator.WithSpoolMaxBytes(cfg.SpoolMaxBytes),
+		correlator.WithSpoolMaxAge(cfg.SpoolMaxAge),
+		correlator.WithBatchMax(cfg.BatchMax),
+		correlator.WithBatchLinger(cfg.BatchLinger),
+	)
+
 	return opts, events
 }
 
 func main() {
-	cfg := parseConfig(os.Args[1:])
+	cfg, err := parseConfig(os.Args[1:])
+	if err != nil {
+		logEvent(stunEvent{Timestamp: now(), Event: "startup_failed", Error: fmt.Sprintf("config error: %v", err), DryRun: false})
+		os.Exit(1)
+	}
 
 	reconcileCount := &atomic.Int64{}
 	healthSrv := newHealthServer(cfg.HealthAddr, cfg.DryRun, cfg.CgroupRoot, reconcileCount)

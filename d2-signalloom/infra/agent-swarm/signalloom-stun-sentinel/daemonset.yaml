@@ -237,6 +237,9 @@ spec:
               # Read-only is enough: link.Tracepoint only reads the tracepoint
               # id file. Nothing writes to tracefs.
               readOnly: true
+            - name: spool
+              mountPath: /var/lib/signalloom/spool
+              readOnly: false
           resources:
             limits:
               memory: 128Mi
@@ -253,3 +256,7 @@ spec:
           hostPath:
             path: /sys/kernel/debug
             type: Directory
+        - name: spool
+          hostPath:
+            path: /var/lib/signalloom/spool
+            type: DirectoryOrCreate

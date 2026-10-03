@@ -161,8 +161,9 @@ func TestCanonicalHostMounts(t *testing.T) {
 		}
 	}
 	wants := map[string]mountWant{
-		"/host-cgroup":      {"/sys/fs/cgroup", false},
-		"/sys/kernel/debug": {"/sys/kernel/debug", true},
+		"/host-cgroup":            {"/sys/fs/cgroup", false},
+		"/sys/kernel/debug":       {"/sys/kernel/debug", true},
+		"/var/lib/signalloom/spool": {"/var/lib/signalloom/spool", false},
 	}
 	seen := map[string]bool{}
 	for _, m := range c.VolumeMounts {

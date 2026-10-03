@@ -612,6 +612,94 @@ The following 3 compact JSON request bodies (one line each) define the exact wir
 | `d2-signalloom/infra/inf-signalloom/configs/base/bootstrap/discovery-portal-bootstrap.sql` | Read-only | Read-only | Sole Owner |
 | `d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json` | Read-only | Read-only | Sole Owner |
 
+### Spec: Shared Patterns — Phase 3
+
+#### Phase 3 Architecture: Probe Rename (ADR-07: `signalloom-warden`) & No-Overlap Cutover
+
+##### 1. Canonical Name Mapping (ADR-07)
+The probe runtime identity, Kubernetes resources, image repositories, and authentication identities are renamed from `stun-sentinel` / `signalloom-stun-sentinel` to `signalloom-warden`.
+
+| Resource / Identity Type | Old Name / Spec | New Name (ADR-07) | Governing File / Location |
+| :--- | :--- | :--- | :--- |
+| DaemonSet | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:58` |
+| ServiceAccount | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/service-account.yaml:5` |
+| Role & RoleBinding | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml:5,18` |
+| App Labels | `app.kubernetes.io/name: stun-sentinel`<br>`signalloom.ai/agent-name: signalloom-stun-sentinel` | `app.kubernetes.io/name: signalloom-warden`<br>`signalloom.ai/agent-name: signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:61,76`<br>`d2-osramp-fleet/tenants/base/agent-swarm.yaml:559` |
+| ConfigMap | `stun-sentinel-config` | `signalloom-warden-config` | `d2-signalloom/infra/agent-swarm/signalloom-warden/configmap.yaml:5` |
+| Ingest Token Secret | `stun-sentinel-ingest-token` | `signalloom-warden-ingest-token` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:167` |
+| Fleet Manager Stun Key Secret | `stun-sentinel-fleet-key` | `signalloom-warden-fleet-key` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:185` |
+| Governance Secret | `stun-sentinel-governance` | `signalloom-warden-governance` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:191` |
+| Signal Ingest Key Name | `stun-sentinel` (subject `static-key/stun-sentinel`) | `signalloom-warden` (subject `static-key/signalloom-warden`) | `d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml:71` |
+| Signal Ingest Key Secret | `signal-ingest-key-stun-sentinel` | `signal-ingest-key-signalloom-warden` | `d2-signalloom/apps/signal-ingest/base/deployment.yaml:166` |
+| Fleet Manager Caller Name | `stun-sentinel` (`FLEET_MANAGER_KEY_STUN_SENTINEL`) | `signalloom-warden` (`FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN`) | `scripts/fleet-manager-caller-keys.sh:27`<br>`d2-signalloom/apps/fleet-manager/base/deployment.yaml:81` |
+| Flux Kustomization Name | `agent-signalloom-stun-sentinel` | `agent-signalloom-warden` | `d2-osramp-fleet/tenants/base/agent-swarm.yaml:555` |
+| Flux Overlay Path | `./signalloom-stun-sentinel-overlays/kind-osramp` | `./signalloom-warden-overlays/kind-osramp` | `d2-osramp-fleet/tenants/base/agent-swarm.yaml:574` |
+| Image Repository | `ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel` | `ghcr.io/controlplaneio-in-toto/signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:105` |
+| Cold Start Fixture | `stun-sentinel` row in manifests table | `signalloom-warden` row in manifests table | `test/fixtures/cold-start-manifests.tsv:11` |
+
+##### 2. Recommended Disposition of R3 and R4 (Governor Confirmation)
+- **R3 Go Module Library & Importers (`KEPT / ALLOW-LISTED`):**
+  - **Module Directory & Path:** `d2-signalloom/apps/stun-sentinel` and `github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel` are retained.
+  - **Rationale:** This module houses low-level eBPF (`pkg/tc`, `pkg/ebpf`), correlator (`pkg/correlator`), and filter (`pkg/filter`) library primitives imported across package boundaries by `fleet-manager/mesh_client.go:16` and `go.mod` replace directives. Renaming the internal Go module introduces unnecessary churn across non-probe services without operational benefit.
+- **R4 Wire Data Compatibility (`KEPT / ALLOW-LISTED`):**
+  - **Telemetry Ingest Source:** `ingestSource = "stun-sentinel"` (`d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go:32`) is retained.
+  - **Rationale:** `ingestSource` prefixes every observation ID (`ingestSource:namespace/pod:timestamp:syscall:targetDigest`). Preserving this string maintains wire-level backward compatibility for existing telemetry consumers, historical audit query invariants, and FrostDB segments.
+
+##### 3. Guard Allow-List (Phase 3 Rename Guard)
+The Phase 3 rename guard (`test/sltm-rename-guard.bats`, delivered in P3-2) verifies that no old name occurrences exist outside the explicit allow-list. The allow-list is derived from R3, R4, and R7:
+1. **Decision Records (R7):** All files matching the `scripts/docs-lint.sh:45` `RECORDS` pattern (`docs/Proposal *`, `docs/signalloom/evidence/**`, `MEMORY/**`, `Plans/**`, `ci-evidence/**`, `HARDENING_LEDGER.md`, etc.).
+2. **Retained Go Library & Importers (R3):** `d2-signalloom/apps/stun-sentinel/**`, `d2-signalloom/apps/fleet-manager/mesh_client.go`, `d2-signalloom/apps/fleet-manager/go.mod`, `d2-signalloom/apps/fleet-manager/go.sum`.
+3. **Wire Data Constants (R4):** `d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go`.
+
+##### 4. Four-Step No-Overlap Cutover Plan
+Because the running `stun-sentinel` probe binary self-excludes only `stun-sentinel` pods (`signalloom-stun-sentinel/main.go:33-44`, `pkg/filter/exclusion.go:43`), running old and new DaemonSets concurrently would cause the old probe to observe and potentially freeze the new warden, and cause eBPF/tc filter attachment collisions on the host network. Hence, cutover is executed strictly **old-before-new** with a start-up gate:
+
+- **Step 1 — Dual-Key Minting (Parallel Acceptance):**
+  - Mint new key `signalloom-warden` in `signal-ingest` (`fe-signalloom/signal-ingest-key-signalloom-warden`) and `fleet-manager` (`fe-signalloom/fleet-manager-caller-keys` key `signalloom-warden`).
+  - Signal-ingest and fleet-manager accept BOTH old (`stun-sentinel`) and new (`signalloom-warden`) caller keys simultaneously without service disruption.
+  - *Verification:* `curl` to `signal-ingest` and `fleet-manager` using both bearer tokens succeeds with HTTP 200/201.
+
+- **Step 2 — Old DaemonSet Drain & Removal:**
+  - Suspend Flux Kustomization: `flux suspend kustomization agent-signalloom-stun-sentinel -n fe-signalloom-agents`.
+  - Foreground-delete old DaemonSet: `kubectl delete ds stun-sentinel -n fe-signalloom-agents --cascade=foreground`.
+  - Wait for all old probe pods to terminate: `kubectl wait --for=delete pod -l app.kubernetes.io/name=stun-sentinel -n fe-signalloom-agents --timeout=60s`.
+  - *Verification:* `kubectl get pods -n fe-signalloom-agents -l app.kubernetes.io/name=stun-sentinel` returns 0 items.
+
+- **Step 3 — New Warden DaemonSet Deploy & Start-Up Gate:**
+  - The new `signalloom-warden` binary includes a start-up preflight gate: it verifies via Kubernetes API that no old `stun-sentinel` pod exists on its node before attaching eBPF/tc hooks.
+  - Deploy new Flux Kustomization `agent-signalloom-warden` (`path: ./signalloom-warden-overlays/kind-osramp`, `prune: true`).
+  - Old ConfigMap `stun-sentinel-config`, ServiceAccount `stun-sentinel`, Role/RoleBinding `stun-sentinel` are pruned by Flux.
+  - *Verification:*
+    - `kubectl get ds -n fe-signalloom-agents signalloom-warden` reaches Ready.
+    - Exactly 1 probe DaemonSet estate-wide (`signalloom.ai/role=sentinel`).
+    - 0 nodes with >1 probe pod.
+
+- **Step 4 — Post-Acceptance Old Key Retirement:**
+  - After P3-GOV completes green live certification (`make test-sltm-probe-apikey` and `scripts/run-e2e-dual-cluster-containment.sh`), remove old Secret `signal-ingest-key-stun-sentinel` and old key `stun-sentinel` from `fleet-manager-caller-keys`.
+  - *Verification:* `signal-ingest` key reload audits key deletion; only `signalloom-warden` remains active.
+
+##### 5. Disjoint File Ownership Table: Phase 3 Parallel Cards
+
+| Scope / File Pattern | P3-1 (Runtime Identity, Manifests, Image, RBAC) | P3-2 (Living Docs, Repos-level Tests, Rename Guard) | P3-GOV (Governor) |
+| :--- | :--- | :--- | :--- |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/**` | **Sole Owner** (git mv -> `signalloom-warden/**`) | Read-only | Verification |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/**` | **Sole Owner** (git mv -> `signalloom-warden-overlays/**`) | Read-only | Verification |
+| `d2-signalloom/apps/signalloom-stun-sentinel/**` | **Sole Owner** (git mv -> `signalloom-warden/**`) | Read-only | Verification |
+| `d2-signalloom/deploy/stun-sentinel-*.yaml` | **Sole Owner** (tombstones updated) | Read-only | Verification |
+| `d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml` & `base/deployment.yaml` | **Sole Owner** (key config & secret projection) | Read-only | Verification |
+| `d2-signalloom/apps/fleet-manager/callerauth.go` & `base/deployment.yaml` | **Sole Owner** (caller auth & secret projection) | Read-only | Verification |
+| `scripts/fleet-manager-caller-keys.sh` & `scripts/sldc-ingest-bearer.sh` | **Sole Owner** (key generation scripts) | Read-only | Verification |
+| `scripts/warden-cutover.sh` | **Sole Owner** (new cutover script) | Read-only | Live Execution |
+| `d2-osramp-fleet/tenants/base/agent-swarm.yaml` | **Sole Owner** (Kustomization name & path) | Read-only | Verification |
+| `Makefile` & `d2-signalloom/Makefile` | **Sole Owner** (targets, image build rules) | Read-only | Verification |
+| `test/sltm-probe-apikey.bats` & unit tests for probe/ingest/fleet | **Sole Owner** (updates for new identity names) | Read-only | Verification |
+| `test/fixtures/cold-start-manifests.tsv` | **Sole Owner** | Read-only | Verification |
+| `test/sltm-rename-guard.bats` | Read-only | **Sole Owner** (new guard test) | Verification |
+| `test/e2e-dual-cluster-containment.bats` & `test/e2e-mutation-proof.sh` | Read-only | **Sole Owner** | Verification |
+| Living Docs (`*.md`, `AGENTS.md`, `README.md`, `docs/README.md`) outside RECORDS | Read-only | **Sole Owner** | Verification |
+| `docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv` | Read-only (consumed) | Read-only (consumed) | Verification |
+| Decision Records (`RECORDS` regex) | **FORBIDDEN (No Touch)** | **FORBIDDEN (No Touch)** | **FORBIDDEN (No Touch)** |
+
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
@@ -626,7 +714,7 @@ The following 3 compact JSON request bodies (one line each) define the exact wir
 | P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | pass — delivered: 4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b (see Errata — SLTM-P2-2) | — | — | — | — |
 | P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | pass — delivered: `cfbd0d4952797b798e7984c9791a7ab7519d12c7` (see Errata — SLTM-P2-3) | — | — | — | — |
 | P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
-| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
 | P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | — | — | — | — | — |
 | P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | — | — | — | — | — |
 | P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | — | — | — | — | — |
@@ -1339,5 +1427,113 @@ Each mutation was applied against the implementation, verified to fail the targe
   - **Run 1:** Steps 1-6 all PASS (`ok 1` through `ok 6`).
   - **Run 2:** Steps 1-6 all PASS (`ok 1` through `ok 6`).
   - Workload and replacement pods verified clean, unpinned, and persistent across resync cycles.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLTM-P3-PRE
+
+- **Logical ID:** P3-PRE
+- **Created:** 2026-10-03 09:51:27+01:00
+- **Last Updated:** 2026-10-03 09:51:27+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0`
+- **Base Ref Ancestry Check:** `git merge-base --is-ancestor refs/heads/integration/sltm-v0.1.0 HEAD` -> `0` (clean ancestor)
+- **Integration Ref SHA:** `c0075595418e7909514971c2dad208750b24e153`
+
+##### 1. Census & Proposal Discrepancy Reconciliation (T1)
+The proposal's initial figure of '1,323 occurrences in 275 files' was measured prior to Phase 1 and Phase 2 additions (spooling, batch chaining, RBAC exporter, vector tests) and without a recorded command. Re-measured at integration tip `c0075595418e7909514971c2dad208750b24e153`:
+
+- **Command 1 (Exact lower-case occurrences):**
+  `git grep -o -I -F 'stun-sentinel' | wc -l` -> `1806`
+- **Command 2 (Files with exact lower-case occurrences):**
+  `git grep -l -I -F 'stun-sentinel' | wc -l` -> `292`
+- **Command 3 (Case-insensitive & separator variants occurrences):**
+  `git grep -o -I -iE 'stun[-_]?sentinel' | wc -l` -> `1881`
+- **Command 4 (Tracked paths containing variant names):**
+  `git ls-files | rg -c -i 'stun[-_]?sentinel'` -> `159`
+
+##### 2. Variant Sweep Breakdown
+Detailed breakdown of all 1,881 variant occurrences across git-tracked files:
+- `stun-sentinel` (exact lower hyphen): `1806` occurrences in `292` files
+- `StunSentinel` (PascalCase): `28` occurrences in `9` files
+- `STUN_SENTINEL` (UPPER_SNAKE_CASE): `21` occurrences in `8` files
+- `stun_sentinel` (lower_snake_case): `17` occurrences in `5` files
+- `Stun-Sentinel` (Title-Hyphen): `5` occurrences in `4` files
+- `Stun-sentinel` (Sentence-Hyphen): `3` occurrences in `3` files
+- `STUN-SENTINEL` (UPPER-HYPHEN): `1` occurrence in `1` file
+- `stun sentinel` (case-insensitive space): `142` occurrences in `62` files
+- Compound identifier `signalloom-stun-sentinel`: `398` occurrences in `108` files
+- Go module path `github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel`: `73` occurrences in `54` files
+
+##### 3. Inventory Completeness & Classification Verification (T2, T3)
+- **T2 Completeness Check:**
+  `$TMPDIR/expect` (`{ git grep -l -I -iE 'stun[-_]?sentinel'; git ls-files | rg -i 'stun[-_]?sentinel'; } | sort -u`, 395 files) vs `$TMPDIR/have` (`docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv`, 395 files):
+  `comm -3 "$TMPDIR/expect" "$TMPDIR/have"` -> empty output (0 diff).
+  Sum of per-file occurrence counts in `rename-map.tsv` -> `1881` (exact equality with T1 total `1881`).
+- **T3 Classification & Exclusion Integrity:**
+  - Total tracked files classified: `395`
+  - `R7: decision-record` (matching `scripts/docs-lint.sh:45` `RECORDS` pattern): `94` files, `668` occurrences. All assigned `owner: excluded`, `new_value: unchanged`.
+  - `R1: runtime-identity`: `39` files, `242` occurrences (assigned to `P3-1`).
+  - `R2: deploy-path`: `19` files, `38` occurrences (assigned to `P3-1`).
+  - `R3: go-module`: `61` files, `71` occurrences (kept library module, allow-listed, assigned to `P3-1`).
+  - `R4: wire-data`: `1` file (`ingest.go:32`), `1` occurrence (kept `ingestSource`, allow-listed, assigned to `P3-1`).
+  - `R5: test`: `126` files, `515` occurrences (`P3-1`: component/manifest/probe tests; `P3-2`: repos-level/e2e tests).
+  - `R6: living-doc`: `55` files, `346` occurrences (assigned to `P3-2`).
+  - Total classification errors: `0`.
+
+##### 4. Rendered Offline Objects & Non-Object Identities (T4)
+Evaluated offline via `KUBECONFIG=/dev/null kubectl kustomize` and `yq`:
+- `ServiceAccount/fe-signalloom-agents/stun-sentinel` -> `signalloom-warden`
+- `Role/fe-signalloom-agents/stun-sentinel` -> `signalloom-warden`
+- `RoleBinding/fe-signalloom-agents/stun-sentinel` -> `signalloom-warden`
+- `ConfigMap/fe-signalloom-agents/stun-sentinel-config` -> `signalloom-warden-config`
+- `DaemonSet/fe-signalloom-agents/stun-sentinel` -> `signalloom-warden`
+- `Secret/fe-signalloom-agents/stun-sentinel-ingest-token` -> `signalloom-warden-ingest-token`
+- `Secret/fe-signalloom-agents/stun-sentinel-fleet-key` -> `signalloom-warden-fleet-key`
+- `Secret/fe-signalloom-agents/stun-sentinel-governance` -> `signalloom-warden-governance`
+- `Secret/fe-signalloom/signal-ingest-key-stun-sentinel` -> `signal-ingest-key-signalloom-warden`
+- `Flux Kustomization/fe-signalloom-agents/agent-signalloom-stun-sentinel` -> `agent-signalloom-warden`
+- Image repo `ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel` -> `ghcr.io/controlplaneio-in-toto/signalloom-warden`
+- Cold-start row in `test/fixtures/cold-start-manifests.tsv:11` -> `signalloom-warden`
+
+##### 5. Baseline Suite Execution (T5)
+- `KUBECONFIG=/dev/null make test-sldc-offline`: PASS (exit code 0; unit tests PASS, 5 BATS signal-ingest tests PASS, 1 BATS batch-chain test PASS).
+- `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: PASS (exit code 0; 19 tests: 10 passed, 9 skipped offline).
+- `KUBECONFIG=/dev/null make docs-lint`: PASS (exit code 0; 670 tracked markdown files clean).
+- `KUBECONFIG=/dev/null make docs-lint-test`: PASS (exit code 0; 38/38 BATS tests ok).
+
+##### 6. Cutover Plan & P3-GOV Live Verification Commands (T6)
+No-overlap cutover executed via four ordered stages (keys minted first -> old DS drain -> new warden deploy with node startup check -> old keys retired). P3-GOV verifies with concrete live assertions:
+
+1. Exactly one probe DaemonSet across all namespaces:
+   ```bash
+   kubectl get ds -A -l 'signalloom.ai/role=sentinel' -o json | jq '.items | length == 1 and .items[0].metadata.name == "signalloom-warden"'
+   # Expected: true
+   ```
+2. Zero nodes with >1 probe pod:
+   ```bash
+   kubectl get pods -n fe-signalloom-agents -l 'signalloom.ai/role=sentinel' -o json | jq '[.items[] | .spec.nodeName] | group_by(.) | map(select(length > 1)) | length == 0'
+   # Expected: true
+   ```
+3. Zero running pods under old name:
+   ```bash
+   kubectl get pods -n fe-signalloom-agents -l 'app.kubernetes.io/name=stun-sentinel' -o json | jq '.items | length == 0'
+   # Expected: true
+   ```
+4. No orphaned old DaemonSet, ConfigMap, ServiceAccount, or Role/RoleBinding:
+   ```bash
+   kubectl get ds,cm,sa,role,rolebinding -n fe-signalloom-agents stun-sentinel stun-sentinel-config --ignore-not-found -o json | jq '.items | length == 0'
+   # Expected: true
+   ```
+5. New Flux Kustomization Ready:
+   ```bash
+   kubectl get kustomization -n fe-signalloom-agents agent-signalloom-warden -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+   # Expected: True
+   ```
+
+##### 7. Citation Audit & Integrity (T7)
+- 42 citation paths and lines tested: `0 MISSING`.
+- Evidence artifact committed: `docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

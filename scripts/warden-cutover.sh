@@ -30,7 +30,6 @@ REQUIRED_SECRETS=(
   "${FE_NS}/signal-ingest-key-signalloom-warden"
   "${AGENTS_NS}/signalloom-warden-ingest-token"
   "${AGENTS_NS}/signalloom-warden-fleet-key"
-  "${AGENTS_NS}/signalloom-warden-governance"
 )
 
 log() { printf '[warden-cutover] %s\n' "$*" >&2; }

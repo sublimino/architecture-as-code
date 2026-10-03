@@ -28,6 +28,8 @@ type probeSyscallEventT struct {
 	Daddr    [16]uint8
 	Comm     [16]int8
 	Filename [256]int8
+	ExeIno   uint64
+	ExeSize  uint64
 }
 
 // loadProbe returns the embedded CollectionSpec for probe.

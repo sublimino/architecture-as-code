@@ -54,10 +54,28 @@ func WithRuntimeBinaries(paths ...string) Option {
 // same in every namespace, and its cgroup.procs lists PIDs in the sentinel's
 // own namespace. The open is the runtime's only when every process in that
 // cgroup runs the node's runc, so no workload code has run there yet.
-func (m *SentinelProbeManager) runtimeUserLookup(target string, pid uint32, cgroupID uint64) bool {
+//
+// Both checks above read the process state when the record is HANDLED, which
+// races runc's exec of the entrypoint: live, 2026-10-03, agent-cardvault's
+// ServiceAccount mount was opened by runc init at 07:18:42.279 and handled
+// 0.73 s later, after the agent had replaced runc in the cgroup, so it froze
+// a pod no workload code had touched. The probe now records the caller's
+// executable identity (exe_ino, exe_size) at the syscall itself; when it is
+// the node's runc, that decides, and atEvent reports it. A record without
+// one (0: an older probe, a kernel thread) falls back to the checks above.
+func (m *SentinelProbeManager) runtimeUserLookup(target string, pid uint32, cgroupID, exeIno, exeSize uint64) (exempt, atEvent bool) {
 	if !runtimeSetupOpens[target] {
-		return false
+		return false, false
 	}
+	if exeIno != 0 && m.isNodeRuncIdentity(exeIno, exeSize) {
+		return true, true
+	}
+	return m.runtimeProcessLookup(pid, cgroupID), false
+}
+
+// runtimeProcessLookup is the handling-time check: pid (or, with a cgroup
+// root, every process in the cgroup) runs the node's runc.
+func (m *SentinelProbeManager) runtimeProcessLookup(pid uint32, cgroupID uint64) bool {
 	if m.cgroupRoot == "" {
 		return pid != 0 && m.isNodeRunc(pid)
 	}
@@ -95,6 +113,24 @@ func (m *SentinelProbeManager) isNodeRunc(pid uint32) bool {
 	for _, p := range m.runtimeBinaries {
 		ref, err := os.Stat(filepath.Join(nodeRoot, p))
 		if err == nil && ref.Mode().IsRegular() && sameBinary(exe, ref) {
+			return true
+		}
+	}
+	return false
+}
+
+// isNodeRuncIdentity reports whether (ino, size), taken by the probe from the
+// caller's exe_file, is the node's runc binary: same inode and size, the
+// identity isNodeRunc uses, without needing the process to still exist.
+func (m *SentinelProbeManager) isNodeRuncIdentity(ino, size uint64) bool {
+	nodeRoot := filepath.Join(m.procRoot, "1", "root")
+	for _, p := range m.runtimeBinaries {
+		ref, err := os.Stat(filepath.Join(nodeRoot, p))
+		if err != nil || !ref.Mode().IsRegular() {
+			continue
+		}
+		st, ok := ref.Sys().(*syscall.Stat_t)
+		if ok && st.Ino == ino && uint64(ref.Size()) == size {
 			return true
 		}
 	}

@@ -715,7 +715,7 @@ Because the running `stun-sentinel` probe binary self-excludes only `stun-sentin
 | P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | pass — delivered: `cfbd0d4952797b798e7984c9791a7ab7519d12c7` (see Errata — SLTM-P2-3) | — | — | — | — |
 | P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
 | P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
-| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | — | — | — | — | — |
+| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | pass — delivered: `ec9354c1396869165896f61fa5d183cdc8210c3e` (see Errata — SLTM-P3-1) | — | — | — | — |
 | P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | — | — | — | — | — |
 | P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | — | — | — | — | — |
 | P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | — | — | — | — | — |
@@ -1537,3 +1537,96 @@ No-overlap cutover executed via four ordered stages (keys minted first -> old DS
 - Evidence artifact committed: `docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLTM-P3-1
+
+- **Logical ID:** P3-1
+- **Created:** 2026-10-03 11:18:00+01:00
+- **Last Updated:** 2026-10-03 11:32:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0`
+- **Base Ref Ancestry Check:** `git merge-base --is-ancestor refs/heads/integration/sltm-v0.1.0 HEAD` -> `0` (clean ancestor)
+- **Commit:** `ec9354c1396869165896f61fa5d183cdc8210c3e`
+- **Delivered Commit SHA:** `ec9354c1396869165896f61fa5d183cdc8210c3e`
+- **Commit Chain (Unsigned):**
+  1. `9cb93ba5` — `test(sltm): add warden rendered manifest and reference guard suite (SLTM-P3-1)` (failing-first guard suite)
+  2. `9a9018be` — `feat(signalloom): rename probe runtime identity to signalloom-warden with node cutover gate (SLTM-P3-1)`
+  3. `64fd7f47` — `chore(signalloom): re-pin signalloom-warden image to source fingerprint (SLTM-P3-1)`
+  4. `affbbbce` — `test(signalloom): update SPIRE federation test and image tag test environment (SLTM-P3-1)`
+  5. `152a7298` — `test(signalloom): update deploy tests for signalloom-warden rename (SLTM-P3-1)`
+  6. `134fc8e0` — `chore(signalloom): re-pin signalloom-warden image to source fingerprint (SLTM-P3-1)` (`:src-469a01cfd63e`)
+  7. `ec9354c1` — `test(signalloom): support signalloom-warden mock in e2e containment mutation proof (SLTM-P3-1)`
+
+##### 1. Failing-First Verification
+- Added guard suite `test/signalloom-warden-manifests.bats` with allowlist `test/signalloom-warden-allowlist.txt` in commit `9cb93ba5`.
+- Initial run before implementation reported 5 test failures:
+  - T1(a) failed: identity-bearing objects (ServiceAccount, Role, RoleBinding, ConfigMap, DaemonSet) did not exist under `signalloom-warden`.
+  - T1(b) failed: unallowlisted `stun-sentinel` occurrences in `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/`.
+  - T1(c) failed: missing `signalloom-warden` DaemonSet selector.
+  - T2 failed: reference resolution failed for `signalloom-warden` ServiceAccount, ConfigMap, Secrets.
+  - T3 failed: missing `signalloom-warden` static key and caller key bindings.
+
+##### 2. Implementation Summary
+- **Bundle Directory Renamed:** `d2-signalloom/infra/agent-swarm/signalloom-warden{,-overlays}`.
+- **Manifests Renamed:**
+  - `ServiceAccount/fe-signalloom-agents/signalloom-warden`
+  - `Role/fe-signalloom-agents/signalloom-warden`
+  - `RoleBinding/fe-signalloom-agents/signalloom-warden`
+  - `ConfigMap/fe-signalloom-agents/signalloom-warden-config` (`SENTINEL_TENANT_MAP` preserved identically)
+  - `DaemonSet/fe-signalloom-agents/signalloom-warden` (with split `/healthz` liveness and `/readyz` readiness, downward API `NODE_NAME`)
+  - Secrets: `signalloom-warden-ingest-token`, `signalloom-warden-fleet-key`, `signalloom-warden-governance`
+- **Flux Kustomization:** Renamed to `agent-signalloom-warden` at path `./signalloom-warden-overlays/kind-osramp` in `d2-osramp-fleet/tenants/base/agent-swarm.yaml`.
+- **Parallel Keys Registered:**
+  - `signal-ingest`: `signalloom-warden` key spec added to `jwt-auth-config.yaml` with subject `static-key/signalloom-warden`, `kusari` tenant, and permissions `["observations:write","tenant:cross-write"]`; Secret projection `signal-ingest-key-signalloom-warden`.
+  - `fleet-manager`: caller key `signalloom-warden` added to `fleet-manager-caller-keys.sh` with mirror Secret `signalloom-warden-fleet-key` in `fe-signalloom-agents`, and `FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN` / `FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES=stun` in `fleet-manager` deployment.
+  - SPIFFE JWT mapping added in `jwt-auth-config.yaml` for `spiffe://osramp.local/ns/fe-signalloom-agents/sa/signalloom-warden`.
+- **Probe Startup Cutover Gate:**
+  - `apps/signalloom-stun-sentinel/cutover.go`: `cutoverGate` queries `app.kubernetes.io/name=stun-sentinel` on `spec.nodeName=$NODE_NAME` every 5s, logs `cutover_waiting`, and arms (`cutover_armed`) when no predecessor probe pods remain on the node.
+  - `apps/signalloom-stun-sentinel/main.go`: `isSentinelPod` excludes both legacy (`stun-sentinel`) and new (`signalloom-warden`) identities to prevent probe self-containment.
+  - `apps/signalloom-stun-sentinel/health.go`: `/healthz` (liveness) and `/readyz` (readiness) split so cutover waiting does not trigger kubelet liveness restart loops.
+- **Image Pinning:**
+  - Re-pinned `signalloom-warden` image to `:src-469a01cfd63e` in `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml` and `test/fixtures/cold-start-manifests.tsv` via `make -C d2-signalloom sentinel-image-pin`.
+- **Cutover Script:**
+  - Created `scripts/warden-cutover.sh` supporting `--context` and `--dry-run`, tested with mock CLI in `test/warden-cutover.bats` (5/5 PASS).
+
+##### 3. R3 and R4 Disposition
+- **R3 (Go module directories):** Retained `d2-signalloom/apps/stun-sentinel` and `d2-signalloom/apps/signalloom-stun-sentinel` unchanged for library and toolchain compatibility.
+- **R4 (Wire format):** `ingestSource = "stun-sentinel"` (`ingest.go:32`) and reason prefix `stun-sentinel detection:` (`fleetstun.go:72`) preserved to maintain observation deduplication and wire compatibility.
+
+##### 4. Mutation Proofs (8/8 Verified Red -> Restored Pass)
+- **M1 (DaemonSet identity):** Reintroduced `stun-sentinel` name in bundle `daemonset.yaml` -> Caught by `test/signalloom-warden-manifests.bats:T1(b)`.
+- **M2 (Tenant map corruption):** Modified `SENTINEL_TENANT_MAP` in `signalloom-warden-config` -> Caught by `test/agent-swarm-tenancy.bats` and `d2-signalloom/apps/stun-sentinel/deploy/credential_tenancy_test.go:TestBaseTenantMapAttributesTheKusariDeploymentToKusari`.
+- **M3 (DaemonSet multiplicity):** Added duplicate DaemonSet to `daemonset.yaml` -> Caught by `test/signalloom-warden-manifests.bats:T1(c),T2`.
+- **M4 (Signal-ingest key spec):** Corrupted `signalloom-warden` static key in `jwt-auth-config.yaml` -> Caught by `test/signalloom-warden-manifests.bats:T3`.
+- **M5 (Fleet-manager caller key):** Corrupted `signalloom-warden` mirror secret in `scripts/fleet-manager-caller-keys.sh` -> Caught by `test/fleet-manager-caller-keys.bats:2`.
+- **M6 (Self-exclusion dual identity):** Removed `signalloom-warden` from `isSentinelPod` -> Caught by `d2-signalloom/apps/signalloom-stun-sentinel:TestSentinelNeverReconcilesItsOwnPods/by-warden-*`.
+- **M7 (Cutover gate wait):** Bypassed `WaitForPredecessorExit` in `cutover.go` -> Caught by `d2-signalloom/apps/signalloom-stun-sentinel:TestCutoverGateWaitsForPredecessorPodsAndArmsWhenGone`.
+- **M8 (Cutover script secret check):** Removed required secret validation in `scripts/warden-cutover.sh` -> Caught by `test/warden-cutover.bats:2`.
+
+##### 5. Old-Key Retirement List (For P3-GOV)
+During the parallel migration period, legacy keys remain active. P3-GOV will retire the following:
+1. `Secret/fe-signalloom/signal-ingest-key-stun-sentinel`
+2. `Secret/fe-signalloom-agents/stun-sentinel-ingest-token`
+3. `Secret/fe-signalloom-agents/stun-sentinel-fleet-key`
+4. `Secret/fe-signalloom-agents/stun-sentinel-governance`
+5. Environment variable `FLEET_MANAGER_KEY_STUN_SENTINEL` on `Deployment/fe-signalloom/fleet-manager`
+6. Static key entry `stun-sentinel` in `ConfigMap/fe-signalloom/signal-ingest-jwt-auth` (`jwt-auth-config.yaml`)
+7. SPIFFE auth binding for `spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel` in `jwt-auth-config.yaml`
+
+##### 6. Cutover Command for P3-GOV
+```bash
+scripts/warden-cutover.sh --context kind-osramp
+```
+
+##### 7. Test Verification Battery
+- `KUBECONFIG=/dev/null make test-sldc-offline`: PASS (647+ tests, 0 failures).
+- `KUBECONFIG=/dev/null make test-e2e-containment-mutation-proof`: PASS (43/43 mutations proven).
+- `bash scripts/lint-pipefail-grep-q.sh`: PASS (658 files scanned clean).
+- `bash scripts/check-vacuous-assertions.sh test/signalloom-warden-manifests.bats test/warden-cutover.bats scripts/lib/spire-trust-anchor.sh test/helpers/toolchain-contract.bash`: PASS (0 findings).
+- `bats test/signalloom-warden-manifests.bats`: PASS (6/6 tests).
+- `bats test/warden-cutover.bats`: PASS (5/5 tests).
+- `bats test/sentinel-image-provenance.bats`: PASS (13/13 tests).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

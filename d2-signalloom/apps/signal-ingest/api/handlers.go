@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
@@ -73,6 +74,18 @@ type Handlers struct {
 	// route answer 503: with no gate configured, no erasure may proceed. That is the fail-closed
 	// direction — the alternative, erasing when unconfigured, is the defect the gate exists for.
 	Privacy *privacy.Service
+
+	chainTracker *BatchChainTracker
+	chainOnce    sync.Once
+}
+
+func (h *Handlers) getBatchChainTracker() *BatchChainTracker {
+	h.chainOnce.Do(func() {
+		if h.chainTracker == nil {
+			h.chainTracker = NewBatchChainTracker(DefaultMaxEpochsPerSubject, DefaultWindowSizePerEpoch)
+		}
+	})
+	return h.chainTracker
 }
 
 // Handlers contain application behavior only and do not authenticate requests.
@@ -280,8 +293,29 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Request) {
+	chainHeaders, err := parseChainHeaders(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_batch_chain: "+err.Error())
+		return
+	}
+
+	maxBytes := getMaxBodyBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "failed to read request body: "+err.Error())
+		return
+	}
+
+	digest := computeBodyDigest(body)
+
 	var observations []model.Observation
-	if err := json.NewDecoder(r.Body).Decode(&observations); err != nil {
+	if err := json.Unmarshal(body, &observations); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
@@ -311,11 +345,122 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	subject := "anonymous"
+	tenantID := "default"
+	if p, ok := PrincipalFromContext(r.Context()); ok {
+		if p.Subject != "" {
+			subject = p.Subject
+		}
+		if p.TenantID != "" {
+			tenantID = p.TenantID
+		}
+	} else if tc, ok := TenantContextFromContext(r.Context()); ok {
+		if tc.Principal != "" {
+			subject = tc.Principal
+		}
+		if tc.TenantID != "" {
+			tenantID = tc.TenantID
+		}
+	}
+
+	tracker := h.getBatchChainTracker()
+
+	if chainHeaders == nil {
+		// Unchained sender: count, log, and audit first per subject per hour
+		slog.Info("unchained observations received", "subject", subject, "count", len(observations))
+		if tracker.ShouldAuditUnchained(subject) {
+			detail := BatchChainDetail{
+				Outcome: OutcomeUnchained,
+				Subject: subject,
+			}
+			detailJSON, _ := json.Marshal(detail)
+			auditEv := audit.Event{
+				TenantID:  tenantID,
+				EventType: audit.EventBatchChain,
+				Detail:    detailJSON,
+				CreatedAt: time.Now().UTC(),
+			}
+			if h.Audit == nil {
+				writeError(w, http.StatusServiceUnavailable, "audit trail unavailable")
+				return
+			}
+			if err := h.Audit.WriteAuditEvent(r.Context(), auditEv); err != nil {
+				slog.Error("audit write failed for unchained batch", "error", err)
+				writeError(w, http.StatusServiceUnavailable, "audit trail unavailable: "+err.Error())
+				return
+			}
+		}
+
+		if err := h.Store.Append(r.Context(), observations); err != nil {
+			slog.Error("append failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to store observations")
+			return
+		}
+
+		slog.Info("observations ingested", "count", len(observations))
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"ingested": len(observations),
+		})
+		return
+	}
+
+	classification := tracker.Classify(subject, chainHeaders, digest)
+
+	if classification.Outcome == OutcomeReplayed {
+		// Duplicate batch: write audit event, do not append to store, answer 201 {"ingested":0, "duplicate":true}
+		detailJSON, _ := json.Marshal(classification.Detail)
+		auditEv := audit.Event{
+			TenantID:  tenantID,
+			EventType: audit.EventBatchChain,
+			Detail:    detailJSON,
+			CreatedAt: time.Now().UTC(),
+		}
+		if h.Audit == nil {
+			writeError(w, http.StatusServiceUnavailable, "audit trail unavailable")
+			return
+		}
+		if err := h.Audit.WriteAuditEvent(r.Context(), auditEv); err != nil {
+			slog.Error("audit write failed for replayed batch", "error", err)
+			writeError(w, http.StatusServiceUnavailable, "audit trail unavailable: "+err.Error())
+			return
+		}
+
+		slog.Info("replayed batch ignored", "subject", subject, "epoch", chainHeaders.Epoch, "seq", chainHeaders.Seq)
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"ingested":  0,
+			"duplicate": true,
+		})
+		return
+	}
+
+	// For any non-contiguous outcome, write ONE audit event before Append
+	if classification.Outcome != OutcomeContiguous {
+		detailJSON, _ := json.Marshal(classification.Detail)
+		auditEv := audit.Event{
+			TenantID:  tenantID,
+			EventType: audit.EventBatchChain,
+			Detail:    detailJSON,
+			CreatedAt: time.Now().UTC(),
+		}
+		if h.Audit == nil {
+			writeError(w, http.StatusServiceUnavailable, "audit trail unavailable")
+			return
+		}
+		if err := h.Audit.WriteAuditEvent(r.Context(), auditEv); err != nil {
+			slog.Error("audit write failed for batch chain event", "outcome", classification.Outcome, "error", err)
+			writeError(w, http.StatusServiceUnavailable, "audit trail unavailable: "+err.Error())
+			return
+		}
+	}
+
 	if err := h.Store.Append(r.Context(), observations); err != nil {
 		slog.Error("append failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store observations")
 		return
 	}
+
+	// Advance tracker state after successful Append
+	tracker.Advance(subject, chainHeaders, digest, classification.Outcome)
 
 	slog.Info("observations ingested", "count", len(observations))
 	writeJSON(w, http.StatusCreated, map[string]any{

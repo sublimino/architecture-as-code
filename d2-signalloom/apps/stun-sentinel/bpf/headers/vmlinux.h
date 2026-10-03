@@ -5,8 +5,8 @@
  *
  * A full `bpftool btf dump file /sys/kernel/btf/vmlinux format c` is ~4 MB and
  * pins the repository to whichever kernel generated it. The probe touches
- * exactly one kernel type -- the syscall tracepoint context -- so only that
- * type is declared here, under preserve_access_index. libbpf / cilium/ebpf
+ * the syscall tracepoint context and, for the caller's executable identity,
+ * task_struct -> mm -> exe_file -> f_inode; only those fields are declared here, under preserve_access_index. libbpf / cilium/ebpf
  * relocate every field access against the running kernel's BTF at load time,
  * which is the CO-RE guarantee a full dump would give us, at 1/10000th the
  * size and without a kernel-version-specific artifact in git.
@@ -40,6 +40,28 @@ struct trace_event_raw_sys_enter {
 	long id;
 	unsigned long args[6];
 	char __data[0];
+};
+
+/*
+ * The caller's executable, for set_exe_identity(): current->mm->exe_file's
+ * inode number and size. Only the fields read are declared; CO-RE relocates
+ * each by name against the running kernel.
+ */
+struct inode {
+	unsigned long i_ino;
+	long long i_size;
+};
+
+struct file {
+	struct inode *f_inode;
+};
+
+struct mm_struct {
+	struct file *exe_file;
+};
+
+struct task_struct {
+	struct mm_struct *mm;
 };
 
 #ifndef BPF_NO_PRESERVE_ACCESS_INDEX

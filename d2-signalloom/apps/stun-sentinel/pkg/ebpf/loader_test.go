@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"syscall"
 
 	"github.com/cilium/ebpf/link"
 	"os"
@@ -109,6 +110,7 @@ func TestSyscallEventLayoutMatchesBTF(t *testing.T) {
 		"ts_ns": offTsNs, "cgroup_id": offCgroupID, "pid": offPid, "tgid": offTgid,
 		"uid": offUID, "type": offType, "family": offFamily, "dport": offDport,
 		"daddr": offDaddr, "comm": offComm, "filename": offFilename,
+		"exe_ino": offExeIno, "exe_size": offExeSize,
 	}
 	seen := 0
 	for _, m := range st.Members {
@@ -474,6 +476,15 @@ func TestSentinelProbeSyscallCapture(t *testing.T) {
 			if ev.Comm != wantComm || ev.UID != uint32(os.Getuid()) || ev.CgroupID == 0 || ev.TGID == 0 {
 				t.Fatalf("openat record wrong: comm=%q (want %q) uid=%d cgroup=%d tgid=%d",
 					ev.Comm, wantComm, ev.UID, ev.CgroupID, ev.TGID)
+			}
+			// The caller's executable at the syscall: the child runs this
+			// test binary, so the record must carry its inode and size --
+			// the identity correlator/runtime_lookup.go matches against the
+			// node's runc without racing the caller's later exec.
+			if fi, err := os.Stat(os.Args[0]); err != nil {
+				t.Fatalf("stat test binary: %v", err)
+			} else if st := fi.Sys().(*syscall.Stat_t); ev.ExeIno != st.Ino || ev.ExeSize != uint64(fi.Size()) {
+				t.Fatalf("openat exe identity = (%d, %d), want the test binary's (%d, %d)", ev.ExeIno, ev.ExeSize, st.Ino, fi.Size())
 			}
 			bind(ev)
 			gotOpen = true

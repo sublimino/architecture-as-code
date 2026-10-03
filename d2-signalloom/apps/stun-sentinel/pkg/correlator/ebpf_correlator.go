@@ -718,8 +718,11 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	}
 	// The container runtime resolving the container's user, before the
 	// entrypoint runs: neither a detection nor a freeze (runtime_lookup.go).
-	if m.runtimeUserLookup(resolved, targetPID, ev.CgroupID) {
+	if exempt, atEvent := m.runtimeUserLookup(resolved, targetPID, ev.CgroupID, ev.ExeIno, ev.ExeSize); exempt {
 		m.stats.runtimeLookups.Add(1)
+		if atEvent {
+			m.stats.runtimeLookupsAtEvent.Add(1)
+		}
 		return TelemetryObservation{}, false
 	}
 

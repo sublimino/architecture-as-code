@@ -618,7 +618,11 @@ func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id, err := actorIDFromPath(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "actor id is required")
+		return
+	}
 	actor, err := h.scopedActor(r, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
@@ -870,8 +874,8 @@ func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
-	if id == "" {
+	id, err := actorIDFromPath(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "agent id is required")
 		return
 	}

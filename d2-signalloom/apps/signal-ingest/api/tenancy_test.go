@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"testing"
@@ -501,9 +502,15 @@ func TestActorBecomingMixedDisappearsFromTheTenantsNextRead(t *testing.T) {
 		return actor.ID
 	}
 
-	// Read by list, stats and the estate authorization listing: this actor's ID is SPIFFE-derived
-	// and contains "//", which ProtectedRouter refuses as a noncanonical path on the {id} routes
-	// (a pre-existing limit, reported separately), so the by-ID read is exercised elsewhere.
+	id := observe("own-1", "tenant-a")
+	// Read by-ID: now that ProtectedRouter accepts percent-encoded double-slash IDs,
+	// verify the SPIFFE-derived actor is readable directly by ID.
+	var byID model.ProvisionalActor
+	getJSON(t, router, tenantAToken, "/api/v1/actors/"+url.PathEscape(id), http.StatusOK, &byID)
+	if byID.ID != id {
+		t.Fatalf("by-id read of SPIFFE actor = %q, want %q", byID.ID, id)
+	}
+
 	listed := func() []string {
 		var actors []model.ProvisionalActor
 		getJSON(t, router, tenantAToken, "/api/v1/actors", http.StatusOK, &actors)
@@ -513,7 +520,6 @@ func TestActorBecomingMixedDisappearsFromTheTenantsNextRead(t *testing.T) {
 		}
 		return ids
 	}
-	id := observe("own-1", "tenant-a")
 	if got := listed(); len(got) != 1 || got[0] != id {
 		t.Fatalf("before: tenant-a lists %v, want [%s]", got, id)
 	}

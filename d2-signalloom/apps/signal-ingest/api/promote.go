@@ -12,7 +12,11 @@ import (
 )
 
 func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id, err := actorIDFromPath(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "actor id is required")
+		return
+	}
 
 	// Another tenant's actor is answered exactly like an absent one, before anything changes.
 	if visible, err := h.scopedActor(r, id); err != nil {

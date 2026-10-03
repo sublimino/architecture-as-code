@@ -124,8 +124,8 @@ type SubjectPortabilityResponse struct {
 
 // handleExportSubject implements cross-plane per-subject export for Article 15 Access and Article 20 Portability.
 func (h *Handlers) handleExportSubject(w http.ResponseWriter, r *http.Request) {
-	subjectID := r.PathValue("id")
-	if subjectID == "" {
+	subjectID, err := actorIDFromPath(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "subject id is required")
 		return
 	}

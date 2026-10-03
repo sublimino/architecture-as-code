@@ -50,8 +50,8 @@ type AuthorizationQueryResponse struct {
 
 // handleGetActorAuthorization serves GET /api/v1/actors/{id}/authorization.
 func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
+	id, err := actorIDFromPath(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "actor id is required")
 		return
 	}

@@ -144,6 +144,9 @@ spec:
             # call, so a rotation needs no restart. A path, never the value.
             - name: SIGNAL_INGEST_KEY_FILE
               value: /etc/fe-signalloom/ingest-key/token
+            # AFM import gateway key configuration: JSON array of authorized keys.
+            - name: AFM_IMPORT_KEYS
+              value: '[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]'
           startupProbe:
             httpGet:
               path: /livez
@@ -161,6 +164,9 @@ spec:
           volumeMounts:
             - name: signal-ingest-key
               mountPath: /etc/fe-signalloom/ingest-key
+              readOnly: true
+            - name: afm-importer-key
+              mountPath: /etc/fe-signalloom/afm-importer-key
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
@@ -182,5 +188,10 @@ spec:
         - name: signal-ingest-key
           secret:
             secretName: fe-signalloom-ingest-key
+            optional: true
+            defaultMode: 0440
+        - name: afm-importer-key
+          secret:
+            secretName: fe-signalloom-afm-importer-key
             optional: true
             defaultMode: 0440

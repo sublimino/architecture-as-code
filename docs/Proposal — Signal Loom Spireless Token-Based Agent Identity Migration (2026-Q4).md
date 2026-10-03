@@ -511,7 +511,7 @@ sequenceDiagram
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | pass (baseline measured; findings recorded) | — | — | — | — |
 | P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | pass (inventory written; wire contract pinned) | — | — | — | — |
-| P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | — | — | — | — | — |
+| P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | pass — delivered: `52fae47095a41f217d8300e23eb849cef850b12c` (see Errata — SLTM-P1-1) | — | — | — | — |
 | P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | — | — | — | — | — |
 | P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | — | — | — | — | — |
 | P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | — | — | — | — | — |
@@ -717,4 +717,74 @@ The import contract of record is defined in `d2-k8s-afm/apps/afm-platform/base/c
    ```
    matches the `PathPrefix /` rule on `afm-platform` HTTPRoute (`d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml:23`) and is routed directly to `afm-platform` port 8000 without requiring an API key. P1-1 will turn this failing case green by enforcing Layer 7 rejection on `/clusters/import` at the gateway and directing authenticated imports through `fe-signalloom` `POST /api/v1/afm/clusters/import`.
 
+#### Errata — SLTM-P1-1
+
+- **Logical ID:** P1-1
+- **Commit:** `52fae470` (`52fae47095a41f217d8300e23eb849cef850b12c`)
+- **Created:** 2026-10-03 03:50:00+01:00
+- **Last Updated:** 2026-10-03 04:18:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0` (base ref: `3f594d3e8e19bbff9a7c3664d6eb2be1c7fa15f7`)
+- **HEAD SHA:** `52fae47095a41f217d8300e23eb849cef850b12c`
+
+##### Failing-First Summary
+Failing test suites were authored and committed first in `ec12d405`:
+- `d2-signalloom/apps/fe-signalloom/src/tests/test_afm_import_gateway.py`: 33 pytest cases testing all refusal paths (missing auth header, non-Bearer schemes, invalid tokens, prefix/suffix/padded tokens, whitespace/blank keys, missing `afm:import` scope, oversized bodies via Content-Length or streaming, non-JSON or invalid schema bodies, cluster ID mismatches, expired/invalid key files) and forwarding paths (fake upstream passthrough, upstream 5xx/timeout/connect errors, key redaction in logs/headers).
+- `test/afm-import-gateway-manifests.bats`: 6 offline manifest test cases covering AFM base NetworkPolicy (4 exact ingress peers), HTTPRoute directResponse 403 filter, CronJob pod template component label, fe-signalloom projected Secret volume (0440 mode) & env `AFM_IMPORT_KEYS`, fe-signalloom NetworkPolicy `allow-rbac-exporter-ingress` on TCP 8000, and dashboard `nginx.conf` 403 regex closure.
+- `test/afm-importer-key.bats`: 8 bats tests covering key issuer CLI contract, context requirement, stdout/stderr/argv secrecy, idempotency, rotation, and failure modes.
+
+##### Delivered Components & Architecture Summary
+1. **Authenticated Import Gateway Router (`afm_import.py`)**:
+   - Prefix `/api/v1/afm`, route `POST /clusters/import`, wired in `d2-signalloom/apps/fe-signalloom/src/main.py`.
+   - Dynamic key loader reading `$AFM_IMPORT_KEYS` and `$AFM_IMPORTER_KEY_DIR/<name>` + `<name>.expires`.
+   - Constant-time token verification using `hmac.compare_digest` over SHA-256 digests against every configured key (no early loop termination).
+   - Strict body streaming byte cap: `AFM_IMPORT_MAX_BYTES = 8388608` (`d2-signalloom/apps/fe-signalloom/src/afm_import.py:27`).
+   - Timeout configuration: `AFM_TIMEOUT_S = 20.0` (`d2-signalloom/apps/fe-signalloom/src/afm_import.py:30`).
+   - Audit logging via `_audit_outbound_request` (`afm.cluster_import_requested`, detail `{key, cluster_id, bytes}`, tenant `system`, subject `key:afm-importer`).
+   - Forwarder passes raw payload with `Content-Type: application/json` only; inbound `Authorization` header is never forwarded upstream.
+2. **Database Migration & Bootstrap**:
+   - `050_afm_cluster_import_event_type.sql` added to widen `audit_events.event_type` CHECK list with `afm.cluster_import_requested`.
+   - Discovery portal bootstrap files regenerated; `make -C d2-signalloom bootstrap-drift` passes with 0 drift.
+3. **Layer 3/4 & Layer 7 Route Closures**:
+   - `d2-k8s-afm/apps/afm-platform/base/networkpolicy.yaml`: TCP 8000 ingress limited strictly to 4 peers (`fe-signalloom`, `dashboard-signalloom`, `ingress` gateway proxy, in-namespace `cluster-import` CronJob).
+   - `d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml`: ExtensionRef to `HTTPRouteFilter` (`gateway.envoyproxy.io/v1alpha1`) with `directResponse.statusCode: 403` on exact `/clusters/import` and PathPrefix `/clusters/import/`.
+   - `d2-signalloom/apps/dashboard-signalloom/nginx.conf:131`: `location ~ ^/(afm/)?clusters/import(/|$) { return 403; }` closes manual browser uploads with 403 as determined in P1-PRE-5.
+   - `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml`: Pod template labeled `app.kubernetes.io/component: cluster-import`.
+4. **fe-signalloom Deployment & Ingress NetworkPolicy**:
+   - `base/deployment.yaml`: Configured env `AFM_IMPORT_KEYS` and projected secret volume `fe-signalloom-afm-importer-key` (defaultMode 0440, optional).
+   - `base/networkpolicy.yaml`: Added `allow-rbac-exporter-ingress` on TCP 8000 from namespace `fe-signalloom-agents` / pod label `signalloom-rbac-exporter`.
+5. **Key Issuer Tooling (`scripts/afm-importer-key.sh`)**:
+   - Mints verifier Secret (`fe-signalloom/fe-signalloom-afm-importer-key`) and consumer Secret (`fe-signalloom-agents/signalloom-rbac-exporter-afm-key`).
+   - Requires `--context <ctx>`, supports `--rotate` and stdin piping, never exposes key material in argv, logs, stdout, or stderr.
+
+##### Role & RoleBinding Boundary Assertion
+- Manifest evaluation confirms no Role or RoleBinding in `fe-signalloom-agents` grants `secrets` get, list, or watch to any agent ServiceAccount.
+
+##### Mutation Proofs (11/11 Proven RED -> GREEN)
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` scope check removed -> `test_other_scope_key_is_403_and_nothing_forwarded` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` constant-time compare replaced with == -> `test_digest_compare_is_constant_time` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` bound cluster check bypassed -> `test_body_cluster_id_mismatch_is_403` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` body size limit cap removed -> `test_oversized_body_is_413` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` inbound Authorization header forwarded upstream -> `test_valid_import_is_forwarded_once_with_the_bound_cluster` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` presented token leaked in logs -> `test_key_value_never_logged_and_name_always_logged` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/fe-signalloom/src/afm_import.py` whitespace key check bypassed -> `test_missing_empty_or_blank_key_file_disables_route` RED; restored -> GREEN
+- MUT `d2-k8s-afm/apps/afm-platform/base/networkpolicy.yaml` NetworkPolicy from peer widened -> `afm-import-gateway-manifests: NetworkPolicy selects afm-platform and admits exactly the four expected ingress peer blocks` RED; restored -> GREEN
+- MUT `d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml` HTTPRouteFilter status changed from 403 to 200 -> `afm-import-gateway-manifests: HTTPRoute directResponse 403 filters /clusters/import and /clusters/import/` RED; restored -> GREEN
+- MUT `scripts/afm-importer-key.sh` key value leaked to stdout in issuer -> `afm-importer-key: key value never appears in argv, stdout, or stderr` RED; restored -> GREEN
+- MUT `d2-signalloom/apps/dashboard-signalloom/nginx.conf` nginx closure regex location altered -> `afm-import-gateway-manifests: dashboard nginx.conf closes /clusters/import and /afm/clusters/import with 403` RED; restored -> GREEN
+
+##### Test Execution Metrics
+- `d2-signalloom/apps/fe-signalloom/src/tests/test_afm_import_gateway.py`: 33 passed, 0 failed (0.94s)
+- `test/afm-import-gateway-manifests.bats`: 6 passed, 0 failed
+- `test/afm-importer-key.bats`: 8 passed, 0 failed
+- `test/phase1-governor-verification.bats`: 7 passed, 0 failed
+- Regression suites:
+  - Ingest proxies & RBAC correlation (`fe-signalloom` pytest): 408 passed, 0 failed
+  - AFM preflight & converter bats: 23 passed, 0 failed
+  - Tenant hash cross-language vectors (bun): 43 passed, 0 failed
+  - Bootstrap drift (`make -C d2-signalloom bootstrap-drift`): 0 diff, clean exit
+  - Whitespace check (`git diff --check`): clean (0 errors)
+  - Pipefail lint (`scripts/lint-pipefail-grep-q.sh`): SCANNED CLEAN (641 files)
+
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

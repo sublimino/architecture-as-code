@@ -28,7 +28,8 @@ setup() {
 	[ -f "$kustomization" ] || skip "local fleet overlay not found"
 }
 
-# Emits one line per verify-patch: "<resourceset> <index> <kind-at-index>".
+# Emits one line per verify-patch:
+#   "<resourceset>|<index>|<kind-at-index>|<name-at-index>|<OCIRepository names its Kustomizations source>"
 # Resolves each ResourceSet from the very files the overlay composes, so a
 # renamed or moved source is reported rather than skipped.
 patched_indexes() {
@@ -67,13 +68,25 @@ patched_indexes() {
 	        index = int(raw)
 	        rs = by_name.get(name)
 	        if rs is None:
-	            print(f"{name} {index} RESOURCESET-NOT-FOUND")
+	            print(f"{name}|{index}|RESOURCESET-NOT-FOUND|-|-")
 	            continue
 	        resources = rs.get("spec", {}).get("resources", [])
 	        if index >= len(resources):
-	            print(f"{name} {index} INDEX-OUT-OF-RANGE({len(resources)})")
+	            print(f"{name}|{index}|INDEX-OUT-OF-RANGE({len(resources)})|-|-")
 	            continue
-	        print(f"{name} {index} {resources[index].get('kind', 'UNKNOWN')}")
+	        target = resources[index]
+	        # The OCIRepository this ResourceSet's Kustomizations actually pull
+	        # from, by NAME. A second OCIRepository in the same set would
+	        # satisfy a kind-only check while the verify lands on the wrong one.
+	        sources = sorted({
+	            r.get("spec", {}).get("sourceRef", {}).get("name")
+	            for r in resources
+	            if r.get("kind") == "Kustomization"
+	            and r.get("spec", {}).get("sourceRef", {}).get("kind") == "OCIRepository"
+	        } - {None})
+	        # '|'-separated: templated names (<< inputs.x >>) contain spaces.
+	        print(f"{name}|{index}|{target.get('kind', 'UNKNOWN')}|"
+	              f"{target.get('metadata', {}).get('name', '-')}|{','.join(sources) or '-'}")
 	PY
 }
 
@@ -91,14 +104,27 @@ actual_oci_index() {
 @test "the overlay patches at least the three known ResourceSets" {
 	run patched_indexes
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"infra "* ]]
-	[[ "$output" == *"signalloom-infra "* ]]
-	[[ "$output" == *"signalloom-apps "* ]]
+	[[ "$output" == *"infra|"* ]]
+	[[ "$output" == *"signalloom-infra|"* ]]
+	[[ "$output" == *"signalloom-apps|"* ]]
+	[[ "$output" == *"agent-swarm|"* ]]
+}
+
+@test "every patched verify index is the OCIRepository its Kustomizations source from, by name" {
+	local name index kind target sources bad=()
+	while IFS='|' read -r name index kind target sources; do
+		[ -n "$name" ] || continue
+		[ "$sources" != "-" ] || { bad+=("$name: no Kustomization sources an OCIRepository"); continue; }
+		if [ "$kind" != "OCIRepository" ] || [[ ",$sources," != *",$target,"* ]]; then
+			bad+=("$name index $index is $kind/$target, not the OCIRepository its Kustomizations use ($sources)")
+		fi
+	done < <(patched_indexes)
+	[ "${#bad[@]}" -eq 0 ] || { printf '%s\n' "${bad[@]}"; return 1; }
 }
 
 @test "every patched verify index points at an OCIRepository" {
-	local name index kind bad=()
-	while read -r name index kind; do
+	local name index kind _rest bad=()
+	while IFS='|' read -r name index kind _rest; do
 		[ -n "$name" ] || continue
 		if [ "$kind" != "OCIRepository" ]; then
 			bad+=("$name index $index is $kind (OCIRepository is at index $(actual_oci_index "$name" | tr '\n' ',' | sed 's/,$//'))")

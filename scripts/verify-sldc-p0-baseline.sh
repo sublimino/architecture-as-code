@@ -84,7 +84,7 @@ if ! command -v kind >/dev/null 2>&1; then
     exit 127
 fi
 KIND_RAW="$(kind version)"
-KIND_VER="$(echo "$KIND_RAW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "0.0.0")"
+KIND_VER="$(echo "$KIND_RAW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || echo "0.0.0")"
 if ! version_ge "$KIND_VER" "0.24.0"; then
     echo "FATAL: Kind version $KIND_VER is below required v0.24.0" >&2
     exit 1
@@ -97,7 +97,7 @@ if ! command -v kubectl >/dev/null 2>&1; then
     exit 127
 fi
 KUBECTL_RAW="$(kubectl version --client=true 2>&1)"
-KUBECTL_VER="$(echo "$KUBECTL_RAW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "0.0.0")"
+KUBECTL_VER="$(echo "$KUBECTL_RAW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || echo "0.0.0")"
 if ! version_ge "$KUBECTL_VER" "1.30.0"; then
     echo "FATAL: kubectl version $KUBECTL_VER is below required v1.30.0" >&2
     exit 1
@@ -110,7 +110,7 @@ if ! command -v flux >/dev/null 2>&1; then
     exit 127
 fi
 FLUX_RAW="$(flux --version 2>&1)"
-FLUX_VER="$(echo "$FLUX_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "0.0.0")"
+FLUX_VER="$(echo "$FLUX_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || echo "0.0.0")"
 if ! version_ge "$FLUX_VER" "2.3.0"; then
     echo "FATAL: Flux version $FLUX_VER is below required v2.3.0" >&2
     exit 1
@@ -123,7 +123,7 @@ if ! command -v go >/dev/null 2>&1; then
     exit 127
 fi
 GO_RAW="$(go version 2>&1)"
-GO_VER="$(echo "$GO_RAW" | grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || echo "go0.0")"
+GO_VER="$(echo "$GO_RAW" | grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | sed -n 1p || echo "go0.0")"
 if ! version_ge "$GO_VER" "go1.24"; then
     echo "FATAL: Go version $GO_VER is below required go1.24" >&2
     exit 1
@@ -136,7 +136,7 @@ if ! command -v bun >/dev/null 2>&1; then
     exit 127
 fi
 BUN_RAW="$(bun --version 2>&1)"
-BUN_VER="$(echo "$BUN_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "0.0.0")"
+BUN_VER="$(echo "$BUN_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || echo "0.0.0")"
 if ! version_ge "$BUN_VER" "1.1.0"; then
     echo "FATAL: Bun version $BUN_VER is below required 1.1.0" >&2
     exit 1
@@ -149,7 +149,7 @@ if ! command -v bats >/dev/null 2>&1; then
     exit 127
 fi
 BATS_RAW="$(bats --version 2>&1)"
-BATS_VER="$(echo "$BATS_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "0.0.0")"
+BATS_VER="$(echo "$BATS_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || echo "0.0.0")"
 echo "  -> Bats-core: $BATS_VER (OK)"
 
 # 4. Docker Daemon & Network Readiness

@@ -201,7 +201,7 @@ expect_red() {
 	case "$r" in
 	FAIL)
 		grn "  RED    ${name}"
-		grep -E '^#' "$LAST_OUT" | grep -vE '^# \(in test file|^#   ' | head -3 |
+		grep -E '^#' "$LAST_OUT" | grep -vE '^# \(in test file|^#   ' | sed -n 1,3p |
 			sed 's/^# /           /' || true
 		;;
 	NOMATCH)

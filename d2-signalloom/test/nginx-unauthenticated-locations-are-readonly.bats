@@ -114,13 +114,6 @@ location_matrix() {
 declared_unguarded() {
 	cat <<-'LEDGER'
 	/dex/
-	/dashboard/
-	/afm/
-	/clusters
-	/metrics/
-	/health
-	/jobs
-	/webhooks/
 	LEDGER
 }
 
@@ -128,35 +121,15 @@ declared_unguarded() {
 #               definition and forwarding a bearer token to the thing that
 #               issues bearer tokens is meaningless. Correctly unauthenticated.
 #
-# The remaining seven all proxy to the SAME upstream,
-# afm-platform.fe-k8s-afm.svc.cluster.local:8000, none forward Authorization,
-# and none restrict methods. Probed live against the running cluster on
-# 2026-08-14 through the Envoy Gateway:
-#
-#   GET  /clusters   -> 200      POST -> 405
-#   GET  /health     -> 200      POST -> 405
-#   GET  /dashboard/ -> 200      POST -> 405
-#   GET  /afm/       -> 307      POST -> 405
-#   GET  /jobs       -> 404      POST -> 404
-#   GET  /metrics/   -> 404      POST -> 404
-#   GET  /webhooks/… -> 404      POST -> 404
-#
-# So this is NOT a live vulnerability today — and the reason it is not is worth
-# being precise about, because it is not a control. The 405s come from the AFM
-# platform not implementing those methods, not from anything refusing them. The
-# nginx layer permits POST/PUT/DELETE on all seven. The day AFM adds a POST
-# handler to /jobs or /webhooks/, it is reachable from any browser that can load
-# the dashboard, with no credential, borrowing the proxy's identity — with no
-# code change here and nothing going red.
-#
-# /webhooks/ is the one to watch: a webhook endpoint is POST by definition, so
-# that prefix exists in anticipation of precisely the handler that makes this
-# exploitable.
-#
-# That is exactly how /supercred-api/ got its hole. It had a POST handler (the
-# pod stun), and it was reachable unauthenticated until someone added
-# limit_except. These seven differ from it only in not having grown the handler
-# yet.
+# The seven KubeSec-AFM prefixes (/dashboard/ /afm/ /clusters /metrics/ /health
+# /jobs /webhooks/) used to sit here. They proxy to afm-platform, which never
+# receives a credential, and nginx let POST/PUT/DELETE through all seven: the
+# only thing refusing a mutation was afm-platform not implementing it yet
+# (405/404 when probed on 2026-08-14), not a control. They now run
+# `auth_request /_afm_gate`, which passes reads and requires a superadmin's
+# Dex token for any mutation (test/dashboard-afm-gate.bats). So they are
+# authenticated, and an entry here would only pre-approve the day someone
+# removes the gate.
 #
 # The GET side is a separate, accepted exposure: /clusters and /dashboard/
 # return estate data to anyone who can reach the origin. Same class as the
@@ -212,16 +185,19 @@ declared_unguarded() {
 	[ "$status" -eq 0 ]
 	local matrix="$output"
 
+	# An entry is also stale once its prefix is guarded (forwards Authorization,
+	# is auth_request-gated, or denies mutation): it would then silently
+	# pre-approve the prefix the day that guard is removed.
 	local stale=""
 	while read -r prefix; do
 		[ -z "$prefix" ] && continue
-		if ! cut -f1 <<< "$matrix" | grep -qxF "$prefix"; then
+		if ! awk -F'\t' -v p="$prefix" '$1 == p && $2 == 0 && $3 == 0 { found = 1 } END { exit !found }' <<< "$matrix"; then
 			stale="${stale}${prefix} "
 		fi
 	done <<< "$(declared_unguarded)"
 
 	if [ -n "$stale" ]; then
-		echo "declared_unguarded() names prefix(es) that nginx.conf no longer has:"
+		echo "declared_unguarded() names prefix(es) that nginx.conf no longer has, or now guards:"
 		echo "  $stale"
 		echo "Remove them, so the ledger keeps describing the real config."
 		false

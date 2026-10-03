@@ -76,7 +76,7 @@ fi
 # 2. Kind binary check
 KIND_VER="unavailable"
 if command -v kind >/dev/null 2>&1; then
-  KIND_VER="$(kind version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")"
+  KIND_VER="$(kind version 2>/dev/null | sed -n 1p | awk '{print $2}' || echo "unknown")"
   check_pass "Kind CLI available" "version: $KIND_VER"
 else
   check_fail "Kind CLI available" "kind executable not found in PATH"

@@ -119,7 +119,9 @@ def _concrete_path(route: Any) -> str:
 def _http_operations() -> list[tuple[str, str, APIRoute]]:
     ops = []
     for route in app.routes:
-        if isinstance(route, APIRoute) and route.path.startswith("/api"):
+        # /afm is in the sweep since 2026-10-03: GET /afm/clusters/{id}/jobs
+        # answered anyone with cluster-wide job data.
+        if isinstance(route, APIRoute) and route.path.startswith(("/api", "/afm")):
             for method in sorted(route.methods or ()):
                 if (method, route.path) not in ANONYMOUS_ROUTES and (method, route.path) not in DELEGATED_AUTH_ROUTES:
                     ops.append((method, route.path, route))

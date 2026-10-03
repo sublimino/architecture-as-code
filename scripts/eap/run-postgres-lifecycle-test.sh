@@ -70,7 +70,7 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   docker run -d --rm --name "${CONTAINER}" --label slrc-card=P2-2 \
     -e POSTGRES_USER=slrc -e POSTGRES_PASSWORD="${password}" -e POSTGRES_DB=slrc \
     -p 127.0.0.1::5432 "${PG_IMAGE}" >/dev/null
-  host_port="$(docker port "${CONTAINER}" 5432/tcp | head -n1)"
+  host_port="$(docker port "${CONTAINER}" 5432/tcp | sed -n 1p)"
   [[ "${host_port}" == 127.0.0.1:* ]] || die "container not bound to loopback: ${host_port}"
   # -h 127.0.0.1: the image's init-phase server listens on the unix socket
   # only, so a TCP probe does not report ready until the final server is up.

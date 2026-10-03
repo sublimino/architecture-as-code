@@ -178,7 +178,7 @@ verify_governor() {
     # Check A2A card is served
     local pod
     pod=$(kubectl get pod -n "$NAMESPACE" -l app=swarm-governor \
-      --no-headers -o name 2>/dev/null | head -1)
+      --no-headers -o name 2>/dev/null | sed -n 1p)
     if [[ -n "$pod" ]]; then
       if kubectl exec -n "$NAMESPACE" "$pod" -- \
         wget -qO- http://localhost:8080/.well-known/agent-card.json 2>/dev/null | \
@@ -224,10 +224,10 @@ verify_nono() {
       # Show probe results
       local pod
       pod=$(kubectl get pod -n "$NAMESPACE" -l job-name=nono-containment-probe \
-        --no-headers -o name 2>/dev/null | head -1)
+        --no-headers -o name 2>/dev/null | sed -n 1p)
       if [[ -n "$pod" ]]; then
         log "  Probe results:"
-        kubectl logs -n "$NAMESPACE" "$pod" 2>/dev/null | head -10
+        kubectl logs -n "$NAMESPACE" "$pod" 2>/dev/null | sed -n 1,10p
       fi
     else
       warn "nono-containment-probe has not completed yet"
@@ -261,7 +261,7 @@ verify_stun_action() {
   local target
   target=$(kubectl get pod -n "$NAMESPACE" \
     -l signalloom.ai/agent=true,signalloom.ai/role!=sentinel \
-    --no-headers -o name 2>/dev/null | head -1)
+    --no-headers -o name 2>/dev/null | sed -n 1p)
 
   if [[ -z "$target" ]]; then
     warn "No agent pod available for stun test"

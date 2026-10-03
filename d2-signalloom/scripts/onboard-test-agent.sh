@@ -14,7 +14,7 @@ BASE_URL="https://${HOST_HEADER}:${NODE_PORT}"
 DEX_USER="${SIGNAL_LOOM_USER:-demo-user@signalloom.local}"
 DEX_PASS="${SIGNAL_LOOM_PASS:-demo-user}"
 
-RANDOM_SUFFIX="$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 6)"
+RANDOM_SUFFIX="$(head /dev/urandom | tr -dc 'a-z0-9' | cut -c1-6)"
 AGENT_ID="${1:-agent-test-${RANDOM_SUFFIX}}"
 HOST_ID="${2:-host-test-${RANDOM_SUFFIX}}"
 MODEL="${3:-claude-3-5-sonnet}"

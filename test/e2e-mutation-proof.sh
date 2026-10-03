@@ -42,8 +42,19 @@ command -v bats >/dev/null 2>&1 || { echo "Bail out! bats not on PATH"; exit 2; 
 command -v jq   >/dev/null 2>&1 || { echo "Bail out! jq not on PATH"; exit 2; }
 [ -f "${SUITE}" ] || { echo "Bail out! suite not found: ${SUITE}"; exit 2; }
 
+# The shared mutation-sentinel rail (test/helpers/mutation-sentinel.bash), so
+# this proof obeys the same fleet-wide contract as every other. It differs from
+# the rest in that it mutates NO file on disk: every mutation is an env var
+# (MUT) read by the fake cluster below. It guards the suite it drives, so a
+# future in-place mutation of that suite is covered by the sentinel and the
+# verified restore, and a run killed while one is in flight refuses the next.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
+ms_guard_init e2e-containment "${SUITE}"
+
 WORK="$(mktemp -d)"
-trap 'rm -rf "${WORK}"' EXIT
+on_exit() { local st=$?; rm -rf "${WORK}"; (exit "${st}"); ms_guard_on_exit; }
+trap on_exit EXIT
 
 # ── the fake cluster ─────────────────────────────────────────────────────────
 # One script answers every kubectl shape the suite uses; MUT selects the single

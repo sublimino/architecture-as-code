@@ -44,6 +44,8 @@ updated: 2026-10-02T23:30
 
 > **Revision 2026-10-02 (adversarial review).** The first draft proposed an OpenBao-minted, 300-second, refreshing JWT plus the deletion of SPIRE. Andy's direction the same evening was narrower and simpler: *"keep inbound authentication as simple as possible so we can do it from lots of different places … a bearer token with a long key … I specifically don't want the SPIRE server to run in the remote signal generating endpoint. The log forwarding may only have a very simple ability to set headers, so we'll have to use a static key for now"*, and *"cross-cluster auth could be complex, and we're trying to avoid that."* This revision makes **Phase 1 a static API key for the probe in the Kusari cluster, verified in that same cluster**, and moves everything else behind measured gates. The review findings that drove each change are in [Adversarial Review](#adversarial-review-2026-10-02).
 
+> **Status 2026-10-03.** Phase 1 D1–D6 are built and merged on the integration line: named keys (one Secret per key, `signal-ingest-key-<name>`, value plus `.expires`), JWKS optional, tenant-scoped reads and writes, the probe's key from `stun-sentinel-ingest-token`, the issuer script, and `make test-sltm-probe-apikey` (offline tier 10/10 against the real binary). The Definition of Done is **not yet met**: the live tier passes only after the deploy, twice in a row. The same named-key pattern now also guards fleet-manager (ADR-05).
+
 ---
 
 ## Press Release
@@ -98,7 +100,7 @@ ControlPlane today announced that a Signal Loom probe authenticates with a singl
 | **D2: The probe's key** | The Kusari cluster's probe (`stun-sentinel` DaemonSet, `fe-signalloom-agents`) reads its key from Secret `stun-sentinel-ingest-token` (key `token`) through `SIGNAL_INGEST_TOKEN`, and sends it only as `Authorization: Bearer`. The binary carries no default key. | The probe's key grants exactly `observations:write`. A missing Secret is loud (`ingest_token_missing` at start-up and in the stats line) and never stops detection or freeze. | Go tests on the sentinel; live probe of the running pod. |
 | **D3: Issuer script** | `scripts/sldc-ingest-bearer.sh --context <ctx>` mints a ≥32-byte random key, or reads one from stdin, and writes the probe's Secret and the verifier's Secret in the **same cluster**, idempotently. It never prints the key or passes it on a command line. Rotation is a re-run plus a restart of both workloads. | Re-run with no change is a no-op. Rotation makes the old key a 401 once both pods restart. | bats against a fake kubectl (exact exit codes); live rotation in the harness. |
 | **D4: Same-cluster only** | The probe's `SIGNAL_INGEST_URL` is its own cluster's Service FQDN. No ingest key exists outside the cluster that verifies it, and the hub accepts none. | Zero Secrets holding an ingest key on `kind-signalloom-hub`; the probe's URL resolves to its own cluster's Service. | Live harness assertions. |
-| **D5: Every caller has its own key, and reads are tenant-scoped** | The fe-signalloom gateway, the Signal Fusion demo, the live suites and the Step 4 evidence reader each get a named key with only what they call. An observation's tenant is its `labels.tenant_id`; a tenant-scoped key reads only its own tenant and writes only its own tenant. The gateway key holds `act_for_tenant`: fe-signalloom sends its already-verified user tenant as `X-SignalLoom-Acting-Tenant`, which signal-ingest honours only for a key holding that grant and ignores for everyone else. Actor and aggregate routes, and untenanted data, need `cross_tenant_read`, held by operator tools and by the gateway acting for a superadmin (`*`). The probe holds `cross_tenant_write`, because it observes every tenant's pods. | A tenant-A user sees no tenant-B rows on any proxied route. A forged acting-tenant header from any other key changes nothing. A tenant-scoped key on an actor or aggregate route gets 403 `cross_tenant_read_required`, never a silently filtered result. A non-superadmin can never act as `*`. | Go tests per read route, pytest on the fe side, each mutation-proven. |
+| **D5: Every caller has its own key, and reads are tenant-scoped** | The fe-signalloom gateway, the Signal Fusion demo, the live suites and the Step 4 evidence reader each get a named key with only what they call. An observation's tenant is its `labels.tenant_id`; a tenant-scoped key reads only its own tenant and writes only its own tenant. The gateway key holds `act_for_tenant`: fe-signalloom sends its already-verified user tenant as `X-SignalLoom-Acting-Tenant`, which signal-ingest honours only for a key holding that grant and ignores for everyone else. An actor belongs to a tenant only when every observation it was built from carries that tenant; mixed or untenanted actors, and the risk/fleet catalogue (which carries no tenant), need `cross_tenant_read`, held by operator tools and by the gateway acting for a superadmin (`*`). Aggregates count only rows the caller may read. The probe holds `cross_tenant_write`, because it observes every tenant's pods. | A tenant-A user sees no tenant-B rows on any proxied route. A forged acting-tenant header from any other key changes nothing. Another tenant's actor is a 404 identical to a missing one; risk/fleet without cross-read is 403 `cross_tenant_read_required`; an actor whose evidence becomes mixed disappears from the tenant's view on the next read. A non-superadmin can never act as `*`. | Go tests per read route, pytest on the fe side, each mutation-proven. |
 | **D6: Probe API-key harness** | `make test-sltm-probe-apikey` proves D1–D4 end to end: an offline tier against the real signal-ingest binary started locally, and a live tier against the pilot cluster. | Both tiers green twice in a row. | The harness itself. |
 
 ### Out of Scope (Phase 1)
@@ -235,6 +237,9 @@ The first draft's -£180/month saving depended on removing SPIRE, which is now P
 | 2026-10-02 | AJM, Stefan Prodan | ADR-02 (draft): OpenBao as token authority with 300 s TTL | Time-bound, revocable tokens | **Deferred to Phase 2**: the probe gains nothing from it in-cluster, and reaching OpenBao from a remote probe is the cross-cluster dependency ADR-03 avoids |
 | 2026-10-02 | AJM | **ADR-03: Phase 1 is a static, named, long API key per caller, header-only, verified in the probe's own cluster** | "keep inbound authentication as simple as possible … a bearer token with a long key … I specifically don't want the SPIRE server to run in the remote signal generating endpoint … cross-cluster auth could be complex, and we're trying to avoid that" | No SPIRE or OpenBao on the probe's path; one Secret per side; rotation is a script re-run |
 | 2026-10-02 | AJM | **ADR-04: signal-ingest reads are tenant-scoped; the gateway acts for the user's tenant** | The review found signal-ingest's read handlers ignore tenancy, and fe-signalloom resolves the user's tenant and then never uses it (`signal_fusion.py` `get_observations`), so any dashboard user saw every tenant | Least privilege becomes real. The gateway forwards the verified user tenant, honoured only for a key holding `act_for_tenant`. Assumption, reversible by removing one grant: a superadmin's cross-tenant view is intended. |
+| 2026-10-03 | AJM | **ADR-05: the same named static keys guard fleet-manager; dashboard mutations sit behind a login check** | fleet-manager's `/stun` and `/recover` had no caller authentication (`/recover` thawed every stunned agent); the dashboard forwarded browser tokens nobody verified | Per-caller keys (stun-sentinel and fe-signalloom: stun only; operator: everything). nginx `auth_request` to fe `GET /api/v1/auth/check` (superadmin) before injecting the dashboard key; the same gate covers every afm-platform mutation |
+| 2026-10-03 | AJM | **ADR-06 (proposed, Phase 2): AFM reads the Kusari cluster's RBAC through a separate read-only exporter, not through the probe** | The probe is privileged and runs on every node; giving it cluster-wide RBAC read would put that credential on every node | A single unprivileged CronJob in the probe's bundle, own ServiceAccount, read-only ClusterRole (the four RBAC kinds, namespaces, service accounts; never Secrets), pushing to AFM with its own named key |
+| 2026-10-03 | AJM | **ADR-07 (Phase 3 of the board): rename `stun-sentinel` to `signalloom-warden`** | "stun" names one action of a component whose main job is detection; "agent" collides with the AI agents it governs | `signalloom-warden` (watches and detains; unused in the repo), chosen by Andy at sign-off 2026-10-03 |
 
 ---
 
@@ -273,7 +278,7 @@ sequenceDiagram
   participant Ingest as signal-ingest (same cluster)
 
   Op->>K8s: write stun-sentinel-ingest-token (fe-signalloom-agents)
-  Op->>K8s: write signal-ingest-static-bearer (fe-signalloom)
+  Op->>K8s: write signal-ingest-key-stun-sentinel (fe-signalloom)
   K8s-->>Probe: SIGNAL_INGEST_TOKEN (env from Secret)
   K8s-->>Ingest: named key set (from Secret)
   Probe->>Ingest: POST /api/v1/observations, Authorization: Bearer key
@@ -287,3 +292,74 @@ sequenceDiagram
 * `POST /api/v1/observations` with `Authorization: Bearer <key>` and a JSON array of observations → `201 {"ingested": N}`.
 * Missing, unknown, expired or malformed key → `401`. Valid key outside its grant → `403`.
 * Health: `GET :8083/healthz` and `GET :8083/readyz` without credentials (not exposed by the Service).
+
+### Spec: Shared Patterns
+
+#### Mission identity
+- Canonical repository: `/home/andy/src/cp/osramp-demo`
+- Shortcode: `SLTM`
+- Integration branch: `refs/heads/integration/sltm-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor` after every Phase 1 and SLDC fix branch is merged into it (Andy, sign-off 2026-10-03). No work has started on this board
+- Target components: `d2-signalloom/apps/{signal-ingest,signalloom-stun-sentinel,stun-sentinel,fleet-manager,fe-signalloom,dashboard-signalloom}`, `d2-k8s-afm/`, `d2-signalloom/infra/agent-swarm/`
+- Acceptance commands: `make test-sldc-offline`; `make test-sltm-probe-apikey`; `make test-e2e-containment-mutation-proof`; `SLTM_LIVE=1 make test-sltm-probe-apikey` and `make test-e2e-dual-cluster-containment` (live tiers: Governor cards only, never implementation cards)
+
+#### Architectural constitution
+- **One header, one key per caller.** Every inbound credential is a named static key: `Authorization: Bearer <key>`, at least 32 random bytes, a 90-day maximum lifetime, compared in constant time over SHA-256 digests, and verified by the service in the caller's own cluster. No SPIRE, JWT or token refresh at a signal source.
+- **Keys live only in Secrets.** A value never appears in argv, a ConfigMap, git, a log line or an audit row. Its *name* is logged on every use. curl receives keys through 0600 header files.
+- **Tenancy comes from operator configuration, never from the workload.** Probe attribution comes from `SENTINEL_TENANT_MAP` (namespace or namespace/serviceAccount); reads and writes are scoped to the key's tenant; an actor's tenant derives from all of its evidence.
+- **Least privilege by default, read-only by construction.** Any new cluster reader gets its own ServiceAccount and only `get/list/watch` on the exact resources it needs. It never reads Secrets and is never the privileged probe.
+- **Fail closed and loud.** A missing key disables only that caller and is logged; an audit store that is down refuses with 503; nothing fabricates success.
+
+#### Canonical locations
+- `d2-signalloom/apps/signal-ingest/api/{static_bearer,static_keys}.go`: named-key verifier
+- `d2-signalloom/apps/fleet-manager/callerauth.go`: the fleet-manager mirror of the same contract
+- `scripts/sldc-ingest-bearer.sh`, `scripts/fleet-manager-caller-keys.sh`: issuers (stdin only, idempotent, `--rotate`)
+- `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml`: the existing in-cluster RBAC export and its `afm-rbac-reader` ClusterRole, to reuse rather than reinvent
+- `test/sltm-probe-apikey.bats`: the Phase 1 acceptance suite
+
+#### Testing standards
+- Failing test first. Every new assertion is mutation-proven (break the real line, see red, restore, see green), recorded one line per proof in the card's errata.
+- Offline by default: `KUBECONFIG=/dev/null`. Live halves gate on `scripts/lib/live-gate.sh` (`SLDC_LIVE=1`, a real kubeconfig, `/readyz`). No offline run may create, delete or exec into anything on a cluster or node.
+- No `|| true`, no `skip` on a missing system under test, no `! cmd` as an assertion in bats, no line-number pins, no early-exit reader under pipefail (`scripts/lint-pipefail-grep-q.sh`).
+- A test never rewrites a tracked file; regeneration needs an explicit opt-in variable.
+
+#### Anti-patterns
+- Cross-cluster trust or credential mirroring.
+- A default key or token compiled into a binary.
+- Granting the privileged node probe any cluster-wide read.
+- Renaming decision records (dated proposals, reports, evidence): they record a past state.
+
+### Spec: Capability Plan
+
+| Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
+| :--- | :--- | :--- | :--- | ---: | :--- | :--- |
+| P0 | ajm-auto-kanban; ripwire | Baseline engineer | S | 45m | fast | Prove the board harness, the integration branch and the Phase 1 offline gate before any change. |
+| P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | daily | Map AFM's import contract, its upload API and auth, and where the exporter ships in the probe bundle. |
+| P1-1 | context-mode | Go/Python API engineer | M | 120m | daily | AFM ingest must accept the same named static keys; mirrors a proven contract. |
+| P1-2 | context-mode | Kubernetes engineer | M | 120m | daily | A read-only exporter CronJob in the probe bundle; RBAC and PSS discipline matter more than code volume. |
+| P1-GOV | ajm-auto-kanban | Governor | M | 90m | deep | Merge in order; run the live AFM import from the Kusari cluster once. |
+| P2-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | daily | Classify every `stun-sentinel` occurrence (1,323 in 275 files): identity-bearing, living doc, or decision record. |
+| P2-1 | context-mode | Platform engineer | L | 180m | deep | The rename touches image, ServiceAccount, RBAC, labels, Flux path and event names; it needs a no-overlap cutover so two probes never freeze the same pod. |
+| P2-2 | context-mode | Test engineer | M | 120m | daily | Rename tests and living docs; add a guard that fails on the old name outside an allow-list. |
+| P2-GOV | ajm-auto-kanban | Governor | M | 90m | deep | Live cutover check: exactly one probe DaemonSet, Step 4 and Step 5 green, no orphaned RBAC. |
+| P3-1 | context-mode | Go API engineer | S | 60m | fast | Actor IDs containing `//` are rejected on every `{id}` route; canonicalise or encode them. |
+| P3-GOV | ajm-auto-kanban | Governor | S | 60m | daily | Final acceptance: every acceptance command, live tiers twice in a row. |
+
+### Spec: Work Decomposition
+
+| Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
+| P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | fast | — | — | — | — | — |
+| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | daily | — | — | — | — | — |
+| P1-1 | implementation | AFM ingest authenticates uploads with a named static key (scope `afm:import`, bound to one cluster), 401/403 matrix, no anonymous upload | P1-PRE | AFM unit tests per refusal path; key not in argv or logs; mutation proofs | M | daily | — | — | — | — | — |
+| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | daily | — | — | — | — | — |
+| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | deep | — | — | — | — | — |
+| P2-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P1-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | daily | — | — | — | — | — |
+| P2-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P2-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | deep | — | — | — | — | — |
+| P2-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P2-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | daily | — | — | — | — | — |
+| P2-GOV | governor | Merge P2; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P2-1, P2-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | deep | — | — | — | — | — |
+| P3-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P2-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | fast | — | — | — | — | — |
+| P3-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P3-1 | All acceptance commands, two consecutive green runs with timestamps | S | daily | — | — | — | — | — |
+
+### Spec: Errata
+
+No card has run. This ledger starts empty.

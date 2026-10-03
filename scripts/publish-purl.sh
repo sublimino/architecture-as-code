@@ -9,7 +9,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 PURL="${1:-pkg:npm/lodash@4.17.21}"
 TASK_ID="purl-$(date +%s)"
 
-NATS_BOX=$(kubectl get pods --all-namespaces -o wide | awk '/nats-box/{print "--namespace " $1 " " $2}' | head -n1)
+NATS_BOX=$(kubectl get pods --all-namespaces -o wide | awk '/nats-box/{print "--namespace " $1 " " $2}' | sed -n 1p)
 test -n "${NATS_BOX}" || { echo "nats-box pod not found; is the backend running?"; exit 1; }
 # The pod exists but may still be ContainerCreating — `kubectl exec` fails until
 # it is Ready. Wait before publishing.

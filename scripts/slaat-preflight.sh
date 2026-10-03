@@ -40,9 +40,9 @@ read -r go_cache go_modcache go_cgo < <(go env GOCACHE GOMODCACHE CGO_ENABLED | 
 tool_version() {
   case "$1" in
     go) go version ;;
-    kubectl) kubectl version --client 2>/dev/null | head -1 ;;
+    kubectl) kubectl version --client 2>/dev/null | sed -n 1p ;;
     pytest) UV_CONFIG_FILE=/dev/null uv run --quiet --python 3.12 --with pytest pytest --version 2>&1 | tail -1 ;;
-    *) "$1" --version 2>&1 | head -1 ;;
+    *) "$1" --version 2>&1 | sed -n 1p ;;
   esac
 }
 
@@ -103,7 +103,7 @@ if [ "${SLAAT_SKIP_CLUSTER:-0}" != 1 ]; then
   nodes_total="$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   [ "$nodes_total" -gt 0 ] && [ "$nodes_ready" = "$nodes_total" ] || fail "nodes ready $nodes_ready/$nodes_total"
   pod_state() { # namespace, name-regex -> "ready/total restarts" of first match, or "absent"
-    kubectl get pods -n "$1" --no-headers 2>/dev/null | awk -v re="$2" '$1 ~ re {print $2, $4; exit}'
+    kubectl get pods -n "$1" --no-headers 2>/dev/null | awk -v re="$2" '!f && $1 ~ re {print $2, $4; f = 1}'
   }
   pg="$(pod_state inf-signalloom '^postgresql')"
   zot="$(pod_state registry '^zot')"

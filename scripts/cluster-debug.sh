@@ -57,7 +57,7 @@ fi
 section "CLUSTER INFO"
 printf '  context: %s\n' "$context"
 printf '  API server: %s\n' "$api_server"
-kubectl cluster-info 2>/dev/null | head -3
+kubectl cluster-info 2>/dev/null | sed -n 1,3p
 printf '  nodes: %s\n' "$(kubectl get nodes --no-headers 2>/dev/null | wc -l)"
 
 section "UNHEALTHY PODS (not Running/Completed)"
@@ -245,7 +245,7 @@ if [[ -s "$wait_stat_file" ]]; then
     site=$(printf '%s' "$line" | sed -E 's/.*site="([^"]*)".*/\1/')
     result=$(printf '%s' "$line" | grep -oE 'result=[a-z]+' | cut -d= -f2)
     printf '%s|%s|%s\n' "${ratio:-0}" "$site" "${result:-?}"
-  done | sort -t'|' -k1 -rn | head -5 \
+  done | sort -t'|' -k1 -rn | sed -n 1,5p \
     | awk -F'|' '{printf "  %3s%%  %-40s (%s)\n", $1, $2, $3}'
   recommend "Raise the deadline on any wait consistently near 100% ratio above (edit its call in scripts/, or run with WAIT_DEADLINE_SCALE for a saturated host)."
 else

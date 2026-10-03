@@ -207,7 +207,7 @@ ms__pid_is_live() { # pid want_starttime
 
 ms__sentinel_field() { # key
 	[ -f "$MS_SENTINEL" ] || return 0
-	sed -n "s/^${1}:[[:space:]]*//p" "$MS_SENTINEL" | head -1
+	sed -n "s/^${1}:[[:space:]]*//p" "$MS_SENTINEL" | sed -n 1p
 }
 
 ms_sentinel_path() { printf '%s\n' "$MS_SENTINEL"; }

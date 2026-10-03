@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: signalloom-rbac-exporter
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-rbac-exporter
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "rbac-exporter"
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signalloom-rbac-exporter
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: "rbac-exporter"
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: signalloom-rbac-exporter
+            signalloom.ai/agent: "true"
+            signalloom.ai/role: "rbac-exporter"
+        spec:
+          serviceAccountName: signalloom-rbac-exporter
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rbac-exporter
+              image: python:3.12-slim
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+                - /app/export.py
+              env:
+                - name: AFM_IMPORT_URL
+                  value: http://fe-signalloom-api.fe-signalloom.svc.cluster.local:8000/api/v1/afm/clusters/import
+                - name: AFM_CLUSTER_ID
+                  value: ""
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: afm-key
+                  mountPath: /etc/signalloom-rbac-exporter/afm-key
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: signalloom-rbac-exporter-script
+                defaultMode: 0440
+            - name: afm-key
+              secret:
+                secretName: signalloom-rbac-exporter-afm-key
+                defaultMode: 0440

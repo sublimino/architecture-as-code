@@ -21,8 +21,7 @@ setup_file() {
   mkdir -p "${T}/config"
 
   # Extract export.py directly from the rendered ConfigMap
-  local kust="$(ls -d "${REPO_ROOT}"/d2-signalloom/infra/agent-swarm/signalloom-* 2>/dev/null | grep -E "(warden|sentinel)$" | head -n 1)"
-  kubectl kustomize "$kust" 2>/dev/null \
+  kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden" 2>/dev/null \
     | yq -r 'select(.kind == "ConfigMap" and .metadata.name == "signalloom-rbac-exporter-script*") | .data["export.py"]' > "${T}/export.py" || true
 
   # Python stub server script

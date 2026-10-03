@@ -15,9 +15,9 @@ setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   export KUBECONFIG=/dev/null
   RS="${REPO_ROOT}/d2-osramp-fleet/tenants/base/agent-swarm.yaml"
-  BUNDLE_DIR="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel"
-  OVERLAY_OSRAMP="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-osramp"
-  OVERLAY_HUB="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-signalloom-hub"
+  BUNDLE_DIR="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden"
+  OVERLAY_OSRAMP="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-osramp"
+  OVERLAY_HUB="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-signalloom-hub"
 
   BUNDLE_YAML="${BATS_TEST_TMPDIR}/bundle.yaml"
   kubectl kustomize "${BUNDLE_DIR}" > "${BUNDLE_YAML}" 2>/dev/null || true
@@ -103,12 +103,12 @@ EOF
   resources=($(echo "${cr_json}" | jq -r '.rules[].resources[]'))
   [[ " ${resources[*]} " != *" secrets "* ]]
 
-  # (b) CronJob serviceAccountName is signalloom-rbac-exporter and differs from DaemonSet (stun-sentinel)
+  # (b) CronJob serviceAccountName is signalloom-rbac-exporter and differs from DaemonSet (signalloom-warden)
   local cj_sa ds_sa
   cj_sa="$(q 'select(.kind == "CronJob" and .metadata.name == "signalloom-rbac-exporter") | .spec.jobTemplate.spec.template.spec.serviceAccountName' "${BUNDLE_YAML}")"
-  ds_sa="$(q 'select(.kind == "DaemonSet" and .metadata.name == "stun-sentinel") | .spec.template.spec.serviceAccountName' "${BUNDLE_YAML}")"
+  ds_sa="$(q 'select(.kind == "DaemonSet" and (.metadata.name == "signalloom-warden" or .metadata.name == "stun-sentinel")) | .spec.template.spec.serviceAccountName' "${BUNDLE_YAML}")"
   [ "${cj_sa}" = "signalloom-rbac-exporter" ]
-  [ "${ds_sa}" = "stun-sentinel" ]
+  [[ "${ds_sa}" == "signalloom-warden" || "${ds_sa}" == "stun-sentinel" ]]
   [ "${cj_sa}" != "${ds_sa}" ]
 
   # (c) ClusterRoleBinding subjects is exactly signalloom-rbac-exporter ServiceAccount
@@ -277,7 +277,7 @@ kind: Kustomization
 namespace: fe-signalloom-agents
 resources: [service-account.yaml, rbac.yaml, configmap.yaml, daemonset.yaml]
 KUST
-  sel='select((.kind == "DaemonSet") or (.kind == "Role" and .metadata.name == "stun-sentinel") or (.kind == "RoleBinding" and .metadata.name == "stun-sentinel") or (.kind == "ServiceAccount" and .metadata.name == "stun-sentinel"))'
+  sel='select((.kind == "DaemonSet") or (.kind == "Role" and .metadata.name == "signalloom-warden") or (.kind == "RoleBinding" and .metadata.name == "signalloom-warden") or (.kind == "ServiceAccount" and .metadata.name == "signalloom-warden"))'
   bundle_render="$(KUBECONFIG=/dev/null kubectl kustomize "${BUNDLE_DIR}" | yq ea -o=json -I=0 "[${sel}] | sort_by(.kind + .metadata.name)")"
   alone_render="$(KUBECONFIG=/dev/null kubectl kustomize "${alone}" | yq ea -o=json -I=0 "[${sel}] | sort_by(.kind + .metadata.name)")"
   [ "$(jq 'length' <<<"${alone_render}")" -ge 3 ] || { echo "sentinel objects not found: ${alone_render}"; return 1; }

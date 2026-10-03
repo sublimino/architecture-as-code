@@ -35,16 +35,17 @@ setup_file() {
     # The probe's key spec, exactly as the reconciled manifest renders it.
     kubectl kustomize "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/local" 2>/dev/null \
         | yq -o=json 'select(.kind == "ConfigMap" and .data.SIGNAL_AUTH_STATIC_KEYS != null) | .data.SIGNAL_AUTH_STATIC_KEYS' \
-        | jq -r 'fromjson? // . ' | jq -c '[.[] | select(.name == "stun-sentinel")]' >"${T}/probe-spec.json"
-    [ "$(jq length "${T}/probe-spec.json")" = 1 ] || { echo "no stun-sentinel key in the rendered manifest" >&2; return 1; }
+        | jq -r 'fromjson? // . ' | jq -c '[.[] | select(.name == "signalloom-warden" or .name == "stun-sentinel")][0:1]' >"${T}/probe-spec.json"
+    [ "$(jq length "${T}/probe-spec.json")" = 1 ] || { echo "no probe key in the rendered manifest" >&2; return 1; }
     # The same spec plus a key that expired yesterday (disabled at load).
     jq -c '. + [{"name":"expired-probe","subject":"static-key/expired-probe","tenant":"kusari","permissions":["observations:write"]}]' \
         "${T}/probe-spec.json" >"${T}/spec.json"
 
     mkdir -p "${T}/keys"
+    local probe_key_name; probe_key_name="$(jq -r '.[0].name' "${T}/probe-spec.json")"
     ( umask 077
-      head -c 36 /dev/urandom | base64 | tr -d '\n/+=' >"${T}/keys/stun-sentinel"
-      date -u -d '+30 days' +%F >"${T}/keys/stun-sentinel.expires"
+      head -c 36 /dev/urandom | base64 | tr -d '\n/+=' >"${T}/keys/${probe_key_name}"
+      date -u -d '+30 days' +%F >"${T}/keys/${probe_key_name}.expires"
       head -c 36 /dev/urandom | base64 | tr -d '\n/+=' >"${T}/keys/expired-probe"
       date -u -d '-1 day' +%F >"${T}/keys/expired-probe.expires" )
 
@@ -95,7 +96,7 @@ call() {
 }
 
 local_url() { printf 'http://127.0.0.1:%s%s' "${PORT}" "$1"; }
-probe_key() { cat "${BATS_FILE_TMPDIR}/keys/stun-sentinel"; }
+probe_key() { cat "${BATS_FILE_TMPDIR}/keys/$(jq -r '.[0].name' "${BATS_FILE_TMPDIR}/probe-spec.json")"; }
 
 post_golden() { # <header-file or empty>
     if [ -n "${1:-}" ]; then
@@ -179,7 +180,8 @@ post_golden() { # <header-file or empty>
     absent "$k" "${BATS_TEST_TMPDIR}/environ"
     absent "$k" "${BATS_FILE_TMPDIR}/ingest.log"
     absent "$k" "${BATS_FILE_TMPDIR}/audit.jsonl"
-    grep -qF '"key":"stun-sentinel"' "${BATS_FILE_TMPDIR}/ingest.log"
+    local kn; kn="$(jq -r '.[0].name' "${BATS_FILE_TMPDIR}/probe-spec.json")"
+    grep -qF "\"key\":\"${kn}\"" "${BATS_FILE_TMPDIR}/ingest.log"
 }
 
 # ── live tier: the Kusari cluster ────────────────────────────────────────────
@@ -216,8 +218,12 @@ live_call() {
 
 live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a header file
     local k
-    k="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get secret stun-sentinel-ingest-token \
-        -o 'jsonpath={.data.token}' | base64 -d)" || return 1
+    k="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get secret signalloom-warden-ingest-token \
+        -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d || true)"
+    if [ -z "$k" ]; then
+        k="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get secret stun-sentinel-ingest-token \
+            -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d || true)"
+    fi
     [ -n "$k" ] || return 1
     hdr "$1" "Bearer ${k}"
 }
@@ -246,9 +252,10 @@ teardown() {
 
 @test "live: the probe posts to its own cluster's signal-ingest, with its key from a Secret" {
     live_or_skip
-    local ds; ds="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds stun-sentinel -o json)"
-    [ "$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="SIGNAL_INGEST_TOKEN") | .valueFrom.secretKeyRef.name' <<<"$ds")" = stun-sentinel-ingest-token ]
-    run kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get cm stun-sentinel-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}'
+    local ds; ds="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds signalloom-warden -o json 2>/dev/null || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds stun-sentinel -o json)"
+    local sname; sname="$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="SIGNAL_INGEST_TOKEN") | .valueFrom.secretKeyRef.name' <<<"$ds")"
+    [[ "$sname" == "signalloom-warden-ingest-token" || "$sname" == "stun-sentinel-ingest-token" ]]
+    run bash -c "kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents get cm signalloom-warden-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}' 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents get cm stun-sentinel-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}'"
     [ "$output" = "http://signal-ingest.fe-signalloom.svc.cluster.local:8082" ]
 }
 
@@ -274,19 +281,19 @@ teardown() {
 
 @test "live: the running probe holds its key and is posting with it" {
     live_or_skip
-    run kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/stun-sentinel --since=24h
+    run bash -c "kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents logs ds/signalloom-warden --since=24h 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents logs ds/stun-sentinel --since=24h"
     [ "$status" -eq 0 ]
     printf '%s' "$output" >"${BATS_TEST_TMPDIR}/sentinel.log"
     absent '"event":"ingest_token_missing"' "${BATS_TEST_TMPDIR}/sentinel.log"
     run kubectl --context "${WL_CONTEXT}" -n fe-signalloom logs deploy/signal-ingest --since=24h
-    grep -qF '"key":"stun-sentinel"' <<<"$output"
+    grep -qE '"key":"(signalloom-warden|stun-sentinel)"' <<<"$output"
 }
 
 @test "live: no ingest key exists on any other cluster (no cross-cluster auth)" {
     live_or_skip
     run kubectl --context "${HUB_CONTEXT}" get secrets -A -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}'
     [ "$status" -eq 0 ]
-    if grep -E -e '^(signal-ingest-key-|stun-sentinel-ingest-token$|signal-ingest-static-bearer)' <<<"$output"; then return 1; fi
+    if grep -E -e '^(signal-ingest-key-|(signalloom-warden|stun-sentinel)-ingest-token$|signal-ingest-static-bearer)' <<<"$output"; then return 1; fi
 }
 
 @test "live: the probe's key value appears in no pod spec on the Kusari cluster" {
@@ -357,7 +364,7 @@ teardown() {
     local drained=0
     for _ in $(seq 1 60); do
         local stats_line
-        stats_line="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/stun-sentinel --tail=20 | grep '"event":"ebpf_correlator_stats"' | tail -n 1 || true)"
+        stats_line="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/signalloom-warden --tail=20 2>/dev/null | grep '"event":"ebpf_correlator_stats"' | tail -n 1 || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/stun-sentinel --tail=20 2>/dev/null | grep '"event":"ebpf_correlator_stats"' | tail -n 1 || true)"
         if [ -n "$stats_line" ]; then
             local sp_batches
             sp_batches="$(jq -r '.details.stats.spool_batches // .details.spool_batches // -1' <<<"$stats_line")"

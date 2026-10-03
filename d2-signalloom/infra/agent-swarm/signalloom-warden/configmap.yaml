@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# Per-cluster configuration for the sentinel. One key today; the point is that
+# Per-cluster configuration for the probe. One key today; the point is that
 # it is a ConfigMap, so kind-osramp and kind-signalloom-hub each carry their
 # own value without a second copy of the DaemonSet.
 #
@@ -35,15 +35,15 @@
 # fe-signalloom-agents), so the namespace's pod-create RBAC is the real
 # boundary. This ConfigMap is written only by the agent-swarm-flux identity; no
 # agent's Role grants configmaps. No credential belongs in this file — the
-# ingest bearer is Secret stun-sentinel-ingest-token.
+# ingest bearer is Secret signalloom-warden-ingest-token.
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: stun-sentinel-config
+  name: signalloom-warden-config
   namespace: fe-signalloom-agents
   labels:
-    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/name: signalloom-warden
     signalloom.ai/agent: "true"
     signalloom.ai/role: "sentinel"
 data:

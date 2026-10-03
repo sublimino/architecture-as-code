@@ -8,3 +8,4 @@ resources:
   - service.yaml
   - gateway-route.yaml
   - cluster-import.yaml
+  - networkpolicy.yaml

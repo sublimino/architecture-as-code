@@ -5,6 +5,15 @@
 # Dashboard: https://afm.osramp.acme.local/dashboard
 # API:       https://afm.osramp.acme.local/api/...
 # Health:    https://afm.osramp.acme.local/health
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: afm-import-deny
+  namespace: fe-k8s-afm
+spec:
+  directResponse:
+    statusCode: 403
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -18,6 +27,19 @@ spec:
   hostnames:
     - afm.osramp.acme.local
   rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /clusters/import
+        - path:
+            type: PathPrefix
+            value: /clusters/import/
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: afm-import-deny
     - matches:
         - path:
             type: PathPrefix

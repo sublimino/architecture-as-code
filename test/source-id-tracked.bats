@@ -93,6 +93,23 @@ setup() {
   [ "$here" = "$clone" ]
 }
 
+# Git records only the executable bit. Modes beyond it come from the umask of
+# whoever wrote the file (a fresh checkout under umask 0002 makes 664; the
+# bpf2go container wrote the committed probe objects 644), so hashing them
+# made the same commit fingerprint differently per checkout -- measured
+# 2026-10-03, src-03d7750d795e vs src-2552a03be825 on one sentinel tree.
+@test "permission bits git does not track leave the fingerprint unchanged; the executable bit moves it" {
+  local before
+  chmod 664 "$fx/app/VERSION"
+  before="$(source_id_hash_paths "$fx" app)"
+  chmod 600 "$fx/app/VERSION"
+  [ "$(source_id_hash_paths "$fx" app)" = "$before" ] || { echo "a umask difference moved the fingerprint"; return 1; }
+  chmod 644 "$fx/app/VERSION"
+  [ "$(source_id_hash_paths "$fx" app)" = "$before" ]
+  chmod 755 "$fx/app/VERSION"
+  [ "$(source_id_hash_paths "$fx" app)" != "$before" ] || { echo "the executable bit (which git tracks) did not move it"; return 1; }
+}
+
 @test "tracked files a workload's .dockerignore excludes do not move its fingerprint" {
   mkdir -p "$fx/app/.astro"
   printf 'generated v1\n' >"$fx/app/.astro/types.d.ts"

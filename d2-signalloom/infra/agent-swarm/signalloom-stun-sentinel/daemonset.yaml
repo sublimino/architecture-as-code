@@ -113,6 +113,22 @@ spec:
               value: "/host-cgroup"
             - name: HEALTH_ADDR
               value: ":8081"
+            # The sentinel's own pod, set by the kubelet (no tenant can forge
+            # it). The correlator never reports a detection on its own pod
+            # (its tc execs tripped evasive_syscall_burst live), and the
+            # freeze gate refuses its own UID (pkg/filter SelfFromEnv).
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             # main.go:351 reads this; correlator.NewSentinelProbeManager falls
             # back to http://signal-ingest:8082 when it is empty, and that
             # short name cannot resolve from fe-signalloom-agents — the

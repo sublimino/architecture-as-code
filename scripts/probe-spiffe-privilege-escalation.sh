@@ -260,7 +260,7 @@ print(int(m.group(1))*3600 if m else -1)
         }
         probe_path "SPIFFE-4" "positive control: own path" "kv/signalloom/cardvault-agent" "200"
         probe_path "SPIFFE-5" "cross-tenant: fe-signalloom secret" "kv/signalloom/fe-signalloom" "403"
-        probe_path "SPIFFE-6" "cross-tenant: another agent's templated path" "kv/agents/spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-security-analyst/secret" "403"
+        probe_path "SPIFFE-6" "cross-tenant: another agent's templated path" "secret/data/agents/zulip-chat-agent/zulip/api-key" "403"
         probe_path "SPIFFE-7" "cross-tenant: agent-trust acme/payments path" "kv/signalloom/agent-trust/acme/payments/x" "403"
         probe_path "SPIFFE-8" "vertical: own role definition read" "auth/jwt/role/signalloom-cardvault-agent" "403"
         probe_path "SPIFFE-9" "vertical: secrets-engine admin listing" "sys/mounts" "403"

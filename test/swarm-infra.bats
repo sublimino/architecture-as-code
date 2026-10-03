@@ -133,8 +133,8 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 @test "stun sentinel Role grants patch on pods, which its pod-annotation write needs" {
   # The namespaced Role has one owner, next to the DaemonSet; see
   # d2-signalloom/test/stun-sentinel-daemonset.bats.
-  run bash -c "kubectl kustomize '${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel' \
-    | yq -r 'select(.kind == \"Role\" and .metadata.name == \"stun-sentinel\") | .rules[] | select(.resources[] == \"pods\") | .verbs[]'"
+  run bash -c "kubectl kustomize '${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden' \
+    | yq -r 'select(.kind == \"Role\" and (.metadata.name == \"signalloom-warden\" or .metadata.name == \"stun-sentinel\")) | .rules[] | select(.resources[] == \"pods\") | .verbs[]'"
   [ "$status" -eq 0 ]
   grep -qx patch <<<"$output"
 }
@@ -144,8 +144,8 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   # unused and is gone (ebpf-sentinel-rbac.yaml tombstone).
   local dir out=""
   for dir in "${REPO_ROOT}/d2-signalloom/infra/agent-swarm" \
-             "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel"; do
-    out="${out}$(kubectl kustomize "$dir" | yq -r 'select(.kind == "ClusterRoleBinding") | select([.subjects[]? | .name | test("stun-sentinel")] | any) | .metadata.name')"
+             "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden"; do
+    out="${out}$(kubectl kustomize "$dir" | yq -r 'select(.kind == "ClusterRoleBinding") | select([.subjects[]? | .name | test("stun-sentinel|signalloom-warden")] | any) | .metadata.name')"
   done
   [ -z "$out" ] || { echo "cluster-scoped sentinel bindings: $out"; return 1; }
 }

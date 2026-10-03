@@ -27,6 +27,12 @@ func TestSentinelNeverReconcilesItsOwnPods(t *testing.T) {
 		"by-service-account": sentinelPod("stun-sentinel-fghij", map[string]string{
 			"signalloom.ai/agent": "true", labelStunnedIO: "true",
 		}, sentinelServiceAccount),
+		"by-warden-name-label": sentinelPod("signalloom-warden-abcde", map[string]string{
+			"app.kubernetes.io/name": "signalloom-warden", "signalloom.ai/agent": "true", labelStunnedAI: stunnedValue,
+		}, "default"),
+		"by-warden-service-account": sentinelPod("signalloom-warden-fghij", map[string]string{
+			"signalloom.ai/agent": "true", labelStunnedIO: "true",
+		}, wardenServiceAccount),
 	}
 	for name, pod := range cases {
 		t.Run(name, func(t *testing.T) {

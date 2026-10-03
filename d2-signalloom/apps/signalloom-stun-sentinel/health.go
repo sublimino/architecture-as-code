@@ -36,6 +36,8 @@ type HealthServer struct {
 	cgroupDriver   string
 	tcReady        func() bool
 	reconcileCount *atomic.Int64
+	// isReady returns true when the probe is armed and ready for traffic.
+	isReady func() bool
 	// frozenUnlabelled backs the sentinel_frozen_unlabelled_pods gauge.
 	frozenUnlabelled func() int
 	// fleetStunFailures counts correlator freezes fleet-manager did not record.
@@ -54,10 +56,10 @@ func newHealthServer(addr string, dryRun bool, cgroupRoot string, reconcileCount
 	}
 }
 
-// Handler returns the http.Handler serving /healthz and /readyz endpoints.
+// Handler returns the http.Handler serving /healthz (liveness) and /readyz (readiness) endpoints.
 func (h *HealthServer) Handler() http.Handler {
 	mux := http.NewServeMux()
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	livenessHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
@@ -85,9 +87,49 @@ func (h *HealthServer) Handler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
 	})
-	mux.Handle("/healthz", handler)
-	mux.Handle("/readyz", handler)
-	mux.Handle("/health", handler)
+
+	readinessHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		tcReady := true
+		if h.tcReady != nil {
+			tcReady = h.tcReady()
+		}
+		var count int64
+		if h.reconcileCount != nil {
+			count = h.reconcileCount.Load()
+		}
+		status := "ok"
+		ready := true
+		if h.isReady != nil && !h.isReady() {
+			status = "cutover_waiting"
+			ready = false
+		}
+		resp := HealthResponse{
+			Status:         status,
+			DryRun:         h.dryRun,
+			CgroupDriver:   h.cgroupDriver,
+			TCReady:        tcReady,
+			ReconcileCount: count,
+			ResyncSeconds:  int64(informerResync / time.Second),
+		}
+		if h.fleetStunFailures != nil {
+			resp.FleetStunFailures = h.fleetStunFailures()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if !ready {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.Handle("/healthz", livenessHandler)
+	mux.Handle("/health", livenessHandler)
+	mux.Handle("/readyz", readinessHandler)
 	mux.HandleFunc("/metrics", h.serveMetrics)
 	return mux
 }

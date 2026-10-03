@@ -75,8 +75,8 @@ setup() {
   local have_objects
   have_objects="$(
     {
-      yq -r 'select(. != null) | "\(.kind)/\(.metadata.namespace // "none")/\(.metadata.name)"' "${TMP_BASE}" "${TMP_OSRAMP}" "${TMP_HUB}" "${TMP_FE}" "${TMP_FM}"
-      yq -r '.spec.resources[]? | select(. != null) | "\(.kind)/\(.metadata.namespace // "none")/\(.metadata.name)"' "${RS}"
+      yq -r 'select(. != null) | "\(.kind)/" + (.metadata.namespace // "none") + "/\(.metadata.name)"' "${TMP_BASE}" "${TMP_OSRAMP}" "${TMP_HUB}" "${TMP_FE}" "${TMP_FM}"
+      yq -r '.spec.resources[]? | select(. != null) | "\(.kind)/" + (.metadata.namespace // "none") + "/\(.metadata.name)"' "${RS}"
     } | LC_ALL=C sort -u
   )"
 
@@ -188,16 +188,16 @@ setup() {
 
   # 1. In probe bundle: serviceAccountName resolves to ServiceAccount in same render
   local sa_name sa_ref
-  sa_name="$(yq -r 'select(.kind == "ServiceAccount") | .metadata.name' "${TMP_BASE}")"
+  sa_name="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "signalloom-warden") | .metadata.name' "${TMP_BASE}")"
   sa_ref="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.serviceAccountName' "${TMP_BASE}")"
   [ "${sa_name}" = "signalloom-warden" ]
   [ "${sa_ref}" = "${sa_name}" ]
 
   # 2. RoleBinding roleRef and subjects resolve to Role and SA in same render
   local rb_role rb_subject role_name
-  role_name="$(yq -r 'select(.kind == "Role") | .metadata.name' "${TMP_BASE}")"
-  rb_role="$(yq -r 'select(.kind == "RoleBinding") | .roleRef.name' "${TMP_BASE}")"
-  rb_subject="$(yq -r 'select(.kind == "RoleBinding") | .subjects[0].name' "${TMP_BASE}")"
+  role_name="$(yq -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .metadata.name' "${TMP_BASE}")"
+  rb_role="$(yq -r 'select(.kind == "RoleBinding" and .metadata.name == "signalloom-warden") | .roleRef.name' "${TMP_BASE}")"
+  rb_subject="$(yq -r 'select(.kind == "RoleBinding" and .metadata.name == "signalloom-warden") | .subjects[0].name' "${TMP_BASE}")"
   [ "${role_name}" = "signalloom-warden" ]
   [ "${rb_role}" = "${role_name}" ]
   [ "${rb_subject}" = "${sa_name}" ]
@@ -208,12 +208,12 @@ setup() {
   [ "${cm_name}" = "signalloom-warden-config" ]
 
   local cm_refs
-  cm_refs="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].env[]?.valueFrom.configMapKeyRef.name' "${TMP_BASE}" | LC_ALL=C sort -u)"
+  cm_refs="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].env[]?.valueFrom.configMapKeyRef.name | select(. != null)' "${TMP_BASE}" | LC_ALL=C sort -u)"
   [ "${cm_refs}" = "${cm_name}" ]
 
   # 4. Secret names referenced in DaemonSet match issuer scripts
   local secret_refs
-  secret_refs="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].env[]?.valueFrom.secretKeyRef.name' "${TMP_BASE}" | LC_ALL=C sort -u)"
+  secret_refs="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].env[]?.valueFrom.secretKeyRef.name | select(. != null)' "${TMP_BASE}" | LC_ALL=C sort -u)"
 
   echo "${secret_refs}" | grep -q "^signalloom-warden-ingest-token$"
   [ $? -eq 0 ]

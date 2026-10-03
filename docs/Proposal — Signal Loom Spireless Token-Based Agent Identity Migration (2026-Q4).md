@@ -135,12 +135,12 @@ ControlPlane today announced that a Signal Loom probe authenticates with a singl
 
 | Metric | Current Value (measured 2026-10-02) | Target Value | Measurement |
 | :---- | :---- | :---- | :---- |
-| Unauthenticated observation write accepted by the pilot's signal-ingest | **Accepted** (live image predates auth) | **401** | Harness live tier |
-| Credentials a probe needs | SPIRE JWT-SVID (unavailable to the probe) | **1 Secret, 1 env var** | Rendered DaemonSet |
-| Ingest keys held outside the verifying cluster | n/a | **0** | Harness live tier |
-| Key comparison cost | not measured | measured by `go test -bench` and recorded, no target | Go benchmark |
-| Observations lost during an ingest outage | **All** (a failed dispatch is counted, not kept) | **0** for outages up to 8 h within the spool cap | Partition-injection test (D7) |
-| Time for a revoked key to stop working | Until the pod restarts | **≤ 90 s**, no restart | Revoke-and-measure (D8) |
+| Unauthenticated observation write accepted by the pilot's signal-ingest | **Accepted** (live image predates auth) | **401** | **401** (harness live tier, tests 13/19) |
+| Credentials a probe needs | SPIRE JWT-SVID (unavailable to the probe) | **1 Secret, 1 env var** | **1 Secret, 1 env var** (`signalloom-warden-ingest-token`, `SIGNAL_INGEST_TOKEN`) |
+| Ingest keys held outside the verifying cluster | n/a | **0** | **0** (harness live tier, hub cluster verified) |
+| Key comparison cost | not measured | measured by `go test -bench` and recorded, no target | **43.9 µs** (`BenchmarkStaticBearerCompare`, Go benchmark) |
+| Observations lost during an ingest outage | **All** (a failed dispatch is counted, not kept) | **0** for outages up to 8 h within the spool cap | **0** (partition-injection test D7, live tier test 18/19) |
+| Time for a revoked key to stop working | Until the pod restarts | **≤ 90 s**, no restart | **≤ 90 s** (revoke test D8, live tier test 19/19) |
 
 The first draft's memory (650 MB in the press release, 680 MB in the KPI table), 4.2% flake and 15-minute onboarding figures had no measurement behind them and are withdrawn until Phase 3 measures them.
 
@@ -713,13 +713,13 @@ Because the running `stun-sentinel` probe binary self-excludes only `stun-sentin
 | P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | pass — delivered: `e4ebc708b94751eefc5a84c40eec3f5ff997390e` (see Errata — SLTM-P2-1) | — | — | — | — |
 | P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | pass — delivered: 4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b (see Errata — SLTM-P2-2) | — | — | — | — |
 | P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | pass — delivered: `cfbd0d4952797b798e7984c9791a7ab7519d12c7` (see Errata — SLTM-P2-3) | — | — | — | — |
-| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | pass — delivered: `06810a4b` (see Errata — SLTM-P2-GOV) | — | — | — | — |
 | P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
 | P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | pass — delivered: `ec9354c1396869165896f61fa5d183cdc8210c3e` (see Errata — SLTM-P3-1) | — | — | — | — |
 | P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | pass — delivered: c6e2ac28c65c56b0056f3642d6eabea41ce398cc (see Errata — SLTM-P3-2) | — | — | — | — |
 | P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | pass — delivered: `3d1ebc53` (see Errata — SLTM-P3-GOV) | — | — | — | — |
 | P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | pass — delivered: `fc10c498fbb826ab0931b2a63cfa20f665b7df89` (see Errata — SLTM-P4-1) | — | — | — | — |
-| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | — | — | — | — | — |
+| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | pass — delivered: `2ff21edb` (see Errata — SLTM-P4-GOV) | — | — | — | — |
 
 ### Spec: Errata
 
@@ -1795,5 +1795,88 @@ scripts/warden-cutover.sh --context kind-osramp
 - **Last Updated:** 2026-10-03 15:17:30+01:00
 - **Commit:** `970720b6`
 - Restores the machine tag only. P4-1's errata block was inserted after P3-GOV's and captured its trailing tag, so P3-GOV parsed as `status=unknown`. This is the fifth occurrence. The lead re-verified Phase 3 live after `55f81fdb` (e2e 6/6 x2, SLTM live 19/19 x2 and later x4). No result changes.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLTM-P4-GOV
+
+- **Logical ID:** P4-GOV
+- **Created:** 2026-10-03 15:50:23+01:00
+- **Last Updated:** 2026-10-03 15:50:23+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0`
+- **Commit:** `2ff21edb` (`2ff21edb2bc0482d7c994dd6427aa67603785881`)
+- **Status:** `pass`
+
+##### 1. Final Acceptance & Ref Certification
+- **Merge Boundary & Line Ancestry:** Verified `refs/heads/integration/sltm-v0.1.0` at `2ff21edb2bc0482d7c994dd6427aa67603785881`. Merges all Phase 0 through Phase 4 cards (P0, P1-PRE, P1-1, P1-2, P1-GOV, P2-PRE, P2-1, P2-2, P2-3, P2-GOV, P3-PRE, P3-1, P3-2, P3-GOV, P4-1). P4-1 commit `fc10c498` is an ancestor. Conflict marker scan (`git grep -nE '^(<<<<<<<|>>>>>>>)' -- . ':!*.md'`) is clean (0 occurrences).
+- **Deployed Workload Pins:**
+  - `signal-ingest`: `zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signal-ingest:src-71c3fb00b490a19c`
+  - `fe-signalloom`: `zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest`
+  - `signalloom-warden`: `zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden:src-66581dce2356`
+
+##### 2. Clean-Start Checklist (Identical Pre-State Verified Before Each Run)
+1. **Residual Port-Forwards:** Confirmed no ephemeral test port-forwards (`ps -eo pid,args` filtered; only persistent cluster daemons `zot:5001` and `dashboard-signalloom:5173/19080` present).
+2. **Scratch Workloads:** Checked `fe-signalloom-agents` and `fe-k8s-afm`; zero leftover test pods or completed jobs (`sltm-partition-provoker-*` purged).
+3. **Probe Node Spool:** On-node spool directory `/var/lib/signalloom/spool` on `osramp-control-plane` verified empty (0 queued batch files).
+4. **Old-Name Guard:** `bash scripts/check-old-probe-name.sh` scanned 4,711 files clean (exit 0).
+5. **Tree Hygiene:** `git status --porcelain` empty.
+
+##### 3. G2 Offline Acceptance Suite Results (Two Full Runs)
+
+| Suite / Command | Run 1 Result | Run 2 Result | Variance / Totals |
+| :--- | :--- | :--- | :--- |
+| `KUBECONFIG=/dev/null make test-sldc-offline` | `rc=0` | `rc=0` | Identical: 679 BATS (639 ok, 40 skip), 48 Go pkgs ok, 90 Pytest ok (+37 subtests), 145 UV Pytest ok (9 skip), 43 Bun ok |
+| `KUBECONFIG=/dev/null make test-sltm-probe-apikey` | `rc=0` (1..19, 10 ok, 9 skip) | `rc=0` (1..19, 10 ok, 9 skip) | Identical: 10 offline ok, 9 live skip |
+| `KUBECONFIG=/dev/null make test-e2e-containment-mutation-proof` | `rc=0` (1..44, 44 ok) | `rc=0` (1..44, 44 ok) | Identical: 44/44 mutations proven |
+| `bash scripts/lint-pipefail-grep-q.sh` | `rc=0` (662 files clean) | `rc=0` (662 files clean) | Identical: 0 unmarked early-exit readers |
+| `bash scripts/check-old-probe-name.sh` | `rc=0` (4711 files clean) | `rc=0` (4711 files clean) | Identical: 0 unexcused occurrences |
+| `KUBECONFIG=/dev/null make docs-lint` | `rc=0` (670 files clean) | `rc=0` (670 files clean) | Identical: 91 all, 3 correctness, 576 link checks |
+| `git status --porcelain` | Clean | Clean | Byte-identical empty |
+
+*Comparison with P0 Baseline:*
+- `test-sltm-probe-apikey`: Expanded from 17 tests at P0 (10 ok, 7 skip) to 19 tests (10 ok, 9 skip offline; 19 ok live) with Phase 2 partition resilience (D7) and key revocation (D8) cases.
+- `test-e2e-containment-mutation-proof`: Expanded from 35/35 mutations at P0 to 44/44 mutations proven (covering warden rename, detection reason prefix, and Option H1 freeze enforcement).
+- New test suites added during SLTM board: `test/afm-import-gateway-manifests.bats`, `test/afm-importer-key.bats`, `test/afm-importer-key-stdin.bats`, `test/afm-rbac-exporter-manifests.bats`, `test/afm-rbac-exporter-push.bats`, `test/sltm-ingest-reload-ratelimit.bats`, `test/sltm-ingest-chain.bats`, `test/old-probe-name-guard.bats`.
+
+##### 4. G3 Security Mutation Proofs (8/8 Replayed Bite Proofs + SLDC Mutation Proof)
+Replayed in isolated `git archive HEAD` throwaway exports (`/tmp/sltm-g3-mut-*`):
+1. **P1-1 Scope Check:** Bypassed `afm:import` scope check in `fe-signalloom/src/afm_import.py` -> `test_other_scope_key_is_403_and_nothing_forwarded` failed (rc=1, RED); restored -> PASS (rc=0).
+2. **P1-2 Secrets in RBAC:** Added `secrets` to `signalloom-rbac-exporter` ClusterRole in `d2-osramp-fleet/tenants/base/agent-swarm.yaml` -> `test/afm-rbac-exporter-manifests.bats` failed (rc=1, RED); restored -> PASS (rc=0).
+3. **P2-1 401 Retried:** Altered probe spool dispatch to retry on 401 in `stun-sentinel/pkg/correlator/sender.go` -> `TestSpoolDoesNotRetry401Or403` failed (rc=1, RED); restored -> PASS (rc=0).
+4. **P2-2 Limiter Before Auth:** Bypassed token bucket rate limiter in `signal-ingest/api/auth.go` -> `TestRateLimitFloodFromOneKeyDoesNotStarveAnother` failed (rc=1, RED); restored -> PASS (rc=0).
+5. **P2-3 Replay Rejected:** Substituted `OutcomeReplayed` with `OutcomeContiguous` in `signal-ingest/api/batch_chain.go` -> `TestBatchChainReplayIsAuditedNotRejected` failed (rc=1, RED); restored -> PASS (rc=0).
+6. **P3-1 Old Label Left:** Replaced `signalloom-warden` with `stun-sentinel` label in `signalloom-warden/daemonset.yaml` -> `scripts/check-old-probe-name.sh` failed (rc=2, RED); restored -> PASS (rc=0).
+7. **P3-2 Case-Sensitive Guard:** Weakened regex pattern in `scripts/check-old-probe-name.sh` -> `test/old-probe-name-guard.bats` failed (rc=1, RED); restored -> PASS (rc=0).
+8. **P4-1 Double Slash Canonicalisation:** Reverted `isCanonicalEscapedPath` check to `path.Clean` in `signal-ingest/api/auth.go` -> `TestActorIDWithDoubleSlash` failed (rc=1, RED); restored -> PASS (rc=0).
+- `make test-sldc-mutation-proof`: All 20 tenant-routing mutations and all 22 evidence mutations proven (`20/20 proven`, `22/22 proven`), tree clean afterwards.
+
+##### 5. G4 Live Gate Verification
+- Gate check command: `SLDC_LIVE=1 SLTM_LIVE=1 KUBECONFIG="$HOME/.kube/config" bash -c 'source scripts/lib/live-gate.sh && sldc_live_gate kind-osramp osramp-control-plane && sldc_live_gate kind-signalloom-hub signalloom-hub-control-plane'` -> `rc=0`. Both clusters ready.
+
+##### 6. G5 Live Acceptance Suite Results (Two Consecutive Green Runs)
+
+| Live Command | Run 1 Timestamp & Result | Run 2 Timestamp & Result | Exit Code |
+| :--- | :--- | :--- | :--- |
+| `SLTM_LIVE=1 SLDC_LIVE=1 make test-sltm-probe-apikey` | `2026-10-03 15:37:26 +0100` -> `2026-10-03 15:40:22 +0100`<br/>**19/19 passed, 0 failures, 0 skipped** | `2026-10-03 15:42:26 +0100` -> `2026-10-03 15:46:03 +0100`<br/>**19/19 passed, 0 failures, 0 skipped** | `0` |
+| `SLDC_LIVE=1 make test-e2e-dual-cluster-containment` | `2026-10-03 15:40:29 +0100` -> `2026-10-03 15:42:11 +0100`<br/>**6/6 steps passed (Steps 1–6 ok)** | `2026-10-03 15:46:24 +0100` -> `2026-10-03 15:48:12 +0100`<br/>**6/6 steps passed (Steps 1–6 ok)** | `0` |
+
+- Post-partition Service check: `kubectl --context kind-osramp -n fe-signalloom get svc signal-ingest -o jsonpath='{.spec.selector}'` confirmed `{"app.kubernetes.io/name":"signal-ingest"}` without `sltm-partition` key; EndpointSlice active at `10.0.0.52:8082`.
+
+##### 7. G6 Definition of Done Cross-Checks (Phase 1 & Phase 1b)
+
+| DoD Criterion | Exact Command / Probe | Output / Evidence | Verdict |
+| :--- | :--- | :--- | :--- |
+| **Zero Ingest Secrets on Hub** | `kubectl --context kind-signalloom-hub get secrets -A -o json | jq -r '.items[].metadata.name' | rg -c 'signal-ingest-key-|ingest-token'` | `0` matches (positive control: 8 active namespaces, osramp cluster has 88 secrets) | **PASS** |
+| **signal-ingest Static Keys & No JWKS** | `kubectl --context kind-osramp -n fe-signalloom logs deployment/signal-ingest` | `{"level":"WARN","msg":"no JWKS configured: every JWT-SVID is refused; only static keys authenticate"}`<br/>Static keys enabled: `signalloom-warden`, `fe-signalloom-gateway`, `signalfusion-demo`, `sldc-live-bats`, `sldc-evidence-reader`. | **PASS** |
+| **Probe Auth Responses** | `test/sltm-probe-apikey.bats` live tests 12–14 | Probe writes: `201 Created`<br/>Anonymous / wrong key: `401 Unauthorized`<br/>Probe key on read route: `403 Forbidden` | **PASS** |
+| **No Ingest Key Outside Verifying Cluster** | `test/sltm-probe-apikey.bats` live test 16 | Zero ingest-key secrets exist on any remote cluster. | **PASS** |
+| **Partition Tolerance (D7)** | `test/sltm-probe-apikey.bats` live test 18 | Injected partition spools on-node; post-lift causal replay preserves all observations with zero data loss. | **PASS** |
+| **Key Revocation <= 90 s without Restart (D8)** | `test/sltm-probe-apikey.bats` live test 19 | Deleted key returns 401 within 90 s; `signal-ingest` pod UID and `restartCount` (0) unchanged. | **PASS** |
+| **Rate Limit 429 & Flood Isolation (D9)** | `signal-ingest/api/rate_limit_test.go` | Flooding key receives 429 with `Retry-After`; does not starve concurrent keys. | **PASS** |
+| **Batch Chain & Replay Audit (D10)** | `signal-ingest/api/batch_chain_test.go` | Gaps and replays audited; legitimate spool replay and epoch restart admitted without false alarm. | **PASS** |
+| **Single Probe DaemonSet** | `kubectl --context kind-osramp get ds -A -o json | jq -r '.items[] | select(.metadata.namespace == "fe-signalloom-agents") | "\(.metadata.namespace)/\(.metadata.name)"'` | Exactly `fe-signalloom-agents/signalloom-warden` (1/1 Ready). | **PASS** |
+| **Double-Slash Actor IDs (P4-1)** | `signal-ingest/api/actor_id_test.go` | Percent-encoded SPIFFE IDs with `//` readable on all 8 `{id}` routes. | **PASS** |
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

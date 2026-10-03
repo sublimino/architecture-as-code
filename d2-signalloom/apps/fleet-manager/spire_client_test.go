@@ -382,31 +382,40 @@ func TestSpireClient_StatusMapping_AllGRPCCodes(t *testing.T) {
 	}
 }
 
+// TestSpireClient_ContextCancellationAndDeadlinePropagation proves the caller's
+// deadline reaches the SPIRE call causally rather than by stopwatch: the server
+// holds the delete for an hour, so the call can only return because the 20 ms
+// deadline cancelled it. The 30 s guard fails only a call that never returns.
 func TestSpireClient_ContextCancellationAndDeadlinePropagation(t *testing.T) {
 	srv := newMockEntryServer()
-	srv.batchDeleteDelay = 500 * time.Millisecond // Slow server
+	srv.batchDeleteDelay = time.Hour // returns only when the request context ends
 
 	client, cleanup := startTestGRPCServer(t, srv)
 	defer cleanup()
 
-	// Short timeout bounding the call
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	start := time.Now()
-	_, err := client.DeleteEntry(ctx, "entry-timeout-test")
-	elapsed := time.Since(start)
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.DeleteEntry(ctx, "entry-timeout-test")
+		done <- err
+	}()
 
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("DeleteEntry never returned: the caller's deadline is not reaching the SPIRE call")
+	}
 	if err == nil {
 		t.Fatal("expected deadline exceeded error, got nil")
 	}
 	if !errors.Is(err, ErrEnforcementUnavailable) {
 		t.Fatalf("expected ErrEnforcementUnavailable on timeout, got: %v", err)
 	}
-
-	// Must fail fast without hanging
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("call took %v, failed to respect context deadline", elapsed)
+	if ctx.Err() != context.DeadlineExceeded {
+		t.Fatalf("the call returned before the caller's deadline fired (ctx.Err()=%v): err=%v", ctx.Err(), err)
 	}
 }
 

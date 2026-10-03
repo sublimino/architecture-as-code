@@ -47,6 +47,11 @@ type countingSpireClient struct {
 	delay     time.Duration
 	outcome   PlaneOutcome
 	returnErr error
+	// enter, when set, runs first in EvictAgent: a test uses it to make the
+	// SPIRE plane wait for something causally (a rendezvous), not by sleeping.
+	enter func(ctx context.Context) error
+	// deadlineSeen holds the deadline of the context EvictAgent was given.
+	deadlineSeen atomic.Value
 }
 
 func newCountingSpireClient(outcome PlaneOutcome) *countingSpireClient {
@@ -58,6 +63,14 @@ func (m *countingSpireClient) EvictAgent(ctx context.Context, req SpireEvictionR
 	select {
 	case m.keysSeen <- req.IdempotencyKey:
 	default:
+	}
+	if d, ok := ctx.Deadline(); ok {
+		m.deadlineSeen.Store(d)
+	}
+	if m.enter != nil {
+		if err := m.enter(ctx); err != nil {
+			return nil, fmt.Errorf("spire evict: %w: %w", err, ErrEnforcementUnavailable)
+		}
 	}
 	if m.delay > 0 {
 		select {
@@ -478,73 +491,102 @@ func TestCombinedRevocation_IdempotencyKeyIsSharedAndNonEmpty(t *testing.T) {
 // TestCombinedRevocation_SharedDeadlineBudgetIsNotSerialised is the combined
 // timeout-budget test. Each card verified its OWN deadline handling in isolation.
 // A decision containing a slow OpenBao call AND a slow SPIRE call could serialise
-// their timeouts — 500ms + 500ms = 1s against a 700ms decision budget — and each
-// card's isolated test would still pass.
+// their timeouts and each card's isolated test would still pass.
 //
-// The bound below is what makes this a real test rather than a comment: a
-// serialised implementation CANNOT satisfy it.
+// ISC-41 is proved causally, not with a stopwatch: each plane's double blocks at
+// a rendezvous until the OTHER plane has also arrived. Concurrent planes meet and
+// both complete; serialised planes deadlock, and the decision's deadline ends
+// the call with an error. The deadline is a hang guard, not a measurement, so a
+// slow machine cannot fail a correct implementation. (The 400 ms + 400 ms vs
+// 700 ms wall-clock version could fail under load on code that is correct.)
 func TestCombinedRevocation_SharedDeadlineBudgetIsNotSerialised(t *testing.T) {
-	const planeDelay = 400 * time.Millisecond
-	const decisionBudget = 700 * time.Millisecond
+	spireIn := make(chan struct{})
+	baoIn := make(chan struct{})
+	meet := func(ctx context.Context, mine, theirs chan struct{}) error {
+		close(mine)
+		select {
+		case <-theirs:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
 	spire := newCountingSpireClient(OutcomeContained)
-	spire.delay = planeDelay
-	bao := newBaoTestServer(planeDelay, http.StatusNoContent)
+	spire.enter = func(ctx context.Context) error { return meet(ctx, spireIn, baoIn) }
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "revoke") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":{}}`))
+			return
+		}
+		if err := meet(r.Context(), baoIn, spireIn); err != nil {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	defer bao.Close()
 
 	c := newCombinedFleetClient(t, spire, bao.URL)
-	// The bao client's own timeout is 2s and SPIRE's default request timeout is
-	// 10s; neither is what bounds this call. The DECISION's deadline is.
-	ctx, cancel := context.WithTimeout(context.Background(), decisionBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	start := time.Now()
 	results, err := c.RevokeCredentialsPlanes(ctx, "agent-cardvault")
-	elapsed := time.Since(start)
-
 	if err != nil {
-		t.Fatalf("ISC-40: both planes should complete inside the shared budget: %v", err)
+		t.Fatalf("ISC-41: the planes never met -- they are SERIALISED, so a decision's "+
+			"budget does not bound the pair: %v", err)
 	}
 	if len(results) != 2 {
 		t.Fatalf("ISC-40: want 2 PlaneResults, got %d", len(results))
 	}
-	// ISC-41 — serialised would be >= 800ms and would blow the 700ms budget.
-	// Concurrent is ~400ms. The assertion is a measured wall-clock bound.
-	if elapsed >= 2*planeDelay {
-		t.Errorf("ISC-41: elapsed %v >= %v (sum of both plane delays) — the planes are "+
-			"SERIALISED, so a decision's budget does not bound the pair", elapsed, 2*planeDelay)
-	}
-	if elapsed > decisionBudget {
-		t.Errorf("ISC-40: elapsed %v exceeded the decision budget %v", elapsed, decisionBudget)
+	for _, plane := range []EnforcementPlane{PlaneSpire, PlaneBao} {
+		res, ok := planeResultFor(results, plane)
+		if !ok || res.Outcome != OutcomeContained {
+			t.Errorf("ISC-40: plane %s result = %+v (found=%v), want contained", plane, res, ok)
+		}
 	}
 }
 
 // TestCombinedRevocation_CallerDeadlineDominatesClientDefaults pins ISC-42: the
 // SPIRE client's own DefaultSpireRequestTimeout is 10s. A decision that gives the
-// pair 200ms must return in ~200ms, not in 10s.
+// pair 200ms must hand the SPIRE plane that deadline, not its 10s default.
+//
+// Proved by the deadline the SPIRE double was handed, and by a double that holds
+// the call for an hour so it can only return because that deadline fired. The
+// 30 s guard fails only a call that never returns.
 func TestCombinedRevocation_CallerDeadlineDominatesClientDefaults(t *testing.T) {
 	spire := newCountingSpireClient(OutcomeContained)
-	spire.delay = 5 * time.Second
+	spire.delay = time.Hour
 	bao := newBaoTestServer(0, http.StatusNoContent)
 	defer bao.Close()
 
 	c := newCombinedFleetClient(t, spire, bao.URL)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
+	callerDeadline, _ := ctx.Deadline()
 
-	start := time.Now()
-	_, err := c.RevokeCredentialsPlanes(ctx, "agent-cardvault")
-	elapsed := time.Since(start)
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.RevokeCredentialsPlanes(ctx, "agent-cardvault")
+		done <- err
+	}()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("ISC-42: RevokeCredentialsPlanes never returned -- the caller's deadline is not reaching the SPIRE plane")
+	}
 
 	if err == nil {
 		t.Fatal("ISC-42: an expired decision deadline must surface as a failed containment")
 	}
-	if elapsed >= DefaultSpireRequestTimeout {
-		t.Fatalf("ISC-42: elapsed %v reached the client default %v — caller deadline is not propagating",
-			elapsed, DefaultSpireRequestTimeout)
+	seen, ok := spire.deadlineSeen.Load().(time.Time)
+	if !ok {
+		t.Fatal("ISC-42: the SPIRE plane was called with no deadline at all")
 	}
-	if elapsed > time.Second {
-		t.Errorf("ISC-42: elapsed %v far exceeds the 200ms decision deadline", elapsed)
+	if seen.After(callerDeadline) {
+		t.Fatalf("ISC-42: the SPIRE plane's deadline %v is later than the caller's %v -- "+
+			"the client default dominates the decision deadline", seen, callerDeadline)
 	}
 }
 
@@ -555,8 +597,15 @@ func TestCombinedRevocation_CallerDeadlineDominatesClientDefaults(t *testing.T) 
 // deadline, and must not starve the SPIRE plane of budget it still needs.
 func TestCombinedRevocation_TrippedBreakerFailsFastAndDoesNotBlockSibling(t *testing.T) {
 	spire := newCountingSpireClient(OutcomeContained)
-	// Unroutable address: every bao request fails, tripping the breaker.
-	c := newCombinedFleetClient(t, spire, "http://127.0.0.1:1")
+	// Every OpenBao call fails, tripping the breaker. Counting the requests is
+	// what proves fast-fail: an open breaker sends nothing.
+	var baoCalls atomic.Int64
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baoCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer bao.Close()
+	c := newCombinedFleetClient(t, spire, bao.URL)
 
 	ctx := context.Background()
 	// Drive the breaker open. The threshold is 3 consecutive failures.
@@ -564,18 +613,16 @@ func TestCombinedRevocation_TrippedBreakerFailsFastAndDoesNotBlockSibling(t *tes
 		_, _ = c.RevokeCredentialsPlanes(ctx, "agent-warmup")
 	}
 
-	start := time.Now()
+	before := baoCalls.Load()
 	results, err := c.RevokeCredentialsPlanes(ctx, "agent-cardvault")
-	elapsed := time.Since(start)
 
 	if err == nil {
 		t.Fatal("ISC-43: a tripped breaker must surface as a failed containment")
 	}
-	// ISC-43 — fast-fail, not a full deadline wait. The spire double is instant,
-	// so the whole call is bounded by the breaker's fast-fail path.
-	if elapsed > 500*time.Millisecond {
-		t.Errorf("ISC-43: tripped breaker took %v — it is waiting out a deadline "+
-			"instead of fast-failing", elapsed)
+	// ISC-43 -- fast-fail: the open breaker refuses without calling OpenBao,
+	// rather than sending the request and waiting out a deadline.
+	if after := baoCalls.Load(); after != before {
+		t.Errorf("ISC-43: the tripped breaker still sent %d request(s) to OpenBao", after-before)
 	}
 
 	baoRes, ok := planeResultFor(results, PlaneBao)
@@ -784,34 +831,56 @@ func TestCombinedRevocation_OnePlaneFailureDoesNotCancelSibling(t *testing.T) {
 // after plane A had consumed nearly all of it. Asserting DISPATCH time rather than
 // completion time is what makes concurrency observable.
 func TestCombinedRevocation_BothPlanesDispatchedPromptly(t *testing.T) {
+	// Both planes hold their call until the test releases them, and the test
+	// releases them only once BOTH have been dispatched. A serialised fan-out
+	// never dispatches the second plane while the first is held, so it is caught
+	// by construction; a slow machine only makes the wait longer. The 30 s guard
+	// fails only a fan-out that never dispatches the second plane at all. (The
+	// 150 ms dispatch window this replaced could fail under load.)
+	release := make(chan struct{})
+	held := func(ctx context.Context) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	spire := newCountingSpireClient(OutcomeContained)
-	spire.delay = 300 * time.Millisecond
-	bao := newBaoTestServer(300*time.Millisecond, http.StatusNoContent)
+	spire.enter = held
+	var baoRevokes atomic.Int64
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "revoke") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":{}}`))
+			return
+		}
+		baoRevokes.Add(1)
+		if err := held(r.Context()); err != nil {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	defer bao.Close()
 
 	c := newCombinedFleetClient(t, spire, bao.URL)
-	start := time.Now()
-
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		_, _ = c.RevokeCredentialsPlanes(context.Background(), "agent-cardvault")
 	}()
 
-	// Both planes must have been DISPATCHED well inside one plane's delay. If the
-	// implementation serialised, the second would not be dispatched until ~300ms.
-	deadline := time.After(150 * time.Millisecond)
-	for {
-		if spire.calls.Load() > 0 && bao.revokeCalls.Load() > 0 {
-			break
-		}
+	guard := time.After(30 * time.Second)
+	for spire.calls.Load() == 0 || baoRevokes.Load() == 0 {
 		select {
-		case <-deadline:
-			t.Fatalf("only one plane dispatched within 150ms (spire=%d bao=%d) after %v "+
-				"— the planes are serialised, so the second waits out the first",
-				spire.calls.Load(), bao.revokeCalls.Load(), time.Since(start))
-		case <-time.After(5 * time.Millisecond):
+		case <-guard:
+			close(release)
+			t.Fatalf("only one plane was dispatched while the other was held (spire=%d bao=%d) "+
+				"-- the planes are serialised, so the second waits out the first",
+				spire.calls.Load(), baoRevokes.Load())
+		case <-time.After(time.Millisecond):
 		}
 	}
+	close(release)
 	<-done
 }

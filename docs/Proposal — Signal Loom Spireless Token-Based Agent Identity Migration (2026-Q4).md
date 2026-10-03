@@ -492,3 +492,12 @@ sequenceDiagram
 - Python: `Python 3.14.4`
 - Bun: `1.4.0`
 - uv: `uv 0.5.10`
+
+##### Lead adjudication (controller tick #7, 2026-10-03 02:44:09+01:00)
+
+- **Commit:** `d775cb93`
+- **Last Updated:** 2026-10-03 02:44:09+01:00
+- The antigravity session committed this block and then sat at its prompt for more than 16 minutes without writing the machine tag or exiting, twice (9beb6, then 4283e). The lead read the acceptance table, found that it measures the baseline P0 asked for, and adjudicated **pass**.
+- Recorded findings are for P1-PRE and the governor: `doctor` rc=1 (legacy `ajm-cline-kanban` helper path, Kagent proof file, sandbox denial on the ledger); `p1-sentinel-preflight.bats` test 1 fails under nono because it cannot read the cgroup file; the `TestDenialMatrix` wall-clock flake is being fixed by the estate-reds sweep. None of these blocks P1.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

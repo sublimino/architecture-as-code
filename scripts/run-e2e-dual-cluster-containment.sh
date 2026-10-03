@@ -53,7 +53,15 @@ if ! [[ "${REPEAT}" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
-RUN_ROOT="${EVIDENCE_DIR:-${HOME}/kusari-e2e/$(date +%Y%m%d-%H%M%S)}"
+if [ -z "${EVIDENCE_DIR}" ]; then
+    if mkdir -p "${HOME}/kusari-e2e" 2>/dev/null; then
+        RUN_ROOT="${HOME}/kusari-e2e/$(date +%Y%m%d-%H%M%S)"
+    else
+        RUN_ROOT="${TMPDIR:-/tmp}/kusari-e2e/$(date +%Y%m%d-%H%M%S)"
+    fi
+else
+    RUN_ROOT="${EVIDENCE_DIR}"
+fi
 mkdir -p "${RUN_ROOT}"
 chmod 0750 "${RUN_ROOT}"
 

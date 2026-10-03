@@ -189,19 +189,26 @@ live_or_skip() {
         || skip "live tier: set SLTM_LIVE=1 and a real KUBECONFIG"
 }
 
-# live_post <header-file or empty> [GET]: one request to the Kusari cluster's
+# live_call <header-file or empty> [GET/POST] [path]: one request to the Kusari cluster's
 # signal-ingest through a port-forward (3>&- keeps it off bats' fd 3).
 live_call() {
-    local h="$1" method="${2:-POST}" port="${SLTM_LIVE_PORT:-28093}" pf out
+    local h="$1" method="${2:-POST}" path="$3" port="${SLTM_LIVE_PORT:-28093}" pf out
+    if [ -z "$path" ]; then
+        if [ "$method" = GET ]; then
+            path="/api/v1/observations?limit=1"
+        else
+            path="/api/v1/observations"
+        fi
+    fi
     kubectl --context "${WL_CONTEXT}" -n fe-signalloom port-forward svc/signal-ingest "${port}:8082" >/dev/null 2>&1 3>&- &
     pf=$!
     for _ in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:${port}/" && break; sleep 0.25; done
     local args=(-H 'Content-Type: application/json')
     [ -n "$h" ] && args+=(-H @"$h")
     if [ "$method" = GET ]; then
-        out="$(call GET "http://127.0.0.1:${port}/api/v1/observations?limit=1" "${args[@]}")"
+        out="$(call GET "http://127.0.0.1:${port}${path}" "${args[@]}")"
     else
-        out="$(call POST "http://127.0.0.1:${port}/api/v1/observations" "${args[@]}" --data-binary @"${GOLDEN}")"
+        out="$(call POST "http://127.0.0.1:${port}${path}" "${args[@]}" --data-binary @"${GOLDEN}")"
     fi
     kill "$pf" 2>/dev/null; wait "$pf" 2>/dev/null
     printf '%s' "$out"
@@ -275,4 +282,148 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
     [ "$status" -eq 0 ]
     printf '%s' "$output" >"${BATS_TEST_TMPDIR}/specs.json"
     absent "$k" "${BATS_TEST_TMPDIR}/specs.json"
+}
+
+@test "live: an ingest partition loses no observation within the spool cap" {
+    live_or_skip
+
+    local sel
+    sel="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get svc signal-ingest -o jsonpath='{.spec.selector}')"
+    [ -n "${sel}" ] || return 1
+
+    local scratch_pod="sltm-partition-provoker-${RANDOM}"
+    local h_reader="${BATS_TEST_TMPDIR}/h_reader"
+    local k_reader
+    k_reader="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get secret signal-ingest-key-sldc-evidence-reader -o jsonpath='{.data.token}' | base64 -d)" || return 1
+    [ -n "${k_reader}" ] || return 1
+    hdr "${h_reader}" "Bearer ${k_reader}"
+
+    local pod_uid pod_restarts
+    pod_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"
+    pod_restarts="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
+
+    trap 'kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest -p "{\"spec\":{\"selector\":${sel}}}" >/dev/null 2>&1 || true; kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents delete pod "${scratch_pod}" --now --grace-period=0 >/dev/null 2>&1 || true' EXIT RETURN
+
+    kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest -p '{"spec":{"selector":{"sltm-partition":"none"}}}'
+
+    for _ in $(seq 1 30); do
+        local eps; eps="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get endpoints signal-ingest -o jsonpath='{.subsets[*].addresses[*].ip}')"
+        [ -z "${eps}" ] && break
+        sleep 0.25
+    done
+
+    kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents run "${scratch_pod}" \
+        --image=busybox:1.36.1 --restart=Never \
+        --overrides='{"spec":{"automountServiceAccountToken":false}}' \
+        -- sh -c 'for i in $(seq 1 5); do cat /etc/passwd >/dev/null 2>&1 || true; sleep 0.5; done'
+
+    for _ in $(seq 1 40); do
+        local phase; phase="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get pod "${scratch_pod}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+        [ "$phase" = "Succeeded" ] || [ "$phase" = "Failed" ] && break
+        sleep 0.5
+    done
+
+    local part_secs="${SLTM_PARTITION_SECONDS:-6}"
+    sleep "${part_secs}"
+
+    kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest -p "{\"spec\":{\"selector\":${sel}}}"
+
+    for _ in $(seq 1 30); do
+        local eps; eps="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get endpoints signal-ingest -o jsonpath='{.subsets[*].addresses[*].ip}')"
+        [ -n "${eps}" ] && break
+        sleep 0.25
+    done
+
+    local drained=0
+    for _ in $(seq 1 60); do
+        local stats_line
+        stats_line="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/stun-sentinel --tail=20 | grep '"event":"ebpf_correlator_stats"' | tail -n 1 || true)"
+        if [ -n "$stats_line" ]; then
+            local sp_batches
+            sp_batches="$(jq -r '.details.stats.spool_batches // .details.spool_batches // -1' <<<"$stats_line")"
+            if [ "$sp_batches" -eq 0 ]; then
+                drained=1
+                break
+            fi
+        fi
+        sleep 1
+    done
+    [ "$drained" -eq 1 ] || { echo "Spool did not drain to 0 in 60s"; return 1; }
+
+    local obs_out; obs_out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=100")"
+    [[ "$obs_out" == 200* ]] || { echo "Failed to read observations: $obs_out"; return 1; }
+    local obs_body="${obs_out#200 }"
+
+    local prov_count
+    prov_count="$(jq -r --arg p "${scratch_pod}" '[.[] | select(.labels.pod_name == $p)] | length' <<<"$obs_body")"
+    [ "$prov_count" -ge 1 ] || { echo "No observations found for $scratch_pod"; return 1; }
+
+    local cur_uid cur_restarts
+    cur_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"
+    cur_restarts="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
+    [ "$cur_uid" = "$pod_uid" ] || { echo "pod UID changed: $pod_uid -> $cur_uid"; return 1; }
+    [ "$cur_restarts" = "$pod_restarts" ] || { echo "pod restartCount changed: $pod_restarts -> $cur_restarts"; return 1; }
+}
+
+@test "live: a revoked key is refused within 90 s with no restart" {
+    live_or_skip
+
+    local token_file="${BATS_TEST_TMPDIR}/test_bearer"
+    local h="${BATS_TEST_TMPDIR}/h"
+    local h_new="${BATS_TEST_TMPDIR}/h_new"
+
+    "${REPO_ROOT}/scripts/sldc-ingest-bearer.sh" --context "${WL_CONTEXT}" --key sldc-live-bats >"${token_file}"
+    local initial_token
+    initial_token="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get secret signal-ingest-key-sldc-live-bats -o jsonpath='{.data.token}' | base64 -d)" || return 1
+    [ -n "${initial_token}" ] || return 1
+    hdr "${h}" "Bearer ${initial_token}"
+
+    trap '"${REPO_ROOT}/scripts/sldc-ingest-bearer.sh" --context "${WL_CONTEXT}" --key sldc-live-bats >/dev/null 2>&1 || true' EXIT RETURN
+
+    local pod_uid pod_restarts
+    pod_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"
+    pod_restarts="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
+
+    run live_call "$h" GET "/api/v1/actors"
+    [[ "$output" == 200* ]] || { echo "Initial key check failed: $output"; return 1; }
+
+    local t0; t0=$(date +%s)
+    kubectl --context "${WL_CONTEXT}" -n fe-signalloom delete secret signal-ingest-key-sldc-live-bats
+
+    local t1=0 elapsed=0 code=""
+    for _ in $(seq 1 45); do
+        code="$(live_call "$h" GET "/api/v1/actors" | cut -d' ' -f1)"
+        if [ "$code" = "401" ]; then
+            t1=$(date +%s)
+            elapsed=$(( t1 - t0 ))
+            break
+        fi
+        sleep 2
+    done
+
+    [ "$code" = "401" ] || { echo "Key was not revoked within 90s (got code: $code)"; return 1; }
+    [ "$elapsed" -le 90 ] || { echo "Revocation took ${elapsed}s > 90s"; return 1; }
+
+    local cur_uid cur_restarts
+    cur_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"
+    cur_restarts="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
+    [ "$cur_uid" = "$pod_uid" ] || { echo "pod UID changed: $pod_uid -> $cur_uid"; return 1; }
+    [ "$cur_restarts" = "$pod_restarts" ] || { echo "pod restartCount changed: $pod_restarts -> $cur_restarts"; return 1; }
+
+    "${REPO_ROOT}/scripts/sldc-ingest-bearer.sh" --context "${WL_CONTEXT}" --key sldc-live-bats >"${token_file}"
+    local new_token
+    new_token="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get secret signal-ingest-key-sldc-live-bats -o jsonpath='{.data.token}' | base64 -d)" || return 1
+    [ -n "${new_token}" ] || return 1
+    hdr "${h_new}" "Bearer ${new_token}"
+
+    local reminted_ok=0
+    for _ in $(seq 1 45); do
+        code="$(live_call "${h_new}" GET "/api/v1/actors" | cut -d' ' -f1)"
+        if [ "$code" = "200" ]; then
+            reminted_ok=1
+            break
+        fi
+        sleep 2
+    done
+    [ "$reminted_ok" -eq 1 ] || { echo "Re-minted key was not accepted within 90s (got code: $code)"; return 1; }
 }

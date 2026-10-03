@@ -717,7 +717,7 @@ Because the running `stun-sentinel` probe binary self-excludes only `stun-sentin
 | P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
 | P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | pass — delivered: `ec9354c1396869165896f61fa5d183cdc8210c3e` (see Errata — SLTM-P3-1) | — | — | — | — |
 | P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | pass — delivered: c6e2ac28c65c56b0056f3642d6eabea41ce398cc (see Errata — SLTM-P3-2) | — | — | — | — |
-| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | pass — delivered: `3d1ebc53` (see Errata — SLTM-P3-GOV) | — | — | — | — |
 | P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | — | — | — | — | — |
 | P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | — | — | — | — | — |
 
@@ -1689,5 +1689,46 @@ scripts/warden-cutover.sh --context kind-osramp
 - **Last Updated:** 2026-10-03 12:08:10+01:00
 - **Commit:** `c6e2ac28`
 - Restores the machine tag only. When P3-1 was reconciled (`sldc2/p3-merge`), its errata block was inserted directly after P3-2's, capturing P3-2's trailing tag, so P3-2 parsed as `status=unknown` (the fourth time this has happened). No result changes.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLTM-P3-GOV
+
+- **Logical ID:** P3-GOV
+- **Created:** 2026-10-03 12:22:00+01:00
+- **Last Updated:** 2026-10-03 13:18:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0`
+- **Commit:** `970720b6`
+
+##### 1. Merge Reconciliation & Preflight Fix
+- Phase 3 reconciliation on `refs/heads/integration/sltm-v0.1.0` merged P3-1 (`92fa4923`) and P3-2 (`e8517163` / `c6e2ac28`) through `sldc2/p3-merge` (`4582d863`).
+- **Preflight Blocker Resolved (ISC-1):** Identified and resolved the cutover dry-run preflight blocker in `scripts/warden-cutover.sh` and `test/warden-cutover.bats`. The preflight erroneously asserted the presence of `Secret/fe-signalloom-agents/signalloom-warden-governance`. In the DaemonSet definition (`d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:183-194`), `STUN_FREEZE_TOKEN` and `STUN_RESUME_TOKEN` are explicitly configured with `optional: true` and are not minted by standard key issuers. Removed `signalloom-warden-governance` from `REQUIRED_SECRETS` in `scripts/warden-cutover.sh` and updated test fixtures in `test/warden-cutover.bats`.
+- Verified `scripts/warden-cutover.sh --context kind-osramp --dry-run` successfully exits 0 with `all required warden secrets present`.
+
+##### 2. RBAC Ordering Defect Remediation
+- **Server-Side Apply Dependency Ordering Resolved:** Fixed first-apply failure where `RoleBinding/signalloom-warden` returned `NotFound` before `Role/signalloom-warden` existed on a fresh cluster. Declared `Role/signalloom-warden` in `agent-swarm-base` (`d2-signalloom/infra/agent-swarm/ebpf-sentinel-rbac.yaml`) and retained only `RoleBinding/signalloom-warden` in the leaf `agent-signalloom-warden` Kustomization (`d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml`).
+- Enhanced `scripts/warden-cutover.sh` preflight to perform a server-side dry run (`--field-manager=kustomize-controller`) of both base and overlay before deleting legacy probe resources.
+- Updated manifest tests (`test/signalloom-warden-manifests.bats`, `d2-signalloom/test/signalloom-warden-daemonset.bats`, `test/swarm-infra.bats`, `test/warden-cutover.bats`, 72/72 ok).
+
+##### 3. Offline Gate Certification (G2)
+- `KUBECONFIG=/dev/null make test-sldc-offline`: PASS (662/662 BATS tests, Go test packages across all services, pytest 90/90 + 141/141, bun 43/43 tests, exit 0).
+- `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: PASS (1..19, 10 passed, 9 skipped offline, exit 0).
+- `KUBECONFIG=/dev/null make test-e2e-containment-mutation-proof`: PASS (43/43 mutations proven red-then-green, exit 0).
+- `KUBECONFIG=/dev/null make docs-lint docs-lint-test`: PASS (56/56 tests, 670 docs files clean, exit 0).
+- `bash scripts/lint-pipefail-grep-q.sh`: PASS (660 files scanned clean, exit 0).
+- `bash scripts/check-old-probe-name.sh`: PASS (4708 files scanned clean, exit 0 on merged tip with permanent allow-list only).
+
+##### 4. Live Verification & DoD Certification (kind-osramp)
+- **Live Cluster Status:** Exactly one probe DaemonSet `daemonset.apps/signalloom-warden` active (1/1 Ready, eBPF probe attached at 12:41:43 BST). Zero legacy `stun-sentinel` SA, Role, RoleBinding, ConfigMap or DaemonSet objects remain.
+- **Probe API Key Live Tier (`SLTM_LIVE=1 make test-sltm-probe-apikey`):**
+  - Run 1 (12:52:34 - 12:56:17 +0100): 19/19 passed, 0 failures.
+  - Run 2 (12:56:20 - 12:59:08 +0100): 19/19 passed, 0 failures.
+  - Verified static key authentication, 201 ingest writes, 403 read rejection, partition spool/replay, and dynamic key reload & revocation.
+- **Live Dual-Cluster Containment E2E (`make test-e2e-dual-cluster-containment`):**
+  - Run 1 (13:14:19 - 13:15:56 +0100): 6/6 passed (Steps 1-6 ok), evidence `/tmp/kusari-e2e/20261003-131419`.
+  - Run 2 (13:16:03 - 13:17:36 +0100): 6/6 passed (Steps 1-6 ok), evidence `/tmp/kusari-e2e/20261003-131603`.
+  - Verified deployment, tenancy claim, hostile read provocation, probe syscall interception, cgroup freeze past resync, 0 restarts, and authorized recovery replacement.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

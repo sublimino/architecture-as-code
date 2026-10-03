@@ -24,11 +24,15 @@ type Stats struct {
 	// RuntimeLookups counts the container runtime's own user-database
 	// opens (runc init, before it execs the entrypoint): not a detection.
 	RuntimeLookups uint64 `json:"runtime_lookups"`
-	Matched        uint64 `json:"matched"`
-	Enqueued       uint64 `json:"enqueued"`
-	QueueDropped   uint64 `json:"queue_dropped"`
-	DispatchOK     uint64 `json:"dispatch_ok"`
-	DispatchErrors uint64 `json:"dispatch_errors"`
+	// RuntimeLookupsAtEvent is the subset decided by the caller's executable
+	// identity recorded at the syscall (exe_ino/exe_size), not by reading
+	// the process afterwards.
+	RuntimeLookupsAtEvent uint64 `json:"runtime_lookups_at_event"`
+	Matched               uint64 `json:"matched"`
+	Enqueued              uint64 `json:"enqueued"`
+	QueueDropped          uint64 `json:"queue_dropped"`
+	DispatchOK            uint64 `json:"dispatch_ok"`
+	DispatchErrors        uint64 `json:"dispatch_errors"`
 	// IngestTokenMissing counts observations not posted because no ingest
 	// bearer is configured. Detection and freeze are unaffected.
 	IngestTokenMissing uint64 `json:"ingest_token_missing"`
@@ -48,7 +52,7 @@ type Stats struct {
 
 type pipelineStats struct {
 	recordsRead, readErrors, decodeErrors, notSensitive, noPod,
-	selfExcluded, runtimeLookups, matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
+	selfExcluded, runtimeLookups, runtimeLookupsAtEvent, matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
 	ingestTokenMissing,
 	spoolBatches, spoolBytes, spoolEvicted, spoolExpired, spoolReplayed, spoolCorrupt,
 	dispatchAuthRefused, dispatchRejected, retryAfterWaits atomic.Uint64
@@ -64,29 +68,30 @@ func (m *SentinelProbeManager) Stats() Stats {
 	last := s.lastErr
 	s.mu.Unlock()
 	return Stats{
-		RecordsRead:         s.recordsRead.Load(),
-		ReadErrors:          s.readErrors.Load(),
-		DecodeErrors:        s.decodeErrors.Load(),
-		NotSensitive:        s.notSensitive.Load(),
-		NoPod:               s.noPod.Load(),
-		SelfExcluded:        s.selfExcluded.Load(),
-		RuntimeLookups:      s.runtimeLookups.Load(),
-		Matched:             s.matched.Load(),
-		Enqueued:            s.enqueued.Load(),
-		QueueDropped:        s.queueDropped.Load(),
-		DispatchOK:          s.dispatchOK.Load(),
-		DispatchErrors:      s.dispatchErrors.Load(),
-		IngestTokenMissing:  s.ingestTokenMissing.Load(),
-		LastDispatchError:   last,
-		SpoolBatches:        s.spoolBatches.Load(),
-		SpoolBytes:          s.spoolBytes.Load(),
-		SpoolEvicted:        s.spoolEvicted.Load(),
-		SpoolExpired:        s.spoolExpired.Load(),
-		SpoolReplayed:       s.spoolReplayed.Load(),
-		SpoolCorrupt:        s.spoolCorrupt.Load(),
-		DispatchAuthRefused: s.dispatchAuthRefused.Load(),
-		DispatchRejected:    s.dispatchRejected.Load(),
-		RetryAfterWaits:     s.retryAfterWaits.Load(),
+		RecordsRead:           s.recordsRead.Load(),
+		ReadErrors:            s.readErrors.Load(),
+		DecodeErrors:          s.decodeErrors.Load(),
+		NotSensitive:          s.notSensitive.Load(),
+		NoPod:                 s.noPod.Load(),
+		SelfExcluded:          s.selfExcluded.Load(),
+		RuntimeLookups:        s.runtimeLookups.Load(),
+		RuntimeLookupsAtEvent: s.runtimeLookupsAtEvent.Load(),
+		Matched:               s.matched.Load(),
+		Enqueued:              s.enqueued.Load(),
+		QueueDropped:          s.queueDropped.Load(),
+		DispatchOK:            s.dispatchOK.Load(),
+		DispatchErrors:        s.dispatchErrors.Load(),
+		IngestTokenMissing:    s.ingestTokenMissing.Load(),
+		LastDispatchError:     last,
+		SpoolBatches:          s.spoolBatches.Load(),
+		SpoolBytes:            s.spoolBytes.Load(),
+		SpoolEvicted:          s.spoolEvicted.Load(),
+		SpoolExpired:          s.spoolExpired.Load(),
+		SpoolReplayed:         s.spoolReplayed.Load(),
+		SpoolCorrupt:          s.spoolCorrupt.Load(),
+		DispatchAuthRefused:   s.dispatchAuthRefused.Load(),
+		DispatchRejected:      s.dispatchRejected.Load(),
+		RetryAfterWaits:       s.retryAfterWaits.Load(),
 	}
 }
 

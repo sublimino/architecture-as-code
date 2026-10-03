@@ -51,8 +51,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 /*
  * FROZEN WIRE CONTRACT -- consumed by pkg/ebpf (Go decoder) and SLDC-P1-2.
  * Fields are ordered largest-alignment first so the compiler inserts NO
- * implicit padding; every pad byte is explicit and named. sizeof == 328
- * (41 * 8). Any change here must update SyscallEventSize and the offset table
+ * implicit padding; every pad byte is explicit and named. sizeof == 344
+ * (43 * 8). Any change here must update SyscallEventSize and the offset table
  * in pkg/ebpf/event.go, which TestSyscallEventLayoutMatchesBTF enforces.
  *
  * offset  size  field
@@ -69,6 +69,10 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
  *     40    16  daddr        connect only: v4 in [0..3], v6 in [0..15], network order
  *     56    16  comm
  *     72   256  filename     openat/openat2: path arg; execve: binary path
+ *    328     8  exe_ino      inode of the CALLER's executable (current->mm->exe_file),
+ *                            taken at the syscall; 0 for a kernel thread or if unreadable.
+ *                            For execve this is the image being REPLACED.
+ *    336     8  exe_size     that inode's i_size
  */
 struct syscall_event_t {
 	__u64 ts_ns;
@@ -84,12 +88,15 @@ struct syscall_event_t {
 	__u8 daddr[16];
 	char comm[SENTINEL_COMM_LEN];
 	char filename[SENTINEL_FILENAME_LEN];
+	__u64 exe_ino;
+	__u64 exe_size;
 };
 
-_Static_assert(sizeof(struct syscall_event_t) == 328, "syscall_event_t wire size changed");
+_Static_assert(sizeof(struct syscall_event_t) == 344, "syscall_event_t wire size changed");
 _Static_assert(__builtin_offsetof(struct syscall_event_t, daddr) == 40, "daddr offset changed");
 _Static_assert(__builtin_offsetof(struct syscall_event_t, comm) == 56, "comm offset changed");
 _Static_assert(__builtin_offsetof(struct syscall_event_t, filename) == 72, "filename offset changed");
+_Static_assert(__builtin_offsetof(struct syscall_event_t, exe_ino) == 328, "exe_ino offset changed");
 
 /* Forces syscall_event_t into BTF so bpf2go -type can emit the Go mirror. */
 const struct syscall_event_t *unused_syscall_event_t __attribute__((unused));
@@ -187,6 +194,27 @@ static __always_inline __u32 traced_tgid(__u64 pid_tgid)
 }
 
 /*
+ * The caller's executable, identified at the syscall itself. Userspace uses
+ * it to tell `runc init` (still running the node's runc while it sets up the
+ * container) from the workload it execs moments later: reading
+ * /proc/<pid>/exe or cgroup.procs when the record is HANDLED races that exec,
+ * and lost live (2026-10-03, agent-cardvault frozen at birth). A read that
+ * faults (kernel thread: no mm) leaves 0, which userspace treats as unknown.
+ */
+static __always_inline void set_exe_identity(struct syscall_event_t *e)
+{
+	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+	struct file *exe = BPF_CORE_READ(task, mm, exe_file);
+
+	e->exe_ino = 0;
+	e->exe_size = 0;
+	if (!exe)
+		return;
+	e->exe_ino = BPF_CORE_READ(exe, f_inode, i_ino);
+	e->exe_size = (__u64)BPF_CORE_READ(exe, f_inode, i_size);
+}
+
+/*
  * Reserve and fill the common header. Ring buffer memory is NOT zeroed, so
  * every header byte is written explicitly; filename is NUL-terminated at [0]
  * and the decoder stops at the first NUL.
@@ -214,6 +242,7 @@ static __always_inline struct syscall_event_t *reserve_event(__u64 pid_tgid, __u
 	__builtin_memset(e->daddr, 0, sizeof(e->daddr));
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
 	e->filename[0] = '\0';
+	set_exe_identity(e);
 	return e;
 }
 

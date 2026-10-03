@@ -9,7 +9,7 @@ date: 2026-10-03
 status: draft (bootstrap, awaiting sign-off)
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-03T21:32
+updated: 2026-10-03T21:37
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -112,6 +112,7 @@ AWS CloudTrail / IAM  eBPF Tetragon / Nono   VPC Flow / Envoy      KAgent / Agen
 1. **Plane 1: Cloud Control Plane**
    - *Sources:* AWS CloudTrail, IAM Audit Logs, GCP Audit Logs.
    - *Model Layer:* `model.LayerCloudControlPlane`
+   - *Note (2026-10-03):* CLOUDAUDIT has already extended `InScopeLayers()` and built the FrostDB schema for `cloud_control_plane` (its errata); the `// out of scope` comment on the constant is stale. P1-PRE reconciles ownership with CLOUDAUDIT rather than ingesting first.
    - *Policy Target:* IAM role escalations, unauthorized policy versions (`CreatePolicyVersion`), access key generation (`CreateAccessKey`).
 
 2. **Plane 2: Endpoint Host**
@@ -131,11 +132,11 @@ AWS CloudTrail / IAM  eBPF Tetragon / Nono   VPC Flow / Envoy      KAgent / Agen
 
 ---
 
-## 4. Policy Evaluation Engine (CEL + Cedar)
+## 4. Policy Evaluation Engine (CEL + entitlement engine per the P3-PRE ADR)
 
 ### 4.1 Hybrid Policy Pipeline
 - **Common Expression Language (CEL):** Used for low-latency, deterministic filter rules executed inline in Go. CEL expressions compile down to ASTs evaluated in $<10\mu s$ per observation.
-- **Cedar / FAIR Integration:** Complex authorization checks, multi-attribute access control (ABAC), and formal SMT risk evaluations are deferred to the Cedar evaluation engine, calculating composite risk scores (`0.0` to `1.0`).
+- **Entitlement / FAIR Integration:** Complex authorization checks, multi-attribute access control (ABAC), and formal risk evaluations will be deferred to either Cedar or CEL ABAC, pending the P3-PRE ADR (Cedar is not in the repo today); FAIR scoring already ships in `policy-engine/fair/`, calculating composite risk scores (`0.0` to `1.0`).
 
 ### 4.2 Sample Policy Rule (CEL)
 
@@ -236,7 +237,7 @@ obs.labels["eventName"] in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserP
 | P1-3 | implementation | Harden `DiskRingBuffer`: WAL replay on restart, drop-oldest eviction accounting, monotonic sequence across restart; a crash test that SIGKILLs a child writer mid-batch and asserts zero corruption. | P1-1 | `diskring_test.go` + `diskring_crash_test.go`; `go test -race ./collectors/awslogs/...`; mutation on the eviction branch fails | M | antigravity | — | — | — | — | — |
 | P1-4 | implementation | Map CloudTrail, IAM and VPC Flow records to `model.Observation` (`LayerCloudControlPlane`, `LayerNetworkEgress`), `source` values, label keys in `contract_doc.go`, redaction of secrets in payloads. | P1-1 | `contract_test.go` asserting every documented label key; fixture round-trip test; `make test-signal-ingest` | M | antigravity | — | — | — | — | — |
 | P1-GOV | governor | Merge P1-1..P1-4 into `integration/slaws-v0.1.0`, run the six acceptance commands twice with identical totals, bind the layer-scope decision, write `### Spec: Shared Patterns — Phase 1`. | P1-2, P1-3, P1-4 | Acceptance commands x2; errata with totals | S | antigravity | — | — | — | — | — |
-| P2-PRE | preflight | Read `policy-engine/cel_eval.go`, `handlers.go`, `/api/v1/policies/*`, `fair/`, `pkg/policy` and `correlation/engine.go`; record the extension points, the observation variable schema, and the bundle format for P2. | P1-GOV | Extension-point table with file:line; no code change | S | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Read `policy-engine/cel_eval.go`, `handlers.go`, `/api/v1/policies/*`, `fair/`, `d2-signalloom/pkg/policy` (compiler, schema, equivalence) and `signal-ingest/correlation/engine.go`; record the extension points, the observation variable schema, and the bundle format for P2. | P1-GOV | Extension-point table with file:line; no code change | S | antigravity | — | — | — | — | — |
 | P2-1 | implementation | Extend `CELEngine` with the four-plane observation variables and ship the first rule bundle (IAM escalation, `CreateAccessKey`, unapproved egress); `go test -bench` for per-observation latency. | P2-PRE | `policy_test.go` + `policy_bench_test.go` additions; bundle round-trip through `/api/v1/policies/bundles`; bench numbers in errata | M | antigravity | — | — | — | — | — |
 | P2-2 | implementation | The `awslogs` drain loop evaluates each observation through policy-engine (in-process library preferred; else `/api/v1/policies/evaluate` with a `signal-ingest-key-<name>` bearer), fail-closed on evaluator error, with a decision recorded on the observation. | P2-1 | Integration test with a fake evaluator; fail-closed test; no key value in logs (grep test) | M | antigravity | — | — | — | — | — |
 | P2-3 | implementation | Action dispatcher: commit matches to FrostDB (`store/`), post an alert webhook with bounded retry, expose counters; no revocation or stun side effects. | P2-2 | FrostDB write test (`-tags frostdb`); webhook retry test with a fake server | M | antigravity | — | — | — | — | — |

@@ -105,7 +105,7 @@ function makeStunnedAgent(): AgentResponse {
       status: 'revoked',
       reason: 'non-compliant securityContext — stunned by sentinel',
       revoked_at: '2026-08-02T11:00:00Z',
-      revoked_by: 'stun-sentinel',
+      revoked_by: 'signalloom-warden',
     },
   })
 }
@@ -152,14 +152,14 @@ describe('SwarmAgentDetail — audit event timeline', () => {
         detail: { from_state: 'enrolled', to_state: 'active' },
       }),
       makeAuditEvent('agent.stunned', {
-        actor: 'stun-sentinel',
+        actor: 'signalloom-warden',
         detail: { outcome: 'stunned', reason: 'non-compliant securityContext' },
       }),
       makeAuditEvent('agent.credential_issued', {
         detail: { issuer: 'openbao', scope: 'agent-generic' },
       }),
       makeAuditEvent('agent.credential_revoked', {
-        actor: 'stun-sentinel',
+        actor: 'signalloom-warden',
         detail: { reason: 'sentinel stun action' },
       }),
     ]

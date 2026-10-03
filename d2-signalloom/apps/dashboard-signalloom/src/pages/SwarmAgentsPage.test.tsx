@@ -72,7 +72,7 @@ const SWARM_AGENT_NAMES = [
   'prod-deploy-gate',
   'agent-cardvault',
   'nono-containment-probe',
-  'stun-sentinel',
+  'signalloom-warden',
 ]
 
 const SWARM_ROLES: Record<string, string> = {
@@ -85,7 +85,7 @@ const SWARM_ROLES: Record<string, string> = {
   'prod-deploy-gate': 'hitl-proxy',
   'agent-cardvault': 'supercred-demo',
   'nono-containment-probe': 'containment-probe',
-  'stun-sentinel': 'sentinel',
+  'signalloom-warden': 'sentinel',
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

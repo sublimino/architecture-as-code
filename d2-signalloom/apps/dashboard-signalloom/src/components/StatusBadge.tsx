@@ -276,7 +276,7 @@ export function KernelStateBadge({ view, testId }: { view: KernelView; testId?: 
         status="kernel_frozen_confirmed"
         variant="kernel"
         label="frozen"
-        title={`Kernel cgroup freeze confirmed by the stun-sentinel${observed}.`}
+        title={`Kernel cgroup freeze confirmed by the signalloom-warden${observed}.`}
         testId={testId}
       />
     )

@@ -85,9 +85,9 @@ SCRIPT="$REPO_ROOT/scripts/swarm-deploy.sh"
   grep -q 'path: ./nono-containment-probe' "$RS_FILE"
 }
 
-@test "ResourceSet contains signalloom-stun-sentinel Kustomization" {
-  grep -q 'name: agent-signalloom-stun-sentinel' "$RS_FILE"
-  grep -q 'path: ./signalloom-stun-sentinel' "$RS_FILE"
+@test "ResourceSet contains signalloom-warden Kustomization" {
+  grep -q 'name: agent-signalloom-warden' "$RS_FILE"
+  grep -q 'path: ./signalloom-warden' "$RS_FILE"
 }
 
 @test "ResourceSet contains kusari-agent Kustomization (Tier 9 stub)" {

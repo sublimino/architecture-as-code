@@ -23,7 +23,7 @@ Kubernetes clusters with custom kernel modules to constrained serverless executi
     subgraph GOVERN["Layer 2: GOVERN (Policy & Active Containment)"]
       OPA["Gatekeeper / Kyverno Admission"]
       SLER["SLER Active Containment (cgroups v2 + eBPF TC)"]
-      PROBE["Stun-Sentinel (Healthz Replay & Eviction Lease)"]
+      PROBE["Signalloom-Warden (Healthz Replay & Eviction Lease)"]
       REVOKE["Dynamic Supercredential Revocation (Vault/Bao)"]
     end
 
@@ -64,7 +64,7 @@ The matrix below defines the deterministic guarantees Signal Loom provides acros
 
 | Environment Substrate | Observe Layer Guarantees | Govern Layer Guarantees | Attest Layer Guarantees | Containment Latency Budget |
 | :--- | :--- | :--- | :--- | :--- |
-| **Sovereign / Dedicated K8s**<br/>*(e.g., GKE Standard, Sovereign Kind on GCE)* | **Complete L1-L7 Telemetry**:<br/>• eBPF sockops & sys_enter<br/>• Full Kubelet/Control plane audit<br/>• Zero-Customer-Payload network flows | **Full 3-Plane SLER**:<br/>• Kernel cgroup v2 execution freeze<br/>• Stun-sentinel healthz replay (300s lease)<br/>• eBPF TC egress packet drop<br/>• Vault token revocation | **Full Cryptographic Trust**:<br/>• Node SPIFFE/SPIRE Attestation<br/>• Cosign KMS verification<br/>• Hardware TPM bound tokens | **< 50ms** |
+| **Sovereign / Dedicated K8s**<br/>*(e.g., GKE Standard, Sovereign Kind on GCE)* | **Complete L1-L7 Telemetry**:<br/>• eBPF sockops & sys_enter<br/>• Full Kubelet/Control plane audit<br/>• Zero-Customer-Payload network flows | **Full 3-Plane SLER**:<br/>• Kernel cgroup v2 execution freeze<br/>• Signalloom-warden healthz replay (300s lease)<br/>• eBPF TC egress packet drop<br/>• Vault token revocation | **Full Cryptographic Trust**:<br/>• Node SPIFFE/SPIRE Attestation<br/>• Cosign KMS verification<br/>• Hardware TPM bound tokens | **< 50ms** |
 | **Restricted / Managed K8s**<br/>*(e.g., AWS EKS, GKE Autopilot, Restricted Node Pools)* | **User-Space & K8s Telemetry**:<br/>• K8s audit webhook logs<br/>• Envoy proxy / Service mesh access logs<br/>• Container stdout/stderr telemetry | **2-Plane Containment**:<br/>• Dynamic NetworkPolicy egress isolation<br/>• Vault/OpenBao token revocation<br/>*(cgroup freeze requires privileged node pool)* | **Platform SPIFFE**:<br/>• ServiceAccount OIDC federation<br/>• Cosign digest verification at admission | **< 200ms** |
 | **Serverless Container**<br/>*(e.g., Google Cloud Run, AWS Fargate, Knative)* | **Proxy & Request Telemetry**:<br/>• Ingress/egress HTTP headers via CPAI sidecar<br/>• Cloud audit logs & IAM invocations | **Credential Revocation & Scale-to-Zero**:<br/>• Immediate IAM / OAuth token revocation<br/>• CPAI upstream proxy circuit breaker<br/>• Trigger scale-to-zero | **Cloud IAM Attestation**:<br/>• Workload Identity Federation (WIF)<br/>• OIDC token validation | **< 500ms** |
 | **Serverless Function**<br/>*(e.g., AWS Lambda, Google Cloud Functions)* | **Wrapper Telemetry**:<br/>• Function wrapper instrumentation<br/>• Outbound API destination telemetry | **Proxy Circuit Breaking**:<br/>• CPAI egress proxy drops model traffic<br/>• Revocation of short-lived credentials | **Invocation Attestation**:<br/>• SigV4 / Google OIDC identity tokens | **< 500ms** |

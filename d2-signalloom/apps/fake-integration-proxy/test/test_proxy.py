@@ -380,7 +380,7 @@ class AgentDiscoveryTest(AgentNamespaceTestCase):
 
 
 class KernelFreezeDiscoveryTest(AgentNamespaceTestCase):
-    """The stun-sentinel publishes the cgroup freezer truth as two pod
+    """The signalloom-warden publishes the cgroup freezer truth as two pod
     annotations. Discovery must carry them verbatim: a pod frozen in the kernel
     with no stun label otherwise renders as an idle, healthy agent."""
 

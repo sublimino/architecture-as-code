@@ -35,7 +35,7 @@
 #             an agent pod's spec rather than only its containment labels.
 #   create
 #   delete  — containment freezes and labels workloads; it never creates or
-#             destroys them. The stun sentinel does the freezing.
+#             destroys them. The signalloom warden does the freezing.
 #
 # The authoritative Role and RoleBinding are `fleet-manager-pod-reader`, namespace
 # fe-signalloom-agents, at d2-osramp-fleet/tenants/local/signalloom.yaml:1007-1039.

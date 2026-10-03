@@ -68,7 +68,7 @@ var ErrEnforcementDenied = fmt.Errorf("enforcement denied by policy: %w", ErrEnf
 // This client consumes that declaration rather than redeclaring it, ensuring
 // package main exports a single StateUnknown symbol across orchestrator and client.
 
-// Pod label contract shared with the agent manifests and the stun sentinel.
+// Pod label contract shared with the agent manifests and the signalloom warden.
 //
 // The card that introduced this file pointed at node-capability-guard's
 // ValidatePod for the state label. ValidatePod reads no state label:
@@ -88,7 +88,7 @@ const (
 	// AgentNameLabel carries the agent id with its "agent-" prefix stripped.
 	AgentNameLabel = "signalloom.ai/agent-name"
 	// ContainmentModeLabel is the THIRD term the sentinel ORs into its stunned
-	// test (signalloom-stun-sentinel/main.go:41). Leaving it at "frozen" while
+	// test (signalloom-warden/main.go:41). Leaving it at "frozen" while
 	// setting the state label back to active leaves the pod frozen while the
 	// dashboard reports it healthy — a split brain that lies reassuringly.
 	ContainmentModeLabel = "signalloom.io/containment-mode"

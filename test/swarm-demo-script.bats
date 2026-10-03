@@ -86,8 +86,8 @@ DEMO_SCRIPT="${REPO_ROOT}/scripts/swarm-fleet-demo.sh"
   grep -q 'verify_nono' "$DEMO_SCRIPT"
 }
 
-@test "verify_stun_sentinel function exists" {
-  grep -q 'verify_stun_sentinel' "$DEMO_SCRIPT"
+@test "verify_signalloom_warden function exists" {
+  grep -q 'verify_signalloom_warden' "$DEMO_SCRIPT"
 }
 
 @test "verify_stun_action function exists" {
@@ -112,7 +112,7 @@ DEMO_SCRIPT="${REPO_ROOT}/scripts/swarm-fleet-demo.sh"
     prod-deploy-gate
     agent-cardvault
     nono-containment-probe
-    signalloom-stun-sentinel
+    signalloom-warden
   )
   for agent in "${agents[@]}"; do
     grep -q "$agent" "$DEMO_SCRIPT"

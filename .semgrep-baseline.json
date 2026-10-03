@@ -56,7 +56,7 @@
       "count": 1,
       "reason": "false positive - `exec.CommandContext(ctx, name, args...)`, argument array, no shell. Same rule limitation as cardvault-agent. This is the injectable RealCmdRunner boundary, so a variable program name is the design."
     },
-    "go.lang.security.audit.dangerous-exec-command.dangerous-exec-command|d2-signalloom/apps/signalloom-stun-sentinel/network.go": {
+    "go.lang.security.audit.dangerous-exec-command.dangerous-exec-command|d2-signalloom/apps/signalloom-warden/network.go": {
       "count": 1,
       "reason": "false positive - runTC wraps `tc` invocations as `exec.Command(name, args...)`, argument array, no shell. Note that the privileged context makes the ARGUMENTS worth auditing whenever this changes, even though the invocation form is safe."
     },

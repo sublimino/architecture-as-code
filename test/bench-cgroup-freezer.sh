@@ -4,7 +4,7 @@
 #
 # @id      bench-cgroup-freezer
 # @doc     docs/signalloom/cgroup-v2-freeze-architecture.md
-# @target  d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go
+# @target  d2-signalloom/apps/signalloom-warden/pkg/cgroup/freezer.go
 #
 # CRKC-P1-2 freeze-latency benchmark.
 #
@@ -27,7 +27,7 @@ set -uo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-readonly MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
+readonly MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
 
 CLUSTER_CONTEXT="${CLUSTER_CONTEXT:-kind-osramp}"
 KIND_NODE="${KIND_NODE:-osramp-control-plane}"

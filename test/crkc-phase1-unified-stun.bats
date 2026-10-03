@@ -21,13 +21,13 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "unified-p1: stun-sentinel binary builds statically and compiles cleanly" {
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-sentinel"
+@test "unified-p1: signalloom-warden binary builds statically and compiles cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/signalloom-warden"
   [ "$status" -eq 0 ]
 }
 
 @test "unified-p1: stun-tcctl binary builds cleanly" {
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-tcctl"
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-tcctl"
   [ "$status" -eq 0 ]
 }
 

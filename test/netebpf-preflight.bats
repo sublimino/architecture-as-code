@@ -26,8 +26,8 @@ setup() {
   [[ "$output" =~ "go version" ]]
 }
 
-@test "netebpf preflight: signalloom-stun-sentinel passes go vet" {
-  cd "$REPO_ROOT/d2-signalloom/apps/signalloom-stun-sentinel"
+@test "netebpf preflight: signalloom-warden passes go vet" {
+  cd "$REPO_ROOT/d2-signalloom/apps/signalloom-warden"
   run go vet ./...
   [ "$status" -eq 0 ]
 }

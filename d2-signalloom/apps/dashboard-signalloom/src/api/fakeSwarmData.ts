@@ -215,10 +215,10 @@ export const FAKE_SWARM_AGENTS: AgentDiscoveryRecord[] = [
     provenance: 'demo',
   },
   {
-    pod_name: 'signalloom-stun-sentinel-node1',
+    pod_name: 'signalloom-warden-node1',
     namespace: NS,
-    service_account: 'signalloom-stun-sentinel',
-    spiffe_id: spiffeId(NS, 'signalloom-stun-sentinel'),
+    service_account: 'signalloom-warden',
+    spiffe_id: spiffeId(NS, 'signalloom-warden'),
     tenant: 'platform',
     project: 'signalloom-infra',
     role: 'sentinel',

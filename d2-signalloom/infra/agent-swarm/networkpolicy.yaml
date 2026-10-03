@@ -9,7 +9,7 @@
 #   - Egress to inf-bao (SPIRE agent socket, OpenBao API on 8200)
 #   - Egress to fe-signalloom (Signal Loom claim API via proxy on 8080)
 #   - Intra-namespace (A2A discovery, governor→worker dispatch)
-#   - The stun sentinel needs hostNetwork (handled via DaemonSet spec,
+#   - The signalloom warden needs hostNetwork (handled via DaemonSet spec,
 #     not NetworkPolicy — it runs on the node network)
 ---
 apiVersion: networking.k8s.io/v1

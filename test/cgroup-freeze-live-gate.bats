@@ -7,7 +7,7 @@
 #
 # An "offline" run must never reach a shared kind node. On 2026-10-02 a run of
 # the two cgroup-freeze suites under KUBECONFIG=/dev/null docker-cp'd a binary
-# onto osramp-control-plane and pkill'd the deployed stun-sentinel (restart
+# onto osramp-control-plane and pkill'd the deployed signalloom-warden (restart
 # count 2): their live gate was `docker inspect <node>` alone.
 #
 # Every docker and kubectl call here goes to a recorder (SLDC_DOCKER,

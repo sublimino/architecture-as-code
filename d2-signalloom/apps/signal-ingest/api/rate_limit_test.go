@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -374,13 +373,6 @@ func TestRateLimitAuditFirstRefusalPerMinute(t *testing.T) {
 	}
 }
 
-type failingAuditWriter struct{}
-
-func (failingAuditWriter) WriteAuditEvent(ctx context.Context, e audit.Event) error {
-	return errors.New("audit store is down")
-}
-func (failingAuditWriter) Close() error { return nil }
-
 func TestRateLimitAuditDownYields503(t *testing.T) {
 	delegate, _, _ := testJWTDelegate(t)
 	tokenA := testSentinelToken
@@ -404,8 +396,19 @@ func TestRateLimitAuditDownYields503(t *testing.T) {
 	currentTime := time.Now()
 	nowFn := func() time.Time { return currentTime }
 
-	h, _ := newTestHandlersWithAudit(t, failingAuditWriter{})
-	router, err := NewProtectedRouter(h, authn, failingAuditWriter{}, http.NotFoundHandler(), RouterOptions{
+	// Start with a healthy audit sink. observationRequest sends no D10 batch
+	// chain headers, so under SLTM-P2-3 the first-ever observation from a
+	// never-before-seen subject is classified "unchained" and -- like the
+	// first rate-limit refusal per subject per minute -- requires its own
+	// successful audit write before the request can succeed (see
+	// TestBatchChainAuditStoreDownIs503, same fail-closed pattern, for a
+	// contiguous-batch example of priming chain state before failing the
+	// sink). Req 1 here exists only to consume the rate limiter's single
+	// burst token; it must not be entangled with that unrelated audit
+	// obligation, so it runs while the sink is healthy.
+	aw := audit.NewFakeWriter()
+	h, _ := newTestHandlersWithAudit(t, aw)
+	router, err := NewProtectedRouter(h, authn, aw, http.NotFoundHandler(), RouterOptions{
 		KeyRatePerSecond: 1.0,
 		KeyBurst:         1,
 	})
@@ -414,14 +417,18 @@ func TestRateLimitAuditDownYields503(t *testing.T) {
 	}
 	router.now = nowFn
 
-	// Request 1 succeeds (201)
+	// Request 1 succeeds (201) while the audit sink is healthy.
 	w1 := httptest.NewRecorder()
 	router.ServeHTTP(w1, observationRequest(tokenA))
 	if w1.Code != http.StatusCreated {
 		t.Fatalf("req 1 failed: %d", w1.Code)
 	}
 
-	// Request 2 hits rate limit. First refusal needs audit, audit fails -> MUST 503
+	// Now take the audit sink down and exercise the behavior under test:
+	// request 2 hits the rate limit. First refusal needs audit, audit
+	// fails -> MUST 503.
+	aw.FailWith = errors.New("audit store is down")
+
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, observationRequest(tokenA))
 	if w2.Code != http.StatusServiceUnavailable {

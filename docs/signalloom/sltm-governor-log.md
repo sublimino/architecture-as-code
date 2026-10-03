@@ -27,3 +27,21 @@ Mission identity: repository `/home/andy/src/cp/osramp-demo`, shortcode
 - `refs/heads/integration/sltm-v0.1.0` cut at `20cd0b7c`; Governor worktree `~/src/.worktrees/osramp-demo/sltm-v0.1.0/governor`.
 - Card council (4 members: implementation, test-and-evidence, failure-modes, integration/editor) is generating the 16 card specifications. Cards are created only through `kanban-check.sh create`.
 - Lead live deploy to `kind-osramp` in progress: caller keys, source-tagged signal-ingest and probe images, fe/dashboard/fleet/supercred images, fleet and signalloom artifacts, and `tenants` resumed. The reviewed `flux diff` shows no prune beyond the intended removal of `agent-swarm-flux-cluster-rbac`. **Do not run live suites on kind-osramp until entry 3 says the deploy is verified.**
+
+---
+
+## 3. Live deploy verified; Phase 1 probe key proven twice; decisions recorded before P1 starts
+
+- **Timestamp**: 2026-10-03T01:40:57+0100
+- **Deploy (kind-osramp)**: every Kustomization Ready, no failing pods. Three deploy defects were fixed on the way:
+  - An orphaned `stun-sentinel-node-reader` ClusterRole/Binding that Flux could no longer prune; the dead objects were removed and a rollback snapshot kept.
+  - A duplicated env name in fe-signalloom; now guarded by `test/rendered-env-unique.bats`.
+  - `kustomize.toolkit.fluxcd.io/force: "true"`, which kustomize-controller ignores; now `Enabled`, guarded by `test/flux-annotation-values.bats`.
+  - Separately, stale `:dev` and `:local` images were restarted: fake-integration-proxy, netassert-controller and policy-engine.
+- **Probe**: `ebpf_probe_attached`, `ringbuf_drops 0`, `ringbuf_prefiltered` climbing, `dispatch_ok` rising, `dispatch_errors 0`, `ingest_token_missing 0`.
+- **SLTM Phase 1 DoD**: `SLTM_LIVE=1 make test-sltm-probe-apikey` passed 17/17 at 01:35:39 and 17/17 at 01:35:58 (+0100), with 0 skips.
+- **Containment e2e**: Steps 1, 3, 4 and 5 are green; the freeze persists past a resync.
+  - Step 2 was red because discovery was a stale image; it has been restarted.
+  - Step 6 is red. `/recover` is authorised, but the outcome is `unavailable`: fleet-manager's SPIRE client fails with "server preface EOF" and OpenBao returns 403. **kusari is left frozen until fixed (lead working on it).**
+- **Decision P1-PRE-5 (lead, before P1-1 starts)**: the dashboard RBAC importer panel's browser `POST /afm/clusters/import` is **re-routed through the fe-signalloom gateway as a superadmin-only second caller**, not closed. Closing it would break a shipped feature. The gateway checks the user's Dex token and superadmin role, then forwards with the `afm-importer` key. P1-1 implements this instead of the default close.
+- **Decision P3 (lead)**: accept P3-PRE's recommendation to keep the Go module directories and the observation `source` value `stun-sentinel`, allow-listed. The source value is part of every observation ID, so renaming it breaks evidence continuity.

@@ -386,6 +386,7 @@ signal-ingest-image-pin: ## Point the signal-ingest Deployment at the current so
 	grep -qF "/signalloom/apps/signal-ingest:$$tag" $(SIGNAL_INGEST_DEPLOYMENT) || { echo "signal-ingest-image-pin: $(SIGNAL_INGEST_DEPLOYMENT) was not updated" >&2; exit 1; }; \
 	echo "pinned $(SIGNAL_INGEST_DEPLOYMENT) to :$$tag"
 
-signal-ingest-image-publish: signal-ingest-image ## Publish the source-tagged signal-ingest image to zot (cluster required).
+signal-ingest-image-publish: signal-ingest-image ## Load the source-tagged signal-ingest image onto kind CLUSTER_NAME and publish it to zot (cluster required).
 	@tag=$$(../scripts/signal-ingest-image-tag.sh) || exit 1; \
+	CLUSTER_NAME=$(CLUSTER_NAME) ../scripts/kind-load-verified.sh $(SIGNAL_INGEST_IMAGE_ZOT):$$tag && \
 	../scripts/push-local-image.sh $(SIGNAL_INGEST_IMAGE_ZOT):$$tag $(SIGNAL_INGEST_IMAGE_PUSH):$$tag

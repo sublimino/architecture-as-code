@@ -28,12 +28,53 @@ const StaticKeyExpirySuffix = ".expires"
 // DefaultStaticKeysDir is where the Deployment projects the key Secrets.
 const DefaultStaticKeysDir = "/etc/signal-ingest/static-keys"
 
-type staticKeySpec struct {
+// StaticKeySpec holds the parsed, validated specification of one static key from ConfigMap.
+type StaticKeySpec struct {
 	Name        string       `json:"name"`
 	Subject     string       `json:"subject"`
 	Tenant      string       `json:"tenant"`
 	Permissions []Permission `json:"permissions"`
 	ActorIDs    []string     `json:"actor_ids"`
+}
+
+// LoadStaticKeySpecs parses and validates the static key specifications from SIGNAL_AUTH_STATIC_KEYS
+// and resolves the key secret directory from SIGNAL_AUTH_STATIC_KEYS_DIR (defaulting to DefaultStaticKeysDir).
+//
+// Returns (nil, "", nil) when SIGNAL_AUTH_STATIC_KEYS is unset.
+func LoadStaticKeySpecs() ([]StaticKeySpec, string, error) {
+	raw := strings.TrimSpace(os.Getenv(StaticKeysEnv))
+	if raw == "" {
+		return nil, "", nil
+	}
+	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
+	dec.DisallowUnknownFields()
+	var specs []StaticKeySpec
+	if err := dec.Decode(&specs); err != nil {
+		return nil, "", fmt.Errorf("%s is not a list of key specs: %w", StaticKeysEnv, err)
+	}
+	if len(specs) == 0 {
+		return nil, "", fmt.Errorf("%s is set but names no keys; unset it to disable static keys", StaticKeysEnv)
+	}
+	dir := os.Getenv(StaticKeysDirEnv)
+	if dir == "" {
+		dir = DefaultStaticKeysDir
+	}
+
+	seen := map[string]bool{}
+	for _, spec := range specs {
+		cfg := StaticBearerConfig{
+			Name: spec.Name, Subject: spec.Subject, TenantID: spec.Tenant,
+			Permissions: spec.Permissions, ActorIDs: spec.ActorIDs,
+		}
+		if err := cfg.validateConfig(); err != nil {
+			return nil, "", fmt.Errorf("static key %q: %w", spec.Name, err)
+		}
+		if seen[spec.Name] {
+			return nil, "", fmt.Errorf("static key %q is configured twice", spec.Name)
+		}
+		seen[spec.Name] = true
+	}
+	return specs, dir, nil
 }
 
 // StaticKeysFromEnv loads the configured keys.
@@ -49,39 +90,20 @@ type staticKeySpec struct {
 // One caller's Secret must not take ingest down for every other caller, and every one of those
 // outcomes is a narrowing (that caller gets 401), never a widening.
 func StaticKeysFromEnv() ([]StaticBearerConfig, error) {
-	raw := strings.TrimSpace(os.Getenv(StaticKeysEnv))
-	if raw == "" {
-		return nil, nil
+	specs, dir, err := LoadStaticKeySpecs()
+	if err != nil || specs == nil {
+		return nil, err
 	}
-	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
-	dec.DisallowUnknownFields()
-	var specs []staticKeySpec
-	if err := dec.Decode(&specs); err != nil {
-		return nil, fmt.Errorf("%s is not a list of key specs: %w", StaticKeysEnv, err)
-	}
-	if len(specs) == 0 {
-		return nil, fmt.Errorf("%s is set but names no keys; unset it to disable static keys", StaticKeysEnv)
-	}
-	dir := os.Getenv(StaticKeysDirEnv)
-	if dir == "" {
-		dir = DefaultStaticKeysDir
-	}
+	return loadStaticKeysFromSpecs(specs, dir, time.Now())
+}
 
-	now := time.Now()
-	seen := map[string]bool{}
+func loadStaticKeysFromSpecs(specs []StaticKeySpec, dir string, now time.Time) ([]StaticBearerConfig, error) {
 	var keys []StaticBearerConfig
 	for _, spec := range specs {
 		cfg := StaticBearerConfig{
 			Name: spec.Name, Subject: spec.Subject, TenantID: spec.Tenant,
 			Permissions: spec.Permissions, ActorIDs: spec.ActorIDs,
 		}
-		if err := cfg.validateConfig(); err != nil {
-			return nil, fmt.Errorf("static key %q: %w", spec.Name, err)
-		}
-		if seen[spec.Name] {
-			return nil, fmt.Errorf("static key %q is configured twice", spec.Name)
-		}
-		seen[spec.Name] = true
 
 		if err := readKeySecret(dir, &cfg, now); err != nil {
 			slog.Error("static key DISABLED: its Secret is unusable; this caller will get 401",
@@ -121,7 +143,7 @@ func StaticKeysFromEnv() ([]StaticBearerConfig, error) {
 func readKeySecret(dir string, cfg *StaticBearerConfig, now time.Time) error {
 	value, err := os.ReadFile(filepath.Join(dir, cfg.Name))
 	if errors.Is(err, fs.ErrNotExist) {
-		return errors.New("value not mounted (Secret not minted?)")
+		return fmt.Errorf("value not mounted (Secret not minted?): %w", fs.ErrNotExist)
 	}
 	if err != nil {
 		return fmt.Errorf("read value: %w", err)

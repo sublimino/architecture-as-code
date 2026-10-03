@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -349,14 +350,14 @@ func buildKeyDestroyer(auditWriter audit.AuditWriter, encryptor identity.Encrypt
 // no SIGNAL_AUTH_STATIC_KEYS it returns jwt unchanged. A malformed key configuration is an error
 // for the caller to refuse startup on, never a weaker gate.
 func httpAuthenticator(jwt api.Authenticator) (api.Authenticator, error) {
-	keys, err := api.StaticKeysFromEnv()
+	specs, dir, err := api.LoadStaticKeySpecs()
 	if err != nil {
 		return nil, err
 	}
-	if keys == nil {
+	if specs == nil {
 		return jwt, nil
 	}
-	return api.NewStaticKeyAuthenticator(keys, jwt)
+	return api.NewStaticKeyAuthenticatorWithSpecs(specs, dir, jwt)
 }
 
 // refuseAllJWT stands in for the JWT-SVID authenticator when no JWKS is configured (Andy,
@@ -742,6 +743,37 @@ func main() {
 		_, _ = io.WriteString(w, retentionMetrics.Render())
 	})
 
+	// Rate limit and reload interval settings
+	ratePerKey := api.DefaultKeyRatePerSecond
+	if raw := os.Getenv(api.RatePerKeyEnv); raw != "" {
+		val, err := strconv.ParseFloat(raw, 64)
+		if err != nil || val <= 0 {
+			slog.Error("SIGNAL_INGEST_RATE_PER_KEY invalid; refusing startup", "error", err, "value", raw)
+			os.Exit(1)
+		}
+		ratePerKey = val
+	}
+
+	rateBurst := api.DefaultKeyBurst
+	if raw := os.Getenv(api.RateBurstEnv); raw != "" {
+		val, err := strconv.Atoi(raw)
+		if err != nil || val <= 0 {
+			slog.Error("SIGNAL_INGEST_RATE_BURST invalid; refusing startup", "error", err, "value", raw)
+			os.Exit(1)
+		}
+		rateBurst = val
+	}
+
+	reloadInterval := api.DefaultStaticKeysReloadInterval
+	if raw := os.Getenv(api.StaticKeysReloadIntervalEnv); raw != "" {
+		dur, err := time.ParseDuration(raw)
+		if err != nil || dur < api.MinStaticKeysReloadInterval {
+			slog.Error("SIGNAL_AUTH_STATIC_KEYS_RELOAD_INTERVAL invalid; refusing startup", "error", err, "value", raw)
+			os.Exit(1)
+		}
+		reloadInterval = dur
+	}
+
 	// Every HTTP request enters through the Authorization JWT-SVID gate below.
 	// NewProtectedRouter is the sole production route-registration boundary.
 	gateway, err := gatewayFromEnv(ctx)
@@ -750,7 +782,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	protectedRouter, err := api.NewProtectedRouter(handlers, gateway, auditWriter, metricsHandler, api.RouterOptions{})
+	if sba, ok := gateway.(*api.StaticBearerAuthenticator); ok {
+		go sba.WatchReload(ctx, reloadInterval)
+	}
+
+	protectedRouter, err := api.NewProtectedRouter(handlers, gateway, auditWriter, metricsHandler, api.RouterOptions{
+		KeyRatePerSecond: ratePerKey,
+		KeyBurst:         rateBurst,
+	})
 	if err != nil {
 		slog.Error("protected HTTP router initialization failed", "error", err)
 		os.Exit(1)

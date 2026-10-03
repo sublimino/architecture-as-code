@@ -1,0 +1,396 @@
+path	class	count	owner	new_value
+"docs/Proposal \342\200\224 Exhaustive System Security and Vulnerability Audit (2026-Q3).md"	living-doc	3	P3-2	signalloom-warden
+"docs/Proposal \342\200\224 Signal Fusion Actor-Resolution Spine V2 (2026-Q3).md"	living-doc	10	P3-2	signalloom-warden
+"docs/Proposal \342\200\224 Signal Loom AgentMaxxing Interactive Demo Console (2026-Q3).md"	living-doc	1	P3-2	signalloom-warden
+"docs/Proposal \342\200\224 Signal Loom Enforcement and Response (2026-Q3).md"	living-doc	100	P3-2	signalloom-warden
+"docs/Proposal \342\200\224 Signal Loom Spireless Token-Based Agent Identity Migration (2026-Q4).md"	living-doc	97	P3-2	signalloom-warden
+.baoaudit-p2-gov-proof.json	living-doc	1	P3-2	signalloom-warden
+.gitignore	living-doc	1	P3-2	signalloom-warden
+.kanban-review-ledger.json	living-doc	3	P3-2	signalloom-warden
+.semgrep-baseline.json	living-doc	1	P3-2	signalloom-warden
+DEPLOYMENT-SCOPE.md	decision-record	1	excluded	unchanged
+Makefile	runtime-identity	3	P3-1	signalloom-warden
+README.md	living-doc	1	P3-2	signalloom-warden
+ci-evidence/cadvisor-preflight-sample.prom	decision-record	11	excluded	unchanged
+ci-evidence/p1-preflight-audit.json	decision-record	1	excluded	unchanged
+ci-evidence/p3-preflight-audit.json	decision-record	5	excluded	unchanged
+ci-evidence/p5-preflight-audit.json	decision-record	14	excluded	unchanged
+ci-evidence/p5-preflight-transcript.txt	decision-record	6	excluded	unchanged
+ci-evidence/phase1-sentinel-log-audit.txt	decision-record	6	excluded	unchanged
+ci-evidence/phase2-token-exchange-audit.txt	decision-record	1	excluded	unchanged
+ci-evidence/sample-e2e-run.log	decision-record	7	excluded	unchanged
+ci-evidence/slaat-p1-4-confinement-findings.json	decision-record	16	excluded	unchanged
+ci-evidence/slaat-p1-4-sentinel-evasion-probe-records.json	decision-record	4	excluded	unchanged
+ci-evidence/slaat-p2-4-sentinel-evasion-post-fix-source-level.json	decision-record	4	excluded	unchanged
+ci-evidence/slaat-p2-pre-repro-sentinel-evasion.json	decision-record	4	excluded	unchanged
+ci-evidence/sldc-p1-1-probe-evidence.md	decision-record	2	excluded	unchanged
+ci-evidence/sldc-p2-2/decoded-jwt-svid-signal-ingest.json	decision-record	1	excluded	unchanged
+ci-evidence/sldc-p2-2/signal-ingest-live-verifier.txt	decision-record	1	excluded	unchanged
+d2-osramp-fleet/tenants/base/agent-swarm.yaml	runtime-identity	6	P3-1	signalloom-warden
+d2-signalloom/AGENTS.md	living-doc	9	P3-2	signalloom-warden
+d2-signalloom/Makefile	runtime-identity	23	P3-1	signalloom-warden
+d2-signalloom/README.md	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/api/fakeData.ts	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/api/fakeSwarmData.ts	living-doc	3	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/components/StatusBadge.tsx	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/data/agentDiscovery.ts	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/data/credentialInventory.swarm.test.ts	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/data/credentialInventory.ts	living-doc	3	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/pages/DistanceLatencyPage.tsx	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/pages/SwarmAgentDetail.test.tsx	living-doc	3	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/pages/SwarmAgentsPage.test.tsx	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/pages/SwarmCredentialInventory.test.tsx	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/dashboard-signalloom/src/types/api.ts	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/docs-signalloom/src/content/docs/operate/containment-runbook.mdx	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/docs-signalloom/src/content/docs/operate/stun-agent.mdx	living-doc	9	P3-2	signalloom-warden
+d2-signalloom/apps/docs-signalloom/src/content/docs/reference/platform-guarantee-matrix.mdx	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/docs-signalloom/src/content/docs/reference/roadmap.md	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fake-integration-proxy/server.py	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fake-integration-proxy/test/test_proxy.py	test	1	P3-2	signalloom-warden
+d2-signalloom/apps/fe-signalloom/src/api_compat.py	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/fe-signalloom/src/tests/test_api_compat.py	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fe-signalloom/src/tests/test_kernel_split_brain.py	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/Dockerfile	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/base/deployment.yaml	runtime-identity	3	P3-1	signalloom-warden
+d2-signalloom/apps/fleet-manager/base/networkpolicy.yaml	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/callerauth.go	runtime-identity	3	P3-1	signalloom-warden
+d2-signalloom/apps/fleet-manager/callerauth_test.go	test	10	P3-1	signalloom-warden
+d2-signalloom/apps/fleet-manager/enforcement.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/go.mod	go-module	3	P3-1	kept (imports retained Go module)
+d2-signalloom/apps/fleet-manager/k8sclient.go	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/k8sclient_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/fleet-manager/mesh_client.go	go-module	1	P3-1	kept (imports retained Go module)
+d2-signalloom/apps/fleet-manager/mesh_client_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/fleet-manager/recover_release_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/fleet-manager/resume_token.go	living-doc	4	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/schema.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/fleet-manager/vap_admission_test.go	test	2	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/auth_adversarial_test.go	test	19	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/auth_jwks_refresh_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/batch_chain_test.go	test	2	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/key_reload_test.go	test	52	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/rate_limit_test.go	test	6	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/revocation_handler.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/revocation_test.go	test	3	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/static_bearer_deploy_test.go	test	2	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/static_bearer_test.go	test	8	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/static_keys_test.go	test	34	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/tenancy_grants.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json	living-doc	8	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/base/deployment.yaml	runtime-identity	3	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/collectors/ebpf/collector.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/collectors/ebpf/doc.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/collectors/fixtures.go	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/correlation/stun_client.go	living-doc	5	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml	runtime-identity	4	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/deploy_render_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/identity/revocation_test.go	test	3	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/identity/stun_client.go	living-doc	12	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/identity/stun_listener.go	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/main.go	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/model/sentinel_contract_test.go	test	2	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/static_bearer_wiring_test.go	test	7	P3-1	signalloom-warden
+d2-signalloom/apps/signal-ingest/store/label_allowlist.go	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/apps/signal-ingest/store/sentinel_contract_test.go	test	2	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/Dockerfile	deploy-path	18	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/audit.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/audit_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/config.go	deploy-path	2	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/config_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/controller_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/correlator_stats_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/correlator_wiring_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/dryrun_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/ebpf/c/socket_trace.bpf.c	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/ebpf/probe.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/ebpf/probe_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/fleetstun.go	deploy-path	2	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/fleetstun_test.go	test	2	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/freezer.go	deploy-path	2	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/freezer_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/go.mod	deploy-path	4	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/go.sum	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/health.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/health_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/kernel.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/kernel_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/main.go	deploy-path	8	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/network.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/network_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/probe.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/probe_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/selfexclude_test.go	test	3	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/stunhold.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/stunhold_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/tc_idempotent_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/attribution_test.go	test	1	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/attributor.go	deploy-path	1	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/cgroup.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier.go	deploy-path	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go	test	0	P3-1	signalloom-warden
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/types.go	deploy-path	1	P3-1	signalloom-warden
+d2-signalloom/apps/stun-sentinel/base/kustomization.yaml	go-module	6	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/Dockerfile.bpf2go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/Dockerfile.builder	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/Makefile	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/build.sh	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/headers/vmlinux.h	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/path_prefilter.h	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/prefilter_harness.c	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/scenario.sh	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/sensitive_prefixes.h	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/sentinel_probe.c	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/bpf/tc_drop.bpf.c	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/cmd/gen-sensitive-prefixes/main.go	go-module	2	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/cycle_p4gov_test.go	go-module	4	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/exclusion_sldc_test.go	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go	go-module	16	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main_test.go	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/cmd/stun-tcctl/main.go	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/deploy/capability-audit.yaml	go-module	8	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/deploy/credential_tenancy_test.go	go-module	9	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/deploy/daemonset.yaml	go-module	5	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/deploy/least_privilege_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/deploy/manifest_test.go	go-module	8	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/go.mod	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/go.sum	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/auth/resume_token.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/auth/resume_token_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go	go-module	2	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer_benchmark_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/actor_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/cgroup_lookup.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/cgroup_lookup_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/clock.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go	go-module	4	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/eventtime.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/eventtime_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/freeze_credential_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/freeze_reason_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go	wire-data	1	P3-1	kept (ingestSource wire compatibility)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest_contract_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest_token_test.go	go-module	2	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/mock_informer_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/pid_collision_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/pipeline_test.go	go-module	2	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/prefilter_agreement_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/runtime_lookup.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/runtime_lookup_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/selfdetect_test.go	go-module	9	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/sender_test.go	go-module	9	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/sensitive_prefixes_c.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/spool.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/spool_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/stats.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/stats_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/tenancy.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/tenancy_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/testdata/ingest-observation.golden.json	go-module	4	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/types.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/correlator/vector_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/event.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/event_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/gen.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe_bpfeb.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe_bpfeb.o	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe_bpfel.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe_bpfel.o	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/filter/exclusion.go	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/filter/exclusion_test.go	go-module	5	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/filter/identity_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/netlink/veth_resolver.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/netlink/veth_resolver_edge_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/netlink/veth_resolver_live_test.go	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/netlink/veth_resolver_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/probe/probe.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/probe/probe_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/capturer.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/capturer_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/procfs.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/procfs_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/retention.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/retention_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/types.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/bpf_embed.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/discover.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/discover_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/loader.go	go-module	3	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/loader_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/metrics.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/metrics_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/tc/tc_drop.bpf.o	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/attribution_test.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/attributor.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/cgroup.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/classifier.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/classifier_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/emitter.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/emitter_test.go	go-module	0	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/types.go	go-module	1	P3-1	kept (retained Go module pkg/tc, pkg/correlator)
+d2-signalloom/deploy/stun-sentinel-daemonset.yaml	runtime-identity	6	P3-1	signalloom-warden
+d2-signalloom/deploy/stun-sentinel-networkpolicy.yaml	runtime-identity	5	P3-1	signalloom-warden
+d2-signalloom/deploy/tetragon-agent-telemetry.yaml	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/deploy/tetragon-helm-values.yaml	living-doc	1	P3-2	signalloom-warden
+d2-signalloom/infra/agent-swarm/ebpf-sentinel-rbac.yaml	living-doc	13	P3-2	signalloom-warden
+d2-signalloom/infra/agent-swarm/rbac.yaml	living-doc	4	P3-2	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-osramp/kustomization.yaml	runtime-identity	5	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-signalloom-hub/kustomization.yaml	runtime-identity	4	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/configmap.yaml	runtime-identity	3	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml	runtime-identity	22	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/kustomization.yaml	runtime-identity	2	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-cronjob.yaml	runtime-identity	0	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-networkpolicy.yaml	runtime-identity	0	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-serviceaccount.yaml	runtime-identity	0	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter/export.py	runtime-identity	0	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml	runtime-identity	6	P3-1	signalloom-warden
+d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/service-account.yaml	runtime-identity	2	P3-1	signalloom-warden
+d2-signalloom/infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml	living-doc	2	P3-2	signalloom-warden
+d2-signalloom/test/sentinel-containment.bats	test	8	P3-2	signalloom-warden
+d2-signalloom/test/sentinel-evidence.bats	test	6	P3-2	signalloom-warden
+d2-signalloom/test/stun-sentinel-daemonset.bats	test	25	P3-2	signalloom-warden
+d2-signalloom/test/stun-sentinel-image-context.bats	test	7	P3-2	signalloom-warden
+docs/Proposal - SLAAT Whole-System Autonomous Adversarial Testing (2026-Q4).md	decision-record	12	excluded	unchanged
+docs/amxd-p0-baseline.md	decision-record	1	excluded	unchanged
+docs/appendix-credential-architecture.md	decision-record	5	excluded	unchanged
+docs/appendix-ebpf-kernel-enforcement.md	decision-record	2	excluded	unchanged
+docs/eap/SLDC-MISSION-CERTIFICATION.md	decision-record	2	excluded	unchanged
+docs/eap/SLDC-P1-GOVERNOR-REPORT.md	decision-record	18	excluded	unchanged
+docs/eap/SLDC-P3-GOVERNOR-REPORT.md	decision-record	1	excluded	unchanged
+docs/eap/SLDC-P3-TENANT-INVENTORY.md	decision-record	2	excluded	unchanged
+docs/eap/SLDC-P5-1-E2E-CONTAINMENT.md	living-doc	1	P3-2	signalloom-warden
+docs/eap/SLDC-P5-CHECKLIST-AUDIT.md	decision-record	21	excluded	unchanged
+docs/osramp-component-flows.html	living-doc	11	P3-2	signalloom-warden
+docs/signalloom/amxo-governor-log.md	decision-record	7	excluded	unchanged
+docs/signalloom/cgroup-v2-freeze-architecture.md	decision-record	8	excluded	unchanged
+docs/signalloom/crkc-final-mission-certification.md	decision-record	1	excluded	unchanged
+docs/signalloom/crkc-p1-governor-proof.md	decision-record	1	excluded	unchanged
+docs/signalloom/crkc-p1-preflight-proof.md	decision-record	3	excluded	unchanged
+docs/signalloom/evidence/eapr-p3-preflight-facts.json	decision-record	2	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/after-fix/build-provenance.txt	decision-record	1	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/after-fix/manifests/10-service-account.yaml	decision-record	2	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/after-fix/manifests/11-rbac.yaml	decision-record	6	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/after-fix/manifests/20-daemonset.yaml	decision-record	8	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/d2-pods-after.txt	decision-record	3	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/d3b-sentinel-owner.patch	decision-record	1	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/d6-summary.txt	decision-record	2	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/manifests/10-service-account.yaml	decision-record	2	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/manifests/11-rbac.yaml	decision-record	6	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/manifests/12-ebpf-sentinel-rbac.yaml	decision-record	12	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/manifests/20-daemonset.yaml	decision-record	8	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/manifests/40-lab-owner-rbac.yaml	decision-record	4	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/manifests/Dockerfile.lab-build	decision-record	10	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/setup-rolebinding-after-ebpf-rbac.json	decision-record	1	excluded	unchanged
+docs/signalloom/evidence/stun-distributed-lab/teardown-final-pods.txt	decision-record	3	excluded	unchanged
+docs/signalloom/evidence/tc-drop-proof.json	decision-record	1	excluded	unchanged
+docs/signalloom/proposal-stun-under-flux.md	decision-record	2	excluded	unchanged
+docs/signalloom/sfas-governor-log.md	decision-record	1	excluded	unchanged
+docs/signalloom/sfas-p1-preflight-proof.md	decision-record	2	excluded	unchanged
+docs/signalloom/sfas-p3-1-evidence.md	decision-record	4	excluded	unchanged
+docs/signalloom/sfas-p3-1-revocation-dispatcher.md	decision-record	2	excluded	unchanged
+docs/signalloom/sfas-p3-2-evidence.md	decision-record	1	excluded	unchanged
+docs/signalloom/sfas-p3-preflight-proof.md	decision-record	4	excluded	unchanged
+docs/signalloom/sfas-p4-preflight-proof.md	decision-record	1	excluded	unchanged
+docs/signalloom/slaat-governor-log.md	decision-record	5	excluded	unchanged
+docs/signalloom/sler-p0-baseline.md	decision-record	45	excluded	unchanged
+docs/signalloom/sler-p1-1-proof.md	decision-record	2	excluded	unchanged
+docs/signalloom/sler-p1-2-schema.md	decision-record	1	excluded	unchanged
+docs/signalloom/sler-p1-3-frozen-contract.md	decision-record	7	excluded	unchanged
+docs/signalloom/sler-p1-4-stun-auth.md	decision-record	15	excluded	unchanged
+docs/signalloom/sler-p1-gov-review.md	decision-record	8	excluded	unchanged
+docs/signalloom/sler-p1-pre-seam-inventory.md	decision-record	76	excluded	unchanged
+docs/signalloom/sler-p2-pre-integration-seams.md	decision-record	3	excluded	unchanged
+docs/signalloom/sler-p3-1-proof.md	decision-record	3	excluded	unchanged
+docs/signalloom/sler-p3-2-proof.md	decision-record	1	excluded	unchanged
+docs/signalloom/sler-p3-gov-review.md	decision-record	8	excluded	unchanged
+docs/signalloom/sler-p3-pre-mesh-admission-seams.md	decision-record	3	excluded	unchanged
+docs/signalloom/sler-p4-1-proof.md	decision-record	33	excluded	unchanged
+docs/signalloom/sler-p4-2-proof.md	decision-record	10	excluded	unchanged
+docs/signalloom/sler-p4-3-proof.md	decision-record	11	excluded	unchanged
+docs/signalloom/sler-p4-gov-review.md	decision-record	26	excluded	unchanged
+docs/signalloom/sler-p4-pre-freezer-diff.md	decision-record	47	excluded	unchanged
+docs/signalloom/sler-p5-1-proof.md	decision-record	14	excluded	unchanged
+docs/signalloom/sler-p5-gov-review.md	decision-record	1	excluded	unchanged
+docs/signalloom/sler-p5-pre-attestation-seams.md	decision-record	11	excluded	unchanged
+docs/signalloom/sler-p6-3-proof.md	decision-record	1	excluded	unchanged
+docs/signalloom/sler-p6-gov-delivery-report.md	decision-record	5	excluded	unchanged
+docs/signalloom/sler-p6-pre-coverage-matrix.md	decision-record	2	excluded	unchanged
+docs/signalloom/slon-p2-preflight-proof.md	decision-record	2	excluded	unchanged
+docs/signalloom/slon-p3-preflight-proof.md	decision-record	1	excluded	unchanged
+docs/signalloom/sltm-governor-log.md	decision-record	5	excluded	unchanged
+docs/signalloom/stun-distributed-lab-2026-09-30.md	decision-record	17	excluded	unchanged
+docs/signalloom/stun-liveness-lab-2026-09-29.md	decision-record	1	excluded	unchanged
+docs/signalloom/tc-ebpf-confinement.md	decision-record	7	excluded	unchanged
+docs/signalloom/tetragon-telemetry-pipeline.md	decision-record	1	excluded	unchanged
+docs/slaat-phase2-remediation-report.md	decision-record	1	excluded	unchanged
+docs/slaat/SLAAT-P2-GOVERNOR-REPORT.md	decision-record	1	excluded	unchanged
+docs/slaat/p1-4/sentinel-landlock-confinement-adversarial-dossier.md	decision-record	19	excluded	unchanged
+docs/slaat/p1-pre/baseline-summary.tsv	decision-record	4	excluded	unchanged
+docs/slaat/p1-pre/baseline.md	decision-record	2	excluded	unchanged
+docs/slaat/p2-4/sandbox-confinement-hardening-report.md	decision-record	9	excluded	unchanged
+docs/slaat/p2-pre/remediation-dependency-map.md	decision-record	2	excluded	unchanged
+docs/slaat/p2-pre/toolchain-checklist.md	decision-record	1	excluded	unchanged
+scripts/bootstrap-spire-federation.sh	runtime-identity	4	P3-1	signalloom-warden
+scripts/build_phase1_cards.py	runtime-identity	10	P3-1	signalloom-warden
+scripts/create_all_crkc_cards.py	runtime-identity	1	P3-1	signalloom-warden
+scripts/distancelatency-demo.sh	runtime-identity	2	P3-1	signalloom-warden
+scripts/fleet-manager-caller-keys.sh	runtime-identity	10	P3-1	signalloom-warden
+scripts/generate_phase1_cards.py	runtime-identity	22	P3-1	signalloom-warden
+scripts/lib/live-gate.sh	runtime-identity	1	P3-1	signalloom-warden
+scripts/lib/source-id.sh	runtime-identity	1	P3-1	signalloom-warden
+scripts/p1-sentinel-preflight.sh	runtime-identity	2	P3-1	signalloom-warden
+scripts/p5-operational-preflight.sh	runtime-identity	28	P3-1	signalloom-warden
+scripts/probe-sentinel-evasion.sh	runtime-identity	16	P3-1	signalloom-warden
+scripts/slaat-baseline.sh	runtime-identity	4	P3-1	signalloom-warden
+scripts/sldc-ingest-bearer.sh	runtime-identity	3	P3-1	signalloom-warden
+scripts/stress-agent-cgroups.sh	runtime-identity	9	P3-1	signalloom-warden
+scripts/swarm-deploy.sh	runtime-identity	1	P3-1	signalloom-warden
+scripts/swarm-fleet-demo.sh	runtime-identity	9	P3-1	signalloom-warden
+scripts/test-cgroup-freezer.sh	runtime-identity	14	P3-1	signalloom-warden
+scripts/test-phase1-governor.sh	runtime-identity	4	P3-1	signalloom-warden
+scripts/test-tc-ebpf.sh	runtime-identity	1	P3-1	signalloom-warden
+test/afm-rbac-exporter-manifests.bats	test	14	P3-1	signalloom-warden
+test/afm-rbac-exporter-push.bats	test	2	P3-2	signalloom-warden
+test/agent-swarm-tenancy.bats	test	2	P3-2	signalloom-warden
+test/bench-cgroup-freezer.sh	test	2	P3-2	signalloom-warden
+test/bench-tc-drop.sh	test	1	P3-2	signalloom-warden
+test/cgroup-freeze-adversarial.bats	test	3	P3-2	signalloom-warden
+test/cgroup-freeze-live-gate.bats	test	1	P3-2	signalloom-warden
+test/cgroup-freeze-stun.bats	test	6	P3-2	signalloom-warden
+test/crkc-phase1-unified-stun.bats	test	4	P3-2	signalloom-warden
+test/e2e-dual-cluster-containment.bats	test	5	P3-2	signalloom-warden
+test/e2e-mutation-proof.sh	test	6	P3-2	signalloom-warden
+test/fixtures/cold-start-manifests.tsv	runtime-identity	3	P3-1	signalloom-warden
+test/fixtures/eap-evidence/step4-ebpf-observation.json	test	1	P3-2	signalloom-warden
+test/fleet-manager-caller-auth-manifest.bats	test	5	P3-2	signalloom-warden
+test/fleet-manager-caller-keys.bats	test	6	P3-1	signalloom-warden
+test/flux-drift-ignore.bats	test	1	P3-2	signalloom-warden
+test/landlock-adversarial-escape.bats	test	2	P3-2	signalloom-warden
+test/netebpf-adversarial.bats	test	1	P3-2	signalloom-warden
+test/netebpf-preflight.bats	test	2	P3-2	signalloom-warden
+test/p1-sentinel-preflight.bats	test	2	P3-2	signalloom-warden
+test/p5-operational-preflight.bats	test	20	P3-2	signalloom-warden
+test/phase1-governor-verification.bats	test	3	P3-2	signalloom-warden
+test/rendered-env-unique.bats	test	2	P3-2	signalloom-warden
+test/sandbox-confinement-hardening.bats	test	7	P3-2	signalloom-warden
+test/sentinel-capabilities.bats	test	22	P3-1	signalloom-warden
+test/sentinel-image-provenance.bats	test	28	P3-1	signalloom-warden
+test/sldc-ingest-bearer.bats	test	17	P3-1	signalloom-warden
+test/sltm-ingest-chain.bats	test	7	P3-1	signalloom-warden
+test/sltm-ingest-reload-ratelimit.bats	test	17	P3-1	signalloom-warden
+test/sltm-probe-apikey.bats	test	16	P3-1	signalloom-warden
+test/source-id-tracked.bats	test	6	P3-2	signalloom-warden
+test/spire-federation-openbao-jwt.bats	test	5	P3-2	signalloom-warden
+test/swarm-demo-script.bats	test	3	P3-2	signalloom-warden
+test/swarm-fleet-acceptance.bats	test	3	P3-2	signalloom-warden
+test/swarm-flux-deploy.bats	test	3	P3-2	signalloom-warden
+test/swarm-infra.bats	test	7	P3-2	signalloom-warden
+test/tc-ebpf-drop.bats	test	1	P3-2	signalloom-warden

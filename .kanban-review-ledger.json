@@ -4727,5 +4727,25 @@
     "verdict": "pass",
     "model": "claude-opus-5-5",
     "reason": "Hold lifted 2026-10-03 08:16:23 +0100: p2-merge-fix d93268b4 merged; both failures were test-fixture defects (limiter opt-out; first-observation audit primed), mutation-proven; offline 669 ok rc=0."
+  },
+  "654f4": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "654f4",
+        "reviewed_at": "2026-10-03T10:51:47.072Z",
+        "reviewer": "supervisor",
+        "verdict": "info",
+        "model": "claude-opus-5-5",
+        "reason": "HOLD (lead, 2026-10-03 11:51:46 +0100): P3-1 delivery 92fa4923 is complete, but merging conflicts with P3-2 in about 14 files (parallel renames). An engineer is reconciling on sldc2/p3-merge; advance once integration is green. Timeout 2h."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "654f4",
+    "reviewed_at": "2026-10-03T10:51:47.072Z",
+    "reviewer": "supervisor",
+    "verdict": "info",
+    "model": "claude-opus-5-5",
+    "reason": "HOLD (lead, 2026-10-03 11:51:46 +0100): P3-1 delivery 92fa4923 is complete, but merging conflicts with P3-2 in about 14 files (parallel renames). An engineer is reconciling on sldc2/p3-merge; advance once integration is green. Timeout 2h."
   }
 }

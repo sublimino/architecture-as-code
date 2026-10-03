@@ -329,11 +329,22 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	// agent (the e2e teardown undoing its own stun on a shared cluster)
 	// thawed every stunned agent instead, including other cards' deliberate
 	// freezes. With no list, every agent stunned in memory is recovered.
+	//
+	// mode: "replace" (default) deletes each contained pod so its controller
+	// starts a clean one; "thaw" resumes the frozen process in place, a
+	// forensic choice. See RecoverMode.
 	var req struct {
 		AgentIDs []string `json:"agent_ids"`
+		Mode     string   `json:"mode"`
 	}
 	var stunnedIDs []string
-	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && len(req.AgentIDs) > 0 {
+	decodeErr := json.NewDecoder(r.Body).Decode(&req)
+	mode, err := ParseRecoverMode(req.Mode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if decodeErr == nil && len(req.AgentIDs) > 0 {
 		stunnedIDs = req.AgentIDs
 	} else {
 		for _, a := range s.dag.AllAgents() {
@@ -350,7 +361,7 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := cascadeContext(r)
 	defer cancel()
-	result, err := s.orchestrator.Recover(ctx, stunnedIDs)
+	result, err := s.orchestrator.RecoverWithMode(ctx, stunnedIDs, mode)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -355,9 +355,48 @@ fleet_recover_kusari() {
     return "${rc}"
 }
 
+# agent_pod_rows lists the agent's pods as "<uid>|<phase>|<ready>" lines.
+agent_pod_rows() {
+    ${K_WORKLOAD} get pod -n "${NS}" -l "${AGENT_SELECTOR}" \
+        -o 'jsonpath={range .items[*]}{.metadata.uid}{"|"}{.status.phase}{"|"}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null
+}
+
+# agent_pod_gone <uid> holds once no agent pod has that UID.
+agent_pod_gone() {
+    local rows; rows="$(agent_pod_rows)" || return 1
+    [[ $'\n'"${rows}"$'\n' != *$'\n'"$1|"* ]]
+}
+
+# replacement_ready <old-uid> holds when exactly one agent pod exists, it is
+# not the old one, and it is Running and Ready.
+replacement_ready() {
+    local rows; rows="$(agent_pod_rows)" || return 1
+    [ -n "${rows}" ] && [ "$(printf '%s\n' "${rows}" | wc -l)" -eq 1 ] || return 1
+    [[ "${rows}" != "$1|"* && "${rows}" == *"|Running|true" ]]
+}
+
+# replacement_clean <pod> asserts the replacement carries no containment of
+# any kind: no stun label, no Flux pin, no stun reason, an unfrozen cgroup and
+# no restart.
+replacement_clean() {
+    local pod="$1" v cg
+    v="$(${K_WORKLOAD} get pod "${pod}" -n "${NS}" -o 'jsonpath={.metadata.labels.signalloom\.io/stunned}')"
+    [ "${v}" != "true" ] || { echo "replacement ${pod} is stunned"; return 1; }
+    v="$(${K_WORKLOAD} get pod "${pod}" -n "${NS}" -o 'jsonpath={.metadata.labels.signalloom\.ai/state}')"
+    [ "${v}" != "stunned" ] || { echo "replacement ${pod} has state=stunned"; return 1; }
+    v="$(${K_WORKLOAD} get pod "${pod}" -n "${NS}" -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}')"
+    [ -z "${v}" ] || { echo "replacement ${pod} is Flux-pinned: ${v}"; return 1; }
+    v="$(${K_WORKLOAD} get pod "${pod}" -n "${NS}" -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}')"
+    [ -z "${v}" ] || { echo "replacement ${pod} carries a stun reason: ${v}"; return 1; }
+    cg="$(pod_cgroup_dir)"
+    [ -n "${cg}" ] || { echo "no cgroup for ${pod}"; return 1; }
+    cgroup_reports_thawed "${cg}" || { echo "replacement ${pod} cgroup is frozen"; return 1; }
+    [ "$(agent_pod_field 'status.containerStatuses[0].restartCount')" = "0" ] || { echo "replacement ${pod} restarted"; return 1; }
+}
+
 export -f registry_row claim_kusari_agent observations_json sensitive_openat_observations \
           have_sensitive_openat cgroup_reports_frozen cgroup_reports_thawed cadvisor_sample \
-          sentinel_health resync_elapsed
+          sentinel_health resync_elapsed agent_pod_rows agent_pod_gone replacement_ready
 
 @test "Step 1: Kusari workload deployment reconciled by Flux on the workload cluster" {
     run ${K_WORKLOAD} get kustomization "${KUSTOMIZATION}" -n "${NS}" \
@@ -663,65 +702,87 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     ( cd "${EVIDENCE_DIR}" && sha256sum ./* >audit-signature.sha256 2>/dev/null ) || true
 }
 
-@test "Step 6: Authorised recovery clears the stun record and both Flux pins, and the pod thaws" {
+@test "Step 6: Authorised recovery replaces the contained pod with a clean one and lifts the Flux pin" {
     # A recorded stun outlives the suite: fleet-manager pinned the Pod and the
     # Deployment and the sentinel holds the freeze until an authorised resume.
-    # Without this the next run starts against a frozen, pinned kusari pod.
     # /resume needs a dual-signed operator token no estate provisions, so the
     # authorised path is /recover with the operator caller key, naming only
     # this suite's agent.
-    local pod_name; pod_name="$(agent_pod_field 'metadata.name')"
-    [ -n "$pod_name" ]
-    local cg; cg="$(pod_cgroup_dir)"
-    [ -n "$cg" ]
+    #
+    # Recover REPLACES the contained pod (fleet-manager's default): thawing it
+    # resumes the compromised process mid-attack. Live, 2026-10-03, a thawed
+    # kusari reopened /etc/passwd within 2 s and was re-stunned. So the
+    # outcome asserted here is: the frozen pod is gone, never thawed, and a
+    # clean pod from the declared template runs and stays clean.
+    local old_name old_uid
+    old_name="$(agent_pod_field 'metadata.name')"
+    old_uid="$(agent_pod_field 'metadata.uid')"
+    [ -n "$old_name" ] && [ -n "$old_uid" ]
 
     run fleet_recover_kusari
     [ "$status" -eq 0 ]
     [ "$output" = "200" ] || [ "$output" = "207" ]
     local recover_status="$output"
 
-    # The release is the operator's decision and lands whatever the credential
-    # planes do; credential restore is best effort and REPORTED. So the target
-    # must report a written release, and must say whether credentials came back
-    # (false today: SPIRE and Bao were unreachable on the live estate).
-    local target; target="$(jq -c --arg a "${FLEET_AGENT_ID}" \
-        '.targets[]? | select(.agent_id == $a)' "${BATS_FILE_TMPDIR}/fleet-recover.json")"
+    # The release lands whatever the credential planes do; credential restore
+    # is best effort and REPORTED, so it must be a boolean either way.
+    local body="${BATS_FILE_TMPDIR}/fleet-recover.json" target
+    target="$(jq -c --arg a "${FLEET_AGENT_ID}" '.targets[]? | select(.agent_id == $a)' "${body}")"
     [ -n "$target" ]
     [ "$(jq -r '.state_write.succeeded' <<<"$target")" = "true" ]
+    [ "$(jq -r '.to_state' <<<"$target")" = "replaced" ]
     local credentials_restored
     credentials_restored="$(jq -r '.credential.succeeded | if type == "boolean" then tostring else "unreported" end' <<<"$target")"
     [ "$credentials_restored" = "true" ] || [ "$credentials_restored" = "false" ]
 
-    # The pins are removed, not blanked: Flux reconciles both objects again.
+    # fleet-manager retired exactly the pod this suite froze.
+    run jq -r --arg a "${FLEET_AGENT_ID}" \
+        '[.planes[]? | select(.details.action == "replace_pod" and .details.agent_id == $a) | .details.pod_uid] | join(",")' "${body}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$old_uid" ]
+
+    # The contained pod is gone, and exactly one clean replacement serves.
+    WAIT_QUIET=1 run _wait_retry 120 "contained pod ${old_name} gone" "agent_pod_gone '${old_uid}'"
+    [ "$status" -eq 0 ]
+    WAIT_QUIET=1 run _wait_retry 180 "a replacement for ${old_name} Running and Ready" "replacement_ready '${old_uid}'"
+    [ "$status" -eq 0 ]
+    local new_name new_uid
+    new_name="$(agent_pod_field 'metadata.name')"
+    new_uid="$(agent_pod_field 'metadata.uid')"
+    [ -n "$new_uid" ] && [ "$new_uid" != "$old_uid" ]
+
+    # Flux reconciles the Deployment again: the pin is removed, not blanked.
     run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
     [ "$status" -eq 0 ]
     [ -z "$output" ]
-    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
-        -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
-    [ "$status" -eq 0 ]
-    [ -z "$output" ]
 
-    # The stun record says released: an affirmative resume, reason blanked.
-    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
-        -o 'jsonpath={.metadata.labels.signalloom\.io/stunned}'
-    [ "$output" = "false" ]
-    run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
-        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}'
-    [ -z "$output" ]
-
-    # Kernel ground truth: the sentinel thaws on the affirmative resume.
-    WAIT_QUIET=1 run _wait_retry 60 "cgroup.events frozen 0 for ${pod_name}" \
-        "cgroup_reports_thawed '${cg}'"
+    # Clean now, and still clean after one full sentinel resync: a thawed pod
+    # was re-stunned within 2 s, so "clean once" proves nothing.
+    replacement_clean "$new_name"
+    local sentinel; sentinel="$(sentinel_pod)"
+    [ -n "$sentinel" ]
+    local health resync rc0 since
+    health="$(sentinel_health "$sentinel")"
+    resync="$(printf '%s' "$health" | jq -r '.resync_seconds // 0')"
+    rc0="$(printf '%s' "$health" | jq -r '.reconcile_count // empty')"
+    [ "$resync" -gt 0 ]
+    [ -n "$rc0" ]
+    since="$(date +%s)"
+    WAIT_QUIET=1 run _wait_retry "$(( resync * 2 + 60 ))" "one sentinel resync after the replacement" \
+        "resync_elapsed '${sentinel}' ${since} ${resync} ${rc0}"
     [ "$status" -eq 0 ]
+    replacement_clean "$new_name"
+    [ "$(agent_pod_field 'metadata.uid')" = "$new_uid" ]
 
     {
         echo "recover_status: ${recover_status}"
         echo "credentials_restored: ${credentials_restored}"
+        echo "retired_pod: ${old_name} (${old_uid})"
+        echo "replacement_pod: ${new_name} (${new_uid})"
         echo "flux_reconcile_deployment: (absent)"
-        echo "flux_reconcile_pod: (absent)"
-        echo "stunned: false"
-        echo "kernel: frozen 0"
+        echo "replacement: unstunned, unpinned, no stun reason, kernel frozen 0, restartCount 0"
+        echo "still_clean_after_resync: yes (resync_seconds=${resync})"
     } >"${EVIDENCE_DIR}/step6-recovery.txt"
 }
 

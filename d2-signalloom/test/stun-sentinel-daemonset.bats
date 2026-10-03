@@ -149,3 +149,25 @@ declared_swarm_sas() {
   run rg -q "sentinelAppName +?= \"${app}\"" "$main"
   [ "$status" -eq 0 ]
 }
+
+# The correlator never reports a detection on the sentinel's own pod (its tc
+# execs tripped evasive_syscall_burst live, 2026-10-03), and it knows its own
+# pod only by the downward API: labels are the pod creator's choice and a
+# tenant could forge them. Without these three env vars the self-exclusion
+# (filter.SelfFromEnv) is empty and inert. Asserted on every rendered overlay,
+# so an overlay that replaces the env list goes red too.
+@test "every rendered sentinel knows its own pod from the downward API" {
+  local overlay rendered
+  for overlay in "$repo_root"/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/*/; do
+    rendered="$(KUBECONFIG=/dev/null kubectl kustomize "$overlay")"
+    [ -n "$rendered" ]
+    run yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[] | select(.name == "sentinel")
+               | .env[] | select(.name == "POD_UID" or .name == "POD_NAME" or .name == "POD_NAMESPACE")
+               | .name + "=" + (.valueFrom.fieldRef.fieldPath // "LITERAL")' <<<"$rendered"
+    [ "$status" -eq 0 ]
+    [ "$(sort <<<"$output" | tr '\n' ' ')" = "POD_NAME=metadata.name POD_NAMESPACE=metadata.namespace POD_UID=metadata.uid " ] || {
+      echo "overlay ${overlay}: ${output}"
+      return 1
+    }
+  done
+}

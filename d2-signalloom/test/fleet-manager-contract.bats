@@ -116,10 +116,13 @@ fleet_role_rules() {
 	[[ "$output" != "null" ]]
 }
 
-@test "Role grants exactly get, list, patch on pods" {
+# delete: an authorised /recover replaces a contained pod (the Deployment
+# starts a clean one) rather than thawing the compromised process in it. Still
+# no create: fleet-manager never makes pods, only retires contained ones.
+@test "Role grants exactly delete, get, list, patch on pods" {
 	run bash -c "$(declare -f fleet_role_rules); resourceset='$resourceset'; fleet_role_rules | yq '.verbs | sort | join(\",\")'"
 	[ "$status" -eq 0 ]
-	[ "$output" = "get,list,patch" ]
+	[ "$output" = "delete,get,list,patch" ]
 }
 
 @test "Role targets pods resource only" {

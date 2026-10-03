@@ -58,14 +58,13 @@
 #      It does NOT read an empty list as "no agents".
 #
 #   2. RBAC-sufficient is not admission-permitted. The CEL ValidatingAdmissionPolicy
-#      at d2-agent-trust/policies/agent-identity-state-protection.yaml:35-42 allows
-#      mutating signalloom.ai/state AWAY from "stunned" only for swarm-governor,
-#      kubernetes-admin, kind-osramp, system:admin* or system:masters.
-#      system:serviceaccount:fe-signalloom:fleet-manager is NOT on that list, so
-#      wherever that policy is deployed, the cascade RECOVER path is denied at
-#      admission regardless of the patch verb above. Surfaced by SLER-P1-1; the
-#      resolution (add fleet-manager to isGovernorOrAdmin, or route recovery
-#      through swarm-governor) is a security-boundary decision left to P1-GOV.
+#      d2-agent-trust/policies/agent-identity-state-protection.yaml (isGovernorOrAdmin)
+#      allows mutating signalloom.ai/state AWAY from "stunned" only for the
+#      identities it names. Surfaced by SLER-P1-1 and hit live on 2026-10-03
+#      (every /recover release denied at admission); resolved by naming exactly
+#      system:serviceaccount:fe-signalloom:fleet-manager there. Pinned offline by
+#      vap_admission_test.go, which evaluates the policy's CEL against the pod
+#      SetPodState writes, as the identity this file and the Deployment give it.
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -86,6 +86,20 @@ type Self struct {
 	CgroupPath string
 }
 
+// Is reports whether pod is this sentinel's own pod, by the downward-API
+// identity alone. The kubelet sets that from the real pod, so no tenant can
+// claim it; labels and ServiceAccount names are the pod creator's choice and
+// never count here.
+func (s Self) Is(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	if s.PodUID != "" && string(pod.UID) == s.PodUID {
+		return true
+	}
+	return s.PodName != "" && pod.Name == s.PodName && pod.Namespace == s.Namespace
+}
+
 // SelfFromEnv reads the downward-API identity (POD_NAME, POD_NAMESPACE,
 // POD_UID) plus the process's own PID and cgroup.
 func SelfFromEnv() Self {

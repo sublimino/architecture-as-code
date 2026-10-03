@@ -57,10 +57,11 @@ var ErrTargetNotFound = errors.New("enforcement target not found")
 // authoritative and permanent. Collapsing them sends a backoff loop retrying a
 // decision that will never change.
 //
-// This is the type a fleet-manager un-stun receives wherever
-// d2-agent-trust/policies/agent-identity-state-protection.yaml is deployed —
-// that policy permits mutating signalloom.ai/state away from "stunned" only for
-// swarm-governor and cluster admins, and this ServiceAccount is not among them.
+// This is the type a fleet-manager un-stun receives if admission refuses it.
+// d2-agent-trust/policies/agent-identity-state-protection.yaml permits mutating
+// signalloom.ai/state away from "stunned" only for the identities it names;
+// this ServiceAccount is one of them (vap_admission_test.go), so a denial here
+// means the deployed policy has drifted from the repo's.
 var ErrEnforcementDenied = fmt.Errorf("enforcement denied by policy: %w", ErrEnforcementUnavailable)
 
 // StateUnknown is declared in cascade.go:28 beside the other state constants.

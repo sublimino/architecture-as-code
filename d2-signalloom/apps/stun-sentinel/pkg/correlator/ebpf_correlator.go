@@ -180,6 +180,22 @@ func WithEvasiveBurstThreshold(threshold int, window time.Duration) Option {
 	}
 }
 
+// WithSelf overrides the sentinel's own identity (default: the downward API).
+func WithSelf(self filter.Self) Option {
+	return func(m *SentinelProbeManager) {
+		m.self = self
+	}
+}
+
+// fromSelf drops, and counts, a record from this sentinel's own pod.
+func (m *SentinelProbeManager) fromSelf(pod *corev1.Pod) bool {
+	if !m.self.Is(pod) {
+		return false
+	}
+	m.stats.selfExcluded.Add(1)
+	return true
+}
+
 // burstTracker counts EXECVE events per cgroup within a sliding window, to
 // catch a rapid process-spawn flood that never touches a sensitive path
 // (SLAAT-P2-4/F1; reproduced live as SLAAT-P2-PRE's SENTINEL-F1: a
@@ -254,6 +270,10 @@ type SentinelProbeManager struct {
 	burst          *burstTracker
 	burstThreshold int
 	burstWindow    time.Duration
+
+	// self is this sentinel's own pod (downward API). A record from it is
+	// never a detection: its tc execs tripped the burst detector live.
+	self filter.Self
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -275,6 +295,7 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 		burst:          newBurstTracker(),
 		burstThreshold: DefaultEvasiveBurstThreshold,
 		burstWindow:    DefaultEvasiveBurstWindow,
+		self:           filter.SelfFromEnv(),
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 			Transport: &http.Transport{
@@ -650,6 +671,9 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 		m.stats.noPod.Add(1)
 		return TelemetryObservation{}, false
 	}
+	if m.fromSelf(pod) {
+		return TelemetryObservation{}, false
+	}
 	m.stats.matched.Add(1)
 
 	obs := m.NormalizeObservation(raw, pod)
@@ -680,6 +704,9 @@ func (m *SentinelProbeManager) reportEvasiveBurst(raw SyscallEvent, targetPID ui
 	}
 	if pod == nil {
 		m.stats.noPod.Add(1)
+		return TelemetryObservation{}, false
+	}
+	if m.fromSelf(pod) {
 		return TelemetryObservation{}, false
 	}
 	m.stats.matched.Add(1)

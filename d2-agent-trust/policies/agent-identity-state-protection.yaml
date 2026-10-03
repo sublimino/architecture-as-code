@@ -1,8 +1,12 @@
 # CEL ValidatingAdmissionPolicy — Agent Identity & State Protection
 # Protects agent identity and containment state in fe-signalloom-agents:
 # 1. signalloom.ai/state=stunned cannot be removed or mutated by any identity
-#    other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor)
-#    or cluster admin.
+#    other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor),
+#    fleet-manager (system:serviceaccount:fe-signalloom:fleet-manager, the
+#    authorised releaser behind the operator-keyed /recover) or cluster admin.
+#    Exact usernames only: the stun sentinel stuns (allowed to anyone) and never
+#    releases, so it is deliberately absent. Pinned offline by
+#    d2-signalloom/apps/fleet-manager/vap_admission_test.go.
 # 2. Any agent pod (signalloom.ai/agent=true) must carry a valid signalloom.ai/framework label.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -37,6 +41,7 @@ spec:
         request.userInfo.username == 'system:serviceaccount:fe-signalloom:swarm-governor' ||
         request.userInfo.username == 'system:serviceaccount:fe-signalloom-agents:swarm-governor' ||
         request.userInfo.username == 'system:serviceaccount:fe-signalloom:supercred-demo-runner' ||
+        request.userInfo.username == 'system:serviceaccount:fe-signalloom:fleet-manager' ||
         request.userInfo.username == 'kubernetes-admin' ||
         request.userInfo.username == 'kind-osramp' ||
         request.userInfo.username.startsWith('system:admin') ||
@@ -58,7 +63,7 @@ spec:
     - expression: >-
         !variables.wasStunned || variables.isStunned || variables.isGovernorOrAdmin
       message: >-
-        The signalloom.ai/state=stunned label cannot be removed or mutated by any identity other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor) or cluster admin.
+        The signalloom.ai/state=stunned label cannot be removed or mutated by any identity other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor), fleet-manager or cluster admin.
       reason: Forbidden
     - expression: >-
         !variables.isAgentPod || variables.hasValidFramework

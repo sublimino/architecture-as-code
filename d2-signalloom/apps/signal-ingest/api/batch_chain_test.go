@@ -27,7 +27,13 @@ const (
 	testProbeTenant  = "kusari"
 )
 
-func newTestChainRouter(t *testing.T, aw audit.AuditWriter) (*ProtectedRouter, store.SignalStore, *Handlers) {
+// newTestChainRouter builds a router for batch-chain tests. opts is variadic
+// so existing call sites keep using the SLTM-P2-2 per-key rate-limiter
+// defaults (50 rps / burst 100); a caller that needs to send a high volume
+// of requests from a single key to exercise chain-state bounding (unrelated
+// to rate limiting) can pass its own RouterOptions to opt out of the default
+// limiter instead of tripping over it.
+func newTestChainRouter(t *testing.T, aw audit.AuditWriter, opts ...RouterOptions) (*ProtectedRouter, store.SignalStore, *Handlers) {
 	t.Helper()
 	st := store.NewMemoryStore()
 	h := &Handlers{
@@ -43,7 +49,11 @@ func newTestChainRouter(t *testing.T, aw audit.AuditWriter) (*ProtectedRouter, s
 		},
 	}
 	authn := staticAuthenticator{principal: p}
-	router, err := NewProtectedRouter(h, authn, aw, http.NotFoundHandler(), RouterOptions{})
+	var ro RouterOptions
+	if len(opts) > 0 {
+		ro = opts[0]
+	}
+	router, err := NewProtectedRouter(h, authn, aw, http.NotFoundHandler(), ro)
 	if err != nil {
 		t.Fatalf("failed to create protected router: %v", err)
 	}
@@ -764,7 +774,16 @@ func (a keyDispatchAuthenticator) Authenticate(r *http.Request) (Principal, erro
 
 func TestBatchChainStateIsBounded(t *testing.T) {
 	aw := audit.NewFakeWriter()
-	router, _, h := newTestChainRouter(t, aw)
+	// This test sends 10,000 requests from a single key to exercise the
+	// chain tracker's epoch-count bound (SLTM-P2-3) -- a concern unrelated
+	// to the SLTM-P2-2 per-key rate limiter, which defaults to 50 rps /
+	// burst 100 and would otherwise start 429ing this subject after the
+	// first 100 requests. Opt this fixture out of the limiter so it tests
+	// exactly one thing.
+	router, _, h := newTestChainRouter(t, aw, RouterOptions{
+		KeyRatePerSecond: 1_000_000,
+		KeyBurst:         20_000,
+	})
 
 	body := makeBatchObservation("obs-bounded", "/etc/test")
 

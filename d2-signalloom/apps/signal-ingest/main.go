@@ -499,6 +499,9 @@ func main() {
 	var auditWriter audit.AuditWriter
 	// auditReady is handed to /readyz. nil means "nothing to check".
 	var auditReady func(context.Context) error
+	// auditVocabulary is handed to /readyz too: the live constraint must
+	// admit every event type this build writes (audit.CheckVocabulary).
+	var auditVocabulary func(context.Context) error
 
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		pw, err := audit.OpenPostgresWriter(dsn) // local work only, never dials
@@ -541,8 +544,19 @@ func main() {
 					"consequence", "writes will error and retry; /readyz reports not_ready until the database answers")
 			} else {
 				slog.Info("audit writer connected to postgres")
+				// Say at boot, not only on the first failed probe, when this
+				// build writes an event type the database does not admit yet.
+				vocabCtx, cancelVocab := context.WithTimeout(context.Background(), audit.DefaultConnectTimeout)
+				if err := audit.CheckVocabulary(vocabCtx, pw.EventTypeConstraint, audit.AllEventTypes); err != nil {
+					slog.Warn("audit event types not admitted by the database; /readyz stays not_ready until they are",
+						"error", err)
+				}
+				cancelVocab()
 			}
 			auditReady = pw.Ping
+			auditVocabulary = func(ctx context.Context) error {
+				return audit.CheckVocabulary(ctx, pw.EventTypeConstraint, audit.AllEventTypes)
+			}
 		}
 	} else {
 		// No DSN: a local or fixture run. SIGNAL_AUDIT_FILE gives it a real,
@@ -678,6 +692,7 @@ func main() {
 		Engine:          engine,
 		Audit:           auditWriter,
 		AuditReady:      auditReady,
+		AuditVocabulary: auditVocabulary,
 		AuditReceiver:   auditReceiver,
 		CollectorHealth: collectorRegistry.Health,
 		IdentityStore:   identityStore,

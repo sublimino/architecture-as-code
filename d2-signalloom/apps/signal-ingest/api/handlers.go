@@ -52,6 +52,25 @@ type Handlers struct {
 	// reaching a replica that cannot record what it does.
 	AuditReady func(context.Context) error
 
+	// AuditVocabulary, when non-nil, is called on /readyz after AuditReady
+	// passes: it reports whether the live signal_audit_trail constraint
+	// admits every event type this service writes (audit.CheckVocabulary).
+	// Live, 2026-10-03, a pod Ready on a database that rejected batch_chain
+	// 503'd every batch; failing readiness instead stalls the rollout while
+	// the previous pods keep serving.
+	AuditVocabulary func(context.Context) error
+
+	// ReadinessLogInterval bounds how often a failing vocabulary check is
+	// logged (default defaultReadinessLogInterval, the readinessProbe
+	// period): logged every interval while it fails, never once per probe.
+	ReadinessLogInterval time.Duration
+
+	// now is the clock for the readiness log throttle; nil is time.Now.
+	now func() time.Time
+
+	vocabLogMu    sync.Mutex
+	vocabLoggedAt time.Time
+
 	// AuditReceiver handles APIServer audit webhooks at /api/v1/audit/webhook.
 	AuditReceiver *apiaudit.WebhookReceiver
 
@@ -258,6 +277,31 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// defaultReadinessLogInterval is the readinessProbe period
+// (apps/signal-ingest/base/deployment.yaml leaves periodSeconds at 10).
+const defaultReadinessLogInterval = 10 * time.Second
+
+// vocabLogDue reports whether a failing vocabulary check should be logged
+// now: once, then again only after ReadinessLogInterval has passed.
+func (h *Handlers) vocabLogDue() bool {
+	now := time.Now
+	if h.now != nil {
+		now = h.now
+	}
+	interval := h.ReadinessLogInterval
+	if interval <= 0 {
+		interval = defaultReadinessLogInterval
+	}
+	h.vocabLogMu.Lock()
+	defer h.vocabLogMu.Unlock()
+	t := now()
+	if !h.vocabLoggedAt.IsZero() && t.Sub(h.vocabLoggedAt) < interval {
+		return false
+	}
+	h.vocabLoggedAt = t
+	return true
+}
+
 // handleReadyz answers readiness: the process is up AND can do its job,
 // including recording an audit trail and connecting to live collector sources.
 // Readiness failure means "send me no traffic".
@@ -273,6 +317,26 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 				"reason": "audit_backend_unreachable",
 				"error":  err.Error(),
 			})
+			return
+		}
+	}
+
+	if h.AuditVocabulary != nil {
+		if err := h.AuditVocabulary(ctx); err != nil {
+			body := map[string]string{
+				"status": "not_ready",
+				"reason": "audit_vocabulary_not_admitted",
+				"error":  err.Error(),
+			}
+			var gap *audit.VocabularyError
+			if errors.As(err, &gap) {
+				body["missing_event_types"] = gap.MissingNames()
+			}
+			if h.vocabLogDue() {
+				slog.Warn("readiness: audit_vocabulary_not_admitted",
+					"missing_event_types", body["missing_event_types"], "error", err)
+			}
+			writeJSON(w, http.StatusServiceUnavailable, body)
 			return
 		}
 	}

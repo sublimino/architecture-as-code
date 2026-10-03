@@ -1231,3 +1231,12 @@ Failing test suites were authored and committed first in `ec12d405`:
 - Adds the missing `**Commit:**` claim only. Delivery was `c98ffbad` (spool and chain headers), `e4ebc708` (re-pin) and `a49a9c78` (errata), merged as `36691f43`. No result changes.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P2-2 (lead reconciliation)
+
+- **Created:** 2026-10-03 07:37:29+01:00
+- **Last Updated:** 2026-10-03 07:37:29+01:00
+- **Commit:** `4c171dd9`
+- Adds the missing `**Commit:**` claim only. Delivery was `494cb39e` (failing tests), `4c171dd9` (reload and per-key rate limit) and `bd92fed1` (errata). No result changes.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

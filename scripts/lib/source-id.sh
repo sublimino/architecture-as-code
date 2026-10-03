@@ -137,35 +137,104 @@ source_id_copied_paths() {
 	} | sort -u
 }
 
-# Deterministic content hash of a set of paths beneath a root.
+# Deterministic content hash of the TRACKED files under a set of paths.
 #
-# --sort=name, a fixed mtime and zeroed ownership are what make this stable
-# across machines and checkouts; without them the same bytes hash differently on
-# every clone and the guard is noise.
+# The set is `git ls-files` (the index), each hashed with its content on disk:
+# an uncommitted edit to a tracked file still moves the fingerprint, but an
+# untracked or ignored file cannot. Until 2026-10-03 this tarred the
+# directories on disk, so a gitignored build artefact
+# (apps/stun-sentinel/bpf/sentinel_probe.o, left by bpf/build.sh) moved the
+# sentinel tag in one checkout and not in another of the same commit -- and
+# what counts as "ignored" depends on each machine's global excludes (*.o is
+# ignored on the dev box only by ~/.gitignore_global). The index is the same
+# everywhere. Untracked and ignored files are the dirty guard's business
+# (source_id_dirty_inputs), which refuses them.
+#
+# --mtime, --owner/--group and --numeric-owner keep the archive independent of
+# the checkout; the list is sorted bytewise and given with --no-recursion, so
+# the archive holds exactly these files in exactly this order.
 source_id_hash_paths() {
 	local root="$1"
 	shift
-	# The excludes mirror the repo-root .dockerignore, and must keep mirroring it.
-	# The runner COPYs the whole of fe-signalloom/src, so running the test suite
-	# once leaves .coverage and a tree of .pyc files inside a hashed path. Without
-	# these, the fingerprint changed every time anyone ran pytest, and two
-	# checkouts of the SAME commit disagreed — measured at dda1d702 against
-	# 95b668d2, differing in nothing but build artefacts. A guard that reports
-	# drift against a matching deployment is a guard that gets ignored, which
-	# costs more than not having one.
-	tar \
-		--sort=name \
+	source_id_hash_files "$root" '' "$@"
+}
+
+# source_id_hash_files ROOT EXCLUDE_ERE PATH...: source_id_hash_paths with the
+# root-relative paths matching EXCLUDE_ERE left out ('' excludes nothing).
+# For tracked files a context's .dockerignore keeps out of the build (the docs
+# site's generated .astro/ is tracked and rewritten by every dev run).
+#
+# SOURCE_ID_INCLUDE_UNTRACKED=1 adds untracked files that are NOT ignored
+# (`git ls-files --others --exclude-standard`). The deployed-staleness
+# fingerprints (source_id_for) use it: their builds have no dirty guard, a new
+# source file is in the image the moment it exists, and the check must see
+# it. The src- tags (sentinel) do not: their guard refuses untracked files, so
+# the tag stays exactly the committed source. Ignored files are never hashed.
+#
+# Fails, printing nothing, outside a git repository or when no file remains:
+# a hash of the empty set would match nothing and read as drift.
+source_id_hash_files() {
+	local root="$1" exclude="$2"
+	shift 2
+	local listed kept
+	listed="$(mktemp "${TMPDIR:-/tmp}/source-id.XXXXXX")" || return 2
+	kept="$(mktemp "${TMPDIR:-/tmp}/source-id.XXXXXX")" || {
+		rm -f "$listed"
+		return 2
+	}
+	local sets=(--cached)
+	[ "${SOURCE_ID_INCLUDE_UNTRACKED:-}" = 1 ] && sets+=(--others --exclude-standard)
+	if ! git -C "$root" ls-files -z "${sets[@]}" -- "$@" >"$listed"; then
+		printf 'source-id: git ls-files failed under %s\n' "$root" >&2
+		rm -f "$listed" "$kept"
+		return 2
+	fi
+	local f
+	while IFS= read -r -d '' f; do
+		# A tracked file deleted on disk is absent from the archive, so its
+		# deletion moves the fingerprint like any other edit.
+		[ -e "${root}/${f}" ] || [ -L "${root}/${f}" ] || continue
+		if [ -n "$exclude" ] && printf '%s' "$f" | grep -Eq -- "$exclude"; then
+			continue
+		fi
+		printf '%s\0' "$f"
+	done <"$listed" | LC_ALL=C sort -z >"$kept"
+	if [ ! -s "$kept" ]; then
+		printf 'source-id: no tracked files under %s in %s\n' "$*" "$root" >&2
+		rm -f "$listed" "$kept"
+		return 2
+	fi
+	# pipefail: tar warns, exits non-zero and still emits a partial archive
+	# for a file it cannot read, and without it that partial archive was
+	# hashed into a plausible, wrong fingerprint.
+	local id
+	id="$(set -o pipefail; tar \
 		--mtime='UTC 1970-01-01' \
 		--owner=0 \
 		--group=0 \
 		--numeric-owner \
-		--exclude-vcs \
-		--exclude='__pycache__' \
-		--exclude='*.pyc' \
-		--exclude='*.pyo' \
-		--exclude='.pytest_cache' \
-		--exclude='.coverage' \
-		-cf - -C "$root" "$@" | sha256sum | awk '{print $1}'
+		--no-recursion \
+		-C "$root" --null -T "$kept" \
+		-cf - | sha256sum | awk '{print $1}')" || {
+		printf 'source-id: tar failed under %s\n' "$root" >&2
+		rm -f "$listed" "$kept"
+		return 2
+	}
+	rm -f "$listed" "$kept"
+	[ -n "$id" ] || return 2
+	printf '%s\n' "$id"
+}
+
+# source_id_dirty_inputs ROOT PATH...: every input that is not exactly the
+# committed source -- modified, untracked AND ignored -- as `git status
+# --porcelain` lines; empty when clean. The tag guards refuse on any output.
+# Ignored files matter because they are in the docker build context: a COPY of
+# a directory ships them, under a tag whose fingerprint (tracked files only)
+# never saw them. Fails closed when git cannot answer.
+source_id_dirty_inputs() {
+	local root="$1"
+	shift
+	git -C "$root" status --porcelain --untracked-files=all --ignored=matching -- "$@"
 }
 
 # The fingerprint of a workload's build inputs as they are ON DISK RIGHT NOW.
@@ -185,38 +254,15 @@ source_id_for() {
 
 	case "$workload" in
 	dashboard-signalloom)
-		# Kept byte-for-byte identical to the excludes in the context's
-		# .dockerignore (.git, node_modules, dist, coverage). A fingerprint that
-		# covers files the build never sees moves for no reason; one that misses
-		# files the build does see is blind. Both make the guard useless.
-		id="$(tar \
-			--sort=name \
-			--mtime='UTC 1970-01-01' \
-			--owner=0 \
-			--group=0 \
-			--numeric-owner \
-			--exclude-vcs \
-			--exclude='./node_modules' \
-			--exclude='./dist' \
-			--exclude='./coverage' \
-			-cf - -C "${root}/${context}" . | sha256sum | awk '{print $1}')"
+		# Tracked files only (source_id_hash_files); the excludes mirror the
+		# context's .dockerignore (.git, node_modules, dist, coverage) so a
+		# tracked file the build never sees cannot move the fingerprint.
+		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_files "${root}/${context}" '^(node_modules|dist|coverage)/' .)"
 		;;
 	docs-signalloom)
-		# Hash the complete docs build context. The excludes mirror its
-		# .dockerignore so generated output cannot create false runtime drift.
-		id="$(tar \
-			--sort=name \
-			--mtime='UTC 1970-01-01' \
-			--owner=0 \
-			--group=0 \
-			--numeric-owner \
-			--exclude-vcs \
-			--exclude='./node_modules' \
-			--exclude='./dist' \
-			--exclude='./.astro' \
-			--exclude='./test-results' \
-			--exclude='./playwright-report' \
-			-cf - -C "${root}/${context}" . | sha256sum | awk '{print $1}')"
+		# As above; .astro/ is TRACKED here and rewritten by every dev run, and
+		# its .dockerignore keeps it out of the build, so it is excluded too.
+		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_files "${root}/${context}" '^(node_modules|dist|\.astro|test-results|playwright-report)/' .)"
 		;;
 	fe-signalloom)
 		# The whole build context, not a COPY-derived path list.
@@ -230,18 +276,14 @@ source_id_for() {
 		# perfectly. Hashing the context wholesale is both correct and a
 		# superset of what the COPY lines name.
 		#
-		# Via source_id_hash_paths so the __pycache__/.pyc/.coverage excludes
-		# apply. That is not hygiene here, it is required: the portal's src/ is
-		# the tree pytest runs against, so without those excludes the
-		# fingerprint moves every time anyone runs the test suite and the guard
-		# reports drift against a deployment that matches. Exactly the failure
-		# documented on that function, which cost this guard its credibility
-		# once already.
+		# Via source_id_hash_paths, tracked plus untracked-not-ignored: the
+		# __pycache__, .pyc and .coverage that pytest leaves in src/ are ignored and cannot
+		# move the fingerprint -- the guard reporting drift against a matching
+		# deployment, which cost it its credibility once, cannot recur.
 		#
-		# There is no .dockerignore in this context, so the build sees every
-		# file the tar does, minus artefacts Docker would copy but the image
-		# never uses.
-		id="$(source_id_hash_paths "${root}/${context}" .)"
+		# There is no .dockerignore in this context, so those artefacts DO
+		# enter the build context and the image; they are not source.
+		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_paths "${root}/${context}" .)"
 		;;
 	*)
 		local paths=()
@@ -261,7 +303,7 @@ source_id_for() {
 			printf 'source-id: no COPY sources found in %s\n' "$dockerfile" >&2
 			return 2
 		}
-		id="$(source_id_hash_paths "${root}/${context}" "${paths[@]}")"
+		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_paths "${root}/${context}" "${paths[@]}")"
 		;;
 	esac
 

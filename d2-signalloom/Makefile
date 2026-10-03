@@ -311,9 +311,10 @@ sentinel-image-source-id: ## Print the sentinel image tag, src-<12 hex> of the f
 	printf 'src-%s\n' "$${id:0:12}"
 
 sentinel-image-tag: ## Print the immutable sentinel image tag; refuses when the image's inputs have uncommitted changes.
-	@dirty=$$(git status --porcelain --untracked-files=all -- $(SENTINEL_IMAGE_INPUTS)); \
+	@source ../scripts/lib/source-id.sh || exit 2; \
+	dirty=$$(source_id_dirty_inputs . $(SENTINEL_IMAGE_INPUTS)) || { echo "sentinel-image-tag: git status failed; refusing" >&2; exit 2; }; \
 	if [ -n "$$dirty" ]; then \
-		echo "sentinel-image-tag: refusing a -dirty build; uncommitted changes in the image inputs:" >&2; \
+		echo "sentinel-image-tag: refusing a -dirty build; inputs that are not the committed source (modified, untracked or ignored -- an ignored file still enters the docker build context):" >&2; \
 		printf '%s\n' "$$dirty" >&2; exit 1; \
 	fi; \
 	$(MAKE) -s --no-print-directory sentinel-image-source-id

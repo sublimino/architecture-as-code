@@ -113,6 +113,10 @@ def authorize(
         )
     if declared != tenant:
         # The owning tenant is not named: a refusal must not become a tenant oracle.
+        # By design this also refuses every tenant for workloads GitOps labels
+        # `controlplane` (agent-cardvault, swarm-governor, triage-ci-worker and the
+        # other platform-owned agents). No subject maps to that tenant, because
+        # those agents are the platform's own and not claimable by customers.
         raise api_compat.APIError(
             403, "cross_tenant_forbidden", f"Workload '{name}' belongs to another tenant"
         )

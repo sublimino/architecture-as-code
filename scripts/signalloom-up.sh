@@ -14,7 +14,7 @@ DEFAULT_INPUTS='[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"loc
 if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
   echo "==> Namespace '${NAMESPACE}' already exists."
   kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null | \
-    awk '{printf "    %-50s %s\n", $1, $3}' | head -10
+    awk '{printf "    %-50s %s\n", $1, $3}' | sed -n 1,10p
   echo ""
   echo "    To force re-deploy, run signalloom-down.sh first."
   exit 0

@@ -1101,7 +1101,7 @@ require_clean_tree() {
 
   {
     printf 'demo-up: REFUSING to deliver — the working tree has uncommitted changes.\n\n'
-    printf '%s\n' "$dirty" | head -20 | while IFS= read -r entry; do printf '  %s\n' "$entry"; done
+    printf '%s\n' "$dirty" | sed -n 1,20p | while IFS= read -r entry; do printf '  %s\n' "$entry"; done
     cat <<EOF
 
   The payload is built with 'git archive HEAD', so only COMMITTED files travel.

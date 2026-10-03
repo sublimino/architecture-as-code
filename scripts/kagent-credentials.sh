@@ -174,15 +174,15 @@ trust_domain() {
   fi
   local conf td=""
   conf="$("$KUBECTL" get cm -n "$BAO_NS" spire-server-config -o jsonpath='{.data.server\.conf}' 2>/dev/null || true)"
-  td="$(printf '%s' "$conf" | sed -n 's/.*trust_domain[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  td="$(printf '%s' "$conf" | sed -n 's/.*trust_domain[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n 1p)"
   printf '%s' "${td:-signalloom.demo}"
 }
 
 bao_pod() {
   local pod
-  pod="$("$KUBECTL" get pod -n "$BAO_NS" -l app.kubernetes.io/name=openbao -o name 2>/dev/null | head -1)"
+  pod="$("$KUBECTL" get pod -n "$BAO_NS" -l app.kubernetes.io/name=openbao -o name 2>/dev/null | sed -n 1p)"
   if [ -z "$pod" ]; then
-    pod="$("$KUBECTL" get pod -n "$BAO_NS" -o name 2>/dev/null | grep -E 'pod/openbao-[0-9a-f]' | head -1)"
+    pod="$("$KUBECTL" get pod -n "$BAO_NS" -o name 2>/dev/null | grep -E 'pod/openbao-[0-9a-f]' | sed -n 1p)"
   fi
   [ -n "$pod" ] || fail "no OpenBao pod found in namespace ${BAO_NS}"
   printf '%s' "$pod"

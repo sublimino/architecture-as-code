@@ -179,7 +179,7 @@ commit_distance() {
 
 marker_value() {
 	local blob="$1" key="$2"
-	printf '%s\n' "$blob" | awk -F= -v k="$key" '$1 == k { print $2; exit }'
+	printf '%s\n' "$blob" | awk -F= -v k="$key" '!f && $1 == k { print $2; f = 1 }'
 }
 
 check_workload() {

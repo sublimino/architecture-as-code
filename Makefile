@@ -592,10 +592,6 @@ test-slaat-p3-1-identity-probes: ## SLAAT-P3-1 SPIFFE identity replay probes. Ne
 	bash test/spiffe-identity-probes.sh
 
 
-.PHONY: test-slaat-p3-1-identity-probes
-test-slaat-p3-1-identity-probes: ## SLAAT-P3-1 SPIFFE identity replay probes. Needs a live kind-osramp cluster; records a skip without one. Not part of test-all-offline.
-	bash test/spiffe-identity-probes.sh
-
 .PHONY: test-slaat-p1-2-api-probes
 test-slaat-p1-2-api-probes: ## SLAAT-P1-2 live backend API probe: unauthenticated/forged-token fail-closed boundaries. Needs a live kind-osramp cluster; not part of test-all-offline (the pytest suites it complements already run there).
 	scripts/probe-api-idor-boundaries.sh
@@ -1142,17 +1138,12 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats test/sltm-probe-apikey.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
-	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest/api \
-	d2-signalloom/apps/signal-ingest/model d2-signalloom/apps/signal-ingest/store \
-	d2-signalloom/apps/signal-ingest/internal d2-signalloom/apps/signal-ingest/audit \
+	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \
 	d2-signalloom/apps/fleet-manager
-# Package specs run as `go test .` (NOT ./...), for a directory whose subtree
-# holds a test that mutates tracked files. signal-ingest's root package carries
-# the static-bearer wiring test -- the only proof the credential is wired into
-# main -- while its sibling correlation/redteam_cascade_test.go rewrites the
-# committed redteam_cascade_ceiling.json on every run, so `./...` here would
-# leave the tree dirty after every gate run.
-SLDC_GO_PKGS = d2-signalloom/apps/signal-ingest
+# Package specs run as `go test .` (NOT ./...). None today: signal-ingest used
+# to need one because correlation/redteam_cascade_test.go rewrote a committed
+# fixture on every run; it now writes only under SIGNAL_INGEST_UPDATE_CEILING=1.
+SLDC_GO_PKGS =
 
 test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytest and bun suite (no cluster; KUBECONFIG=/dev/null).
 	@status=0; \
@@ -2340,7 +2331,7 @@ define gcp_tf_assert_prefix
 		echo "       Refusing to plan or apply against an unverified state prefix."; \
 		exit 3; \
 	fi; \
-	resolved="$$(sed -n 's/.*"prefix"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$backend_state" | head -1)"; \
+	resolved="$$(sed -n 's/.*"prefix"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$backend_state" | sed -n 1p)"; \
 	if [ -z "$$resolved" ]; then \
 		echo "ERROR: the resolved backend configuration names no prefix."; \
 		echo "       Read from: $$backend_state"; \

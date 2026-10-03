@@ -105,11 +105,13 @@ patches:
       kind: ResourceSet
       name: agent-swarm
     patch: |
-      # Index 8: OCIRepository follows Namespace, ServiceAccount, two
-      # ClusterRoles (namespaces, workloads), CRB (namespaces), RoleBinding
-      # (workloads), ClusterRole (cluster-rbac), CRB (cluster-rbac).
+      # Index 6: OCIRepository follows Namespace, ServiceAccount, two
+      # ClusterRoles (namespaces, workloads), CRB (namespaces) and RoleBinding
+      # (workloads). The cluster-rbac pair was removed (e115e5b1). JSON patches
+      # cannot select by name, so d2-signalloom/test/fleet-patch-indexes.bats
+      # resolves this index to the named OCIRepository.
       - op: add
-        path: /spec/resources/8/spec/verify
+        path: /spec/resources/6/spec/verify
         value:
           provider: cosign
           secretRef:

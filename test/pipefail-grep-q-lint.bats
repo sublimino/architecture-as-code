@@ -125,3 +125,79 @@ BATS
 	[ "$status" -eq 2 ]
 	[[ "$stderr" == *"no such path"* ]]
 }
+
+# ─── Data readers: head, grep -m, sed q, awk exit, read ───────────────────
+# Their output is right even when the producer is SIGPIPEd; only the 141 is
+# wrong, so a site is a finding only where that status can be read.
+
+listed() { # --list rows for $fx, as "STATUS<TAB>LINE<TAB>KIND"
+	"$lint" --list "$fx" | awk -F'\t' '{ print $1 "\t" $3 "\t" $5 }'
+}
+
+@test "head under errexit is a finding; sed -n 1p reads everything and is clean" {
+	script gate.sh '#!/usr/bin/env bash' 'set -euo pipefail' 'pod="$(kubectl get pods -o name | head -1)"'
+	run --separate-stderr "$lint" "$fx"
+	[ "$status" -eq 1 ]
+	[ "$output" = "$fx/gate.sh:3: pod=\"\$(kubectl get pods -o name | head -1)\"" ]
+	script gate.sh '#!/usr/bin/env bash' 'set -euo pipefail' 'pod="$(kubectl get pods -o name | sed -n 1p)"'
+	run "$lint" "$fx"
+	[ "$status" -eq 0 ]
+}
+
+@test "grep -m, sed q, awk exit and read are early readers too; head -n -N and awk END exit are not" {
+	script gate.sh '#!/usr/bin/env bash' 'set -euo pipefail' \
+		'a="$(env | grep -m1 HOME)"' \
+		"b=\"\$(env | sed '/HOME/q')\"" \
+		"c=\"\$(env | awk '/HOME/ { print; exit }')\"" \
+		'env | read -r d' \
+		'e="$(env | head -n -2)"' \
+		"f=\"\$(env | awk '{ n++ } END { exit !n }')\""
+	run listed
+	[ "$status" -eq 0 ]
+	[ "$output" = "$(printf 'UNMARKED\t3\tgrep-m\nUNMARKED\t4\tsed-q\nUNMARKED\t5\tawk-exit\nUNMARKED\t6\tread')" ]
+}
+
+@test "a data reader whose status nothing reads is exempt, and --list says why" {
+	script gate.sh '#!/usr/bin/env bash' 'set -euo pipefail' \
+		'a="$(env | head -1 || true)"' \
+		'mapfile -t b < <(env | head -2)' \
+		'echo "first: $(env | head -1)"' \
+		'f() { local c="$(env | head -1)"; echo "$c"; }'
+	run listed
+	[ "$status" -eq 0 ]
+	[ "$output" = "$(printf 'EXEMPT:discarded\t3\thead\nEXEMPT:procsubst\t4\thead\nEXEMPT:argument\t5\thead\nEXEMPT:local\t6\thead')" ]
+}
+
+@test "without errexit an untested assignment or statement is exempt, a tested one is not" {
+	script gate.sh '#!/usr/bin/env bash' 'set -o pipefail' \
+		'a="$(env | head -1)"' \
+		'env | head -3' \
+		'echo done' \
+		'b="$(env | head -1 || echo none)"' \
+		'g() {' '  env | head -1' '}'
+	run listed
+	[ "$status" -eq 0 ]
+	[ "$output" = "$(printf 'EXEMPT:unchecked\t3\thead\nEXEMPT:unchecked\t4\thead\nUNMARKED\t6\thead\nUNMARKED\t8\thead')" ]
+}
+
+@test "set +e turns errexit back off for the rest of the file" {
+	script gate.sh '#!/usr/bin/env bash' 'set -euo pipefail' 'set +e' 'a="$(env | head -1)"'
+	run listed
+	[ "$status" -eq 0 ]
+	[ "$output" = "$(printf 'EXEMPT:unchecked\t4\thead')" ]
+}
+
+@test "grep -q is never exempt, not even with || true" {
+	script gate.sh '#!/usr/bin/env bash' 'set -o pipefail' 'env | grep -q HOME || true'
+	run "$lint" "$fx"
+	[ "$status" -eq 1 ]
+}
+
+@test "an || fallback inside an argument substitution reads the 141, so it is not exempt" {
+	# scripts/setup.sh:209 had this shape: a SIGPIPEd version line made the
+	# fallback run too, appending its output to a good value.
+	script gate.sh '#!/usr/bin/env bash' 'set -o pipefail' 'echo "v: $(env | head -1 || echo none)"'
+	run listed
+	[ "$status" -eq 0 ]
+	[ "$output" = "$(printf 'UNMARKED\t3\thead')" ]
+}

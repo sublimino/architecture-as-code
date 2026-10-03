@@ -284,6 +284,18 @@ Measured on the integration branch: the whole `TestAcceptance` corpus runs in
 **~0.02 s** (the fleet-manager package as a whole is ~1.5 s), so the suite is
 comfortably practical on every CI change rather than on demand.
 
+> **Dated note (2026-10-03).** The first row of the table above no longer
+> describes the code. Every ordinary run used to append to the committed
+> ledger, so every gate run left the tree dirty. The ledger row now reads:
+>
+> | Mechanism | Purpose |
+> |---|---|
+> | `docs/signalloom/evidence/sler-p6-3-acceptance-runtime.jsonl` | committed per-scenario history; a run appends to it only with `SLER_WRITE_EVIDENCE=1` (ordinary runs write a temp ledger), so gradual creep can be recorded without every gate run dirtying the tree |
+>
+> `TestAcceptance_RuntimeLedgerLeavesTheCommittedEvidenceAlone` pins this. See
+> `recordAcceptanceRuntime` in `d2-signalloom/apps/fleet-manager/multiplane_acceptance_test.go`.
+> The rest of this record is left as written.
+
 ---
 
 ## 9. CI wiring — asserted, not claimed

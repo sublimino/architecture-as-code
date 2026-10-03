@@ -63,11 +63,15 @@ func WithRuntimeBinaries(paths ...string) Option {
 // executable identity (exe_ino, exe_size) at the syscall itself; when it is
 // the node's runc, that decides, and atEvent reports it. A record without
 // one (0: an older probe, a kernel thread) falls back to the checks above.
-func (m *SentinelProbeManager) runtimeUserLookup(target string, pid uint32, cgroupID, exeIno, exeSize uint64) (exempt, atEvent bool) {
+//
+// The node's runtime is runc AND the OCI hooks its containerd configures
+// (runtime_hooks.go): kind's mount-product-files.sh runs in every new
+// container's cgroup and resolves users too (live, 2026-10-03).
+func (m *SentinelProbeManager) runtimeUserLookup(target string, pid uint32, cgroupID, exeIno, exeSize uint64, comm string) (exempt, atEvent bool) {
 	if !runtimeSetupOpens[target] {
 		return false, false
 	}
-	if exeIno != 0 && m.isNodeRuncIdentity(exeIno, exeSize) {
+	if exeIno != 0 && m.isNodeRuntimeIdentity(exeIno, exeSize, comm, cgroupID) {
 		return true, true
 	}
 	return m.runtimeProcessLookup(pid, cgroupID), false
@@ -109,50 +113,17 @@ func (m *SentinelProbeManager) isNodeRunc(pid uint32) bool {
 	if err != nil {
 		return false
 	}
-	nodeRoot := filepath.Join(m.procRoot, "1", "root")
+	st, ok := exe.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
 	for _, p := range m.runtimeBinaries {
-		ref, err := os.Stat(filepath.Join(nodeRoot, p))
-		if err == nil && ref.Mode().IsRegular() && sameBinary(exe, ref) {
+		// Resolved inside the node root (runtime_hooks.go), not by path join.
+		if ref, ok := m.nodeBinaryIdentity(p); ok && ref.Ino == st.Ino && ref.Size == uint64(exe.Size()) {
 			return true
 		}
 	}
 	return false
-}
-
-// isNodeRuncIdentity reports whether (ino, size), taken by the probe from the
-// caller's exe_file, is the node's runc binary: same inode and size, the
-// identity isNodeRunc uses, without needing the process to still exist.
-func (m *SentinelProbeManager) isNodeRuncIdentity(ino, size uint64) bool {
-	nodeRoot := filepath.Join(m.procRoot, "1", "root")
-	for _, p := range m.runtimeBinaries {
-		ref, err := os.Stat(filepath.Join(nodeRoot, p))
-		if err != nil || !ref.Mode().IsRegular() {
-			continue
-		}
-		st, ok := ref.Sys().(*syscall.Stat_t)
-		if ok && st.Ino == ino && uint64(ref.Size()) == size {
-			return true
-		}
-	}
-	return false
-}
-
-// nodeRuncIdentities lists every configured runtime binary present on the
-// node, for a detection to show what a setup open was compared against.
-func (m *SentinelProbeManager) nodeRuncIdentities() []BinaryIdentity {
-	nodeRoot := filepath.Join(m.procRoot, "1", "root")
-	var out []BinaryIdentity
-	for _, p := range m.runtimeBinaries {
-		full := filepath.Join(nodeRoot, p)
-		fi, err := os.Stat(full)
-		if err != nil || !fi.Mode().IsRegular() {
-			continue
-		}
-		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-			out = append(out, BinaryIdentity{Path: full, Ino: st.Ino, Size: uint64(fi.Size())})
-		}
-	}
-	return out
 }
 
 // sameBinary: same inode and same size. The device is not compared: the

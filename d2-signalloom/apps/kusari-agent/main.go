@@ -19,6 +19,11 @@
 //	POST /act/read-shadow    same, against /etc/shadow; reports attempted=true
 //	                         even when the file is absent (distroless), because
 //	                         the sys_enter_openat is the signal, not the bytes.
+//	     ?defer=D            on either read: answer 202 at once with the order
+//	                         (pod, scheduled_for) and open D later (0 < D <=
+//	                         10s). A sentinel freezes the stub ~1 ms after the
+//	                         openat, inside the request, so only an answer
+//	                         given BEFORE the act can reach the caller.
 //	POST /act/cpu-burn       provocation: busy-loop ?threads=N (default
 //	                         GOMAXPROCS) for ?duration=D (default 5s, clamped
 //	                         to ACT_BURN_MAX, default 60s).
@@ -81,6 +86,7 @@ const (
 	defaultBurnMax      = 60 * time.Second
 	maxBurnThreads      = 64
 	maxActReadBytes     = 1 << 20
+	maxActDefer         = 10 * time.Second
 )
 
 // fallbackQuotes keep the agent answering when egress is denied, which it is
@@ -400,8 +406,13 @@ type actResult struct {
 	Threads    int    `json:"threads,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	Iterations uint64 `json:"iterations,omitempty"`
-	StartedAt  string `json:"started_at"`
-	FinishedAt string `json:"finished_at"`
+	// A deferred read (?defer=D) answers with the order, not the result.
+	Scheduled    bool   `json:"scheduled,omitempty"`
+	DeferMS      int64  `json:"defer_ms,omitempty"`
+	ScheduledFor string `json:"scheduled_for,omitempty"`
+	Pod          string `json:"pod,omitempty"`
+	StartedAt    string `json:"started_at"`
+	FinishedAt   string `json:"finished_at"`
 }
 
 func (a *agent) postOnly(action string, h http.HandlerFunc) http.HandlerFunc {
@@ -454,14 +465,42 @@ func (a *agent) readAndHold(action, path string) (actResult, int) {
 	return res, status
 }
 
-func (a *agent) handleReadPasswd(w http.ResponseWriter, _ *http.Request) {
-	res, status := a.readAndHold("read-passwd", a.cfg.passwdPath)
-	writeJSON(w, status, res)
+func (a *agent) handleReadPasswd(w http.ResponseWriter, r *http.Request) {
+	a.readAct(w, r, "read-passwd", a.cfg.passwdPath)
 }
 
-func (a *agent) handleReadShadow(w http.ResponseWriter, _ *http.Request) {
-	res, status := a.readAndHold("read-shadow", a.cfg.shadowPath)
-	writeJSON(w, status, res)
+func (a *agent) handleReadShadow(w http.ResponseWriter, r *http.Request) {
+	a.readAct(w, r, "read-shadow", a.cfg.shadowPath)
+}
+
+// readAct performs a read provocation now, answering with its result, or with
+// ?defer=D answers 202 with the order and performs it D later.
+func (a *agent) readAct(w http.ResponseWriter, r *http.Request, action, path string) {
+	v := r.URL.Query().Get("defer")
+	if v == "" {
+		res, status := a.readAndHold(action, path)
+		writeJSON(w, status, res)
+		return
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 || d > maxActDefer {
+		writeJSON(w, http.StatusBadRequest, actResult{Action: action, PID: os.Getpid(),
+			Error: fmt.Sprintf("defer must be a Go duration in (0, %s], got %q", maxActDefer, v)})
+		return
+	}
+	now := a.now()
+	res := actResult{
+		Action: action, OK: true, Scheduled: true, Path: path, Pod: a.hostname, PID: os.Getpid(),
+		DeferMS: d.Milliseconds(), StartedAt: now.UTC().Format(time.RFC3339Nano),
+		ScheduledFor: now.Add(d).UTC().Format(time.RFC3339Nano),
+	}
+	res.FinishedAt = res.StartedAt
+	a.logEvent("act_scheduled", map[string]any{"action": action, "path": path, "defer_ms": res.DeferMS, "scheduled_for": res.ScheduledFor})
+	writeJSON(w, http.StatusAccepted, res)
+	go func() {
+		time.Sleep(d)
+		a.readAndHold(action, path) // locks its own OS thread
+	}()
 }
 
 // handleCPUBurn busy-loops threads goroutines, each locked to its own OS thread,

@@ -1682,3 +1682,12 @@ scripts/warden-cutover.sh --context kind-osramp
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+
+#### Errata — SLTM-P3-2 (lead reconciliation)
+
+- **Created:** 2026-10-03 12:08:10+01:00
+- **Last Updated:** 2026-10-03 12:08:10+01:00
+- **Commit:** `c6e2ac28`
+- Restores the machine tag only. When P3-1 was reconciled (`sldc2/p3-merge`), its errata block was inserted directly after P3-2's, capturing P3-2's trailing tag, so P3-2 parsed as `status=unknown` (the fourth time this has happened). No result changes.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

@@ -4738,14 +4738,22 @@
         "verdict": "info",
         "model": "claude-opus-5-5",
         "reason": "HOLD (lead, 2026-10-03 11:51:46 +0100): P3-1 delivery 92fa4923 is complete, but merging conflicts with P3-2 in about 14 files (parallel renames). An engineer is reconciling on sldc2/p3-merge; advance once integration is green. Timeout 2h."
+      },
+      {
+        "task_id": "654f4",
+        "reviewed_at": "2026-10-03T11:07:23.227Z",
+        "reviewer": "supervisor",
+        "verdict": "pass",
+        "model": "claude-opus-5-5",
+        "reason": "Hold lifted 2026-10-03 12:07:22 +0100: reconciled on sldc2/p3-merge 92a9c395, merged as 4582d863; offline 712 ok, mutation proof 43/43, warden pin src-8cc590761ea0 matches a fresh checkout."
       }
     ],
     "run_count": 0,
     "task_id": "654f4",
-    "reviewed_at": "2026-10-03T10:51:47.072Z",
+    "reviewed_at": "2026-10-03T11:07:23.227Z",
     "reviewer": "supervisor",
-    "verdict": "info",
+    "verdict": "pass",
     "model": "claude-opus-5-5",
-    "reason": "HOLD (lead, 2026-10-03 11:51:46 +0100): P3-1 delivery 92fa4923 is complete, but merging conflicts with P3-2 in about 14 files (parallel renames). An engineer is reconciling on sldc2/p3-merge; advance once integration is green. Timeout 2h."
+    "reason": "Hold lifted 2026-10-03 12:07:22 +0100: reconciled on sldc2/p3-merge 92a9c395, merged as 4582d863; offline 712 ok, mutation proof 43/43, warden pin src-8cc590761ea0 matches a fresh checkout."
   }
 }

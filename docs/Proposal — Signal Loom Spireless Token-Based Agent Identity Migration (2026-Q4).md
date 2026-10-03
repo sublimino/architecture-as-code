@@ -836,3 +836,21 @@ Failing test suites were authored and committed first in `ec12d405`:
   MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter/export.py> <'Authorization': f'Bearer {key}', -> # 'Authorization': f'Bearer {key}',> -> <bats test/afm-rbac-exporter-push.bats -f "full push with bearer key"> RED; restored -> GREEN
   MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter/export.py> <sys.exit(5) -> return> -> <bats test/afm-rbac-exporter-push.bats -f "gateway 401, 403, 413, 500 exits 5"> RED; restored -> GREEN
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P0 (lead reconciliation)
+
+- **Created:** 2026-10-03 04:46:37+01:00
+- **Last Updated:** 2026-10-03 04:46:37+01:00
+- **Commit:** `d775cb93`
+- Restores the machine tag only. P0's lead adjudication tag (ab566fa8) was displaced when P1-PRE's errata block was inserted before it, so the P0 block parsed as status=unknown. The adjudication text is unchanged above. No result changes: the card is already done on the board.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P1-PRE (lead reconciliation)
+
+- **Created:** 2026-10-03 04:46:37+01:00
+- **Last Updated:** 2026-10-03 04:46:37+01:00
+- **Commit:** `f69bd8a3`
+- Restores the machine tag only. P1-PRE's own tag (f69bd8a3) was lost in a later merge, so its block parsed as status=unknown and blocked the P1-GOV start. No result changes: the card is already done on the board.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

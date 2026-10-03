@@ -1137,7 +1137,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/agent-swarm-tenancy.bats test/agent-swarm-flux-rbac.bats test/cgroup-freeze-live-gate.bats \
 	test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats test/sltm-probe-apikey.bats \
 	test/rendered-env-unique.bats test/live-gate-ci-wiring.bats test/flux-annotation-values.bats \
-	d2-signalloom/test/kusari-agent-forensic.bats
+	d2-signalloom/test/kusari-agent-forensic.bats \
+	test/afm-import-gateway-manifests.bats test/afm-importer-key.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \
@@ -1156,7 +1157,8 @@ test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytes
 	(cd d2-signalloom/apps/signal-ingest && go test -tags frostdb -count=1 ./store/...) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	(cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run -q --python 3.12 --with pytest --with pytest-asyncio --with respx --with-requirements requirements.txt python -m pytest -q -p no:cacheprovider \
 		tests/test_ingest_client.py tests/test_ingest_proxies.py tests/test_external_agent_spine_sync.py tests/test_demo_runner_child_env.py \
-		tests/test_claim_tenancy.py tests/test_auth_check.py tests/test_claim_registry_integration.py) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+		tests/test_claim_tenancy.py tests/test_auth_check.py tests/test_claim_registry_integration.py \
+		tests/test_afm_import_gateway.py) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status
 

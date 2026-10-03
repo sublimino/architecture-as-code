@@ -70,7 +70,7 @@ func pinWrites(cs *fake.Clientset) (pods, deployments int) {
 	return
 }
 
-const sentinelStunBody = `{"reason":"stun-sentinel detection: sys_enter_openat /etc/passwd"}`
+const sentinelStunBody = `{"reason":"signalloom-warden detection: sys_enter_openat /etc/passwd"}`
 
 func TestStunWithoutACallerKeyIs401AndContainsNothing(t *testing.T) {
 	s, cs, _ := newGitopsServer(t, ownedChain("active", nil, nil)...)
@@ -154,7 +154,7 @@ func TestSentinelKeyRunsTheStunCascadeOnceWithOnePinWriter(t *testing.T) {
 	if pod.Annotations[fluxReconcileKey] != "disabled" || dep.Annotations[fluxReconcileKey] != "disabled" {
 		t.Fatalf("pins: pod %q deployment %q", pod.Annotations[fluxReconcileKey], dep.Annotations[fluxReconcileKey])
 	}
-	if got := pod.Annotations[StunReasonAnnotationIO]; got != "stun-sentinel detection: sys_enter_openat /etc/passwd" {
+	if got := pod.Annotations[StunReasonAnnotationIO]; got != "signalloom-warden detection: sys_enter_openat /etc/passwd" {
 		t.Fatalf("stun reason on the pod = %q", got)
 	}
 }

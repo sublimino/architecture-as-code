@@ -29,16 +29,40 @@ data:
     BAO_TOKEN="${BAO_TOKEN:-signalloom-demo-root-token}"
     export BAO_ADDR BAO_TOKEN
 
+    # The swarm agents that read secrets through this role, by service
+    # account. Each gets an identity entity NAMED for it, whose alias on the
+    # jwt mount is its SPIFFE ID (user_claim=sub, below), so a login by that
+    # SVID resolves to that entity and the policy keys on the entity name.
+    # Keep in step with the sidecar ConfigMaps' secret paths
+    # (d2-signalloom/test/openbao-agent-secret-authz.bats checks both).
+    AGENT_ENTITIES="prompt-commit-summarizer triage-ci-worker zulip-chat-agent cpai-engineer prod-deploy-gate swarm-governor"
+    SPIFFE_PREFIX="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa"
+
+    # Aliases name an auth mount by its ACCESSOR (auth_jwt_<hex>, minted when
+    # the mount is enabled, so it differs per cluster), never by its path.
+    JWT_ACCESSOR="$(bao read -field=accessor sys/auth/jwt)"
+    case "$JWT_ACCESSOR" in
+      auth_jwt_*) ;;
+      *) echo "unexpected accessor for auth/jwt: '${JWT_ACCESSOR}'" >&2; exit 1 ;;
+    esac
+
     echo "--- Writing templated policy: signalloom-agent-templated ---"
     bao policy write signalloom-agent-templated - <<'POLICY'
-    # Templated policy: each agent can only read secrets scoped to its own
-    # SPIFFE ID. The alias metadata is populated by the JWT auth method from
-    # the token's `sub` claim.
+    # Templated policy: each agent can only read the secrets under its own
+    # entity name -- its service account, pre-created below. An SVID from
+    # the namespace with no pre-created entity gets a generated name
+    # (entity_<uuid>) and so reads nothing.
     #
-    # Path shape: secret/data/agents/<spiffe-id>/*
-    # The SPIFFE ID contains slashes which OpenBao handles as nested path
-    # segments -- this is intentional and matches the secret tree layout.
-    path "kv/data/agents/{{identity.entity.aliases.auth_jwt.metadata.sub}}/*" {
+    # Path shape: secret/data/agents/<agent-sa>/* on the secret/ KV v2 mount
+    # that scripts/swarm-seed-secrets.sh writes.
+    #
+    # Until 2026-10-03 this templated the SPIFFE ID itself
+    # ({{identity.entity.aliases.auth_jwt.metadata.sub}}, on kv/), which could
+    # never grant a read: a request path carrying "spiffe://" is cleaned by
+    # the HTTP layer to "spiffe:/" (a 301), which the substituted policy path
+    # never matches, OpenBao 2.7 rejects a substitution containing "/"
+    # outright, `auth_jwt` is not an accessor, and the secrets are on secret/.
+    path "secret/data/agents/{{identity.entity.name}}/*" {
       capabilities = ["read", "list"]
     }
     POLICY
@@ -88,6 +112,32 @@ data:
     }
     ROLE
 
+    echo "--- Pre-creating agent entities ---"
+    # Prints the id of the entity holding alias $1 on the jwt mount, or
+    # nothing. On no match the CLI still exits 0 and prints "Success! Data
+    # written to: identity/lookup/entity" even under -field=id, so only a
+    # UUID counts as an answer.
+    alias_owner() {
+      bao write -field=id identity/lookup/entity alias_name="$1" alias_mount_accessor="$JWT_ACCESSOR" 2>/dev/null \
+        | grep -E '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || true
+    }
+    for sa in $AGENT_ENTITIES; do
+      alias_name="${SPIFFE_PREFIX}/${sa}"
+      bao write identity/entity/name/"$sa" metadata=service_account="$sa" >/dev/null
+      eid="$(bao read -field=id identity/entity/name/"$sa")"
+      owner="$(alias_owner "$alias_name")"
+      if [ -z "$owner" ]; then
+        bao write identity/entity-alias name="$alias_name" canonical_id="$eid" mount_accessor="$JWT_ACCESSOR" >/dev/null
+      elif [ "$owner" != "$eid" ]; then
+        # A login before this ran auto-created an unnamed entity for the SVID;
+        # fold it (and its alias) into the named one.
+        bao write identity/entity/merge from_entity_ids="$owner" to_entity_id="$eid" >/dev/null
+      fi
+      owner="$(alias_owner "$alias_name")"
+      [ "$owner" = "$eid" ] || { echo "alias ${alias_name} is not on entity ${sa}" >&2; exit 1; }
+      echo "entity ${sa} <- ${alias_name}"
+    done
+
     echo "--- Verifying role ---"
     bao read auth/jwt/role/signalloom-agent-generic
 ---
@@ -119,9 +169,9 @@ spec:
         # Bump whenever agent-generic-role-config's agent-generic-role.sh
         # content changes, so this Job's pod template (and therefore the
         # Job itself) is forced to recreate alongside the ConfigMap. Current
-        # value is sha256(script)[:12] as of the SLAAT-P2-3 bound_claims_type
-        # glob fix + token_type=batch addition.
-        signalloom.io/config-hash: "73964ebcba07"
+        # value is sha256 of the script as `yq '.data["agent-generic-role.sh"]'`
+        # prints it, first 12 hex (pinned by openbao-agent-secret-authz.bats).
+        signalloom.io/config-hash: "3cecf251e3f1"
     spec:
       restartPolicy: OnFailure
       initContainers:

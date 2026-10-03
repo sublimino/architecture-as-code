@@ -3,11 +3,15 @@
 #
 # swarm-seed-secrets.sh — Seed demo secrets into OpenBao for the agent swarm.
 #
-# Each agent's secrets are stored at a path scoped by its SPIFFE ID so the
-# templated policy (signalloom-agent-templated) grants access only to the
-# agent's own secrets:
+# Each agent's secrets are stored under its service account name, which is
+# the name of the identity entity its SPIFFE ID logs in as, so the templated
+# policy (signalloom-agent-templated, {{identity.entity.name}}) grants access
+# only to the agent's own secrets:
 #
-#   secret/data/agents/spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/<sa>/<key>
+#   secret/data/agents/<sa>/<key>
+#
+# (Not the SPIFFE ID itself: "spiffe://" in a request path is cleaned to
+# "spiffe:/" by OpenBao's HTTP layer, so no policy could ever match it.)
 #
 # Usage:
 #   scripts/swarm-seed-secrets.sh                     # from repo root
@@ -28,7 +32,6 @@ export BAO_ADDR BAO_TOKEN
 
 TRUST_DOMAIN="signalloom.demo"
 NAMESPACE="fe-signalloom-agents"
-SPIFFE_PREFIX="spiffe://${TRUST_DOMAIN}/ns/${NAMESPACE}/sa"
 
 log() { printf '  [swarm-seed] %s\n' "$*"; }
 ok()  { printf '  [swarm-seed] \033[32m✓\033[0m %s\n' "$*"; }
@@ -49,10 +52,9 @@ enable_kv_v2() {
 
 seed_secret() {
   local sa="$1" path="$2" value="$3"
-  local full_path="secret/data/agents/${SPIFFE_PREFIX}/${sa}/${path}"
 
   log "seeding ${sa}/${path}"
-  bao kv put "secret/agents/${SPIFFE_PREFIX}/${sa}/${path}" value="$value" >/dev/null 2>&1 \
+  bao kv put "secret/agents/${sa}/${path}" value="$value" >/dev/null 2>&1 \
     && ok "${sa}/${path}" \
     || err "${sa}/${path} — write failed"
 }

@@ -44,7 +44,7 @@ func (t EventType) String() string {
 // numbers and TestSyscallEventLayoutMatchesBTF checks both against the BTF the
 // compiler actually emitted, so the three cannot drift silently.
 const (
-	SyscallEventSize = 328
+	SyscallEventSize = 344
 
 	offTsNs     = 0
 	offCgroupID = 8
@@ -57,6 +57,8 @@ const (
 	offDaddr    = 40
 	offComm     = 56
 	offFilename = 72
+	offExeIno   = 328
+	offExeSize  = 336
 
 	commLen     = 16
 	filenameLen = 256
@@ -80,6 +82,10 @@ type SyscallEvent struct {
 	Family      uint16    `json:"family,omitempty"`
 	DestPort    uint16    `json:"dest_port,omitempty"`
 	DestAddr    net.IP    `json:"dest_addr,omitempty"`
+	// ExeIno and ExeSize identify the CALLER's executable at the syscall
+	// (for execve, the image being replaced). 0 means unknown.
+	ExeIno  uint64 `json:"exe_ino,omitempty"`
+	ExeSize uint64 `json:"exe_size,omitempty"`
 }
 
 // RemoteEndpoint formats a connect event's destination as host:port
@@ -108,6 +114,8 @@ func DecodeSyscallEvent(raw []byte) (*SyscallEvent, error) {
 		Type:        EventType(raw[offType]),
 		Comm:        cString(raw[offComm : offComm+commLen]),
 		Filename:    cString(raw[offFilename : offFilename+filenameLen]),
+		ExeIno:      ne.Uint64(raw[offExeIno:]),
+		ExeSize:     ne.Uint64(raw[offExeSize:]),
 	}
 	switch ev.Type {
 	case EventOpenat, EventExecve, EventConnect, EventOpenat2:

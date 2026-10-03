@@ -6,10 +6,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/../d2-signalloom/apps/signal-ingest"
 inputs="$(go run ./cmd/image-tag -inputs)"
+# The tag hashes only the TRACKED inputs (internal/imagetag.TrackedInputs), so anything else
+# go build would compile -- an untracked or a gitignored .go file in a package directory, which
+# go list reports from disk -- is refused here, with the same guard as the sentinel's tag
+# (scripts/lib/source-id.sh: modified, untracked and ignored, failing closed).
+# shellcheck source=lib/source-id.sh
+source ../../../scripts/lib/source-id.sh # from the module dir (cd above)
 # shellcheck disable=SC2086
-dirty="$(cd .. && git status --porcelain --untracked-files=all -- $inputs)"
+dirty="$(source_id_dirty_inputs .. $inputs)" || {
+    echo "signal-ingest-image-tag: git status failed; refusing" >&2
+    exit 2
+}
 if [ -n "$dirty" ]; then
-    echo "signal-ingest-image-tag: refusing a -dirty build; uncommitted changes in the image inputs:" >&2
+    echo "signal-ingest-image-tag: refusing a -dirty build; inputs that are not the committed source (modified, untracked or ignored):" >&2
     printf '%s\n' "$dirty" >&2
     exit 1
 fi

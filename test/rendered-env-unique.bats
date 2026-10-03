@@ -13,8 +13,8 @@ PATHS=(
   d2-signalloom/apps/fe-signalloom/local
   d2-signalloom/apps/fe-signalloom/base
   d2-signalloom/apps/signal-ingest/base
-  d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel
-  d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-osramp
+  $(ls -d d2-signalloom/infra/agent-swarm/signalloom-* 2>/dev/null | grep -E '(warden|sentinel)$' | head -n 1)
+  $(ls -d d2-signalloom/infra/agent-swarm/signalloom-*-overlays/kind-osramp 2>/dev/null | grep -E '(warden|sentinel)' | head -n 1)
 )
 
 dups_in() {

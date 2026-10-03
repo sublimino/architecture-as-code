@@ -3,13 +3,13 @@
 # Copyright 2026 ControlPlane Security Authors
 #
 # @id      cgroup-freeze-stun
-# @target  d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go
+# @target  d2-signalloom/apps/signalloom-warden/pkg/cgroup/freezer.go
 # @doc     docs/signalloom/cgroup-v2-freeze-architecture.md
 # @spec    CRKC-P1-2
 #
 # CRKC-P1-2 — Tier 0 kernel execution halt.
 #
-# Proves that `stun-sentinel` halts a CPU-burning container's execution
+# Proves that `signalloom-warden` halts a CPU-burning container's execution
 # in-kernel via cgroup-v2 `cgroup.freeze`, inside the 50ms deadline, and that
 # the halt is real rather than merely reported.
 #
@@ -32,7 +32,7 @@ export PATH="/usr/bin:$PATH"
 DECLARED_TESTS=23
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
-MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
+MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
 # shellcheck source=../scripts/lib/live-gate.sh
 source "${REPO_ROOT}/scripts/lib/live-gate.sh"
 CLUSTER_CONTEXT="${CLUSTER_CONTEXT:-kind-osramp}"
@@ -98,7 +98,7 @@ teardown_file() {
   if have_cluster; then
     sldc_kubectl --context "${CLUSTER_CONTEXT}" delete namespace crkc-freeze-test \
       --ignore-not-found --wait=false >/dev/null 2>&1 || true
-    sldc_docker exec "${KIND_NODE}" sh -c 'pkill -x stun-sentinel >/dev/null 2>&1; exit 0' || true
+    sldc_docker exec "${KIND_NODE}" sh -c 'pkill -x signalloom-warden >/dev/null 2>&1; exit 0' || true
   fi
   return 0
 }
@@ -124,7 +124,7 @@ teardown_file() {
 
 @test "unit: daemon tests pass" {
   have_go || skip "go toolchain not installed"
-  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./cmd/stun-sentinel/
+  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./cmd/signalloom-warden/
   [ "$status" -eq 0 ]
 }
 
@@ -169,7 +169,7 @@ teardown_file() {
   [ "$(proof '.overall')" = "pass" ]
 }
 
-@test "live: stun-sentinel can write the host cgroup hierarchy" {
+@test "live: signalloom-warden can write the host cgroup hierarchy" {
   have_cluster || skip "no Kind node '${KIND_NODE}'"
   require_proof
   [ "$(proof '.probes.results[] | select(.probe|startswith("P01")) | .status')" = "pass" ]

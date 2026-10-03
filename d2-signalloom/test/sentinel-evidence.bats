@@ -2,14 +2,14 @@
 # d2-signalloom/test/sentinel-evidence.bats
 #
 # STUNSWARM-P1-3: Positive dry-run mode, health HTTP endpoint (:8081/healthz),
-# structured audit logging, and audit verification in signalloom-stun-sentinel.
+# structured audit logging, and audit verification in signalloom-warden.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
-  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel"
+  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
   BIN_DIR="${BATS_TEST_TMPDIR}/bin"
   mkdir -p "$BIN_DIR"
-  SENTINEL_BIN="${BIN_DIR}/signalloom-stun-sentinel"
+  SENTINEL_BIN="${BIN_DIR}/signalloom-warden"
 
   command -v jq >/dev/null || skip "jq is required"
   command -v curl >/dev/null || skip "curl is required"
@@ -231,11 +231,11 @@ cluster_up() {
 
 # ── 5. Live Cluster Verification (when cluster is running) ───────────────────
 
-@test "LIVE: signalloom-stun-sentinel health probe is reachable in cluster" {
+@test "LIVE: signalloom-warden health probe is reachable in cluster" {
   cluster_up || skip "no cluster"
   local pod
-  pod="$(kubectl get pods -n "fe-signalloom-agents" -l app.kubernetes.io/name=stun-sentinel -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  [ -n "$pod" ] || skip "stun-sentinel pod not found in fe-signalloom-agents"
+  pod="$(kubectl get pods -n "fe-signalloom-agents" -l app.kubernetes.io/name=signalloom-warden -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [ -n "$pod" ] || skip "signalloom-warden pod not found in fe-signalloom-agents"
 
   run kubectl exec -n "fe-signalloom-agents" "$pod" -- curl -s "http://127.0.0.1:8081/healthz"
   if [ "$status" -eq 0 ]; then

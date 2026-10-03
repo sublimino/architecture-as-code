@@ -4,7 +4,7 @@
 #    other than the Swarm Governor (system:serviceaccount:fe-signalloom:swarm-governor),
 #    fleet-manager (system:serviceaccount:fe-signalloom:fleet-manager, the
 #    authorised releaser behind the operator-keyed /recover) or cluster admin.
-#    Exact usernames only: the stun sentinel stuns (allowed to anyone) and never
+#    Exact usernames only: the signalloom warden stuns (allowed to anyone) and never
 #    releases, so it is deliberately absent. Pinned offline by
 #    d2-signalloom/apps/fleet-manager/vap_admission_test.go.
 # 2. Any agent pod (signalloom.ai/agent=true) must carry a valid signalloom.ai/framework label.

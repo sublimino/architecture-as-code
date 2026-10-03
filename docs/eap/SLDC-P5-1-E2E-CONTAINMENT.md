@@ -157,7 +157,7 @@ delta of 31 ms. It passed again at 27 ms after the query was bounded with
 `after=`. Five causes were fixed on the way:
 
 - Two Flux Kustomizations owned the sentinel's RoleBinding. One bound the
-  pre-rename ServiceAccount `signalloom-stun-sentinel`, so `can-i list pods`
+  pre-rename ServiceAccount `signalloom-warden`, so `can-i list pods`
   flipped between yes and no. The binding now has one owner. The sentinel has
   no cluster-scoped grant.
 - The sentinel now runs non-privileged, with a read-only root filesystem. It

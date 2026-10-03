@@ -24,7 +24,7 @@ AGENTS=(
   prod-deploy-gate
   agent-cardvault
   nono-containment-probe
-  signalloom-stun-sentinel
+  signalloom-warden
 )
 
 # ─── Infrastructure ────────────────────────────────────────────────────────
@@ -70,15 +70,15 @@ AGENTS=(
   [ -n "$output" ]
 }
 
-# ─── Stun Sentinel ──────────────────────────────────────────────────────────
+# ─── Signalloom Warden ──────────────────────────────────────────────────────────
 
-@test "stun sentinel DaemonSet is ready" {
-  run kubectl get daemonset signalloom-stun-sentinel -n "$NAMESPACE" \
+@test "signalloom warden DaemonSet is ready" {
+  run kubectl get daemonset signalloom-warden -n "$NAMESPACE" \
     -o jsonpath='{.status.desiredNumberScheduled}'
   [ "$status" -eq 0 ]
   local desired="$output"
 
-  run kubectl get daemonset signalloom-stun-sentinel -n "$NAMESPACE" \
+  run kubectl get daemonset signalloom-warden -n "$NAMESPACE" \
     -o jsonpath='{.status.numberReady}'
   [ "$status" -eq 0 ]
   local ready="$output"

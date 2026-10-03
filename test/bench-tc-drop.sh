@@ -37,7 +37,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
-APP_DIR="$REPO_ROOT/d2-signalloom/apps/stun-sentinel"
+APP_DIR="$REPO_ROOT/d2-signalloom/apps/signalloom-warden"
 BUILDER_IMAGE="${STUN_BPF_BUILDER_IMAGE:-signalloom-bpf-builder:trixie}"
 
 FLOODERS=8

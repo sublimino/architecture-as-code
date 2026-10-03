@@ -1,27 +1,27 @@
-# eBPF Stun Sentinel RBAC -- tombstones only. This file declares no objects.
+# eBPF Signalloom Warden RBAC -- tombstones only. This file declares no objects.
 #
-# Every grant the sentinel holds lives in signalloom-stun-sentinel/rbac.yaml,
-# reconciled by the agent-signalloom-stun-sentinel Kustomization. The entries
+# Every grant the sentinel holds lives in signalloom-warden/rbac.yaml,
+# reconciled by the agent-signalloom-warden Kustomization. The entries
 # below record what used to be declared here and why it must not come back.
 ---
-# The namespaced Role and RoleBinding "stun-sentinel" USED to live here. They
-# now have exactly one owner: signalloom-stun-sentinel/rbac.yaml, reconciled by
-# the agent-signalloom-stun-sentinel Kustomization. Declaring them here as well
+# The namespaced Role and RoleBinding "signalloom-warden" USED to live here. They
+# now have exactly one owner: signalloom-warden/rbac.yaml, reconciled by
+# the agent-signalloom-warden Kustomization. Declaring them here as well
 # made two Flux Kustomizations own one object, and this copy bound the
-# pre-rename SA signalloom-stun-sentinel, which no workload runs as. Whichever
+# pre-rename SA signalloom-warden, which no workload runs as. Whichever
 # Kustomization reconciled last won, so the running sentinel's
 # `auth can-i list pods` flipped between yes and no and its pod index stayed
 # empty (SLDC-P5-PRE B5; re-observed live 2026-10-01). Do not re-add them:
-# test/sentinel-capabilities.bats and d2-signalloom/test/stun-sentinel-daemonset.bats fail on any
-# object owned by both, or any stun-sentinel binding that names another SA.
+# test/sentinel-capabilities.bats and d2-signalloom/test/signalloom-warden-daemonset.bats fail on any
+# object owned by both, or any signalloom-warden binding that names another SA.
 ---
-# The ClusterRole and ClusterRoleBinding "stun-sentinel-node-reader" USED to
+# The ClusterRole and ClusterRoleBinding "signalloom-warden-node-reader" USED to
 # live here, granting nodes get/list "to read cgroup paths for eBPF attachment".
 # Nothing reads nodes: the sentinel resolves cgroups from the host filesystem
 # (/host-cgroup) and its pods by label, and no code path in
-# apps/signalloom-stun-sentinel or apps/stun-sentinel calls the nodes API. The
-# binding first named the pre-rename SA signalloom-stun-sentinel, which no
-# workload runs as; rebinding it to stun-sentinel would only have made an
+# apps/signalloom-warden or apps/signalloom-warden calls the nodes API. The
+# binding first named the pre-rename SA signalloom-warden, which no
+# workload runs as; rebinding it to signalloom-warden would only have made an
 # unused grant live. Do not re-add it:
 # test/sentinel-capabilities.bats fails on any sentinel binding, namespaced or
 # cluster-scoped, whose subject is not the SA the DaemonSet runs as.

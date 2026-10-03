@@ -8,7 +8,7 @@
 #
 # 2026-10-03: two checkouts of the same commit disagreed on the sentinel tag
 # (src-b428555d307e vs src-b23c561661a5). One held a gitignored build artefact,
-# apps/stun-sentinel/bpf/sentinel_probe.o, which source_id_hash_paths hashed
+# apps/signalloom-warden/bpf/sentinel_probe.o, which source_id_hash_paths hashed
 # (it tarred the directories on disk) while sentinel-image-tag's guard
 # (`git status --porcelain --untracked-files=all`, no --ignored) never saw it.
 # A wrong pin was committed from that tree. The file was also in the docker
@@ -180,11 +180,16 @@ sentinel_clone() {
 }
 
 @test "sentinel: an ignored build artefact leaves the tag unchanged and the guard refuses" {
-  local c id_before id_after
+  local c id_before id_after sentinel_app
   c="$(sentinel_clone)"
+  if [ -d "$c/d2-signalloom/apps/signalloom-warden/bpf" ]; then
+    sentinel_app="$c/d2-signalloom/apps/signalloom-warden"
+  else
+    sentinel_app="$c/d2-signalloom/apps/stun-sentinel"
+  fi
   id_before="$(make -s -C "$c/d2-signalloom" sentinel-image-tag)"
   [[ "$id_before" == src-* ]]
-  printf 'stale bytecode\n' >"$c/d2-signalloom/apps/stun-sentinel/bpf/sentinel_probe.o"
+  printf 'stale bytecode\n' >"$sentinel_app/bpf/sentinel_probe.o"
   id_after="$(make -s -C "$c/d2-signalloom" sentinel-image-source-id)"
   [ "$id_after" = "$id_before" ] || { echo "source id moved: $id_before -> $id_after"; return 1; }
   run make -s -C "$c/d2-signalloom" sentinel-image-tag
@@ -192,10 +197,15 @@ sentinel_clone() {
 }
 
 @test "sentinel: a tracked edit moves the source id and the guard refuses it" {
-  local c before
+  local c before sentinel_app
   c="$(sentinel_clone)"
+  if [ -d "$c/d2-signalloom/apps/signalloom-warden/pkg/correlator" ]; then
+    sentinel_app="$c/d2-signalloom/apps/signalloom-warden"
+  else
+    sentinel_app="$c/d2-signalloom/apps/stun-sentinel"
+  fi
   before="$(make -s -C "$c/d2-signalloom" sentinel-image-source-id)"
-  printf '\n// edited\n' >>"$c/d2-signalloom/apps/stun-sentinel/pkg/correlator/runtime_lookup.go"
+  printf '\n// edited\n' >>"$sentinel_app/pkg/correlator/runtime_lookup.go"
   [ "$(make -s -C "$c/d2-signalloom" sentinel-image-source-id)" != "$before" ]
   run make -s -C "$c/d2-signalloom" sentinel-image-tag
   [ "$status" -ne 0 ] || { echo "a modified input was not refused: $output"; return 1; }
@@ -207,16 +217,26 @@ sentinel_clone() {
 # shim is wired, so its silence below means something). With an ignored file
 # under a COPY path: make fails and docker is never invoked.
 @test "sentinel: the image build never starts with an ignored file in the build context" {
-  local c shim="$BATS_TEST_TMPDIR/shim"
+  local c shim="$BATS_TEST_TMPDIR/shim" sentinel_app target
   c="$(sentinel_clone)"
+  if [ -d "$c/d2-signalloom/apps/signalloom-warden/bpf" ]; then
+    sentinel_app="$c/d2-signalloom/apps/signalloom-warden"
+  else
+    sentinel_app="$c/d2-signalloom/apps/stun-sentinel"
+  fi
+  if grep -q '^swarm-signalloom-warden-image:' "$c/d2-signalloom/Makefile"; then
+    target="swarm-signalloom-warden-image"
+  else
+    target="swarm-stun-sentinel-image"
+  fi
   mkdir -p "$shim"
   printf '#!/bin/sh\necho "$@" >>"%s/docker.calls"\n' "$shim" >"$shim/docker"
   chmod +x "$shim/docker"
-  PATH="$shim:$PATH" run make -s -C "$c/d2-signalloom" swarm-stun-sentinel-image
+  PATH="$shim:$PATH" run make -s -C "$c/d2-signalloom" "$target"
   [ "$status" -eq 0 ] && rg -q -e '^build ' "$shim/docker.calls" || { echo "clean build did not reach docker: status=$status $output"; return 1; }
   rm "$shim/docker.calls"
-  printf 'stale bytecode\n' >"$c/d2-signalloom/apps/stun-sentinel/bpf/sentinel_probe.o"
-  PATH="$shim:$PATH" run make -s -C "$c/d2-signalloom" swarm-stun-sentinel-image
+  printf 'stale bytecode\n' >"$sentinel_app/bpf/sentinel_probe.o"
+  PATH="$shim:$PATH" run make -s -C "$c/d2-signalloom" "$target"
   [ "$status" -ne 0 ] || { echo "build with an ignored input succeeded: $output"; return 1; }
   [ ! -e "$shim/docker.calls" ] || { echo "docker was invoked:"; cat "$shim/docker.calls"; return 1; }
 }

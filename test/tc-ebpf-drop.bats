@@ -31,7 +31,7 @@
 #      stopped" from "our program stopped the packets".
 #
 # @id      tc-ebpf-drop-bats
-# @target  d2-signalloom/apps/stun-sentinel/pkg/tc
+# @target  d2-signalloom/apps/signalloom-warden/pkg/tc
 # @doc     docs/signalloom/tc-ebpf-confinement.md
 # @spec    docs/signalloom/evidence/tc-drop-proof.json
 

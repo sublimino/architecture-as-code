@@ -111,8 +111,8 @@
     {"id":"supercred-demo-runner","label":"supercred-demo-runner · demo job","group":"ingest"},
     {"id":"fake-integration-proxy","label":"fake-integration-proxy","group":"ingest","muted":true},
 
-    {"id":"signalloom-stun-sentinel","label":"signalloom-stun-sentinel · pod reconciler","group":"containment"},
-    {"id":"stun-sentinel","label":"stun-sentinel · Tier-0 freeze API","group":"containment"},
+    {"id":"signalloom-warden","label":"signalloom-warden · pod reconciler","group":"containment"},
+    {"id":"signalloom-warden","label":"signalloom-warden · Tier-0 freeze API","group":"containment"},
     {"id":"node-capability-guard","label":"node-capability-guard · admission","group":"containment"},
     {"id":"nono-containment-probe","label":"nono-containment-probe","group":"containment","muted":true},
     {"id":"fleet-manager","label":"fleet-manager · topology / cascade","group":"containment"},
@@ -188,9 +188,9 @@
      "caveats":["Correlation is decoupled from ingest via the store — the engine reads the store on Correlate/Rebuild, not per-append.","In main.go the query-side identity graph and the correlation engine's resolver-store are wired independently — a real seam, not a straight pipe."]},
 
     {"id":"sentinel-egress-frostdb","cat":"Signal ingestion","label":"Sentinel network egress → FrostDB",
-     "summary":"The STUN Sentinel emits enriched socket-flow events; netebpf checks sequence gaps, converts to network_egress Observations, and appends.",
+     "summary":"The SignalLoom Warden emits enriched socket-flow events; netebpf checks sequence gaps, converts to network_egress Observations, and appends.",
      "steps":[
-      {"from":"signalloom-stun-sentinel","to":"si-netebpf","verb":"stream flow","passes":"InboundFlowEvent JSON {seq_num, src/dst ip+port, cgroup_id, pod_*, service_account, spiffe_id, classification}"},
+      {"from":"signalloom-warden","to":"si-netebpf","verb":"stream flow","passes":"InboundFlowEvent JSON {seq_num, src/dst ip+port, cgroup_id, pod_*, service_account, spiffe_id, classification}"},
       {"from":"si-netebpf","to":"si-netebpf","verb":"sequence-gap check","passes":"LiveNetworkEgressCollector.ProcessFlowEvent: lastSeqByNode gap → createGapObservation"},
       {"from":"si-netebpf","to":"si-model","verb":"convert","passes":"flowToObservation(ev) → *model.Observation{Layer:LayerNetworkEgress, labels[spiffe_id]}"},
       {"from":"si-netebpf","to":"si-registry","verb":"emit","passes":"IngestionSink.IngestObservation(ctx, *Observation)"},
@@ -279,13 +279,13 @@
      "steps":[
       {"from":"signal-ingest","to":"signal-ingest","verb":"correlate detection","passes":"Tetragon runtime telemetry + 5-layer signals → provisional actor evidence chain (audit-only, no enforcement)"},
       {"from":"fleet-manager","to":"fleet-manager","verb":"compute cascade","passes":"POST /api/v1/fleet/stun/{agentId} → DAG cascade + RecoveryOrder (agent-monitor excluded)"},
-      {"from":"agents-ns","to":"signalloom-stun-sentinel","verb":"label pod stunned","passes":"pod label signalloom.ai/state=stunned observed by the DaemonSet reconciler"},
-      {"from":"signalloom-stun-sentinel","to":"kind-cluster","verb":"freeze + sever","passes":"cgroup-v2 freezer write + tc matchall drop on host veth (ingress+egress), liveness preserved"},
-      {"from":"stun-sentinel","to":"kind-cluster","verb":"tier-0 freeze","passes":"POST /freeze {podUID} → cgroup.freeze; /unfreeze requires STUN_RESUME_TOKEN (constant-time)"},
+      {"from":"agents-ns","to":"signalloom-warden","verb":"label pod stunned","passes":"pod label signalloom.ai/state=stunned observed by the DaemonSet reconciler"},
+      {"from":"signalloom-warden","to":"kind-cluster","verb":"freeze + sever","passes":"cgroup-v2 freezer write + tc matchall drop on host veth (ingress+egress), liveness preserved"},
+      {"from":"signalloom-warden","to":"kind-cluster","verb":"tier-0 freeze","passes":"POST /freeze {podUID} → cgroup.freeze; /unfreeze requires STUN_RESUME_TOKEN (constant-time)"},
       {"from":"node-capability-guard","to":"k8s-apiserver","verb":"admission gate","passes":"ValidatingWebhook /validate denies signalloom.ai/agent=true pods lacking node cgroup-v2|landlock capability"},
-      {"from":"signalloom-stun-sentinel","to":"openbao","verb":"revoke (semantic)","passes":"stunned ⇒ credentials treated revoked; short-TTL 5m batch tokens expire without renewal"}
+      {"from":"signalloom-warden","to":"openbao","verb":"revoke (semantic)","passes":"stunned ⇒ credentials treated revoked; short-TTL 5m batch tokens expire without renewal"}
      ],
-     "caveats":["fleet-manager's FleetClient is a noop — POST /fleet/stun only computes the cascade; it does NOT call the sentinels.","The two stun apps are NOT wired to each other: stun-sentinel (HTTP freeze API) vs signalloom-stun-sentinel (label reconciler).","stun→revocation is semantic (tokens expire), not a live OpenBao revoke call in the traced code."]},
+     "caveats":["fleet-manager's FleetClient is a noop — POST /fleet/stun only computes the cascade; it does NOT call the sentinels.","The two stun apps are NOT wired to each other: signalloom-warden (HTTP freeze API) vs signalloom-warden (label reconciler).","stun→revocation is semantic (tokens expire), not a live OpenBao revoke call in the traced code."]},
 
     {"id":"policy-engine-fair-risk","cat":"Fleet & containment","label":"Policy-engine FAIR risk scoring",
      "summary":"A pod securityContext is scanned against versioned frameworks; each failing control is priced with a deterministic Monte-Carlo FAIR simulation in real currency.",

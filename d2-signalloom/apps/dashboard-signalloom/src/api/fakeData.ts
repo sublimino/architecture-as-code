@@ -204,7 +204,7 @@ export const claimedDossierAgentFixture: AgentResponse = {
 /**
  * A kernel-frozen pod with no stun record, shaped like the live
  * `agent-sir-lancelot`: the lifecycle label still says idle while the
- * stun-sentinel has observed `cgroup.events frozen 1` for 22 days (relative to
+ * signalloom-warden has observed `cgroup.events frozen 1` for 22 days (relative to
  * the demo clock). The dashboard must render the split brain, never "idle".
  */
 export const splitBrainFrozenAgentFixture: AgentResponse = {

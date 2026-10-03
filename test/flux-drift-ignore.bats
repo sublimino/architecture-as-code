@@ -41,7 +41,7 @@ setup() {
 }
 
 @test "Sentinel stun detector recognizes signalloom.io and signalloom.ai stun markers" {
-  local sentinel_main="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel/main.go"
+  local sentinel_main="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden/main.go"
   [ -f "$sentinel_main" ]
   run grep -F 'signalloom.io/stunned' "$sentinel_main"
   [ "$status" -eq 0 ]

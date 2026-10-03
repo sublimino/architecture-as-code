@@ -9,7 +9,7 @@
 #   * fe-signalloom claims (claim_tenancy): discovery reports the label from the
 #     POD (or the kagent Agent CR), and a workload with no label cannot be
 #     claimed at all (403 workload_tenant_undeclared).
-#   * the stun sentinel attributes each observation from SENTINEL_TENANT_MAP,
+#   * the signalloom warden attributes each observation from SENTINEL_TENANT_MAP,
 #     keyed on namespace/serviceAccount, never from a pod label (review M5).
 #
 # So a new agent with no tenant label is not a style nit. Discovery cannot
@@ -24,7 +24,7 @@
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   SWARM="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
-  CM="${SWARM}/signalloom-stun-sentinel/configmap.yaml"
+  CM="$(ls "${SWARM}"/signalloom-*/configmap.yaml 2>/dev/null | grep -E "(warden|sentinel)" | head -n 1)"
 }
 
 # workloads — one JSON object per agent workload:
@@ -78,7 +78,7 @@ workloads() {
 
 @test "agent-swarm tenancy: the sentinel's tenant map attributes every agent's service account to its declared tenant" {
   local map entries missing
-  map="$(yq -r 'select(.kind == "ConfigMap" and .metadata.name == "stun-sentinel-config") | .data.SENTINEL_TENANT_MAP' "${CM}")"
+  map="$(yq -r 'select(.kind == "ConfigMap" and (.metadata.name | test("(warden|sentinel)-config"))) | .data.SENTINEL_TENANT_MAP' "${CM}")"
   [ -n "$map" ] && [ "$map" != "null" ]
   # namespace/serviceAccount=tenant, comma- or newline-separated.
   entries="$(tr ',' '\n' <<<"$map" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sort -u)"

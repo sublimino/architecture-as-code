@@ -21,7 +21,7 @@
  *
  * ## Real-Time Sentinel Kernel Telemetry
  *
- * When an agent enters the `stunned` state, the Signal Loom Stun Sentinel
+ * When an agent enters the `stunned` state, the Signal Loom Signalloom Warden
  * applies atomic kernel containment:
  *   - cgroups v2: writes 1 to `cgroup.freeze` (atomic task suspension, memory preserved)
  *   - eBPF / TC: attaches clsact qdisc matchall packet drop filter on the veth interface
@@ -133,7 +133,7 @@ export interface ProxyAgentRecord {
   created_at?: string | null
   /** Real-time kernel telemetry if emitted by Sentinel proxy. */
   kernel_telemetry?: SentinelKernelTelemetry | null
-  /** Kernel freezer state from the stun-sentinel annotation, via discovery. */
+  /** Kernel freezer state from the signalloom-warden annotation, via discovery. */
   kernel_state?: 'frozen' | 'running' | 'unknown' | null
   kernel_observed_at?: string | null
   /** Labels surfaced by the proxy from pod/CR metadata. */

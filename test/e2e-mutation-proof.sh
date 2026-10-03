@@ -145,6 +145,10 @@ case "${ARGS}" in
       echo -n "latest@sha256:82ef76a05850f30583639956ea64f7b23b2ea465ea0bd74f3d43d4e824893248"; exit 0 ;;
   *"rollout status"*)     echo "deployment \"agent-kusari\" successfully rolled out"; exit 0 ;;
   *"get deploy"*readyReplicas*) echo -n "1/1"; exit 0 ;;
+  *"get deploy"*livenessProbe*)
+      # H1: the containment target declares no liveness probe.
+      [ "${MUT}" = "step1_liveness_probe" ] && echo -n '{"httpGet":{"path":"/healthz","port":"http"},"periodSeconds":15}'
+      exit 0 ;;
   *"get deploy"*reconcile*)
       [ "${MUT}" = "step5_no_flux_suppression" ] && exit 0
       # Recovery removes the pin, unless the teardown left it behind.
@@ -194,18 +198,24 @@ case "${ARGS}" in
       if frozen && [ "${MUT}" != "step5_still_serving" ]; then
           echo "Error from server: error trying to reach service: dial tcp: i/o timeout" >&2; exit 1
       fi
-      held=100; ok=true
-      [ "${MUT}" = "step3_descriptor_not_held" ] && held=0
+      ok=true
       [ "${MUT}" = "step3_act_failed" ] && ok=false
-      printf '{"action":"read-passwd","ok":%s,"path":"/etc/passwd","attempted":true,"bytes":149,"lines":3,"held_ms":%s,"pid":1,"tid":18,"started_at":"%s","finished_at":"%s"}\n' \
-          "${ok}" "${held}" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
-      exit 0 ;;
-  *"create --raw"*"/act/read-shadow"*)
-      if frozen; then echo "Error from server: i/o timeout" >&2; exit 1; fi
-      attempted=true
-      [ "${MUT}" = "step3_shadow_not_attempted" ] && attempted=false
-      printf '{"action":"read-shadow","ok":false,"error":"open /etc/shadow: no such file or directory","path":"/etc/shadow","attempted":%s,"pid":1,"tid":18,"started_at":"%s","finished_at":"%s"}\n' \
-          "${attempted}" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+      case "${ARGS}" in
+        *"defer=1s"*)
+          if [ "${MUT}" = "step3_not_deferred" ]; then :   # the stub ignored ?defer
+          else
+            # The order: answered at once, the open one second later.
+            sf="$(date -u -d '+1 second' +%Y-%m-%dT%H:%M:%S.%3NZ)"
+            echo "${sf}" >"${STATE}/scheduled_for"
+            pod="${POD}"; [ "${MUT}" = "step3_wrong_pod" ] && pod="agent-kusari-5685ff664b-zzzzz"
+            printf '{"action":"read-passwd","ok":%s,"path":"/etc/passwd","pid":1,"started_at":"%s","finished_at":"%s","scheduled":true,"defer_ms":1000,"scheduled_for":"%s","pod":"%s"}\n' \
+                "${ok}" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "${sf}" "${pod}"
+            exit 0
+          fi ;;
+      esac
+      # Synchronous: the read's own result.
+      printf '{"action":"read-passwd","ok":%s,"path":"/etc/passwd","attempted":true,"bytes":149,"lines":3,"held_ms":100,"pid":1,"tid":18,"started_at":"%s","finished_at":"%s"}\n' \
+          "${ok}" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
       exit 0 ;;
 esac
 
@@ -234,6 +244,8 @@ case "${ARGS}" in
         step4_stale_timestamp) ts="2026-01-01T00:00:00.000Z" ;;
         *)                     ts="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" ;;
       esac
+      # The ordered open lands at scheduled_for (Step 3), not at the request.
+      sf_ms="$(date -u -d "$(cat "${STATE}/scheduled_for" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" +%s%3N)"
       case "${MUT}" in
         step4_wrong_tenant) tenant="tenant-demo" ;;
         step4_legacy_typo)  tenant="kurasi" ;;
@@ -267,8 +279,15 @@ case "${ARGS}" in
       esac
       if [ "${MUT}" = "step4_stale_timestamp" ]; then
           printf '[%s]\n' "$(obs "${ts}" "${tenant}" "${target}")"
+      elif [ "${MUT}" = "step4_before_schedule" ]; then
+          # Only an open 600 ms BEFORE the order: the container runtime's own
+          # /etc/passwd lookup at pod start, reported for every new pod.
+          early=$(( sf_ms - 600 ))
+          printf '[%s]\n' "$(obs "$(date -u -d "@$(( early / 1000 ))" +%Y-%m-%dT%H:%M:%S).$(printf '%03d' $(( early % 1000 )))Z" "${tenant}" "${target}")"
       else
-          sec="$(date -u +%Y-%m-%dT%H:%M:%S)"
+          # The first whole second at or after the order; ".1Z" sorts after
+          # ".123Z" lexically, so only a chronological pick passes (L1).
+          sec="$(date -u -d "@$(( (sf_ms + 999) / 1000 ))" +%Y-%m-%dT%H:%M:%S)"
           printf '[%s,%s]\n' "$(obs "${sec}.1Z" "${tenant}" "${target}")" \
               "$(obs "${sec}.123Z" "tenant-demo" "${target}")"
       fi
@@ -452,6 +471,7 @@ chmod +x "${WORK}/bin/claim"
 MUTATIONS=(
   "step1_not_ready|1|Flux Kustomization Ready=False is not reported as deployed"
   "step1_dirty_restart|1|a workload that already restarted is not accepted as a clean baseline"
+  "step1_liveness_probe|1|a containment target with a liveness probe (the kubelet kills it frozen, H1) is refused"
   "step2_no_row|2|absent agent_registry row is not read as a successful claim"
   "step2_wrong_tenant|2|claim into tenant-demo is not accepted as tenant kusari"
   "step2_legacy_typo|2|retired typo tenant kurasi fails closed"
@@ -460,14 +480,15 @@ MUTATIONS=(
   "step2_split_claim|2|a second registry row in another tenant is rejected"
   "step2_claim_refused|2|a refused product claim leaves no row and Step 2 red"
   "step3_act_failed|3|provocation returning ok=false is not read as provoked"
-  "step3_descriptor_not_held|3|a descriptor released immediately is not accepted"
-  "step3_shadow_not_attempted|3|shadow provocation that never attempted the open is rejected"
+  "step3_not_deferred|3|a provocation answered synchronously (no order before the act) is rejected"
+  "step3_wrong_pod|3|an order taken by a pod other than the one tracked is rejected"
   "step4_probe_removed|4|removing the eBPF hook makes Step 4 fail"
   "step4_not_sensitive|4|an openat of a non-sensitive path is not accepted as the provocation"
   "step4_stale_timestamp|4|an observation outside the correlation window is rejected"
   "step4_wrong_tenant|4|an observation bound to the wrong tenant is rejected"
   "step4_reader_key_wrong|4|signal-ingest refuses a read without the evidence-reader key (Step 4 must not pass unauthenticated)"
   "step4_legacy_typo|4|an observation carrying kurasi fails closed"
+  "step4_before_schedule|4|an open that precedes the ordered provocation (a pod-start lookup) is not the detection"
   "step5_freeze_disabled|5|disabling the cgroup freeze makes Step 5 fail"
   "step5_restart_h1_breach|5|restartCount=1 during the forensic window fails (Option H1)"
   "step5_no_flux_suppression|5|a Deployment without reconcile=disabled fails (Pattern 4)"

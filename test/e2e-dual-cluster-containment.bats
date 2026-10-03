@@ -69,6 +69,9 @@ setup_file() {
     export TENANT="${TENANT:-kusari}"
     export TENANT_HASH="${TENANT_HASH:-4b53ab6b}"
     export OBS_WINDOW_MS="${SLDC_OBS_WINDOW_MS:-15000}"
+    # Clock slack below the ordered open (stub and sentinel share the kind
+    # node's clock; this covers the stub's sleep returning early by a tick).
+    export OBS_SLACK_MS="${SLDC_OBS_SLACK_MS:-250}"
     export FLEET_NS="${FLEET_NS:-fe-signalloom}"
     export FLEET_AGENT_ID="${FLEET_AGENT_ID:-agent-kusari-agent}"
 
@@ -427,12 +430,24 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
         -o jsonpath='{.status.readyReplicas}/{.status.replicas}'
     [ "$output" = "1/1" ]
+    local replicas="$output"
+
+    # Forensic Preservation (H1) needs a frozen container nobody restarts. A
+    # frozen agent fails an httpGet liveness probe, and nothing answers it in
+    # its place (the sentinel's probe preservation records the probes only),
+    # so the kubelet kills it: live, 2026-10-03, 45 s into the hold. The
+    # containment target therefore carries no liveness probe (decision K4).
+    run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
+        -o 'jsonpath={.spec.template.spec.containers[?(@.name=="agent")].livenessProbe}'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ] || { echo "the containment target declares a liveness probe: ${output}"; return 1; }
 
     {
         echo "kustomization: ${KUSTOMIZATION} (ns ${NS})"
         echo "ready: ${ready_status}"
         echo "lastAppliedRevision: ${revision}"
-        echo "deployment: ${DEPLOYMENT} replicas ${output}"
+        echo "deployment: ${DEPLOYMENT} replicas ${replicas}"
+        echo "liveness_probe: none (H1)"
         echo "pod: $(agent_pod_field 'metadata.name')"
         echo "pod_uid: ${pod_uid}"
         echo "phase: Running"
@@ -501,48 +516,50 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     # Recorded before the call so Step 4 can bound the correlation window.
     date -u +%Y-%m-%dT%H:%M:%S.%3NZ >"${EVIDENCE_DIR}/step3-provocation-start.txt"
 
-    run post_raw "$(agent_proxy /act/read-passwd)"
+    # The order is answered BEFORE the act. The sentinel freezes the agent
+    # ~1 ms after its openat, inside any request that performs it, so a
+    # synchronous provocation's answer can never be written: live, both runs
+    # on 2026-10-03 got "connection reset by peer". (Earlier greens only got
+    # one because the freeze used to be thawed by a resync.) ?defer=1s makes
+    # the stub answer 202 with the order and open /etc/passwd one second
+    # later; Step 4 proves the open from the kernel, not from the agent.
+    #
+    # There is no second provocation: a contained agent cannot act again
+    # without a thaw, and a test that needs it to grades the thaw.
+    local pod_name; pod_name="$(agent_pod_field 'metadata.name')"
+    [ -n "$pod_name" ]
+    run post_raw "$(agent_proxy '/act/read-passwd?defer=1s')"
     [ "$status" -eq 0 ]
-    [[ "$output" == *'"action":"read-passwd"'* ]]
-    [[ "$output" == *'"ok":true'* ]]
-    local passwd_body="$output"
-
-    # The descriptor must be held long enough for an in-kernel probe to
-    # correlate the openat with the pod, and the read must happen in the traced
-    # thread (held_ms and tid prove both).
-    local held; held="$(printf '%s' "$passwd_body" | jq -r '.held_ms // 0')"
-    [ "$held" -ge 50 ]
-    [ "$(printf '%s' "$passwd_body" | jq -r '.tid')" -gt 0 ]
-    [ "$(printf '%s' "$passwd_body" | jq -r '.lines')" -gt 0 ]
-    # The provocation must never exfiltrate the file it read.
-    [[ "$passwd_body" != *"root:x:0"* ]]
-
-    # Second provocation against /etc/shadow. `attempted` is the signal - on a
-    # distroless image the file is absent, but the sys_enter_openat still fires.
-    run post_raw "$(agent_proxy /act/read-shadow)"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *'"action":"read-shadow"'* ]]
-    [[ "$output" == *'"attempted":true'* ]]
-    local shadow_body="$output"
+    local order="$output"
+    [ "$(printf '%s' "$order" | jq -r '.action')" = "read-passwd" ]
+    [ "$(printf '%s' "$order" | jq -r '.ok')" = "true" ]
+    [ "$(printf '%s' "$order" | jq -r '.scheduled')" = "true" ]
+    [ "$(printf '%s' "$order" | jq -r '.path')" = "/etc/passwd" ]
+    # The order was taken by the pod this suite tracks, not some other replica.
+    [ "$(printf '%s' "$order" | jq -r '.pod')" = "$pod_name" ]
+    local scheduled_for; scheduled_for="$(printf '%s' "$order" | jq -r '.scheduled_for')"
+    epoch_ms_of "$scheduled_for" >/dev/null
+    printf '%s\n' "$scheduled_for" >"${EVIDENCE_DIR}/step3-provocation-scheduled-for.txt"
+    # The provocation must never exfiltrate the file it reads.
+    [[ "$order" != *"root:x:0"* ]]
 
     date -u +%Y-%m-%dT%H:%M:%S.%3NZ >"${EVIDENCE_DIR}/step3-provocation-end.txt"
-
     {
-        echo "POST $(agent_proxy /act/read-passwd)"
-        echo "$passwd_body"
-        echo
-        echo "POST $(agent_proxy /act/read-shadow)"
-        echo "$shadow_body"
+        echo "POST $(agent_proxy '/act/read-passwd?defer=1s')"
+        echo "$order"
     } >"${EVIDENCE_DIR}/step3-provocation-act.log"
 }
 
 @test "Step 4: In-sentinel eBPF probe intercepts syscall and emits observation" {
-    local start_ts; start_ts="$(cat "${EVIDENCE_DIR}/step3-provocation-start.txt" 2>/dev/null)"
-    # One second of slack below the provocation, the same tolerance the
-    # selection below applies; RFC3339 with Z needs no URL encoding.
+    # The open was ordered for scheduled_for (Step 3), so it cannot precede
+    # it: the window starts there, not at the request. That also shuts out
+    # the container runtime's own /etc/passwd lookups at pod start, which the
+    # sentinel reports for every new pod.
+    local start_ts; start_ts="$(cat "${EVIDENCE_DIR}/step3-provocation-scheduled-for.txt" 2>/dev/null)"
+    [ -n "$start_ts" ]
+    # The feed query only needs a coarse lower bound; the selection is exact.
     OBS_AFTER="$(date -u -d "${start_ts} - 1 second" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
     export OBS_AFTER
-    [ -n "$start_ts" ]
     local pod_name; pod_name="$(agent_pod_field 'metadata.name')"
 
     # Poll rather than sleep: the correlator dispatches asynchronously.
@@ -563,7 +580,7 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     while IFS= read -r cand; do
         [ -n "$cand" ] || continue
         cand_ms="$(epoch_ms_of "$(printf '%s' "$cand" | jq -r '.timestamp')")" || continue
-        [ "$cand_ms" -ge "$(( start_ms_sel - 1000 ))" ] || continue
+        [ "$cand_ms" -ge "$(( start_ms_sel - OBS_SLACK_MS ))" ] || continue
         if [ -z "$best_ms" ] || [ "$cand_ms" -lt "$best_ms" ]; then obs="$cand"; best_ms="$cand_ms"; fi
     done < <(sensitive_openat_observations | jq -c '.[]')
     [ -n "$obs" ]
@@ -579,16 +596,16 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     [ -n "$(printf '%s' "$obs" | jq -r '.labels.cgroup_path // .cgroup_path // empty')" ]
     [[ "$(printf '%s' "$obs" | jq -r '.tenant_id')" != *kurasi* ]]
 
-    # Correlation window: the observation must post-date the provocation and
+    # Correlation window: the observation must post-date the ordered open and
     # land inside SLDC_OBS_WINDOW_MS of it.
     local obs_ms start_ms
     obs_ms="$(epoch_ms_of "$(printf '%s' "$obs" | jq -r '.timestamp')")"
     start_ms="$(epoch_ms_of "$start_ts")"
-    [ "$obs_ms" -ge "$(( start_ms - 1000 ))" ]
+    [ "$obs_ms" -ge "$(( start_ms - OBS_SLACK_MS ))" ]
     [ "$(( obs_ms - start_ms ))" -le "${OBS_WINDOW_MS}" ]
 
     printf '%s\n' "$obs" | jq . >"${EVIDENCE_DIR}/step4-ebpf-observation.json"
-    printf 'provocation_start=%s observation_ts=%s delta_ms=%s window_ms=%s\n' \
+    printf 'provocation_scheduled_for=%s observation_ts=%s delta_ms=%s window_ms=%s\n' \
         "$start_ts" "$(printf '%s' "$obs" | jq -r '.timestamp')" \
         "$(( obs_ms - start_ms ))" "${OBS_WINDOW_MS}" \
         >>"${EVIDENCE_DIR}/step4-correlation-window.txt"

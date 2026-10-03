@@ -56,6 +56,10 @@ make -C "$REPO_ROOT" up
 #    for kind RemoteMCPServer.
 echo "Installing Kagent CRDs and control plane..."
 make -C "$REPO_ROOT" swarm-kagent-up
+# 4b. Knative Serving (+Kourier) and Eventing: two swarm agents are ksvc-backed
+#     and nothing else installs the CRDs (2026-10-03 zero-state rebuild).
+echo "Installing Knative Serving and Eventing..."
+make -C "$REPO_ROOT" swarm-knative-up
 # 5. Deploy Signal Loom governance platform
 echo "Deploying Signal Loom slice..."
 make -C "$REPO_ROOT" demo-signalloom-up

@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from adapters import load_adapter_selections
 from api_compat import install_compatibility_api
 from audit_ingest import install_audit_ingest_api
-from cadvisor_poller import install_cadvisor_telemetry_api
+from cadvisor_poller import GLOBAL_CADVISOR_POLLER, install_cadvisor_telemetry_api
 from coding_agent_telemetry import install_coding_agent_telemetry_api
 from demo_runner import install_demo_runner_api
 from environment_lifecycle import GLOBAL_REAPER_DAEMON, install_environment_lifecycle_api
@@ -37,9 +37,13 @@ async def lifespan(app: FastAPI):
     await init_db_pool()
     app.state.adapters = load_adapter_selections()
     GLOBAL_REAPER_DAEMON.start()
+    # The cAdvisor poller was installed as routes but never started, so every
+    # telemetry route answered 503 "no successful cAdvisor scrape yet" (2026-10-03).
+    await GLOBAL_CADVISOR_POLLER.start()
     try:
         yield
     finally:
+        await GLOBAL_CADVISOR_POLLER.stop()
         await GLOBAL_REAPER_DAEMON.stop()
         await close_db_pool()
 

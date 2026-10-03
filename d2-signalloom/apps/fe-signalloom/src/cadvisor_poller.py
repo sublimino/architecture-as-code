@@ -26,7 +26,7 @@ from api_compat import APIError, authenticated_principal
 logger = logging.getLogger("signalloom.cadvisor")
 
 FREEZE_EPSILON = 0.0001  # 0.1 ms threshold for freeze flatline invariant
-DEFAULT_POLL_INTERVAL = 2.0
+DEFAULT_POLL_INTERVAL = 5.0  # cAdvisor re-samples every ~15 s; 2 s only re-parsed the same data
 #: No successful scrape for this long and the API answers 503, not old numbers.
 DEFAULT_STALE_AFTER = 15.0
 CONTAINER_TTL = 60.0
@@ -242,7 +242,10 @@ class CadvisorPoller:
 
     async def poll_once(self) -> dict[str, AgentTelemetry]:
         try:
-            samples = parse_cadvisor_metrics(await self.scrape(), now=self.clock())
+            # The scrape is ~10 MB of Prometheus text; parsing it on the event loop
+            # starved the liveness probe and crash-looped the portal (2026-10-03).
+            text = await self.scrape()
+            samples = await asyncio.to_thread(parse_cadvisor_metrics, text, self.clock())
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             raise
@@ -360,7 +363,10 @@ class CadvisorPoller:
                 pass
 
 
-GLOBAL_CADVISOR_POLLER = CadvisorPoller()
+# NODE_NAME comes from the Deployment (spec.nodeName fieldRef); the kubelet proxy
+# URL is served by the kubectl-proxy sidecar on 127.0.0.1:8001 (deployment.yaml).
+# Without both, every telemetry route answered 503 on every cluster (2026-10-03).
+GLOBAL_CADVISOR_POLLER = CadvisorPoller(node_name=os.getenv("NODE_NAME", "osramp-control-plane"))
 
 router = APIRouter(tags=["telemetry"], dependencies=[Depends(authenticated_principal)])
 

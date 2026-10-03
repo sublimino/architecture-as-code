@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# remote-tenant: the overlay for a SECONDARY cluster (a pilot tenant's own
+# cluster, e.g. Kusari). Decision 2026-10-03: such a cluster runs only
+#
+#   * the signalloom-warden DaemonSet (this overlay),
+#   * two Secrets in fe-signalloom-agents, copied from the central cluster's
+#     issuer values: signalloom-warden-ingest-token (the signal-ingest named key
+#     `signalloom-warden`) and signalloom-warden-fleet-key (the fleet-manager
+#     caller key `signalloom-warden`), minted centrally by
+#     `make sldc-ingest-keys` / `make fleet-manager-keys` and never issued here,
+#   * the tenant's own workloads.
+#
+# No SPIRE, no OpenBao, no signal-ingest, no fe-signalloom run here. Every
+# observation is forwarded to the central cluster's signal-ingest and every
+# stun record to its fleet-manager, through the central gateway's /ingest and
+# /fleet routes (apps/fe-signalloom/base/gateway-route.yaml), each
+# authenticated by the warden's named key. Enforcement (cgroup freeze, veth
+# drop, hold-until-authorised-resume) stays local to the node and needs no
+# central round trip to take effect; only its record does.
+#
+# The image is the public ghcr reference from the base, since this cluster has
+# no zot; the version is inherited from the base DaemonSet.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../signalloom-warden
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: signalloom-warden-config
+    patch: |
+      - op: replace
+        path: /data/SIGNAL_INGEST_URL
+        value: https://dashboard.osramp.acme.local/ingest
+      - op: replace
+        path: /data/FLEET_MANAGER_URL
+        value: https://dashboard.osramp.acme.local/fleet

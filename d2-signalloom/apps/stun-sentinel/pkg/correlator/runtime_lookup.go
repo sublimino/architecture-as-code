@@ -137,6 +137,24 @@ func (m *SentinelProbeManager) isNodeRuncIdentity(ino, size uint64) bool {
 	return false
 }
 
+// nodeRuncIdentities lists every configured runtime binary present on the
+// node, for a detection to show what a setup open was compared against.
+func (m *SentinelProbeManager) nodeRuncIdentities() []BinaryIdentity {
+	nodeRoot := filepath.Join(m.procRoot, "1", "root")
+	var out []BinaryIdentity
+	for _, p := range m.runtimeBinaries {
+		full := filepath.Join(nodeRoot, p)
+		fi, err := os.Stat(full)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+			out = append(out, BinaryIdentity{Path: full, Ino: st.Ino, Size: uint64(fi.Size())})
+		}
+	}
+	return out
+}
+
 // sameBinary: same inode and same size. The device is not compared: the
 // overlay runc runs from has its own device and keeps the lower inode.
 func sameBinary(exe, ref os.FileInfo) bool {

@@ -56,4 +56,31 @@ type TelemetryObservation struct {
 	Labels         map[string]string `json:"labels"`
 	DirectReaction string            `json:"direct_reaction"`
 	CgroupPath     string            `json:"cgroup_path,omitempty"`
+	// Opener is the process that made the syscall, as the probe saw it AT
+	// the syscall. It rides on the stdout audit line only; toIngest does not
+	// carry it, so the signal-ingest wire is unchanged.
+	Opener *OpenerIdentity `json:"opener,omitempty"`
+}
+
+// OpenerIdentity names the calling process of a detection. ExeIno and
+// ExeSize are its executable's inode and size from the probe (0 = unknown).
+type OpenerIdentity struct {
+	Comm    string `json:"comm"`
+	TGID    uint32 `json:"tgid"`
+	UID     uint32 `json:"uid"`
+	ExeIno  uint64 `json:"exe_ino"`
+	ExeSize uint64 `json:"exe_size"`
+	// NodeRuntime, set only for a runtime-setup target (runtime_lookup.go),
+	// is the node runc identities the runtime exemption compared ExeIno and
+	// ExeSize against: a setup open reported as a detection says exactly why
+	// it was not the runtime's.
+	NodeRuntime []BinaryIdentity `json:"node_runtime,omitempty"`
+}
+
+// BinaryIdentity is a node binary's path (as read through the node root),
+// inode and size.
+type BinaryIdentity struct {
+	Path string `json:"path"`
+	Ino  uint64 `json:"ino"`
+	Size uint64 `json:"size"`
 }

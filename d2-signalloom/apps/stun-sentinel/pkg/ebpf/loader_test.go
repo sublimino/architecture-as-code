@@ -169,6 +169,54 @@ func TestRingBufMapProperties(t *testing.T) {
 	t.Logf("kernel map: name=%s type=%v max_entries=%d", info.Name, info.Type, info.MaxEntries)
 }
 
+// The open programs must run the path prefilter (bpf/path_prefilter.h) and
+// count what it skips; execve must not, because its RATE is the evasive-burst
+// signal whatever the path. Read from the compiled object, so a probe rebuilt
+// without the filter, or with it on execve, fails here without a kernel.
+func TestCompiledProbeWiresThePathPrefilter(t *testing.T) {
+	spec, err := loadProbe()
+	if err != nil {
+		t.Fatalf("loadProbe: %v", err)
+	}
+	for name, want := range map[string]struct {
+		typ   ebpf.MapType
+		value uint32
+	}{
+		"prefiltered":  {ebpf.PerCPUArray, 8},
+		"path_scratch": {ebpf.PerCPUArray, 256},
+	} {
+		ms, ok := spec.Maps[name]
+		if !ok {
+			t.Fatalf("no map named %s", name)
+		}
+		if ms.Type != want.typ || ms.MaxEntries != 1 || ms.ValueSize != want.value {
+			t.Fatalf("%s: type=%v max_entries=%d value=%d, want %v/1/%d", name, ms.Type, ms.MaxEntries, ms.ValueSize, want.typ, want.value)
+		}
+	}
+	refs := func(prog string) map[string]bool {
+		ps, ok := spec.Programs[prog]
+		if !ok {
+			t.Fatalf("no program %s", prog)
+		}
+		out := map[string]bool{}
+		for _, ins := range ps.Instructions {
+			if r := ins.Reference(); r != "" {
+				out[r] = true
+			}
+		}
+		return out
+	}
+	for _, prog := range []string{"trace_enter_openat", "trace_enter_openat2"} {
+		r := refs(prog)
+		if !r["path_scratch"] || !r["prefiltered"] || !r["events"] {
+			t.Fatalf("%s does not read path_scratch, count prefiltered and reserve events: %v", prog, r)
+		}
+	}
+	if r := refs("trace_enter_execve"); r["path_scratch"] || r["prefiltered"] {
+		t.Fatalf("trace_enter_execve is path-filtered (%v): the execve rate is a signal on its own", r)
+	}
+}
+
 // --- tier 1: decoder ------------------------------------------------------
 
 // encode serialises through bpf2go's generated mirror, so the fixture bytes
@@ -309,9 +357,14 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("SENTINEL_PROBE_HELPER") != "1" {
 		return
 	}
-	f, err := os.Open(os.Getenv("SENTINEL_HELPER_PATH")) // ENOENT is fine: openat still ran
-	if err == nil {
-		f.Close()
+	// Noise first, then the sensitive path: the ring is ordered by reservation,
+	// so if the noise open were emitted it would be read before the other.
+	for _, key := range []string{"SENTINEL_HELPER_NOISE_PATH", "SENTINEL_HELPER_PATH"} {
+		if p := os.Getenv(key); p != "" {
+			if f, err := os.Open(p); err == nil { // ENOENT is fine: openat still ran
+				f.Close()
+			}
+		}
 	}
 	for _, key := range []string{"SENTINEL_HELPER_DIAL4", "SENTINEL_HELPER_DIAL6"} {
 		if addr := os.Getenv(key); addr != "" {
@@ -349,7 +402,15 @@ func TestSentinelProbeSyscallCapture(t *testing.T) {
 	}
 
 	nonce := strconv.FormatInt(time.Now().UnixNano(), 36)
-	childPath := "/tmp/sentinel-probe-child-" + nonce
+	// The probe now emits only candidate opens (bpf/path_prefilter.h): the
+	// child opens a never-sensitive path, which must NOT arrive, then a path
+	// under /root/.ssh, which must.
+	noisePath := "/tmp/sentinel-probe-noise-" + nonce
+	childPath := "/root/.ssh/sentinel-probe-child-" + nonce
+	prefilteredBefore, err := l.Prefiltered()
+	if err != nil {
+		t.Fatalf("Prefiltered: %v", err)
+	}
 	selfPath := "/tmp/sentinel-probe-self-" + nonce
 
 	// The test process's own openat must be filtered in kernel space.
@@ -360,6 +421,7 @@ func TestSentinelProbeSyscallCapture(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
 	cmd.Env = append(os.Environ(),
 		"SENTINEL_PROBE_HELPER=1",
+		"SENTINEL_HELPER_NOISE_PATH="+noisePath,
 		"SENTINEL_HELPER_PATH="+childPath,
 		"SENTINEL_HELPER_DIAL4="+ln4.Addr().String(),
 		"SENTINEL_HELPER_DIAL6="+dial6,
@@ -397,6 +459,9 @@ func TestSentinelProbeSyscallCapture(t *testing.T) {
 		}
 		if err != nil {
 			t.Fatalf("ReadEvent: %v", err)
+		}
+		if ev.Filename == noisePath {
+			t.Fatalf("the path prefilter emitted a never-sensitive open: %+v", ev)
 		}
 		if ev.Filename == selfPath {
 			t.Fatalf("kernel self-filter leaked the test process's own openat: %+v", ev)
@@ -436,7 +501,14 @@ func TestSentinelProbeSyscallCapture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Drops: %v", err)
 	}
-	t.Logf("captured openat/execve/connect for child tgid %d (init ns); ring drops=%d", childTGID, drops)
+	prefiltered, err := l.Prefiltered()
+	if err != nil {
+		t.Fatalf("Prefiltered: %v", err)
+	}
+	if prefiltered <= prefilteredBefore {
+		t.Fatalf("prefiltered counter did not move (%d -> %d) though the child opened a never-sensitive path", prefilteredBefore, prefiltered)
+	}
+	t.Logf("captured openat/execve/connect for child tgid %d (init ns); ring drops=%d prefiltered=%d", childTGID, drops, prefiltered)
 }
 
 func TestLoaderLifecycleReleasesResources(t *testing.T) {

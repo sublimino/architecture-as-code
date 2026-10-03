@@ -16,8 +16,9 @@
 //
 // Every record is a fixed-size struct syscall_event_t written to one 16 MiB
 // BPF ring buffer. Filtering happens here, in kernel space, before a slot is
-// reserved: kernel context (tgid 0), the sentinel's own tgid, and non-INET
-// connect() calls (AF_UNIX et al.) never cost ring space.
+// reserved: kernel context (tgid 0), the sentinel's own tgid, non-INET
+// connect() calls (AF_UNIX et al.) and opens of paths that cannot be
+// sensitive (path_prefilter.h) never cost ring space.
 //
 // Paths are the RAW user-supplied strings. Canonicalisation (../, symlinks,
 // dirfd-relative paths) is the userspace normaliser's job (SLDC-P1-2); do not
@@ -30,6 +31,8 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_endian.h>
+
+#include "path_prefilter.h" /* generated sensitive_prefixes.h + the open prefilter */
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -106,6 +109,35 @@ struct {
 	__type(key, __u32);
 	__type(value, __u64);
 } drops SEC(".maps");
+
+/*
+ * openat/openat2 records the path prefilter kept OUT of the ring
+ * (path_prefilter.h). Per-CPU, summed by userspace, reported beside drops so
+ * the live stats line shows the filter working: prefiltered climbs with the
+ * firehose while not_sensitive and drops fall.
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} prefiltered SEC(".maps");
+
+/*
+ * Per-CPU scratch for the user path, read BEFORE a ring slot is reserved so
+ * a non-candidate open costs no ring space at all. (Reserve-then-discard
+ * would still hold the slot until the consumer walks past it.)
+ */
+struct sentinel_path_scratch {
+	char path[SENTINEL_FILENAME_LEN];
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct sentinel_path_scratch);
+} path_scratch SEC(".maps");
 
 /*
  * The sentinel's own process, rewritten by the loader before load. Without
@@ -213,18 +245,65 @@ static __always_inline int emit_path_event(struct trace_event_raw_sys_enter *ctx
 	return 0;
 }
 
+static __always_inline void count_prefiltered(void)
+{
+	__u32 key = 0;
+	__u64 *slot = bpf_map_lookup_elem(&prefiltered, &key);
+
+	if (slot)
+		*slot += 1;
+}
+
+/*
+ * openat/openat2: the path is read into per-CPU scratch FIRST and only a
+ * candidate (path_prefilter.h) reserves a ring slot. 99.93% of live opens were
+ * not sensitive; letting them contend for the ring is what dropped 1% of all
+ * records, sensitive ones included. An unreadable path reads as "" and stays a
+ * candidate, as before. execve is not filtered: its RATE is a signal
+ * (evasive-burst detection), whatever the path.
+ */
+static __always_inline int emit_open_event(struct trace_event_raw_sys_enter *ctx, __u8 type)
+{
+	__u64 pid_tgid = bpf_get_current_pid_tgid();
+	__u32 tgid = traced_tgid(pid_tgid);
+	struct sentinel_path_scratch *s;
+	struct syscall_event_t *e;
+	__u32 key = 0;
+
+	if (!tgid)
+		return 0;
+
+	s = bpf_map_lookup_elem(&path_scratch, &key);
+	if (!s)
+		return 0;
+	if (bpf_probe_read_user_str(s->path, sizeof(s->path), (const char *)ctx->args[1]) < 0)
+		s->path[0] = '\0';
+
+	if (!sentinel_path_candidate(s->path)) {
+		count_prefiltered();
+		return 0;
+	}
+
+	e = reserve_event(pid_tgid, tgid, type);
+	if (!e)
+		return 0;
+	__builtin_memcpy(e->filename, s->path, sizeof(e->filename));
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
+
 SEC("tracepoint/syscalls/sys_enter_openat")
 int trace_enter_openat(struct trace_event_raw_sys_enter *ctx)
 {
 	/* openat(int dfd, const char *filename, int flags, umode_t mode) */
-	return emit_path_event(ctx, SENTINEL_EVT_OPENAT, 1);
+	return emit_open_event(ctx, SENTINEL_EVT_OPENAT);
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat2")
 int trace_enter_openat2(struct trace_event_raw_sys_enter *ctx)
 {
 	/* openat2(int dfd, const char *filename, struct open_how *how, size_t usize) */
-	return emit_path_event(ctx, SENTINEL_EVT_OPENAT2, 1);
+	return emit_open_event(ctx, SENTINEL_EVT_OPENAT2);
 }
 
 SEC("tracepoint/syscalls/sys_enter_execve")

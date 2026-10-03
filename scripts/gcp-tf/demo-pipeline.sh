@@ -824,7 +824,8 @@ run_stage \
      test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats \
      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
      test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
-     test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats"
+     test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
+      test/rendered-env-unique.bats test/flux-annotation-values.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists
@@ -857,7 +858,7 @@ run_stage \
      test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
      test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
      test/demo-agent-autoclaim.bats test/dex-subject-tenants.bats test/agent-swarm-flux-rbac.bats \
-     test/agent-swarm-tenancy.bats \
+     test/agent-swarm-tenancy.bats test/live-gate-ci-wiring.bats \
      test/sentinel-capabilities.bats"
 
 run_stage \
@@ -1251,6 +1252,20 @@ run_stage \
      test/sandbox-confinement-hardening.bats \
      test/spiffe-openbao-adversarial.bats \
      test/spiffe-openbao-policy-hardening.bats"
+
+# Stage 7g: the live halves of the live-gated suites. scripts/lib/live-gate.sh
+# only lets a suite touch the node when SLDC_LIVE=1 is set and the context is
+# reachable, so here, after convergence and the staleness proof, the opt-in is
+# given explicitly. Elsewhere (stage 1g, the d2-signalloom glob) these same
+# suites run their offline halves and skip the live ones by design.
+# test/live-gate-ci-wiring.bats fails if a gated suite loses this stage.
+run_stage \
+  "Live-gated node suites (SLDC_LIVE=1)" \
+  "stage7g-live-gated.tap" \
+  "cd ${WORK_DIR} && SLDC_LIVE=1 ${BATS_BIN} --tap \
+     test/cgroup-freeze-stun.bats \
+     test/cgroup-freeze-adversarial.bats \
+     d2-signalloom/test/kagent-agent-reachability.bats"
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════

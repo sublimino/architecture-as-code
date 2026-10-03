@@ -803,7 +803,7 @@ run_stage \
      test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
      test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
      test/demo-agent-autoclaim.bats test/dex-subject-tenants.bats test/agent-swarm-flux-rbac.bats \
-     test/agent-swarm-tenancy.bats"
+     test/agent-swarm-tenancy.bats test/live-gate-ci-wiring.bats"
 
 # Stage 1i: Audit-guard reintroduction proof (12 cases)
 #
@@ -1193,6 +1193,20 @@ run_stage \
      test/sandbox-confinement-hardening.bats \
      test/spiffe-openbao-adversarial.bats \
      test/spiffe-openbao-policy-hardening.bats"
+
+# Stage 7g: the live halves of the live-gated suites. scripts/lib/live-gate.sh
+# only lets a suite touch the node when SLDC_LIVE=1 is set and the context is
+# reachable, so here, after convergence and the staleness proof, the opt-in is
+# given explicitly. Elsewhere (stage 1g, the d2-signalloom glob) these same
+# suites run their offline halves and skip the live ones by design.
+# test/live-gate-ci-wiring.bats fails if a gated suite loses this stage.
+run_stage \
+  "Live-gated node suites (SLDC_LIVE=1)" \
+  "stage7g-live-gated.tap" \
+  "cd ${WORK_DIR} && SLDC_LIVE=1 bats --tap \
+     test/cgroup-freeze-stun.bats \
+     test/cgroup-freeze-adversarial.bats \
+     d2-signalloom/test/kagent-agent-reachability.bats"
 
 
 

@@ -33,12 +33,25 @@ type Stats struct {
 	// bearer is configured. Detection and freeze are unaffected.
 	IngestTokenMissing uint64 `json:"ingest_token_missing"`
 	LastDispatchError  string `json:"last_dispatch_error,omitempty"`
+
+	// Spool and batch dispatch counters (Phase 2)
+	SpoolBatches        uint64 `json:"spool_batches"`
+	SpoolBytes          uint64 `json:"spool_bytes"`
+	SpoolEvicted        uint64 `json:"spool_evicted"`
+	SpoolExpired        uint64 `json:"spool_expired"`
+	SpoolReplayed       uint64 `json:"spool_replayed"`
+	SpoolCorrupt        uint64 `json:"spool_corrupt"`
+	DispatchAuthRefused uint64 `json:"dispatch_auth_refused"`
+	DispatchRejected    uint64 `json:"dispatch_rejected"`
+	RetryAfterWaits     uint64 `json:"retry_after_waits"`
 }
 
 type pipelineStats struct {
 	recordsRead, readErrors, decodeErrors, notSensitive, noPod,
 	selfExcluded, runtimeLookups, matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
-	ingestTokenMissing atomic.Uint64
+	ingestTokenMissing,
+	spoolBatches, spoolBytes, spoolEvicted, spoolExpired, spoolReplayed, spoolCorrupt,
+	dispatchAuthRefused, dispatchRejected, retryAfterWaits atomic.Uint64
 
 	mu      sync.Mutex
 	lastErr string
@@ -51,20 +64,29 @@ func (m *SentinelProbeManager) Stats() Stats {
 	last := s.lastErr
 	s.mu.Unlock()
 	return Stats{
-		RecordsRead:        s.recordsRead.Load(),
-		ReadErrors:         s.readErrors.Load(),
-		DecodeErrors:       s.decodeErrors.Load(),
-		NotSensitive:       s.notSensitive.Load(),
-		NoPod:              s.noPod.Load(),
-		SelfExcluded:       s.selfExcluded.Load(),
-		RuntimeLookups:     s.runtimeLookups.Load(),
-		Matched:            s.matched.Load(),
-		Enqueued:           s.enqueued.Load(),
-		QueueDropped:       s.queueDropped.Load(),
-		DispatchOK:         s.dispatchOK.Load(),
-		DispatchErrors:     s.dispatchErrors.Load(),
-		IngestTokenMissing: s.ingestTokenMissing.Load(),
-		LastDispatchError:  last,
+		RecordsRead:         s.recordsRead.Load(),
+		ReadErrors:          s.readErrors.Load(),
+		DecodeErrors:        s.decodeErrors.Load(),
+		NotSensitive:        s.notSensitive.Load(),
+		NoPod:               s.noPod.Load(),
+		SelfExcluded:        s.selfExcluded.Load(),
+		RuntimeLookups:      s.runtimeLookups.Load(),
+		Matched:             s.matched.Load(),
+		Enqueued:            s.enqueued.Load(),
+		QueueDropped:        s.queueDropped.Load(),
+		DispatchOK:          s.dispatchOK.Load(),
+		DispatchErrors:      s.dispatchErrors.Load(),
+		IngestTokenMissing:  s.ingestTokenMissing.Load(),
+		LastDispatchError:   last,
+		SpoolBatches:        s.spoolBatches.Load(),
+		SpoolBytes:          s.spoolBytes.Load(),
+		SpoolEvicted:        s.spoolEvicted.Load(),
+		SpoolExpired:        s.spoolExpired.Load(),
+		SpoolReplayed:       s.spoolReplayed.Load(),
+		SpoolCorrupt:        s.spoolCorrupt.Load(),
+		DispatchAuthRefused: s.dispatchAuthRefused.Load(),
+		DispatchRejected:    s.dispatchRejected.Load(),
+		RetryAfterWaits:     s.retryAfterWaits.Load(),
 	}
 }
 

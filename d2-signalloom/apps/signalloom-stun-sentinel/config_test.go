@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
 	corev1 "k8s.io/api/core/v1"
@@ -39,7 +40,10 @@ func tenantOf(t *testing.T, cfg *Config) string {
 
 func TestIngestTokenComesFromTheEnvironmentAndIsNeverSerialised(t *testing.T) {
 	t.Setenv("SIGNAL_INGEST_TOKEN", "  "+wiringToken+"\n")
-	cfg := parseConfig([]string{})
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
 	if cfg.IngestToken != wiringToken {
 		t.Fatalf("IngestToken = %q, want the trimmed env value", cfg.IngestToken)
 	}
@@ -54,11 +58,20 @@ func TestIngestTokenComesFromTheEnvironmentAndIsNeverSerialised(t *testing.T) {
 
 func TestTenantMapComesFromEnvWithFlagPrecedence(t *testing.T) {
 	t.Setenv("SENTINEL_TENANT_MAP", "fe-signalloom-agents/kusari-agent=kusari")
-	if got := parseConfig([]string{}).TenantMap; got != "fe-signalloom-agents/kusari-agent=kusari" {
-		t.Fatalf("TenantMap from env = %q", got)
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
 	}
-	if got := parseConfig([]string{"--tenant-map=ns-a=acme"}).TenantMap; got != "ns-a=acme" {
-		t.Fatalf("TenantMap with flag = %q, want the flag to win", got)
+	if cfg.TenantMap != "fe-signalloom-agents/kusari-agent=kusari" {
+		t.Fatalf("TenantMap from env = %q", cfg.TenantMap)
+	}
+
+	cfgFlag, err := parseConfig([]string{"--tenant-map=ns-a=acme"})
+	if err != nil {
+		t.Fatalf("parseConfig flag: %v", err)
+	}
+	if cfgFlag.TenantMap != "ns-a=acme" {
+		t.Fatalf("TenantMap with flag = %q, want the flag to win", cfgFlag.TenantMap)
 	}
 }
 
@@ -112,8 +125,16 @@ func TestParseConfigDefaults(t *testing.T) {
 	os.Unsetenv("HEALTH_ADDR")
 	os.Unsetenv("CGROUP_ROOT")
 	os.Unsetenv("WATCH_NAMESPACE")
+	os.Unsetenv("SIGNAL_INGEST_SPOOL_DIR")
+	os.Unsetenv("SIGNAL_INGEST_SPOOL_MAX_BYTES")
+	os.Unsetenv("SIGNAL_INGEST_SPOOL_MAX_AGE")
+	os.Unsetenv("SIGNAL_INGEST_BATCH_MAX")
+	os.Unsetenv("SIGNAL_INGEST_BATCH_LINGER")
 
-	cfg := parseConfig([]string{})
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
 	if cfg.DryRun != false {
 		t.Errorf("DryRun = %v, want false", cfg.DryRun)
 	}
@@ -126,6 +147,21 @@ func TestParseConfigDefaults(t *testing.T) {
 	if cfg.WatchNamespace != "fe-signalloom-agents" {
 		t.Errorf("WatchNamespace = %q, want fe-signalloom-agents", cfg.WatchNamespace)
 	}
+	if cfg.SpoolDir != "/var/lib/signalloom/spool" {
+		t.Errorf("SpoolDir = %q, want /var/lib/signalloom/spool", cfg.SpoolDir)
+	}
+	if cfg.SpoolMaxBytes != 268435456 {
+		t.Errorf("SpoolMaxBytes = %d, want 268435456", cfg.SpoolMaxBytes)
+	}
+	if cfg.SpoolMaxAge != 8*time.Hour {
+		t.Errorf("SpoolMaxAge = %v, want 8h", cfg.SpoolMaxAge)
+	}
+	if cfg.BatchMax != 100 {
+		t.Errorf("BatchMax = %d, want 100", cfg.BatchMax)
+	}
+	if cfg.BatchLinger != 250*time.Millisecond {
+		t.Errorf("BatchLinger = %v, want 250ms", cfg.BatchLinger)
+	}
 }
 
 func TestParseConfigFlags(t *testing.T) {
@@ -134,9 +170,17 @@ func TestParseConfigFlags(t *testing.T) {
 		"--health-addr=:9090",
 		"--cgroup-root=/host/cgroup",
 		"--watch-namespace=custom-ns",
+		"--spool-dir=/custom/spool",
+		"--spool-max-bytes=1048576",
+		"--spool-max-age=4h",
+		"--batch-max=50",
+		"--batch-linger=100ms",
 	}
 
-	cfg := parseConfig(args)
+	cfg, err := parseConfig(args)
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
 	if !cfg.DryRun {
 		t.Errorf("DryRun = false, want true")
 	}
@@ -149,6 +193,21 @@ func TestParseConfigFlags(t *testing.T) {
 	if cfg.WatchNamespace != "custom-ns" {
 		t.Errorf("WatchNamespace = %q, want custom-ns", cfg.WatchNamespace)
 	}
+	if cfg.SpoolDir != "/custom/spool" {
+		t.Errorf("SpoolDir = %q, want /custom/spool", cfg.SpoolDir)
+	}
+	if cfg.SpoolMaxBytes != 1048576 {
+		t.Errorf("SpoolMaxBytes = %d, want 1048576", cfg.SpoolMaxBytes)
+	}
+	if cfg.SpoolMaxAge != 4*time.Hour {
+		t.Errorf("SpoolMaxAge = %v, want 4h", cfg.SpoolMaxAge)
+	}
+	if cfg.BatchMax != 50 {
+		t.Errorf("BatchMax = %d, want 50", cfg.BatchMax)
+	}
+	if cfg.BatchLinger != 100*time.Millisecond {
+		t.Errorf("BatchLinger = %v, want 100ms", cfg.BatchLinger)
+	}
 }
 
 func TestParseConfigEnvVars(t *testing.T) {
@@ -156,8 +215,16 @@ func TestParseConfigEnvVars(t *testing.T) {
 	t.Setenv("HEALTH_ADDR", ":8888")
 	t.Setenv("CGROUP_ROOT", "/env/cgroup")
 	t.Setenv("WATCH_NAMESPACE", "env-ns")
+	t.Setenv("SIGNAL_INGEST_SPOOL_DIR", "/env/spool")
+	t.Setenv("SIGNAL_INGEST_SPOOL_MAX_BYTES", "52428800")
+	t.Setenv("SIGNAL_INGEST_SPOOL_MAX_AGE", "12h")
+	t.Setenv("SIGNAL_INGEST_BATCH_MAX", "200")
+	t.Setenv("SIGNAL_INGEST_BATCH_LINGER", "500ms")
 
-	cfg := parseConfig([]string{})
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
 	if !cfg.DryRun {
 		t.Errorf("DryRun = false, want true from STUN_DRY_RUN")
 	}
@@ -170,6 +237,109 @@ func TestParseConfigEnvVars(t *testing.T) {
 	if cfg.WatchNamespace != "env-ns" {
 		t.Errorf("WatchNamespace = %q, want env-ns", cfg.WatchNamespace)
 	}
+	if cfg.SpoolDir != "/env/spool" {
+		t.Errorf("SpoolDir = %q, want /env/spool", cfg.SpoolDir)
+	}
+	if cfg.SpoolMaxBytes != 52428800 {
+		t.Errorf("SpoolMaxBytes = %d, want 52428800", cfg.SpoolMaxBytes)
+	}
+	if cfg.SpoolMaxAge != 12*time.Hour {
+		t.Errorf("SpoolMaxAge = %v, want 12h", cfg.SpoolMaxAge)
+	}
+	if cfg.BatchMax != 200 {
+		t.Errorf("BatchMax = %d, want 200", cfg.BatchMax)
+	}
+	if cfg.BatchLinger != 500*time.Millisecond {
+		t.Errorf("BatchLinger = %v, want 500ms", cfg.BatchLinger)
+	}
+}
+
+func TestConfigSpoolDefaults(t *testing.T) {
+	os.Unsetenv("SIGNAL_INGEST_SPOOL_DIR")
+	os.Unsetenv("SIGNAL_INGEST_SPOOL_MAX_BYTES")
+	os.Unsetenv("SIGNAL_INGEST_SPOOL_MAX_AGE")
+	os.Unsetenv("SIGNAL_INGEST_BATCH_MAX")
+	os.Unsetenv("SIGNAL_INGEST_BATCH_LINGER")
+
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+
+	if cfg.SpoolDir != "/var/lib/signalloom/spool" {
+		t.Errorf("SpoolDir default = %q, want /var/lib/signalloom/spool", cfg.SpoolDir)
+	}
+	if cfg.SpoolMaxBytes != 268435456 {
+		t.Errorf("SpoolMaxBytes default = %d, want 268435456 (256 MiB)", cfg.SpoolMaxBytes)
+	}
+	if cfg.SpoolMaxAge != 8*time.Hour {
+		t.Errorf("SpoolMaxAge default = %v, want 8h", cfg.SpoolMaxAge)
+	}
+	if cfg.BatchMax != 100 {
+		t.Errorf("BatchMax default = %d, want 100", cfg.BatchMax)
+	}
+	if cfg.BatchLinger != 250*time.Millisecond {
+		t.Errorf("BatchLinger default = %v, want 250ms", cfg.BatchLinger)
+	}
+}
+
+func TestConfigSpoolValidEnvVars(t *testing.T) {
+	t.Setenv("SIGNAL_INGEST_SPOOL_DIR", "/custom/spool")
+	t.Setenv("SIGNAL_INGEST_SPOOL_MAX_BYTES", "1000000")
+	t.Setenv("SIGNAL_INGEST_SPOOL_MAX_AGE", "2h30m")
+	t.Setenv("SIGNAL_INGEST_BATCH_MAX", "50")
+	t.Setenv("SIGNAL_INGEST_BATCH_LINGER", "150ms")
+
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+
+	if cfg.SpoolDir != "/custom/spool" {
+		t.Errorf("SpoolDir = %q, want /custom/spool", cfg.SpoolDir)
+	}
+	if cfg.SpoolMaxBytes != 1000000 {
+		t.Errorf("SpoolMaxBytes = %d, want 1000000", cfg.SpoolMaxBytes)
+	}
+	if cfg.SpoolMaxAge != 2*time.Hour+30*time.Minute {
+		t.Errorf("SpoolMaxAge = %v, want 2h30m", cfg.SpoolMaxAge)
+	}
+	if cfg.BatchMax != 50 {
+		t.Errorf("BatchMax = %d, want 50", cfg.BatchMax)
+	}
+	if cfg.BatchLinger != 150*time.Millisecond {
+		t.Errorf("BatchLinger = %v, want 150ms", cfg.BatchLinger)
+	}
+}
+
+func TestConfigSpoolRejectsNegativeOrMalformed(t *testing.T) {
+	cases := []struct {
+		envName string
+		envVal  string
+	}{
+		{"SIGNAL_INGEST_SPOOL_MAX_BYTES", "-100"},
+		{"SIGNAL_INGEST_SPOOL_MAX_BYTES", "notanumber"},
+		{"SIGNAL_INGEST_SPOOL_MAX_AGE", "-5m"},
+		{"SIGNAL_INGEST_SPOOL_MAX_AGE", "invalid-duration"},
+		{"SIGNAL_INGEST_BATCH_MAX", "-10"},
+		{"SIGNAL_INGEST_BATCH_MAX", "0"},
+		{"SIGNAL_INGEST_BATCH_MAX", "xyz"},
+		{"SIGNAL_INGEST_BATCH_LINGER", "-100ms"},
+		{"SIGNAL_INGEST_BATCH_LINGER", "badtime"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.envName+"="+tc.envVal, func(t *testing.T) {
+			t.Setenv(tc.envName, tc.envVal)
+			cfg, err := parseConfig([]string{})
+			if err == nil {
+				t.Fatalf("parseConfig unexpectedly succeeded with %s=%q: %+v", tc.envName, tc.envVal, cfg)
+			}
+			if !strings.Contains(err.Error(), tc.envName) {
+				t.Fatalf("error %q must name the offending env var %q", err.Error(), tc.envName)
+			}
+		})
+	}
 }
 
 func TestParseConfigFlagPrecedenceOverEnv(t *testing.T) {
@@ -177,11 +347,14 @@ func TestParseConfigFlagPrecedenceOverEnv(t *testing.T) {
 	t.Setenv("CGROUP_ROOT", "/env/cgroup")
 	t.Setenv("WATCH_NAMESPACE", "env-ns")
 
-	cfg := parseConfig([]string{
+	cfg, err := parseConfig([]string{
 		"--health-addr=:9999",
 		"--cgroup-root=/flag/cgroup",
 		"--watch-namespace=flag-ns",
 	})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
 
 	if cfg.HealthAddr != ":9999" {
 		t.Errorf("HealthAddr = %q, want :9999 (flag should override env)", cfg.HealthAddr)

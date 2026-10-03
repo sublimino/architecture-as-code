@@ -622,7 +622,7 @@ The following 3 compact JSON request bodies (one line each) define the exact wir
 | P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | pass — delivered: 24565a359600b3474e391059d85e41f1daa1895f (see Errata — SLTM-P1-2) | — | — | — | — |
 | P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | pass — delivered: `376d8205` / `9ea6339f` (see Errata — SLTM-P1-GOV) | — | — | — | — |
 | P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | pass (inventory written; shared patterns pinned) — delivered: `b10042333773e0d53303fa8adb11b02dcca2c71a` (see Errata — SLTM-P2-PRE) | — | — | — | — |
-| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | — | — | — | — | — |
+| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | pass — delivered: `e4ebc708b94751eefc5a84c40eec3f5ff997390e` (see Errata — SLTM-P2-1) | — | — | — | — |
 | P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | — | — | — | — | — |
 | P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | — | — | — | — | — |
 | P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
@@ -1114,6 +1114,62 @@ Failing test suites were authored and committed first in `ec12d405`:
   `rg -c 'X-SignalLoom-Acting-Tenant' d2-signalloom` -> `12 matches across 6 files (positive control verified)`
 - **T7 (Citation Resolution Integrity):**
   `70 citations verified against codebase with sed/grep` -> `0 MISSING`
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P2-1
+
+- **Logical ID:** P2-1
+- **Created:** 2026-10-03 07:05:00+01:00
+- **Last Updated:** 2026-10-03 07:05:00+01:00
+- **Harness:** `antigravity`
+- **Integration Base:** `refs/heads/integration/sltm-v0.1.0` (`b1fd3b1ea4c9103415e36c077313b24bf4b3130b`)
+- **Delivered Commit SHA:** `e4ebc708b94751eefc5a84c40eec3f5ff997390e`
+- **Implementation Commit SHA:** `c98ffbad63d4104c35b546bb71b5693d25ceea24`
+
+##### Implementation Summary
+- Replaced 8-worker uncoordinated sender pool with a single sender goroutine (`d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go`) enforcing batch size (`SIGNAL_INGEST_BATCH_MAX`, default 100) and linger duration (`SIGNAL_INGEST_BATCH_LINGER`, default 250ms).
+- Implemented monotonic D10 chain headers stamped at batch creation: `X-SignalLoom-Batch-Epoch` (32 hex characters from 16 crypto random bytes), `X-SignalLoom-Batch-Seq` (1-indexed uint64), and `X-SignalLoom-Batch-Prev` (lowercase hex SHA-256 of the exact wire payload bytes of previous batch, empty on seq 1).
+- Implemented crash-safe, bounded on-node disk spool (`d2-signalloom/apps/stun-sentinel/pkg/correlator/spool.go`) at `/var/lib/signalloom/spool` (0700 dir, 0600 envelope JSON files written via `O_EXCL` temp file + fsync + atomic rename + dir fsync, unparseable files quarantined as `.corrupt`).
+- Configured response matrix: HTTP 2xx deletes from spool and advances chain; HTTP 401/403 logs error, deletes spooled batch, never retries, increments `dispatch_auth_refused`; HTTP 4xx (client errors) drops batch, increments `dispatch_rejected`; HTTP 429 waits `Retry-After` (integer seconds or HTTP-date, capped at 300s) and replays; HTTP 5xx / timeouts / network errors back off 1s doubling to 30s with jitter and retain on spool.
+- Enforced byte cap (`SIGNAL_INGEST_SPOOL_MAX_BYTES`, default 256 MiB) and age cap (`SIGNAL_INGEST_SPOOL_MAX_AGE`, default 8h) with oldest-first eviction, logging `spool_eviction` and incrementing `spool_evicted`/`spool_expired`.
+- Direct reactive freeze containment in `handleRecord` is strictly decoupled and never blocks on spool I/O or network dispatch.
+- Added pipeline stats (`spool_batches`, `spool_bytes`, `spool_evicted`, `spool_expired`, `spool_replayed`, `spool_corrupt`, `dispatch_auth_refused`, `dispatch_rejected`, `retry_after_waits`) surfaced in 30s stats line.
+- Wired environment configuration in `signalloom-stun-sentinel/config.go` with strict validation.
+- Added `spool` hostPath volume and volumeMount to DaemonSet (`d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml`), updated capability and least privilege tests, and re-pinned sentinel image fingerprint to `src-151bf0ff0a8c`.
+
+##### Config Constants & File Citations
+| Constant | Default Value | File:Line Citation |
+| :--- | :--- | :--- |
+| `SIGNAL_INGEST_BATCH_MAX` | `100` | `d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go:27` |
+| `SIGNAL_INGEST_BATCH_LINGER` | `250ms` | `d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go:28` |
+| `SIGNAL_INGEST_SPOOL_MAX_BYTES` | `268435456` (256 MiB) | `d2-signalloom/apps/stun-sentinel/pkg/correlator/spool.go:34` |
+| `SIGNAL_INGEST_SPOOL_MAX_AGE` | `8h` | `d2-signalloom/apps/stun-sentinel/pkg/correlator/spool.go:35` |
+| `minBackoff` | `1s` | `d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go:31` |
+| `maxBackoff` | `30s` | `d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go:32` |
+| `maxRetryAfter` | `300s` | `d2-signalloom/apps/stun-sentinel/pkg/correlator/sender.go:33` |
+| `SIGNAL_INGEST_SPOOL_DIR` | `"/var/lib/signalloom/spool"` | `d2-signalloom/apps/signalloom-stun-sentinel/config.go:41` |
+
+##### Test Suite Results
+- `cd d2-signalloom/apps/stun-sentinel && CGO_ENABLED=0 go test -count=1 ./pkg/correlator/... ./deploy/...` -> `PASS`
+- `cd d2-signalloom/apps/signalloom-stun-sentinel && CGO_ENABLED=0 go test -count=1 ./...` -> `PASS`
+- `KUBECONFIG=/dev/null bats test/sentinel-capabilities.bats test/sentinel-image-provenance.bats d2-signalloom/test/stun-sentinel-daemonset.bats test/sltm-probe-apikey.bats` -> `PASS` (64/64 passed, 8 skipped offline)
+
+##### Mutation Proofs (11/11 Verified Red-then-Green)
+- **MUT 1 (Retry on 401 - `sender.go:311` -> `resultRetryableError`):** RED (`TestSpoolDoesNotRetry401Or403` failed: `sender_test.go:482: spool dir has 1 entries, want 0 (never spooled)`) -> GREEN
+- **MUT 2 (Ignore Retry-After - `sender.go:318` -> `resultRetryableError`):** RED (`TestSpoolHonoursRetryAfter` failed: `sender_test.go:613: retry_after_waits = 0, want 1`) -> GREEN
+- **MUT 3 (Hash re-marshalled struct for Prev - `sender.go:190` -> mismatched bytes):** RED (`TestBatchChainHeaders` failed: `sender_test.go:146: req[1] prev = "3d6c46571100718cc8a8c84f9b4cf966308e9a13130c1b1ddab68413a72e59e9", want "c0c4c7fabf64c3b8804992cedfa4c063cd85e7190b5ec0c579d68e60a4f2f9a0"`) -> GREEN
+- **MUT 4 (Reuse stored epoch for live batches - `sender.go:100` -> static epoch):** RED (`TestSpoolReplayAfterRestartKeepsOriginalChain` failed: `sender_test.go:317: new epoch must differ from old epoch`) -> GREEN
+- **MUT 5 (Remove byte cap check - `spool.go:158` -> commented):** RED (`TestSpoolByteCapEvictsOldestFirstCountedAndLogged` failed: `spool_test.go:309: spool_evicted = 0, want 1`) -> GREEN
+- **MUT 6 (Evict newest instead of oldest - `spool.go:399` -> last index):** RED (`TestSpoolByteCapEvictsOldestFirstCountedAndLogged` failed: `evicted 1 spool batch (381 bytes, file spool_...batch) due to size_cap_exceeded`) -> GREEN
+- **MUT 7 (Follow symlinks - `spool.go:243` -> disabled symlink check in `ListBatches`):** RED (`TestSpoolIgnoresSymlinksAndForeignFiles` failed: `spool_test.go:222: ListBatches returned 2 entries, want 1 (symlink and foreign file must be skipped)`) -> GREEN
+- **MUT 8 (Write files 0644 instead of 0600 - `spool.go:167` -> 0644):** RED (`TestSpoolFileModes` failed: `spool_test.go:154: batch file mode = 0644, want 0600`) -> GREEN
+- **MUT 9 (Skip synchronous freeze on detection - `ebpf_correlator.go:754` -> commented):** RED (`TestFreezeNotBlockedBySpool` failed: `DirectReaction = "", want "cgroup_frozen"`) -> GREEN
+- **MUT 10 (Persist Auth header in record - `spool.go:50` -> added `Auth` JSON key):** RED (`TestSpoolNeverContainsTheKey` failed: `spool_test.go:182: spool file contains Authorization header`) -> GREEN
+- **MUT 11 (Add forbidden hostPath - `daemonset.yaml` -> `/sys/fs/bpf`):** RED (`TestCanonicalHostMounts` failed: `manifest_test.go:193: hostPath /sys/fs/bpf is mounted but is not needed: no pinning, bpf2go-embedded probe, no CO-RE mount`) -> GREEN
+
+##### Deviations from Phase 2 Contract
+- None. Fully adheres to Phase 2 Shared Patterns block.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

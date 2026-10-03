@@ -21,8 +21,9 @@ import (
 // forgotten: nothing is pinned, and the probe is bpf2go-embedded so it needs
 // no CO-RE mount. Adding one back must fail here rather than pass unnoticed.
 var hostPathPolicy = map[string]bool{
-	"/sys/fs/cgroup":    false, // cgroup.freeze writes
-	"/sys/kernel/debug": true,  // tracepoint attach reads the tracepoint id from tracefs
+	"/sys/fs/cgroup":            false, // cgroup.freeze writes
+	"/sys/kernel/debug":         true,  // tracepoint attach reads the tracepoint id from tracefs
+	"/var/lib/signalloom/spool": false, // on-node crash-safe spool writes
 }
 
 // leastPrivilegeViolations returns one line per breach of the sentinel's

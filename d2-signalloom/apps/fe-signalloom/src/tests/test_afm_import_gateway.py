@@ -244,8 +244,9 @@ def test_body_cluster_id_mismatch_is_403(key_env, outbound):
 )
 def test_oversized_body_is_413(key_env, outbound, kind, body_size, honest_header):
     # Construct a valid JSON prefix + padding + suffix
-    pad_len = body_size - 40
-    data = b'{"id":"' + DEFAULT_CLUSTER.encode() + b'","p":"' + (b"A" * pad_len) + b'"}'
+    prefix = b'{"id":"' + DEFAULT_CLUSTER.encode() + b'","p":"'
+    pad_len = max(0, body_size - len(prefix) - 2)
+    data = prefix + (b"A" * pad_len) + b'"}'
     assert len(data) >= body_size
 
     headers = {

@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/name: signalloom-rbac-exporter
     signalloom.ai/agent: "true"
     signalloom.ai/role: "rbac-exporter"
+    signalloom.ai/framework: "custom"
 spec:
   schedule: "*/30 * * * *"
   concurrencyPolicy: Forbid
@@ -19,6 +20,7 @@ spec:
         app.kubernetes.io/name: signalloom-rbac-exporter
         signalloom.ai/agent: "true"
         signalloom.ai/role: "rbac-exporter"
+        signalloom.ai/framework: "custom"
     spec:
       backoffLimit: 2
       activeDeadlineSeconds: 300
@@ -28,6 +30,7 @@ spec:
             app.kubernetes.io/name: signalloom-rbac-exporter
             signalloom.ai/agent: "true"
             signalloom.ai/role: "rbac-exporter"
+            signalloom.ai/framework: "custom"
         spec:
           serviceAccountName: signalloom-rbac-exporter
           restartPolicy: OnFailure

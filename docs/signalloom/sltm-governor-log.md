@@ -48,7 +48,7 @@ Mission identity: repository `/home/andy/src/cp/osramp-demo`, shortcode
 
 ---
 
-## 4. Board applied by Antigravity governor session; health verified; P0 in progress
+## 4b. Board applied by Antigravity governor session; health verified; P0 in progress
 
 - **Timestamp**: 2026-10-03T01:48:30+0100
 - **Session**: Governor session (Antigravity CLI, conversation `fd5438cd-2284-4768-a116-59c30f412ac0`).

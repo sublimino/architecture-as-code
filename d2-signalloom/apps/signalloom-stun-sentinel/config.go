@@ -2,8 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
 )
 
 // Config encapsulates runtime configuration options for the STUN sentinel.
@@ -21,13 +26,20 @@ type Config struct {
 	// (SIGNAL_INGEST_TOKEN, from a Secret): a flag would put it in argv,
 	// readable from /proc/<pid>/cmdline. Never serialised.
 	IngestToken string `json:"-"`
+
+	// On-node spool and batch dispatch options (SLTM Phase 2)
+	SpoolDir      string        `json:"spool_dir"`
+	SpoolMaxBytes int64         `json:"spool_max_bytes"`
+	SpoolMaxAge   time.Duration `json:"spool_max_age"`
+	BatchMax      int           `json:"batch_max"`
+	BatchLinger   time.Duration `json:"batch_linger"`
 }
 
 // parseConfig parses command-line flags and environment variables with the following precedence:
 // 1. Explicit command-line flags (--dry-run, --health-addr, etc.)
 // 2. Environment variables (STUN_DRY_RUN, HEALTH_ADDR, etc.)
 // 3. Built-in default values
-func parseConfig(args []string) *Config {
+func parseConfig(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("signalloom-stun-sentinel", flag.ContinueOnError)
 
 	dryRunFlag := fs.Bool("dry-run", false, "Enable positive dry-run mode (log containment decisions without mutating kernel state)")
@@ -38,7 +50,15 @@ func parseConfig(args []string) *Config {
 	resumeTokenFlag := fs.String("resume-token", "", "Governance resume token")
 	tenantMapFlag := fs.String("tenant-map", "", "Workload tenant attribution: comma-separated namespace[/serviceAccount]=tenant")
 
-	_ = fs.Parse(args)
+	spoolDirFlag := fs.String("spool-dir", "", "Path to bounded on-node spool directory (default: /var/lib/signalloom/spool)")
+	spoolMaxBytesFlag := fs.Int64("spool-max-bytes", 0, "Maximum spool byte capacity (default: 268435456)")
+	spoolMaxAgeFlag := fs.String("spool-max-age", "", "Maximum age for spooled batches before expiration (default: 8h)")
+	batchMaxFlag := fs.Int("batch-max", 0, "Maximum observations per dispatch batch (default: 100)")
+	batchLingerFlag := fs.String("batch-linger", "", "Maximum linger time before flushing batch (default: 250ms)")
+
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{}
 
@@ -95,7 +115,78 @@ func parseConfig(args []string) *Config {
 
 	cfg.IngestToken = strings.TrimSpace(os.Getenv("SIGNAL_INGEST_TOKEN"))
 
-	return cfg
+	// Spool directory: --spool-dir flag -> SIGNAL_INGEST_SPOOL_DIR env -> default /var/lib/signalloom/spool
+	if *spoolDirFlag != "" {
+		cfg.SpoolDir = *spoolDirFlag
+	} else if val := os.Getenv("SIGNAL_INGEST_SPOOL_DIR"); val != "" {
+		cfg.SpoolDir = val
+	} else {
+		cfg.SpoolDir = correlator.DefaultSpoolDir
+	}
+
+	// Spool max bytes: --spool-max-bytes flag -> SIGNAL_INGEST_SPOOL_MAX_BYTES env -> default 268435456
+	cfg.SpoolMaxBytes = correlator.DefaultSpoolMaxBytes
+	if *spoolMaxBytesFlag != 0 {
+		if *spoolMaxBytesFlag <= 0 {
+			return nil, fmt.Errorf("spool-max-bytes: invalid value %d (must be positive)", *spoolMaxBytesFlag)
+		}
+		cfg.SpoolMaxBytes = *spoolMaxBytesFlag
+	} else if val := os.Getenv("SIGNAL_INGEST_SPOOL_MAX_BYTES"); val != "" {
+		parsed, err := strconv.ParseInt(val, 10, 64)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("SIGNAL_INGEST_SPOOL_MAX_BYTES: invalid value %q (must be a positive integer)", val)
+		}
+		cfg.SpoolMaxBytes = parsed
+	}
+
+	// Spool max age: --spool-max-age flag -> SIGNAL_INGEST_SPOOL_MAX_AGE env -> default 8h
+	cfg.SpoolMaxAge = correlator.DefaultSpoolMaxAge
+	if *spoolMaxAgeFlag != "" {
+		parsed, err := time.ParseDuration(*spoolMaxAgeFlag)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("spool-max-age: invalid duration %q: %v", *spoolMaxAgeFlag, err)
+		}
+		cfg.SpoolMaxAge = parsed
+	} else if val := os.Getenv("SIGNAL_INGEST_SPOOL_MAX_AGE"); val != "" {
+		parsed, err := time.ParseDuration(val)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("SIGNAL_INGEST_SPOOL_MAX_AGE: invalid duration %q: %v", val, err)
+		}
+		cfg.SpoolMaxAge = parsed
+	}
+
+	// Batch max: --batch-max flag -> SIGNAL_INGEST_BATCH_MAX env -> default 100
+	cfg.BatchMax = correlator.DefaultBatchMax
+	if *batchMaxFlag != 0 {
+		if *batchMaxFlag <= 0 {
+			return nil, fmt.Errorf("batch-max: invalid value %d (must be positive)", *batchMaxFlag)
+		}
+		cfg.BatchMax = *batchMaxFlag
+	} else if val := os.Getenv("SIGNAL_INGEST_BATCH_MAX"); val != "" {
+		parsed, err := strconv.Atoi(val)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("SIGNAL_INGEST_BATCH_MAX: invalid value %q (must be a positive integer)", val)
+		}
+		cfg.BatchMax = parsed
+	}
+
+	// Batch linger: --batch-linger flag -> SIGNAL_INGEST_BATCH_LINGER env -> default 250ms
+	cfg.BatchLinger = correlator.DefaultBatchLinger
+	if *batchLingerFlag != "" {
+		parsed, err := time.ParseDuration(*batchLingerFlag)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("batch-linger: invalid duration %q: %v", *batchLingerFlag, err)
+		}
+		cfg.BatchLinger = parsed
+	} else if val := os.Getenv("SIGNAL_INGEST_BATCH_LINGER"); val != "" {
+		parsed, err := time.ParseDuration(val)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("SIGNAL_INGEST_BATCH_LINGER: invalid duration %q: %v", val, err)
+		}
+		cfg.BatchLinger = parsed
+	}
+
+	return cfg, nil
 }
 
 func isTruthy(val string) bool {

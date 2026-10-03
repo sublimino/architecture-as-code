@@ -135,6 +135,48 @@ func WithProcRoot(procRoot string) Option {
 	}
 }
 
+// WithSpoolDir overrides the default spool directory.
+func WithSpoolDir(dir string) Option {
+	return func(m *SentinelProbeManager) {
+		m.spoolDir = dir
+	}
+}
+
+// WithSpoolMaxBytes overrides the default spool max byte cap.
+func WithSpoolMaxBytes(maxBytes int64) Option {
+	return func(m *SentinelProbeManager) {
+		m.spoolMaxBytes = maxBytes
+	}
+}
+
+// WithSpoolMaxAge overrides the default spool max age.
+func WithSpoolMaxAge(maxAge time.Duration) Option {
+	return func(m *SentinelProbeManager) {
+		m.spoolMaxAge = maxAge
+	}
+}
+
+// WithBatchMax overrides the maximum observation count per batch.
+func WithBatchMax(batchMax int) Option {
+	return func(m *SentinelProbeManager) {
+		m.batchMax = batchMax
+	}
+}
+
+// WithBatchLinger overrides the batch linger duration.
+func WithBatchLinger(batchLinger time.Duration) Option {
+	return func(m *SentinelProbeManager) {
+		m.batchLinger = batchLinger
+	}
+}
+
+// WithClock overrides the clock (used for testing with mockClock).
+func WithClock(clk Clock) Option {
+	return func(m *SentinelProbeManager) {
+		m.clock = clk
+	}
+}
+
 // ErrIngestTokenMissing is returned instead of posting when no ingest
 // credential is configured. There is deliberately no default: the old one,
 // "sentinel-in-cluster-token", was a public string in this file.
@@ -259,6 +301,15 @@ type SentinelProbeManager struct {
 
 	stats pipelineStats
 
+	spoolDir      string
+	spoolMaxBytes int64
+	spoolMaxAge   time.Duration
+	batchMax      int
+	batchLinger   time.Duration
+	clock         Clock
+	spool         *Spool
+	sender        *Sender
+
 	cgroupRoot      string
 	cgMu            sync.Mutex
 	cgroupIndex     map[uint64]string // cgroup inode -> pod UID
@@ -293,13 +344,19 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 		procRoot:        DefaultProcRoot,
 		podMap:          make(map[string]*corev1.Pod),
 		queue:           make(chan TelemetryObservation, DefaultQueueSize),
-		workers:         DefaultWorkerCount,
+		workers:         1,
 		rateLim:         make(chan struct{}, DefaultRateCapacity),
 		burst:           newBurstTracker(),
 		burstThreshold:  DefaultEvasiveBurstThreshold,
 		burstWindow:     DefaultEvasiveBurstWindow,
 		self:            filter.SelfFromEnv(),
 		runtimeBinaries: DefaultRuntimeBinaries,
+		spoolDir:        DefaultSpoolDir,
+		spoolMaxBytes:   DefaultSpoolMaxBytes,
+		spoolMaxAge:     DefaultSpoolMaxAge,
+		batchMax:        DefaultBatchMax,
+		batchLinger:     DefaultBatchLinger,
+		clock:           realClock{},
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 			Transport: &http.Transport{
@@ -313,6 +370,10 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 	for _, opt := range opts {
 		opt(m)
 	}
+
+	spool, _ := NewSpool(m.spoolDir, m.spoolMaxBytes, m.spoolMaxAge, m.clock, &m.stats)
+	m.spool = spool
+	m.sender = newSender(m, spool, m.batchMax, m.batchLinger, m.clock)
 
 	m.initInformer()
 	return m
@@ -574,11 +635,9 @@ func (m *SentinelProbeManager) Start(ctx context.Context, rd *ringbuf.Reader) er
 		cache.WaitForCacheSync(ctx.Done(), m.informer.HasSynced)
 	}
 
-	// Start asynchronous dispatch worker pool
-	for i := 0; i < m.workers; i++ {
-		m.wg.Add(1)
-		go m.dispatchWorker(ctx)
-	}
+	// Start single asynchronous dispatch sender goroutine (SLTM-P2-1)
+	m.wg.Add(1)
+	go m.sender.run(ctx)
 
 	defer func() {
 		close(m.queue)

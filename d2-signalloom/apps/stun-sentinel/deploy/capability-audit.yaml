@@ -94,6 +94,9 @@ spec:
             - name: debugfs
               mountPath: /sys/kernel/debug
               readOnly: true
+            - name: spool
+              mountPath: /var/lib/signalloom/spool
+              readOnly: false
       volumes:
         - name: cgroup
           hostPath:
@@ -103,3 +106,7 @@ spec:
           hostPath:
             path: /sys/kernel/debug
             type: Directory
+        - name: spool
+          hostPath:
+            path: /var/lib/signalloom/spool
+            type: DirectoryOrCreate

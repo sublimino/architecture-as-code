@@ -85,11 +85,12 @@ mount_triples() {
   [ "$output" = "ClusterFirstWithHostNet" ]
 }
 
-@test "sentinel-capabilities: debugfs is mounted read-only, cgroup read-write, and nothing else" {
+@test "sentinel-capabilities: debugfs is mounted read-only, cgroup read-write, spool read-write, and nothing else" {
   run mount_triples
   [ "$status" -eq 0 ]
   [ "$output" = "/host-cgroup=/sys/fs/cgroup:false
-/sys/kernel/debug=/sys/kernel/debug:true" ]
+/sys/kernel/debug=/sys/kernel/debug:true
+/var/lib/signalloom/spool=/var/lib/signalloom/spool:false" ]
 }
 
 # debugfs is the one mount that decides whether the probe loads: link.Tracepoint

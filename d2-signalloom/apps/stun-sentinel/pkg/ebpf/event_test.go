@@ -137,3 +137,19 @@ func FuzzDecodeSyscallEvent(f *testing.F) {
 		_ = utf8.ValidString(ev.Filename) // non-UTF-8 is legal; only bounds matter
 	})
 }
+
+// The opener's executable identity rides on every record, so userspace can
+// tell runc init from the workload it becomes without racing the exec
+// (correlator/runtime_lookup.go).
+func TestDecodeSyscallEventCarriesTheOpenersExeIdentity(t *testing.T) {
+	raw := record(EventOpenat, []byte("runc:[2:INIT]"), []byte("/etc/passwd"))
+	binary.NativeEndian.PutUint64(raw[offExeIno:], 86810274)
+	binary.NativeEndian.PutUint64(raw[offExeSize:], 15906368)
+	ev, err := DecodeSyscallEvent(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.ExeIno != 86810274 || ev.ExeSize != 15906368 {
+		t.Fatalf("exe identity = (%d, %d), want (86810274, 15906368)", ev.ExeIno, ev.ExeSize)
+	}
+}

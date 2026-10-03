@@ -4,6 +4,7 @@
 package correlator
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -254,5 +255,101 @@ func TestOnKindRuncReadingShadowIsStillDetected(t *testing.T) {
 	m, calls, ino, _ := kindRuntimeFixture(t, map[int]string{3610948: "runc"})
 	if _, ok := m.handleRecord(cgroupRecord(ino, "/etc/shadow")); !ok || *calls != 1 {
 		t.Fatalf("ok=%v freezes=%d", ok, *calls)
+	}
+}
+
+// Live, 2026-10-03 07:18: agent-cardvault-95bf5d9dd-q7vpk was frozen 2 s
+// after creation by four opens of its ServiceAccount mount destination, made
+// at 07:18:42.279 in the cardvault-agent container's cgroup while the pod was
+// still Pending -- runc init mounting the projected volume. The record was
+// handled 0.73 s later (correlator_freeze_held at 07:18:43.01); by then runc
+// init had exec'd the agent, so cgroup.procs listed only the agent and the
+// cgroup-membership check, which reads the state at HANDLING time, refused
+// the exemption. The opener's identity has to be taken at EVENT time: the
+// probe records the exe inode and size of the process that made the call,
+// and a match with the node's runc is the runtime whatever the cgroup holds
+// by the time userspace looks.
+
+// withExe stamps the opener's executable identity on a raw record, at the
+// offsets pkg/ebpf pins (TestSyscallEventLayoutMatchesBTF).
+func withExe(b []byte, ino uint64, size int64) []byte {
+	binary.NativeEndian.PutUint64(b[328:], ino)
+	binary.NativeEndian.PutUint64(b[336:], uint64(size))
+	return b
+}
+
+func inoSize(t *testing.T, path string) (uint64, int64) {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Sys().(*syscall.Stat_t).Ino, fi.Size()
+}
+
+func TestRuncsSetupOpenIsExemptEvenOnceTheEntrypointHasExecd(t *testing.T) {
+	agentBin := filepath.Join(t.TempDir(), "cardvault-agent")
+	if err := os.WriteFile(agentBin, []byte("cardvault agent ELF"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"/var/run/secrets/kubernetes.io/serviceaccount", "/etc/passwd"} {
+		// By handling time the cgroup holds only the agent: the live race.
+		m, calls, ino, nodeRunc := kindRuntimeFixture(t, map[int]string{3610999: agentBin})
+		rIno, rSize := inoSize(t, nodeRunc)
+		if obs, ok := m.handleRecord(withExe(cgroupRecord(ino, target), rIno, rSize)); ok || *calls != 0 {
+			t.Fatalf("%s: reported=%v (%+v) freezes=%d: runc's own setup open froze the pod", target, ok, obs, *calls)
+		}
+		if s := m.Stats(); s.RuntimeLookups != 1 || s.RuntimeLookupsAtEvent != 1 {
+			t.Fatalf("%s: runtime_lookups=%d at_event=%d, want 1 and 1", target, s.RuntimeLookups, s.RuntimeLookupsAtEvent)
+		}
+	}
+}
+
+func TestAnOpenWhoseExeIsTheWorkloadIsDetectedAndFrozen(t *testing.T) {
+	agentBin := filepath.Join(t.TempDir(), "cardvault-agent")
+	if err := os.WriteFile(agentBin, []byte("runc 1.4.2 ELF stand-in"), 0o755); err != nil { // same size as runc
+		t.Fatal(err)
+	}
+	m, calls, ino, _ := kindRuntimeFixture(t, map[int]string{3610999: agentBin})
+	aIno, aSize := inoSize(t, agentBin)
+	obs, ok := m.handleRecord(withExe(cgroupRecord(ino, "/var/run/secrets/kubernetes.io/serviceaccount"), aIno, aSize))
+	if !ok || obs.DirectReaction != ReactionCgroupFrozen || *calls != 1 {
+		t.Fatalf("ok=%v reaction=%q freezes=%d: the agent's own open must be detected and frozen", ok, obs.DirectReaction, *calls)
+	}
+	if s := m.Stats(); s.RuntimeLookups != 0 || s.RuntimeLookupsAtEvent != 0 {
+		t.Fatalf("runtime_lookups=%d at_event=%d for a workload open", s.RuntimeLookups, s.RuntimeLookupsAtEvent)
+	}
+}
+
+// The inode alone is not identity: a different file that happens to share
+// the inode number (another filesystem) differs in size.
+func TestRuncsInodeWithAnotherSizeIsNotTheRuntime(t *testing.T) {
+	m, calls, ino, nodeRunc := kindRuntimeFixture(t, map[int]string{3610999: "/nonexistent"})
+	rIno, rSize := inoSize(t, nodeRunc)
+	if _, ok := m.handleRecord(withExe(cgroupRecord(ino, "/etc/passwd"), rIno, rSize+1)); !ok || *calls != 1 {
+		t.Fatalf("ok=%v freezes=%d: same inode, other size is not runc", ok, *calls)
+	}
+}
+
+// Being runc exempts the setup opens only.
+func TestRuncsExeIdentityDoesNotExemptOtherPaths(t *testing.T) {
+	m, calls, ino, nodeRunc := kindRuntimeFixture(t, map[int]string{3610948: "runc"})
+	rIno, rSize := inoSize(t, nodeRunc)
+	if _, ok := m.handleRecord(withExe(cgroupRecord(ino, "/etc/shadow"), rIno, rSize)); !ok || *calls != 1 {
+		t.Fatalf("ok=%v freezes=%d: /etc/shadow by runc must still be detected", ok, *calls)
+	}
+}
+
+// Without the cgroup root (PID path), the event-time identity decides too.
+func TestEventTimeIdentityExemptsOnThePIDPathAfterTheExec(t *testing.T) {
+	m, calls := pipeline(t, agentPod("tenant-kusari"), nil)
+	agentBin := filepath.Join(t.TempDir(), "kusari-agent")
+	if err := os.WriteFile(agentBin, []byte("kusari agent ELF"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nodeRunc := runtimeFixture(t, procOf(m), agentBin) // pid 1001 now runs the agent
+	rIno, rSize := inoSize(t, nodeRunc)
+	if _, ok := m.handleRecord(withExe(rawRecord(ebpf.EventOpenat, 1001, "/etc/passwd"), rIno, rSize)); ok || *calls != 0 {
+		t.Fatalf("ok=%v freezes=%d: runc's lookup, recorded at event time, froze the pod", ok, *calls)
 	}
 }

@@ -122,7 +122,7 @@ esac
 # ── Step 5: the sentinel's own health (resync interval, reconcile count) ─────
 # Matched first: these jsonpaths would otherwise fall into the Step 1 catch-alls.
 case "${ARGS}" in
-  *"get pod"*"name=stun-sentinel"*) echo -n "stun-sentinel-x7k2p"; exit 0 ;;
+  *"get pod"*"name=signalloom-warden"*|*"get pod"*"name=stun-sentinel"*) echo -n "signalloom-warden-x7k2p"; exit 0 ;;
   *"get pod"*"io/stun-reason}"*)
       # After an authorised recovery fleet-manager blanks the reason.
       recovered && [ "${MUT}" != "step6_record_left" ] && exit 0
@@ -132,7 +132,7 @@ case "${ARGS}" in
       if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
       else echo -n "stun-sentinel detection: sys_enter_openat /etc/passwd"; fi
       exit 0 ;;
-  *"get --raw"*"pods/stun-sentinel-x7k2p:8081/proxy/healthz"*)
+  *"get --raw"*"pods/"*":8081/proxy/healthz"*)
       # Every read is a later moment: reconcile_count advances (unless the
       # reconciler is idle) and, from the second read on, a resync has run.
       n=$(( $(cat "${STATE}/health_reads" 2>/dev/null || echo 0) + 1 ))

@@ -6,6 +6,7 @@ package correlator
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 
@@ -165,5 +166,93 @@ func TestSameBinaryNeedsInodeAndSizeNotDevice(t *testing.T) {
 		if got := sameBinary(c.exe, runc); got != c.want {
 			t.Errorf("%s: sameBinary = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// Live, 2026-10-03: runtime_lookups stayed 0 after the exemption shipped, and
+// a new agent-cardvault pod was frozen 1 s after creation by runc opening its
+// ServiceAccount mount destination. On kind the probe's PID is the host
+// kernel's (pid:[4026531836]) while the sentinel's /proc is the node's
+// (pid:[4026534203]), so /proc/<event pid>/exe named no process. The
+// runtime is now recognised by cgroup membership: the event's cgroup inode
+// is the same in every namespace, and its cgroup.procs lists PIDs in the
+// sentinel's own namespace. When every process in that cgroup runs the
+// node's runc, no workload code has run there yet.
+
+// kindRuntimeFixture lays out the node runc, a container scope holding the
+// given processes (pid -> exe), and returns the manager and scope inode.
+func kindRuntimeFixture(t *testing.T, procs map[int]string) (*SentinelProbeManager, *int32, uint64, string) {
+	t.Helper()
+	root, ino := kindCgroupTree(t, pipelinePodUID)
+	m, calls := pipeline(t, agentPod("tenant-kusari"), nil)
+	WithCgroupRoot(root)(m)
+	nodeRunc := filepath.Join(m.procRoot, "1", "root", "usr", "local", "sbin", "runc")
+	if err := os.MkdirAll(filepath.Dir(nodeRunc), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nodeRunc, []byte("runc 1.4.2 ELF stand-in"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var scope string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && filepath.Ext(p) == ".scope" {
+			scope = p
+		}
+		return nil
+	})
+	var list string
+	for pid, exe := range procs {
+		if exe == "runc" {
+			exe = nodeRunc
+		}
+		dir := filepath.Join(m.procRoot, strconv.Itoa(pid))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(exe, filepath.Join(dir, "exe")); err != nil {
+			t.Fatal(err)
+		}
+		list += strconv.Itoa(pid) + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(scope, "cgroup.procs"), []byte(list), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return m, calls, ino, nodeRunc
+}
+
+func TestOnKindRuncAloneInItsContainerIsTheRuntime(t *testing.T) {
+	for _, target := range []string{"/etc/passwd", "/var/run/secrets/kubernetes.io/serviceaccount", "/run/secrets/kubernetes.io/serviceaccount"} {
+		m, calls, ino, _ := kindRuntimeFixture(t, map[int]string{3610948: "runc"})
+		if obs, ok := m.handleRecord(cgroupRecord(ino, target)); ok || *calls != 0 {
+			t.Fatalf("%s: reported=%v (%+v) freezes=%d: runc setting up the container froze it", target, ok, obs, *calls)
+		}
+		if m.Stats().RuntimeLookups != 1 {
+			t.Fatalf("%s: runtime_lookups = %d", target, m.Stats().RuntimeLookups)
+		}
+	}
+}
+
+func TestOnKindAWorkloadBesideRuncIsStillDetectedAndFrozen(t *testing.T) {
+	agentBin := filepath.Join(t.TempDir(), "cardvault-agent")
+	if err := os.WriteFile(agentBin, []byte("runc 1.4.2 ELF stand-in"), 0o755); err != nil { // same size as runc
+		t.Fatal(err)
+	}
+	m, calls, ino, _ := kindRuntimeFixture(t, map[int]string{3610948: "runc", 3610999: agentBin})
+	if obs, ok := m.handleRecord(cgroupRecord(ino, "/var/run/secrets/kubernetes.io/serviceaccount")); !ok || obs.DirectReaction != ReactionCgroupFrozen || *calls != 1 {
+		t.Fatalf("ok=%v reaction=%q freezes=%d: workload code is in the cgroup", ok, obs.DirectReaction, *calls)
+	}
+}
+
+func TestOnKindAnEmptyCgroupIsNotTheRuntime(t *testing.T) {
+	m, calls, ino, _ := kindRuntimeFixture(t, map[int]string{})
+	if _, ok := m.handleRecord(cgroupRecord(ino, "/etc/passwd")); !ok || *calls != 1 {
+		t.Fatalf("ok=%v freezes=%d: nothing proves the runtime, so it is detected", ok, *calls)
+	}
+}
+
+func TestOnKindRuncReadingShadowIsStillDetected(t *testing.T) {
+	m, calls, ino, _ := kindRuntimeFixture(t, map[int]string{3610948: "runc"})
+	if _, ok := m.handleRecord(cgroupRecord(ino, "/etc/shadow")); !ok || *calls != 1 {
+		t.Fatalf("ok=%v freezes=%d", ok, *calls)
 	}
 }

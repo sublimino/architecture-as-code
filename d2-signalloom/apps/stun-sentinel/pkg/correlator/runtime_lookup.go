@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -19,8 +20,15 @@ var DefaultRuntimeBinaries = []string{
 	"/usr/local/bin/runc",
 }
 
-// runtimeUserDatabase is what runc opens to resolve a container's user.
-var runtimeUserDatabase = map[string]bool{"/etc/passwd": true, "/etc/group": true}
+// runtimeSetupOpens are the sensitive paths runc itself opens while setting up
+// a container: the user database (to resolve the container's user) and the
+// ServiceAccount token's mount destination (to mount the projected volume).
+var runtimeSetupOpens = map[string]bool{
+	"/etc/passwd": true,
+	"/etc/group":  true,
+	"/var/run/secrets/kubernetes.io/serviceaccount": true,
+	"/run/secrets/kubernetes.io/serviceaccount":     true,
+}
 
 // WithRuntimeBinaries overrides DefaultRuntimeBinaries.
 func WithRuntimeBinaries(paths ...string) Option {
@@ -39,10 +47,46 @@ func WithRuntimeBinaries(paths ...string) Option {
 // the node's runc is not in its root filesystem; a copy shipped in the image
 // has its own. Anything unverifiable (no node runc found, the process gone or
 // already exec'd) is not exempt: the open is a detection, as before.
-func (m *SentinelProbeManager) runtimeUserLookup(target string, pid uint32) bool {
-	if !runtimeUserDatabase[target] || pid == 0 {
+//
+// With a cgroup root the event's PID cannot be trusted (on kind it is the
+// host kernel's, and the sentinel's /proc is the node's), so the process is
+// identified by cgroup membership instead: the event's cgroup inode is the
+// same in every namespace, and its cgroup.procs lists PIDs in the sentinel's
+// own namespace. The open is the runtime's only when every process in that
+// cgroup runs the node's runc, so no workload code has run there yet.
+func (m *SentinelProbeManager) runtimeUserLookup(target string, pid uint32, cgroupID uint64) bool {
+	if !runtimeSetupOpens[target] {
 		return false
 	}
+	if m.cgroupRoot == "" {
+		return pid != 0 && m.isNodeRunc(pid)
+	}
+	m.lookupPodByCgroupID(cgroupID) // indexes the inode's path
+	m.cgMu.Lock()
+	rel := m.cgroupPaths[cgroupID]
+	m.cgMu.Unlock()
+	if rel == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(m.cgroupRoot, rel, "cgroup.procs"))
+	if err != nil {
+		return false
+	}
+	procs := strings.Fields(string(data))
+	if len(procs) == 0 {
+		return false
+	}
+	for _, p := range procs {
+		n, err := strconv.ParseUint(p, 10, 32)
+		if err != nil || !m.isNodeRunc(uint32(n)) {
+			return false
+		}
+	}
+	return true
+}
+
+// isNodeRunc reports whether pid's executable is the node's runc binary.
+func (m *SentinelProbeManager) isNodeRunc(pid uint32) bool {
 	exe, err := os.Stat(filepath.Join(m.procRoot, strconv.FormatUint(uint64(pid), 10), "exe"))
 	if err != nil {
 		return false

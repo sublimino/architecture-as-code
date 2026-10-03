@@ -477,7 +477,31 @@ func TestGCPAuditCollector_SilentErrorSwallow_ParseErrorCounter(t *testing.T) {
 	}
 }
 
+// TestGCPAuditCollector_NonBlockingStart proves live-mode Start returns while
+// the subscription pull it launches is still in flight. The endpoint parks the
+// first pull until the test releases it, which happens only after Start has
+// returned, so a Start that pulled synchronously could never return. The
+// selects are hang guards, not latency bounds (the old 100ms stopwatch, against
+// an endpoint that refused connections instantly, measured the machine and
+// proved nothing about blocking).
 func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	defer close(release)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -486,7 +510,7 @@ func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
 		ctx,
 		sink,
 		5*time.Minute,
-		WithEndpoint("http://127.0.0.1:19999"),
+		WithEndpoint(server.URL),
 		WithProject("osramp-demo"),
 		WithSubscription("slow-sub"),
 		WithMode("live"),
@@ -494,15 +518,23 @@ func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
 	)
 	defer col.Close()
 
-	start := time.Now()
-	err := col.Start(ctx)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("Start failed: %v", err)
+	startErr := make(chan error, 1)
+	go func() { startErr <- col.Start(ctx) }()
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Start blocked on the subscription pull")
 	}
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("Start took %v, expected non-blocking startup (<100ms)", elapsed)
+
+	// The pull Start launched is running in the background, parked on the
+	// endpoint: Start returned while it was outstanding.
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Start returned but no background subscription pull ever reached the endpoint")
 	}
 }
 

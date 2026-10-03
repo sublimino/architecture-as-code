@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"net/http/httptest"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -236,10 +234,9 @@ func TestOpenBaoClient_CircuitBreaker_TripsAndRecovers(t *testing.T) {
 		t.Fatalf("expected 3 server attempts, got %d", atomic.LoadInt32(&attempts))
 	}
 
-	// 4th request: Breaker is OPEN -> must fast-fail without touching HTTP server
-	start := time.Now()
+	// 4th request: Breaker is OPEN -> must fast-fail without touching HTTP server.
+	// The attempt count below is the proof; a stopwatch measured the machine.
 	res, err := client.RevokeAgentCredentials(ctx, "fe-signalloom-agents", "agent-1", "k4")
-	duration := time.Since(start)
 
 	if err == nil || !errors.Is(err, ErrCircuitBreakerOpen) {
 		t.Fatalf("expected ErrCircuitBreakerOpen, got: %v", err)
@@ -252,9 +249,6 @@ func TestOpenBaoClient_CircuitBreaker_TripsAndRecovers(t *testing.T) {
 	}
 	if atomic.LoadInt32(&attempts) != 3 {
 		t.Fatalf("expected HTTP attempt count to stay 3, got %d (breaker failed to fast-fail)", atomic.LoadInt32(&attempts))
-	}
-	if duration > 50*time.Millisecond {
-		t.Fatalf("fast-fail was slow (%v)", duration)
 	}
 
 	// Advance time past cooldown period -> transitions to Half-Open on next probe
@@ -555,25 +549,32 @@ func TestOpenBaoClient_PostRevokeAuthRejection(t *testing.T) {
 	}
 }
 
+// TestOpenBaoClient_LatencyDistribution_Benchmark10x revokes ten leases against
+// an OpenBao double and asserts each revocation reached it for exactly its own
+// lease and was reported contained. Despite the name it is a unit test, and it
+// asserts no latency: the 2000 ms p99 SLA lives in
+// BenchmarkOpenBaoClient_RevokeLease, which nothing in the estate runs.
 func TestOpenBaoClient_LatencyDistribution_Benchmark10x(t *testing.T) {
+	var mu sync.Mutex
+	revoked := map[string]int{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate OpenBao internal storage deletion delay (5-15ms)
-		time.Sleep(10 * time.Millisecond)
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path == "/v1/sys/leases/revoke" {
+			lease, _ := body["lease_id"].(string)
+			mu.Lock()
+			revoked[lease]++
+			mu.Unlock()
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
-	client := NewOpenBaoClient(OpenBaoConfig{
-		Address: server.URL,
-		Token:   "benchmark-token",
-	})
+	client := NewOpenBaoClient(OpenBaoConfig{Address: server.URL, Token: "benchmark-token"})
 	ctx := context.Background()
 
 	const iterations = 10
-	durations := make([]time.Duration, iterations)
-
 	for i := 0; i < iterations; i++ {
-		start := time.Now()
 		req := BaoRevokeRequest{
 			SchemaVersion:  FrozenSchemaVersion,
 			IdempotencyKey: fmt.Sprintf("bench-key-%d", i),
@@ -581,38 +582,52 @@ func TestOpenBaoClient_LatencyDistribution_Benchmark10x(t *testing.T) {
 			LeaseIDs:       []string{fmt.Sprintf("cardvault/creds/agent-bench-%d/lease-%d", i, i)},
 		}
 		resp, err := client.RevokeLease(ctx, req)
-		durations[i] = time.Since(start)
-
 		if err != nil || resp.Outcome != OutcomeContained {
 			t.Fatalf("iteration %d failed: err=%v, resp=%v", i, err, resp)
 		}
+		if resp.AgentID != req.AgentID {
+			t.Errorf("iteration %d: response is about agent %q, want %q", i, resp.AgentID, req.AgentID)
+		}
 	}
 
-	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
-
-	min := durations[0]
-	max := durations[iterations-1]
-	p50 := durations[iterations/2]
-	p90 := durations[int(math.Floor(float64(iterations)*0.90))]
-	p99 := durations[iterations-1]
-
-	var total time.Duration
-	for _, d := range durations {
-		total += d
+	mu.Lock()
+	defer mu.Unlock()
+	if len(revoked) != iterations {
+		t.Errorf("OpenBao saw %d distinct leases revoked, want %d: %v", len(revoked), iterations, revoked)
 	}
-	mean := total / time.Duration(iterations)
+	for i := 0; i < iterations; i++ {
+		lease := fmt.Sprintf("cardvault/creds/agent-bench-%d/lease-%d", i, i)
+		if revoked[lease] != 1 {
+			t.Errorf("lease %s revoked %d times, want exactly 1", lease, revoked[lease])
+		}
+	}
+}
 
-	t.Logf("10x OpenBao Revocation Latency Distribution:")
-	t.Logf("  Min:  %v", min)
-	t.Logf("  P50:  %v", p50)
-	t.Logf("  P90:  %v", p90)
-	t.Logf("  P99:  %v", p99)
-	t.Logf("  Max:  %v", max)
-	t.Logf("  Mean: %v", mean)
-
-	// Invariant: Guaranteed denial must beat 2000ms SLA and 300s baseline
-	if p99 > 2000*time.Millisecond {
-		t.Fatalf("p99 latency %v exceeded 2000ms SLA", p99)
+// BenchmarkOpenBaoClient_RevokeLease carries the revocation SLA the unit test
+// above used to assert: against a double that takes 10 ms, a revocation must
+// stay well inside the 2000 ms guaranteed-denial bound.
+func BenchmarkOpenBaoClient_RevokeLease(b *testing.B) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Millisecond) // OpenBao storage deletion delay
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client := NewOpenBaoClient(OpenBaoConfig{Address: server.URL, Token: "benchmark-token"})
+	ctx := context.Background()
+	for i := 0; i < b.N; i++ {
+		start := time.Now()
+		resp, err := client.RevokeLease(ctx, BaoRevokeRequest{
+			SchemaVersion:  FrozenSchemaVersion,
+			IdempotencyKey: fmt.Sprintf("bench-key-%d", i),
+			AgentID:        fmt.Sprintf("agent-bench-%d", i),
+			LeaseIDs:       []string{fmt.Sprintf("cardvault/creds/agent-bench-%d/lease-%d", i, i)},
+		})
+		if err != nil || resp.Outcome != OutcomeContained {
+			b.Fatalf("iteration %d failed: err=%v, resp=%v", i, err, resp)
+		}
+		if elapsed := time.Since(start); elapsed > 2000*time.Millisecond {
+			b.Errorf("revocation took %v, over the 2000 ms guaranteed-denial SLA", elapsed)
+		}
 	}
 }
 

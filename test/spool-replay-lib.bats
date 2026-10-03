@@ -101,3 +101,53 @@ L3="$(stat_line 2026-10-03T13:07:22.744Z 0 2)"
   run poll_until 3 0 never
   [ "$status" -ne 0 ]
 }
+
+# Live, 2026-10-03, partition-flake runs 1-4: every run reported "DATA LOSS"
+# with an EMPTY body. The provoker's observation was in the store (detected
+# 13:38:53.27, replayed and ingested 13:39:28.847, returned by a limit=100
+# read); the poll asked for limit=1000, signal-ingest's router answered 400
+# "limit must be between 1 and 100" (api/auth.go MaxPageSize), and the poll
+# read any non-200 as "not there yet" -- then called the timeout data loss.
+# store_read_verdict tells the cases apart: 0 found, 1 absent from a complete
+# page, 2 the read itself failed, 3 a full page that may hide the pod.
+
+@test "store verdict: the provoker's observation is found" {
+  run store_read_verdict sltm-partition-provoker-29664 <<<'200 [{"labels":{"pod_name":"sltm-partition-provoker-29664"}}]'
+  [ "$status" -eq 0 ]
+}
+
+@test "store verdict: a refused read is a read error, never absence (the 4/4 'data loss')" {
+  run store_read_verdict sltm-partition-provoker-29664 <<<'400 {"error":"limit must be between 1 and 100"}'
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"400"*"limit must be between 1 and 100"* ]]
+}
+
+@test "store verdict: a non-JSON 200 is a read error" {
+  run store_read_verdict p <<<'200 <html>'
+  [ "$status" -eq 2 ]
+}
+
+@test "store verdict: a complete page without the pod is absence" {
+  run store_read_verdict p <<<'200 [{"labels":{"pod_name":"other"}}]'
+  [ "$status" -eq 1 ]
+  run store_read_verdict p <<<'200 []'
+  [ "$status" -eq 1 ]
+}
+
+@test "store verdict: a full page without the pod is not proof of absence" {
+  local page; page="$(jq -cn --argjson n "${STORE_PAGE_MAX}" '[range($n) | {labels:{pod_name:"other"}}]')"
+  run store_read_verdict p <<<"200 ${page}"
+  [ "$status" -eq 3 ]
+}
+
+# The page size the live test asks for is signal-ingest's own cap, read from
+# its router's default, so the two cannot drift apart again.
+@test "STORE_PAGE_MAX is signal-ingest's MaxPageSize, and the partition test asks for it" {
+  local repo cap
+  repo="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
+  cap="$(sed -n 's/^[[:space:]]*opts\.MaxPageSize = \([0-9][0-9]*\)$/\1/p' "${repo}/d2-signalloom/apps/signal-ingest/api/auth.go")"
+  [ -n "$cap" ] || { echo "could not read MaxPageSize's default from api/auth.go"; return 1; }
+  [ "${STORE_PAGE_MAX}" = "$cap" ] || { echo "STORE_PAGE_MAX ${STORE_PAGE_MAX}, router cap ${cap}"; return 1; }
+  rg -q -F 'limit=${STORE_PAGE_MAX}' "${repo}/test/sltm-probe-apikey.bats"
+  ! rg -q -e 'observations\?limit=[0-9]{4,}' "${repo}/test/sltm-probe-apikey.bats"
+}

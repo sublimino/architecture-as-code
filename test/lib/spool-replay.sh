@@ -41,6 +41,38 @@ spool_replayed_since() {
 	}
 }
 
+# STORE_PAGE_MAX is signal-ingest's page cap: its router refuses a larger
+# limit with 400 "limit must be between 1 and 100" (api/auth.go,
+# MaxPageSize). Asking for more made every partition-test read fail.
+STORE_PAGE_MAX=100
+
+# store_read_verdict POD, with "<status> <body>" (live_call's output) on
+# stdin: 0 POD's observation is there; 1 it is absent from a complete page;
+# 2 the read itself failed (non-200, or a body that is not a JSON array) --
+# never to be mistaken for absence; 3 a full page without POD, which proves
+# nothing. Prints the reason for 2 and 3.
+store_read_verdict() {
+	local pod="$1" out code body n
+	out="$(cat)"
+	code="${out%% *}"
+	body="${out#* }"
+	if [ "$code" != 200 ]; then
+		printf 'store read failed: HTTP %s %s\n' "$code" "$body"
+		return 2
+	fi
+	if ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$body"; then
+		printf 'store read failed: HTTP 200 with a non-array body: %.200s\n' "$body"
+		return 2
+	fi
+	[ "$(store_count_for_pod "$pod" <<<"$body")" -ge 1 ] && return 0
+	n="$(jq 'length' <<<"$body")"
+	if [ "$n" -ge "${STORE_PAGE_MAX}" ]; then
+		printf 'store page full (%s rows) without %s: absence not proven\n' "$n" "$pod"
+		return 3
+	fi
+	return 1
+}
+
 # store_count_for_pod POD: how many observations in the store's JSON array
 # (on stdin) belong to POD.
 store_count_for_pod() {

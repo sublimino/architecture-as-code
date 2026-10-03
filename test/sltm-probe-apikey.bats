@@ -85,6 +85,9 @@ teardown_file() {
 absent() { if grep -qF -- "$1" "$2"; then echo "found in $2" >&2; return 1; fi; }
 
 # hdr <file> <value>: write an Authorization header file, 0600, never argv.
+# shellcheck source=lib/spool-replay.sh
+source "${BATS_TEST_DIRNAME}/lib/spool-replay.sh" # the partition test's causal waits
+
 hdr() { ( umask 077; printf 'Authorization: %s\n' "$2" >"$1" ); }
 
 # call <method> <url> [curl args...]: prints "<status> <body>".
@@ -330,6 +333,13 @@ teardown() {
     local t_start
     t_start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+    # The spool's replay counter before the partition (test/lib/spool-replay.sh):
+    # the latest stats line is the counter's value now, since lines are emitted
+    # only on change.
+    warden_stats() { kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/signalloom-warden --since=20m 2>/dev/null; }
+    local replay_base
+    replay_base="$(warden_stats | spool_replayed_latest)" || { echo "no warden stats line to baseline the spool"; return 1; }
+
     kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest --type='json' -p '[{"op":"replace","path":"/spec/selector","value":{"app.kubernetes.io/name":"signal-ingest","sltm-partition":"none"}}]'
 
     for _ in $(seq 1 30); do
@@ -361,29 +371,34 @@ teardown() {
         sleep 0.25
     done
 
-    local drained=0
-    for _ in $(seq 1 60); do
-        local stats_line
-        stats_line="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/signalloom-warden --tail=20 2>/dev/null | grep '"event":"ebpf_correlator_stats"' | tail -n 1 || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/stun-sentinel --tail=20 2>/dev/null | grep '"event":"ebpf_correlator_stats"' | tail -n 1 || true)"
-        if [ -n "$stats_line" ]; then
-            local sp_batches
-            sp_batches="$(jq -r '.details.stats.spool_batches // .details.spool_batches // -1' <<<"$stats_line")"
-            if [ "$sp_batches" -eq 0 ]; then
-                drained=1
-                break
-            fi
-        fi
-        sleep 1
-    done
-    [ "$drained" -eq 1 ] || { echo "Spool did not drain to 0 in 60s"; return 1; }
+    local lifted
+    lifted="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    local obs_out; obs_out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=100&after=${t_start}")"
-    [[ "$obs_out" == 200* ]] || { echo "Failed to read observations: $obs_out"; return 1; }
-    local obs_body="${obs_out#200 }"
+    # Causal, not timed (live, 2026-10-03: the old drain check took a stats
+    # line written BEFORE the partition as "drained" and read the store 8 s
+    # before the replay landed). First the spool must replay past its
+    # pre-partition count in a stats line written after the lift, with
+    # nothing left queued; then the store must hold the provoker's own
+    # observation. A failure of the second after the first is data loss.
+    replayed() { warden_stats | spool_replayed_since "${lifted}" "${replay_base}"; }
+    poll_until 60 2 replayed || {
+        echo "the warden's spool never replayed past ${replay_base} after ${lifted}; last stats:"
+        warden_stats | grep '"event":"ebpf_correlator_stats"' | tail -n 2
+        return 1
+    }
 
-    local prov_count
-    prov_count="$(jq -r --arg p "${scratch_pod}" '[.[] | select(.labels.pod_name == $p)] | length' <<<"$obs_body")"
-    [ "$prov_count" -ge 1 ] || { echo "No observations found for $scratch_pod in: $obs_body"; return 1; }
+    local obs_body=""
+    store_has_provoker() {
+        local out
+        out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=1000&after=${t_start}")"
+        [[ "$out" == 200* ]] || return 1
+        obs_body="${out#200 }"
+        [ "$(store_count_for_pod "${scratch_pod}" <<<"${obs_body}")" -ge 1 ]
+    }
+    poll_until 15 2 store_has_provoker || {
+        echo "DATA LOSS: the spool replayed (past ${replay_base}) yet no observation for ${scratch_pod} reached the store: ${obs_body}"
+        return 1
+    }
 
     local cur_uid cur_restarts
     cur_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"

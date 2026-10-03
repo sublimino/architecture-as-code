@@ -82,10 +82,15 @@ spec:
         # OpenBao Agent sidecar — fetches secrets via SPIFFE JWT auth
         - name: openbao-agent
           image: openbao/openbao:2.1.0
-          args:
-            - agent
-            - -config=/etc/openbao/agent.hcl
+          # bao directly, not the openbao image's docker-entrypoint.sh, whose
+          # `id -u openbao` reads /etc/passwd inside a sentinel-watched pod and
+          # froze agent-cardvault at birth (live, 2026-10-03). HOME keeps bao's
+          # home lookup off the user database. Pinned estate-wide by
+          # d2-signalloom/test/openbao-sidecar-entrypoint.bats.
+          command: ["bao", "agent", "-config=/etc/openbao/agent.hcl"]
           env:
+            - name: HOME
+              value: /tmp
             - name: SPIFFE_ID
               value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/zulip-chat-agent"
           volumeMounts:

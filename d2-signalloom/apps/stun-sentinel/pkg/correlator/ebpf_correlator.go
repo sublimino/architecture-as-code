@@ -274,6 +274,9 @@ type SentinelProbeManager struct {
 	// self is this sentinel's own pod (downward API). A record from it is
 	// never a detection: its tc execs tripped the burst detector live.
 	self filter.Self
+
+	// runtimeBinaries locate the node's runc (runtime_lookup.go).
+	runtimeBinaries []string
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -283,19 +286,20 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 	}
 
 	m := &SentinelProbeManager{
-		informer:       informer,
-		ingestURL:      ingestURL,
-		sensitiveList:  append([]string(nil), DefaultSensitivePrefixes...),
-		freezeManager:  fm,
-		procRoot:       DefaultProcRoot,
-		podMap:         make(map[string]*corev1.Pod),
-		queue:          make(chan TelemetryObservation, DefaultQueueSize),
-		workers:        DefaultWorkerCount,
-		rateLim:        make(chan struct{}, DefaultRateCapacity),
-		burst:          newBurstTracker(),
-		burstThreshold: DefaultEvasiveBurstThreshold,
-		burstWindow:    DefaultEvasiveBurstWindow,
-		self:           filter.SelfFromEnv(),
+		informer:        informer,
+		ingestURL:       ingestURL,
+		sensitiveList:   append([]string(nil), DefaultSensitivePrefixes...),
+		freezeManager:   fm,
+		procRoot:        DefaultProcRoot,
+		podMap:          make(map[string]*corev1.Pod),
+		queue:           make(chan TelemetryObservation, DefaultQueueSize),
+		workers:         DefaultWorkerCount,
+		rateLim:         make(chan struct{}, DefaultRateCapacity),
+		burst:           newBurstTracker(),
+		burstThreshold:  DefaultEvasiveBurstThreshold,
+		burstWindow:     DefaultEvasiveBurstWindow,
+		self:            filter.SelfFromEnv(),
+		runtimeBinaries: DefaultRuntimeBinaries,
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 			Transport: &http.Transport{
@@ -648,8 +652,15 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 		}
 	}
 
-	if _, ok := m.sensitiveTarget(filename, targetPID, ev.CgroupID); !ok {
+	resolved, ok := m.sensitiveTarget(filename, targetPID, ev.CgroupID)
+	if !ok {
 		m.stats.notSensitive.Add(1)
+		return TelemetryObservation{}, false
+	}
+	// The container runtime resolving the container's user, before the
+	// entrypoint runs: neither a detection nor a freeze (runtime_lookup.go).
+	if m.runtimeUserLookup(resolved, targetPID) {
+		m.stats.runtimeLookups.Add(1)
 		return TelemetryObservation{}, false
 	}
 

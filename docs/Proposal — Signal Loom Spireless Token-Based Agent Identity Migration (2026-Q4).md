@@ -512,7 +512,7 @@ sequenceDiagram
 | P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | pass (baseline measured; findings recorded) | — | — | — | — |
 | P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | pass (inventory written; wire contract pinned) | — | — | — | — |
 | P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | — | — | — | — | — |
-| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | pass — delivered: 24565a359600b3474e391059d85e41f1daa1895f (see Errata — SLTM-P1-2) | — | — | — | — |
 | P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | — | — | — | — | — |
 | P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | — | — | — | — | — |
 | P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | — | — | — | — | — |
@@ -717,4 +717,53 @@ The import contract of record is defined in `d2-k8s-afm/apps/afm-platform/base/c
    ```
    matches the `PathPrefix /` rule on `afm-platform` HTTPRoute (`d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml:23`) and is routed directly to `afm-platform` port 8000 without requiring an API key. P1-1 will turn this failing case green by enforcing Layer 7 rejection on `/clusters/import` at the gateway and directing authenticated imports through `fe-signalloom` `POST /api/v1/afm/clusters/import`.
 
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLTM-P1-2 A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key
+**Created:** 2026-10-03 04:27:01+01:00
+**Last Updated:** 2026-10-03 04:27:01+01:00
+**Status:** Completed
+**Commit:** 24565a359600b3474e391059d85e41f1daa1895f
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Placed ClusterRole and ClusterRoleBinding `signalloom-rbac-exporter` in ResourceSet `d2-osramp-fleet/tenants/base/agent-swarm.yaml` rather than the Flux-applied bundle, because `agent-swarm-flux` lacks cluster-scoped RBAC creation permissions (P1-PRE-2).
+- Pinned CronJob container image to `python:3.12-slim` (P1-PRE-3), meeting restricted PSS with non-root UID/GID 65532, read-only root filesystem, drop ALL capabilities, and RuntimeDefault seccomp.
+- Injected AFM key only via projected Secret file (`defaultMode: 0440` at `/etc/signalloom-rbac-exporter/afm-key/token`), strictly passed as `Authorization: Bearer <token>` over internal FQDN `http://fe-signalloom-api.fe-signalloom.svc.cluster.local:8000/api/v1/afm/clusters/import`.
+**Deviations:**
+- Placed ClusterRole and ClusterRoleBinding in ResourceSet `spec.resources[]` as planned in P1-PRE-2 to avoid widening Flux privileges.
+**Notes:**
+- Failing-first tests committed in `a820492f` (13 failures out of 14 on base tree). Implementation delivered in `24565a35`.
+- TAP totals: `test/afm-rbac-exporter-manifests.bats`: 7 passed, 0 failed, 0 skipped. `test/afm-rbac-exporter-push.bats`: 7 passed, 0 failed, 0 skipped.
+- T6 guards TAP totals: `test/agent-swarm-flux-rbac.bats` (3/3 passed), `test/agent-swarm-tenancy.bats` (4/4 passed), `d2-signalloom/test/stun-sentinel-daemonset.bats` (11/11 passed), `test/sentinel-capabilities.bats` (16/16 passed, 1 skipped). Total: 35 tests, 0 failures, 1 skipped.
+- `make -n test-sldc-offline` wiring count: 2 registered suites (`test/afm-rbac-exporter-manifests.bats`, `test/afm-rbac-exporter-push.bats`).
+- Rendered 18-triple RBAC list:
+  rbac.authorization.k8s.io|clusterrolebindings|get
+  rbac.authorization.k8s.io|clusterrolebindings|list
+  rbac.authorization.k8s.io|clusterrolebindings|watch
+  rbac.authorization.k8s.io|clusterroles|get
+  rbac.authorization.k8s.io|clusterroles|list
+  rbac.authorization.k8s.io|clusterroles|watch
+  rbac.authorization.k8s.io|rolebindings|get
+  rbac.authorization.k8s.io|rolebindings|list
+  rbac.authorization.k8s.io|rolebindings|watch
+  rbac.authorization.k8s.io|roles|get
+  rbac.authorization.k8s.io|roles|list
+  rbac.authorization.k8s.io|roles|watch
+  |namespaces|get
+  |namespaces|list
+  |namespaces|watch
+  |serviceaccounts|get
+  |serviceaccounts|list
+  |serviceaccounts|watch
+- Mutation proofs (9/9):
+  MUT <d2-osramp-fleet/tenants/base/agent-swarm.yaml> <resources: ["namespaces", "serviceaccounts"] -> resources: ["namespaces", "serviceaccounts", "secrets"]> -> <bats test/afm-rbac-exporter-manifests.bats -f "never reads secrets"> RED; restored -> GREEN
+  MUT <d2-osramp-fleet/tenants/base/agent-swarm.yaml> <verbs: ["get", "list", "watch"] -> verbs: ["get", "list", "watch", "create"]> -> <bats test/afm-rbac-exporter-manifests.bats -f "rendered ClusterRole RBAC"> RED; restored -> GREEN
+  MUT <d2-osramp-fleet/tenants/base/agent-swarm.yaml> <verbs: ["get", "list", "watch"] -> verbs: ["get", "list"]> -> <bats test/afm-rbac-exporter-manifests.bats -f "rendered ClusterRole RBAC"> RED; restored -> GREEN
+  MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-cronjob.yaml> <serviceAccountName: signalloom-rbac-exporter -> serviceAccountName: stun-sentinel> -> <bats test/afm-rbac-exporter-manifests.bats -f "never reads secrets"> RED; restored -> GREEN
+  MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-cronjob.yaml> <allowPrivilegeEscalation: false -> allowPrivilegeEscalation: true> -> <bats test/afm-rbac-exporter-manifests.bats -f "restricted Pod Security"> RED; restored -> GREEN
+  MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-cronjob.yaml> <secretName: signalloom-rbac-exporter-afm-key -> secretName: wrong-key-secret> -> <bats test/afm-rbac-exporter-manifests.bats -f "key mounted as Secret volume"> RED; restored -> GREEN
+  MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter-cronjob.yaml> <value: http://fe-signalloom-api.fe-signalloom.svc.cluster.local:8000/api/v1/afm/clusters/import -> value: http://external-afm.example.com:8000/api/v1/afm/clusters/import> -> <bats test/afm-rbac-exporter-manifests.bats -f "key mounted as Secret volume"> RED; restored -> GREEN
+  MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter/export.py> <'Authorization': f'Bearer {key}', -> # 'Authorization': f'Bearer {key}',> -> <bats test/afm-rbac-exporter-push.bats -f "full push with bearer key"> RED; restored -> GREEN
+  MUT <d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter/export.py> <sys.exit(5) -> return> -> <bats test/afm-rbac-exporter-push.bats -f "gateway 401, 403, 413, 500 exits 5"> RED; restored -> GREEN
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

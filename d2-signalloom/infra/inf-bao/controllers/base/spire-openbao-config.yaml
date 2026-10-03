@@ -8,7 +8,7 @@ metadata:
   name: spire-server-config
 data:
   server.conf: |
-    server { bind_address = "0.0.0.0" bind_port = "8081" trust_domain = "signalloom.demo" data_dir = "/run/spire/data" }
+    server { bind_address = "0.0.0.0" bind_port = "8081" admin_ids = ["spiffe://signalloom.demo/ns/fe-signalloom/sa/fleet-manager"] trust_domain = "signalloom.demo" data_dir = "/run/spire/data" }
     plugins { DataStore "sql" { plugin_data { database_type = "sqlite3" connection_string = "/run/spire/data/datastore.sqlite3" } } KeyManager "disk" { plugin_data { keys_path = "/run/spire/data/keys.json" } } NodeAttestor "join_token" { } }
 ---
 apiVersion: v1

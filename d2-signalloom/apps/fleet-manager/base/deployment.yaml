@@ -115,6 +115,14 @@ spec:
                   optional: true
             - name: FLEET_MANAGER_KEY_OPERATOR_SCOPES
               value: "stun,resume,recover,deploy,scan,reset"
+            # SPIRE plane. The server API on :8081 speaks only mTLS, so the
+            # client takes this pod's X509-SVID from the SPIRE agent socket and
+            # accepts only spiffe://signalloom.demo/spire/server (override with
+            # SPIRE_SERVER_SPIFFE_ID). The server grants this pod's SPIFFE ID
+            # admin_ids (inf-bao spire-server-config). Without the socket a TCP
+            # SPIRE address is refused at startup, never dialled in plaintext.
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix:///run/spire/sockets/agent.sock
           startupProbe:
             httpGet:
               path: /health
@@ -146,6 +154,9 @@ spec:
               readOnly: true
             - name: openbao-token
               mountPath: /var/run/secrets/openbao
+              readOnly: true
+            - name: spire-sockets
+              mountPath: /run/spire/sockets
               readOnly: true
         # Fetches this pod's JWT-SVID (audience openbao) from the SPIRE agent and
         # writes it atomically for the openbao-agent jwt method. The SVID TTL is

@@ -10,6 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/spiffegrpc/grpccredentials"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
+	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	entryv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/server/entry/v1"
 	spiretypes "github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	"google.golang.org/grpc"
@@ -116,10 +122,20 @@ func ResolveSpireAddress() string {
 	return DefaultSpireServerAddr
 }
 
-// NewGRPCSpireClient creates a new SpireClient connected to the specified SPIRE server address.
+// NewGRPCSpireClient creates a new SpireClient connected to the specified SPIRE
+// server address. With no dialOpts the transport comes from spireTransportFor:
+// mTLS with this workload's SVID over TCP, plaintext only over a unix socket.
+// Passing dialOpts replaces that choice and must include transport credentials.
 func NewGRPCSpireClient(addr string, dialOpts ...grpc.DialOption) (*grpcSpireClient, error) {
 	if addr == "" {
 		addr = ResolveSpireAddress()
+	}
+	if len(dialOpts) == 0 {
+		transport, err := spireTransportFor(addr)
+		if err != nil {
+			return nil, fmt.Errorf("spire server at %s: %w", addr, err)
+		}
+		dialOpts = []grpc.DialOption{transport}
 	}
 
 	client := &grpcSpireClient{
@@ -133,6 +149,69 @@ func NewGRPCSpireClient(addr string, dialOpts ...grpc.DialOption) (*grpcSpireCli
 	}
 
 	return client, nil
+}
+
+// newSpireClientWithTransport is NewGRPCSpireClient with an explicit transport.
+func newSpireClientWithTransport(addr string, transport grpc.DialOption) (*grpcSpireClient, error) {
+	return NewGRPCSpireClient(addr, transport)
+}
+
+// DefaultSpireServerSPIFFEID is the SPIRE server's own identity in the
+// signalloom.demo trust domain (inf-bao/spire-server), which issues the agent
+// entries the spire plane evicts and re-creates.
+const DefaultSpireServerSPIFFEID = "spiffe://signalloom.demo/spire/server"
+
+// spireServerID is the identity the server must present: SPIRE_SERVER_SPIFFE_ID
+// or the signalloom.demo default.
+func spireServerID() (spiffeid.ID, error) {
+	raw := strings.TrimSpace(os.Getenv("SPIRE_SERVER_SPIFFE_ID"))
+	if raw == "" {
+		raw = DefaultSpireServerSPIFFEID
+	}
+	id, err := spiffeid.FromString(raw)
+	if err != nil {
+		return spiffeid.ID{}, fmt.Errorf("SPIRE_SERVER_SPIFFE_ID %q: %w", raw, err)
+	}
+	return id, nil
+}
+
+// spireMTLS presents this workload's X509-SVID and accepts exactly the SPIRE
+// server's SPIFFE ID, verified against the trust bundle.
+func spireMTLS(svid x509svid.Source, bundle x509bundle.Source, serverID spiffeid.ID) grpc.DialOption {
+	return grpc.WithTransportCredentials(grpccredentials.MTLSClientCredentials(svid, bundle, tlsconfig.AuthorizeID(serverID)))
+}
+
+// spireX509SourceTimeout bounds the wait for this workload's first SVID.
+const spireX509SourceTimeout = 15 * time.Second
+
+// spireTransportFor chooses how to reach the SPIRE server API.
+//
+// A unix socket is the server's local admin API and needs no TLS. Over TCP
+// (the in-cluster :8081 Service) the server API speaks ONLY mTLS: dialling it
+// in plaintext fails every call with "error reading server preface: EOF",
+// which is how every credential restore failed live on 2026-10-03. So a TCP
+// address takes an X509Source from the Workload API at SPIFFE_ENDPOINT_SOCKET,
+// and without that socket it is a configuration error, never a plaintext dial.
+// The source lives for the process and rotates the SVID itself.
+func spireTransportFor(addr string) (grpc.DialOption, error) {
+	if target, _ := formatDialTarget(addr); strings.HasPrefix(target, "unix://") {
+		return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
+	}
+	socket := strings.TrimSpace(os.Getenv("SPIFFE_ENDPOINT_SOCKET"))
+	if socket == "" {
+		return nil, fmt.Errorf("%w: the SPIRE server API over TCP requires mTLS; set SPIFFE_ENDPOINT_SOCKET to this pod's SPIRE agent socket (e.g. unix:///run/spire/sockets/agent.sock)", ErrEnforcementUnavailable)
+	}
+	serverID, err := spireServerID()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), spireX509SourceTimeout)
+	defer cancel()
+	source, err := workloadapi.NewX509Source(ctx, workloadapi.WithClientOptions(workloadapi.WithAddr(socket)))
+	if err != nil {
+		return nil, fmt.Errorf("%w: X509-SVID from %s: %v", ErrEnforcementUnavailable, socket, err)
+	}
+	return spireMTLS(source, source, serverID), nil
 }
 
 // formatDialTarget parses the address string and returns the target and dial options.
@@ -165,9 +244,9 @@ func (c *grpcSpireClient) connect() error {
 
 	target, extraOpts := formatDialTarget(c.addr)
 
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	}
+	// The transport (mTLS or, for a local unix socket, plaintext) is always in
+	// c.dialOpts; see spireTransportFor. There is no plaintext default.
+	var opts []grpc.DialOption
 	opts = append(opts, extraOpts...)
 	opts = append(opts, c.dialOpts...)
 

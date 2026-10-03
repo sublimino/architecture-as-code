@@ -131,9 +131,9 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 # the rendered manifests, which is what the cluster applies.
 
 @test "signalloom warden Role grants patch on pods, which its pod-annotation write needs" {
-  # The namespaced Role has one owner, next to the DaemonSet; see
-  # d2-signalloom/test/signalloom-warden-daemonset.bats.
-  run bash -c "kubectl kustomize '${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden' \
+  # The namespaced Role is declared in agent-swarm-base (ebpf-sentinel-rbac.yaml)
+  # before individual agent Kustomizations reconcile.
+  run bash -c "kubectl kustomize '${REPO_ROOT}/d2-signalloom/infra/agent-swarm' \
     | yq -r 'select(.kind == \"Role\" and .metadata.name == \"signalloom-warden\") | .rules[] | select(.resources[] == \"pods\") | .verbs[]'"
   [ "$status" -eq 0 ]
   grep -qx patch <<<"$output"

@@ -20,17 +20,25 @@ setup() {
   RS="${REPO_ROOT}/d2-osramp-fleet/tenants/base/agent-swarm.yaml"
 
   # Probe bundle and overlays paths (must be signalloom-warden)
+  SWARM_BASE="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
   WARDEN_BASE="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden"
   OVERLAY_OSRAMP="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-osramp"
   OVERLAY_HUB="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-signalloom-hub"
   FE_LOCAL="${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/local"
   FM_BASE="${REPO_ROOT}/d2-signalloom/apps/fleet-manager/base"
 
+  TMP_SWARM="${BATS_TEST_TMPDIR}/swarm_base.yaml"
   TMP_BASE="${BATS_TEST_TMPDIR}/warden_base.yaml"
   TMP_OSRAMP="${BATS_TEST_TMPDIR}/overlay_osramp.yaml"
   TMP_HUB="${BATS_TEST_TMPDIR}/overlay_hub.yaml"
   TMP_FE="${BATS_TEST_TMPDIR}/fe_local.yaml"
   TMP_FM="${BATS_TEST_TMPDIR}/fm_base.yaml"
+
+  if [ -d "${SWARM_BASE}" ]; then
+    kubectl kustomize "${SWARM_BASE}" > "${TMP_SWARM}" 2>/dev/null || true
+  else
+    touch "${TMP_SWARM}"
+  fi
 
   if [ -d "${WARDEN_BASE}" ]; then
     kubectl kustomize "${WARDEN_BASE}" > "${TMP_BASE}" 2>/dev/null || true
@@ -65,6 +73,7 @@ setup() {
 
 @test "T1(a) identity guard: all identity-bearing objects exist under signalloom-warden name" {
   [ -f "${RS}" ]
+  [ -s "${TMP_SWARM}" ]
   [ -s "${TMP_BASE}" ]
   [ -s "${TMP_OSRAMP}" ]
   [ -s "${TMP_HUB}" ]
@@ -75,7 +84,7 @@ setup() {
   local have_objects
   have_objects="$(
     {
-      yq -r 'select(. != null) | "\(.kind)/" + (.metadata.namespace // "none") + "/\(.metadata.name)"' "${TMP_BASE}" "${TMP_OSRAMP}" "${TMP_HUB}" "${TMP_FE}" "${TMP_FM}"
+      yq -r 'select(. != null) | "\(.kind)/" + (.metadata.namespace // "none") + "/\(.metadata.name)"' "${TMP_SWARM}" "${TMP_BASE}" "${TMP_OSRAMP}" "${TMP_HUB}" "${TMP_FE}" "${TMP_FM}"
       yq -r '.spec.resources[]? | select(. != null) | "\(.kind)/" + (.metadata.namespace // "none") + "/\(.metadata.name)"' "${RS}"
     } | LC_ALL=C sort -u
   )"
@@ -110,7 +119,7 @@ setup() {
   [ -s "${TMP_FM}" ]
 
   local unallowlisted=0
-  local all_renders=("${TMP_BASE}" "${TMP_OSRAMP}" "${TMP_HUB}" "${TMP_FE}" "${TMP_FM}")
+  local all_renders=("${TMP_SWARM}" "${TMP_BASE}" "${TMP_OSRAMP}" "${TMP_HUB}" "${TMP_FE}" "${TMP_FM}")
 
   for f in "${all_renders[@]}"; do
     # Extract identity-bearing string fields from each document
@@ -193,9 +202,9 @@ setup() {
   [ "${sa_name}" = "signalloom-warden" ]
   [ "${sa_ref}" = "${sa_name}" ]
 
-  # 2. RoleBinding roleRef and subjects resolve to Role and SA in same render
+  # 2. RoleBinding roleRef and subjects resolve to Role and SA in base/swarm render
   local rb_role rb_subject role_name
-  role_name="$(yq -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .metadata.name' "${TMP_BASE}")"
+  role_name="$(yq -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .metadata.name' "${TMP_SWARM}" "${TMP_BASE}")"
   rb_role="$(yq -r 'select(.kind == "RoleBinding" and .metadata.name == "signalloom-warden") | .roleRef.name' "${TMP_BASE}")"
   rb_subject="$(yq -r 'select(.kind == "RoleBinding" and .metadata.name == "signalloom-warden") | .subjects[0].name' "${TMP_BASE}")"
   [ "${role_name}" = "signalloom-warden" ]

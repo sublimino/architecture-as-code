@@ -1,27 +1,25 @@
-# eBPF Signalloom Warden RBAC -- tombstones only. This file declares no objects.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
 #
-# Every grant the sentinel holds lives in signalloom-warden/rbac.yaml,
-# reconciled by the agent-signalloom-warden Kustomization. The entries
-# below record what used to be declared here and why it must not come back.
+# Prerequisite Role for signalloom-warden deployed by agent-swarm-base before
+# individual agent Kustomizations reconcile (resolves server-side apply
+# RoleBinding dependency ordering).
 ---
-# The namespaced Role and RoleBinding "signalloom-warden" USED to live here. They
-# now have exactly one owner: signalloom-warden/rbac.yaml, reconciled by
-# the agent-signalloom-warden Kustomization. Declaring them here as well
-# made two Flux Kustomizations own one object, and this copy bound the
-# pre-rename SA signalloom-warden, which no workload runs as. Whichever
-# Kustomization reconciled last won, so the running sentinel's
-# `auth can-i list pods` flipped between yes and no and its pod index stayed
-# empty (SLDC-P5-PRE B5; re-observed live 2026-10-01). Do not re-add them:
-# test/sentinel-capabilities.bats and d2-signalloom/test/signalloom-warden-daemonset.bats fail on any
-# object owned by both, or any signalloom-warden binding that names another SA.
----
-# The ClusterRole and ClusterRoleBinding "signalloom-warden-node-reader" USED to
-# live here, granting nodes get/list "to read cgroup paths for eBPF attachment".
-# Nothing reads nodes: the sentinel resolves cgroups from the host filesystem
-# (/host-cgroup) and its pods by label, and no code path in
-# apps/signalloom-warden or apps/signalloom-warden calls the nodes API. The
-# binding first named the pre-rename SA signalloom-warden, which no
-# workload runs as; rebinding it to signalloom-warden would only have made an
-# unused grant live. Do not re-add it:
-# test/sentinel-capabilities.bats fails on any sentinel binding, namespaced or
-# cluster-scoped, whose subject is not the SA the DaemonSet runs as.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: signalloom-warden
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-warden
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "sentinel"
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch"]
+  # Owner-chain stun record: signalloom.io/stunned on the pod's ReplicaSet or
+  # Deployment. get only (named lookups from ownerReferences), no list/watch.
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments"]
+    verbs: ["get"]

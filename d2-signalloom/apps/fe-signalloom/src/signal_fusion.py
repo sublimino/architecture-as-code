@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import urllib.parse
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -137,7 +138,8 @@ async def get_actor(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Get a single provisional actor with evidence chain."""
-    return await _proxy("GET", f"/api/v1/actors/{actor_id}", principal)
+    quoted = urllib.parse.quote(actor_id, safe="")
+    return await _proxy("GET", f"/api/v1/actors/{quoted}", principal)
 
 
 @router.get("/actors/{actor_id}/authorization")
@@ -150,7 +152,8 @@ async def get_actor_authorization(
     params: dict[str, Any] = {}
     if action:
         params["action"] = action
-    return await _proxy("GET", f"/api/v1/actors/{actor_id}/authorization", principal, params=params)
+    quoted = urllib.parse.quote(actor_id, safe="")
+    return await _proxy("GET", f"/api/v1/actors/{quoted}/authorization", principal, params=params)
 
 
 @router.get("/authorization")
@@ -174,7 +177,8 @@ async def promote_actor(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> JSONResponse:
     """Promote a provisional actor to the agent registry."""
-    return await _proxy("POST", f"/api/v1/actors/{actor_id}/promote", principal)
+    quoted = urllib.parse.quote(actor_id, safe="")
+    return await _proxy("POST", f"/api/v1/actors/{quoted}/promote", principal)
 
 
 @router.get("/coverage")

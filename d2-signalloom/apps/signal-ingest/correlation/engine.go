@@ -676,7 +676,16 @@ func (e *Engine) PromoteActor(id string) (*model.ProvisionalActor, error) {
 	defer e.mu.Unlock()
 	next := cloneSnapshot(e.snapshot)
 	for _, a := range next.Actors {
-		if a.ID != id {
+		matches := a.ID == id || a.CanonicalID == id
+		if !matches {
+			for _, al := range a.Aliases {
+				if al == id {
+					matches = true
+					break
+				}
+			}
+		}
+		if !matches {
 			continue
 		}
 		if a.Status == model.ActorPromoted {

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	apiaudit "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
@@ -612,6 +613,56 @@ func (p *ProtectedRouter) Inventory() []RouteRequirement {
 	return out
 }
 
+// actorIDFromPath extracts, decodes, and validates the {id} path parameter from a request.
+// It decodes percent-encoded characters once, performs no path cleaning so that
+// double-slashes in SPIFFE-derived IDs (e.g. spiffe://a/b) are preserved, and rejects
+// empty or non-UTF-8 IDs.
+func actorIDFromPath(r *http.Request) (string, error) {
+	raw := r.PathValue("id")
+	if raw == "" {
+		return "", errors.New("missing actor id")
+	}
+	decoded, err := url.PathUnescape(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid path encoding: %w", err)
+	}
+	if decoded == "" {
+		return "", errors.New("empty actor id")
+	}
+	if !utf8.ValidString(decoded) {
+		return "", errors.New("invalid utf-8 in actor id")
+	}
+	return decoded, nil
+}
+
+// isCanonicalEscapedPath reports whether escapedPath (r.URL.EscapedPath()) is canonical:
+// - starts with "/"
+// - no empty interior or trailing segments (no literal "//" or trailing "/" except for root "/")
+// - no "." or ".." segments (neither literal nor percent-encoded as whole segment)
+func isCanonicalEscapedPath(escapedPath string) bool {
+	if escapedPath == "" || !strings.HasPrefix(escapedPath, "/") {
+		return false
+	}
+	if escapedPath != "/" && strings.HasSuffix(escapedPath, "/") {
+		return false
+	}
+	if path.Clean(escapedPath) != escapedPath {
+		return false
+	}
+	segments := strings.Split(escapedPath, "/")
+	for _, seg := range segments[1:] {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+		if unesc, err := url.PathUnescape(seg); err == nil {
+			if unesc == "." || unesc == ".." {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	principal, err := p.auth.Authenticate(r)
 	if err != nil {
@@ -640,19 +691,39 @@ func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if path.Clean(r.URL.Path) != r.URL.Path {
+	escaped := r.URL.EscapedPath()
+	if !isCanonicalEscapedPath(escaped) {
 		p.deny(w, r, principal, "unmatched", "UNMATCHED", "noncanonical_route", http.StatusForbidden)
 		return
 	}
-	_, pattern := p.mux.Handler(r)
+
+	routeReq := r
+	if r.URL.RawPath != "" || r.URL.Path != escaped {
+		urlCopy := *r.URL
+		urlCopy.Path = escaped
+		urlCopy.RawPath = ""
+		routeReq = r.Clone(r.Context())
+		routeReq.URL = &urlCopy
+	}
+
+	_, pattern := p.mux.Handler(routeReq)
 	if pattern == "" {
 		p.deny(w, r, principal, "unmatched", "UNMATCHED", "unregistered_route", http.StatusForbidden)
 		return
 	}
-	p.mux.ServeHTTP(w, r)
+	p.mux.ServeHTTP(w, routeReq)
 }
 func (p *ProtectedRouter) safeAuditRoute(r *http.Request) (string, string) {
-	_, pattern := p.mux.Handler(r)
+	escaped := r.URL.EscapedPath()
+	routeReq := r
+	if r.URL.RawPath != "" || r.URL.Path != escaped {
+		urlCopy := *r.URL
+		urlCopy.Path = escaped
+		urlCopy.RawPath = ""
+		routeReq = r.Clone(r.Context())
+		routeReq.URL = &urlCopy
+	}
+	_, pattern := p.mux.Handler(routeReq)
 	requirement, ok := p.registered[pattern]
 	if !ok {
 		return "unmatched", "UNMATCHED"
@@ -665,7 +736,16 @@ func (p *ProtectedRouter) authorize(rd routeDefinition, w http.ResponseWriter, r
 		p.deny(w, r, Principal{}, rd.path, rd.method, "principal_context_missing", http.StatusServiceUnavailable)
 		return
 	}
-	if !principal.Permissions[rd.permission] || (rd.actorScoped && !principal.ActorIDs["*"] && !principal.ActorIDs[r.PathValue("id")]) {
+	var actorID string
+	if rd.actorScoped {
+		var err error
+		actorID, err = actorIDFromPath(r)
+		if err != nil {
+			p.deny(w, r, principal, rd.path, rd.method, "invalid_actor_id", http.StatusBadRequest)
+			return
+		}
+	}
+	if !principal.Permissions[rd.permission] || (rd.actorScoped && !principal.ActorIDs["*"] && !principal.ActorIDs[actorID]) {
 		p.deny(w, r, principal, rd.path, rd.method, "authorization_denied", http.StatusForbidden)
 		return
 	}

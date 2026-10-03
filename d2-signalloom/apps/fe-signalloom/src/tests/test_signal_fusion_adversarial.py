@@ -264,7 +264,7 @@ class TestMalformedRequests:
         assert resp.status_code == 200
         if upstream_path:
             # Verify the SQL injection string reached the upstream path
-            assert "DROP TABLE" in upstream_path, (
+            assert "DROP TABLE" in upstream_path or "DROP%20TABLE" in upstream_path, (
                 "SQL injection string should be in upstream path (it's the Go "
                 "service's job to reject it, not the proxy's — but we document it)"
             )
@@ -492,7 +492,14 @@ class TestDemoRunnerMultiDemo:
 
     def test_signalfusion_steps_endpoint_exists(self, client):
         """Signal Fusion demo exposes a /steps endpoint."""
-        route_paths = {r.path for r in app.routes if hasattr(r, "path")}
+        route_paths = set()
+        for r in app.routes:
+            if hasattr(r, "path"):
+                route_paths.add(r.path)
+            elif hasattr(r, "routes"):
+                route_paths.update(sub.path for sub in r.routes if hasattr(sub, "path"))
+            elif hasattr(r, "original_router") and hasattr(r.original_router, "routes"):
+                route_paths.update(sub.path for sub in r.original_router.routes if hasattr(sub, "path"))
         assert "/api/demo/signalfusion/steps" in route_paths
 
     def test_signalfusion_has_three_steps(self, client):

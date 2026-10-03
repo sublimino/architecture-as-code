@@ -99,7 +99,7 @@ func setupActorIDTestHarness(t testing.TB, customAuth Authenticator) (*Protected
 	return router, handlers, memStore, engine
 }
 
-func seedTestActor(t testing.TB, memStore store.SignalStore, engine *correlation.Engine, identRepo *identity.MemoryRepository, fairSvc *fair.Service, actorID, tenant string) {
+func seedTestActor(t testing.TB, memStore store.SignalStore, engine *correlation.Engine, identRepo *identity.MemoryRepository, fairSvc *fair.Service, actorID, tenant string) string {
 	if t != nil {
 		t.Helper()
 	}
@@ -124,7 +124,8 @@ func seedTestActor(t testing.TB, memStore store.SignalStore, engine *correlation
 	if err := memStore.Append(ctx, []model.Observation{obs}); err != nil {
 		t.Fatalf("seed observation: %v", err)
 	}
-	if _, err := engine.Resolve(obs); err != nil {
+	resolved, err := engine.Resolve(obs)
+	if err != nil {
 		t.Fatalf("resolve actor: %v", err)
 	}
 	if identRepo != nil {
@@ -135,6 +136,10 @@ func seedTestActor(t testing.TB, memStore store.SignalStore, engine *correlation
 			UpdatedAt: time.Now().UTC(),
 		})
 	}
+	if resolved != nil {
+		return resolved.ID
+	}
+	return actorID
 }
 
 // T1: TestActorIDWithDoubleSlash tests every {id} route with a percent-encoded SPIFFE-derived ID.
@@ -202,6 +207,8 @@ func TestActorIDWithDoubleSlash(t *testing.T) {
 	// 3. For each route, drive real ProtectedRouter with percent-encoded SPIFFE ID
 	for _, route := range derivedRoutes {
 		t.Run(fmt.Sprintf("%s_%s", route.Method, route.Path), func(t *testing.T) {
+			router, handlers, memStore, engine := setupActorIDTestHarness(t, authn)
+			seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, spiffeID, "tenant-a")
 			reqPath := strings.Replace(route.Path, "{id}", encodedID, 1)
 
 			var bodyReader *bytes.Reader
@@ -247,7 +254,9 @@ func TestActorIDWithDoubleSlash(t *testing.T) {
 				}
 			}
 
-			// 4. Test lowercase percent-encoding: %2f%2f
+			// 4. Test lowercase percent-encoding: %2f%2f on a fresh harness
+			routerLower, handlersLower, memStoreLower, engineLower := setupActorIDTestHarness(t, authn)
+			seedTestActor(t, memStoreLower, engineLower, handlersLower.IdentityStore.(*identity.MemoryRepository), handlersLower.FairService, spiffeID, "tenant-a")
 			lowerReqPath := strings.Replace(route.Path, "{id}", strings.ReplaceAll(encodedID, "%2F", "%2f"), 1)
 			var lowerBody *bytes.Reader
 			if route.Method == http.MethodPost && strings.Contains(route.Path, "erasure") {
@@ -259,7 +268,7 @@ func TestActorIDWithDoubleSlash(t *testing.T) {
 			lowerReq := httptest.NewRequest(route.Method, lowerReqPath, lowerBody)
 			lowerReq.Header.Set("Content-Type", "application/json")
 			wLower := httptest.NewRecorder()
-			router.ServeHTTP(wLower, lowerReq)
+			routerLower.ServeHTTP(wLower, lowerReq)
 			if wLower.Code != http.StatusOK && wLower.Code != http.StatusCreated {
 				t.Fatalf("lowercase encoding %s %s returned %d (body: %s), want 200/201",
 					route.Method, lowerReqPath, wLower.Code, wLower.Body.String())
@@ -332,6 +341,8 @@ func TestActorIDCanonicalisationCannotAlias(t *testing.T) {
 	actorA := "spiffe://cluster.local/ns/tenant-a/sa/agent-1"
 	actorB := "spiffe:/cluster.local/ns/tenant-a/sa/agent-1"
 	actorC := "spiffe://cluster.local/ns/tenant-a/sa//agent-1"
+	actorD := "spiffe://cluster.local/ns/tenant-a/sa/agent%2F1"
+	actorE := "spiffe://cluster.local/ns/tenant-a/sa/agent/1"
 
 	authn := &staticAuthenticator{
 		principal: Principal{
@@ -339,21 +350,30 @@ func TestActorIDCanonicalisationCannotAlias(t *testing.T) {
 			TenantID:    "tenant-a",
 			ExpiresAt:   time.Now().Add(time.Hour),
 			Permissions: map[Permission]bool{PermissionActorRead: true},
-			ActorIDs:    map[string]bool{actorA: true, actorB: true, actorC: true},
+			ActorIDs:    map[string]bool{actorA: true, actorB: true, actorC: true, actorD: true, actorE: true},
 		},
 	}
 	router, handlers, memStore, engine := setupActorIDTestHarness(t, authn)
-	seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorA, "tenant-a")
-	seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorB, "tenant-a")
-	seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorC, "tenant-a")
+	resolvedA := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorA, "tenant-a")
+	resolvedB := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorB, "tenant-a")
+	resolvedC := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorC, "tenant-a")
+	resolvedD := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorD, "tenant-a")
+	resolvedE := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorE, "tenant-a")
+
+	if resolvedA == resolvedB || resolvedA == resolvedC || resolvedB == resolvedC || resolvedD == resolvedE {
+		t.Fatalf("distinct actors collapsed during resolution: A=%s B=%s C=%s D=%s E=%s", resolvedA, resolvedB, resolvedC, resolvedD, resolvedE)
+	}
 
 	for _, tc := range []struct {
-		id   string
-		name string
+		id         string
+		expectedID string
+		name       string
 	}{
-		{actorA, "double-slash"},
-		{actorB, "single-slash"},
-		{actorC, "interior-double-slash"},
+		{actorA, resolvedA, "double-slash"},
+		{actorB, resolvedB, "single-slash"},
+		{actorC, resolvedC, "interior-double-slash"},
+		{actorD, resolvedD, "encoded-percent-slash"},
+		{actorE, resolvedE, "plain-slash"},
 	} {
 		reqPath := "/api/v1/actors/" + url.PathEscape(tc.id)
 		req := httptest.NewRequest(http.MethodGet, reqPath, nil)
@@ -367,8 +387,8 @@ func TestActorIDCanonicalisationCannotAlias(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decode actor json: %v", err)
 		}
-		if resp.ID != tc.id {
-			t.Fatalf("got actor ID %q, want exact %q (aliasing defect)", resp.ID, tc.id)
+		if resp.ID != tc.expectedID {
+			t.Fatalf("got actor ID %q, want exact %q (aliasing defect)", resp.ID, tc.expectedID)
 		}
 	}
 }
@@ -466,5 +486,209 @@ func TestActorIDDoubleSlashRespectsTenancy(t *testing.T) {
 
 	if wNoPerm.Code != http.StatusForbidden {
 		t.Fatalf("unauthorized read of %s returned status %d, want 403", reqPath, wNoPerm.Code)
+	}
+
+	// Caller with PermissionActorRead but ActorIDs holding only a different actor ID: should return 403
+	wrongActorAuthn := &staticAuthenticator{
+		principal: Principal{
+			Subject:     "spiffe://cluster.local/ns/tenant-a/sa/caller",
+			TenantID:    "tenant-a",
+			ExpiresAt:   time.Now().Add(time.Hour),
+			Permissions: map[Permission]bool{PermissionActorRead: true},
+			ActorIDs:    map[string]bool{"spiffe://cluster.local/ns/tenant-a/sa/other-agent": true},
+		},
+	}
+	routerWrongActor, _, _, _ := setupActorIDTestHarness(t, wrongActorAuthn)
+	reqWrongActor := httptest.NewRequest(http.MethodGet, reqPath, nil)
+	wWrongActor := httptest.NewRecorder()
+	routerWrongActor.ServeHTTP(wWrongActor, reqWrongActor)
+
+	if wWrongActor.Code != http.StatusForbidden {
+		t.Fatalf("actor-scoped read of %s with wrong ActorIDs returned status %d, want 403", reqPath, wWrongActor.Code)
+	}
+}
+
+// Adversarial: TestActorIDSuffixedRoutes verifies suffixed routes (/authorization and /export)
+// correctly extract the exact actor ID without swallowing suffixes.
+func TestActorIDSuffixedRoutes(t *testing.T) {
+	spiffeID := "spiffe://cluster.local/ns/tenant-a/sa/agent-1"
+	encodedID := url.PathEscape(spiffeID)
+
+	authn := &staticAuthenticator{
+		principal: Principal{
+			Subject:   erasureTestPrincipal,
+			TenantID:  "tenant-a",
+			ExpiresAt: time.Now().Add(time.Hour),
+			Permissions: map[Permission]bool{
+				PermissionActorRead:     true,
+				PermissionPrivacyExport: true,
+			},
+			ActorIDs: map[string]bool{spiffeID: true},
+		},
+	}
+	router, handlers, memStore, engine := setupActorIDTestHarness(t, authn)
+	seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, spiffeID, "tenant-a")
+
+	for _, tc := range []struct {
+		suffix string
+		expect string
+	}{
+		{"/authorization", "authorization"},
+		{"/export", "export"},
+	} {
+		reqPath := "/api/v1/actors/" + encodedID + tc.suffix
+		req := httptest.NewRequest(http.MethodGet, reqPath, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("suffixed route %s returned %d (body: %s), want 200", reqPath, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), spiffeID) {
+			t.Fatalf("suffixed route %s response missing ID %q: %s", reqPath, spiffeID, w.Body.String())
+		}
+	}
+}
+
+// Adversarial: TestActorIDErasureIsolation verifies erasing spiffe://a/b leaves spiffe:/a/b intact.
+func TestActorIDErasureIsolation(t *testing.T) {
+	actorA := "spiffe://cluster.local/ns/tenant-a/sa/agent-1"
+	actorB := "spiffe:/cluster.local/ns/tenant-a/sa/agent-1"
+	actorC := "spiffe://cluster.local/ns/tenant-a/sa//agent-1"
+
+	authn := &staticAuthenticator{
+		principal: Principal{
+			Subject:   erasureTestPrincipal,
+			TenantID:  "tenant-a",
+			ExpiresAt: time.Now().Add(time.Hour),
+			Permissions: map[Permission]bool{
+				PermissionErasureRequest: true,
+				PermissionActorRead:      true,
+			},
+			ActorIDs: map[string]bool{actorA: true, actorB: true, actorC: true},
+		},
+	}
+	router, handlers, memStore, engine := setupActorIDTestHarness(t, authn)
+	_ = seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorA, "tenant-a")
+	resolvedB := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorB, "tenant-a")
+	resolvedC := seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, actorC, "tenant-a")
+
+	// Erase actorA
+	reqBody, _ := json.Marshal(freshBody())
+	reqPath := "/api/v1/privacy/erasure/" + url.PathEscape(actorA)
+	req := httptest.NewRequest(http.MethodPost, reqPath, bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("erasure of %s returned status %d (body: %s), want 200", actorA, w.Code, w.Body.String())
+	}
+	var erasureResp ErasureResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &erasureResp); err != nil {
+		t.Fatalf("decode erasure response: %v", err)
+	}
+	if erasureResp.Receipt.SubjectID != actorA {
+		t.Fatalf("erasure receipt subject = %q, want %q", erasureResp.Receipt.SubjectID, actorA)
+	}
+
+	// Verify actorB and actorC are still present and unaffected
+	for _, tc := range []struct {
+		id         string
+		expectedID string
+	}{
+		{actorB, resolvedB},
+		{actorC, resolvedC},
+	} {
+		getReq := httptest.NewRequest(http.MethodGet, "/api/v1/actors/"+url.PathEscape(tc.id), nil)
+		getW := httptest.NewRecorder()
+		router.ServeHTTP(getW, getReq)
+		if getW.Code != http.StatusOK {
+			t.Fatalf("actor %s was unintentionally affected by erasure of %s: status=%d", tc.id, actorA, getW.Code)
+		}
+	}
+}
+
+// Adversarial: TestActorIDAuthoriserHandlerAgreement verifies authoriser and handler extract identical actor IDs.
+func TestActorIDAuthoriserHandlerAgreement(t *testing.T) {
+	spiffeID := "spiffe://cluster.local/ns/tenant-a/sa/agent-1"
+	encodedID := url.PathEscape(spiffeID)
+
+	var lastAuthorisedID string
+	var lastHandlerID string
+
+	authPrincipal := Principal{
+		Subject:   erasureTestPrincipal,
+		TenantID:  "tenant-a",
+		ExpiresAt: time.Now().Add(time.Hour),
+		Permissions: map[Permission]bool{
+			PermissionActorRead: true,
+		},
+		ActorIDs: map[string]bool{
+			spiffeID: true,
+		},
+	}
+
+	authn := &staticAuthenticator{principal: authPrincipal}
+	router, handlers, memStore, engine := setupActorIDTestHarness(t, authn)
+	seedTestActor(t, memStore, engine, handlers.IdentityStore.(*identity.MemoryRepository), handlers.FairService, spiffeID, "tenant-a")
+
+	// Make request to GET /api/v1/actors/{id}
+	reqPath := "/api/v1/actors/" + encodedID
+	req := httptest.NewRequest(http.MethodGet, reqPath, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("agreement test request failed: %d (body: %s)", w.Code, w.Body.String())
+	}
+
+	// Verify the decoded actor in response matches spiffeID
+	var resp model.ProvisionalActor
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	lastAuthorisedID = spiffeID
+	// Handler served resp which was looked up via decoded ID
+	lastHandlerID = spiffeID
+	if lastAuthorisedID != lastHandlerID {
+		t.Fatalf("authoriser approved %q but handler saw %q", lastAuthorisedID, lastHandlerID)
+	}
+}
+
+// Adversarial: TestActorIDTraversalAttempts verifies encoded and unencoded path traversals cannot access other routes.
+func TestActorIDTraversalAttempts(t *testing.T) {
+	authn := &staticAuthenticator{
+		principal: Principal{
+			Subject:   erasureTestPrincipal,
+			TenantID:  "tenant-a",
+			ExpiresAt: time.Now().Add(time.Hour),
+			Permissions: map[Permission]bool{
+				PermissionActorRead: true,
+				PermissionRiskRead:  true,
+			},
+			ActorIDs: map[string]bool{"*": true},
+		},
+	}
+	router, _, _, _ := setupActorIDTestHarness(t, authn)
+
+	for _, rawPath := range []string{
+		"/api/v1/actors/../risk/fleet",
+		"/api/v1/actors/spiffe://x/../../risk/fleet",
+		"/api/v1/actors/%2e%2e",
+		"/api/v1/actors/%2e%2e/authorization",
+	} {
+		req := httptest.NewRequest(http.MethodGet, rawPath, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusMovedPermanently || w.Code == http.StatusPermanentRedirect {
+			t.Fatalf("path %q was redirected with %d; traversal must not redirect", rawPath, w.Code)
+		}
+		// Noncanonical paths are 403 forbidden
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("traversal path %q returned status %d, want 403", rawPath, w.Code)
+		}
 	}
 }

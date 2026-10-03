@@ -85,7 +85,7 @@ def call(principal, method, path, headers=None):
 
 
 def only(sent, path):
-    matching = [r for r in sent if r.url.path == path]
+    matching = [r for r in sent if r.url.path == path or r.url.raw_path.decode() == path]
     assert len(matching) == 1, f"expected one request to {path}, saw {[r.url.path for r in sent]}"
     return matching[0]
 
@@ -175,3 +175,49 @@ def test_a_claim_delegation_without_a_usable_tenant_sends_nothing(outbound, inge
     assert not asyncio.run(agent_claim.sync_claim_delegation_to_spine("agent-1", "op-1", "claim-1", tenant=tenant))
     assert not asyncio.run(agent_claim.clamp_claim_delegation_in_spine("agent-1", "claim-1", tenant=tenant))
     assert outbound == []
+
+
+import urllib.parse  # noqa: E402
+
+from risk import get_agent_risk  # noqa: E402
+from signal_fusion import get_actor, get_actor_authorization, promote_actor  # noqa: E402
+from starlette.requests import Request  # noqa: E402
+
+TEST_SPIFFE_ID = "spiffe://osramp.local/ns/default/sa/kagent-1"
+ENCODED_SPIFFE_ID = urllib.parse.quote(TEST_SPIFFE_ID, safe="")
+
+
+def test_get_actor_encodes_spiffe_id_outbound(outbound):
+    resp = asyncio.run(get_actor(TEST_SPIFFE_ID, USER))
+    assert resp.status_code == 200
+    expected_path = f"/api/v1/actors/{ENCODED_SPIFFE_ID}"
+    req = only(outbound, expected_path)
+    assert "%2F" in req.url.raw_path.decode()
+    assert "//" not in req.url.raw_path.decode()
+
+
+def test_get_actor_authorization_encodes_spiffe_id_outbound(outbound):
+    resp = asyncio.run(get_actor_authorization(TEST_SPIFFE_ID, USER))
+    assert resp.status_code == 200
+    expected_path = f"/api/v1/actors/{ENCODED_SPIFFE_ID}/authorization"
+    req = only(outbound, expected_path)
+    assert "%2F" in req.url.raw_path.decode()
+    assert "//" not in req.url.raw_path.decode()
+
+
+def test_promote_actor_encodes_spiffe_id_outbound(outbound):
+    resp = asyncio.run(promote_actor(TEST_SPIFFE_ID, USER))
+    assert resp.status_code == 200
+    expected_path = f"/api/v1/actors/{ENCODED_SPIFFE_ID}/promote"
+    req = only(outbound, expected_path)
+    assert "%2F" in req.url.raw_path.decode()
+    assert "//" not in req.url.raw_path.decode()
+
+
+def test_get_agent_risk_encodes_spiffe_id_outbound(outbound):
+    resp = call(USER, "GET", f"/api/v1/risk/agents/{ENCODED_SPIFFE_ID}")
+    assert resp.status_code == 200
+    expected_path = f"/api/v1/risk/agents/{ENCODED_SPIFFE_ID}"
+    req = only(outbound, expected_path)
+    assert "%2F" in req.url.raw_path.decode()
+    assert "//" not in req.url.raw_path.decode()

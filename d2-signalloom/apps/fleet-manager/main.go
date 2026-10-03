@@ -266,7 +266,9 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.orchestrator.Stun(withAgentResolution(r.Context(), resolved), resolved.ID, reason)
+	ctx, cancel := cascadeContext(r)
+	defer cancel()
+	result, err := s.orchestrator.Stun(withAgentResolution(ctx, resolved), resolved.ID, reason)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -346,7 +348,9 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.orchestrator.Recover(r.Context(), stunnedIDs)
+	ctx, cancel := cascadeContext(r)
+	defer cancel()
+	result, err := s.orchestrator.Recover(ctx, stunnedIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -488,6 +492,20 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/v1/fleet/reset", s.callerKeys.require(scopeReset, s.handleReset))
 	registerConsistencyRoutes(mux, s)
 	return mux
+}
+
+// cascadeDeadline bounds one stun or recover cascade end to end.
+const cascadeDeadline = 2 * time.Minute
+
+// cascadeContext detaches a cascade from the caller's connection. A stun or a
+// recover is a multi-plane write: aborted half-way because the client gave up
+// (curl --max-time, a dropped port-forward), it left a pod contained but
+// unrecorded, or released on no plane at all. Live, 2026-10-03, every recover
+// ended outcome=unavailable with the release write failing on "context
+// canceled". It keeps the request's values, drops its cancellation, and has
+// its own deadline.
+func cascadeContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), cascadeDeadline)
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

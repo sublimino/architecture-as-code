@@ -286,6 +286,8 @@ type CascadeOrchestrator struct {
 	client            FleetClient
 	stepDelay         time.Duration
 	attestationEngine *attestation.AttestationEngine
+	// credentialStepTimeout bounds each target's credential restore.
+	credentialStepTimeout time.Duration
 }
 
 // NewCascadeOrchestrator creates a new orchestrator.
@@ -295,6 +297,16 @@ func NewCascadeOrchestrator(dag *DAG, client FleetClient, stepDelay time.Duratio
 		client:    client,
 		stepDelay: stepDelay,
 	}
+}
+
+// defaultCredentialStepTimeout bounds one target's credential restore.
+const defaultCredentialStepTimeout = 20 * time.Second
+
+func (o *CascadeOrchestrator) credentialTimeout() time.Duration {
+	if o.credentialStepTimeout > 0 {
+		return o.credentialStepTimeout
+	}
+	return defaultCredentialStepTimeout
 }
 
 // SetAttestationEngine configures the cryptographic attestation engine.
@@ -681,9 +693,15 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 		}
 		outcome.FromState = currentState
 
-		// Step 2: restore credentials.
+		// Step 2: restore credentials, bounded. The release below is the
+		// operator's decision and must not wait on a plane that cannot answer
+		// (SPIRE unreachable, Bao refusing behind an open breaker): a failed
+		// restore is reported on the target and the release still lands.
 		outcome.Credential = StepResult{Attempted: true}
-		if err := o.client.RestoreCredentials(ctx, id); err != nil {
+		credCtx, cancelCred := context.WithTimeout(ctx, o.credentialTimeout())
+		err = o.client.RestoreCredentials(credCtx, id)
+		cancelCred()
+		if err != nil {
 			slog.Warn("failed to restore credentials", "agent", id, "error", err)
 			outcome.Credential.Error = err.Error()
 		} else {

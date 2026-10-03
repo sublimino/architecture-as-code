@@ -15,3 +15,10 @@ resources:
   # SPIRE registration entries for the agent swarm — label-based attestation
   # so any pod with signalloom.ai/agent=true gets a SPIFFE SVID.
   - spire-agent-swarm-entries.yaml
+  # SPIFFE CSI driver DaemonSet (node-driver-registrar + spiffe-csi-driver) that
+  # projects the spire-agent Workload API socket into every csi.spiffe.io volume.
+  # The cluster-scoped CSIDriver object is in the fleet tenant ResourceSet
+  # signalloom-spire-rbac. Moved here from d2-signalloom/deploy/spiffe-csi on
+  # 2026-10-03: nothing applied it, so every consumer stayed ContainerCreating
+  # on a fresh cluster.
+  - spiffe-csi-driver.yaml

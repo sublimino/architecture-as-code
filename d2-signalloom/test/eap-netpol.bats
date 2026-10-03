@@ -22,8 +22,8 @@ render_py() {
 }
 
 @test "1. CSIDriver manifest declares Ephemeral mode and DaemonSet namespace is inf-bao" {
-	local csidriver="$d2/deploy/spiffe-csi/csidriver.yaml"
-	local daemonset="$d2/deploy/spiffe-csi/daemonset.yaml"
+	local csidriver="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+	local daemonset="$d2/infra/inf-bao/controllers/base/spiffe-csi-driver.yaml"
 
 	[ -f "$csidriver" ]
 	[ -f "$daemonset" ]

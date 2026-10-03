@@ -71,6 +71,19 @@ main() {
   done
   log "all required warden secrets present"
 
+  # 2. Preflight server-side dry run of warden overlay
+  local repo_root
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  local overlay_dir="${repo_root}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/${context#kind-}"
+  if [[ ! -d "${overlay_dir}" ]]; then
+    overlay_dir="${repo_root}/d2-signalloom/infra/agent-swarm/signalloom-warden"
+  fi
+  log "validating server-side dry-run for warden bundle (${overlay_dir})"
+  if ! "${KUBECTL}" --context "${context}" apply --server-side --dry-run=server --field-manager=kustomize-controller -k "${overlay_dir}" >/dev/null 2>&1; then
+    die "preflight server-side dry-run failed for ${overlay_dir}. Cluster state or manifests cannot apply cleanly." 1
+  fi
+  log "server-side dry-run validated successfully"
+
   if [[ "${dry_run}" -eq 1 ]]; then
     log "[dry-run] preflight successful; cutover plan verified without mutating cluster"
     exit 0

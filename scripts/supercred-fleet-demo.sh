@@ -191,7 +191,8 @@ POLICY
     bao write auth/jwt/role/signalloom-cardvault-agent \
       role_type=jwt bound_audiences=openbao \
       bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent \
-      user_claim=sub policies=signalloom-cardvault-agent
+      user_claim=sub policies=signalloom-cardvault-agent \
+      token_ttl=5m token_max_ttl=5m token_type=batch
     bao kv put kv/signalloom/cardvault-agent \
       username=cardvault-svc-account password=supercred-demo-password-2026
   '

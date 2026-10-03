@@ -103,7 +103,7 @@ func TestACallerHangingUpCannotAbortAStun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-cardvault",
-		strings.NewReader(`{"reason":"stun-sentinel detection: sys_enter_openat /etc/passwd"}`)).WithContext(ctx)
+		strings.NewReader(`{"reason":"signalloom-warden detection: sys_enter_openat /etc/passwd"}`)).WithContext(ctx)
 	req.Header.Set("Authorization", "Bearer "+sentinelKey)
 	s.routes().ServeHTTP(httptest.NewRecorder(), req)
 	if got := client.states["agent-cardvault"]; got != StateStunned {

@@ -11,7 +11,7 @@ package main
 //
 //	POST {FLEET_MANAGER_URL}/api/v1/fleet/stun/{pod}
 //	Authorization: Bearer {FLEET_MANAGER_STUN_KEY}   (Secret, via env)
-//	{"reason":"stun-sentinel detection: <syscall> <target>"}
+//	{"reason":"signalloom-warden detection: <syscall> <target>"}
 //
 // It runs off the ring-buffer goroutine, once per hold, and retries transient
 // failures (network, 5xx) while the hold stands. A refusal (401/403/404/400) is
@@ -69,7 +69,7 @@ func newFleetStunner(baseURL, key string) *fleetStunner {
 func stunReasonFor(syscall, target string) string {
 	var b strings.Builder
 	n := 0
-	for _, r := range strings.TrimSpace("stun-sentinel detection: " + syscall + " " + target) {
+	for _, r := range strings.TrimSpace("signalloom-warden detection: " + syscall + " " + target) {
 		if n == fleetStunMaxReason {
 			break
 		}

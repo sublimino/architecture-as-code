@@ -145,14 +145,14 @@ func TestHealthz_IgnoresAuditBackend(t *testing.T) {
 // would time out rather than receive a verdict, and the goroutine would sit
 // in the syscall for as long as the drop persisted.
 func TestReadyz_BoundsTheCheck(t *testing.T) {
-	var deadline time.Time
+	var deadline, entered time.Time
 	var hadDeadline bool
 	h := &Handlers{AuditReady: func(ctx context.Context) error {
+		entered = time.Now()
 		deadline, hadDeadline = ctx.Deadline()
 		return nil
 	}}
 
-	start := time.Now()
 	if w := getReadyz(t, h); w.Code != http.StatusOK {
 		t.Fatalf("readyz: got %d, want 200", w.Code)
 	}
@@ -161,7 +161,9 @@ func TestReadyz_BoundsTheCheck(t *testing.T) {
 		t.Fatal("AuditReady received a context with no deadline -- an unreachable " +
 			"backend would block the probe handler indefinitely")
 	}
-	if budget := deadline.Sub(start); budget > readyCheckTimeout+time.Second {
+	// Measured from inside the check, so no scheduling delay before the call
+	// can inflate it: the remaining budget can never exceed readyCheckTimeout.
+	if budget := deadline.Sub(entered); budget > readyCheckTimeout {
 		t.Errorf("readiness check budget %v exceeds readyCheckTimeout %v", budget, readyCheckTimeout)
 	}
 	// Must stay under the readinessProbe's timeoutSeconds (3, in

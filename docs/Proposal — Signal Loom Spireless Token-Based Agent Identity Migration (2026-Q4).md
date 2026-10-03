@@ -624,7 +624,7 @@ The following 3 compact JSON request bodies (one line each) define the exact wir
 | P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | pass (inventory written; shared patterns pinned) — delivered: `b10042333773e0d53303fa8adb11b02dcca2c71a` (see Errata — SLTM-P2-PRE) | — | — | — | — |
 | P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | pass — delivered: `e4ebc708b94751eefc5a84c40eec3f5ff997390e` (see Errata — SLTM-P2-1) | — | — | — | — |
 | P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | pass — delivered: 4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b (see Errata — SLTM-P2-2) | — | — | — | — |
-| P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | pass — delivered: `cfbd0d4952797b798e7984c9791a7ab7519d12c7` (see Errata — SLTM-P2-3) | — | — | — | — |
 | P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
 | P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | — | — | — | — | — |
 | P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | — | — | — | — | — |
@@ -1114,6 +1114,55 @@ Failing test suites were authored and committed first in `ec12d405`:
   `rg -c 'X-SignalLoom-Acting-Tenant' d2-signalloom` -> `12 matches across 6 files (positive control verified)`
 - **T7 (Citation Resolution Integrity):**
   `70 citations verified against codebase with sed/grep` -> `0 MISSING`
+
+#### Errata — SLTM-P2-3
+
+- **Logical ID:** P2-3
+- **Commit:** `cfbd0d49` (`cfbd0d4952797b798e7984c9791a7ab7519d12c7`)
+- **Failing-First Commit:** `02a19850` (`02a19850380f832130dd7a3e6e5fecd26355892f`)
+- **Created:** 2026-10-03 07:15:00+01:00
+- **Last Updated:** 2026-10-03 07:36:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0` (base ref: `b1fd3b1e`)
+- **HEAD SHA:** `cfbd0d4952797b798e7984c9791a7ab7519d12c7`
+
+##### Chosen Caps and Constants
+- **Max Body Bytes (`SIGNAL_INGEST_MAX_BODY_BYTES`):** 4,194,304 bytes (4 MiB) — `d2-signalloom/apps/signal-ingest/api/batch_chain.go:31` (`DefaultMaxBodyBytes`) & `d2-signalloom/apps/signal-ingest/api/handlers.go:176` (`getMaxBodyBytes()`). Requests exceeding this return HTTP 413.
+- **LRU Epochs per Subject:** 8 epochs — `d2-signalloom/apps/signal-ingest/api/batch_chain.go:25` (`DefaultMaxEpochsPerSubject = 8`). Evicts oldest epoch when cap is reached.
+- **Sequence Tracking Window per Epoch:** 1,024 entries — `d2-signalloom/apps/signal-ingest/api/batch_chain.go:28` (`DefaultWindowSizePerEpoch = 1024`).
+- **Database Migration Taken:** `051_batch_chain_event_type.sql` — `d2-signalloom/apps/fe-signalloom/src/db/migrations/051_batch_chain_event_type.sql`. Widens `signal_audit_trail.event_type` check constraint with `batch_chain`. Both bootstrap SQL copies regenerated; `make -C d2-signalloom bootstrap-drift` passes.
+
+##### Failing-First Test Summary
+Failing-first test suites were authored and committed in `02a19850`:
+- `d2-signalloom/apps/signal-ingest/api/batch_chain_test.go`: 18 comprehensive test cases executed through `ProtectedRouter` covering contiguous sequences, spool replay continuation across restarts, new epochs, fresh process resume (`resumed`), gaps with missing ranges, reordered batches, exact duplicates (`replayed`, 201 `{"ingested":0,"duplicate":true}` without `Append`), conflicting payloads (`conflict`), broken prev links (`broken`), absent headers accepted and audited once per hour (`unchained`), each malformed header variant (400 `invalid_batch_chain`), body size limits (413), fail-closed audit sink errors (503), memory boundedness under 10k epochs, concurrent same-key requests, and the 3-body canonical test vector.
+- `test/sltm-ingest-chain.bats`: 6 real-binary bats integration tests executing against `signal-ingest` started offline with static API keys and `SIGNAL_AUDIT_FILE`.
+- `d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json`: Committed SHA-256 wire test vector matching Shared Patterns specification (`81ff...`, `8e0b...`, `9565...`).
+- `d2-signalloom/apps/signal-ingest/audit/audit_test.go`: Added `TestAllEventTypesInBootstrapCheck` asserting vocabulary parity between `AllEventTypes` and the bootstrap SQL CHECK constraint.
+
+##### Mutation Proofs (11/11 Verified)
+Each mutation was applied against the implementation, verified to fail the target test (FAIL), and restored to green (PASS):
+1. **Refuse a replay with 409:** Returning 409 on duplicate batch fails `TestBatchChainReplayIsAuditedNotRejected` (`batch_chain_test.go:173: replay send: expected 201, got 409`).
+2. **Skip sequence comparison:**
+   - (2a) Omitting gap classification fails `TestBatchChainGapIsAudited` (`batch_chain_test.go:338: expected outcome "gap", got "reordered"`).
+   - (2b) Forcing contiguous outcome fails `TestBatchChainReorderIsAudited` (`batch_chain_test.go:297: expected outcome "reordered", got "contiguous"`).
+3. **Skip prev hash comparison:** Always matching prev fails `TestBatchChainBrokenPrevIsAudited` (`batch_chain_test.go:375: expected 2 events, got 1`).
+4. **Treat a new epoch as a replay of the old:** Emitting `replayed` on seq 1 of unseen epoch fails `TestBatchChainNewEpochIsNotAForgery` (`batch_chain_test.go:418: both events must be epoch_started: got "replayed" and "replayed"`).
+5. **Treat an old-epoch continuation as a reorder:** Emitting `reordered` on contiguous old-epoch continuation fails `TestBatchChainSpoolReplayIsAContiguousContinuation` (`batch_chain_test.go:468: expected 2 events (epoch_started only), got 7`).
+6. **Refuse requests without headers:** Returning 400 when headers are absent fails `TestBatchChainAbsentHeadersAreAcceptedAndRecorded` (`batch_chain_test.go:616: expected 201 for unchained sender, got 400`).
+7. **Key state by epoch only (global):** Collapsing sender subject into global state fails `TestBatchChainStateIsPerKey` (`batch_chain_test.go:733: expected 2 epoch_started events, got 1`).
+8. **Drop state cap:** Disabling epoch LRU eviction fails `TestBatchChainStateIsBounded` (`batch_chain_test.go:789: expected tracked epochs <= 8, got 10000`).
+9. **Hash a re-marshalled body:** Marshalling decoded structs before hashing fails `TestBatchChainVector` (`batch_chain_test.go:915: expected exactly 1 batch_chain event (epoch_started), got 3`).
+10. **Swallow audit write error:** Ignoring audit writer error on anomaly fails `TestBatchChainAuditStoreDownIs503` (`batch_chain_test.go:842: expected 503 when audit sink down on anomaly, got 201`).
+11. **Put bearer token in event row:** Stamping `Authorization` header instead of `principal.Subject` fails `TestBatchChainAuditRowsNameTheKeyNotTheValue` (`batch_chain_test.go:812: audit detail contains sensitive bearer substring`).
+
+##### Test Execution Evidence
+- `cd d2-signalloom/apps/signal-ingest && env CGO_ENABLED=0 GOPATH=/tmp/go GOCACHE=/tmp/go-cache GOMODCACHE=/tmp/gomodcache GOTOOLCHAIN=auto go test -count=1 ./api/...` -> `PASS` (18/18 `TestBatchChain*` cases pass).
+- `cd d2-signalloom/apps/signal-ingest && env CGO_ENABLED=0 GOPATH=/tmp/go GOCACHE=/tmp/go-cache GOMODCACHE=/tmp/gomodcache GOTOOLCHAIN=auto go test -count=1 ./...` -> `PASS` (all packages pass).
+- `cd d2-signalloom/apps/signal-ingest && env CGO_ENABLED=0 GOPATH=/tmp/go GOCACHE=/tmp/go-cache GOMODCACHE=/tmp/gomodcache GOTOOLCHAIN=auto go test -tags frostdb -count=1 ./store/...` -> `PASS`.
+- `bats test/sltm-ingest-chain.bats` -> `6 tests, 0 failures (PASS)`.
+- `make -C d2-signalloom bootstrap-drift` -> `PASS (0 drift)`.
+- `scripts/lint-pipefail-grep-q.sh` -> `SCANNED CLEAN`.
+- `scripts/check-vacuous-assertions.sh test/sltm-ingest-chain.bats` -> `PASS (0 vacuous assertions)`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

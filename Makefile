@@ -1141,7 +1141,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/afm-import-gateway-manifests.bats test/afm-importer-key.bats test/afm-importer-key-stdin.bats \
 	test/afm-rbac-exporter-manifests.bats \
 	test/afm-rbac-exporter-push.bats \
-	test/sltm-ingest-reload-ratelimit.bats
+	test/sltm-ingest-reload-ratelimit.bats \
+	test/sltm-ingest-chain.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \

@@ -166,8 +166,9 @@ mount_triples() {
 }
 
 @test "sentinel-capabilities: API server admits the DaemonSet (server-side dry run)" {
-  kubectl get --raw /readyz >/dev/null 2>&1 || skip "no reachable cluster for server-side dry run"
-  run kubectl apply --dry-run=server -k "$BASE_DIR"
+  local ctx="kind-osramp"
+  kubectl --context "$ctx" get --raw /readyz >/dev/null 2>&1 || skip "no reachable cluster for server-side dry run"
+  run kubectl --context "$ctx" apply --dry-run=server -k "$BASE_DIR"
   echo "$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"daemonset.apps/signalloom-warden"*"(server dry run)"* ]]

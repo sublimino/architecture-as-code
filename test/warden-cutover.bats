@@ -61,6 +61,12 @@ case "$*" in
     fi
     exit 0
     ;;
+  *"apply --server-side --dry-run=server"*)
+    if [ -f "${FAKE_STATE}/fail_serverside_dry_run" ]; then
+      exit 1
+    fi
+    exit 0
+    ;;
   *)
     exit 0
     ;;
@@ -104,6 +110,14 @@ EOF
   run bash "${SCRIPT}" --context kind-osramp
   [ "$status" -eq 1 ]
   [[ "$output" == *"fe-signalloom-agents/signalloom-warden-ingest-token is missing"* ]]
+  [ ! -f "${STATE}/events" ]
+}
+
+@test "warden-cutover: preflight server-side dry-run failure stops and does not delete legacy probe" {
+  touch "${STATE}/fail_serverside_dry_run"
+  run bash "${SCRIPT}" --context kind-osramp
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"server-side dry-run failed"* ]]
   [ ! -f "${STATE}/events" ]
 }
 

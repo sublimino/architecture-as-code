@@ -82,6 +82,49 @@ spec:
               drop:
                 - ALL
         # OpenBao Agent sidecar — fetches secrets via SPIFFE JWT auth
+        # Writes this pod's JWT-SVID (audience openbao-supercredential, the
+        # bound_audiences of role signalloom-agent-generic) from the SPIRE
+        # socket into a memory volume for the openbao-agent jwt method, as
+        # fleet-manager's jwt-svid does. The jwt method reads a FILE; pointed
+        # at the socket it never authenticated (live, 2026-10-03). Refreshed
+        # every 60s, written then renamed so the agent never reads half a
+        # file; 0600, read by the openbao-agent as the same uid (100). Pinned
+        # by d2-signalloom/test/openbao-agent-jwt-source.bats.
+        - name: jwt-svid
+          image: signalloom-spire-helper:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                if /usr/local/bin/signalloom-spire-proof write --audience openbao-supercredential \
+                     --socket /run/spire/sockets/agent.sock \
+                     --output /var/run/secrets/spiffe/jwt.tmp; then
+                  mv -f /var/run/secrets/spiffe/jwt.tmp /var/run/secrets/spiffe/jwt
+                else
+                  echo "jwt-svid: fetch failed; keeping previous SVID" >&2
+                fi
+                sleep 60
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: spiffe-jwt
+              mountPath: /var/run/secrets/spiffe
         - name: openbao-agent
           image: openbao/openbao:2.1.0
           # bao directly, not the openbao image's docker-entrypoint.sh, whose
@@ -106,8 +149,12 @@ spec:
               mountPath: /vault/secrets
             - name: bao-home
               mountPath: /home/openbao
+            - name: spiffe-jwt
+              mountPath: /var/run/secrets/spiffe
+              readOnly: true
           securityContext:
             runAsNonRoot: true
+            runAsUser: 100
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
@@ -132,6 +179,10 @@ spec:
             medium: Memory
             sizeLimit: 1Mi
         - name: bao-home
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: spiffe-jwt
           emptyDir:
             medium: Memory
             sizeLimit: 1Mi

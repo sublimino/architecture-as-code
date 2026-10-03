@@ -5,7 +5,8 @@
 # to add SPIFFE-authenticated OpenBao secret retrieval to any agent deployment.
 #
 # The sidecar:
-#   1. Reads the SPIFFE JWT-SVID from the CSI driver socket
+#   1. Reads the pod's JWT-SVID from a FILE in a memory volume, written and
+#      refreshed by a jwt-svid helper container from the SPIRE CSI socket
 #   2. Authenticates to OpenBao via the signalloom-agent-generic JWT role
 #   3. Renders secrets to /vault/secrets/<env-var-name> files
 #   4. The main container reads secrets from those files
@@ -13,7 +14,10 @@
 # Prerequisites:
 #   - SPIRE CSI driver installed (csi.spiffe.io)
 #   - OpenBao JWT auth method configured with signalloom-agent-generic role
-#   - Agent-specific secrets seeded at secret/data/agents/<spiffe-id>/<key>
+#   - The agent's service account pre-created as an entity by the role Job
+#     (AGENT_ENTITIES in openbao-agent-generic-role.yaml)
+#   - Agent-specific secrets seeded at secret/data/agents/<agent-sa>/<key>
+#     (scripts/swarm-seed-secrets.sh)
 #   - Per-agent openbao-agent-config ConfigMap with template stanzas
 #
 # Pattern lifted from agent-cardvault/deployment-overlay.yaml and generalised
@@ -34,8 +38,11 @@
 #   auto_auth {
 #     method "jwt" {
 #       config = {
-#         path = "/run/spire/sockets/agent.sock"
-#         role = "signalloom-agent-generic"
+#         # A FILE holding the JWT-SVID, written by a jwt-svid helper in the
+#         # pod (see fleet-manager); never the SPIRE socket.
+#         path                     = "/var/run/secrets/spiffe/jwt"
+#         role                     = "signalloom-agent-generic"
+#         remove_jwt_after_reading = false
 #       }
 #     }
 #
@@ -53,7 +60,7 @@
 #   # Per-agent template stanzas — example for an agent needing ANTHROPIC_API_KEY:
 #   #
 #   # template {
-#   #   contents     = "{{ with secret \"secret/data/agents/{{ env \"SPIFFE_ID\" }}/anthropic/api-key\" }}{{ .Data.data.value }}{{ end }}"
+#   #   contents     = "{{ with secret \"secret/data/agents/<agent-sa>/anthropic/api-key\" }}{{ .Data.data.value }}{{ end }}"
 #   #   destination  = "/vault/secrets/ANTHROPIC_API_KEY"
 #   #   error_on_missing_key = true
 #   # }
@@ -140,8 +147,9 @@ data:
     auto_auth {
       method "jwt" {
         config = {
-          path = "/run/spire/sockets/agent.sock"
-          role = "signalloom-agent-generic"
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-agent-generic"
+          remove_jwt_after_reading = false
         }
       }
 
@@ -158,7 +166,7 @@ data:
 
     template {
       contents     = <<-EOT
-      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/llm/api-key" }}{{ .Data.data.value }}{{ end }}
+      {{ with secret "secret/data/agents/prompt-commit-summarizer/llm/api-key" }}{{ .Data.data.value }}{{ end }}
       EOT
       destination  = "/vault/secrets/LLM_API_KEY"
       error_on_missing_key = true
@@ -181,8 +189,9 @@ data:
     auto_auth {
       method "jwt" {
         config = {
-          path = "/run/spire/sockets/agent.sock"
-          role = "signalloom-agent-generic"
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-agent-generic"
+          remove_jwt_after_reading = false
         }
       }
 
@@ -199,7 +208,7 @@ data:
 
     template {
       contents     = <<-EOT
-      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/github/token" }}{{ .Data.data.value }}{{ end }}
+      {{ with secret "secret/data/agents/triage-ci-worker/github/token" }}{{ .Data.data.value }}{{ end }}
       EOT
       destination  = "/vault/secrets/GITHUB_TOKEN"
       error_on_missing_key = true
@@ -222,8 +231,9 @@ data:
     auto_auth {
       method "jwt" {
         config = {
-          path = "/run/spire/sockets/agent.sock"
-          role = "signalloom-agent-generic"
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-agent-generic"
+          remove_jwt_after_reading = false
         }
       }
 
@@ -240,7 +250,7 @@ data:
 
     template {
       contents     = <<-EOT
-      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/zulip/api-key" }}{{ .Data.data.value }}{{ end }}
+      {{ with secret "secret/data/agents/zulip-chat-agent/zulip/api-key" }}{{ .Data.data.value }}{{ end }}
       EOT
       destination  = "/vault/secrets/ZULIP_API_KEY"
       error_on_missing_key = true
@@ -263,8 +273,9 @@ data:
     auto_auth {
       method "jwt" {
         config = {
-          path = "/run/spire/sockets/agent.sock"
-          role = "signalloom-agent-generic"
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-agent-generic"
+          remove_jwt_after_reading = false
         }
       }
 
@@ -281,7 +292,7 @@ data:
 
     template {
       contents     = <<-EOT
-      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/anthropic/api-key" }}{{ .Data.data.value }}{{ end }}
+      {{ with secret "secret/data/agents/cpai-engineer/anthropic/api-key" }}{{ .Data.data.value }}{{ end }}
       EOT
       destination  = "/vault/secrets/ANTHROPIC_API_KEY"
       error_on_missing_key = true
@@ -304,8 +315,9 @@ data:
     auto_auth {
       method "jwt" {
         config = {
-          path = "/run/spire/sockets/agent.sock"
-          role = "signalloom-agent-generic"
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-agent-generic"
+          remove_jwt_after_reading = false
         }
       }
 
@@ -322,7 +334,7 @@ data:
 
     template {
       contents     = <<-EOT
-      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/gate/hmac-secret" }}{{ .Data.data.value }}{{ end }}
+      {{ with secret "secret/data/agents/prod-deploy-gate/gate/hmac-secret" }}{{ .Data.data.value }}{{ end }}
       EOT
       destination  = "/vault/secrets/GATE_HMAC_SECRET"
       error_on_missing_key = true
@@ -345,8 +357,9 @@ data:
     auto_auth {
       method "jwt" {
         config = {
-          path = "/run/spire/sockets/agent.sock"
-          role = "signalloom-agent-generic"
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-agent-generic"
+          remove_jwt_after_reading = false
         }
       }
 
@@ -363,7 +376,7 @@ data:
 
     template {
       contents     = <<-EOT
-      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/anthropic/api-key" }}{{ .Data.data.value }}{{ end }}
+      {{ with secret "secret/data/agents/swarm-governor/anthropic/api-key" }}{{ .Data.data.value }}{{ end }}
       EOT
       destination  = "/vault/secrets/ANTHROPIC_API_KEY"
       error_on_missing_key = true

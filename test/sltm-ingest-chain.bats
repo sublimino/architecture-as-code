@@ -23,7 +23,7 @@ setup_file() {
     "name": "stun-sentinel",
     "subject": "static-key/stun-sentinel",
     "tenant": "kusari",
-    "permissions": ["observations:write"]
+    "permissions": ["observations:write", "tenant:cross-write"]
   }
 ]
 EOF
@@ -111,7 +111,7 @@ hdr() {
         -H @"${hfile}" \
         -H "X-SignalLoom-Batch-Epoch: ${epoch}" \
         -H "X-SignalLoom-Batch-Seq: 1" \
-        -H "X-SignalLoom-Batch-Prev: " \
+        -H "X-SignalLoom-Batch-Prev;" \
         --data-binary @"${GOLDEN_PAYLOAD}" \
         "$(local_url /api/v1/observations)")"
 
@@ -200,7 +200,7 @@ hdr() {
         -H @"${hfile}" \
         -H "X-SignalLoom-Batch-Epoch: ${epochNew}" \
         -H "X-SignalLoom-Batch-Seq: 1" \
-        -H "X-SignalLoom-Batch-Prev: " \
+        -H "X-SignalLoom-Batch-Prev;" \
         --data-binary @"${GOLDEN_PAYLOAD}" \
         "$(local_url /api/v1/observations)")"
 

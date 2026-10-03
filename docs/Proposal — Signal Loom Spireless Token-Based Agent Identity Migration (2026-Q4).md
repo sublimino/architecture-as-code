@@ -718,7 +718,7 @@ Because the running `stun-sentinel` probe binary self-excludes only `stun-sentin
 | P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | pass — delivered: `ec9354c1396869165896f61fa5d183cdc8210c3e` (see Errata — SLTM-P3-1) | — | — | — | — |
 | P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | pass — delivered: c6e2ac28c65c56b0056f3642d6eabea41ce398cc (see Errata — SLTM-P3-2) | — | — | — | — |
 | P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | pass — delivered: `3d1ebc53` (see Errata — SLTM-P3-GOV) | — | — | — | — |
-| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | pass — delivered: `fc10c498fbb826ab0931b2a63cfa20f665b7df89` (see Errata — SLTM-P4-1) | — | — | — | — |
 | P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
@@ -1730,5 +1730,61 @@ scripts/warden-cutover.sh --context kind-osramp
   - Run 1 (13:14:19 - 13:15:56 +0100): 6/6 passed (Steps 1-6 ok), evidence `/tmp/kusari-e2e/20261003-131419`.
   - Run 2 (13:16:03 - 13:17:36 +0100): 6/6 passed (Steps 1-6 ok), evidence `/tmp/kusari-e2e/20261003-131603`.
   - Verified deployment, tenancy claim, hostile read provocation, probe syscall interception, cgroup freeze past resync, 0 restarts, and authorized recovery replacement.
+
+#### Errata — SLTM-P4-1
+
+- **Logical ID:** P4-1
+- **Created:** 2026-10-03 14:15:00+01:00
+- **Last Updated:** 2026-10-03 14:55:00+01:00
+- **Harness:** `antigravity`
+- **Commit:** `fc10c498` (`fc10c498fbb826ab0931b2a63cfa20f665b7df89`)
+- **Delivered Commit SHA:** `fc10c498fbb826ab0931b2a63cfa20f665b7df89`
+- **Base Ref:** `refs/heads/integration/sltm-v0.1.0`
+- **Failing-First Commit:** `3e57ab83`
+- **Status:** `pass`
+
+##### 1. Failing-First Verification
+- Committed failing test suite `d2-signalloom/apps/signal-ingest/api/actor_id_test.go` (`3e57ab83`) asserting percent-encoded SPIFFE IDs on all 8 `{id}` routes derived dynamically from `ProtectedRouter.Inventory()` / `registered`.
+- Prior to the fix, all 8 routes failed with 403 `noncanonical_route` because `ProtectedRouter.ServeHTTP` checked `path.Clean(r.URL.Path) != r.URL.Path` on the decoded path, where percent-encoded `%2F` restored the literal `//`:
+  ```
+  route GET /api/v1/actors/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1 returned status 403 (body: {"error":"noncanonical_route"}), want 200/201
+  route GET /api/v1/actors/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1/authorization returned status 403, want 200/201
+  route POST /api/v1/actors/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1/promote returned status 403, want 200/201
+  route GET /api/v1/risk/agents/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1 returned status 403, want 200/201
+  route GET /v1/risk/agents/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1 returned status 403, want 200/201
+  route POST /api/v1/privacy/erasure/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1 returned status 403, want 200/201
+  route GET /api/v1/privacy/export/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1 returned status 403, want 200/201
+  route GET /api/v1/actors/spiffe:%2F%2Fcluster.local%2Fns%2Ftenant-a%2Fsa%2Fagent-1/export returned status 403, want 200/201
+  ```
+
+##### 2. Implementation & ServeMux Analysis
+- **Canonical Escaped-Path Validation:** Replaced the decoded `path.Clean(r.URL.Path)` check in `ProtectedRouter.ServeHTTP` (`api/auth.go`) with `isCanonicalEscapedPath(r.URL.EscapedPath())`. This inspects the escaped path tokens, ensuring non-empty segments, no `.` or `..` segments, and no unescaped `//` or trailing slashes, while permitting percent-encoded slashes (`%2F`) within a single path segment.
+- **ServeMux Behavior Analysis:** In Go 1.27 (`net/http`), `http.ServeMux` inspects `r.URL.Path` (the decoded path). If `r.URL.Path` contains decoded `//`, `ServeMux` splits across multiple segments, which breaks matching for single-segment wildcards `{id}` and causes redirects or 404s. `ProtectedRouter.ServeHTTP` constructs a `routeReq` clone where `URL.Path = r.URL.EscapedPath()` and `URL.RawPath = ""` before delegating to `p.mux.Handler(routeReq)` and `p.mux.ServeHTTP(w, routeReq)`. This ensures `ServeMux` matches the `{id}` parameter as a single escaped token without issuing redirects.
+- **Single Decoding Boundary (`actorIDFromPath`):** Introduced `actorIDFromPath(r *http.Request) (string, error)` in `api/auth.go` that extracts `r.PathValue("id")`, unescapes percent-encoding exactly once, validates UTF-8, and avoids path cleaning (so `spiffe://a/b` never collapses to `spiffe:/a/b`). Both the authoriser (`authorize` in `api/auth.go:742`) and all `{id}` handlers (`handleGetActor`, `handleGetActorAuthorization`, `handlePromoteActor`, `handleGetAgentRisk`, `handleEraseSubject`, `handleExportSubject`) invoke `actorIDFromPath`, guaranteeing authoriser and lookup consensus.
+- **Correlation Engine & Slug Handling:** Updated `d2-signalloom/apps/signal-ingest/correlation/engine.go` (`PromoteActor`) to match provisional actors by ID, CanonicalID, or Aliases, matching `GetActor` resolution semantics. Updated `fair.AgentTelemetry` fixture helper (`pkg/fair/fixtures.go`) to split slash-delimited SPIFFE IDs safely for slug extraction.
+- **Caller Encoding (`fe-signalloom`):** Updated `d2-signalloom/apps/fe-signalloom/src/signal_fusion.py` (`get_actor`, `get_actor_authorization`, `promote_actor`) and `src/risk.py` (`get_agent_risk`) to wrap actor IDs with `urllib.parse.quote(actor_id, safe='')`. Added pytests in `tests/test_ingest_proxies.py` proving that outbound requests sent to signal-ingest contain `%2F` on the wire and never literal `//`.
+- **Known-Limit Cleanup:** Replaced the known-limit comment in `d2-signalloom/apps/signal-ingest/api/tenancy_test.go:504-506` with a live by-ID read of the seeded SPIFFE actor.
+
+##### 3. Mutation Proofs (T5)
+1. **Mutation 1 (Revert Canonical Check):** Reverting `isCanonicalEscapedPath` in `auth.go:695` to `clean := path.Clean(r.URL.Path); clean != r.URL.Path` caused all 8 `{id}` routes in `TestActorIDWithDoubleSlash` to fail with 403 `noncanonical_route`.
+2. **Mutation 2 (Double-Decode in Helper):** Adding a second `url.PathUnescape` in `actorIDFromPath` caused `TestActorIDCanonicalisationCannotAlias` to fail:
+   `got actor ID "actor-...|obs-spiffe%3A%2F%2F...%2Fagent%2F1", want exact "actor-...|obs-spiffe%3A%2F%2F...%2Fagent%252F1" (aliasing defect)`
+3. **Mutation 3 (Collapse `//` to `/`):** Collapsing double slashes with `strings.ReplaceAll(decoded, "//", "/")` in `actorIDFromPath` caused `TestActorIDCanonicalisationCannotAlias` to fail:
+   `got actor ID "actor-...|obs-spiffe%3A%2Fcluster.local%2F...", want exact "actor-...|obs-spiffe%3A%2F%2Fcluster.local%2F..." (aliasing defect)`
+4. **Mutation 4 (Route Inventory Drift):** Registering a dummy `{id}` route in `auth.go` caused `TestActorIDWithDoubleSlash` to fail:
+   `derived {id} routes count 9 != expected literal count 8`
+5. **Mutation 5 (Skip Actor-Scoped Authz Check):** Bypassing `rd.actorScoped` authorization check in `auth.go:748` caused `TestActorIDDoubleSlashRespectsTenancy` to fail:
+   `actor-scoped read of /api/v1/actors/spiffe:%2F%2F... with wrong ActorIDs returned status 404, want 403`
+
+##### 4. Gate Verification & Test Results
+- `go test -count=1 ./api/...` in signal-ingest: PASS (11 test suites including full `actor_id_test.go` table-driven and adversarial tests).
+- `go test -tags frostdb -count=1 ./store/...`: PASS (all store suites green).
+- `pytest tests/test_ingest_proxies.py tests/test_signal_fusion.py tests/test_signal_fusion_adversarial.py tests/test_risk.py tests/test_fair_risk.py`: PASS (118/118 passed in fe-signalloom).
+- `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: PASS (19/19 tests, 10 offline passed, 9 skipped live).
+- `KUBECONFIG=/dev/null make test-sldc-offline`: PASS (662 BATS tests, Go packages, pytest suites, and bun tenant-hash tests pass, exit 0).
+- `KUBECONFIG=/dev/null make test-e2e-containment-mutation-proof`: PASS (44/44 mutations proven).
+- `bash scripts/lint-pipefail-grep-q.sh`: PASS (660 files scanned clean).
+- `scripts/check-vacuous-assertions.sh test`: PASS (zero findings in modified files).
+- `git diff --check`: PASS (clean tree, zero conflict markers, zero whitespace errors).
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

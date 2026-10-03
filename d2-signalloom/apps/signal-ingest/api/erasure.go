@@ -45,8 +45,8 @@ func (h *Handlers) handleEraseSubject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "erasure gate is not configured; no erasure may proceed")
 		return
 	}
-	subjectID := r.PathValue("id")
-	if subjectID == "" {
+	subjectID, err := actorIDFromPath(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "subject id is required")
 		return
 	}

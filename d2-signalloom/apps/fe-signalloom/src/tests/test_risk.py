@@ -39,7 +39,14 @@ class TestRiskRouterMounting:
     """The OpenFAIR risk routes are registered in the FastAPI app."""
 
     def test_risk_routes_registered(self):
-        route_paths = {r.path for r in app.routes if hasattr(r, "path")}
+        route_paths = set()
+        for r in app.routes:
+            if hasattr(r, "path"):
+                route_paths.add(r.path)
+            elif hasattr(r, "routes"):
+                route_paths.update(sub.path for sub in r.routes if hasattr(sub, "path"))
+            elif hasattr(r, "original_router") and hasattr(r.original_router, "routes"):
+                route_paths.update(sub.path for sub in r.original_router.routes if hasattr(sub, "path"))
         expected = {
             "/api/v1/risk/agents/{agent_id:path}",
             "/api/v1/risk/fleet",

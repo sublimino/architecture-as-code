@@ -398,3 +398,28 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+---
+# Ingress from the RBAC exporter in fe-signalloom-agents to fe-signalloom on TCP 8000.
+# The label is forgeable by any pod in that namespace; the presented Bearer key is the
+# actual authentication and authorization boundary.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rbac-exporter-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fe-signalloom
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom-agents
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: signalloom-rbac-exporter
+      ports:
+        - protocol: TCP
+          port: 8000

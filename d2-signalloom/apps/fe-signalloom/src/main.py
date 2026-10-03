@@ -19,6 +19,7 @@ from environment_lifecycle import GLOBAL_REAPER_DAEMON, install_environment_life
 from environment_routing import install_environment_routing_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
+from afm_import import install_afm_import_api
 from risk import install_risk_api
 from routers.connectors import install_connectors_api
 from routers.discovery import install_discovery_api
@@ -82,6 +83,7 @@ install_compatibility_api(app)
 install_onboarding_api(app)
 install_audit_ingest_api(app)
 install_rbac_api(app)
+install_afm_import_api(app)
 install_demo_runner_api(app)
 install_signal_fusion_api(app)
 install_coding_agent_telemetry_api(app)

@@ -42,14 +42,20 @@ func TestDryRunFreezerDoesNotMutateCgroup(t *testing.T) {
 	}
 }
 
+// The cgroup root is a temp dir with no pod cgroup in it, not the host's
+// /sys/fs/cgroup: walking the real tree made this test's verdict depend on the
+// host (its size, and the 2 s discovery budget under load: "fallback discovery
+// walk exceeded its time budget" with eight Go modules in parallel).
 func TestDryRunFreezerResolvesPlannedPathWhenMissing(t *testing.T) {
-	freezer := newCgroupFreezer("/sys/fs/cgroup", true, "token", "token")
+	root := t.TempDir()
+	freezer := newCgroupFreezer(root, true, "token", "token")
 	path, err := freezer.resolvePodCgroup("abc-123-def")
 	if err != nil {
 		t.Fatalf("resolvePodCgroup failed in dry-run: %v", err)
 	}
-	if path == "" {
-		t.Fatal("expected non-empty resolved cgroup path in dry-run mode")
+	expected := filepath.Join(root, "kubepods.slice", "kubepods-burstable-podabc_123_def.slice")
+	if path != expected {
+		t.Fatalf("expected planned path %q, got %q", expected, path)
 	}
 }
 

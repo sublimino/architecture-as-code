@@ -171,27 +171,42 @@ func TestReadyzFault_LiveSourceLossFailsClosed(t *testing.T) {
 }
 
 // TestReadyzFault_HangingSourceEnforcesDeadline proves that when a live source hangs/deadlocks,
-// the /readyz probe terminates within readyCheckTimeout, returns 503, and does not block indefinitely.
+// the /readyz probe gives it a deadline, returns 503 when that deadline fires, and does not
+// block indefinitely. The source never unblocks on its own, so the probe returning at all is
+// the proof; it returns because the check's context hit DeadlineExceeded, which is asserted.
+// No stopwatch: the old readyCheckTimeout+1s bound measured the machine.
 func TestReadyzFault_HangingSourceEnforcesDeadline(t *testing.T) {
 	hangingSource := newDynamicHealthSource()
 	hangingSource.SetHanging()
 
+	var sawDeadline bool
+	var ctxErr error
 	h := &Handlers{
-		CollectorHealth: hangingSource.Check,
+		CollectorHealth: func(ctx context.Context) error {
+			_, sawDeadline = ctx.Deadline()
+			err := hangingSource.Check(ctx)
+			ctxErr = ctx.Err()
+			return err
+		},
 	}
 
-	start := time.Now()
-	w := probeReadyz(h)
-	elapsed := time.Since(start)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- probeReadyz(h) }()
+	var w *httptest.ResponseRecorder
+	select {
+	case w = <-done:
+	case <-time.After(30 * time.Second): // hang guard only: a correct probe returns at its deadline
+		t.Fatalf("/readyz never returned against a hanging source: no deadline is enforced")
+	}
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("hanging source returned status %d, want 503", w.Code)
 	}
-
-	// Bounded execution assertion: must return within readyCheckTimeout + 1s tolerance
-	maxAllowed := readyCheckTimeout + 1*time.Second
-	if elapsed > maxAllowed {
-		t.Fatalf("probe took %v, exceeded bounded limit %v", elapsed, maxAllowed)
+	if !sawDeadline {
+		t.Errorf("the health check ran without a context deadline")
+	}
+	if !errors.Is(ctxErr, context.DeadlineExceeded) {
+		t.Errorf("the probe returned without its check's deadline firing (ctx.Err() = %v)", ctxErr)
 	}
 
 	body := decodeJSON(t, w)

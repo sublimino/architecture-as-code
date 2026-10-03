@@ -24,3 +24,4 @@ test/phase1-governor-verification.bats:go signalloom-stun-sentinel test # R3 mod
 test/phase1-governor-verification.bats:d2-signalloom/apps/stun-sentinel # R3 module failure output assertion
 d2-signalloom/AGENTS.md:apps/stun-sentinel # R3 library module directory path link
 d2-signalloom/AGENTS.md:apps/signalloom-stun-sentinel # pre-migration daemon app directory link
+d2-signalloom/apps/fleet-manager/Dockerfile:stun-sentinel # R3 go-module directory (apps/stun-sentinel) copied into the fleet-manager build context; the rename kept the module path

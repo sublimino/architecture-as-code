@@ -40,6 +40,16 @@ data:
 
     # Aliases name an auth mount by its ACCESSOR (auth_jwt_<hex>, minted when
     # the mount is enabled, so it differs per cluster), never by its path.
+    #
+    # Cold start (2026-10-03 zero-state rebuild): this Job ships in the
+    # controllers layer, but the jwt mount is enabled by openbao-bootstrap in
+    # the configs layer, which Flux orders AFTER controllers (dependsOn). On a
+    # fresh cluster the read below found no mount, the Job hit its backoff
+    # limit, controllers never went Ready and configs never ran: a deadlock
+    # that a long-lived cluster (mount already present) never shows. Enabling
+    # the mount here is idempotent; the bootstrap keeps `|| true` on its own
+    # enable and still owns the mount's jwks_url config.
+    bao auth enable jwt >/dev/null 2>&1 || true
     JWT_ACCESSOR="$(bao read -field=accessor sys/auth/jwt)"
     case "$JWT_ACCESSOR" in
       auth_jwt_*) ;;

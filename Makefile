@@ -782,6 +782,13 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# signal-ingest is deployed under its immutable src-<digest> tag from zot
 	# (SLTM Phase 1); signal-ingest:local is no longer referenced by the manifest.
 	$(MAKE) -C d2-signalloom signal-ingest-image-publish
+	# The warden DaemonSet is pinned to its src-<fingerprint> tag in zot and the
+	# Kusari stub and nono probe use imagePullPolicy: Never. On a long-lived
+	# cluster all three images were already present; a zero-state rebuild
+	# (2026-10-03) left the warden in ImagePullBackOff and both agents in
+	# ErrImageNeverPull. Same rule as above: always-deployed means always-built.
+	$(MAKE) -C d2-signalloom sentinel-image-publish CLUSTER_NAME=$(CLUSTER_NAME)
+	$(MAKE) demo-signalloom-security-images
 	# The dashboard renders the Agent Trust Topology panel unconditionally, but
 	# the ResourceSet backing it ships with `inputs: []` and only materialises
 	# when scripts/agent-trust-local.sh patches concrete values in. Nothing here
@@ -811,13 +818,19 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# than a missing build step. The dashboard's /fleet-api/ proxy has no
 	# fallback: a missing fleet-manager is a raw nginx 502 on the Fleet page.
 	$(MAKE) demo-signalloom-fleet-image
+	# Mint the ingest and fleet-manager caller keys BEFORE the slice deploys: the
+	# warden reads SIGNAL_INGEST_TOKEN from an optional secretKeyRef at start, so a
+	# pod that starts before the Secret exists stays tokenless (ingest_token_missing,
+	# 401 on every post, no detection) until restarted. Both scripts only write
+	# Secrets into namespaces that exist after `make up`. Found on the 2026-10-03
+	# zero-state rebuild; on a long-lived cluster the keys always predated the pod.
+	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up
 	# Static caller keys (SLTM ADR-03): signal-ingest's named keys and
 	# fleet-manager's caller keys, minted in-cluster once the namespaces exist.
-	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
-	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	# ─── The whole-estate assertion, last because it needs everything up ──────
 	#
 	# check-backends reads nginx.conf's proxy_pass set — which IS the set of
@@ -1147,7 +1160,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/afm-rbac-exporter-push.bats \
 	test/sltm-ingest-reload-ratelimit.bats \
 	test/sltm-ingest-chain.bats \
-	test/old-probe-name-guard.bats
+	test/old-probe-name-guard.bats \
+	test/dockerfile-copy-sources.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \
@@ -1972,6 +1986,12 @@ test-ci-state: ## Verify ci-state names its source, dates its claim, and cannot 
 .PHONY: test-ci-path-anchoring
 test-ci-path-anchoring: ## Verify no CI path variable is relative, in the Makefile source AND in what make expands.
 	bats test/ci-path-anchoring.bats
+
+.PHONY: demo-signalloom-security-images
+demo-signalloom-security-images: ## Build and kind-load the Kusari stub and nono containment probe images (imagePullPolicy: Never).
+	$(MAKE) -C d2-signalloom swarm-kusari-image swarm-nono-probe-image
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh kusari-agent:latest
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh nono-containment-probe:latest
 
 .PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down
 demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.

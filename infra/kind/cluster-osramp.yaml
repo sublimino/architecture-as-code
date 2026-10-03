@@ -8,8 +8,8 @@
 # Spec:        Proposal (SLDC) Appendix B.2
 #
 # Hosts untrusted agent workloads and the in-sentinel eBPF DaemonSet, so the
-# node gets the host cgroup tree (rw, for cgroup.freeze), kernel modules (ro)
-# and BTF (ro, for CO-RE).
+# node gets kernel modules (ro) and BTF (ro, for CO-RE). The cgroup.freeze the
+# warden drives lives in the node's own cgroupfs; see the extraMounts note.
 #
 # ATTACH, DON'T RECREATE. On a workstation where `osramp` already exists (the
 # shared demo cluster, created on the default `kind` docker network)
@@ -41,9 +41,11 @@ nodes:
   - role: control-plane
     image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
     extraMounts:
-      - hostPath: /sys/fs/cgroup
-        containerPath: /sys/fs/cgroup
-        readOnly: false
+      # No host /sys/fs/cgroup bind mount: on a cgroup v2 host it stops systemd
+      # inside the node from reaching multi-user.target (kind create fails three
+      # times, 2026-10-03 zero-state rebuild). The warden freezes through the
+      # node's own cgroupfs, which kind provides; the e2e containment suite
+      # passed 6/6 five times on a cluster created without this mount.
       - hostPath: /lib/modules
         containerPath: /lib/modules
         readOnly: true

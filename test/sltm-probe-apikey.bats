@@ -387,16 +387,23 @@ teardown() {
         return 1
     }
 
-    local obs_body=""
+    # The provoker's own observation, read at signal-ingest's page cap (a larger
+    # limit is a 400, which the previous version read as absence and reported
+    # as data loss 4/4 -- live, 2026-10-03). Only a successful, non-truncated
+    # read without the provoker is data loss (test/lib/spool-replay.sh).
+    local verdict=1 verdict_out=""
     store_has_provoker() {
-        local out
-        out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=1000&after=${t_start}")"
-        [[ "$out" == 200* ]] || return 1
-        obs_body="${out#200 }"
-        [ "$(store_count_for_pod "${scratch_pod}" <<<"${obs_body}")" -ge 1 ]
+        verdict_out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=${STORE_PAGE_MAX}&after=${t_start}" |
+            store_read_verdict "${scratch_pod}")"
+        verdict=$?
+        [ "$verdict" -eq 0 ]
     }
     poll_until 15 2 store_has_provoker || {
-        echo "DATA LOSS: the spool replayed (past ${replay_base}) yet no observation for ${scratch_pod} reached the store: ${obs_body}"
+        case "$verdict" in
+            1) echo "DATA LOSS: the spool replayed (past ${replay_base}) and the store answered, without ${scratch_pod}" ;;
+            2) echo "NOT data loss -- the store could not be read: ${verdict_out}" ;;
+            3) echo "NOT proven -- ${verdict_out}" ;;
+        esac
         return 1
     }
 

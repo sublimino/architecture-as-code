@@ -31,8 +31,10 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
     "${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
 }
 
-@test "openbao-agent-generic-role has templated policy with identity alias metadata" {
-  grep -q 'identity.entity.aliases.auth_jwt.metadata' \
+# Keyed on the slash-free entity name, never the SPIFFE ID (whose "//" the
+# HTTP layer cleans away) -- see d2-signalloom/test/openbao-agent-secret-authz.bats.
+@test "openbao-agent-generic-role has templated policy keyed on the entity name" {
+  grep -q 'secret/data/agents/{{identity.entity.name}}/\*' \
     "${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
 }
 

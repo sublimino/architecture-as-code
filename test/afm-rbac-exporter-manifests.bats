@@ -42,16 +42,10 @@ q() { yq -N "$1" "$2" 2>/dev/null | sed '/^$/d'; }
     | $r[] as $res
     | $v[] as $verb
     | "\($group)|\($res)|\($verb)"
-  ' | sort -u)"
+  ' | LC_ALL=C sort -u)"
 
   local expected
   expected="$(cat <<'EOF'
-|namespaces|get
-|namespaces|list
-|namespaces|watch
-|serviceaccounts|get
-|serviceaccounts|list
-|serviceaccounts|watch
 rbac.authorization.k8s.io|clusterrolebindings|get
 rbac.authorization.k8s.io|clusterrolebindings|list
 rbac.authorization.k8s.io|clusterrolebindings|watch
@@ -64,6 +58,12 @@ rbac.authorization.k8s.io|rolebindings|watch
 rbac.authorization.k8s.io|roles|get
 rbac.authorization.k8s.io|roles|list
 rbac.authorization.k8s.io|roles|watch
+|namespaces|get
+|namespaces|list
+|namespaces|watch
+|serviceaccounts|get
+|serviceaccounts|list
+|serviceaccounts|watch
 EOF
 )"
 
@@ -78,9 +78,9 @@ EOF
 
   # Assert no resourceNames, nonResourceURLs, or aggregationRule
   local has_res_names has_non_res has_agg
-  has_res_names="$(echo "${cr_json}" | jq -r '[.rules[] | .resourceNames? // empty] | length')"
-  has_non_res="$(echo "${cr_json}" | jq -r '[.rules[] | .nonResourceURLs? // empty] | length')"
-  has_agg="$(echo "${cr_json}" | jq -r '.aggregationRule // empty | length')"
+  has_res_names="$(echo "${cr_json}" | jq -r '[.rules[].resourceNames? // empty] | length')"
+  has_non_res="$(echo "${cr_json}" | jq -r '[.rules[].nonResourceURLs? // empty] | length')"
+  has_agg="$(echo "${cr_json}" | jq -r 'if .aggregationRule != null then 1 else 0 end')"
   [ "${has_res_names}" -eq 0 ]
   [ "${has_non_res}" -eq 0 ]
   [ "${has_agg}" -eq 0 ]
@@ -131,12 +131,18 @@ EOF
 
   # No binding in ResourceSet or bundle binds signalloom-rbac-exporter ClusterRole to stun-sentinel
   local sentinel_crb
-  sentinel_crb="$(yq -o=json '.spec.resources[] | select(.kind == "ClusterRoleBinding") | select(.roleRef.name == "signalloom-rbac-exporter") | select(any(.subjects[]?; .name == "stun-sentinel"))' "${RS}")"
+  sentinel_crb="$(yq -o=json '.spec.resources' "${RS}" | jq -r '
+    .[] | select(.kind == "ClusterRoleBinding" and .roleRef.name == "signalloom-rbac-exporter")
+    | select(any(.subjects[]?; .name == "stun-sentinel"))
+    | .metadata.name // empty
+  ')"
   [ -z "${sentinel_crb}" ]
 
   # (d) DaemonSet SA gains no new ClusterRole or binding compared with base ref
+  local base
+  base="$(git merge-base HEAD~1 refs/heads/integration/sltm-v0.1.0 2>/dev/null || echo "HEAD~1")"
   local base_crb curr_crb
-  base_crb="$(git show refs/heads/integration/sltm-v0.1.0:d2-osramp-fleet/tenants/base/agent-swarm.yaml 2>/dev/null \
+  base_crb="$(git show "${base}:d2-osramp-fleet/tenants/base/agent-swarm.yaml" 2>/dev/null \
     | yq -o=json '.spec.resources[] | select(.kind == "ClusterRoleBinding") | select(any(.subjects[]?; .name == "stun-sentinel")) | .roleRef.name' | sort -u)"
   curr_crb="$(yq -o=json '.spec.resources[] | select(.kind == "ClusterRoleBinding") | select(any(.subjects[]?; .name == "stun-sentinel")) | .roleRef.name' "${RS}" | sort -u)"
   [ "${base_crb}" = "${curr_crb}" ]
@@ -237,7 +243,7 @@ EOF
   [ "${ro}" = "true" ]
 
   # No key in env[].valueFrom, env[].value, or args
-  local env_sec env_keys args_str
+  local env_sec
   env_sec="$(echo "${cj_json}" | jq -r '.spec.jobTemplate.spec.template.spec.containers[0].env[]? | .valueFrom.secretKeyRef.name // empty')"
   [ -z "${env_sec}" ]
 
@@ -254,31 +260,31 @@ EOF
 }
 
 @test "exporter manifests: sentinel DaemonSet, rbac.yaml and service-account.yaml unchanged from base ref" {
+  local base
+  base="$(git merge-base HEAD~1 refs/heads/integration/sltm-v0.1.0 2>/dev/null || echo "HEAD~1")"
+
   local base_ds curr_ds base_role curr_role base_sa curr_sa
-  base_ds="$(git show refs/heads/integration/sltm-v0.1.0:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml 2>/dev/null)"
+  base_ds="$(git show "${base}:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml" 2>/dev/null)"
   curr_ds="$(cat "${BUNDLE_DIR}/daemonset.yaml")"
   [ "${base_ds}" = "${curr_ds}" ]
 
-  base_role="$(git show refs/heads/integration/sltm-v0.1.0:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml 2>/dev/null)"
+  base_role="$(git show "${base}:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml" 2>/dev/null)"
   curr_role="$(cat "${BUNDLE_DIR}/rbac.yaml")"
   [ "${base_role}" = "${curr_role}" ]
 
-  base_sa="$(git show refs/heads/integration/sltm-v0.1.0:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/service-account.yaml 2>/dev/null)"
+  base_sa="$(git show "${base}:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/service-account.yaml" 2>/dev/null)"
   curr_sa="$(cat "${BUNDLE_DIR}/service-account.yaml")"
   [ "${base_sa}" = "${curr_sa}" ]
 }
 
 @test "exporter manifests: overlay renders apply correct cluster id and suspend state" {
-  local osramp_render hub_render
-  osramp_render="$(kubectl kustomize "${OVERLAY_OSRAMP}" 2>/dev/null)"
-  hub_render="$(kubectl kustomize "${OVERLAY_HUB}" 2>/dev/null)"
-
-  local osramp_cluster_id
-  osramp_cluster_id="$(echo "${osramp_render}" | yq -o=json 'select(.kind == "CronJob" and .metadata.name == "signalloom-rbac-exporter") | .spec.jobTemplate.spec.template.spec.containers[0].env[] | select(.name == "AFM_CLUSTER_ID") | .value')"
+  local osramp_cluster_id hub_suspend
+  osramp_cluster_id="$(kubectl kustomize "${OVERLAY_OSRAMP}" 2>/dev/null \
+    | yq -r 'select(.kind == "CronJob" and .metadata.name == "signalloom-rbac-exporter") | .spec.jobTemplate.spec.template.spec.containers[0].env[] | select(.name == "AFM_CLUSTER_ID") | .value')"
   [ "${osramp_cluster_id}" = "kind-osramp" ]
 
-  local hub_suspend
-  hub_suspend="$(echo "${hub_render}" | yq -o=json 'select(.kind == "CronJob" and .metadata.name == "signalloom-rbac-exporter") | .spec.suspend')"
+  hub_suspend="$(kubectl kustomize "${OVERLAY_HUB}" 2>/dev/null \
+    | yq -r 'select(.kind == "CronJob" and .metadata.name == "signalloom-rbac-exporter") | .spec.suspend')"
   [ "${hub_suspend}" = "true" ]
 }
 

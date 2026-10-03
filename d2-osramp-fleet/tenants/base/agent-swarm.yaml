@@ -713,3 +713,41 @@ spec:
               - /metadata/labels/signalloom.ai~1state
               - /metadata/annotations/signalloom.ai~1stunned-at
               - /metadata/annotations/signalloom.ai~1stun-reason
+
+    # ── ClusterRole + Binding for signalloom-rbac-exporter ────────────
+    # Read-only exporter ClusterRole and binding placed here in the ResourceSet
+    # because agent-swarm-flux holds no cluster-scoped RBAC creation grant
+    # (P1-PRE-2). Exactly get, list, watch on four RBAC kinds plus namespaces
+    # and serviceaccounts. Never secrets.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: signalloom-rbac-exporter
+        labels:
+          app.kubernetes.io/name: signalloom-rbac-exporter
+          signalloom.ai/agent: "true"
+          signalloom.ai/role: "rbac-exporter"
+      rules:
+        - apiGroups: ["rbac.authorization.k8s.io"]
+          resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["namespaces", "serviceaccounts"]
+          verbs: ["get", "list", "watch"]
+
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: signalloom-rbac-exporter
+        labels:
+          app.kubernetes.io/name: signalloom-rbac-exporter
+          signalloom.ai/agent: "true"
+          signalloom.ai/role: "rbac-exporter"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: signalloom-rbac-exporter
+      subjects:
+        - kind: ServiceAccount
+          name: signalloom-rbac-exporter
+          namespace: fe-signalloom-agents

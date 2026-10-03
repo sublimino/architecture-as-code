@@ -385,6 +385,13 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 echo "==> Deploying the KubeSec-AFM slice..."
 make demo-signalloom-afm-up
 
+# Static caller keys (SLTM ADR-03/ADR-05), mirrored from demo-signalloom-up:
+# signal-ingest's named keys and fleet-manager's caller keys, minted in the
+# cluster once its namespaces exist. Idempotent: a re-run keeps existing keys.
+echo "==> Minting signal-ingest and fleet-manager caller keys..."
+make sldc-ingest-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+make fleet-manager-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+
 # ── Assert the deployed estate is WHOLE ───────────────────────────────
 #
 # scripts/check-backends.sh reads nginx.conf's proxy_pass set — which IS the set

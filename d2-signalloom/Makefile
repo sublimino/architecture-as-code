@@ -373,25 +373,19 @@ SIGNAL_INGEST_DEPLOYMENT := apps/signal-ingest/base/deployment.yaml
 .PHONY: signal-ingest-image-tag signal-ingest-image signal-ingest-image-pin signal-ingest-image-publish
 
 signal-ingest-image-tag: ## Print signal-ingest's immutable image tag; refuses when its inputs have uncommitted changes.
-	@inputs=$$(cd apps/signal-ingest && go run ./cmd/image-tag -inputs) || exit 1; \
-	dirty=$$(cd apps && git status --porcelain --untracked-files=all -- $$inputs); \
-	if [ -n "$$dirty" ]; then \
-		echo "signal-ingest-image-tag: refusing a -dirty build; uncommitted changes in the image inputs:" >&2; \
-		printf '%s\n' "$$dirty" >&2; exit 1; \
-	fi; \
-	cd apps/signal-ingest && go run ./cmd/image-tag
+	@../scripts/signal-ingest-image-tag.sh
 
 signal-ingest-image: ## Build the signal-ingest image under its immutable source tag.
-	@tag=$$($(MAKE) -s --no-print-directory signal-ingest-image-tag) || exit 1; \
+	@tag=$$(../scripts/signal-ingest-image-tag.sh) || exit 1; \
 	echo "building $(SIGNAL_INGEST_IMAGE_ZOT):$$tag"; \
 	docker build -t $(SIGNAL_INGEST_IMAGE_ZOT):$$tag -f apps/signal-ingest/Dockerfile apps/
 
 signal-ingest-image-pin: ## Point the signal-ingest Deployment at the current source tag.
-	@tag=$$($(MAKE) -s --no-print-directory signal-ingest-image-tag) || exit 1; \
+	@tag=$$(../scripts/signal-ingest-image-tag.sh) || exit 1; \
 	perl -pi -e 's#^(\s*image: \$$\{IMAGE_BASE\}/signalloom/apps/signal-ingest:)\S+#$${1}'"$$tag"'#' $(SIGNAL_INGEST_DEPLOYMENT); \
 	grep -qF "/signalloom/apps/signal-ingest:$$tag" $(SIGNAL_INGEST_DEPLOYMENT) || { echo "signal-ingest-image-pin: $(SIGNAL_INGEST_DEPLOYMENT) was not updated" >&2; exit 1; }; \
 	echo "pinned $(SIGNAL_INGEST_DEPLOYMENT) to :$$tag"
 
 signal-ingest-image-publish: signal-ingest-image ## Publish the source-tagged signal-ingest image to zot (cluster required).
-	@tag=$$($(MAKE) -s --no-print-directory signal-ingest-image-tag) || exit 1; \
+	@tag=$$(../scripts/signal-ingest-image-tag.sh) || exit 1; \
 	../scripts/push-local-image.sh $(SIGNAL_INGEST_IMAGE_ZOT):$$tag $(SIGNAL_INGEST_IMAGE_PUSH):$$tag

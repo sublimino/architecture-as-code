@@ -2,6 +2,10 @@
 #
 # @id      afm-importer-key
 # @target  scripts/afm-importer-key.sh
+#
+# The script reads a key from stdin whenever stdin is not a terminal, so
+# every case that means "no key" runs it with </dev/null; inheriting bats'
+# stdin hung under a backgrounded runner (test/afm-importer-key-stdin.bats).
 # @doc     docs/Proposal — Signal Loom Spireless Token-Based Agent Identity Migration (2026-Q4).md
 #
 # The AFM importer key bootstrap against a fake kubectl that records argv and
@@ -39,14 +43,14 @@ EOF
 value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied"; }
 
 @test "afm-importer-key: --context is required, exit 2, nothing applied" {
-  run bash "${SCRIPT}"
+  run bash "${SCRIPT}" </dev/null
   [ "$status" -eq 2 ]
   [[ "$output" == *"--context is required"* ]]
   [ ! -e "${STATE}/applied" ]
 }
 
 @test "afm-importer-key: fresh run creates verifier and consumer secrets with >=32 byte key and valid expiry" {
-  run bash "${SCRIPT}" --context kind-osramp
+  run bash "${SCRIPT}" --context kind-osramp </dev/null
   [ "$status" -eq 0 ]
   local key exp tok
   key="$(value afm-importer)"
@@ -87,22 +91,22 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
 }
 
 @test "afm-importer-key: re-run with no change is a no-op (zero apply calls)" {
-  bash "${SCRIPT}" --context kind-osramp
+  bash "${SCRIPT}" --context kind-osramp </dev/null
   [ -f "${STATE}/applied" ]
   rm -f "${STATE}/applied"
 
   # Re-run: should detect existing secret and NOT re-apply
-  run bash "${SCRIPT}" --context kind-osramp
+  run bash "${SCRIPT}" --context kind-osramp </dev/null
   [ "$status" -eq 0 ]
   [ ! -f "${STATE}/applied" ]
 }
 
 @test "afm-importer-key: --rotate generates a new key and updates both secrets" {
-  bash "${SCRIPT}" --context kind-osramp
+  bash "${SCRIPT}" --context kind-osramp </dev/null
   local key1
   key1="$(value afm-importer)"
 
-  run bash "${SCRIPT}" --context kind-osramp --rotate
+  run bash "${SCRIPT}" --context kind-osramp --rotate </dev/null
   [ "$status" -eq 0 ]
   local key2
   key2="$(value afm-importer)"
@@ -128,14 +132,14 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
 
 @test "afm-importer-key: unreachable cluster context fails before writing" {
   export FAKE_KUBECTL_FAIL_CLUSTER_INFO=1
-  run bash "${SCRIPT}" --context unreachable-ctx
+  run bash "${SCRIPT}" --context unreachable-ctx </dev/null
   [ "$status" -ne 0 ]
   [ ! -f "${STATE}/applied" ]
 }
 
 @test "afm-importer-key: failed apply exits 1" {
   printf '#!/usr/bin/env bash\ncase "$*" in *cluster-info*) echo "ok"; exit 0;; *apply*) cat >/dev/null; exit 1;; esac\nexit 0\n' >"${BATS_TEST_TMPDIR}/bin/kubectl"
-  run bash "${SCRIPT}" --context kind-osramp
+  run bash "${SCRIPT}" --context kind-osramp </dev/null
   [ "$status" -eq 1 ]
   [[ "$output" == *"kubectl apply failed"* ]]
 }

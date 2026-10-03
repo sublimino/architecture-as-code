@@ -181,7 +181,7 @@ spec:
         # Job itself) is forced to recreate alongside the ConfigMap. Current
         # value is sha256 of the script as `yq '.data["agent-generic-role.sh"]'`
         # prints it, first 12 hex (pinned by openbao-agent-secret-authz.bats).
-        signalloom.io/config-hash: "3cecf251e3f1"
+        signalloom.io/config-hash: "f6023e838156"
     spec:
       restartPolicy: OnFailure
       initContainers:

@@ -25,10 +25,18 @@ load_sites() {
     done | sort -u
 }
 
-@test "DOCKERFILE every make-built Dockerfile has at least one COPY site to check" {
+# Sites whose Dockerfile or context is a make variable cannot be resolved by a
+# text parse; they are listed here by name so a new one fails loudly instead of
+# being skipped. Update this list when a make-variable build site is added.
+SKIPPED_SITES_EXPECTED=1   # $(CPAI_CLI_ROOT)/Dockerfile.runtime
+
+@test "DOCKERFILE the parser sees every docker build site: 4 resolved, 1 make-variable site skipped by name" {
     run load_sites
     [ "$status" -eq 0 ]
-    [ -n "$output" ]
+    [ "$(printf '%s\n' "$output" | grep -c .)" -eq 4 ]
+    local all; all="$(grep -h 'docker build' Makefile d2-signalloom/Makefile | grep -c -- ' -f ')"
+    [ "$((all - 4))" -eq "$SKIPPED_SITES_EXPECTED" ]
+    grep -q 'docker build -f \$(CPAI_CLI_ROOT)/Dockerfile.runtime' Makefile
 }
 
 @test "DOCKERFILE every COPY source in a make-built Dockerfile exists in its build context" {

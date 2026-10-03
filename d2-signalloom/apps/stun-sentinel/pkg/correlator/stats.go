@@ -20,7 +20,10 @@ type Stats struct {
 	NoPod        uint64 `json:"no_pod"`
 	// SelfExcluded counts records from a sentinel's own pod (its tc execs,
 	// its own opens): never a detection, never posted.
-	SelfExcluded   uint64 `json:"self_excluded"`
+	SelfExcluded uint64 `json:"self_excluded"`
+	// RuntimeLookups counts the container runtime's own user-database
+	// opens (runc init, before it execs the entrypoint): not a detection.
+	RuntimeLookups uint64 `json:"runtime_lookups"`
 	Matched        uint64 `json:"matched"`
 	Enqueued       uint64 `json:"enqueued"`
 	QueueDropped   uint64 `json:"queue_dropped"`
@@ -34,7 +37,7 @@ type Stats struct {
 
 type pipelineStats struct {
 	recordsRead, readErrors, decodeErrors, notSensitive, noPod,
-	selfExcluded, matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
+	selfExcluded, runtimeLookups, matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
 	ingestTokenMissing atomic.Uint64
 
 	mu      sync.Mutex
@@ -54,6 +57,7 @@ func (m *SentinelProbeManager) Stats() Stats {
 		NotSensitive:       s.notSensitive.Load(),
 		NoPod:              s.noPod.Load(),
 		SelfExcluded:       s.selfExcluded.Load(),
+		RuntimeLookups:     s.runtimeLookups.Load(),
 		Matched:            s.matched.Load(),
 		Enqueued:           s.enqueued.Load(),
 		QueueDropped:       s.queueDropped.Load(),

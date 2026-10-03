@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -506,6 +507,10 @@ type tokenSubject struct {
 	subject  string
 }
 
+// tokenLookupWorkers bounds the concurrent lookup-accessor calls one
+// enumeration makes.
+const tokenLookupWorkers = 16
+
 // tokenSubjects lists every live accessor and resolves its SPIFFE subject.
 // Tokens with no SPIFFE subject (root, bootstrap) are omitted.
 func (c *OpenBaoClient) tokenSubjects(ctx context.Context) ([]tokenSubject, error) {
@@ -525,35 +530,88 @@ func (c *OpenBaoClient) tokenSubjects(ctx context.Context) ([]tokenSubject, erro
 		return nil, fmt.Errorf("%w: decode accessor list: %v", ErrEnforcementUnavailable, err)
 	}
 
-	var out []tokenSubject
-	for _, accessor := range list.Data.Keys {
-		_, body, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/lookup-accessor", map[string]any{"accessor": accessor})
-		if errors.Is(err, ErrLeaseNotFound) {
-			continue // expired between LIST and lookup
-		}
-		if err != nil {
-			return nil, fmt.Errorf("lookup token accessor: %w", err)
-		}
-		var lookup struct {
-			Data struct {
-				DisplayName string            `json:"display_name"`
-				Meta        map[string]string `json:"meta"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(body, &lookup); err != nil {
-			return nil, fmt.Errorf("%w: decode accessor lookup: %v", ErrEnforcementUnavailable, err)
-		}
-		subject := lookup.Data.Meta["sub"]
-		if subject == "" {
-			if i := strings.Index(lookup.Data.DisplayName, "spiffe://"); i >= 0 {
-				subject = lookup.Data.DisplayName[i:]
+	// One lookup per accessor, so this is the cost of every revocation: live,
+	// 3,209 tokens looked up in turn took ~1.4 s of each stun. They run
+	// tokenLookupWorkers at a time; each result keeps its LIST slot, so the
+	// output order is unchanged, and any failure fails the whole enumeration.
+	// A failure stops new lookups but does not cancel those in flight: a
+	// cancelled request is a failure to the circuit breaker, and sixteen of
+	// them for one bad answer would open it.
+	keys := list.Data.Keys
+	subjects := make([]string, len(keys))
+	errs := make([]error, len(keys))
+	var failed atomic.Bool
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < min(tokenLookupWorkers, len(keys)); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				subjects[i], errs[i] = c.lookupTokenSubject(ctx, keys[i])
+				if errs[i] != nil {
+					failed.Store(true)
+				}
 			}
+		}()
+	}
+feed:
+	for i := range keys {
+		if failed.Load() {
+			break
 		}
-		if subject != "" {
-			out = append(out, tokenSubject{accessor: accessor, subject: subject})
+		select {
+		case next <- i:
+		case <-ctx.Done():
+			break feed
+		}
+	}
+	close(next)
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	// The caller gave up between lookups: what was resolved is not the list.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("lookup token accessors: %w", err)
+	}
+	var out []tokenSubject
+	for i, accessor := range keys {
+		if errs[i] == nil && subjects[i] != "" {
+			out = append(out, tokenSubject{accessor: accessor, subject: subjects[i]})
 		}
 	}
 	return out, nil
+}
+
+// lookupTokenSubject returns the SPIFFE subject an accessor's token was
+// issued to, or "" for a token with none or one that expired since the LIST.
+func (c *OpenBaoClient) lookupTokenSubject(ctx context.Context, accessor string) (string, error) {
+	_, body, err := c.executeRequest(ctx, http.MethodPost, "/v1/auth/token/lookup-accessor", map[string]any{"accessor": accessor})
+	if errors.Is(err, ErrLeaseNotFound) {
+		return "", nil // expired between LIST and lookup
+	}
+	if err != nil {
+		return "", fmt.Errorf("lookup token accessor: %w", err)
+	}
+	var lookup struct {
+		Data struct {
+			DisplayName string            `json:"display_name"`
+			Meta        map[string]string `json:"meta"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &lookup); err != nil {
+		return "", fmt.Errorf("%w: decode accessor lookup: %v", ErrEnforcementUnavailable, err)
+	}
+	if subject := lookup.Data.Meta["sub"]; subject != "" {
+		return subject, nil
+	}
+	if i := strings.Index(lookup.Data.DisplayName, "spiffe://"); i >= 0 {
+		return lookup.Data.DisplayName[i:], nil
+	}
+	return "", nil
 }
 
 // Health checks OpenBao server readiness via GET /v1/sys/health.

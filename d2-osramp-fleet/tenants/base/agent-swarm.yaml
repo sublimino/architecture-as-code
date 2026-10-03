@@ -523,7 +523,11 @@ spec:
         serviceAccountName: agent-swarm-flux
         interval: 30m
         retryInterval: 5m
-        wait: true
+        # The probe Job is an adversarial self-test: it reads /etc/shadow and probes the
+        # metadata endpoint under the agent label, so the warden freezes it. A frozen Job
+        # never completes, so a health wait here can only time out (2026-10-03 rebuild).
+        # The Job's outcome is read from the warden's evidence, not from Flux health.
+        wait: false
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./nono-containment-probe

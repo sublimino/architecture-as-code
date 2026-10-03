@@ -55,6 +55,15 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # The kubectl-proxy sidecar reaches kube-apiserver (ClusterIP :443, node :6443
+    # after DNAT) so the telemetry poller can scrape the kubelet's cAdvisor through
+    # the API proxy. Same port-only shape as allow-netassert-runner-egress above;
+    # without it the sidecar times out and every telemetry route is 503 (2026-10-03).
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
     - to:
         - namespaceSelector:
             matchLabels:

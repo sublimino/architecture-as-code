@@ -394,6 +394,13 @@ up() {
   verify
   activation_pending=false
   trap - ERR
+  # Root reconciliation was suspended only for quiescence during the imperative
+  # work above; the inputs are declared, so a reconcile now reinforces them. Leaving
+  # flux-system and tenants suspended until `down` made every later `make
+  # healthcheck` time out on a Ready condition that never advanced its
+  # observedGeneration (2026-10-03 zero-state rebuild, finding 13). Resume on
+  # success; the failure path still resumes through rollback_failed_activation.
+  resume_root_reconciliation
   printf 'Agent Trust local reconciliation converged\n'
 }
 

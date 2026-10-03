@@ -197,6 +197,29 @@ spec:
         - kind: ServiceAccount
           name: spire-agent-swarm-entries
           namespace: inf-bao
+    # fe-signalloom's telemetry poller scrapes the kubelet's cAdvisor through the
+    # API server proxy (kubectl-proxy sidecar), which needs nodes/proxy. Cluster-
+    # scoped, so it lives here beside the SPIRE agent's kubelet grant (2026-10-03).
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: fe-signalloom-cadvisor
+      rules:
+        - apiGroups: [""]
+          resources: ["nodes/proxy"]
+          verbs: ["get"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: fe-signalloom-cadvisor
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: fe-signalloom-cadvisor
+      subjects:
+        - kind: ServiceAccount
+          name: fe-signalloom
+          namespace: fe-signalloom
     # SPIFFE CSI driver object (cluster-scoped, so it lives here under the
     # flux-system ServiceAccount like the kubelet ClusterRole above; the tenant
     # flux SA that reconciles inf-bao cannot create cluster-scoped objects).

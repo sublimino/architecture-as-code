@@ -27,6 +27,8 @@ spec:
       serviceAccountName: prompt-commit-summarizer
       containers:
         - image: prompt-commit-summarizer:latest
+          # Knative defaults :latest to Always, which pulls from docker.io; the image is kind-loaded.
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               protocol: TCP
@@ -38,8 +40,7 @@ spec:
               drop:
                 - ALL
           env:
-            - name: PORT
-              value: "8080"
+            # PORT is injected by Knative (its webhook rejects a manifest that sets it).
             - name: LLM_ENDPOINT
               value: "http://litellm.inf-bao.svc.cluster.local:4000/v1/chat/completions"
             - name: LLM_MODEL

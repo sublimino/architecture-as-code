@@ -63,6 +63,18 @@ spec:
           env:
             - name: SL_ENV
               value: demo
+            # Node whose kubelet cAdvisor the telemetry poller scrapes (cadvisor_poller.py).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # The poller hands a ~10 MB scrape to a worker thread every 5 s; glibc's
+            # per-thread arenas turned that into RSS growth (131 → 224 MB in minutes,
+            # 2026-10-03). One arena keeps the freed text reusable.
+            - name: MALLOC_ARENA_MAX
+              value: "2"
+            - name: FE_MAX_RSS_BYTES
+              value: "301989888"
             # fleet-manager caller key for POST /stun (scope stun only); see
             # apps/fleet-manager/callerauth.go. Optional: without it the stun
             # reaches fleet-manager and is refused 401, which the audit records.
@@ -178,10 +190,58 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 192Mi
             limits:
-              memory: 256Mi
+              memory: 384Mi
+        # cAdvisor transport for cadvisor_poller.py: it reads
+        # http://localhost:8001/api/v1/nodes/<node>/proxy/metrics/cadvisor, which
+        # only exists when something serves the API proxy in the pod. Nothing did,
+        # so GET /api/telemetry/agents answered 503 on every cluster and the login
+        # acceptance specs failed (2026-10-03). The sidecar binds loopback only;
+        # nodes/proxy is granted to the fe-signalloom ServiceAccount by the fleet
+        # ClusterRole fe-signalloom-cadvisor (tenants/local/signalloom.yaml).
+        - name: kubectl-proxy
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          imagePullPolicy: IfNotPresent
+          args: ["proxy", "--port=8001", "--address=127.0.0.1", "--accept-hosts=^localhost$,^127\\.0\\.0\\.1$"]
+          # The ServiceAccount has automountServiceAccountToken: false (the portal
+          # itself never talks to the API server). Only this sidecar gets a projected,
+          # short-lived token, at the path kubectl's in-cluster config reads.
+          volumeMounts:
+            - name: kubectl-proxy-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
       volumes:
+        - name: kubectl-proxy-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
         # optional: a key not yet minted leaves the proxies answering 503
         # (ingest_credential_unavailable) instead of holding the whole portal
         # in ContainerCreating. Mode 0440 + fsGroup: readable by uid 999 only.

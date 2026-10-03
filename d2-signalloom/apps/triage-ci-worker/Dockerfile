@@ -1,12 +1,14 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-COPY go.mod go.sum ./
+# go.sum only exists once the module has a dependency; a wildcard copies it when present.
+COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/triage-ci-worker .
 
 FROM cgr.dev/chainguard/wolfi-base:latest
-RUN apk add --no-cache github-cli
+# Wolfi ships the GitHub CLI as `gh` (there is no `github-cli` package; the build never passed).
+RUN apk add --no-cache gh
 COPY --from=build /out/triage-ci-worker /triage-ci-worker
 USER 65532:65532
 EXPOSE 8080

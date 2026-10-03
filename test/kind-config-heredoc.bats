@@ -67,7 +67,7 @@ heredoc_body() {
   local stray
   stray="$(printf '%s' "$body" \
     | grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?' \
-    | grep -vE '^\$\{?(CLUSTER_NAME|ZOT_CACHE_DIR)\}?$' \
+    | grep -vE '^\$\{?(CLUSTER_NAME|ZOT_CACHE_DIR|POSTGRES_DATA_DIR)\}?$' \
     | sort -u || true)"
   if [ -n "$stray" ]; then
     echo "Unexpected shell variables inside the kind config heredoc:"
@@ -82,7 +82,7 @@ heredoc_body() {
   # A substitution hole usually still parses, so also assert the setting that
   # motivated the patch actually survived.
   local out
-  out="$(CLUSTER_NAME=testcluster ZOT_CACHE_DIR=/tmp/zot-test bash -c '
+  out="$(CLUSTER_NAME=testcluster ZOT_CACHE_DIR=/tmp/zot-test POSTGRES_DATA_DIR=/tmp/pg-test bash -c '
     kind_config=/dev/stdout
     '"$(awk '/^cat >"\$kind_config" <<EOF$/,/^EOF$/' "$script")"'
   ')"

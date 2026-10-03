@@ -1,6 +1,7 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-COPY go.mod go.sum ./
+# go.sum only exists once the module has a dependency; a wildcard copies it when present.
+COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/prompt-commit-summarizer .

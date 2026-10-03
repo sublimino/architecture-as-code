@@ -800,6 +800,7 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# ErrImageNeverPull. Same rule as above: always-deployed means always-built.
 	$(MAKE) -C d2-signalloom sentinel-image-publish CLUSTER_NAME=$(CLUSTER_NAME)
 	$(MAKE) demo-signalloom-security-images
+	$(MAKE) demo-signalloom-function-images
 	# The dashboard renders the Agent Trust Topology panel unconditionally, but
 	# the ResourceSet backing it ships with `inputs: []` and only materialises
 	# when scripts/agent-trust-local.sh patches concrete values in. Nothing here
@@ -1401,6 +1402,44 @@ swarm-kagent-up: ## Install the upstream Kagent 0.9.9 charts (controller, tools,
 	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/kagent-infra.sh up
 swarm-kagent-down: ## Uninstall the Kagent release and namespace. CRDs are left in place (removing them cascades to every Agent CR).
 	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/kagent-infra.sh down
+
+.PHONY: swarm-knative-up
+swarm-knative-up: ## Install Knative Serving (+ Kourier) and Eventing $(KNATIVE_VERSION) so the ksvc-backed swarm agents (prompt-commit-summarizer, triage-ci-worker) can reconcile. Idempotent; needs GitHub + gcr.io reachability.
+	# agent-prompt-commit-summarizer and agent-triage-ci-worker declare
+	# serving.knative.dev/v1 Services, and nothing in the bring-up installed the
+	# CRDs or the control plane (2026-10-03 zero-state rebuild: both
+	# Kustomizations stuck at "no matches for kind Service"). A ksvc only turns
+	# Ready with a networking layer, so Kourier is installed and selected.
+	# swarm-infra-up (below) is the older, broader target; this one installs
+	# only what Flux cannot, and leaves the swarm manifests to Flux.
+	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-crds.yaml"
+	kubectl wait --for=condition=Established crd/services.serving.knative.dev --timeout=120s
+	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-core.yaml"
+	# The swarm ksvcs mount the SPIFFE Workload API as a csi volume. Knative gates
+	# that behind kubernetes.podspec-volumes-csi (webhook) AND its CRD schema does
+	# not declare .csi, which Flux's server-side dry-run rejects before the webhook
+	# is ever reached ("field not declared in schema", 2026-10-03). Declare it AFTER
+	# serving-core.yaml, which re-applies the CRDs and would undo an earlier patch.
+	for crd in services configurations revisions; do \
+	  kubectl patch crd $$crd.serving.knative.dev --type=json -p '[{"op": "add", "path": "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/template/properties/spec/properties/volumes/items/properties/csi", "value": {"type": "object", "x-kubernetes-preserve-unknown-fields": true}}]' 2>/dev/null \
+	    || kubectl patch crd $$crd.serving.knative.dev --type=json -p '[{"op": "add", "path": "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/volumes/items/properties/csi", "value": {"type": "object", "x-kubernetes-preserve-unknown-fields": true}}]' 2>/dev/null || true; \
+	done
+	kubectl patch configmap/config-features -n knative-serving --type merge -p '{"data":{"kubernetes.podspec-volumes-csi":"enabled","kubernetes.podspec-securitycontext":"enabled"}}'
+	# The swarm functions run kind-loaded images under bare names (prompt-commit-
+	# summarizer:latest, triage-ci-worker:latest, signalloom-spire-helper:local).
+	# Knative resolves every tag to a digest against the registry first, and a bare
+	# name means index.docker.io, where those images do not exist. Skip resolution
+	# for that registry; the kubelet still finds the loaded image (IfNotPresent).
+	kubectl patch configmap/config-deployment -n knative-serving --type merge -p '{"data":{"registries-skipping-tag-resolving":"kind.local,ko.local,dev.local,index.docker.io,docker.io"}}'
+	kubectl apply -f "https://github.com/knative/net-kourier/releases/download/knative-$(KNATIVE_VERSION)/kourier.yaml"
+	kubectl patch configmap/config-network -n knative-serving --type merge -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+	kubectl apply -f "https://github.com/knative/eventing/releases/download/knative-$(KNATIVE_VERSION)/eventing-crds.yaml"
+	kubectl wait --for=condition=Established crd/brokers.eventing.knative.dev --timeout=120s
+	kubectl apply -f "https://github.com/knative/eventing/releases/download/knative-$(KNATIVE_VERSION)/eventing-core.yaml"
+	kubectl -n knative-serving rollout status deploy/controller deploy/webhook deploy/activator deploy/autoscaler --timeout=300s
+	kubectl -n kourier-system rollout status deploy/3scale-kourier-gateway --timeout=300s
+	kubectl -n knative-serving rollout status deploy/net-kourier-controller --timeout=300s
+	kubectl -n knative-eventing rollout status deploy/eventing-controller deploy/eventing-webhook --timeout=300s
 demo-kagent-test-config: ## Statically validate the Kagent namespace overlay, the upstream chart render, and the agent overlays without a cluster.
 	@kubectl kustomize d2-signalloom/infra/kagent/local >/dev/null
 	# The chart render is the half `kubectl kustomize` no longer covers. Once the
@@ -1989,6 +2028,11 @@ test-ci-state: ## Verify ci-state names its source, dates its claim, and cannot 
 .PHONY: test-ci-path-anchoring
 test-ci-path-anchoring: ## Verify no CI path variable is relative, in the Makefile source AND in what make expands.
 	bats test/ci-path-anchoring.bats
+
+.PHONY: demo-signalloom-function-images
+demo-signalloom-function-images: ## Build and kind-load the two Knative-backed swarm functions (prompt-commit-summarizer, triage-ci-worker); nothing else built them (2026-10-03).
+	$(MAKE) swarm-prompt-summarizer-image
+	$(MAKE) swarm-triage-worker-image
 
 .PHONY: demo-signalloom-security-images
 demo-signalloom-security-images: ## Build and kind-load the Kusari stub and nono containment probe images (imagePullPolicy: Never).
@@ -3118,7 +3162,9 @@ where-probe: ## Same as 'where', but also curls each address and reports the sta
 # Agent Swarm infrastructure
 # ===========================================================================
 
-KNATIVE_VERSION ?= v1.16.0
+# v1.18.0 is the first Knative release with kubernetes.podspec-volumes-csi; the swarm
+# ksvcs mount the SPIFFE Workload API as a csi volume (2026-10-03).
+KNATIVE_VERSION ?= v1.18.0
 
 .PHONY: swarm-infra-up
 swarm-infra-up: ## Apply Knative + agent namespace + RBAC for the agent swarm.

@@ -763,6 +763,17 @@ deploy: demo-signalloom-up ## Deploy Signal Loom and configure Dex OIDC to work 
 	echo "==> Signal Loom deployed successfully and Dex configured for Tailscale at $$origin"
 
 demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.
+	# Mint the ingest and fleet-manager caller keys FIRST. Flux deploys fleet-manager
+	# and the warden from the fleet that `make up` already published; both read
+	# their keys from optional secretKeyRef env at container start, so a pod that
+	# starts before its Secret exists stays keyless (401 on every post, stun calls
+	# refused) until restarted. On the 2026-10-03 unattended rebuild fleet-manager
+	# started 2 min before fleet-manager-caller-keys existed even with the mint
+	# placed before signalloom-local.sh, because its image load (further down)
+	# is what lets the already-applied Deployment start. The scripts only write
+	# Secrets into namespaces that exist after `make up`.
+	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper
 	$(MAKE) netassert-runner-image
@@ -818,14 +829,6 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# than a missing build step. The dashboard's /fleet-api/ proxy has no
 	# fallback: a missing fleet-manager is a raw nginx 502 on the Fleet page.
 	$(MAKE) demo-signalloom-fleet-image
-	# Mint the ingest and fleet-manager caller keys BEFORE the slice deploys: the
-	# warden reads SIGNAL_INGEST_TOKEN from an optional secretKeyRef at start, so a
-	# pod that starts before the Secret exists stays tokenless (ingest_token_missing,
-	# 401 on every post, no detection) until restarted. Both scripts only write
-	# Secrets into namespaces that exist after `make up`. Found on the 2026-10-03
-	# zero-state rebuild; on a long-lived cluster the keys always predated the pod.
-	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
-	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up

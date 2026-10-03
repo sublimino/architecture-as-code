@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -112,7 +113,15 @@ type staticKey struct {
 type StaticBearerAuthenticator struct {
 	delegate Authenticator
 	now      func() time.Time
-	keys     []staticKey
+	specs    []StaticKeySpec
+	dir      string
+	keys     atomic.Pointer[[]staticKey]
+	onRevoke func(subject string)
+}
+
+// SetRevokeCallback registers a hook called when a key is revoked during Reload.
+func (a *StaticBearerAuthenticator) SetRevokeCallback(cb func(subject string)) {
+	a.onRevoke = cb
 }
 
 // NewStaticBearerAuthenticator is NewStaticKeyAuthenticator for a single key.
@@ -133,6 +142,7 @@ func NewStaticKeyAuthenticator(cfgs []StaticBearerConfig, delegate Authenticator
 	a := &StaticBearerAuthenticator{delegate: delegate, now: time.Now}
 	names := map[string]bool{}
 	digests := map[[sha256.Size]byte]string{}
+	var keys []staticKey
 	for _, cfg := range cfgs {
 		if err := cfg.validate(); err != nil {
 			return nil, fmt.Errorf("static key %q: %w", cfg.Name, err)
@@ -146,12 +156,19 @@ func NewStaticKeyAuthenticator(cfgs []StaticBearerConfig, delegate Authenticator
 			return nil, fmt.Errorf("static keys %q and %q share one value; every caller needs its own key", other, cfg.Name)
 		}
 		digests[digest] = cfg.Name
-		a.keys = append(a.keys, staticKey{
+		keys = append(keys, staticKey{
 			name:      cfg.Name,
 			digest:    digest,
 			subject:   cfg.Subject,
 			binding:   PrincipalBinding{TenantID: cfg.TenantID, Permissions: cfg.Permissions, ActorIDs: cfg.ActorIDs},
 			expiresAt: cfg.ExpiresAt,
+		})
+		a.specs = append(a.specs, StaticKeySpec{
+			Name:        cfg.Name,
+			Subject:     cfg.Subject,
+			Tenant:      cfg.TenantID,
+			Permissions: cfg.Permissions,
+			ActorIDs:    cfg.ActorIDs,
 		})
 		slog.Warn("static key enabled; a shared secret authenticates one principal",
 			"key", cfg.Name,
@@ -161,6 +178,28 @@ func NewStaticKeyAuthenticator(cfgs []StaticBearerConfig, delegate Authenticator
 			"actor_ids", cfg.ActorIDs,
 			"expires", cfg.ExpiresAt.UTC().Format(time.DateOnly))
 	}
+	a.keys.Store(&keys)
+	return a, nil
+}
+
+// NewStaticKeyAuthenticatorWithSpecs creates a StaticBearerAuthenticator from parsed specs and
+// a directory path holding key secrets, loading the initial keys via Reload.
+func NewStaticKeyAuthenticatorWithSpecs(specs []StaticKeySpec, dir string, delegate Authenticator) (*StaticBearerAuthenticator, error) {
+	if delegate == nil {
+		return nil, errors.New("static keys require a delegate authenticator")
+	}
+	if len(specs) == 0 {
+		return nil, errors.New("static key authenticator configured with no keys")
+	}
+	a := &StaticBearerAuthenticator{
+		delegate: delegate,
+		now:      time.Now,
+		specs:    specs,
+		dir:      dir,
+	}
+	emptyKeys := []staticKey{}
+	a.keys.Store(&emptyKeys)
+	a.Reload(time.Now())
 	return a, nil
 }
 
@@ -288,16 +327,21 @@ func (a *StaticBearerAuthenticator) match(r *http.Request) (staticKey, bool) {
 		return staticKey{}, false
 	}
 	presented := sha256.Sum256([]byte(strings.TrimPrefix(values[0], "Bearer ")))
+	keysPtr := a.keys.Load()
+	if keysPtr == nil {
+		return staticKey{}, false
+	}
+	keys := *keysPtr
 	match := -1
-	for i := range a.keys {
-		if hmac.Equal(presented[:], a.keys[i].digest[:]) {
+	for i := range keys {
+		if hmac.Equal(presented[:], keys[i].digest[:]) {
 			match = i
 		}
 	}
 	if match < 0 {
 		return staticKey{}, false
 	}
-	return a.keys[match], true
+	return keys[match], true
 }
 
 // ActingTenantGate answers, before authorization runs, the two refusals a gateway key's request

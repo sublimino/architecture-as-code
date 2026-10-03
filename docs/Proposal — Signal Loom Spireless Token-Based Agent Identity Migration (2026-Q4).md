@@ -135,12 +135,12 @@ ControlPlane today announced that a Signal Loom probe authenticates with a singl
 
 | Metric | Current Value (measured 2026-10-02) | Target Value | Measurement |
 | :---- | :---- | :---- | :---- |
-| Unauthenticated observation write accepted by the pilot's signal-ingest | **Accepted** (live image predates auth) | **401** | **401** (harness live tier, tests 13/19) |
-| Credentials a probe needs | SPIRE JWT-SVID (unavailable to the probe) | **1 Secret, 1 env var** | **1 Secret, 1 env var** (`signalloom-warden-ingest-token`, `SIGNAL_INGEST_TOKEN`) |
-| Ingest keys held outside the verifying cluster | n/a | **0** | **0** (harness live tier, hub cluster verified) |
-| Key comparison cost | not measured | measured by `go test -bench` and recorded, no target | **43.9 µs** (`BenchmarkStaticBearerCompare`, Go benchmark) |
-| Observations lost during an ingest outage | **All** (a failed dispatch is counted, not kept) | **0** for outages up to 8 h within the spool cap | **0** (partition-injection test D7, live tier test 18/19) |
-| Time for a revoked key to stop working | Until the pod restarts | **≤ 90 s**, no restart | **≤ 90 s** (revoke test D8, live tier test 19/19) |
+| Unauthenticated observation write accepted by the pilot's signal-ingest | **Accepted** (live image predates auth) | **401** | Harness live tier |
+| Credentials a probe needs | SPIRE JWT-SVID (unavailable to the probe) | **1 Secret, 1 env var** | Rendered DaemonSet |
+| Ingest keys held outside the verifying cluster | n/a | **0** | Harness live tier |
+| Key comparison cost | not measured | measured by `go test -bench` and recorded, no target | Go benchmark |
+| Observations lost during an ingest outage | **All** (a failed dispatch is counted, not kept) | **0** for outages up to 8 h within the spool cap | Partition-injection test (D7) |
+| Time for a revoked key to stop working | Until the pod restarts | **≤ 90 s**, no restart | Revoke-and-measure (D8) |
 
 The first draft's memory (650 MB in the press release, 680 MB in the KPI table), 4.2% flake and 15-minute onboarding figures had no measurement behind them and are withdrawn until Phase 3 measures them.
 

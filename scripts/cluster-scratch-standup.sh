@@ -32,25 +32,39 @@ if [ -f "$SAVED_CONTAINERS_FILE" ] && command -v docker >/dev/null 2>&1; then
   rm -f "$SAVED_CONTAINERS_FILE"
 fi
 
-# 2. Stand up Kind cluster osramp and foundation
-echo "Bringing up shared foundation (Kind osramp, Zot, keys, Flux)..."
-make -C "$REPO_ROOT" up
-
-# 3. Bring up dual-cluster topology (signalloom-hub + bridge networking)
+# 2. Bring up the dual-cluster topology FIRST (osramp + signalloom-hub + bridge).
+#    dual-cluster-up.sh creates osramp from infra/kind/cluster-osramp.yaml, which
+#    disables the default CNI and installs Cilium. `make up` alone creates osramp
+#    with kindnet (scripts/create-kind-cluster.sh generates its own config), and
+#    dual-cluster-up.sh never installs Cilium on a cluster it did not create.
+#    Found on the 2026-10-03 zero-state rebuild: fe-signalloom/apps failed its
+#    dry-run on CiliumNetworkPolicy because the fresh cluster had no Cilium CRDs.
 if [ -f "$REPO_ROOT/scripts/dual-cluster-up.sh" ]; then
-  echo "Provisioning dual-cluster topology (signalloom-hub)..."
+  echo "Provisioning dual-cluster topology (osramp with Cilium, signalloom-hub)..."
   bash "$REPO_ROOT/scripts/dual-cluster-up.sh"
 fi
 
-# 4. Deploy Signal Loom governance platform
+# 3. Stand up the foundation on the existing osramp cluster (Zot, keys, Flux)
+echo "Bringing up shared foundation (Zot, keys, Flux)..."
+make -C "$REPO_ROOT" up
+
+# 4. Install Kagent (CRDs + control plane) before the Signal Loom slice: the
+#    agent-swarm-base Kustomization declares kagent.dev/v1alpha2 RemoteMCPServer
+#    and Agent objects, and nothing under demo-signalloom-up installs the CRDs
+#    (AGENTS.md: "Kagent needs make swarm-kagent-up before"). Found on the
+#    2026-10-03 zero-state rebuild: agent-swarm-base dry-run failed, no matches
+#    for kind RemoteMCPServer.
+echo "Installing Kagent CRDs and control plane..."
+make -C "$REPO_ROOT" swarm-kagent-up
+# 5. Deploy Signal Loom governance platform
 echo "Deploying Signal Loom slice..."
 make -C "$REPO_ROOT" demo-signalloom-up
 
-# 5. Deploy Agent Trust slice
+# 6. Deploy Agent Trust slice
 echo "Deploying Agent Trust slice..."
 make -C "$REPO_ROOT" demo-agent-trust-up
 
-# 6. Verify health
+# 7. Verify health
 echo "Executing foundation healthcheck..."
 make -C "$REPO_ROOT" healthcheck
 

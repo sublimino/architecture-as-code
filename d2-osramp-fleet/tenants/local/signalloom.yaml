@@ -1445,3 +1445,31 @@ spec:
         - kind: ServiceAccount
           name: netassert-scan-manager
           namespace: inf-signalloom
+    # The aggregated admin ClusterRole never includes Cilium's CRDs (the chart
+    # sets no aggregate-to-admin label), so the tenant's Flux SA could not
+    # dry-run or patch CiliumNetworkPolicy/agent-containment-mesh-isolation on
+    # a fresh cluster (2026-10-03 zero-state rebuild: fe-signalloom/apps
+    # "Forbidden"). Same shape as flux-gateway-routes above: namespaced, one
+    # API group, bound to the tenant's own flux ServiceAccount.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: flux-cilium-policies
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["cilium.io"]
+          resources: ["ciliumnetworkpolicies"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: flux-cilium-policies
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: flux-cilium-policies
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>

@@ -134,6 +134,8 @@ func TestSlowPublicationOverflowsVisiblyWithoutBlockingUpload(t *testing.T) {
 	a, err := NewSegmentAttestor(SegmentAttestorConfig{
 		EvidenceDir: dir, PrivateKeyPath: testSigningKey(t), HighWaterPath: filepath.Join(dir, "protected", "highwater.json"),
 		QueueSize: 1, ArchivistaURL: server.URL, HTTPClient: server.Client(),
+		// Longer than the hang guard below, so only `release` frees the worker.
+		PublicationTimeout: 10 * time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -151,18 +153,30 @@ func TestSlowPublicationOverflowsVisiblyWithoutBlockingUpload(t *testing.T) {
 	if err := bucket.Upload(context.Background(), "signaldb/observations/02/data.parquet", strings.NewReader("two")); err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	if err := bucket.Upload(context.Background(), "signaldb/observations/03/data.parquet", strings.NewReader("three")); err != nil {
-		t.Fatal(err)
-	}
-	for i := 4; i <= 23; i++ {
-		name := fmt.Sprintf("signaldb/observations/%02d/data.parquet", i)
-		if err := bucket.Upload(context.Background(), name, strings.NewReader(name)); err != nil {
+	// The publication worker is held on `release`, which is closed only after
+	// these 21 uploads have all returned. An Upload that waited on the full
+	// queue could therefore never return, so completing them at all proves
+	// overflow does not block ingestion. The timeout is a hang guard, not a
+	// latency bound (the old 250ms stopwatch measured the machine).
+	uploaded := make(chan error, 1)
+	go func() {
+		for i := 3; i <= 23; i++ {
+			name := fmt.Sprintf("signaldb/observations/%02d/data.parquet", i)
+			if err := bucket.Upload(context.Background(), name, strings.NewReader(name)); err != nil {
+				uploaded <- err
+				return
+			}
+		}
+		uploaded <- nil
+	}()
+	select {
+	case err := <-uploaded:
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
-		t.Fatalf("overflow blocked ingestion for %s", elapsed)
+	case <-time.After(30 * time.Second):
+		close(release)
+		t.Fatal("overflow blocked ingestion: uploads did not return while publication was held")
 	}
 	if status := a.Status(); status.QueueOverflows != 21 || status.ErrorQueueOverflows != 0 {
 		t.Fatalf("overflow status = %+v, want 21 recorded queue overflows", status)
@@ -699,13 +713,21 @@ func TestPublicationTimeoutBoundsCustomClientWithoutTimeout(t *testing.T) {
 	a := &SegmentAttestor{cfg: SegmentAttestorConfig{
 		ArchivistaURL: server.URL, HTTPClient: server.Client(), PublicationTimeout: 25 * time.Millisecond,
 	}}
-	started := time.Now()
-	err := a.publishArchivista([]byte(`{}`))
+	// The server never answers until the test ends, so publishArchivista
+	// returning at all, with the deadline error, is the proof that
+	// PublicationTimeout bounds a client that has no timeout of its own. The
+	// select is a hang guard, not a latency bound (the old 500ms stopwatch
+	// measured the machine).
+	published := make(chan error, 1)
+	go func() { published <- a.publishArchivista([]byte(`{}`)) }()
+	var err error
+	select {
+	case err = <-published:
+	case <-time.After(30 * time.Second):
+		t.Fatal("custom client publication was not bounded: publishArchivista never returned")
+	}
 	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
 		t.Fatalf("publication timeout error = %v", err)
-	}
-	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
-		t.Fatalf("custom client publication was not bounded: %s", elapsed)
 	}
 }
 

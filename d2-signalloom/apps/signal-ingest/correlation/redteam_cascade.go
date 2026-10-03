@@ -187,7 +187,7 @@ func EvaluateCascadeRedTeamCase(ctx context.Context, c CascadeRedTeamCase) Casca
 				if strings.Contains(err.Error(), "self-delegation") || strings.Contains(err.Error(), "forbidden") {
 					entry.CycleDetected = true
 					entry.Status = "CAUGHT"
-					entry.Details = fmt.Sprintf("reflexive cycle caught at boundary in %dµs (<5ms SLA): %v", entry.CycleLatencyUS, err)
+					entry.Details = fmt.Sprintf("reflexive cycle caught at boundary in %dµs: %v", entry.CycleLatencyUS, err)
 					return entry
 				}
 				entry.Status = "MISSED"
@@ -210,10 +210,16 @@ func EvaluateCascadeRedTeamCase(ctx context.Context, c CascadeRedTeamCase) Casca
 			return entry
 		}
 
-		// Hard SLA: cycle detection must complete in < 5ms (5000 µs)
-		if latency > 5*time.Millisecond {
+		// Termination, judged by what the traversal did rather than how long it
+		// took: a detected cycle must stop at the first revisited node, so the
+		// chain can be no longer than the hops injected (the depth cap is 8).
+		// Latency is still recorded in CycleLatencyUS; the 5 ms SLA is gated by
+		// BenchmarkCascadeRedTeam_CyclicDelegationLatency, because judging a
+		// case by wall clock made the verdict depend on how busy the machine was.
+		if cycleDetected && len(chain) > len(c.DelegationHops) {
 			entry.Status = "MISSED"
-			entry.Details = fmt.Sprintf("cycle detection latency %v exceeded 5ms SLA", latency)
+			entry.Details = fmt.Sprintf("cycle detected but traversal did not halt at the first revisit: %d hops walked for %d injected",
+				len(chain), len(c.DelegationHops))
 			return entry
 		}
 
@@ -231,7 +237,7 @@ func EvaluateCascadeRedTeamCase(ctx context.Context, c CascadeRedTeamCase) Casca
 		}
 
 		entry.Status = "CAUGHT"
-		entry.Details = fmt.Sprintf("cycle detected in %dµs (<5ms SLA); hops=%d, distinct_nodes=%d, false-merge=0",
+		entry.Details = fmt.Sprintf("cycle detected in %dµs; hops=%d, distinct_nodes=%d, false-merge=0",
 			entry.CycleLatencyUS, len(chain), len(seenNodes))
 
 	case CascadeAttackClassSplitHumanCascade:

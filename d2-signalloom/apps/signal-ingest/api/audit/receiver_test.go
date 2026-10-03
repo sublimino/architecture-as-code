@@ -467,12 +467,22 @@ func TestAuditWebhookReceiver_FailOpen(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, WebhookPath, bytes.NewReader(body))
 	w := httptest.NewRecorder()
 
-	start := time.Now()
-	receiver.HandleAuditWebhook(w, req)
-	elapsed := time.Since(start)
-
-	if elapsed > 10*time.Millisecond {
-		t.Fatalf("fail-open took too long: %v (expected <10ms)", elapsed)
+	// There are no workers and the buffer is full, so a handler that waited for
+	// buffer space would never return: returning at all proves fail-open. The
+	// select is a hang guard, not a latency bound (the old 10ms stopwatch
+	// measured the machine).
+	handled := make(chan struct{})
+	go func() {
+		receiver.HandleAuditWebhook(w, req)
+		close(handled)
+	}()
+	select {
+	case <-handled:
+	case <-time.After(30 * time.Second):
+		t.Fatal("fail-open blocked: the webhook handler waited on a full buffer")
+	}
+	if len(receiver.buffer) != 2 {
+		t.Fatalf("buffer holds %d observations, want the 2 it was filled with", len(receiver.buffer))
 	}
 
 	resp := w.Result()

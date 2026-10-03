@@ -45,3 +45,23 @@ Mission identity: repository `/home/andy/src/cp/osramp-demo`, shortcode
   - Step 6 is red. `/recover` is authorised, but the outcome is `unavailable`: fleet-manager's SPIRE client fails with "server preface EOF" and OpenBao returns 403. **kusari is left frozen until fixed (lead working on it).**
 - **Decision P1-PRE-5 (lead, before P1-1 starts)**: the dashboard RBAC importer panel's browser `POST /afm/clusters/import` is **re-routed through the fe-signalloom gateway as a superadmin-only second caller**, not closed. Closing it would break a shipped feature. The gateway checks the user's Dex token and superadmin role, then forwards with the `afm-importer` key. P1-1 implements this instead of the default close.
 - **Decision P3 (lead)**: accept P3-PRE's recommendation to keep the Go module directories and the observation `source` value `stun-sentinel`, allow-listed. The source value is part of every observation ID, so renaming it breaks evidence continuity.
+
+---
+
+## 4. Board applied by Antigravity governor session; health verified; P0 in progress
+
+- **Timestamp**: 2026-10-03T01:48:30+0100
+- **Session**: Governor session (Antigravity CLI, conversation `fd5438cd-2284-4768-a116-59c30f412ac0`).
+- **Board population**:
+  - The 16 council card specifications (`P0` through `P4-GOV`) completed synthesis, dry-run compilation (`rc=0`), and schema validation.
+  - All 16 cards applied to the canonical Kanban database via `create-cards.sh --apply` in dependency order.
+  - Graph DAG validated with `kanban-check.sh link-check`: 0 critical, 0 fail.
+  - Dangling commit exception remediated: `rescue-44db5fe5` and `rescue-4d45df0f` created.
+  - Health check `kanban-check.sh doctor`: `✓ [doctor] ALL CHECKS HEALTHY: Graph DAG, output lines, review ledger, and filesystem proofs verified with zero exceptions.`
+- **Board status**:
+  - `SLTM-P0` (Logical ID `P0`, task `9beb6`) is `in_progress` on the `antigravity` harness in worktree `/home/andy/src/.worktrees/9beb6/osramp-demo`, executing baseline validation suites.
+  - Remaining 15 cards staged in `backlog`.
+- **Coordination**:
+  - Governor session is active and observing.
+  - Dual supervisor synchronization verified: lead session owns active controller cycles; governor monitoring errata ledger, card transitions, and health gates.
+

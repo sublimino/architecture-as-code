@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -296,18 +297,95 @@ func (t *tcDropFilter) attachDrop(iface string) error {
 	if t.dryRun {
 		return nil
 	}
+	// Read first. cls_matchall answers ANY change to an existing filter with
+	// EEXIST, so `tc filter replace` is not idempotent here: every resync of a
+	// contained pod failed "RTNETLINK answers: File exists" (live, 2026-10-03).
+	// A contained pod therefore costs two reads and no writes per resync.
+	hasIn, err := t.sentinelDrop(iface, "ingress", sentinelIngressPref, sentinelIngressHandle)
+	if err != nil {
+		return err
+	}
+	hasEg, err := t.sentinelDrop(iface, "egress", sentinelEgressPref, sentinelEgressHandle)
+	if err != nil {
+		return err
+	}
+	if hasIn && hasEg {
+		return nil
+	}
 	// replace, not add: clsact is shared and outlives an unstun, and a second
 	// `add` fails "Exclusivity flag on, cannot modify" (exit 2) on re-stun.
 	if out, err := t.run("tc", "qdisc", "replace", "dev", iface, "clsact"); err != nil {
 		return tcError("replace clsact", iface, out, err)
 	}
-	if out, err := t.run("tc", "filter", "replace", "dev", iface, "pref", sentinelIngressPref, "protocol", "all", "ingress", "handle", sentinelIngressHandle, "matchall", "action", "drop"); err != nil {
-		return tcError("replace Sentinel ingress filter", iface, out, err)
+	if !hasIn {
+		if err := t.addDrop(iface, "ingress", sentinelIngressPref, sentinelIngressHandle); err != nil {
+			return err
+		}
 	}
-	if out, err := t.run("tc", "filter", "replace", "dev", iface, "pref", sentinelEgressPref, "protocol", "all", "egress", "handle", sentinelEgressHandle, "matchall", "action", "drop"); err != nil {
-		return tcError("replace Sentinel egress filter", iface, out, err)
+	if !hasEg {
+		if err := t.addDrop(iface, "egress", sentinelEgressPref, sentinelEgressHandle); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// addDrop installs this Sentinel's matchall drop. An EEXIST is accepted only
+// if the filter now at that pref is ours (another reconcile won the race); a
+// foreign filter there is reported, never claimed as containment.
+func (t *tcDropFilter) addDrop(iface, direction, pref, handle string) error {
+	out, err := t.run("tc", "filter", "replace", "dev", iface, "pref", pref, "protocol", "all", direction, "handle", handle, "matchall", "action", "drop")
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(string(out), "File exists") {
+		if ours, checkErr := t.sentinelDrop(iface, direction, pref, handle); checkErr == nil && ours {
+			return nil
+		}
+	}
+	return tcError("replace Sentinel "+direction+" filter", iface, out, err)
+}
+
+// sentinelDrop reports whether iface carries this Sentinel's matchall drop
+// at pref with handle in direction.
+func (t *tcDropFilter) sentinelDrop(iface, direction, pref, handle string) (bool, error) {
+	out, err := t.run("tc", "filter", "show", "dev", iface, direction)
+	if err != nil && !missingTCObject(out) {
+		return false, tcError("show "+direction+" filters", iface, out, err)
+	}
+	return sentinelDropIn(string(out), pref, handle), nil
+}
+
+// sentinelDropIn parses `tc filter show` output: a filter line naming pref,
+// matchall and the handle (printed in hex), followed by "action drop" before
+// the next filter line.
+func sentinelDropIn(out, pref, handle string) bool {
+	h, err := strconv.ParseUint(handle, 0, 32)
+	if err != nil {
+		return false
+	}
+	wantHandle := fmt.Sprintf("0x%x", h)
+	match := false
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && f[0] == "filter" {
+			match = fieldAfter(f, "pref") == pref && slices.Contains(f, "matchall") && fieldAfter(f, "handle") == wantHandle
+			continue
+		}
+		if match && strings.Contains(line, "action drop") {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldAfter(fields []string, key string) string {
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == key {
+			return fields[i+1]
+		}
+	}
+	return ""
 }
 
 func (t *tcDropFilter) detachDrop(iface string) error {

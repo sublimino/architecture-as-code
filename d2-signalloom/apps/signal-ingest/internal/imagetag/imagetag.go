@@ -89,8 +89,42 @@ func Inputs(moduleDir string) ([]string, error) {
 	return in, nil
 }
 
-// Digest hashes each input's path and content under contextDir. The path is part of the record:
-// two files swapping contents is a different build.
+// TrackedInputs returns the inputs git tracks under contextDir, in their given order. go list
+// reads the files on disk, so an untracked or ignored .go file in a package directory is
+// compiled and was hashed; the tag must name the committed source (as scripts/lib/source-id.sh
+// does for the sentinel), and such files are for the image-tag guard
+// (scripts/signal-ingest-image-tag.sh, source_id_dirty_inputs) to refuse. It fails outside a git
+// repository and when nothing is tracked: a digest of the empty set names nothing.
+func TrackedInputs(contextDir string, inputs []string) ([]string, error) {
+	cmd := exec.Command("git", append([]string{"-C", contextDir, "ls-files", "-z", "--cached", "--"}, inputs...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	tracked := map[string]struct{}{}
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			tracked[p] = struct{}{}
+		}
+	}
+	var kept []string
+	for _, p := range inputs {
+		if _, ok := tracked[p]; ok {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, fmt.Errorf("none of the %d image inputs is tracked by git under %s", len(inputs), contextDir)
+	}
+	return kept, nil
+}
+
+// Digest hashes each input's path, executable bit and content under contextDir. The path is part
+// of the record: two files swapping contents is a different build. Of the mode, only the
+// executable bit is recorded -- it is all git tracks; the rest is the umask of whoever wrote the
+// file, and hashing it split one commit's sentinel tag across checkouts (2026-10-03).
 func Digest(contextDir string, inputs []string) (string, error) {
 	h := sha256.New()
 	for _, p := range inputs {
@@ -98,18 +132,28 @@ func Digest(contextDir string, inputs []string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("image input %s: %w", p, err)
 		}
+		fi, err := f.Stat()
+		if err != nil {
+			f.Close()
+			return "", fmt.Errorf("image input %s: %w", p, err)
+		}
+		execBit := "-"
+		if fi.Mode()&0o111 != 0 {
+			execBit = "x"
+		}
 		fh := sha256.New()
 		_, err = io.Copy(fh, f)
 		f.Close()
 		if err != nil {
 			return "", fmt.Errorf("image input %s: %w", p, err)
 		}
-		fmt.Fprintf(h, "%s\x00%x\n", p, fh.Sum(nil))
+		fmt.Fprintf(h, "%s\x00%s\x00%x\n", p, execBit, fh.Sum(nil))
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Tag is the immutable image tag for the source in moduleDir: Prefix plus 16 hex of Digest.
+// Tag is the immutable image tag for the committed source in moduleDir: Prefix plus 16 hex of
+// Digest over the tracked inputs.
 func Tag(moduleDir string) (string, error) {
 	in, err := Inputs(moduleDir)
 	if err != nil {
@@ -119,7 +163,12 @@ func Tag(moduleDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	d, err := Digest(filepath.Dir(absModule), in)
+	context := filepath.Dir(absModule)
+	tracked, err := TrackedInputs(context, in)
+	if err != nil {
+		return "", err
+	}
+	d, err := Digest(context, tracked)
 	if err != nil {
 		return "", err
 	}

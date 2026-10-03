@@ -65,16 +65,17 @@ spec:
               value: "5"
             - name: HOSTILE_PATH
               value: "/tmp/hostile-test.txt"
+          # Readiness only. This is the SLDC containment target: a frozen
+          # agent fails any liveness probe and the kubelet would kill it,
+          # destroying the process containment holds for forensics (H1; live,
+          # 2026-10-03, killed 45 s into the hold). Readiness still takes a
+          # frozen agent out of the Service. Pinned by
+          # d2-signalloom/test/kusari-agent-forensic.bats and e2e Step 1.
           readinessProbe:
             httpGet:
               path: /healthz
               port: http
             periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            periodSeconds: 15
           volumeMounts:
             - name: tmp
               mountPath: /tmp

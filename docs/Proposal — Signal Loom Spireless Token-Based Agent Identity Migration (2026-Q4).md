@@ -1788,3 +1788,12 @@ scripts/warden-cutover.sh --context kind-osramp
 - `git diff --check`: PASS (clean tree, zero conflict markers, zero whitespace errors).
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P3-GOV (lead reconciliation)
+
+- **Created:** 2026-10-03 15:17:30+01:00
+- **Last Updated:** 2026-10-03 15:17:30+01:00
+- **Commit:** `970720b6`
+- Restores the machine tag only. P4-1's errata block was inserted after P3-GOV's and captured its trailing tag, so P3-GOV parsed as `status=unknown`. This is the fifth occurrence. The lead re-verified Phase 3 live after `55f81fdb` (e2e 6/6 x2, SLTM live 19/19 x2 and later x4). No result changes.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

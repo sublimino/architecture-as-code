@@ -414,12 +414,103 @@ sequenceDiagram
 | P4-1 | context-mode | Go API engineer | S | 60m | antigravity | Actor IDs containing `//` are rejected on every `{id}` route; canonicalise or encode them. |
 | P4-GOV | ajm-auto-kanban | Governor | S | 60m | antigravity | Final acceptance: every acceptance command, live tiers twice in a row. |
 
+### Spec: Shared Patterns — Phase 1
+
+#### P1 Wire Contract: Authenticated AFM Import Gateway
+- **Inbound Route:** `POST /api/v1/afm/clusters/import` on `fe-signalloom` gateway and API.
+- **Forwarding Destination:** `http://afm-platform.fe-k8s-afm.svc.cluster.local (port 8000)/clusters/import` (internal cluster Service).
+- **Authentication Header:** `Authorization: Bearer <key>` (RFC 6750 Bearer token, minimum 32 random bytes).
+- **Static Key Name:** `afm-importer`.
+- **Required Scope:** `afm:import`.
+- **Environment Configuration:** `AFM_IMPORT_KEYS` on `fe-signalloom` deployment containing a JSON-encoded array of authorized key definitions:
+  `[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]`
+- **Verifier Secret (fe-signalloom):** `fe-signalloom/fe-signalloom-afm-importer-key`, projected as a volume mount at `/etc/fe-signalloom/afm-importer-key/`. Contains data keys `afm-importer` (raw token value) and `afm-importer.expires` (RFC 3339 expiration timestamp).
+- **Consumer Secret (fe-signalloom-agents):** `fe-signalloom-agents/signalloom-rbac-exporter-afm-key`, projected as a volume mount into the exporter pod. Contains data key `token` (raw Bearer token value).
+- **Key Issuer Script:** `scripts/afm-importer-key.sh` (generates the matching Secret pair for verifier and consumer namespaces).
+- **Exporter Identity:** ServiceAccount `signalloom-rbac-exporter` and pod label `app.kubernetes.io/name: signalloom-rbac-exporter` in namespace `fe-signalloom-agents`.
+- **Bound Cluster Attribution:** `kind-osramp`. In accordance with the architectural constitution ("Tenancy comes from operator configuration, never from the workload"), the verifier enforces that the payload's `id` field matches the cluster bound to the presented key.
+- **Payload Schema:**
+  ```json
+  {
+    "id": "kind-osramp",
+    "name": "Local Cluster",
+    "rbac": {
+      "subjects": [
+        {
+          "kind": "User|ServiceAccount|Group",
+          "name": "string",
+          "namespace": "string (optional)"
+        }
+      ],
+      "roles": [
+        {
+          "name": "string",
+          "scope": "Cluster|Namespace",
+          "namespace": "string (optional)",
+          "rules": [
+            {
+              "verbs": ["string"],
+              "apiGroups": ["string"],
+              "resources": ["string"]
+            }
+          ]
+        }
+      ],
+      "bindings": [
+        {
+          "name": "string",
+          "scope": "Cluster|Namespace",
+          "namespace": "string (optional)",
+          "roleRef": "string",
+          "subjects": [
+            {
+              "kind": "User|ServiceAccount|Group",
+              "name": "string",
+              "namespace": "string (optional)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+- **Payload Size Bound:** `AFM_IMPORT_MAX_BYTES` (default: `1048576` bytes / 1 MiB).
+- **Digest Verification:** Constant-time comparison using `hmac.compare_digest` over SHA-256 digests (`hashlib.sha256(key.encode()).digest()`).
+- **Refusal Status Codes and Error Bodies:**
+  - Missing Authorization header: `401 Unauthorized` with `{"error": "missing_authorization_header"}`
+  - Unknown or invalid Bearer key: `401 Unauthorized` with `{"error": "invalid_api_key"}`
+  - Expired Bearer key: `401 Unauthorized` with `{"error": "key_expired"}`
+  - Insufficient scope (missing `afm:import`): `403 Forbidden` with `{"error": "insufficient_scope"}`
+  - Cluster ID mismatch (payload `id` differs from key binding): `403 Forbidden` with `{"error": "cluster_id_mismatch"}`
+  - Payload size exceeds `AFM_IMPORT_MAX_BYTES`: `413 Payload Too Large` with `{"error": "payload_too_large"}`
+  - Invalid JSON syntax or schema failure: `422 Unprocessable Entity` with `{"error": "invalid_payload_schema"}`
+  - Downstream AFM connection failure or 5xx: `502 Bad Gateway` with `{"error": "upstream_afm_error"}`
+
+#### File Ownership Split: Phase 1 Cards
+
+| File / Subsystem Path | P1-1 (Gateway & Auth) | P1-2 (Exporter CronJob & RBAC) | Governance / Shared |
+| :--- | :--- | :--- | :--- |
+| `d2-signalloom/apps/fe-signalloom/src/**` | Sole Owner (implements `/api/v1/afm/clusters/import`, key loader, schema validation) | Read-only | — |
+| `d2-signalloom/apps/fe-signalloom/base/deployment.yaml` | Sole Owner (mounts `/etc/fe-signalloom/afm-importer-key/`, configures `AFM_IMPORT_KEYS`) | Read-only | — |
+| `d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml` | Sole Owner (egress to `afm-platform` on port 8000, ingress from `fe-signalloom-agents`) | Read-only | — |
+| `d2-signalloom/apps/dashboard-signalloom/nginx.conf` | Sole Owner (L7 403 on direct `/afm/clusters/import` browser upload path) | Read-only | — |
+| `d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml` | Sole Owner (Envoy HTTPRoute L7 filter closing external `/clusters/import`) | Read-only | — |
+| `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml` | Sole Owner (labels on in-namespace CronJob only) | Read-only | — |
+| `scripts/afm-importer-key.sh` | Sole Owner (Secret generation script) | Read-only | — |
+| `d2-signalloom/apps/fe-signalloom/src/tests/**` | Sole Owner (pytest suite for import route, auth gates, size limits) | Read-only | — |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/**` | Read-only | Sole Owner (probe bundle base) | — |
+| `d2-signalloom/infra/agent-swarm/signalloom-rbac-exporter/**` | Read-only | Sole Owner (exporter CronJob, config, ServiceAccount) | — |
+| `d2-osramp-fleet/tenants/base/agent-swarm.yaml` | Read-only | Sole Owner (ClusterRole/Binding in ResourceSet, Secret sync) | — |
+| `test/sltm-rbac-exporter.bats` | Read-only | Sole Owner (exporter manifest and mock push tests) | — |
+| `Makefile` | Non-colliding target registration (line-distinct additions) | Non-colliding target registration (line-distinct additions) | — |
+| `docs/Proposal — ... (2026-Q4).md` | Non-colliding errata appending | Non-colliding errata appending | Preflight / Governor |
+
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | pass (baseline measured; findings recorded) | — | — | — | — |
-| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | pass (inventory written; wire contract pinned) | — | — | — | — |
 | P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | — | — | — | — | — |
 | P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | — | — | — | — | — |
 | P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | — | — | — | — | — |
@@ -499,5 +590,131 @@ sequenceDiagram
 - **Last Updated:** 2026-10-03 02:44:09+01:00
 - The antigravity session committed this block and then sat at its prompt for more than 16 minutes without writing the machine tag or exiting, twice (9beb6, then 4283e). The lead read the acceptance table, found that it measures the baseline P0 asked for, and adjudicated **pass**.
 - Recorded findings are for P1-PRE and the governor: `doctor` rc=1 (legacy `ajm-cline-kanban` helper path, Kagent proof file, sandbox denial on the ledger); `p1-sentinel-preflight.bats` test 1 fails under nono because it cannot read the cgroup file; the `TestDenialMatrix` wall-clock flake is being fixed by the estate-reds sweep. None of these blocks P1.
+
+#### Errata — SLTM-P1-PRE
+
+- **Logical ID:** P1-PRE
+- **Created:** 2026-10-03 03:25:38+01:00
+- **Last Updated:** 2026-10-03 03:25:38+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0` (`c2dc49dffb3aa0fec8c26621a9a1b22c29dcbd12`)
+- **Feat Ancestor Branch:** `refs/heads/feat/signal-loop-and-bootstrap-refactor` (`c2dc49dffb3aa0fec8c26621a9a1b22c29dcbd12`)
+- **Merge Base Check:** `git merge-base --is-ancestor refs/heads/integration/sltm-v0.1.0 HEAD` -> `0` (clean ancestor)
+- **Worktree Base:** `/home/andy/src/.worktrees/cef59/osramp-demo`
+- **HEAD SHA:** `c2dc49dffb3aa0fec8c26621a9a1b22c29dcbd12`
+
+##### 1. AFM RBAC Import Contract Inventory
+
+The import contract of record is defined in `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml` (`convert()` function, `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:135` and `scripts/rbac-to-afm.py:14`). The backend implementation lives outside this repository (`d2-k8s-afm/AGENTS.md:8`), so the in-repo client defines the wire contract.
+
+| JSON Field | Type | Description | Source Line in `cluster-import.yaml` |
+| :--- | :--- | :--- | :--- |
+| `id` | `string` | Caller-supplied cluster identifier (e.g. `local` or `kind-osramp`) | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:198` |
+| `name` | `string` | Human-readable cluster display name (e.g. `Local Cluster`) | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:199` |
+| `rbac` | `object` | Container object for extracted subjects, roles, and bindings | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:200` |
+| `rbac.subjects` | `list[object]` | Deduplicated list of subjects: `{name: string, kind: string, namespace?: string}` | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:201` |
+| `rbac.roles` | `list[object]` | Exported roles: `{name: string, scope: "Cluster"|"Namespace", namespace?: string, rules: list[{verbs: list[string], apiGroups: list[string], resources: list[string]}]}` | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:202` |
+| `rbac.bindings` | `list[object]` | Exported bindings: `{name: string, scope: "Cluster"|"Namespace", namespace?: string, roleRef: string, subjects: list[{name: string, kind: string, namespace?: string}]}` | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:203` |
+
+**Key Properties of the Current In-Repo Exporter:**
+- **Inbound HTTP Request:** The CronJob executes `POST` to `AFM_IMPORT_URL` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:71` / `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:232`) with only `headers={'Content-Type': 'application/json'}` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:235`). It sends **no authentication credential** of any kind.
+- **API Token Usage:** The Kubernetes ServiceAccount token (`/var/run/secrets/kubernetes.io/serviceaccount/token`, `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:215`) is used solely to authenticate against the local Kubernetes API server (`https://{host}:{port}`, `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:220`), never against AFM.
+- **Resource Scope:** `collect()` queries only four resource kinds: `clusterroles`, `clusterrolebindings`, `roles`, `rolebindings` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:102`), although the `afm-rbac-reader` ClusterRole also grants `namespaces` and `serviceaccounts` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:21`).
+- **Error Handling:** `collect()` catches `Exception as exc` per resource, logs `WARNING: failed to list {resource}: {exc}` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:124`), and if partial, logs `WARNING: partial collection` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:130`) and posts the partial dataset as if complete.
+- **Verbs:** Verbs granted are strictly `get` and `list` (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:20`, `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:23`). `watch` is NOT granted.
+- **Security Context:** `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml` contains no `securityContext` specification on pod or container.
+
+##### 2. Reachability Matrix for afm-platform (Port 8000)
+
+> **L4 Policy Limitation:** Kubernetes NetworkPolicy operates at Layer 4 (IP, protocol, port) and cannot filter by HTTP path or method; afm-platform itself has no ingress NetworkPolicy (`d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml:95`).
+
+| Path / Route | Proxy / Ingress Component | Match Rule | Authentication Mechanism | Citation | Risk / Exposure |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Gateway Route | Envoy Gateway (`cluster/ingress`) | `Host: afm.osramp.acme.local`, `PathPrefix: /` | **None** (unauthenticated public ingress) | `d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml:18` | **CRITICAL:** Unauthenticated external actors can directly POST to `/clusters/import` through the gateway. |
+| Dashboard Proxy `/afm/` | Dashboard nginx | `location /afm/` -> `rewrite ^/afm(/.*) $1 break;` -> `proxy_pass http://afm-platform... (port 8000)` | `auth_request /_afm_gate` (Dex superadmin token check on mutating verbs) | `d2-signalloom/apps/dashboard-signalloom/nginx.conf:130` | Valid superadmin Dex tokens can POST unauthenticated imports directly to AFM backend without static key attribution. |
+| Dashboard Proxy `/clusters` | Dashboard nginx | `location /clusters` -> `proxy_pass http://afm-platform... (port 8000)` | `auth_request /_afm_gate` (Dex superadmin token check on mutating verbs) | `d2-signalloom/apps/dashboard-signalloom/nginx.conf:140` | Proxies directly to AFM cluster store for iframed frontend. |
+| API Server-Side | `fe-signalloom-api` backend (`rbac_correlation.py`) | Internal HTTP client to `AFM_BASE_URL` | None (internal cluster DNS) | `d2-signalloom/apps/fe-signalloom/src/rbac_correlation.py:84` | Read-only server-side correlation queries (`GET /clusters/{id}/...`). |
+| In-Namespace CronJob | `afm-cluster-import` CronJob pod | Direct connection to `afm-platform.fe-k8s-afm.svc.cluster.local (port 8000)/clusters/import` | None (plain HTTP) | `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:71` | In-cluster cronjob posting cluster RBAC snapshot unauthenticated. |
+
+##### 3. Probe Bundle Packaging & Flux Inventory
+
+- **Canonical Base:** `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/` contains `kustomization.yaml`, `service-account.yaml` (declaring SA `stun-sentinel`), `rbac.yaml` (declaring namespaced Role/RoleBinding `stun-sentinel`), `configmap.yaml` (declaring `stun-sentinel-config`), and `daemonset.yaml` (declaring DaemonSet `stun-sentinel`).
+- **Cluster Overlays:** `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-osramp/` and `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-signalloom-hub/` supply per-cluster image repository transformations and ingest URLs.
+- **Flux Fleet Kustomization:** Declared in `d2-osramp-fleet/tenants/base/agent-swarm.yaml:552` as `Kustomization` `agent-signalloom-stun-sentinel` in namespace `fe-signalloom-agents`.
+  - ServiceAccount: `serviceAccountName: agent-swarm-flux` (`d2-osramp-fleet/tenants/base/agent-swarm.yaml:562`).
+  - Path: `path: ./signalloom-stun-sentinel-overlays/kind-osramp` (`d2-osramp-fleet/tenants/base/agent-swarm.yaml:574`).
+  - DependsOn: `dependsOn: [{name: agent-swarm-base}]` (`d2-osramp-fleet/tenants/base/agent-swarm.yaml:561`).
+- **Parent Kustomization:** `d2-signalloom/infra/agent-swarm/kustomization.yaml` reconciles namespace `fe-signalloom-agents`, base agents, and network policies.
+- **Namespace & PSS Gap:** `d2-signalloom/infra/agent-swarm/namespace.yaml:8` defines `fe-signalloom-agents` with labels `signalloom.ai/managed: "true"`, `signalloom.ai/tier: "agents"`, `app.kubernetes.io/part-of: signalloom-swarm` (`d2-signalloom/infra/agent-swarm/namespace.yaml:12`). It has **no** `pod-security.kubernetes.io/enforce` label.
+- **Namespace Default-Deny:** `d2-signalloom/infra/agent-swarm/networkpolicy.yaml:15` defines `NetworkPolicy` `default-deny` in `fe-signalloom-agents` (`d2-signalloom/infra/agent-swarm/networkpolicy.yaml:18`) with `podSelector: {}` selecting all pods and isolating both `Ingress` and `Egress`.
+
+##### 4. Evidence-Backed Design Recommendations (P1-PRE-1 .. P1-PRE-5)
+
+- **P1-PRE-1 (L7 Closure of `/clusters/import`):**
+  - *Recommendation:* Enforce Layer 7 rejection of direct `/clusters/import` traffic at the ingress boundary by configuring an Envoy Gateway `HTTPRouteFilter` with `directResponse` returning status `403 Forbidden` for path `/clusters/import` on `afm.osramp.acme.local` (Envoy Gateway v1.8.2 pinned in `d2-infra/components/ingress/controllers/base/envoy-gateway.yaml:12`), combined with an explicit `return 403;` in dashboard nginx for direct `/afm/clusters/import` and `/clusters/import`.
+  - *Evidence:* NetworkPolicy is L4 and cannot distinguish `/clusters/import` from `/clusters` or `/health`. `gateway-route.yaml` currently forwards `PathPrefix /` unauthenticated (`d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml:24`).
+  - *Owner:* Card P1-1.
+- **P1-PRE-2 (Exporter ClusterRole and Binding Placement):**
+  - *Recommendation:* Place the exporter's cluster-scoped `ClusterRole` and `ClusterRoleBinding` inside the ResourceSet (`d2-osramp-fleet/tenants/base/agent-swarm.yaml`), NOT inside the tenant bundle deployed by `agent-swarm-flux`.
+  - *Evidence:* `agent-swarm-flux` has only a namespaced `RoleBinding` (`d2-osramp-fleet/tenants/base/agent-swarm.yaml:123`). Its cluster-scoped RBAC grant was deliberately removed (`d2-osramp-fleet/tenants/base/agent-swarm.yaml:129`) to preserve tenant least-privilege. Attempting to deploy cluster-scoped RBAC through `agent-swarm-flux` fails `test/agent-swarm-flux-rbac.bats` (`d2-osramp-fleet/tenants/base/agent-swarm.yaml:136`).
+  - *Owner:* Card P1-2.
+- **P1-PRE-3 (Exporter Image Selection):**
+  - *Recommendation:* Run the exporter under an immutable, non-root, Python 3-capable image (e.g. `python:3.12-slim` or distroless python published to the local Zot registry), NEVER `kubesec-afm:latest`.
+  - *Evidence:* `kubesec-afm:latest` carries the full FastAPI/Z3 model-checking platform and runs as root by default (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:64`). The exporter is a lightweight batch script that only requires Python 3 standard library (`urllib.request`, `json`, `ssl`).
+  - *Owner:* Card P1-2.
+- **P1-PRE-4 (PINNED Identity, Secret, and Key Names):**
+  - *Recommendation:* Strictly pin the identity, Secret, and key names across the gateway verifier and exporter consumer:
+    - Environment variable on fe-signalloom: `AFM_IMPORT_KEYS=[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]`
+    - Verifier Secret: `fe-signalloom/fe-signalloom-afm-importer-key` (projected data keys: `afm-importer`, `afm-importer.expires`)
+    - Consumer Secret: `fe-signalloom-agents/signalloom-rbac-exporter-afm-key` (projected data key: `token`)
+    - Issuer Script: `scripts/afm-importer-key.sh`
+    - Exporter ServiceAccount and pod label: `signalloom-rbac-exporter`
+    - Scope: `afm:import`
+    - Bound Cluster ID: `kind-osramp`
+  - *Evidence:* Ensures P1-1 and P1-2 develop in parallel against an immutable contract without wire divergence.
+  - *Owner:* P1-1 (verifier & issuer) and P1-2 (consumer Secret projection & SA).
+- **P1-PRE-5 (Dashboard Browser Upload Path Resolution):**
+  - *Recommendation:* Close the dashboard browser POST to `/afm/clusters/import` (`d2-signalloom/apps/dashboard-signalloom/src/api/afmApi.ts:475` through `d2-signalloom/apps/dashboard-signalloom/nginx.conf:130`) with an immediate `403 Forbidden` refusal.
+  - *Evidence:* Architectural constitution mandates: "One header, one key per caller... Every inbound credential is a named static key". The browser client possesses only a Dex superadmin JWT and has no static API key. Closing this path breaks manual browser uploads in the UI panel (recorded as known operational tradeoff). Any override must be recorded in the Governor log before P1-1 starts.
+  - *Owner:* Card P1-1.
+
+##### 5. Required Tests & Evidence Verification (T1 .. T8)
+
+| Test ID | Objective | Command Executed | Result / Evidence | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **T1** | AFM Base Render & RBAC Rules | `KUBECONFIG=/dev/null kubectl kustomize d2-k8s-afm/apps/afm-platform/base > /tmp/sltm-p1-pre/afm-base.yaml && yq -o=json -I0 'select(.kind=="ClusterRole" and .metadata.name=="afm-rbac-reader") \| .rules' /tmp/sltm-p1-pre/afm-base.yaml` | Output: `[{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings","roles","rolebindings"],"verbs":["get","list"]},{"apiGroups":[""],"resources":["namespaces","serviceaccounts"],"verbs":["get","list"]}]`. Exactly two rules; `watch` verb is NOT granted (`d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:17`). | **PASS** |
+| **T2** | AFM Ingress Exposure Positive Control | `yq 'select(.kind=="NetworkPolicy") \| .metadata.name' /tmp/sltm-p1-pre/afm-base.yaml` AND `yq '.kind' /tmp/sltm-p1-pre/afm-base.yaml \| sort \| uniq -c` | Output: 0 NetworkPolicies. Positive control kinds: 1 ClusterRole, 1 ClusterRoleBinding, 1 CronJob, 1 Deployment, 1 HTTPRoute, 1 Namespace, 1 Service, 1 ServiceAccount. Cross-cites `d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml:93`. | **PASS** |
+| **T3** | Probe Bundle Render & Packaging | `KUBECONFIG=/dev/null kubectl kustomize d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel > /tmp/sltm-p1-pre/probe-bundle.yaml && yq '.kind + "/" + .metadata.namespace + "/" + .metadata.name' /tmp/sltm-p1-pre/probe-bundle.yaml` | Output: `ServiceAccount/fe-signalloom-agents/stun-sentinel`, `Role/fe-signalloom-agents/stun-sentinel`, `RoleBinding/fe-signalloom-agents/stun-sentinel`, `ConfigMap/fe-signalloom-agents/stun-sentinel-config`, `DaemonSet/fe-signalloom-agents/stun-sentinel`. Zero ClusterRoles rendered. | **PASS** |
+| **T4** | Existing Offline Test Suites | `KUBECONFIG=/dev/null bats --tap d2-k8s-afm/test/afm-converter.bats test/k8s-afm-preflight.bats` AND `KUBECONFIG=/dev/null bats --tap test/agent-swarm-tenancy.bats test/agent-swarm-flux-rbac.bats d2-signalloom/test/stun-sentinel-daemonset.bats` | Suite 1: 23 ok / 23 tests (12 + 11 ok). Suite 2: 18 ok / 18 tests (4 + 3 + 11 ok). Total: 41 ok, 0 not ok, 0 skip. | **PASS** |
+| **T5** | Upload Contract Derived from Code | `python3 -c "import importlib.util,json; s=importlib.util.spec_from_file_location('m','scripts/rbac-to-afm.py'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); d=m.convert(json.load(open('d2-k8s-afm/test/fixtures/osramp-cluster-rbac.json'))); print(sorted(d.keys())); print(sorted(d['rbac'].keys()))"` | Top-level keys: `['id', 'name', 'rbac']`. RBAC keys: `['bindings', 'roles', 'subjects']`. In-repo senders: `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:232` (CronJob) and `d2-signalloom/apps/dashboard-signalloom/src/api/afmApi.ts:475` (Dashboard) both send unauthenticated POSTs. | **PASS** |
+| **T6** | Citation Resolution Check | `/tmp/sltm-p1-pre/verify_citations.sh` and `/tmp/sltm-p1-pre/test_t6.sh` | Output: `0 MISSING` across all cited file:line references. | **PASS** |
+| **T7** | Non-Interference & Docs-Lint | `git status --porcelain` before/after; `git diff integration/sltm-v0.1.0...HEAD --stat`; `KUBECONFIG=/dev/null make docs-lint` | Git diff strictly scoped to proposal document; `make docs-lint` exits 0 (Proposal covered under `RECORDS` pattern in `scripts/docs-lint.sh:45`). | **PASS** |
+| **T8** | Same-Cluster Deployment Topology | Manifest analysis of `scripts/k8s-afm.sh:184`, `infra/kind/cluster-osramp.yaml:29`, `infra/kind/cluster-signalloom-hub.yaml:27`, `d2-osramp-fleet/tenants/base/agent-swarm.yaml:574` | AFM (`fe-k8s-afm`) deploys only to `kind-osramp` (the Kusari cluster). `kind-signalloom-hub` runs no `fe-k8s-afm`. Exporter -> fe-signalloom gateway -> afm-platform is strictly same-cluster. | **PASS** |
+
+##### 6. Adversarial Verification & Gap Proof
+
+1. **Adversarial Citation Audit:**
+   To re-verify every citation in this inventory, execute:
+   ```bash
+   while IFS=: read -r p l; do
+     if [ ! -f "$p" ] || [ -z "$(sed -n "${l}p" "$p")" ]; then
+       echo "MISSING: $p:$l"
+     fi
+   done < <(rg -o '[A-Za-z0-9_./-]+:[0-9]+' <(git diff integration/sltm-v0.1.0...HEAD -- 'docs/Proposal*.md') | grep '/' | sort -u)
+   ```
+2. **Absence Claims Evidenced by Positive Controls:**
+   - Absence of NetworkPolicy in `d2-k8s-afm`: Confirmed by `rg "kind:\s*NetworkPolicy" d2-k8s-afm/` returning 0 lines, while `kubectl kustomize d2-k8s-afm/apps/afm-platform/base` renders 8 distinct Kubernetes resources (Deployment, Service, CronJob, ClusterRole, ClusterRoleBinding, ServiceAccount, Namespace, HTTPRoute).
+   - Absence of Authorization Header in Exporter POST: Confirmed by inspection of `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml:235` (`headers={'Content-Type': 'application/json'}`).
+   - External Backend Source: Confirmed by `d2-k8s-afm/AGENTS.md:8` (`The backend source is not in this repository. It is in the separate kubesec-afm checkout.`).
+3. **The Failing Gap Request (Red-to-Green Baseline for P1-1):**
+   With the current manifests, sending an unauthenticated HTTP request:
+   ```http
+   POST /clusters/import HTTP/1.1
+   Host: afm.osramp.acme.local
+   Content-Type: application/json
+
+   {"id": "test-cluster", "name": "Test", "rbac": {"subjects": [], "roles": [], "bindings": []}}
+   ```
+   matches the `PathPrefix /` rule on `afm-platform` HTTPRoute (`d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml:23`) and is routed directly to `afm-platform` port 8000 without requiring an API key. P1-1 will turn this failing case green by enforcing Layer 7 rejection on `/clusters/import` at the gateway and directing authenticated imports through `fe-signalloom` `POST /api/v1/afm/clusters/import`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

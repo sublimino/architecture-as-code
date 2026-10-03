@@ -19,19 +19,19 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../signalloom-stun-sentinel
+  - ../../signalloom-warden
 
 # newName only, no newTag: the version lives in the base daemonset.yaml and is
 # inherited, so a version bump there does not have to be chased into every
 # overlay. This overlay changes WHERE the image comes from, not WHICH version.
 images:
-  - name: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
-    newName: zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel
+  - name: ghcr.io/controlplaneio-in-toto/signalloom-warden
+    newName: zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden
 
 patches:
   - target:
       kind: ConfigMap
-      name: stun-sentinel-config
+      name: signalloom-warden-config
     patch: |
       - op: replace
         path: /data/SIGNAL_INGEST_URL

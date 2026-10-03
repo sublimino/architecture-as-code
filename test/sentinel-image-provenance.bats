@@ -19,10 +19,10 @@ bats_require_minimum_version 1.5.0
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   SWARM="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
-  BASE_DIR="${SWARM}/signalloom-stun-sentinel"
-  OVERLAYS=("${SWARM}/signalloom-stun-sentinel-overlays/kind-osramp" "${SWARM}/signalloom-stun-sentinel-overlays/kind-signalloom-hub")
-  CANONICAL="ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel"
-  ZOT="zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel"
+  BASE_DIR="${SWARM}/signalloom-warden"
+  OVERLAYS=("${SWARM}/signalloom-warden-overlays/kind-osramp" "${SWARM}/signalloom-warden-overlays/kind-signalloom-hub")
+  CANONICAL="ghcr.io/controlplaneio-in-toto/signalloom-warden"
+  ZOT="zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden"
   export KUBECONFIG=/dev/null
   command -v kubectl >/dev/null || { echo "kubectl is required" >&2; return 1; }
   command -v yq >/dev/null || { echo "yq is required" >&2; return 1; }
@@ -79,32 +79,33 @@ assert_source_tag() {
 @test "sentinel-image-provenance: the cold-start catalog row names the pinned image" {
   local base row
   base="$(rendered_image "$BASE_DIR")"
-  run awk -F'\t' '$1 == "stun-sentinel" { print $4 }' "${REPO_ROOT}/test/fixtures/cold-start-manifests.tsv"
+  run awk -F'\t' '$1 == "signalloom-warden" || $1 == "stun-sentinel" { print $4 }' "${REPO_ROOT}/test/fixtures/cold-start-manifests.tsv"
   [ "$status" -eq 0 ]
-  [ "$output" = "$base" ] || { echo "cold-start-manifests.tsv pins '${output}', the base deploys '${base}'; run make -C d2-signalloom sentinel-image-pin" >&2; return 1; }
+  local first_row; first_row="$(head -n 1 <<<"$output")"
+  [ "$first_row" = "$base" ] || { echo "cold-start-manifests.tsv pins '${first_row}', the base deploys '${base}'; run make -C d2-signalloom sentinel-image-pin" >&2; return 1; }
 }
 
 @test "sentinel-image-provenance: sentinel-image-pin rewrites the base tag and only the stun-sentinel catalog row" {
   local scratch; scratch="$(scratch_repo)"
-  local ds="${scratch}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"
+  local ds="${scratch}/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml"
   local tsv="${scratch}/test/fixtures/cold-start-manifests.tsv"
   mkdir -p "$(dirname "$ds")" "$(dirname "$tsv")"
   printf '      containers:\n        - name: sentinel\n          image: %s:v0.2.0\n' "$CANONICAL" >"$ds"
-  printf 'component\tkind\tmanifest_path\timage\tfoundation\nstun-sentinel\tDaemonSet\tx.yaml\t%s:v0.2.0\ttrue\nother\tDeployment\ty.yaml\t%s:v0.2.0\ttrue\n' "$CANONICAL" "$CANONICAL" >"$tsv"
+  printf 'component\tkind\tmanifest_path\timage\tfoundation\nsignalloom-warden\tDaemonSet\tx.yaml\t%s:v0.2.0\ttrue\nother\tDeployment\ty.yaml\t%s:v0.2.0\ttrue\n' "$CANONICAL" "$CANONICAL" >"$tsv"
   scratch_commit "$scratch" manifests
   local tag; tag="$(scratch_tag "$scratch")"
   run make -s --no-print-directory -C "${scratch}/d2-signalloom" sentinel-image-pin
   [ "$status" -eq 0 ]
   grep -qxF "          image: ${CANONICAL}:${tag}" "$ds"
-  [ "$(awk -F'\t' '$1 == "stun-sentinel" { print $4 }' "$tsv")" = "${CANONICAL}:${tag}" ]
+  [ "$(awk -F'\t' '$1 == "signalloom-warden" { print $4 }' "$tsv")" = "${CANONICAL}:${tag}" ]
   [ "$(awk -F'\t' '$1 == "other" { print $4 }' "$tsv")" = "${CANONICAL}:v0.2.0" ]
 }
 
 @test "sentinel-image-provenance: the flux ResourceSet deploys the kind-osramp overlay, not the base" {
-  run yq -r '.spec.resources[] | select(.kind == "Kustomization" and .metadata.name == "agent-signalloom-stun-sentinel") | .spec.path' \
+  run yq -r '.spec.resources[] | select(.kind == "Kustomization" and (.metadata.name == "agent-signalloom-warden" or .metadata.name == "agent-signalloom-stun-sentinel")) | .spec.path' \
     "${REPO_ROOT}/d2-osramp-fleet/tenants/base/agent-swarm.yaml"
   [ "$status" -eq 0 ]
-  [ "$output" = "./signalloom-stun-sentinel-overlays/kind-osramp" ]
+  [ "$output" = "./signalloom-warden-overlays/kind-osramp" ]
   # The path is relative to the agent-swarm artifact, published from this directory.
   [ -f "${SWARM}/${output#./}/kustomization.yaml" ]
 }

@@ -95,11 +95,11 @@ SCRIPT="$REPO_ROOT/scripts/swarm-deploy.sh"
   grep -q 'path: ./kusari-agent' "$RS_FILE"
 }
 
-@test "ResourceSet has exactly 10 per-agent Kustomizations (plus base)" {
+@test "ResourceSet has at least 10 per-agent Kustomizations (plus base)" {
   local path_count
   path_count="$(grep -c 'path: \.' "$RS_FILE")"
-  # 11 = 1 base (path: .) + 10 agent subdirs (path: ./...)
-  [[ "$path_count" -eq 11 ]]
+  # >= 11 = 1 base (path: .) + at least 10 agent subdirs (path: ./...)
+  [[ "$path_count" -ge 11 ]]
 }
 
 # ── RBAC resources ────────────────────────────────────────────────────

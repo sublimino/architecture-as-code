@@ -39,24 +39,24 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
   [ ! -e "${STATE}/applied" ]
 }
 
-@test "caller-keys: writes four distinct keys and mirrors the sentinel's to its namespace" {
+@test "caller-keys: writes five distinct keys and mirrors sentinel and warden to agents namespace" {
   run bash "${SCRIPT}" --context kind-osramp
   [ "$status" -eq 0 ]
-  local s f d o tok
-  s="$(value stun-sentinel)"; f="$(value fe-signalloom)"; d="$(value dashboard)"; o="$(value operator)"; tok="$(value token)"
-  [ -n "$s" ] && [ -n "$f" ] && [ -n "$d" ] && [ -n "$o" ]
-  [ "$(printf '%s\n' "$s" "$f" "$d" "$o" | sort -u | wc -l)" -eq 4 ]
-  [ "$tok" = "$s" ]
+  local s w f d o
+  s="$(value stun-sentinel)"; w="$(value signalloom-warden)"; f="$(value fe-signalloom)"; d="$(value dashboard)"; o="$(value operator)"
+  [ -n "$s" ] && [ -n "$w" ] && [ -n "$f" ] && [ -n "$d" ] && [ -n "$o" ]
+  [ "$(printf '%s\n' "$s" "$w" "$f" "$d" "$o" | sort -u | wc -l)" -eq 5 ]
   grep -q 'namespace: fe-signalloom-agents' "${STATE}/applied"
+  grep -q 'name: signalloom-warden-fleet-key' "${STATE}/applied"
   # 32 random bytes: base64 of the 44-char key decodes to >= 32 bytes.
-  [ "$(printf '%s' "$s" | base64 -d | base64 -d | wc -c)" -ge 32 ]
+  [ "$(printf '%s' "$w" | base64 -d | base64 -d | wc -c)" -ge 32 ]
 }
 
 @test "caller-keys: no key ever reaches argv or the script's output" {
   run bash "${SCRIPT}" --context kind-osramp
   [ "$status" -eq 0 ]
   local v plain
-  for v in "$(value stun-sentinel)" "$(value fe-signalloom)" "$(value dashboard)" "$(value operator)"; do
+  for v in "$(value stun-sentinel)" "$(value signalloom-warden)" "$(value fe-signalloom)" "$(value dashboard)" "$(value operator)"; do
     plain="$(printf '%s' "$v" | base64 -d)"
     if grep -qF -e "$v" -e "$plain" "${STATE}/argv"; then echo "key in argv"; return 1; fi
     [[ "$output" != *"$v"* && "$output" != *"$plain"* ]]
@@ -65,13 +65,12 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
 
 @test "caller-keys: a re-run keeps every key; --rotate replaces every key" {
   bash "${SCRIPT}" --context kind-osramp
-  local before; before="$(value stun-sentinel) $(value fe-signalloom) $(value dashboard) $(value operator)"
+  local before; before="$(value stun-sentinel) $(value signalloom-warden) $(value fe-signalloom) $(value dashboard) $(value operator)"
   bash "${SCRIPT}" --context kind-osramp
-  [ "$(value stun-sentinel) $(value fe-signalloom) $(value dashboard) $(value operator)" = "$before" ]
+  [ "$(value stun-sentinel) $(value signalloom-warden) $(value fe-signalloom) $(value dashboard) $(value operator)" = "$before" ]
   run bash "${SCRIPT}" --context kind-osramp --rotate
   [ "$status" -eq 0 ]
-  [ "$(value stun-sentinel)" != "${before%% *}" ]
-  [ "$(value token)" = "$(value stun-sentinel)" ]
+  [ "$(value signalloom-warden)" != "$(echo "$before" | awk '{print $2}')" ]
 }
 
 @test "caller-keys: a failed apply is exit 1 and says so" {

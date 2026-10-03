@@ -76,8 +76,8 @@ data:
       prod-deploy-gate
       agent-cardvault
       nono-containment-probe
-      # SA of DaemonSet stun-sentinel (not the directory name).
-      stun-sentinel
+      # SA of DaemonSet signalloom-warden (not the directory name).
+      signalloom-warden
       kagent-k8s-reader
       kagent-commit-summariser
       kagent-security-analyst

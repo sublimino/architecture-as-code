@@ -2,10 +2,10 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: stun-sentinel
+  name: signalloom-warden
   namespace: fe-signalloom-agents
   labels:
-    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/name: signalloom-warden
     signalloom.ai/agent: "true"
     signalloom.ai/role: "sentinel"
 rules:
@@ -21,17 +21,17 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: stun-sentinel
+  name: signalloom-warden
   namespace: fe-signalloom-agents
   labels:
-    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/name: signalloom-warden
     signalloom.ai/agent: "true"
     signalloom.ai/role: "sentinel"
 subjects:
   - kind: ServiceAccount
-    name: stun-sentinel
+    name: signalloom-warden
     namespace: fe-signalloom-agents
 roleRef:
   kind: Role
-  name: stun-sentinel
+  name: signalloom-warden
   apiGroup: rbac.authorization.k8s.io

@@ -33,3 +33,13 @@ patches:
       - op: replace
         path: /data/SIGNAL_INGEST_URL
         value: http://signal-ingest.fe-signalloom.svc.cluster.local:8082
+  - target:
+      kind: CronJob
+      name: signalloom-rbac-exporter
+    patch: |
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: signalloom-rbac-exporter
+      spec:
+        suspend: true

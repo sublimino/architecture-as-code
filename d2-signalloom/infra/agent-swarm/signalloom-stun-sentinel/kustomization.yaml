@@ -14,6 +14,14 @@ resources:
   - rbac.yaml
   - configmap.yaml
   - daemonset.yaml
+  - rbac-exporter-serviceaccount.yaml
+  - rbac-exporter-cronjob.yaml
+  - rbac-exporter-networkpolicy.yaml
+
+configMapGenerator:
+  - name: signalloom-rbac-exporter-script
+    files:
+      - rbac-exporter/export.py
 
 # No `images:` block here, deliberately. An `images` entry with a newTag wins
 # over the container's own tag, so declaring one at this level would put the

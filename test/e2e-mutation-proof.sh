@@ -129,7 +129,11 @@ case "${ARGS}" in
       record_landed || exit 0
       # step5_stun_not_from_sentinel: a stun someone else wrote, e.g. a
       # dashboard click, is not the sentinel's detection being recorded.
+      # step5_stun_foreign_prefix: a detection reason under any prefix but the
+      # warden's own (the probe was renamed; an accept-either-prefix widening
+      # of the e2e is what this guards, alongside the old-name guard).
       if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
+      elif [ "${MUT}" = "step5_stun_foreign_prefix" ]; then echo -n "legacy-probe detection: sys_enter_openat /etc/passwd"
       else echo -n "signalloom-warden detection: sys_enter_openat /etc/passwd"; fi
       exit 0 ;;
   *"get --raw"*"pods/"*":8081/proxy/healthz"*)
@@ -513,6 +517,7 @@ MUTATIONS=(
   "step5_thawed_by_resync|5|a freeze the reconciler thaws on its next resync fails"
   "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
   "step5_stun_not_from_sentinel|5|a stun record that does not name the sentinel's detection fails"
+  "step5_stun_foreign_prefix|5|a detection reason under a prefix other than signalloom-warden's fails"
   "step5_stun_never_recorded|5|a freeze fleet-manager never records (no pins, no reason) fails"
   "step6_recover_refused|6|a recovery fleet-manager refused is not a clean teardown"
   "step6_credential_unreported|6|a recovery that does not report its credential step is not accepted"

@@ -277,10 +277,10 @@ cgroup_reports_frozen() {
         | grep -q '^frozen 1$'
 }
 
-# sentinel_pod names the stun-sentinel DaemonSet pod on the workload node:
+# sentinel_pod names the signalloom-warden DaemonSet pod on the workload node:
 # the one whose reconciler owns this pod's cgroup.
 sentinel_pod() {
-    ${K_WORKLOAD} get pod -n "${NS}" -l app.kubernetes.io/name=stun-sentinel \
+    ${K_WORKLOAD} get pod -n "${NS}" -l app.kubernetes.io/name=signalloom-warden \
         --field-selector "spec.nodeName=${NODE}" -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null
 }
 

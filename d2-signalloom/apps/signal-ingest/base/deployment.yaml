@@ -171,6 +171,14 @@ spec:
                     - key: expires
                       path: stun-sentinel.expires
               - secret:
+                  name: signal-ingest-key-signalloom-warden
+                  optional: true
+                  items:
+                    - key: token
+                      path: signalloom-warden
+                    - key: expires
+                      path: signalloom-warden.expires
+              - secret:
                   name: signal-ingest-key-fe-signalloom-gateway
                   optional: true
                   items:

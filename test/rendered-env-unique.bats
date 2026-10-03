@@ -13,8 +13,8 @@ PATHS=(
   d2-signalloom/apps/fe-signalloom/local
   d2-signalloom/apps/fe-signalloom/base
   d2-signalloom/apps/signal-ingest/base
-  d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel
-  d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-osramp
+  d2-signalloom/infra/agent-swarm/signalloom-warden
+  d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-osramp
 )
 
 dups_in() {

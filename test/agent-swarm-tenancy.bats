@@ -24,7 +24,7 @@
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   SWARM="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
-  CM="${SWARM}/signalloom-stun-sentinel/configmap.yaml"
+  CM="${SWARM}/signalloom-warden/configmap.yaml"
 }
 
 # workloads — one JSON object per agent workload:
@@ -78,7 +78,7 @@ workloads() {
 
 @test "agent-swarm tenancy: the sentinel's tenant map attributes every agent's service account to its declared tenant" {
   local map entries missing
-  map="$(yq -r 'select(.kind == "ConfigMap" and .metadata.name == "stun-sentinel-config") | .data.SENTINEL_TENANT_MAP' "${CM}")"
+  map="$(yq -r 'select(.kind == "ConfigMap" and (.metadata.name == "signalloom-warden-config" or .metadata.name == "stun-sentinel-config")) | .data.SENTINEL_TENANT_MAP' "${CM}")"
   [ -n "$map" ] && [ "$map" != "null" ]
   # namespace/serviceAccount=tenant, comma- or newline-separated.
   entries="$(tr ',' '\n' <<<"$map" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sort -u)"

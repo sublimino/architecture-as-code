@@ -15,7 +15,7 @@ setup() {
   SCRIPT="${REPO_ROOT}/scripts/p1-sentinel-preflight.sh"
   # THE sentinel DaemonSet. apps/stun-sentinel/base/daemonset.yaml was one of
   # four competing copies and is deleted; this is the one that deploys.
-  BASE_DS="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"
+  BASE_DS="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml"
   export P1_PREFLIGHT_OUT="${BATS_TEST_TMPDIR}/audit.json"
   mkdir -p "${BATS_TEST_TMPDIR}/bin"
   printf '#!/bin/sh\nexit 1\n' >"${BATS_TEST_TMPDIR}/bin/docker"

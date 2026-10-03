@@ -548,15 +548,15 @@ spec:
               - /metadata/annotations/signalloom.ai~1stunned-at
               - /metadata/annotations/signalloom.ai~1stun-reason
 
-    # 10. signalloom-stun-sentinel (Tier 8 — DaemonSet)
+    # 10. signalloom-warden (Tier 8 — DaemonSet)
     - apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
-        name: agent-signalloom-stun-sentinel
+        name: agent-signalloom-warden
         namespace: fe-signalloom-agents
         labels:
           signalloom.ai/agent: "true"
-          signalloom.ai/agent-name: "signalloom-stun-sentinel"
+          signalloom.ai/agent-name: "signalloom-warden"
       spec:
         dependsOn: [{name: agent-swarm-base}]
         serviceAccountName: agent-swarm-flux
@@ -571,7 +571,7 @@ spec:
         # the overlay supplies SIGNAL_INGEST_URL for this cluster. kind-signalloom-hub
         # runs no Flux (zero fluxcd CRDs, verified 2026-10-01), so it has an
         # overlay but no fleet entry to point at it.
-        path: ./signalloom-stun-sentinel-overlays/kind-osramp
+        path: ./signalloom-warden-overlays/kind-osramp
         prune: true
         ignore:
           - target:

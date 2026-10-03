@@ -283,14 +283,14 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 # the deployed tag is mutable or is not the current source fingerprint.
 SENTINEL_IMAGE_INPUTS := apps/stun-sentinel apps/signalloom-stun-sentinel
 SENTINEL_DOCKERFILE := signalloom-stun-sentinel/Dockerfile
-SENTINEL_IMAGE_CANONICAL ?= ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel
-SENTINEL_IMAGE_ZOT ?= zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel
+SENTINEL_IMAGE_CANONICAL ?= ghcr.io/controlplaneio-in-toto/signalloom-warden
+SENTINEL_IMAGE_ZOT ?= zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden
 # The host-side address of the same zot repository (scripts/push-local-image.sh
 # port-forwards svc/zot to localhost:5001).
-SENTINEL_IMAGE_PUSH ?= localhost:5001/acme/images/signalloom/apps/stun-sentinel
-SENTINEL_DAEMONSET := infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml
+SENTINEL_IMAGE_PUSH ?= localhost:5001/acme/images/signalloom/apps/signalloom-warden
+SENTINEL_DAEMONSET := infra/agent-swarm/signalloom-warden/daemonset.yaml
 # test/p6-teardown-preflight.bats checks every workload pins its catalogued
-# image, so the pin rewrites the stun-sentinel row too (and only that row).
+# image, so the pin rewrites the signalloom-warden row too (and only that row).
 SENTINEL_CATALOG := ../test/fixtures/cold-start-manifests.tsv
 CLUSTER_NAME ?= osramp
 
@@ -330,10 +330,10 @@ sentinel-image-pin: ## Point the base DaemonSet (and so both overlays) at the cu
 	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
 	perl -pi -e 's#^(\s*image: \Q$(SENTINEL_IMAGE_CANONICAL)\E:)\S+#$${1}'"$$tag"'#' $(SENTINEL_DAEMONSET); \
 	grep -q "image: $(SENTINEL_IMAGE_CANONICAL):$$tag" $(SENTINEL_DAEMONSET) || { echo "sentinel-image-pin: $(SENTINEL_DAEMONSET) was not updated" >&2; exit 1; }; \
-	perl -pi -e 's#^(stun-sentinel\t(?:[^\t]*\t){2})\Q$(SENTINEL_IMAGE_CANONICAL)\E:[^\t]+#$${1}$(SENTINEL_IMAGE_CANONICAL):'"$$tag"'#' $(SENTINEL_CATALOG); \
-	awk -F'\t' -v want="$(SENTINEL_IMAGE_CANONICAL):$$tag" '$$1 == "stun-sentinel" { found = 1; if ($$4 != want) exit 1 } END { exit !found }' $(SENTINEL_CATALOG) \
-		|| { echo "sentinel-image-pin: the stun-sentinel row of $(SENTINEL_CATALOG) was not updated" >&2; exit 1; }; \
-	echo "pinned $(SENTINEL_DAEMONSET) and the $(SENTINEL_CATALOG) stun-sentinel row to :$$tag"
+	perl -pi -e 's#^(signalloom-warden\t(?:[^\t]*\t){2})\Q$(SENTINEL_IMAGE_CANONICAL)\E:[^\t]+#$${1}$(SENTINEL_IMAGE_CANONICAL):'"$$tag"'#' $(SENTINEL_CATALOG); \
+	awk -F'\t' -v want="$(SENTINEL_IMAGE_CANONICAL):$$tag" '$$1 == "signalloom-warden" { found = 1; if ($$4 != want) exit 1 } END { exit !found }' $(SENTINEL_CATALOG) \
+		|| { echo "sentinel-image-pin: the signalloom-warden row of $(SENTINEL_CATALOG) was not updated" >&2; exit 1; }; \
+	echo "pinned $(SENTINEL_DAEMONSET) and the $(SENTINEL_CATALOG) signalloom-warden row to :$$tag"
 
 sentinel-image-publish: swarm-stun-sentinel-image ## Load the source-fingerprint image onto kind CLUSTER_NAME and publish it to zot (cluster required).
 	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \

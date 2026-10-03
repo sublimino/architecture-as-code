@@ -24,7 +24,7 @@ set -o pipefail
 KUBECTL="${SLDC_KUBECTL:-kubectl}"
 FLEET_NS="fe-signalloom"
 AGENTS_NS="fe-signalloom-agents"
-CALLERS=(stun-sentinel fe-signalloom dashboard operator)
+CALLERS=(stun-sentinel signalloom-warden fe-signalloom dashboard operator)
 
 usage() { sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'fleet-manager-caller-keys: %s\n' "$1" >&2; exit "${2:-1}"; }
@@ -59,13 +59,14 @@ main() {
 
   # kubectl apply reads the manifest from stdin: printf is a builtin, so no key
   # is ever an argument to an exec'd process.
-  printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: fleet-manager-caller-keys\n  namespace: %s\ntype: Opaque\ndata:\n  stun-sentinel: %s\n  fe-signalloom: %s\n  dashboard: %s\n  operator: %s\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: stun-sentinel-fleet-key\n  namespace: %s\ntype: Opaque\ndata:\n  token: %s\n' \
-    "${FLEET_NS}" "${key[stun-sentinel]}" "${key[fe-signalloom]}" "${key[dashboard]}" "${key[operator]}" \
+  printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: fleet-manager-caller-keys\n  namespace: %s\ntype: Opaque\ndata:\n  stun-sentinel: %s\n  signalloom-warden: %s\n  fe-signalloom: %s\n  dashboard: %s\n  operator: %s\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: stun-sentinel-fleet-key\n  namespace: %s\ntype: Opaque\ndata:\n  token: %s\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: signalloom-warden-fleet-key\n  namespace: %s\ntype: Opaque\ndata:\n  token: %s\n' \
+    "${FLEET_NS}" "${key[stun-sentinel]}" "${key[signalloom-warden]}" "${key[fe-signalloom]}" "${key[dashboard]}" "${key[operator]}" \
     "${AGENTS_NS}" "${key[stun-sentinel]}" \
+    "${AGENTS_NS}" "${key[signalloom-warden]}" \
     | ${KUBECTL} --context "${context}" apply -f - >/dev/null \
     || die "kubectl apply failed for context ${context}" 1
 
-  printf 'fleet-manager caller keys %s on %s: %s (stun-sentinel mirrored to %s/stun-sentinel-fleet-key)\n' \
+  printf 'fleet-manager caller keys %s on %s: %s (sentinel and warden mirrored to %s)\n' \
     "$([ "${rotate}" -eq 1 ] && echo rotated || echo ensured)" "${context}" "${CALLERS[*]}" "${AGENTS_NS}"
 }
 

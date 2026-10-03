@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# The canonical sentinel base. Consume this directory directly (Flux
-# Kustomization agent-signalloom-stun-sentinel does), or build an overlay on it
-# — see ../signalloom-stun-sentinel-overlays/ for the two kind clusters, which
+# The canonical warden base. Consume this directory directly (Flux
+# Kustomization agent-signalloom-warden does), or build an overlay on it
+# — see ../signalloom-warden-overlays/ for the two kind clusters, which
 # differ only in the image tag they retag to. An overlay cannot live inside
 # this directory: kustomize refuses a root that contains a visited root.
 apiVersion: kustomize.config.k8s.io/v1beta1

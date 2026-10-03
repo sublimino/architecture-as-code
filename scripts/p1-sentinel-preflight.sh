@@ -129,7 +129,7 @@ fi
 # THE sentinel DaemonSet. The previous default was
 # apps/stun-sentinel/base/daemonset.yaml, one of four competing copies; that
 # file is gone and its directory now renders this one.
-MANIFEST_TO_CHECK="${P1_SENTINEL_MANIFEST:-${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml}"
+MANIFEST_TO_CHECK="${P1_SENTINEL_MANIFEST:-${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml}"
 
 DS_HOSTPID=false
 DS_HOSTNETWORK=false

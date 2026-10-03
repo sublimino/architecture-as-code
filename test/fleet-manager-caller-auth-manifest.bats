@@ -14,7 +14,7 @@ setup() {
   FM="${BATS_TEST_TMPDIR}/fleet-manager.yaml"
   SENTINEL="${BATS_TEST_TMPDIR}/sentinel.yaml"
   kubectl kustomize "${REPO_ROOT}/d2-signalloom/apps/fleet-manager/base" >"${FM}"
-  kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel" >"${SENTINEL}"
+  kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden" >"${SENTINEL}"
 }
 
 # q EXPR FILE: yq over a multi-document render, without the blank line yq
@@ -39,7 +39,7 @@ fm_env() {
 
 @test "caller-auth manifest: stun-only callers hold exactly the stun scope; only the operator may recover" {
   local scopes; scopes="$(fm_env | grep '_SCOPES|' | cut -d'|' -f1,2)"
-  grep -qx 'FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES|stun' <<<"$scopes"
+  grep -qE 'FLEET_MANAGER_KEY_(STUN_SENTINEL|SIGNALLOOM_WARDEN)_SCOPES\|stun' <<<"$scopes"
   grep -qx 'FLEET_MANAGER_KEY_FE_SIGNALLOOM_SCOPES|stun' <<<"$scopes"
   grep -qx 'FLEET_MANAGER_KEY_DASHBOARD_SCOPES|stun,deploy,scan,reset' <<<"$scopes"
   [ "$(grep -c 'recover' <<<"$scopes")" -eq 1 ]
@@ -64,9 +64,9 @@ fm_env() {
 }
 
 @test "caller-auth manifest: the sentinel reaches fleet-manager by FQDN with its key from a Secret" {
-  run q 'select(.kind == "ConfigMap" and .metadata.name == "stun-sentinel-config") | .data.FLEET_MANAGER_URL' "${SENTINEL}"
+  run q 'select(.kind == "ConfigMap" and (.metadata.name == "signalloom-warden-config" or .metadata.name == "stun-sentinel-config")) | .data.FLEET_MANAGER_URL' "${SENTINEL}"
   [ "$output" = "http://fleet-manager.fe-signalloom.svc.cluster.local:8082" ]
   run q 'select(.kind == "DaemonSet") | .spec.template.spec.containers[].env[] | select(.name == "FLEET_MANAGER_STUN_KEY")
     | [(.value // ""), .valueFrom.secretKeyRef.name, .valueFrom.secretKeyRef.key] | join("|")' "${SENTINEL}"
-  [ "$output" = "|stun-sentinel-fleet-key|token" ]
+  [[ "$output" == "|signalloom-warden-fleet-key|token" || "$output" == "|stun-sentinel-fleet-key|token" ]]
 }

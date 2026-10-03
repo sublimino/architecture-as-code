@@ -20,9 +20,9 @@
 # testing the real thing.
 #
 # For a cluster-specific render use the overlays instead:
-#   infra/agent-swarm/signalloom-stun-sentinel-overlays/{kind-osramp,kind-signalloom-hub}
+#   infra/agent-swarm/signalloom-warden-overlays/{kind-osramp,kind-signalloom-hub}
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../../infra/agent-swarm/signalloom-stun-sentinel
+  - ../../../infra/agent-swarm/signalloom-warden

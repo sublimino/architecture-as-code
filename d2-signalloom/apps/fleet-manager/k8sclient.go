@@ -158,16 +158,31 @@ func (c *k8sFleetClient) resolvePod(ctx context.Context, namespace, agentID stri
 	if listErr != nil {
 		return nil, classifyAPIError("list pods", target, listErr)
 	}
-	switch len(list.Items) {
+	items := list.Items
+	// A pod being deleted is not the agent's instance any more once a live
+	// one exists: after a replace-on-recover the frozen predecessor can take
+	// tens of seconds to terminate, and counting it made every stun of the
+	// replacement "ambiguous" (live, 2026-10-03). With no live pod, the
+	// terminating ones still answer, as before.
+	var live []corev1.Pod
+	for _, p := range items {
+		if p.DeletionTimestamp == nil {
+			live = append(live, p)
+		}
+	}
+	if len(live) > 0 {
+		items = live
+	}
+	switch len(items) {
 	case 0:
 		// Propagate the original NotFound: the plane answered, the pod is absent.
 		return nil, classifyAPIError("resolve pod", target, err)
 	case 1:
-		return &list.Items[0], nil
+		return &items[0], nil
 	default:
 		return nil, fmt.Errorf(
 			"resolve pod %s/%s: %w: selector %q matched %d pods, target is ambiguous",
-			namespace, agentID, ErrEnforcementUnavailable, selector, len(list.Items))
+			namespace, agentID, ErrEnforcementUnavailable, selector, len(items))
 	}
 }
 

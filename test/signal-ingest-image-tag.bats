@@ -26,6 +26,8 @@ setup() {
   git -C "$c" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false \
     commit -q --allow-empty -am "worktree overlay"
   mod="$c/d2-signalloom/apps/signal-ingest"
+  export GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
   export GOFLAGS="${GOFLAGS:-}" CGO_ENABLED=0
 }
 

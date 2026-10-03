@@ -1,21 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 ControlPlane Security Authors
 #
-# THE stun-sentinel DaemonSet. There is exactly one, and this is it.
+# THE signalloom-warden DaemonSet. There is exactly one, and this is it.
 #
-# It runs apps/signalloom-stun-sentinel, the unified deployable: that main.go
-# imports apps/stun-sentinel/pkg/{ebpf,correlator}, loads the eBPF probe, and
+# It runs the unified warden probe binary which loads the eBPF probe and
 # runs the correlator, the pod informer/reconciler and the cgroup freezer in
-# one process (unification commit 6e50309f, SLER-P4-1). apps/stun-sentinel is
-# the library module; its cmd/stun-sentinel HTTP server is a separate binary
-# and is not what ships here.
-#
-# Three other manifests used to declare a competing sentinel DaemonSet. All
-# three are now tombstones naming this file:
-#   apps/stun-sentinel/base/daemonset.yaml       -> overlay of this directory
-#   apps/stun-sentinel/deploy/daemonset.yaml     -> retired
-#   deploy/stun-sentinel-daemonset.yaml          -> retired
-# deploy/manifest_test.go fails if a DaemonSet reappears at any of them.
+# one process.
 #
 # ── Why each grant is here (measured on kind-osramp, 2026-10-01) ─────────────
 #   hostPID       host PIDs in freeze results; /proc/<pid>/ns/net for the
@@ -55,10 +45,10 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: stun-sentinel
+  name: signalloom-warden
   namespace: fe-signalloom-agents
   labels:
-    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/name: signalloom-warden
     signalloom.ai/agent: "true"
     signalloom.ai/role: "sentinel"
     signalloom.ai/framework: "custom"
@@ -69,11 +59,11 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: stun-sentinel
+      app.kubernetes.io/name: signalloom-warden
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: stun-sentinel
+        app.kubernetes.io/name: signalloom-warden
         signalloom.ai/agent: "true"
         signalloom.ai/role: "sentinel"
         signalloom.ai/framework: "custom"
@@ -82,7 +72,7 @@ spec:
         signalloom.ai/tenant: "controlplane"
         signalloom.ai/project: "osramp"
     spec:
-      serviceAccountName: stun-sentinel
+      serviceAccountName: signalloom-warden
       hostPID: true
       hostNetwork: true
       # Load-bearing, and the reason the ingest URL was unreachable before.
@@ -102,7 +92,7 @@ spec:
           # version name: v0.2.0 was reused for ~7 different builds. Overlays
           # change only newName (the kind clusters use the in-cluster zot
           # repository) and inherit this tag.
-          image: ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel:src-f3138cbc8ba3
+          image: ghcr.io/controlplaneio-in-toto/signalloom-warden:src-8cc590761ea0
           # IfNotPresent, never Never: Never cannot pull, so it makes this base
           # unusable anywhere the image was not side-loaded first.
           imagePullPolicy: IfNotPresent
@@ -113,7 +103,12 @@ spec:
               value: "/host-cgroup"
             - name: HEALTH_ADDR
               value: ":8081"
-            # The sentinel's own pod, set by the kubelet (no tenant can forge
+            # Node identity from downward API for cutover arm gate (cutover.go)
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # The warden's own pod, set by the kubelet (no tenant can forge
             # it). The correlator never reports a detection on its own pod
             # (its tc execs tripped evasive_syscall_burst live), and the
             # freeze gate refuses its own UID (pkg/filter SelfFromEnv).
@@ -139,7 +134,7 @@ spec:
             - name: SIGNAL_INGEST_URL
               valueFrom:
                 configMapKeyRef:
-                  name: stun-sentinel-config
+                  name: signalloom-warden-config
                   key: SIGNAL_INGEST_URL
                   # NOT optional. A missing ConfigMap must stop the pod, not
                   # let it start and quietly post telemetry into a name that
@@ -150,7 +145,7 @@ spec:
             - name: SENTINEL_TENANT_MAP
               valueFrom:
                 configMapKeyRef:
-                  name: stun-sentinel-config
+                  name: signalloom-warden-config
                   key: SENTINEL_TENANT_MAP
                   optional: false
             # The signal-ingest bearer. Created (with the same value as the
@@ -164,37 +159,37 @@ spec:
             - name: SIGNAL_INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: stun-sentinel-ingest-token
+                  name: signalloom-warden-ingest-token
                   key: token
                   optional: true
             # fleet-manager stun cascade (fleetstun.go): a new correlator freeze
             # is recorded and Flux-pinned by fleet-manager, the one writer of
-            # the pin. The key is the stun-sentinel caller key (scope stun
+            # the pin. The key is the signalloom-warden caller key (scope stun
             # only), created by scripts/fleet-manager-caller-keys.sh. OPTIONAL
             # for the same reason as SIGNAL_INGEST_TOKEN: without it the freeze
             # still holds, and fleet_stun_failed is logged and counted.
             - name: FLEET_MANAGER_URL
               valueFrom:
                 configMapKeyRef:
-                  name: stun-sentinel-config
+                  name: signalloom-warden-config
                   key: FLEET_MANAGER_URL
                   optional: false
             - name: FLEET_MANAGER_STUN_KEY
               valueFrom:
                 secretKeyRef:
-                  name: stun-sentinel-fleet-key
+                  name: signalloom-warden-fleet-key
                   key: token
                   optional: true
             - name: STUN_FREEZE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: stun-sentinel-governance
+                  name: signalloom-warden-governance
                   key: freeze-token
                   optional: true
             - name: STUN_RESUME_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: stun-sentinel-governance
+                  name: signalloom-warden-governance
                   key: resume-token
                   optional: true
           ports:
@@ -209,7 +204,7 @@ spec:
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8081
             initialDelaySeconds: 2
             periodSeconds: 5

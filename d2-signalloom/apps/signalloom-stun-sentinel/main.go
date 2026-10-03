@@ -30,17 +30,27 @@ const (
 	watchNamespace       = "fe-signalloom-agents"
 	defaultCgroupRoot    = "/sys/fs/cgroup"
 	informerResync       = 30 * time.Second
-	// The sentinel's own identity. Its DaemonSet pods carry the informer's
-	// selector (signalloom.ai/agent=true), so they must be excluded by name.
+	// The probe's own identities across migration cutover. Its DaemonSet pods carry
+	// the informer's selector (signalloom.ai/agent=true), so they must be excluded by name.
 	sentinelServiceAccount = "stun-sentinel"
 	sentinelAppName        = "stun-sentinel"
+	wardenServiceAccount   = "signalloom-warden"
+	wardenAppName          = "signalloom-warden"
 )
 
-// isSentinelPod: a pod of this DaemonSet. The sentinel never freezes, isolates
-// or annotates itself, whatever labels it carries.
+// isSentinelPod: a pod of the legacy sentinel or current warden DaemonSet.
+// The probe never freezes, isolates or annotates itself, whatever labels it carries.
 func isSentinelPod(pod *corev1.Pod) bool {
-	return pod.Spec.ServiceAccountName == sentinelServiceAccount ||
-		pod.Labels["app.kubernetes.io/name"] == sentinelAppName
+	if pod == nil {
+		return false
+	}
+	sa := pod.Spec.ServiceAccountName
+	var app string
+	if pod.Labels != nil {
+		app = pod.Labels["app.kubernetes.io/name"]
+	}
+	return sa == sentinelServiceAccount || sa == wardenServiceAccount ||
+		app == sentinelAppName || app == wardenAppName
 }
 
 // ownerStunLookup answers the fourth stun term: does the pod's controller
@@ -195,7 +205,7 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		r.reconcileCount.Add(1)
 	}
 
-	if pod == nil || pod.Name == "stun-sentinel" || (pod.Labels != nil && pod.Labels["app.kubernetes.io/name"] == "stun-sentinel") {
+	if isSentinelPod(pod) {
 		return nil
 	}
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
@@ -456,6 +466,13 @@ func main() {
 	if err != nil {
 		logEvent(stunEvent{Timestamp: now(), Event: "startup_failed", Error: fmt.Sprintf("create clientset: %v", err), DryRun: cfg.DryRun})
 		os.Exit(1)
+	}
+
+	cutover := newCutoverGate(clientset, cfg.WatchNamespace)
+	healthSrv.isReady = cutover.isArmed
+	if err := cutover.wait(ctx); err != nil {
+		logEvent(stunEvent{Timestamp: now(), Event: "cutover_cancelled", Error: err.Error(), DryRun: cfg.DryRun})
+		return
 	}
 
 	reconciler.kernel = newKernelPublisher(clientsetAPI{cs: clientset}, informerResync, cfg.DryRun)

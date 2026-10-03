@@ -14,8 +14,7 @@ setup() {
   FM="${BATS_TEST_TMPDIR}/fleet-manager.yaml"
   SENTINEL="${BATS_TEST_TMPDIR}/sentinel.yaml"
   kubectl kustomize "${REPO_ROOT}/d2-signalloom/apps/fleet-manager/base" >"${FM}"
-  local kust="$(ls -d "${REPO_ROOT}"/d2-signalloom/infra/agent-swarm/signalloom-* 2>/dev/null | grep -E "(warden|sentinel)$" | head -n 1)"
-  kubectl kustomize "$kust" >"${SENTINEL}"
+  kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden" >"${SENTINEL}"
 }
 
 # q EXPR FILE: yq over a multi-document render, without the blank line yq
@@ -65,7 +64,7 @@ fm_env() {
 }
 
 @test "caller-auth manifest: the sentinel reaches fleet-manager by FQDN with its key from a Secret" {
-  run q 'select(.kind == "ConfigMap" and (.metadata.name | test("(warden|sentinel)-config"))) | .data.FLEET_MANAGER_URL' "${SENTINEL}"
+  run q 'select(.kind == "ConfigMap" and .metadata.name == "signalloom-warden-config") | .data.FLEET_MANAGER_URL' "${SENTINEL}"
   [ "$output" = "http://fleet-manager.fe-signalloom.svc.cluster.local:8082" ]
   run q 'select(.kind == "DaemonSet") | .spec.template.spec.containers[].env[] | select(.name == "FLEET_MANAGER_STUN_KEY")
     | [(.value // ""), .valueFrom.secretKeyRef.name, .valueFrom.secretKeyRef.key] | join("|")' "${SENTINEL}"

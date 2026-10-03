@@ -86,6 +86,14 @@ spec:
                   optional: true
             - name: FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES
               value: "stun"
+            - name: FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: signalloom-warden
+                  optional: true
+            - name: FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES
+              value: "stun"
             - name: FLEET_MANAGER_KEY_FE_SIGNALLOOM
               valueFrom:
                 secretKeyRef:

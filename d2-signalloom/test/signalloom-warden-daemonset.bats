@@ -8,8 +8,7 @@
 
 setup() {
   repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
-  swarm_sentinel_dir="$(ls -d "$repo_root"/d2-signalloom/infra/agent-swarm/signalloom-* 2>/dev/null | grep -E '(warden|sentinel)$' | head -n 1)"
-  ds="$swarm_sentinel_dir/daemonset.yaml"
+  ds="$repo_root/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml"
   sel='.spec.template.spec.containers[] | select(.name == "sentinel") | .securityContext'
 }
 
@@ -32,7 +31,7 @@ setup() {
 }
 
 @test "signalloom-warden Role grants get on the owner chain and nothing wider" {
-  role="$swarm_sentinel_dir/rbac.yaml"
+  role="$repo_root/d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml"
   run yq -r 'select(.kind == "Role") | .rules[] | select(.apiGroups[] == "apps") | (.resources | sort | join(",")) + ":" + (.verbs | join(","))' "$role"
   [ "$status" -eq 0 ]
   [ "$output" = "deployments,replicasets:get" ]
@@ -65,14 +64,14 @@ swarm_yaml() {
 @test "every signalloom-warden binding, cluster-scoped included, names the SA the DaemonSet runs as" {
   sa="$(yq -r '.spec.template.spec.serviceAccountName' "$ds")"
   ns="$(yq -r '.metadata.namespace' "$ds")"
-  [ "$sa" = "signalloom-warden" ] || [[ "$sa" == *"sentinel"* ]]
+  [ "$sa" = "signalloom-warden" ]
   [ "$ns" = "fe-signalloom-agents" ]
   subjects="$(while read -r f; do yq -r '
     select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding")
     | select(
-        ((.metadata.labels."app.kubernetes.io/name" // "") | test("warden|sentinel"))
-        or ((.roleRef.name // "") | test("warden|sentinel"))
-        or ([.subjects[]? | .name | test("warden|sentinel")] | any))
+        (.metadata.labels."app.kubernetes.io/name" // "") == "signalloom-warden"
+        or ((.roleRef.name // "") | test("signalloom-warden"))
+        or ([.subjects[]? | .name | test("signalloom-warden")] | any))
     | .subjects[] | .kind + ":" + (.namespace // "-") + "/" + .name' "$f"; done <<<"$(swarm_yaml)" | rg -v '^---' | sort -u)"
   [ "$subjects" = "ServiceAccount:${ns}/${sa}" ] || { echo "sentinel binding subjects: $subjects"; return 1; }
 }
@@ -118,16 +117,15 @@ declared_swarm_sas() {
   main="$(ls "$repo_root"/d2-signalloom/apps/signalloom-*/main.go 2>/dev/null | grep -E "(warden|sentinel)" | head -n 1)"
   sa="$(yq -r '.spec.template.spec.serviceAccountName' "$ds")"
   app="$(yq -r '.spec.template.metadata.labels."app.kubernetes.io/name"' "$ds")"
-  run rg -q "sentinelServiceAccount = \"${sa}\"" "$main"
+  run rg -q "(sentinel|warden)ServiceAccount\s*=\s*\"${sa}\"" "$main"
   [ "$status" -eq 0 ]
-  run rg -q "sentinelAppName +?= \"${app}\"" "$main"
+  run rg -q "(sentinel|warden)AppName\s*=\s*\"${app}\"" "$main"
   [ "$status" -eq 0 ]
 }
 
 @test "every rendered sentinel knows its own pod from the downward API" {
-  local overlay rendered overlays_dir
-  overlays_dir="$(ls -d "$repo_root"/d2-signalloom/infra/agent-swarm/signalloom-*-overlays 2>/dev/null | grep -E "(warden|sentinel)" | head -n 1)"
-  for overlay in "$overlays_dir"/*/; do
+  local overlay rendered
+  for overlay in "$repo_root"/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/*/; do
     rendered="$(KUBECONFIG=/dev/null kubectl kustomize "$overlay")"
     [ -n "$rendered" ]
     run yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[] | select(.name == "sentinel")

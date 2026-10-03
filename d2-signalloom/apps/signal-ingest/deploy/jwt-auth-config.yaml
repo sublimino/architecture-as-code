@@ -48,6 +48,10 @@ data:
         "tenant_id": "kusari",
         "permissions": ["observations:write"]
       },
+      "spiffe://osramp.local/ns/fe-signalloom-agents/sa/signalloom-warden": {
+        "tenant_id": "kusari",
+        "permissions": ["observations:write"]
+      },
       "spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent": {
         "tenant_id": "kusari",
         "permissions": ["observations:write"]
@@ -57,7 +61,10 @@ data:
   # api.TestStaticKeysShippedGrantExactlyTheContract (shippedKeyGrants).
   # Subjects are deliberately not SPIFFE IDs: a static key must never be
   # mistaken for a verified SVID in an audit record.
-  #   stun-sentinel          the eBPF correlator: POST observations for
+  #   stun-sentinel          the legacy eBPF correlator: POST observations for
+  #                          whatever tenant the workload maps to (or
+  #                          __unattributed__), hence tenant:cross-write.
+  #   signalloom-warden      the eBPF correlator: POST observations for
   #                          whatever tenant the workload maps to (or
   #                          __unattributed__), hence tenant:cross-write.
   #   fe-signalloom-gateway  the dashboard's proxies, acting for the verified
@@ -69,6 +76,8 @@ data:
   SIGNAL_AUTH_STATIC_KEYS: |
     [
       {"name": "stun-sentinel", "subject": "static-key/stun-sentinel",
+       "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"]},
+      {"name": "signalloom-warden", "subject": "static-key/signalloom-warden",
        "tenant": "kusari", "permissions": ["observations:write", "tenant:cross-write"]},
       {"name": "fe-signalloom-gateway", "subject": "static-key/fe-signalloom-gateway",
        "tenant": "fe-signalloom", "actor_ids": ["*"],

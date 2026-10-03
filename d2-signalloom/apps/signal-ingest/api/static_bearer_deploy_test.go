@@ -57,7 +57,8 @@ func loadDeployedAuthConfigMap(t *testing.T) deployedConfigMap {
 // permission added to a row's caller in YAML only, fails TestStaticKeysShippedGrantExactlyTheContract.
 var shippedKeyGrants = map[string][]Permission{
 	// The eBPF correlator: POST /api/v1/observations for whichever tenant the workload maps to.
-	"stun-sentinel": {PermissionObservationWrite, PermissionCrossTenantWrite},
+	"stun-sentinel":     {PermissionObservationWrite, PermissionCrossTenantWrite},
+	"signalloom-warden": {PermissionObservationWrite, PermissionCrossTenantWrite},
 	// fe-signalloom: exactly what its proxies call (signal_fusion, risk, coding-agent telemetry,
 	// claim delegation sync), acting for the verified user's tenant; cross-read only for "*".
 	"fe-signalloom-gateway": {PermissionActForTenant, PermissionCrossTenantRead,
@@ -77,7 +78,7 @@ var shippedKeyGrants = map[string][]Permission{
 
 // shippedKeyTenants pins each key's tenant.
 var shippedKeyTenants = map[string]string{
-	"stun-sentinel": "kusari", "fe-signalloom-gateway": "fe-signalloom", "signalfusion-demo": "tenant-demo",
+	"stun-sentinel": "kusari", "signalloom-warden": "kusari", "fe-signalloom-gateway": "fe-signalloom", "signalfusion-demo": "tenant-demo",
 	"sldc-live-bats": "tenant-demo", "sldc-evidence-reader": "kusari",
 }
 

@@ -1,0 +1,17 @@
+# Allow-list for retained stun-sentinel occurrences during the SLTM parallel migration period
+# Format: <field-or-path> | <reason>
+#
+# fe-signalloom/signal-ingest parallel key spec & projection (retained until P3-GOV)
+ConfigMap/fe-signalloom/signal-ingest-jwt-auth:data.SIGNAL_AUTH_BINDINGS:sa/stun-sentinel | retained SPIFFE mapping for legacy probe during cutover
+ConfigMap/fe-signalloom/signal-ingest-jwt-auth:data.SIGNAL_AUTH_STATIC_KEYS:stun-sentinel | retained static key for legacy probe during cutover
+Deployment/fe-signalloom/signal-ingest:spec.template.spec.volumes[signal-ingest-static-keys].sources:signal-ingest-key-stun-sentinel | retained projected secret source for legacy probe during cutover
+Deployment/fe-signalloom/signal-ingest:spec.template.spec.volumes[signal-ingest-static-keys].sources.items:stun-sentinel | retained projected secret item path for legacy probe during cutover
+Deployment/fe-signalloom/signal-ingest:spec.template.spec.volumes[signal-ingest-static-keys].sources.items:stun-sentinel.expires | retained projected secret item expires path for legacy probe during cutover
+#
+# fleet-manager parallel caller key (retained until P3-GOV)
+Deployment/fe-signalloom/fleet-manager:spec.template.spec.containers[fleet-manager].env:FLEET_MANAGER_KEY_STUN_SENTINEL | retained caller key env var for legacy probe during cutover
+Deployment/fe-signalloom/fleet-manager:spec.template.spec.containers[fleet-manager].env:FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES | retained caller key scopes env var for legacy probe during cutover
+Deployment/fe-signalloom/fleet-manager:spec.template.spec.containers[fleet-manager].env.valueFrom.secretKeyRef.key:stun-sentinel | retained caller key secretKeyRef key for legacy probe during cutover
+Deployment/fe-signalloom/fe-signalloom:spec.template.spec.containers[fleet-manager].env:FLEET_MANAGER_KEY_STUN_SENTINEL | retained caller key env var in fe-signalloom render during cutover
+Deployment/fe-signalloom/fe-signalloom:spec.template.spec.containers[fleet-manager].env:FLEET_MANAGER_KEY_STUN_SENTINEL_SCOPES | retained caller key scopes env var in fe-signalloom render during cutover
+Deployment/fe-signalloom/fe-signalloom:spec.template.spec.containers[fleet-manager].env.valueFrom.secretKeyRef.key:stun-sentinel | retained caller key secretKeyRef key in fe-signalloom render during cutover

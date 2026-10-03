@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	sentinelConfigMap = "../../../infra/agent-swarm/signalloom-stun-sentinel/configmap.yaml"
+	sentinelConfigMap = "../../../infra/agent-swarm/signalloom-warden/configmap.yaml"
 	kusariDeployment  = "../../../infra/agent-swarm/kusari-agent/deployment.yaml"
 )
 
@@ -40,11 +40,11 @@ func loadSentinelConfigMap(t *testing.T) corev1.ConfigMap {
 	}
 	for _, doc := range bytes.Split(raw, []byte("\n---")) {
 		var cm corev1.ConfigMap
-		if yaml.Unmarshal(doc, &cm) == nil && cm.Kind == "ConfigMap" && cm.Name == "stun-sentinel-config" {
+		if yaml.Unmarshal(doc, &cm) == nil && cm.Kind == "ConfigMap" && cm.Name == "signalloom-warden-config" {
 			return cm
 		}
 	}
-	t.Fatal("configmap.yaml declares no ConfigMap stun-sentinel-config")
+	t.Fatal("configmap.yaml declares no ConfigMap signalloom-warden-config")
 	return corev1.ConfigMap{}
 }
 
@@ -62,8 +62,8 @@ func TestIngestTokenComesOnlyFromItsSecret(t *testing.T) {
 		t.Fatal("SIGNAL_INGEST_TOKEN must come from a secretKeyRef")
 	}
 	ref := e.ValueFrom.SecretKeyRef
-	if ref.Name != "stun-sentinel-ingest-token" || ref.Key != "token" {
-		t.Fatalf("secretKeyRef = %s/%s, want stun-sentinel-ingest-token/token", ref.Name, ref.Key)
+	if ref.Name != "signalloom-warden-ingest-token" || ref.Key != "token" {
+		t.Fatalf("secretKeyRef = %s/%s, want signalloom-warden-ingest-token/token", ref.Name, ref.Key)
 	}
 	if ref.Optional == nil || !*ref.Optional {
 		t.Fatal("the token Secret must be optional: a missing Secret would stop the pod and with it the freeze")
@@ -81,8 +81,8 @@ func TestNoCredentialIsCarriedInTheSentinelConfigMap(t *testing.T) {
 func TestTenantMapComesFromTheSentinelConfigMap(t *testing.T) {
 	e := envNamed(t, "SENTINEL_TENANT_MAP")
 	if e.ValueFrom == nil || e.ValueFrom.ConfigMapKeyRef == nil ||
-		e.ValueFrom.ConfigMapKeyRef.Name != "stun-sentinel-config" || e.ValueFrom.ConfigMapKeyRef.Key != "SENTINEL_TENANT_MAP" {
-		t.Fatalf("SENTINEL_TENANT_MAP must come from configMapKeyRef stun-sentinel-config/SENTINEL_TENANT_MAP, got %+v", e.ValueFrom)
+		e.ValueFrom.ConfigMapKeyRef.Name != "signalloom-warden-config" || e.ValueFrom.ConfigMapKeyRef.Key != "SENTINEL_TENANT_MAP" {
+		t.Fatalf("SENTINEL_TENANT_MAP must come from configMapKeyRef signalloom-warden-config/SENTINEL_TENANT_MAP, got %+v", e.ValueFrom)
 	}
 }
 

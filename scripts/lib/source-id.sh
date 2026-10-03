@@ -151,7 +151,10 @@ source_id_copied_paths() {
 # (source_id_dirty_inputs), which refuses them.
 #
 # --mtime, --owner/--group and --numeric-owner keep the archive independent of
-# the checkout; the list is sorted bytewise and given with --no-recursion, so
+# the checkout; --mode normalises permissions to what git records (the
+# executable bit, nothing else), since the rest is the umask of whoever wrote
+# the file -- 664 from a checkout under umask 0002, 644 from the bpf2go
+# container -- and split one commit's sentinel tag in two (2026-10-03); the list is sorted bytewise and given with --no-recursion, so
 # the archive holds exactly these files in exactly this order.
 source_id_hash_paths() {
 	local root="$1"
@@ -213,6 +216,7 @@ source_id_hash_files() {
 		--owner=0 \
 		--group=0 \
 		--numeric-owner \
+		--mode='u=rwX,go=rX' \
 		--no-recursion \
 		-C "$root" --null -T "$kept" \
 		-cf - | sha256sum | awk '{print $1}')" || {

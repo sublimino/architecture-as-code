@@ -328,6 +328,10 @@ type SentinelProbeManager struct {
 
 	// runtimeBinaries locate the node's runc (runtime_lookup.go).
 	runtimeBinaries []string
+	// containerdConfigs locate the node's OCI hooks (runtime_hooks.go).
+	containerdConfigs []string
+	// bundleRoots hold each container's OCI bundle (runtime_hooks.go).
+	bundleRoots []string
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -337,26 +341,28 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 	}
 
 	m := &SentinelProbeManager{
-		informer:        informer,
-		ingestURL:       ingestURL,
-		sensitiveList:   append([]string(nil), DefaultSensitivePrefixes...),
-		freezeManager:   fm,
-		procRoot:        DefaultProcRoot,
-		podMap:          make(map[string]*corev1.Pod),
-		queue:           make(chan TelemetryObservation, DefaultQueueSize),
-		workers:         1,
-		rateLim:         make(chan struct{}, DefaultRateCapacity),
-		burst:           newBurstTracker(),
-		burstThreshold:  DefaultEvasiveBurstThreshold,
-		burstWindow:     DefaultEvasiveBurstWindow,
-		self:            filter.SelfFromEnv(),
-		runtimeBinaries: DefaultRuntimeBinaries,
-		spoolDir:        DefaultSpoolDir,
-		spoolMaxBytes:   DefaultSpoolMaxBytes,
-		spoolMaxAge:     DefaultSpoolMaxAge,
-		batchMax:        DefaultBatchMax,
-		batchLinger:     DefaultBatchLinger,
-		clock:           realClock{},
+		informer:          informer,
+		ingestURL:         ingestURL,
+		sensitiveList:     append([]string(nil), DefaultSensitivePrefixes...),
+		freezeManager:     fm,
+		procRoot:          DefaultProcRoot,
+		podMap:            make(map[string]*corev1.Pod),
+		queue:             make(chan TelemetryObservation, DefaultQueueSize),
+		workers:           1,
+		rateLim:           make(chan struct{}, DefaultRateCapacity),
+		burst:             newBurstTracker(),
+		burstThreshold:    DefaultEvasiveBurstThreshold,
+		burstWindow:       DefaultEvasiveBurstWindow,
+		self:              filter.SelfFromEnv(),
+		runtimeBinaries:   DefaultRuntimeBinaries,
+		containerdConfigs: DefaultContainerdConfigs,
+		bundleRoots:       DefaultBundleRoots,
+		spoolDir:          DefaultSpoolDir,
+		spoolMaxBytes:     DefaultSpoolMaxBytes,
+		spoolMaxAge:       DefaultSpoolMaxAge,
+		batchMax:          DefaultBatchMax,
+		batchLinger:       DefaultBatchLinger,
+		clock:             realClock{},
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 			Transport: &http.Transport{
@@ -719,7 +725,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	}
 	// The container runtime resolving the container's user, before the
 	// entrypoint runs: neither a detection nor a freeze (runtime_lookup.go).
-	if exempt, atEvent := m.runtimeUserLookup(resolved, targetPID, ev.CgroupID, ev.ExeIno, ev.ExeSize); exempt {
+	if exempt, atEvent := m.runtimeUserLookup(resolved, targetPID, ev.CgroupID, ev.ExeIno, ev.ExeSize, ev.Comm); exempt {
 		m.stats.runtimeLookups.Add(1)
 		if atEvent {
 			m.stats.runtimeLookupsAtEvent.Add(1)
@@ -755,7 +761,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	// A setup open that reached here was NOT exempted as the runtime's: say
 	// what it was compared against (live, 2026-10-03, cpai-engineer-0).
 	if runtimeSetupOpens[resolved] {
-		opener.NodeRuntime = m.nodeRuncIdentities()
+		opener.NodeRuntime = m.nodeRuntimeIdentities(ev.CgroupID)
 	}
 	obs.Opener = opener
 

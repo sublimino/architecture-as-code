@@ -83,4 +83,7 @@ type BinaryIdentity struct {
 	Path string `json:"path"`
 	Ino  uint64 `json:"ino"`
 	Size uint64 `json:"size"`
+	// Comm, for a script OCI hook, is the comm the hook runs under; its
+	// interpreter's identity alone does not exempt (runtime_hooks.go).
+	Comm string `json:"comm,omitempty"`
 }

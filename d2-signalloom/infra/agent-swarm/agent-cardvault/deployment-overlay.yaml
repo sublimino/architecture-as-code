@@ -25,6 +25,13 @@ spec:
         app.kubernetes.io/name: agent-cardvault
         bao.controlplane.io/consumer: cardvault-agent
         signalloom.ai/agent: "true"
+        # fleet-manager resolves fleet id agent-cardvault to this pod by
+        # signalloom.ai/agent-name=cardvault (the id minus "agent-"; the pod
+        # is named agent-cardvault-<rs>-<suffix>, so by-name misses). Without
+        # it every stun of this pod answered 500 and the sentinel's freeze
+        # went unrecorded (live, 2026-10-03). Pinned by
+        # d2-signalloom/test/fleet-agent-resolution.bats.
+        signalloom.ai/agent-name: cardvault
         signalloom.ai/role: "vault"
         signalloom.ai/harness: "go-vault"
         signalloom.ai/model: "deterministic"

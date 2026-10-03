@@ -680,6 +680,18 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     [ "$output" = "200" ] || [ "$output" = "207" ]
     local recover_status="$output"
 
+    # The release is the operator's decision and lands whatever the credential
+    # planes do; credential restore is best effort and REPORTED. So the target
+    # must report a written release, and must say whether credentials came back
+    # (false today: SPIRE and Bao were unreachable on the live estate).
+    local target; target="$(jq -c --arg a "${FLEET_AGENT_ID}" \
+        '.targets[]? | select(.agent_id == $a)' "${BATS_FILE_TMPDIR}/fleet-recover.json")"
+    [ -n "$target" ]
+    [ "$(jq -r '.state_write.succeeded' <<<"$target")" = "true" ]
+    local credentials_restored
+    credentials_restored="$(jq -r '.credential.succeeded | if type == "boolean" then tostring else "unreported" end' <<<"$target")"
+    [ "$credentials_restored" = "true" ] || [ "$credentials_restored" = "false" ]
+
     # The pins are removed, not blanked: Flux reconciles both objects again.
     run ${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}'
@@ -705,6 +717,7 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
 
     {
         echo "recover_status: ${recover_status}"
+        echo "credentials_restored: ${credentials_restored}"
         echo "flux_reconcile_deployment: (absent)"
         echo "flux_reconcile_pod: (absent)"
         echo "stunned: false"

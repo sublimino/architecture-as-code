@@ -20,7 +20,6 @@ setup() {
   touch "${STATE}/secret_fe-signalloom_signal-ingest-key-signalloom-warden"
   touch "${STATE}/secret_fe-signalloom-agents_signalloom-warden-ingest-token"
   touch "${STATE}/secret_fe-signalloom-agents_signalloom-warden-fleet-key"
-  touch "${STATE}/secret_fe-signalloom-agents_signalloom-warden-governance"
 
   cat >"${BIN}/kubectl" <<'EOF'
 #!/usr/bin/env bash

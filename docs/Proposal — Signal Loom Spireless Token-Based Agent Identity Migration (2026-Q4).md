@@ -1298,3 +1298,46 @@ Each mutation was applied against the implementation, verified to fail the targe
 - Restores the machine tag only. P2-3 inserted its errata block above P2-PRE's trailing tag, so P2-PRE parsed as `status=unknown`. Same defect as SLTM-P0 and SLTM-P1-PRE. No result changes.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P2-GOV
+
+- **Logical ID:** P2-GOV
+- **Created:** 2026-10-03 09:25:00+01:00
+- **Last Updated:** 2026-10-03 09:25:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0`
+- **Commit:** `06810a4b`
+
+##### 1. Merge Boundary & Ref Verification
+- Certified merged Phase 2 line (P2-3 `ee5c392f`, P2-2 `4c171dd9`, P2-1 `c98ffbad`).
+- Header literal parity between probe sender and signal-ingest verifier confirmed:
+  `rg -o 'X-SignalLoom-Batch-(Epoch|Seq|Prev)' d2-signalloom/apps/stun-sentinel d2-signalloom/apps/signal-ingest | sort -u`
+  Shows exact parity across both components (`X-SignalLoom-Batch-Epoch`, `X-SignalLoom-Batch-Prev`, `X-SignalLoom-Batch-Seq`).
+- Sentinel image pinned to merged source (`src-dbd7bf15eac0`).
+
+##### 2. Offline Gate Certification (100% Green)
+- `make test-sldc-offline`: PASS (621/621 BATS tests, Go test packages across all services, pytest 90/90 + 141/141, bun 43/43 tests, exit 0).
+- `make test-e2e-containment-mutation-proof`: PASS (43/43 mutations proven red-then-green, exit 0).
+- `make -C d2-signalloom bootstrap-drift`: PASS (exit 0).
+- `bash scripts/lint-pipefail-grep-q.sh`: PASS (649 files scanned clean, exit 0).
+- `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: PASS (10 passed, 9 skipped offline, exit 0).
+
+##### 3. Live Cluster Verification (Kusari / kind-osramp)
+- Verified live deployment `300d21f6` (signal-ingest `src-a461e1e7cfc2e6f8`, sentinel `src-5f0514764714`, Flux all Ready).
+- Database migration 051 (`batch_chain` audit type) active.
+- Sentinel probe stats verified displaying spool metrics with `spool_batches: 0` at rest.
+
+##### 4. Live Partition & Revocation Verification (Two Consecutive Passes)
+- Executed `SLTM_LIVE=1 make test-sltm-probe-apikey` twice in a row:
+  - **Run 1:** 2026-10-03 09:06:56 +0100 - 2026-10-03 09:09:22 +0100 (19/19 passed, 0 failures).
+  - **Run 2:** 2026-10-03 09:09:25 +0100 - 2026-10-03 09:11:40 +0100 (19/19 passed, 0 failures).
+- **Partition Proof:** Injected Service selector partition (`sltm-partition: none`), provoked 3 sensitive access attempts (`/etc/shadow`) from scratch provoker pod with `serviceAccountName: kusari-agent`. Sentinel successfully queued and spooled batches on disk, restored selector, drained `spool_batches` to 0 (6 batches replayed), and retrieved all observations back via evidence-reader key in timestamp order with zero chain gaps or broken chain audit entries.
+- **Revocation Proof:** Deleted Secret `signal-ingest-key-sldc-live-bats`, observed HTTP 401 within ~60s (< 90s SLA) with `signal-ingest` pod UID and restartCount (0) unchanged (no restart), and confirmed re-minted key was accepted with HTTP 200.
+
+##### 5. Dual-Cluster Containment E2E Certification (Two Consecutive Passes)
+- Executed `scripts/run-e2e-dual-cluster-containment.sh --tap --repeat 2`:
+  - **Run 1:** Steps 1-6 all PASS (`ok 1` through `ok 6`).
+  - **Run 2:** Steps 1-6 all PASS (`ok 1` through `ok 6`).
+  - Workload and replacement pods verified clean, unpinned, and persistent across resync cycles.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

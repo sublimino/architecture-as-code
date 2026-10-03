@@ -118,3 +118,33 @@ Mission identity: repository `/home/andy/src/cp/osramp-demo`, shortcode
 - **Lead, 2026-10-03 07:48:22 +0100**: Merged containment `1fb3b231` as `34104aa6`. The cardvault freeze was the openbao **sidecar's** image entrypoint running `id -u openbao`, which reads `/etc/passwd` inside the watched pod, so the sentinel was right to freeze it. The sidecar now runs `bao agent` directly with `HOME=/tmp`. **Live deploy held** until integration is green (the P2-2 x P2-3 fix), since `push-local signalloom` would also roll the unpublished signal-ingest pin; qsn8g is kept frozen until then. Asked containment for the class sweep across the 6 other workloads with openbao sidecars (`sldc2/sidecar-sweep`), with an estate-wide test that finds sidecars by image.
 - **Lead, 2026-10-03 07:56:49 +0100**: Merged containment `da741cd4` (sidecar sweep). All 7 other openbao sidecars run `bao agent` directly with HOME set. A new estate-wide test finds sidecars by image and requires at least 8, red on exactly the 7 before. **Finding:** every agent-swarm openbao sidecar points its jwt `path` at the SPIRE socket, so none has ever authenticated; zulip, swarm-governor, prod-deploy-gate and cpai-engineer run without the rendered credentials they were designed for, while showing Ready. Containment is fixing it with fleet-manager's spire-helper pattern (`sldc2/sidecar-jwt`). **For Andy:** remove the zero-consumer sidecar from agent-cardvault (recommended; held). Integration stays red only on the P2-2 x P2-3 pair, which the engineer is fixing.
 - **Lead, 2026-10-03 08:21:27 +0100, INTEGRATION GREEN + PHASE 2 LIVE**: The engineer's `d93268b4` showed both P2-2 x P2-3 failures were test-fixture defects: a limiter opt-out for the 10k-request chain test, and the first-observation audit primed in the audit-down test. Each mutation-proven. Merged as `fec88b89`; offline **669 ok, rc=0**. The containment mutation proof was red once, output not captured, then 43/43 three times in a row: recorded as an unexplained 1-in-4 flake. Lifted the P2-3 hold (review pass) and **advanced P2-3: 9/16 done.** Deployed `300d21f6` live: signal-ingest `src-a461e1e7cfc2e6f8`, sentinel `src-5f0514764714`, cardvault and sidecar fixes; all Kustomizations Ready, tree clean. cardvault ran a **full step 1-4 cycle (step-4 Cardvault access successful)**, then froze again on an `/etc/passwd` open; back to containment (`cardvault-live-4`). **P2-GOV is next** (lead starts it with `--include-gov`).
+
+---
+
+## 122. P2-GOV (Antigravity governor session): Phase 2 Certified Live
+
+- **Timestamp**: 2026-10-03T09:25:00+0100
+- **Session**: Governor session (Antigravity CLI, conversation `2fa79285-92bc-47bb-80ca-0a8aa971f34e`).
+- **Merge boundary & ref status**:
+  - Certified merged Phase 2 line (P2-3 `ee5c392f`, P2-2 `4c171dd9`, P2-1 `c98ffbad`).
+  - Added vector parity test against committed test vectors.
+  - Header literal parity verified between sender and receiver (`X-SignalLoom-Batch-Epoch`, `X-SignalLoom-Batch-Prev`, `X-SignalLoom-Batch-Seq`).
+  - Sentinel image re-pinned to merged source (`src-dbd7bf15eac0`).
+- **Offline gate certification (100% green)**:
+  - `make test-sldc-offline`: PASS (621/621 BATS tests, all Go tests, pytest 90/90 + 141/141, bun 43/43 tests, exit 0).
+  - `make test-e2e-containment-mutation-proof`: PASS (43/43 mutations proven red-then-green, exit 0).
+  - `make -C d2-signalloom bootstrap-drift`: PASS (exit 0).
+  - `bash scripts/lint-pipefail-grep-q.sh`: PASS (649 files scanned clean, exit 0).
+  - `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: PASS (10 passed, 9 skipped offline, exit 0).
+- **Live deployment & DoD certification (kind-osramp / Kusari)**:
+  - Verified deployed live integration `300d21f6` (signal-ingest `src-a461e1e7cfc2e6f8`, sentinel `src-5f0514764714`, Flux all Ready).
+  - Database migration 051 (`batch_chain` audit type) active.
+  - Sentinel probe stats verified displaying spool metrics with `spool_batches: 0` at rest.
+  - `SLTM_LIVE=1 make test-sltm-probe-apikey` passed twice consecutively:
+    - Run 1 (09:06:56 - 09:09:22 +0100): 19/19 passed, 0 failures.
+    - Run 2 (09:09:25 - 09:11:40 +0100): 19/19 passed, 0 failures.
+  - **Live Partition:** Service selector partition injected, 3 sensitive access attempts provoked, sentinel queued and spooled batches on disk, drained `spool_batches` to 0 upon reconnection (6 batches replayed), all observations retrieved back in timestamp order with zero chain gaps or broken chain audit entries.
+  - **Live Revocation:** Secret `signal-ingest-key-sldc-live-bats` deleted, 401 received within ~60s (< 90s SLA) with `signal-ingest` pod UID and restartCount (0) unchanged, re-minted key accepted with HTTP 200.
+  - **Live Dual-Cluster Containment E2E:** `scripts/run-e2e-dual-cluster-containment.sh --tap --repeat 2` passed twice consecutively (Run 1: Steps 1-6 ok; Run 2: Steps 1-6 ok).
+- **Phase 2 Complete**: 10/16 cards complete. Errata recorded in proposal.
+

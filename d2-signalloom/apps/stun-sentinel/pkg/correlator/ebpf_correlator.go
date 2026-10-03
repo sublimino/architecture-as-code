@@ -47,7 +47,11 @@ const (
 	DefaultEvasiveBurstWindow    = 1 * time.Second
 )
 
-// Standard sensitive filesystem prefixes monitored by the correlator
+// Standard sensitive filesystem prefixes monitored by the correlator. This is
+// the ONE source of the table: bpf/sensitive_prefixes.h, which the probe uses
+// to keep never-sensitive opens out of the ring buffer, is generated from it
+// (`go run ./cmd/gen-sensitive-prefixes`, then `bpf/build.sh sentinel`), and
+// TestSensitivePrefixesHeaderIsGeneratedFromTheGoTable fails on drift.
 var DefaultSensitivePrefixes = []string{
 	"/etc/passwd",
 	"/etc/shadow",
@@ -149,7 +153,10 @@ func (m *SentinelProbeManager) IngestTokenConfigured() bool {
 	return m.bearerToken != ""
 }
 
-// WithSensitiveList overrides the default sensitive prefix list.
+// WithSensitiveList overrides the default sensitive prefix list. It can only
+// narrow what the live probe reports: the kernel prefilter passes the opens
+// that DefaultSensitivePrefixes could match (bpf/sensitive_prefixes.h), so a
+// wider list needs the table changed, regenerated and the probe rebuilt.
 func WithSensitiveList(list []string) Option {
 	return func(m *SentinelProbeManager) {
 		m.sensitiveList = list

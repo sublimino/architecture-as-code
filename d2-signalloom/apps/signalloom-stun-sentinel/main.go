@@ -488,7 +488,7 @@ func main() {
 		}
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr,
 			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot))...)
-		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, 30*time.Second)
+		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, loader.Prefiltered, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})
 		}
@@ -505,11 +505,16 @@ func main() {
 // ringbuf_drops is the kernel's own count of events it could not reserve ring
 // space for. Without it a provoked event lost in the kernel left every
 // user-space counter unchanged (review M6).
-func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, drops func() (uint64, error), every time.Duration) {
+//
+// ringbuf_prefiltered is the count of opens the probe kept out of the ring
+// because the path could not be sensitive (bpf/path_prefilter.h). With the
+// filter working it climbs with the openat firehose while not_sensitive and
+// ringbuf_drops fall.
+func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, drops, prefiltered func() (uint64, error), every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	var last correlator.Stats
-	var lastDrops uint64
+	var lastDrops, lastPre uint64
 	first := true
 	for {
 		select {
@@ -518,13 +523,17 @@ func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, d
 		case <-t.C:
 			s := stats()
 			d, err := drops()
-			if !first && s == last && d == lastDrops && err == nil {
+			p, perr := prefiltered()
+			if !first && s == last && d == lastDrops && p == lastPre && err == nil && perr == nil {
 				continue
 			}
-			first, last, lastDrops = false, s, d
-			details := map[string]interface{}{"stats": s, "ringbuf_drops": d}
+			first, last, lastDrops, lastPre = false, s, d, p
+			details := map[string]interface{}{"stats": s, "ringbuf_drops": d, "ringbuf_prefiltered": p}
 			if err != nil {
 				details["ringbuf_drops_error"] = err.Error()
+			}
+			if perr != nil {
+				details["ringbuf_prefiltered_error"] = perr.Error()
 			}
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stats", Details: details})
 		}

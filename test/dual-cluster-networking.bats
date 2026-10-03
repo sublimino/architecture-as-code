@@ -75,7 +75,7 @@ answer_ip() { awk '/^Name:/{n=1} n && /^Address/{print $NF; exit}'; }
   # A host /sys/fs/cgroup bind mount stops systemd inside the node on a cgroup v2
   # host (kind create fails: no "Reached target Multi-User System"); the warden
   # freezes through the node's own cgroupfs. Found on the 2026-10-03 zero-state rebuild.
-  [ "$(yq '[.nodes[0].extraMounts[] | select(.containerPath == "/sys/fs/cgroup")] | length' "$OSR_YAML")" = 0 ]
+  [ "$(yq '[.nodes[].extraMounts[]? | select(.containerPath == "/sys/fs/cgroup")] | length' "$OSR_YAML")" = 0 ]
   [ "$(yq '.nodes[0].extraMounts[] | select(.containerPath == "/lib/modules") | .readOnly' "$OSR_YAML")" = true ]
   [ "$(yq '.nodes[0].extraMounts[] | select(.containerPath == "/sys/kernel/btf") | .readOnly' "$OSR_YAML")" = true ]
 }

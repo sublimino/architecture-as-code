@@ -335,6 +335,85 @@ func (c *k8sFleetClient) SetPodStateWithReason(ctx context.Context, namespace, a
 	return classified
 }
 
+// replaceGracePeriodSeconds is the grace a replaced pod gets. Its processes
+// are frozen and cannot run a shutdown handler, so a grace period only keeps
+// the old pod (and an ambiguous agent-name selector) around longer.
+const replaceGracePeriodSeconds int64 = 1
+
+// ReplaceContainedPod deletes the agent's contained pod so its controller
+// starts a clean one from the declared template (PodReplacer).
+//
+// The pod is deleted still labelled stunned: the sentinel keeps it frozen
+// until the kubelet kills it, so the compromised process never runs again.
+// The delete is pinned to the UID that was read, so a replacement that
+// appeared meanwhile is never the one deleted. A pod no controller owns is
+// refused: deleting it would remove the agent, not replace it.
+func (c *k8sFleetClient) ReplaceContainedPod(ctx context.Context, namespace, agentID string) PlaneResult {
+	start := c.now()
+	namespace = c.namespaceOrDefault(namespace)
+	target := TargetRef{AgentID: agentID, Namespace: namespace}
+	res := PlaneResult{
+		Plane:     PlaneFreeze,
+		Timestamp: start.UTC().Format(time.RFC3339),
+		Details:   map[string]any{"agent_id": agentID, "action": replaceActionReplaced, "pod": "", "pod_uid": ""},
+	}
+	finish := func(outcome PlaneOutcome, err error) PlaneResult {
+		res.Outcome = outcome
+		if err != nil {
+			res.Error = err.Error()
+		}
+		res.LatencyMs = c.now().Sub(start).Milliseconds()
+		return res
+	}
+
+	seq := c.degraded.nextSeq()
+	pod, err := c.resolvePod(ctx, namespace, agentID)
+	if err == nil {
+		err = requireSentinelWatched(pod, namespace, agentID)
+	}
+	if err != nil {
+		c.record(seq, PlaneFreeze, namespace, agentID, "replace_pod", err)
+		return finish(OutcomeUnavailable, err)
+	}
+	res.Details["pod"] = pod.Name
+	res.Details["pod_uid"] = string(pod.UID)
+
+	if !podContained(pod) {
+		res.Details["action"] = replaceActionNotContained
+		return finish(OutcomeContained, nil)
+	}
+	owner := metav1.GetControllerOf(pod)
+	if owner == nil {
+		err := fmt.Errorf("replace pod %s/%s: %w: no controller owns it, so deleting it would remove the agent, not replace it; recover with mode=thaw to release it in place",
+			namespace, pod.Name, ErrEnforcementUnavailable)
+		return finish(OutcomeUnavailable, err)
+	}
+	res.Details["owner_kind"] = owner.Kind
+
+	grace := replaceGracePeriodSeconds
+	uid := pod.UID
+	err = c.clientset.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
+		GracePeriodSeconds: &grace,
+		Preconditions:      &metav1.Preconditions{UID: &uid},
+	})
+	if apierrors.IsNotFound(err) {
+		err = nil // already gone: replaced all the same
+	}
+	classified := classifyAPIError("replace_pod", target, err)
+	c.record(seq, PlaneFreeze, namespace, agentID, "replace_pod", classified)
+	if classified != nil {
+		return finish(OutcomeUnavailable, classified)
+	}
+	return finish(OutcomeContained, nil)
+}
+
+// podContained is the sentinel's three-label stun OR (isPodStunned).
+func podContained(pod *corev1.Pod) bool {
+	return pod.Labels[PodStateLabel] == StateStunned ||
+		pod.Labels[StunnedLabel] == "true" ||
+		pod.Labels[ContainmentModeLabel] == ContainmentModeFrozen
+}
+
 // SuspendGitOps annotates the agent's pod and its owning Deployment with
 // kustomize.toolkit.fluxcd.io/reconcile=disabled so Flux cannot reconcile a
 // contained workload back to its declared state.

@@ -63,6 +63,33 @@ func (m *mockFleetClient) SetPodState(_ context.Context, _, agentID, state strin
 	return nil
 }
 
+// ReplaceContainedPod models a controller-owned pod (PodReplacer): a stunned
+// agent is replaced, anything else is reported not contained so the
+// orchestrator writes the running label instead. setStateErr is the release
+// fault for both, and a dead context fails it as a real API call would.
+func (m *mockFleetClient) ReplaceContainedPod(ctx context.Context, _, agentID string) PlaneResult {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := PlaneResult{Plane: PlaneFreeze, Details: map[string]any{"agent_id": agentID, "action": replaceActionReplaced}}
+	if m.states[agentID] != StateStunned {
+		res.Details["action"] = replaceActionNotContained
+		res.Outcome = OutcomeContained
+		return res
+	}
+	m.calls = append(m.calls, fmt.Sprintf("ReplaceContainedPod:%s", agentID))
+	err := m.setStateErr
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		res.Outcome, res.Error = OutcomeUnavailable, err.Error()
+		return res
+	}
+	m.states[agentID] = StateReplaced
+	res.Outcome = OutcomeContained
+	return res
+}
+
 func (m *mockFleetClient) RevokeCredentials(_ context.Context, agentID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -201,10 +228,10 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// All should now be running
+	// All should now be released: each stunned pod replaced.
 	for _, id := range stunned {
-		if client.getState(id) != StateRunning {
-			t.Fatalf("expected %s to be running, got %q", id, client.getState(id))
+		if client.getState(id) != StateReplaced {
+			t.Fatalf("expected %s to be replaced, got %q", id, client.getState(id))
 		}
 	}
 

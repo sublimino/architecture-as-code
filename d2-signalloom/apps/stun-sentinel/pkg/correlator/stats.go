@@ -13,11 +13,14 @@ import (
 // these counters make each drop visible, because a silent drop is
 // indistinguishable from a probe that never fired.
 type Stats struct {
-	RecordsRead    uint64 `json:"records_read"`
-	ReadErrors     uint64 `json:"read_errors"`
-	DecodeErrors   uint64 `json:"decode_errors"`
-	NotSensitive   uint64 `json:"not_sensitive"`
-	NoPod          uint64 `json:"no_pod"`
+	RecordsRead  uint64 `json:"records_read"`
+	ReadErrors   uint64 `json:"read_errors"`
+	DecodeErrors uint64 `json:"decode_errors"`
+	NotSensitive uint64 `json:"not_sensitive"`
+	NoPod        uint64 `json:"no_pod"`
+	// SelfExcluded counts records from a sentinel's own pod (its tc execs,
+	// its own opens): never a detection, never posted.
+	SelfExcluded   uint64 `json:"self_excluded"`
 	Matched        uint64 `json:"matched"`
 	Enqueued       uint64 `json:"enqueued"`
 	QueueDropped   uint64 `json:"queue_dropped"`
@@ -31,7 +34,7 @@ type Stats struct {
 
 type pipelineStats struct {
 	recordsRead, readErrors, decodeErrors, notSensitive, noPod,
-	matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
+	selfExcluded, matched, enqueued, queueDropped, dispatchOK, dispatchErrors,
 	ingestTokenMissing atomic.Uint64
 
 	mu      sync.Mutex
@@ -50,6 +53,7 @@ func (m *SentinelProbeManager) Stats() Stats {
 		DecodeErrors:       s.decodeErrors.Load(),
 		NotSensitive:       s.notSensitive.Load(),
 		NoPod:              s.noPod.Load(),
+		SelfExcluded:       s.selfExcluded.Load(),
 		Matched:            s.matched.Load(),
 		Enqueued:           s.enqueued.Load(),
 		QueueDropped:       s.queueDropped.Load(),

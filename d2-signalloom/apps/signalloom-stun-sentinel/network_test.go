@@ -173,10 +173,16 @@ func TestAttachAndDetachUseOnlySentinelFilters(t *testing.T) {
 			t.Fatalf("detach removed shared clsact qdisc: %q", call)
 		}
 	}
+	// This fake shows no filters, so each attach reads both directions and
+	// then writes (tc_idempotent_test.go covers the stateful kernel).
 	want := []string{
+		"tc filter show dev veth-target ingress",
+		"tc filter show dev veth-target egress",
 		"tc qdisc replace dev veth-target clsact",
 		"tc filter replace dev veth-target pref 49152 protocol all ingress handle 1 matchall action drop",
 		"tc filter replace dev veth-target pref 49153 protocol all egress handle 2 matchall action drop",
+		"tc filter show dev veth-target ingress",
+		"tc filter show dev veth-target egress",
 		"tc qdisc replace dev veth-target clsact",
 		"tc filter replace dev veth-target pref 49152 protocol all ingress handle 1 matchall action drop",
 		"tc filter replace dev veth-target pref 49153 protocol all egress handle 2 matchall action drop",

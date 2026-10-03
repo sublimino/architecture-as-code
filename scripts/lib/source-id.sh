@@ -197,7 +197,7 @@ source_id_hash_files() {
 		# A tracked file deleted on disk is absent from the archive, so its
 		# deletion moves the fingerprint like any other edit.
 		[ -e "${root}/${f}" ] || [ -L "${root}/${f}" ] || continue
-		if [ -n "$exclude" ] && printf '%s' "$f" | grep -Eq -- "$exclude"; then
+		if [ -n "$exclude" ] && [[ "$f" =~ $exclude ]]; then
 			continue
 		fi
 		printf '%s\0' "$f"

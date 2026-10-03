@@ -11,7 +11,7 @@ metadata:
     # every Kustomization that depends on it (agent-trust, apps, olly,
     # agent-swarm). Matches the sibling annotation already present on
     # openbao-supercred-bootstrap.yaml and openbao-fleet-bootstrap.yaml.
-    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 6
   template:

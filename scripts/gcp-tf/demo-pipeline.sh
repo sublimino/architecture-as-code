@@ -825,7 +825,7 @@ run_stage \
      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
      test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
      test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
-      test/rendered-env-unique.bats"
+      test/rendered-env-unique.bats test/flux-annotation-values.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists

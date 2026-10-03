@@ -13,7 +13,7 @@ kind: Job
 metadata:
   name: openbao-fleet-bootstrap
   annotations:
-    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 6
   template:

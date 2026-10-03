@@ -1289,3 +1289,12 @@ Each mutation was applied against the implementation, verified to fail the targe
 - Adds the missing `**Commit:**` claim only. Delivery was `494cb39e` (failing tests), `4c171dd9` (reload and per-key rate limit) and `bd92fed1` (errata). No result changes.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P2-PRE (lead reconciliation)
+
+- **Created:** 2026-10-03 07:43:55+01:00
+- **Last Updated:** 2026-10-03 07:43:55+01:00
+- **Commit:** `b1004233`
+- Restores the machine tag only. P2-3 inserted its errata block above P2-PRE's trailing tag, so P2-PRE parsed as `status=unknown`. Same defect as SLTM-P0 and SLTM-P1-PRE. No result changes.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

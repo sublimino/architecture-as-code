@@ -202,7 +202,7 @@ live_call() {
     fi
     kubectl --context "${WL_CONTEXT}" -n fe-signalloom port-forward svc/signal-ingest "${port}:8082" >/dev/null 2>&1 3>&- &
     pf=$!
-    for _ in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:${port}/" && break; sleep 0.25; done
+    for _ in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:${port}/readyz" && break; sleep 0.25; done
     local args=(-H 'Content-Type: application/json')
     [ -n "$h" ] && args+=(-H @"$h")
     if [ "$method" = GET ]; then
@@ -220,6 +220,21 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
         -o 'jsonpath={.data.token}' | base64 -d)" || return 1
     [ -n "$k" ] || return 1
     hdr "$1" "Bearer ${k}"
+}
+
+teardown() {
+    if [ -n "${TEARDOWN_RESTORE_SVC:-}" ]; then
+        kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest --type='json' -p "[{\"op\":\"replace\",\"path\":\"/spec/selector\",\"value\":${TEARDOWN_RESTORE_SVC}}]" >/dev/null 2>&1 || true
+        unset TEARDOWN_RESTORE_SVC
+    fi
+    if [ -n "${TEARDOWN_SCRATCH_POD:-}" ]; then
+        kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents delete pod "${TEARDOWN_SCRATCH_POD}" --now --grace-period=0 >/dev/null 2>&1 || true
+        unset TEARDOWN_SCRATCH_POD
+    fi
+    if [ "${TEARDOWN_REMINT_KEY:-0}" -eq 1 ]; then
+        "${REPO_ROOT}/scripts/sldc-ingest-bearer.sh" --context "${WL_CONTEXT}" --key sldc-live-bats >/dev/null 2>&1 || true
+        unset TEARDOWN_REMINT_KEY
+    fi
 }
 
 @test "live: the Kusari cluster's signal-ingest runs an immutable image, not the side-loaded :local" {
@@ -302,9 +317,13 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
     pod_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"
     pod_restarts="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
 
-    trap 'kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest -p "{\"spec\":{\"selector\":${sel}}}" >/dev/null 2>&1 || true; kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents delete pod "${scratch_pod}" --now --grace-period=0 >/dev/null 2>&1 || true' EXIT RETURN
+    TEARDOWN_RESTORE_SVC="${sel}"
+    TEARDOWN_SCRATCH_POD="${scratch_pod}"
 
-    kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest -p '{"spec":{"selector":{"sltm-partition":"none"}}}'
+    local t_start
+    t_start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest --type='json' -p '[{"op":"replace","path":"/spec/selector","value":{"app.kubernetes.io/name":"signal-ingest","sltm-partition":"none"}}]'
 
     for _ in $(seq 1 30); do
         local eps; eps="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get endpoints signal-ingest -o jsonpath='{.subsets[*].addresses[*].ip}')"
@@ -314,8 +333,9 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
 
     kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents run "${scratch_pod}" \
         --image=busybox:1.36.1 --restart=Never \
-        --overrides='{"spec":{"automountServiceAccountToken":false}}' \
-        -- sh -c 'for i in $(seq 1 5); do cat /etc/passwd >/dev/null 2>&1 || true; sleep 0.5; done'
+        --labels="signalloom.ai/agent=true,signalloom.ai/framework=custom,signalloom.ai/tenant=kusari,app.kubernetes.io/name=sltm-provoker" \
+        --overrides='{"spec":{"serviceAccountName":"kusari-agent","automountServiceAccountToken":false}}' \
+        -- sh -c 'for i in $(seq 1 3); do cat /etc/shadow >/dev/null 2>&1 || true; sleep 0.5; done'
 
     for _ in $(seq 1 40); do
         local phase; phase="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get pod "${scratch_pod}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
@@ -326,7 +346,7 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
     local part_secs="${SLTM_PARTITION_SECONDS:-6}"
     sleep "${part_secs}"
 
-    kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest -p "{\"spec\":{\"selector\":${sel}}}"
+    kubectl --context "${WL_CONTEXT}" -n fe-signalloom patch svc signal-ingest --type='json' -p "[{\"op\":\"replace\",\"path\":\"/spec/selector\",\"value\":${sel}}]"
 
     for _ in $(seq 1 30); do
         local eps; eps="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get endpoints signal-ingest -o jsonpath='{.subsets[*].addresses[*].ip}')"
@@ -350,13 +370,13 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
     done
     [ "$drained" -eq 1 ] || { echo "Spool did not drain to 0 in 60s"; return 1; }
 
-    local obs_out; obs_out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=100")"
+    local obs_out; obs_out="$(live_call "${h_reader}" GET "/api/v1/observations?limit=100&after=${t_start}")"
     [[ "$obs_out" == 200* ]] || { echo "Failed to read observations: $obs_out"; return 1; }
     local obs_body="${obs_out#200 }"
 
     local prov_count
     prov_count="$(jq -r --arg p "${scratch_pod}" '[.[] | select(.labels.pod_name == $p)] | length' <<<"$obs_body")"
-    [ "$prov_count" -ge 1 ] || { echo "No observations found for $scratch_pod"; return 1; }
+    [ "$prov_count" -ge 1 ] || { echo "No observations found for $scratch_pod in: $obs_body"; return 1; }
 
     local cur_uid cur_restarts
     cur_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"
@@ -378,7 +398,7 @@ live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a he
     [ -n "${initial_token}" ] || return 1
     hdr "${h}" "Bearer ${initial_token}"
 
-    trap '"${REPO_ROOT}/scripts/sldc-ingest-bearer.sh" --context "${WL_CONTEXT}" --key sldc-live-bats >/dev/null 2>&1 || true' EXIT RETURN
+    TEARDOWN_REMINT_KEY=1
 
     local pod_uid pod_restarts
     pod_uid="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom get pod -l app.kubernetes.io/name=signal-ingest -o jsonpath='{.items[0].metadata.uid}')"

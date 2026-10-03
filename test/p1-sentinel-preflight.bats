@@ -33,6 +33,7 @@ manifest_with() {
 
 @test "p1 preflight: this host and the base DaemonSet pass all 8 checks" {
   [ -r /sys/kernel/btf/vmlinux ] || skip "host has no readable /sys/kernel/btf/vmlinux"
+  cat /sys/fs/cgroup/cgroup.controllers >/dev/null 2>&1 || skip "host has no readable /sys/fs/cgroup/cgroup.controllers"
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Preflight Audit Summary: 8 passed, 0 failed (status=pass)"* ]]

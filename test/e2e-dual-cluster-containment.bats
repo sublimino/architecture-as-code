@@ -358,6 +358,17 @@ fleet_recover_kusari() {
     return "${rc}"
 }
 
+# stun_recorded <pod> holds once fleet-manager's stun record is complete: the
+# Deployment and Pod Flux pins and a sentinel-detection stun reason.
+stun_recorded() {
+    [ "$(${K_WORKLOAD} get deploy "${DEPLOYMENT}" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}')" = "disabled" ] || return 1
+    [ "$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}')" = "disabled" ] || return 1
+    [[ "$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}')" == "stun-sentinel detection: "* ]]
+}
+
 # agent_pod_rows lists the agent's pods as "<uid>|<phase>|<ready>" lines.
 agent_pod_rows() {
     ${K_WORKLOAD} get pod -n "${NS}" -l "${AGENT_SELECTOR}" \
@@ -399,7 +410,7 @@ replacement_clean() {
 
 export -f registry_row claim_kusari_agent observations_json sensitive_openat_observations \
           have_sensitive_openat cgroup_reports_frozen cgroup_reports_thawed cadvisor_sample \
-          sentinel_health resync_elapsed agent_pod_rows agent_pod_gone replacement_ready
+          sentinel_health resync_elapsed agent_pod_rows agent_pod_gone replacement_ready stun_recorded
 
 @test "Step 1: Kusari workload deployment reconciled by Flux on the workload cluster" {
     run ${K_WORKLOAD} get kustomization "${KUSTOMIZATION}" -n "${NS}" \
@@ -627,6 +638,14 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     [ "$status" -eq 0 ]
     [[ "$output" == *"frozen 1"* ]]
     local kernel_state="$output"
+
+    # The kernel freeze is immediate; fleet-manager's stun record (both Flux
+    # pins and the reason) lands when its cascade finishes, after the freeze.
+    # Wait for it, bounded, as for the freeze: live, 2026-10-03, the pin was
+    # read ~4 s before it existed and Step 5 failed both runs.
+    WAIT_QUIET=1 run _wait_retry 60 "fleet-manager's stun record for ${pod_name}" \
+        "stun_recorded '${pod_name}'"
+    [ "$status" -eq 0 ]
 
     # GitOps Suspension Invariant (Shared Pattern 4): both the owning Deployment
     # and the Pod carry reconcile: disabled, so Flux cannot replace the frozen

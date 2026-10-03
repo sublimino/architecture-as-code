@@ -147,7 +147,28 @@ func errIsNoInClusterConfig(err error) bool {
 }
 
 func defaultClientsetBuilder(cfg *rest.Config) (kubernetes.Interface, error) {
-	return kubernetes.NewForConfig(cfg)
+	return kubernetes.NewForConfig(withContainmentRateLimits(cfg))
+}
+
+// containmentQPS / containmentBurst replace client-go's client-side defaults
+// (QPS 5, burst 10). A stun makes ~16 API calls and a recover ~14 against a
+// Deployment-owned agent; at the defaults the freeze pin of one stun landed
+// 1.5 s after the call alone and 4.2 s beside two recovers (live,
+// 2026-10-03), all of it queued in this process. A whole-fleet cascade
+// stays inside the burst; the API server's own priority and fairness still
+// applies.
+const (
+	containmentQPS   = 50
+	containmentBurst = 100
+)
+
+// withContainmentRateLimits returns a copy of cfg with the containment rate
+// limits; the caller's config is left as it was.
+func withContainmentRateLimits(cfg *rest.Config) *rest.Config {
+	c := rest.CopyConfig(cfg)
+	c.QPS = containmentQPS
+	c.Burst = containmentBurst
+	return c
 }
 
 // requestSource says where the requested value came from. It is part of the

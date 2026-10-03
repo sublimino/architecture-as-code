@@ -80,6 +80,18 @@ frozen() { [ -f "${STATE}/frozen" ]; }
 recovered() { [ -f "${STATE}/recovered" ]; }
 # replaced: the recovery retired the frozen pod and a clean one serves.
 replaced() { recovered && [ "${MUT}" != "step6_thawed_in_place" ] && [ "${MUT}" != "step6_old_pod_survives" ]; }
+# record_landed: fleet-manager's stun record (pins, reason) lands a few reads
+# AFTER the kernel freeze, as live (its cascade finishes after the freeze).
+record_landed() {
+  recovered && return 0
+  frozen || return 0
+  [ -f "${STATE}/stun_recorded" ] && return 0
+  [ "${MUT}" = "step5_stun_never_recorded" ] && return 1
+  n=$(( $(cat "${STATE}/record_reads" 2>/dev/null || echo 0) + 1 ))
+  echo "${n}" >"${STATE}/record_reads"
+  [ "${n}" -ge 3 ] && { touch "${STATE}/stun_recorded"; return 0; }
+  return 1
+}
 # restunned: the live failure of a thaw, a re-stun one resync later.
 restunned() { [ "${MUT}" = "step6_restunned_after_resync" ] && [ -f "${STATE}/resynced_after_recover" ]; }
 
@@ -114,6 +126,7 @@ case "${ARGS}" in
   *"get pod"*"io/stun-reason}"*)
       # After an authorised recovery fleet-manager blanks the reason.
       recovered && [ "${MUT}" != "step6_record_left" ] && exit 0
+      record_landed || exit 0
       # step5_stun_not_from_sentinel: a stun someone else wrote, e.g. a
       # dashboard click, is not the sentinel's detection being recorded.
       if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
@@ -153,6 +166,7 @@ case "${ARGS}" in
       [ "${MUT}" = "step5_no_flux_suppression" ] && exit 0
       # Recovery removes the pin, unless the teardown left it behind.
       recovered && [ "${MUT}" != "step6_left_deployment_pin" ] && exit 0
+      record_landed || exit 0
       echo -n "disabled"; exit 0 ;;
   *"get deploy"*)         exit 0 ;;
 esac
@@ -169,6 +183,7 @@ case "${ARGS}" in
   *"get pod"*reconcile*)
       [ "${MUT}" = "step5_no_pod_suppression" ] && exit 0
       recovered && [ "${MUT}" != "step6_left_pod_pin" ] && exit 0
+      record_landed || exit 0
       echo -n "disabled"; exit 0 ;;
 esac
 
@@ -498,6 +513,7 @@ MUTATIONS=(
   "step5_thawed_by_resync|5|a freeze the reconciler thaws on its next resync fails"
   "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
   "step5_stun_not_from_sentinel|5|a stun record that does not name the sentinel's detection fails"
+  "step5_stun_never_recorded|5|a freeze fleet-manager never records (no pins, no reason) fails"
   "step6_recover_refused|6|a recovery fleet-manager refused is not a clean teardown"
   "step6_credential_unreported|6|a recovery that does not report its credential step is not accepted"
   "step6_release_not_written|6|a recovery whose release (state write) failed is not accepted"

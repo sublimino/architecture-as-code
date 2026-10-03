@@ -761,7 +761,7 @@ run_stage \
       test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
       test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
       test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
-      test/rendered-env-unique.bats"
+      test/rendered-env-unique.bats test/flux-annotation-values.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)
 #

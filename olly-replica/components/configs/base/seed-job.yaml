@@ -8,7 +8,7 @@ kind: Job
 metadata:
   name: olly-seed
   annotations:
-    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 10
   template:

@@ -623,7 +623,7 @@ The following 3 compact JSON request bodies (one line each) define the exact wir
 | P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | pass — delivered: `376d8205` / `9ea6339f` (see Errata — SLTM-P1-GOV) | — | — | — | — |
 | P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | pass (inventory written; shared patterns pinned) — delivered: `b10042333773e0d53303fa8adb11b02dcca2c71a` (see Errata — SLTM-P2-PRE) | — | — | — | — |
 | P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | pass — delivered: `e4ebc708b94751eefc5a84c40eec3f5ff997390e` (see Errata — SLTM-P2-1) | — | — | — | — |
-| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | — | — | — | — | — |
+| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | pass — delivered: 4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b (see Errata — SLTM-P2-2) | — | — | — | — |
 | P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | — | — | — | — | — |
 | P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
 | P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | — | — | — | — | — |
@@ -1170,6 +1170,55 @@ Failing test suites were authored and committed first in `ec12d405`:
 
 ##### Deviations from Phase 2 Contract
 - None. Fully adheres to Phase 2 Shared Patterns block.
+
+#### Errata — SLTM-P2-2
+
+- **Logical ID:** P2-2
+- **Created:** 2026-10-03 07:10:00+01:00
+- **Last Updated:** 2026-10-03 07:10:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0` (`0780ce47e923e20e8b26127e9974261895a6ecae`)
+- **Failing-First Commit:** `494cb39e94420a7d9fbbfce7c6a9926c442436d4`
+- **Delivered Commit SHA:** `4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b`
+- **Merge Base Check:** `git merge-base --is-ancestor refs/heads/integration/sltm-v0.1.0 HEAD` -> `0` (clean ancestor)
+
+##### 1. Failing-First Output (Commit `494cb39e`)
+```text
+=== RUN   TestKeyReloadDeletedKeyIs401WithoutRestart
+    key_reload_test.go:121: after reload: revoked tokenA was accepted, want 401/error
+--- FAIL: TestKeyReloadDeletedKeyIs401WithoutRestart (0.00s)
+
+=== RUN   TestRateLimitFloodFromOneKeyDoesNotStarveAnother
+    rate_limit_test.go:85: key A accepted 10 requests, want burst=5
+--- FAIL: TestRateLimitFloodFromOneKeyDoesNotStarveAnother (0.00s)
+
+=== RUN   TestRateLimit429CarriesRetryAfter
+    rate_limit_test.go:147: 429 response missing Retry-After header
+--- FAIL: TestRateLimit429CarriesRetryAfter (0.00s)
+```
+
+##### 2. Default Configuration & File:Line Citations
+- `SIGNAL_AUTH_STATIC_KEYS_RELOAD_INTERVAL`: Default `10s`, minimum `1s` (`d2-signalloom/apps/signal-ingest/api/key_reload.go:17`, `d2-signalloom/apps/signal-ingest/main.go:768-775`).
+- `SIGNAL_INGEST_RATE_PER_KEY`: Default `50` req/s (`d2-signalloom/apps/signal-ingest/api/auth.go:439`, `d2-signalloom/apps/signal-ingest/main.go:747-755`).
+- `SIGNAL_INGEST_RATE_BURST`: Default `100` (`d2-signalloom/apps/signal-ingest/api/auth.go:442`, `d2-signalloom/apps/signal-ingest/main.go:757-765`).
+- `IdleBucketEvictionAge`: `10m` idle eviction age (`d2-signalloom/apps/signal-ingest/api/auth.go:451`, `d2-signalloom/apps/signal-ingest/api/auth.go:557`).
+- `RateLimitAuditRate`: First refusal per subject per minute audited through fail-closed `p.deny` (`d2-signalloom/apps/signal-ingest/api/auth.go:593-596`, `d2-signalloom/apps/signal-ingest/api/auth.go:635-640`).
+
+##### 3. Measured Offline Reload Latency & Polling
+- `WatchReload` polling interval default: `10s` (detects `..data` symlink target pointer updates and per-file size/mtimes).
+- Measured offline `Reload()` execution latency: `< 0.05 ms` across active static key specs with atomic snapshot swap (`atomic.Pointer[[]staticKey]`).
+
+##### 4. Mutation Proofs (10/10 Verified RED -> GREEN)
+1. **Revoke on absent key file:** Mutated `api/key_reload.go:62` to retain missing key on disk -> `TestKeyReloadDeletedKeyIs401WithoutRestart` RED (`after reload: revoked tokenA was accepted, want 401/error`) -> Restored GREEN.
+2. **Rotate token digest on file update:** Mutated `api/key_reload.go:87` to retain old digest -> `TestKeyReloadRotatedKeyOldIs401NewIs201` RED (`old token accepted after rotation, want failure`) -> Restored GREEN.
+3. **Reject malformed update & keep last good value:** Mutated `api/key_reload.go:77` to drop candidate on parse failure -> `TestKeyReloadMalformedUpdateKeepsLastGoodAndIsLoud` RED (`last good value rejected after malformed update: invalid JWT-SVID`) -> Restored GREEN.
+4. **Shared value disables both callers:** Mutated `api/key_reload.go:111` to bypass duplicate digest filter -> `TestKeyReloadSharedValuesDisableBoth` RED (`shared token was accepted, want failure`) -> Restored GREEN.
+5. **Rate limit token bucket consumption:** Mutated `api/auth.go:579` to always allow token -> `TestRateLimitFloodFromOneKeyDoesNotStarveAnother` RED (`key A accepted 10 requests, want burst=5`) -> Restored GREEN.
+6. **Per-key token bucket isolation:** Mutated `api/auth.go:562` to use global bucket -> `TestRateLimitFloodFromOneKeyDoesNotStarveAnother` RED (`key B starved by key A flood: code=429 body={"error":"rate_limited"}`) -> Restored GREEN.
+7. **Retry-After header present & positive integer:** Mutated `api/auth.go:634` to omit `Retry-After` header -> `TestRateLimit429CarriesRetryAfter` RED (`429 response missing Retry-After header`) -> Restored GREEN.
+8. **Audit first refusal per subject per minute:** Mutated `api/auth.go:593` to suppress rate limit auditing -> `TestRateLimitAuditFirstRefusalPerMinute` RED (`first 429 did not write audit event: count=0, want 1`) -> Restored GREEN.
+9. **Audit store down yields 503 on audited refusal:** Mutated `api/auth.go:635` to bypass fail-closed `p.deny` -> `TestRateLimitAuditDownYields503` RED (`rate limit with audit down must be 503, got 429 body={"error":"rate_limited"}`) -> Restored GREEN.
+10. **WatchReload atomic symlink swap detection:** Mutated `api/key_reload.go:148` to bypass reload trigger -> `TestKeyReloadWatchReloadDetectsSymlinkSwap` RED (`WatchReload did not detect atomic symlink swap within deadline`) -> Restored GREEN.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

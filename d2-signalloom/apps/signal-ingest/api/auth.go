@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -433,14 +434,41 @@ func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
 	return r
 }
 
+const (
+	// DefaultKeyRatePerSecond is the default token replenish rate per second per authenticated key subject.
+	DefaultKeyRatePerSecond = 50.0
+
+	// DefaultKeyBurst is the default maximum token bucket capacity per authenticated key subject.
+	DefaultKeyBurst = 100
+
+	// RatePerKeyEnv names the environment variable to configure per-key rate limit.
+	RatePerKeyEnv = "SIGNAL_INGEST_RATE_PER_KEY"
+
+	// RateBurstEnv names the environment variable to configure per-key burst capacity.
+	RateBurstEnv = "SIGNAL_INGEST_RATE_BURST"
+
+	// IdleBucketEvictionAge is how long an unaccessed token bucket is retained before eviction.
+	IdleBucketEvictionAge = 10 * time.Minute
+)
+
 type RouterOptions struct {
 	DefaultPageSize, MaxPageSize, PrincipalBudget int
 	BudgetWindow                                  time.Duration
+	KeyRatePerSecond                              float64
+	KeyBurst                                      int
 }
+
 type budgetEntry struct {
 	used  int
 	reset time.Time
 }
+
+type keyTokenBucket struct {
+	tokens    float64
+	lastCheck time.Time
+	lastAudit time.Time
+}
+
 type ProtectedRouter struct {
 	mux        *http.ServeMux
 	auth       Authenticator
@@ -450,6 +478,8 @@ type ProtectedRouter struct {
 	registered map[string]RouteRequirement
 	mu         sync.Mutex
 	budgets    map[string]budgetEntry
+	keyBuckets map[string]keyTokenBucket
+	now        func() time.Time
 	auditKey   []byte
 }
 
@@ -475,6 +505,15 @@ func NewProtectedRouter(h *Handlers, authn Authenticator, aw audit.AuditWriter, 
 	if opts.DefaultPageSize > opts.MaxPageSize {
 		return nil, errors.New("default page size must not exceed maximum page size")
 	}
+	if opts.KeyRatePerSecond < 0 || opts.KeyBurst < 0 {
+		return nil, errors.New("key rate and burst must be non-negative")
+	}
+	if opts.KeyRatePerSecond == 0 {
+		opts.KeyRatePerSecond = DefaultKeyRatePerSecond
+	}
+	if opts.KeyBurst == 0 {
+		opts.KeyBurst = DefaultKeyBurst
+	}
 	auditKey := make([]byte, 32)
 	if _, err := cryptorand.Read(auditKey); err != nil {
 		return nil, fmt.Errorf("create audit pseudonym key: %w", err)
@@ -482,12 +521,83 @@ func NewProtectedRouter(h *Handlers, authn Authenticator, aw audit.AuditWriter, 
 	// The random HMAC key intentionally rotates on process restart: audit records
 	// remain correlatable within one runtime without enabling offline dictionary
 	// recovery of low-entropy SPIFFE subjects across retained audit history.
-	p := &ProtectedRouter{mux: http.NewServeMux(), auth: authn, audit: aw, options: opts, registered: map[string]RouteRequirement{}, budgets: map[string]budgetEntry{}, auditKey: auditKey}
+	p := &ProtectedRouter{
+		mux:        http.NewServeMux(),
+		auth:       authn,
+		audit:      aw,
+		options:    opts,
+		registered: map[string]RouteRequirement{},
+		budgets:    map[string]budgetEntry{},
+		keyBuckets: map[string]keyTokenBucket{},
+		now:        time.Now,
+		auditKey:   auditKey,
+	}
+	if sba, ok := authn.(*StaticBearerAuthenticator); ok {
+		sba.SetRevokeCallback(p.EvictKeyBucket)
+	}
 	for _, rd := range h.routeDefinitions(metrics) {
 		p.register(rd)
 	}
 	return p, nil
 }
+
+// EvictKeyBucket removes the rate limit bucket for a subject (e.g. on key revocation).
+func (p *ProtectedRouter) EvictKeyBucket(subject string) {
+	p.mu.Lock()
+	delete(p.keyBuckets, subject)
+	p.mu.Unlock()
+}
+
+func (p *ProtectedRouter) takeKeyToken(subject string, now time.Time) (bool, int, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Evict idle buckets older than 10 minutes
+	for s, b := range p.keyBuckets {
+		if now.Sub(b.lastCheck) > IdleBucketEvictionAge {
+			delete(p.keyBuckets, s)
+		}
+	}
+
+	b, exists := p.keyBuckets[subject]
+	if !exists {
+		b = keyTokenBucket{
+			tokens:    float64(p.options.KeyBurst),
+			lastCheck: now,
+		}
+	} else {
+		elapsed := now.Sub(b.lastCheck).Seconds()
+		if elapsed > 0 {
+			b.tokens += elapsed * p.options.KeyRatePerSecond
+			if b.tokens > float64(p.options.KeyBurst) {
+				b.tokens = float64(p.options.KeyBurst)
+			}
+			b.lastCheck = now
+		}
+	}
+
+	if b.tokens >= 1.0 {
+		b.tokens -= 1.0
+		p.keyBuckets[subject] = b
+		return true, 0, false
+	}
+
+	missing := 1.0 - b.tokens
+	secondsNeeded := missing / p.options.KeyRatePerSecond
+	retryAfter := int(math.Ceil(secondsNeeded))
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+
+	auditNeeded := false
+	if b.lastAudit.IsZero() || now.Sub(b.lastAudit) >= time.Minute {
+		b.lastAudit = now
+		auditNeeded = true
+	}
+	p.keyBuckets[subject] = b
+	return false, retryAfter, auditNeeded
+}
+
 func (p *ProtectedRouter) register(rd routeDefinition) {
 	requirement := RouteRequirement{rd.method, rd.path, rd.permission, rd.enumeration}
 	p.inventory = append(p.inventory, requirement)
@@ -495,11 +605,13 @@ func (p *ProtectedRouter) register(rd routeDefinition) {
 	slog.Info("HTTP authorization route registered", "method", rd.method, "route", rd.path, "permission", rd.permission, "enumeration", rd.enumeration)
 	p.mux.HandleFunc(rd.pattern, func(w http.ResponseWriter, r *http.Request) { p.authorize(rd, w, r) })
 }
+
 func (p *ProtectedRouter) Inventory() []RouteRequirement {
 	out := make([]RouteRequirement, len(p.inventory))
 	copy(out, p.inventory)
 	return out
 }
+
 func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	principal, err := p.auth.Authenticate(r)
 	if err != nil {
@@ -512,6 +624,22 @@ func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))
+
+	now := time.Now()
+	if p.now != nil {
+		now = p.now()
+	}
+	if allowed, retryAfter, auditNeeded := p.takeKeyToken(principal.Subject, now); !allowed {
+		route, method := p.safeAuditRoute(r)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		if auditNeeded {
+			p.deny(w, r, principal, route, method, "rate_limited", http.StatusTooManyRequests)
+		} else {
+			writeError(w, http.StatusTooManyRequests, "rate_limited")
+		}
+		return
+	}
+
 	if path.Clean(r.URL.Path) != r.URL.Path {
 		p.deny(w, r, principal, "unmatched", "UNMATCHED", "noncanonical_route", http.StatusForbidden)
 		return

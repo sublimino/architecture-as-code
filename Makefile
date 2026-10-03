@@ -1138,6 +1138,7 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats test/sltm-probe-apikey.bats \
 	test/rendered-env-unique.bats test/live-gate-ci-wiring.bats test/flux-annotation-values.bats \
 	d2-signalloom/test/kusari-agent-forensic.bats d2-signalloom/test/cardvault-role-ttl.bats d2-signalloom/test/supercred-image-tags.bats d2-signalloom/test/openbao-sidecar-entrypoint.bats \
+	d2-signalloom/test/fleet-agent-resolution.bats \
 	test/afm-import-gateway-manifests.bats test/afm-importer-key.bats test/afm-importer-key-stdin.bats \
 	test/afm-rbac-exporter-manifests.bats \
 	test/afm-rbac-exporter-push.bats \

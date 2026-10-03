@@ -705,8 +705,9 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	// sensitive path to open, so the filter alone never sees it -- the rate
 	// itself is the signal. See SLAAT-P1-4/F1 and the live reproduction at
 	// SLAAT-P2-PRE's SENTINEL-F1.
+	opener := &OpenerIdentity{Comm: ev.Comm, TGID: ev.TGID, UID: ev.UID, ExeIno: ev.ExeIno, ExeSize: ev.ExeSize}
 	if raw.Type == SyscallTypeExecve && m.burst.observe(ev.CgroupID, time.Now(), m.burstThreshold, m.burstWindow) {
-		if obs, ok := m.reportEvasiveBurst(raw, targetPID, ev.CgroupID); ok {
+		if obs, ok := m.reportEvasiveBurst(raw, targetPID, ev.CgroupID, opener); ok {
 			return obs, true
 		}
 	}
@@ -751,6 +752,12 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 
 	obs := m.NormalizeObservation(raw, pod)
 	obs.CgroupPath = m.cgroupPathFor(ev.CgroupID, targetPID)
+	// A setup open that reached here was NOT exempted as the runtime's: say
+	// what it was compared against (live, 2026-10-03, cpai-engineer-0).
+	if runtimeSetupOpens[resolved] {
+		opener.NodeRuntime = m.nodeRuncIdentities()
+	}
+	obs.Opener = opener
 
 	// Direct in-sentinel reactive freeze containment
 	if isAgentPod(pod) && m.freezeManager != nil {
@@ -765,7 +772,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 // execve-rate burst and, for a governed agent pod, triggers the same direct
 // freeze containment the sensitive-path path uses. ok is false when no
 // owning pod can be resolved -- there is nothing to report or freeze.
-func (m *SentinelProbeManager) reportEvasiveBurst(raw SyscallEvent, targetPID uint32, cgroupID uint64) (TelemetryObservation, bool) {
+func (m *SentinelProbeManager) reportEvasiveBurst(raw SyscallEvent, targetPID uint32, cgroupID uint64, opener *OpenerIdentity) (TelemetryObservation, bool) {
 	var pod *corev1.Pod
 	if m.cgroupRoot != "" {
 		pod = m.lookupPodByCgroupID(cgroupID)
@@ -789,6 +796,7 @@ func (m *SentinelProbeManager) reportEvasiveBurst(raw SyscallEvent, targetPID ui
 	obs.Target = fmt.Sprintf(">=%d execve in %s from one cgroup", m.burstThreshold, m.burstWindow)
 	obs.Severity = SeverityCritical
 	obs.CgroupPath = m.cgroupPathFor(cgroupID, targetPID)
+	obs.Opener = opener
 
 	if isAgentPod(pod) && m.freezeManager != nil {
 		if err := m.freezeManager.FreezePodFor(pod, obs.Syscall, obs.Target); err == nil {

@@ -4,6 +4,10 @@
 package correlator
 
 import (
+	"bytes"
+	"encoding/json"
+	"strings"
+
 	"encoding/binary"
 	"os"
 	"path/filepath"
@@ -351,5 +355,78 @@ func TestEventTimeIdentityExemptsOnThePIDPathAfterTheExec(t *testing.T) {
 	rIno, rSize := inoSize(t, nodeRunc)
 	if _, ok := m.handleRecord(withExe(rawRecord(ebpf.EventOpenat, 1001, "/etc/passwd"), rIno, rSize)); ok || *calls != 0 {
 		t.Fatalf("ok=%v freezes=%d: runc's lookup, recorded at event time, froze the pod", ok, *calls)
+	}
+}
+
+// Live, 2026-10-03 08:40:47: cpai-engineer-0 was frozen at birth by two
+// /etc/passwd opens, one in its jwt-svid container and one in its
+// openbao-agent container, neither exempted as the runtime's. Offline, runc
+// 1.4.2 replaying containerd's own specs for those containers either carried
+// runc's identity (exempt) or made no lookup at all, and neither sidecar
+// binary opened /etc/passwd -- yet the detection lines could not say which
+// process it was: the observation carried no comm and no exe identity. A
+// detection now names its opener as the probe saw it at the syscall, and for
+// a runtime-setup target also the node runc identities the exemption compared
+// against, so the next one explains itself. stdout only: toIngest is unchanged.
+
+func TestADetectionNamesItsOpenerAndForASetupOpenTheRuntimeItWasComparedTo(t *testing.T) {
+	agentBin := filepath.Join(t.TempDir(), "spire-agent")
+	if err := os.WriteFile(agentBin, []byte("not runc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m, calls, ino, nodeRunc := kindRuntimeFixture(t, map[int]string{3610999: agentBin})
+	aIno, aSize := inoSize(t, agentBin)
+	rIno, rSize := inoSize(t, nodeRunc)
+	obs, ok := m.handleRecord(withExe(cgroupRecord(ino, "/etc/passwd"), aIno, aSize))
+	if !ok || *calls != 1 {
+		t.Fatalf("ok=%v freezes=%d: a workload open of /etc/passwd is still a detection", ok, *calls)
+	}
+	o := obs.Opener
+	if o == nil {
+		t.Fatal("the detection does not name its opener")
+	}
+	if o.Comm != "agent" || o.TGID != 2565765 || o.ExeIno != aIno || o.ExeSize != uint64(aSize) {
+		t.Fatalf("opener = %+v, want comm agent, tgid 2565765, exe (%d, %d)", *o, aIno, aSize)
+	}
+	found := false
+	for _, b := range o.NodeRuntime {
+		if b.Ino == rIno && b.Size == uint64(rSize) && strings.HasSuffix(b.Path, "/usr/local/sbin/runc") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("node_runtime = %+v, want the node runc (%d, %d) the exemption compared against", o.NodeRuntime, rIno, rSize)
+	}
+}
+
+func TestAnOrdinaryDetectionNamesItsOpenerWithoutTheRuntimeComparison(t *testing.T) {
+	m, _, ino, _ := kindRuntimeFixture(t, map[int]string{3610999: "/nonexistent"})
+	obs, ok := m.handleRecord(withExe(cgroupRecord(ino, "/etc/shadow"), 4242, 99))
+	if !ok || obs.Opener == nil || obs.Opener.ExeIno != 4242 || obs.Opener.ExeSize != 99 {
+		t.Fatalf("ok=%v opener=%+v", ok, obs.Opener)
+	}
+	if len(obs.Opener.NodeRuntime) != 0 {
+		t.Fatalf("node_runtime on a non-setup target: %+v", obs.Opener.NodeRuntime)
+	}
+}
+
+// The opener rides on the stdout audit line, not on the ingest wire.
+func TestTheOpenerIsOnTheAuditLineAndNotTheIngestWire(t *testing.T) {
+	obs := TelemetryObservation{PodName: "p", Namespace: "n", Syscall: "sys_enter_openat", Target: "/etc/passwd",
+		Opener: &OpenerIdentity{Comm: "spire-agent", TGID: 7, ExeIno: 11, ExeSize: 22}}
+	var buf bytes.Buffer
+	original := correlatorLogOut
+	correlatorLogOut = &buf
+	t.Cleanup(func() { correlatorLogOut = original })
+	logObservation(obs)
+	if !strings.Contains(buf.String(), `"opener":{"comm":"spire-agent"`) {
+		t.Fatalf("audit line lacks the opener: %s", buf.String())
+	}
+	wire, err := json.Marshal(obs.toIngest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(wire), "spire-agent") || strings.Contains(string(wire), "exe_ino") {
+		t.Fatalf("the opener leaked onto the ingest wire: %s", wire)
 	}
 }

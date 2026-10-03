@@ -99,7 +99,7 @@ func TestANewCorrelatorFreezeIsStunnedThroughFleetManagerExactlyOnce(t *testing.
 		t.Fatalf("fleet-manager saw %d stun calls for one hold; want exactly 1", len(calls))
 	}
 	want := stunCall{path: "/api/v1/fleet/stun/" + h.live.Name, auth: "Bearer " + testStunKey,
-		reason: "stun-sentinel detection: sys_enter_openat /etc/passwd"}
+		reason: "signalloom-warden detection: sys_enter_openat /etc/passwd"}
 	if calls[0] != want {
 		t.Fatalf("stun call = %+v\nwant         %+v", calls[0], want)
 	}
@@ -147,7 +147,7 @@ func TestRetriesStopOnceTheStunIsRecorded(t *testing.T) {
 		return 0
 	}
 	h.detect()
-	st.stun(h.live.DeepCopy(), "stun-sentinel detection: sys_enter_openat /etc/passwd")
+	st.stun(h.live.DeepCopy(), "signalloom-warden detection: sys_enter_openat /etc/passwd")
 	if n := len(fleet.snapshot()); n != 1 {
 		t.Fatalf("%d calls; retries must stop once the pod is seen stunned", n)
 	}

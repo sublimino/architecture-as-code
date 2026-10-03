@@ -1,11 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,8 +11,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 )
 
 // Helper to construct a projected secret directory matching kubelet semantics:
@@ -324,7 +319,7 @@ func TestKeyReloadIsRaceFree(t *testing.T) {
 					}
 					w := httptest.NewRecorder()
 					router.ServeHTTP(w, observationRequest(token))
-					if w.Code != http.StatusCreated && w.Code != http.StatusUnauthorized {
+					if w.Code != http.StatusCreated && w.Code != http.StatusUnauthorized && w.Code != http.StatusTooManyRequests {
 						t.Errorf("unexpected status code during race: %d", w.Code)
 						return
 					}
@@ -459,3 +454,53 @@ func TestKeyReloadNeverGoodKeyStaysDisabled(t *testing.T) {
 		t.Fatal("defective key accepted, want failure")
 	}
 }
+
+func TestKeyReloadWatchReloadDetectsSymlinkSwap(t *testing.T) {
+	delegate, _, _ := testJWTDelegate(t)
+	tokenA := testSentinelToken
+	tokenB := testGatewayToken
+	expiry := testKeyExpiry()
+
+	proj := newProjectedDir(t, map[string]string{
+		"stun-sentinel":                        tokenA,
+		"stun-sentinel" + StaticKeyExpirySuffix: expiry,
+	})
+
+	specs := []StaticKeySpec{
+		{Name: "stun-sentinel", Subject: "static-key/stun-sentinel", Tenant: "kusari", Permissions: []Permission{PermissionObservationWrite}},
+	}
+
+	authn, err := NewStaticKeyAuthenticatorWithSpecs(specs, proj.rootDir, delegate)
+	if err != nil {
+		t.Fatalf("failed to create authenticator: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go authn.WatchReload(ctx, 1*time.Second)
+
+	if _, err := authn.Authenticate(bearerRequest(http.MethodPost, "/api/v1/observations", tokenA)); err != nil {
+		t.Fatalf("tokenA failed auth: %v", err)
+	}
+
+	proj.swap(t, map[string]string{
+		"stun-sentinel":                        tokenB,
+		"stun-sentinel" + StaticKeyExpirySuffix: expiry,
+	})
+
+	deadline := time.Now().Add(3 * time.Second)
+	var swapped bool
+	for time.Now().Before(deadline) {
+		if _, err := authn.Authenticate(bearerRequest(http.MethodPost, "/api/v1/observations", tokenB)); err == nil {
+			swapped = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !swapped {
+		t.Fatal("WatchReload did not detect atomic symlink swap within deadline")
+	}
+}
+

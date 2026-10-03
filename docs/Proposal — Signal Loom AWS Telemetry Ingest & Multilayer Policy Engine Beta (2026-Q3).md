@@ -14,6 +14,8 @@ updated: 2026-10-03T21:32
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
 
+## Executive Summary
+
 > **Executive Summary:** This proposal outlines the production architecture for pulling real-time AWS CloudTrail, IAM audit, VPC Flow, and S3 telemetry from customer AWS accounts (specifically for the upcoming Kusari pilot deployment), buffering them via a crash-resilient WAL-backed Disk Ring Buffer, and streaming them into the **Signal Loom Multilayer Policy Engine Beta**. The policy engine integrates CEL (Common Expression Language) predicate evaluation with Cedar formal SMT policy verification across 4 distinct telemetry planes (Cloud Control Plane, Endpoint Host, Network Egress, and Behavioural Application).
 
 ---

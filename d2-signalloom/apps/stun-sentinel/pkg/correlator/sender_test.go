@@ -226,6 +226,7 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 		if m.Stats().SpoolBatches >= 3 {
 			break
 		}
+		clk.Advance(1 * time.Second)
 		time.Sleep(10 * time.Millisecond)
 	}
 

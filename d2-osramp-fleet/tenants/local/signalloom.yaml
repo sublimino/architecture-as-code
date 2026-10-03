@@ -197,6 +197,23 @@ spec:
         - kind: ServiceAccount
           name: spire-agent-swarm-entries
           namespace: inf-bao
+    # SPIFFE CSI driver object (cluster-scoped, so it lives here under the
+    # flux-system ServiceAccount like the kubelet ClusterRole above; the tenant
+    # flux SA that reconciles inf-bao cannot create cluster-scoped objects).
+    # Its DaemonSet is d2-signalloom/infra/inf-bao/controllers/base/spiffe-csi-driver.yaml.
+    # Found on the 2026-10-03 zero-state rebuild: every csi.spiffe.io consumer
+    # (Tier 1-4 swarm agents, Agent Trust probes) stayed ContainerCreating because
+    # the manifests sat in d2-signalloom/deploy/spiffe-csi, outside every artifact.
+    - apiVersion: storage.k8s.io/v1
+      kind: CSIDriver
+      metadata:
+        name: csi.spiffe.io
+      spec:
+        attachRequired: false
+        podInfoOnMount: true
+        volumeLifecycleModes:
+          - Ephemeral
+
 ---
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet

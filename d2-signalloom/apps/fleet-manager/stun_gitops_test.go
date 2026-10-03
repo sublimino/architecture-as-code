@@ -383,7 +383,9 @@ func TestRecover_RemovesFluxAnnotationAfterCredentialsAndBeforeTheStateLabelClea
 	client := credOKClient{k8sFleetClient: real, onRestore: func() { restoreAt = len(cs.Actions()) }}
 	dag := singleAgentDAG(t, testNamespace)
 
-	res, err := NewCascadeOrchestrator(dag, client, 0).Recover(context.Background(), []string{gitopsAgent})
+	// Thaw mode: the in-place release whose label write this orders against.
+	// Replace mode's order is pinned in recover_replace_test.go.
+	res, err := NewCascadeOrchestrator(dag, client, 0).RecoverWithMode(context.Background(), []string{gitopsAgent}, RecoverThaw)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
 	}
@@ -475,7 +477,8 @@ func TestRecover_ClearsTheCallerReason(t *testing.T) {
 	s, cs, _ := newGitopsServer(t, ownedChain("active", nil, nil)...)
 	postStun(t, s, `{"reason":"kusari incident 42"}`)
 
-	if _, err := s.orchestrator.Recover(context.Background(), []string{gitopsAgent}); err != nil {
+	// Thaw mode keeps the pod, so its annotations are what a release leaves.
+	if _, err := s.orchestrator.RecoverWithMode(context.Background(), []string{gitopsAgent}, RecoverThaw); err != nil {
 		t.Fatalf("recover: %v", err)
 	}
 	pod := getPod(t, cs)

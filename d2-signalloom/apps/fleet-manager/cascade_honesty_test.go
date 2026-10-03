@@ -61,6 +61,25 @@ func newFailingClient() *failingClient {
 	}
 }
 
+// ReplaceContainedPod models a controller-owned pod, as the mock does: a
+// stunned agent is replaced (setStateErr is the release fault), anything else
+// is not contained and gets the running label.
+func (c *failingClient) ReplaceContainedPod(_ context.Context, _, agentID string) PlaneResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	res := PlaneResult{Plane: PlaneFreeze, Outcome: OutcomeContained, Details: map[string]any{"agent_id": agentID, "action": replaceActionReplaced}}
+	if c.states[agentID] != StateStunned {
+		res.Details["action"] = replaceActionNotContained
+		return res
+	}
+	if c.setStateErr != nil {
+		res.Outcome, res.Error = OutcomeUnavailable, c.setStateErr.Error()
+		return res
+	}
+	c.states[agentID] = StateReplaced
+	return res
+}
+
 func (c *failingClient) GetPodState(_ context.Context, namespace, agentID string) (string, error) {
 	c.mu.Lock()
 	c.namespaces["get:"+agentID] = namespace

@@ -1002,7 +1002,9 @@ spec:
     # exactly this reason.
     #
     # Verbs are the minimum the cascade orchestrator needs: read the agent pods
-    # to build the DAG, patch labels to record a stun. No create, no delete, no
+    # to build the DAG, patch labels to record a stun, delete a contained pod
+    # on an authorised /recover so its Deployment starts a clean one (thawing
+    # the compromised process resumed the attack live). No create, no
     # wildcard, and no ClusterRole — this identity must not become cluster-wide.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
@@ -1016,7 +1018,7 @@ spec:
       rules:
         - apiGroups: [""]
           resources: ["pods"]
-          verbs: ["get", "list", "patch"]
+          verbs: ["get", "list", "patch", "delete"]
         # gitops plane: walk pod -> ReplicaSet -> Deployment and annotate the
         # Deployment's metadata with kustomize.toolkit.fluxcd.io/reconcile=
         # disabled while an agent is contained. No update (a full replace

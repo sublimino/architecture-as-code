@@ -1141,6 +1141,7 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	d2-signalloom/test/openbao-agent-jwt-source.bats d2-signalloom/test/openbao-agent-secret-authz.bats \
 	d2-signalloom/test/fleet-agent-resolution.bats \
 	test/source-id-tracked.bats \
+	test/signal-ingest-image-tag.bats \
 	test/afm-import-gateway-manifests.bats test/afm-importer-key.bats test/afm-importer-key-stdin.bats \
 	test/afm-rbac-exporter-manifests.bats \
 	test/afm-rbac-exporter-push.bats \

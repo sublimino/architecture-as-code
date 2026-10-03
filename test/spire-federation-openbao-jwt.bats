@@ -110,8 +110,7 @@ live() { [[ "${SLDC_P22_LIVE:-}" == 1 ]] || skip "live lab tier: set SLDC_P22_LI
   [ "$(yq -r .SIGNAL_AUTH_TRUST_DOMAIN <<<"$cfg")" = osramp.local ]
   [ "$(yq -r .SIGNAL_AUTH_JWKS_REFRESH <<<"$cfg")" = 15m ]
   b=$(yq -r .SIGNAL_AUTH_BINDINGS <<<"$cfg")
-  keys="$(jq -c 'keys' <<<"$b")"
-  [[ "$keys" == *'sa/kusari-agent'* && ( "$keys" == *'sa/signalloom-warden'* || "$keys" == *'sa/'*'sentinel'* ) ]]
+  [ "$(jq -c 'keys | sort' <<<"$b")" = '["spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent","spiffe://osramp.local/ns/fe-signalloom-agents/sa/signalloom-warden","spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"]' ]
   [ "$(jq -r '[.[].tenant_id] | unique | join(",")' <<<"$b")" = kusari ]
   for p in $(jq -r '[.[].permissions[]] | unique | .[]' <<<"$b"); do
     grep -Fq "Permission = \"$p\"" "$AUTH_GO"

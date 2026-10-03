@@ -228,3 +228,4 @@ test/sldc-ingest-bearer.bats
 test/sltm-ingest-chain.bats
 test/sltm-ingest-reload-ratelimit.bats
 test/sltm-probe-apikey.bats
+test/spire-federation-openbao-jwt.bats

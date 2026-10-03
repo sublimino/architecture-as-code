@@ -43,6 +43,7 @@ ISSUER_PREFIX=signal-ingest-key-
 # name|consumer-namespace|consumer-secret|restart-target   (empty consumer: none)
 KEYS=(
 	"stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun-sentinel"
+	"signalloom-warden|fe-signalloom-agents|signalloom-warden-ingest-token|ds/signalloom-warden"
 	"fe-signalloom-gateway|fe-signalloom|fe-signalloom-ingest-key|deploy/fe-signalloom"
 	"signalfusion-demo|fe-signalloom|signalfusion-demo-ingest-key|deploy/supercred-demo-runner"
 	# Operator tools outside the cluster read the issuer Secret directly.

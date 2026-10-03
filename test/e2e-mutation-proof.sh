@@ -132,7 +132,7 @@ case "${ARGS}" in
       if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
       else echo -n "signalloom-warden detection: sys_enter_openat /etc/passwd"; fi
       exit 0 ;;
-  *"get --raw"*"pods/signalloom-warden-x7k2p:8081/proxy/healthz"*)
+  *"get --raw"*"pods/"*":8081/proxy/healthz"*)
       # Every read is a later moment: reconcile_count advances (unless the
       # reconciler is idle) and, from the second read on, a resync has run.
       n=$(( $(cat "${STATE}/health_reads" 2>/dev/null || echo 0) + 1 ))

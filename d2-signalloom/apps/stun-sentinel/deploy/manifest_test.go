@@ -30,7 +30,7 @@ import (
 var requiredCaps = []corev1.Capability{"SYS_PTRACE", "BPF", "NET_ADMIN", "SYS_ADMIN"}
 
 // canonical is THE sentinel DaemonSet. Everything else is an overlay of it.
-const canonical = "../../../infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"
+const canonical = "../../../infra/agent-swarm/signalloom-warden/daemonset.yaml"
 
 // retired are the three paths that used to declare a competing sentinel
 // DaemonSet: two are now comment-only tombstones naming the canonical
@@ -100,9 +100,9 @@ func TestRetiredManifestsStayRetired(t *testing.T) {
 
 func TestCanonicalSecurityContextCapabilities(t *testing.T) {
 	ds := loadDaemonSet(t, canonical)
-	// PF-6: the canonical name; signalloom-stun-sentinel breaks tests.
-	if ds.Name != "stun-sentinel" {
-		t.Errorf("DaemonSet name = %q, want stun-sentinel", ds.Name)
+	// PF-6: the canonical name; signalloom-warden breaks tests.
+	if ds.Name != "signalloom-warden" {
+		t.Errorf("DaemonSet name = %q, want signalloom-warden", ds.Name)
 	}
 	if !ds.Spec.Template.Spec.HostPID {
 		t.Error("hostPID must be true: host PIDs and /proc/<pid>/ns/net")

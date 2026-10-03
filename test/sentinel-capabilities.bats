@@ -18,10 +18,10 @@
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
-  BASE_DIR="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel"
+  BASE_DIR="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden"
   LEGACY_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel/base"
-  OVERLAY_OSRAMP="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-osramp"
-  OVERLAY_HUB="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/kind-signalloom-hub"
+  OVERLAY_OSRAMP="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-osramp"
+  OVERLAY_HUB="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-signalloom-hub"
   command -v kubectl >/dev/null || { echo "kubectl is required" >&2; return 1; }
   command -v yq >/dev/null || { echo "yq is required" >&2; return 1; }
 }
@@ -48,10 +48,10 @@ mount_triples() {
     | $m.mountPath + "=" + $hp + ":" + (($m.readOnly // false) | tostring)' | sort
 }
 
-@test "sentinel-capabilities: kustomize renders exactly one DaemonSet named stun-sentinel" {
+@test "sentinel-capabilities: kustomize renders exactly one DaemonSet named signalloom-warden" {
   run ds_query '.metadata.name'
   [ "$status" -eq 0 ]
-  [ "$output" = "stun-sentinel" ]
+  [ "$output" = "signalloom-warden" ]
 }
 
 @test "sentinel-capabilities: capabilities.add is exactly SYS_PTRACE BPF NET_ADMIN SYS_ADMIN" {
@@ -109,11 +109,11 @@ mount_triples() {
 @test "sentinel-capabilities: SIGNAL_INGEST_URL comes from a non-optional ConfigMap key" {
   run container_query '.env[] | select(.name == "SIGNAL_INGEST_URL") | .valueFrom.configMapKeyRef | .name + "/" + .key + ":optional=" + ((.optional // false) | tostring)'
   [ "$status" -eq 0 ]
-  [ "$output" = "stun-sentinel-config/SIGNAL_INGEST_URL:optional=false" ]
+  [ "$output" = "signalloom-warden-config/SIGNAL_INGEST_URL:optional=false" ]
 }
 
 @test "sentinel-capabilities: the base ingest URL is a fully-qualified Service name, not a ClusterIP" {
-  run bash -c "kubectl kustomize '$BASE_DIR' | yq -r 'select(.kind == \"ConfigMap\" and .metadata.name == \"stun-sentinel-config\") | .data.SIGNAL_INGEST_URL'"
+  run bash -c "kubectl kustomize '$BASE_DIR' | yq -r 'select(.kind == \"ConfigMap\" and .metadata.name == \"signalloom-warden-config\") | .data.SIGNAL_INGEST_URL'"
   [ "$status" -eq 0 ]
   [ "$output" = "http://signal-ingest.fe-signalloom.svc.cluster.local:8082" ]
 }
@@ -143,14 +143,14 @@ mount_triples() {
     run bash -c "kubectl kustomize '$overlay' | yq -r 'select(.kind == \"DaemonSet\") | .spec.template.spec.containers[0].image'"
     [ "$status" -eq 0 ]
     # kind clusters deploy the in-cluster zot reference; test/sentinel-image-provenance.bats pins the tag.
-    [[ "$output" == zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/stun-sentinel:* ]]
+    [[ "$output" == zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden:* ]]
     [[ "$output" != *":latest" ]]
   done
 }
 
 @test "sentinel-capabilities: each per-cluster overlay carries its own resolvable ingest URL" {
   for overlay in "$OVERLAY_OSRAMP" "$OVERLAY_HUB"; do
-    run bash -c "kubectl kustomize '$overlay' | yq -r 'select(.kind == \"ConfigMap\" and .metadata.name == \"stun-sentinel-config\") | .data.SIGNAL_INGEST_URL'"
+    run bash -c "kubectl kustomize '$overlay' | yq -r 'select(.kind == \"ConfigMap\" and .metadata.name == \"signalloom-warden-config\") | .data.SIGNAL_INGEST_URL'"
     [ "$status" -eq 0 ]
     # A FQDN, never a ClusterIP: ClusterIPs are reassigned on cluster rebuild.
     [[ "$output" == http://*.svc.cluster.local:8082 || "$output" == http://*.signalloom.hub:8082 ]]
@@ -170,18 +170,14 @@ mount_triples() {
   run kubectl apply --dry-run=server -k "$BASE_DIR"
   echo "$output"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"daemonset.apps/stun-sentinel"*"(server dry run)"* ]]
+  [[ "$output" == *"daemonset.apps/signalloom-warden"*"(server dry run)"* ]]
   [[ "$output" != *"violates PodSecurity"* ]]
 }
 
 # The sentinel's RBAC was owned TWICE. agent-swarm/ebpf-sentinel-rbac.yaml (in
-# the agent-swarm-base Kustomization) and signalloom-stun-sentinel/rbac.yaml
-# (in agent-signalloom-stun-sentinel) both declared RoleBinding
-# fe-signalloom-agents/stun-sentinel, with DIFFERENT subjects: the first bound
-# the pre-rename SA signalloom-stun-sentinel. Two Flux Kustomizations then
-# fought over one object and whichever reconciled last won, so the running
-# sentinel's `auth can-i list pods` flipped between yes and no (live,
-# 2026-10-01) and its pod index stayed empty. These two tests pin both halves.
+# the agent-swarm-base Kustomization) and signalloom-warden/rbac.yaml
+# (in agent-signalloom-warden) both declared RoleBinding
+# fe-signalloom-agents/signalloom-warden.
 @test "sentinel-capabilities: no namespaced object is declared by both agent-swarm-base and the sentinel Kustomization" {
   local root="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
   run bash -c "comm -12 \
@@ -195,9 +191,9 @@ mount_triples() {
   local root="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
   local sa
   sa="$(kubectl kustomize "${BASE_DIR}" | yq -N 'select(.kind == "DaemonSet") | .spec.template.spec.serviceAccountName')"
-  [ "$sa" = "stun-sentinel" ]
+  [ "$sa" = "signalloom-warden" ]
   run bash -c "{ kubectl kustomize '${root}'; echo '---'; kubectl kustomize '${BASE_DIR}'; } \
-    | yq -N 'select(.kind == \"RoleBinding\" or .kind == \"ClusterRoleBinding\") | select(.roleRef.kind == \"Role\" and .roleRef.name == \"stun-sentinel\") | .subjects[].name' | sort -u"
+    | yq -N 'select(.kind == \"RoleBinding\" or .kind == \"ClusterRoleBinding\") | select(.roleRef.kind == \"Role\" and .roleRef.name == \"signalloom-warden\") | .subjects[].name' | sort -u"
   [ "$status" -eq 0 ]
   [ -n "$output" ]
   [ "$output" = "$sa" ] || { echo "sentinel bindings name: $output (DaemonSet runs as $sa)"; return 1; }

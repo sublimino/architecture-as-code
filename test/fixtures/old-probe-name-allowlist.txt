@@ -7,7 +7,13 @@ test/fixtures/old-probe-name-allowlist.txt # allow-list self-reference
 test/fixtures/old-probe-name-pending-p3-1.txt # temporary list of P3-1 paths containing old probe name
 test/old-probe-name-guard.bats # test suite plants and asserts old probe names
 d2-signalloom/apps/stun-sentinel/ # R3 go-module directory kept as library module
+d2-signalloom/apps/signalloom-stun-sentinel/ # R3 go-module directory kept as library module (probe source tree; image Dockerfile context)
 test/sandbox-confinement-hardening.bats # R3 go-module path export and test targets
+scripts/warden-cutover.sh # SLTM-P3-1 cutover script deletes the legacy-named DaemonSet/Kustomization by name
+test/warden-cutover.bats # test suite plants and asserts the legacy probe name scripts/warden-cutover.sh operates on
+test/signalloom-warden-manifests.bats # SLTM-P3-1's own guard suite plants and asserts the legacy probe name
+test/signalloom-warden-allowlist.txt # SLTM-P3-1's own allow-list for retained legacy SPIFFE/key bindings during cutover (consumed by test/signalloom-warden-manifests.bats)
+d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/kind-osramp/kustomization.yaml:stun-sentinel # historical comment documenting a pre-rename image tag reuse
 test/fixtures/eap-evidence/step4-ebpf-observation.json:stun-sentinel # R4 wire-data observation source fixture
 d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json:stun-sentinel # R4 wire-data observation batch chain vector fixture
 test/p1-sentinel-preflight.bats:signalloom-stun-sentinel # preflight fallback path for unmigrated branch

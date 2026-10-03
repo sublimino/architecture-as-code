@@ -104,15 +104,19 @@ func TestNormalizeTelemetryObservation(t *testing.T) {
 	pod := CreateTestPod("tenant-kusari", "kusari-builder", "11111111-2222-3333-4444-555555555555", "kusari-builder", "kusari")
 	pod.Spec.ServiceAccountName = "kusari-builder" // actor_id is the SA, not the agent-name label (actor_test.go)
 
+	before := time.Now()
 	obs := mgr.NormalizeObservation(raw, pod)
+	after := time.Now()
 
-	// Validate RFC3339Nano timestamp
+	// Validate RFC3339Nano timestamp, bracketed by the call rather than compared
+	// with a 5 s slack: it must be stamped during normalisation.
 	parsedTime, err := time.Parse(time.RFC3339Nano, obs.Timestamp)
 	if err != nil {
 		t.Fatalf("invalid RFC3339Nano timestamp: %v", err)
 	}
-	if time.Since(parsedTime) > 5*time.Second {
-		t.Errorf("timestamp is too old or inaccurate: %s", obs.Timestamp)
+	if parsedTime.Before(before.Truncate(time.Nanosecond)) || parsedTime.After(after) {
+		t.Errorf("timestamp %s was not stamped during normalisation [%s, %s]",
+			obs.Timestamp, before.Format(time.RFC3339Nano), after.Format(time.RFC3339Nano))
 	}
 
 	// Validate ActorID

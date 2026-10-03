@@ -36,7 +36,13 @@ spec:
       serviceAccountName: agent-cardvault
       containers:
         - name: cardvault-agent
-          image: cardvault-agent:latest
+          # The tag `make demo-signalloom-supercred-images` builds and
+          # kind-loads (scripts/supercred-images.sh DEMO_IMAGES). It was
+          # :latest, which nothing builds, so a rebuild never reached this
+          # pod (live, 2026-10-03). Pinned by
+          # d2-signalloom/test/supercred-image-tags.bats. Same tag, so a
+          # rebuild needs a rollout restart to be picked up.
+          image: cardvault-agent:local
           imagePullPolicy: Never
           args:
             - --mode=run

@@ -33,7 +33,7 @@ tags:
 aliases:
   - "#proposal-2026-q4-signal-loom-spireless-token-migration"
 shortcode: SLTM
-updated: 2026-10-02T23:30
+updated: 2026-10-03T17:23
 ---
 # Proposal — Signal Loom Spireless Token-Based Agent Identity Migration (2026-Q4)
 
@@ -47,7 +47,7 @@ updated: 2026-10-02T23:30
 
 > **Revision 2026-10-03 (second draft appraised).** Andy's 01:00 update to the original draft added partition tolerance (8-hour leases, 4-hour sliding refresh, local buffering), a 0600 credential file instead of `keyctl`, an explicit acceptance of bearer-exfiltration risk with compensating controls, and an L7/L3 decoupling that rejects kTLS. Each was appraised against the code and Andy's ADR-03 direction. The resilience, risk and decoupling ideas are integrated as **Phase 1b** (D7–D10, ADR-08 to ADR-10) on static keys. Lease length and refresh move into the gated Phase 2 at 8 h/4 h instead of 300 s. The SPIRE-deletion and 650 MB claims stay withdrawn. Dispositions are in [Second Draft Appraisal](#second-draft-appraisal-2026-10-03).
 
-> **Status 2026-10-03.** Phase 1 D1–D6 are built and merged on the integration line: named keys (one Secret per key, `signal-ingest-key-<name>`, value plus `.expires`), JWKS optional, tenant-scoped reads and writes, the probe's key from `stun-sentinel-ingest-token`, the issuer script, and `make test-sltm-probe-apikey` (offline tier 10/10 against the real binary). The Definition of Done is **not yet met**: the live tier passes only after the deploy, twice in a row. The same named-key pattern now also guards fleet-manager (ADR-05).
+> **Status 2026-10-03 (board closed).** Phase 1 (D1–D6) and Phase 1b (D7–D10) are built, merged on `integration/sltm-v0.1.0` and certified by SLTM-P4-GOV at `2ff21edb` (16/16 cards; see Errata — SLTM-P4-GOV): named keys (one Secret per key, `signal-ingest-key-<name>`, value plus `.expires`), JWKS optional, tenant-scoped reads and writes, the probe renamed to `signalloom-warden` and holding its key from a Secret, the issuer script, spool replay with zero loss under an injected partition, key revocation under 90 s with no restart, per-key 429, and batch-chain replay detection. **Definition of Done (Phase 1 and 1b) is met on the long-lived `kind-osramp` + `kind-signalloom-hub` estate:** `SLTM_LIVE=1 SLDC_LIVE=1 make test-sltm-probe-apikey` 19/19 twice in a row (15:37 and 15:42 +0100) and `SLDC_LIVE=1 make test-e2e-dual-cluster-containment` 6/6 twice (15:40 and 15:46), after `make test-sldc-offline` twice with identical totals and 44/44 mutation proofs. Still open: the same proof from a zero-state rebuild without observability (in progress, this session) and the GCP lane `sl-demo-1` deploy. The named-key pattern also guards fleet-manager (ADR-05).
 
 ---
 

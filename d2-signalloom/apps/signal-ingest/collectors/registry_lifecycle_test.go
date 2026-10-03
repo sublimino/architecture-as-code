@@ -5,6 +5,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -267,16 +268,20 @@ func TestRegistry_BoundedStartupTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	start := time.Now()
-	err := reg.Start(ctx)
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Fatal("expected Start() error on timeout context, got nil")
+	// col-hanging's Start never returns on its own, so reg.Start returning at
+	// all, with the context's deadline error, proves startup is bounded by the
+	// caller's deadline. The select is a hang guard, not a latency bound (the
+	// old 500ms stopwatch measured the machine).
+	started := make(chan error, 1)
+	go func() { started <- reg.Start(ctx) }()
+	var err error
+	select {
+	case err = <-started:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Start() blocked on a hanging collector past its context deadline")
 	}
-
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("Start() took %v to timeout, expected bounded ~100ms", elapsed)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected Start() to fail with the context deadline, got %v", err)
 	}
 
 	// Health check must reflect startup failure

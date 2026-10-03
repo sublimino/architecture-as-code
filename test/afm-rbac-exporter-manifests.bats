@@ -329,3 +329,15 @@ EOF
   [ "${fe_ns}" = "fe-signalloom" ]
   [ "${fe_port}" = "8000" ]
 }
+
+@test "exporter manifests: every rendered object in the bundle has namespace fe-signalloom-agents" {
+  local missing_ns
+  missing_ns="$(kubectl kustomize "${BUNDLE_DIR}" \
+    | yq -o=json 'select(.kind != null) | select(.metadata.namespace == null or .metadata.namespace == "") | .kind + "/" + .metadata.name')"
+  [ -z "${missing_ns}" ]
+
+  local bad_ns
+  bad_ns="$(kubectl kustomize "${BUNDLE_DIR}" \
+    | yq -o=json 'select(.kind != null) | select(.metadata.namespace != "fe-signalloom-agents") | .kind + "/" + .metadata.name')"
+  [ -z "${bad_ns}" ]
+}

@@ -65,3 +65,15 @@ Mission identity: repository `/home/andy/src/cp/osramp-demo`, shortcode
   - Governor session is active and observing.
   - Dual supervisor synchronization verified: lead session owns active controller cycles; governor monitoring errata ledger, card transitions, and health gates.
 
+
+---
+
+## 4. Board created and started; controller lease armed in the lead session
+
+- **Timestamp**: 2026-10-03T01:53:52+0100
+- **Cards**: 16 cards created through `kanban-check.sh create` from council specifications. Every card passed the compiler dry-run with no body section shed. Harness: `antigravity`, with `--agent-justification`. The dependency graph was re-wired with `create --update --apply`; `link-check` reports 0 CRITICAL, 0 FAIL, and 1 WARN (phase 4 has no PRE, by design). `doctor`: ALL CHECKS HEALTHY.
+  - Anomaly to investigate: the first `--apply` found all 16 cards already present. They had been created before any `--apply` ran, probably by a `create --dry-run` side effect. That needs a helper fix per the Diagnostic Discipline rule.
+- **Mission**: approved with Andy's explicit override of human review ("override the human review ... don't ask for human permission"); digest `97612b973812142ebd3e0f9e735aa112bdec3f11e8a344c98fd86856c6cc908e`, integration HEAD `0d394365`, maxRunning 7.
+- **Lease**: `ajm-auto-kanban-sltm-c71d957f59d0`, active. Scheduler: Claude Code CronCreate job `7c6b652c`, every 10 minutes, session-only, auto-expires 2026-10-10. Checkpointed as `lease_degraded` (no named jobs, no disable verb).
+- **Tick #1**: `SLTM-P0` started; 15 cards in backlog; 1 watch exception (Codex throttled, start-ready rebalances to antigravity).
+- **Supervisors**: this lead session owns the SLTM lease. Any other supervisor must post here before acting on an SLTM card.

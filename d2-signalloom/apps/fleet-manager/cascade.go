@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
@@ -331,6 +332,47 @@ type CascadeOrchestrator struct {
 	attestationEngine *attestation.AttestationEngine
 	// credentialStepTimeout bounds each target's credential restore.
 	credentialStepTimeout time.Duration
+	// locks serialises stun and recover per agent.
+	locks agentLocks
+}
+
+// agentLocks lets one cascade at a time act on an agent. Live, 2026-10-03,
+// a /recover landed while a stun of the same agent was in flight: it read
+// the pod before the stun's label write, released it "running" and answered
+// success, and the stun then left it stunned. Holding the agent for its
+// whole per-target attempt makes the second cascade see what the first did.
+// Different agents never wait for each other; a waiter gives up with its
+// context. The zero value is ready to use.
+type agentLocks struct {
+	mu   sync.Mutex
+	held map[string]chan struct{}
+}
+
+func (l *agentLocks) acquire(ctx context.Context, id string) (func(), error) {
+	for {
+		l.mu.Lock()
+		if l.held == nil {
+			l.held = map[string]chan struct{}{}
+		}
+		busy, ok := l.held[id]
+		if !ok {
+			done := make(chan struct{})
+			l.held[id] = done
+			l.mu.Unlock()
+			return func() {
+				l.mu.Lock()
+				delete(l.held, id)
+				l.mu.Unlock()
+				close(done)
+			}, nil
+		}
+		l.mu.Unlock()
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return nil, fmt.Errorf("waiting for an in-flight cascade of %s: %w", id, ctx.Err())
+		}
+	}
 }
 
 // NewCascadeOrchestrator creates a new orchestrator.
@@ -469,6 +511,13 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 			continue
 		}
 
+		release, err := o.locks.acquire(ctx, id)
+		if err != nil {
+			result.RecoveryOrder = o.dag.RecoveryOrder(targets)
+			result.finish(start)
+			return result, err
+		}
+
 		// Resolve every field this target's attempt needs from the DAG exactly
 		// once, here. The lookup above and the writes below are not atomic with
 		// respect to a concurrent topology refresh, so re-reading agent.Namespace
@@ -589,6 +638,7 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 		outcome.Outcome = withGitOps(classifyOutcome(outcome.StateRead, outcome.Credential, outcome.StateWrite), gitops)
 		result.record(outcome)
 
+		release()
 		slog.Info("stun attempt complete",
 			"agent", id,
 			"from", outcome.FromState,
@@ -719,6 +769,12 @@ func (o *CascadeOrchestrator) RecoverWithMode(ctx context.Context, stunnedIDs []
 			continue
 		}
 
+		release, err := o.locks.acquire(ctx, id)
+		if err != nil {
+			result.finish(start)
+			return result, err
+		}
+
 		// Single DAG observation for the whole attempt — see Stun.
 		namespace := agent.Namespace
 
@@ -782,6 +838,7 @@ func (o *CascadeOrchestrator) RecoverWithMode(ctx context.Context, stunnedIDs []
 
 		outcome.Outcome = withGitOps(classifyOutcome(outcome.StateRead, outcome.Credential, outcome.StateWrite), gitops)
 		result.record(outcome)
+		release()
 
 		slog.Info("recover attempt complete",
 			"agent", id,

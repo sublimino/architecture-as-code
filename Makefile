@@ -1135,7 +1135,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/dex-subject-tenants.bats test/pipefail-grep-q-lint.bats test/teardown-kind-race.bats \
 	test/sldc-ingest-bearer.bats test/signalfusion-demo-auth.bats d2-signalloom/test/ingest-routes-offline.bats \
 	test/agent-swarm-tenancy.bats test/agent-swarm-flux-rbac.bats test/cgroup-freeze-live-gate.bats \
-	test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats test/sltm-probe-apikey.bats
+	test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats test/sltm-probe-apikey.bats \
+	test/rendered-env-unique.bats test/live-gate-ci-wiring.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \

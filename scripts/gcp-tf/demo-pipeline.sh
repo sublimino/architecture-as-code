@@ -824,7 +824,8 @@ run_stage \
      test/fleet-manager-caller-auth-manifest.bats test/fleet-manager-caller-keys.bats \
      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
      test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
-     test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats"
+     test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
+      test/rendered-env-unique.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists

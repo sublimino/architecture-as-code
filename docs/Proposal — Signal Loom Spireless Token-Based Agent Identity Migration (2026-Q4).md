@@ -513,7 +513,7 @@ sequenceDiagram
 | P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | pass (inventory written; wire contract pinned) | — | — | — | — |
 | P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | pass — delivered: `52fae47095a41f217d8300e23eb849cef850b12c` (see Errata — SLTM-P1-1) | — | — | — | — |
 | P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | pass — delivered: 24565a359600b3474e391059d85e41f1daa1895f (see Errata — SLTM-P1-2) | — | — | — | — |
-| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | pass — delivered: `376d8205` / `9ea6339f` (see Errata — SLTM-P1-GOV) | — | — | — | — |
 | P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | — | — | — | — | — |
 | P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | — | — | — | — | — |
 | P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | — | — | — | — | — |
@@ -854,3 +854,65 @@ Failing test suites were authored and committed first in `ec12d405`:
 - Restores the machine tag only. P1-PRE's own tag (f69bd8a3) was lost in a later merge, so its block parsed as status=unknown and blocked the P1-GOV start. No result changes: the card is already done on the board.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P1-GOV
+
+- **Logical ID:** P1-GOV
+- **Created:** 2026-10-03 06:18:00+01:00
+- **Last Updated:** 2026-10-03 06:18:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/sltm-v0.1.0`
+- **Merge Order & Ref Advancement:**
+  - Merged P1-1 (`7aa0f950` / `d74758fb`) then P1-2 (`5bb28c9c` / `eae328a7`) in order onto `integration/sltm-v0.1.0`.
+  - P1-2 namespace defect fixed in `376d8205` (`ConfigMap signalloom-rbac-exporter-script-*` rendered with explicit namespace `fe-signalloom-agents` in `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/kustomization.yaml`).
+  - Integration tip fast-forwarded to `9ea6339f`.
+
+##### Offline Gate Results (Merged Tip `9ea6339f`)
+- `make test-sldc-offline`: Exit 0 (TAP 597 ok, 1 not ok baseline nono cgroup check, 40 skip; fe pytest stage: 141 passed; bun tenant-hash: 43 passed).
+- `make test-sltm-probe-apikey`: 17/17 passed (10 offline ok; 7 live ok under `SLTM_LIVE=1 KUBECONFIG="$HOME/.kube/config"`).
+- `make test-e2e-containment-mutation-proof`: 43/43 ok (43/43 mutations proven).
+- `bash scripts/lint-pipefail-grep-q.sh`: SCANNED CLEAN (644 files).
+- `bats test/agent-swarm-flux-rbac.bats test/afm-rbac-exporter-manifests.bats`: 11/11 passed.
+
+##### Mutation Proof Spot-Checks (4/4 Replayed)
+- MUT 1 (P1-1 HTTPRouteFilter 403 -> 200): exit 1 (RED); restored -> GREEN.
+- MUT 2 (P1-1 `afm_import.py` token validation bypass): exit 1 (RED); restored -> GREEN.
+- MUT 3 (P1-2 ClusterRole adding secrets): exit 1 (RED); restored -> GREEN.
+- MUT 4 (P1-2 `export.py` removing Authorization header): exit 1 (RED); restored -> GREEN.
+
+##### Live Positive Import (`kind-osramp`)
+- Exporter Job: `sltm-p1gov-import-1791003853` (completed 1/1, exit 0).
+- Exporter Log: `Successfully imported cluster 'kind-osramp' to AFM (key 'token'): HTTP 200`.
+- `fe-signalloom` Gateway Log: `10.0.0.200:45762 - "POST /api/v1/afm/clusters/import HTTP/1.1" 200 OK`.
+- AFM Cluster List (`GET /clusters`): `[{"id":"prod",...},{"id":"kind-osramp","name":"kind-osramp",...}]`.
+- AFM RBAC Counts (`GET /clusters/kind-osramp/rbac`): `{'subjects': 165, 'roles': 163, 'bindings': 154, 'namespaces': 0}`.
+- PostgreSQL Audit Record (`inf-signalloom` DB `signalloom` table `public.audit_events`):
+  - `id`: `18890a6d-c519-4002-8ad1-e849dc7e1a37`
+  - `event_type`: `afm.cluster_import_requested`
+  - `actor`: `key:afm-importer`
+  - `tenant_id`: `system`
+  - `detail`: `{"key": "afm-importer", "bytes": 143300, "cluster_id": "kind-osramp"}`
+  - `timestamp`: `2026-10-03 05:04:18.662977+00`
+
+##### Live Refusal Matrix & Verification Proofs
+| Route / Source | Test Method | Expected | Actual | Proof / Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| Gateway `Host: afm.osramp.acme.local` `/clusters/import` | Envoy HTTP POST | 403 | 403 Forbidden | HTTPRouteFilter `afm-import-deny` |
+| Gateway Direct `POST /api/v1/afm/clusters/import` | No `Authorization` header | 401 | 401 Unauthorized | Gateway auth check |
+| Gateway Direct `POST /api/v1/afm/clusters/import` | Wrong static key (0600 file) | 401 | 401 Unauthorized | Key directory mismatch |
+| Gateway Direct `POST /api/v1/afm/clusters/import` | Unbound cluster ID (`unbound-rogue-cluster`) | 403 | 403 Forbidden | Bound cluster validation |
+| Dashboard `/afm/clusters/import` | Nginx closure route | 401/403 | 401/403 | P1-PRE-5 path closure |
+| Direct Pod Network to `afm-platform:8000` | TCP connect from unadmitted namespace | Timeout | Timeout (rc=28) | Cilium NetworkPolicy drop |
+| In-Namespace CronJob `afm-cluster-import` | `kubectl create job --from` in `fe-k8s-afm` | 200 | 200 OK | Admitted by pod labels |
+
+##### Key Secrecy Audit
+- 44-byte raw static key value searched across all cluster Pod specs, CronJobs, Jobs, Deployments, DaemonSets, and ConfigMaps: 0 occurrences (`rg -F -c -f` returned rc=1).
+- Key value searched in `fe-signalloom` and exporter log tails: 0 occurrences (`rc=1`).
+- Key name `afm-importer` present and properly attributed in logs and audit table.
+
+##### Incidents and Remediations
+1. **Cosign Key Generation Incident (05:00:07+01:00):** Worktree `.keys` was initially empty/unlinked; running setup generated a new keypair and replaced `cosign-pub` in 7 cluster namespaces, breaking Flux signature verification estate-wide. Lead restored canonical keys, rolled back `cosign-pub`, and re-pushed artifacts from integration signed with canonical key. Fixed rule: never generate keys or touch `cosign-pub` in card worktrees; signing occurs outside sandboxes.
+2. **P1-2 Missing Namespace Manifest Defect:** `signalloom-rbac-exporter-script` ConfigMap rendered without a namespace, causing `agent-swarm-flux` SA to be forbidden at cluster scope. Fixed test-first in `376d8205` by setting `namespace: fe-signalloom-agents` in `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/kustomization.yaml` and adding render assertion in `test/afm-rbac-exporter-manifests.bats`.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

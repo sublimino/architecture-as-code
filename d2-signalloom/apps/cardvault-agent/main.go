@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -36,6 +37,54 @@ type agent struct {
 	invoke       commandRunner
 	pause        func(time.Duration)
 	client       *http.Client
+	now          func() time.Time // nil: time.Now
+
+	// The OpenBao token is reused across runs until tokenReuseMargin before
+	// it expires. Live, 2026-10-03, a fresh login every 60 s run had left
+	// 3,188 tokens for this policy in OpenBao.
+	token       string
+	tokenExpiry time.Time
+}
+
+// tokenReuseMargin: a cached token closer than this to its expiry is
+// replaced rather than used, so a run never starts on a token about to die.
+const tokenReuseMargin = 30 * time.Second
+
+// errBaoDenied marks an OpenBao answer of 401/403.
+var errBaoDenied = errors.New("OpenBao refused the token")
+
+func (a *agent) clock() time.Time {
+	if a.now != nil {
+		return a.now()
+	}
+	return time.Now()
+}
+
+// baoToken returns a usable OpenBao token: the cached one while it has more
+// than tokenReuseMargin left, else a fresh login (SPIRE JWT-SVID first). A
+// token with no reported lease is never cached. reused says which.
+func (a *agent) baoToken(stdout, stderr io.Writer) (token string, reused bool, ok bool) {
+	if a.token != "" && a.clock().Before(a.tokenExpiry.Add(-tokenReuseMargin)) {
+		fmt.Fprintf(stdout, "[step-2] OpenBao token reused (expires in %s)\n", a.tokenExpiry.Sub(a.clock()).Round(time.Second))
+		return a.token, true, true
+	}
+	a.token, a.tokenExpiry = "", time.Time{}
+	jwt, err := a.fetchSPIFFEIdentity()
+	if err != nil {
+		fmt.Fprintf(stderr, "[step-1] FAILED: %v\n", err)
+		return "", false, false
+	}
+	fmt.Fprintln(stdout, "[step-1] SPIFFE identity acquired: spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent")
+	token, ttl, err := a.login(jwt)
+	if err != nil {
+		fmt.Fprintf(stderr, "[step-2] FAILED: %v\n", err)
+		return "", false, false
+	}
+	if ttl > 0 {
+		a.token, a.tokenExpiry = token, a.clock().Add(ttl)
+	}
+	fmt.Fprintln(stdout, "[step-2] OpenBao token acquired (policies: signalloom-cardvault-agent)")
+	return token, false, true
 }
 
 func main() {
@@ -110,21 +159,12 @@ func entry(args []string, stdout, stderr io.Writer) int {
 }
 
 func (a *agent) runDemo(stdout, stderr io.Writer) int {
-	// Step 1: Fetch SPIFFE identity via SPIRE
-	jwt, err := a.fetchSPIFFEIdentity()
-	if err != nil {
-		fmt.Fprintf(stderr, "[step-1] FAILED: %v\n", err)
+	// Steps 1-2: SPIFFE identity via SPIRE, exchanged for an OpenBao token,
+	// or the token from an earlier run while it is still good.
+	token, reused, ok := a.baoToken(stdout, stderr)
+	if !ok {
 		return 1
 	}
-	fmt.Fprintln(stdout, "[step-1] SPIFFE identity acquired: spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent")
-
-	// Step 2: Exchange JWT for OpenBao token
-	token, err := a.exchangeForBaoToken(jwt)
-	if err != nil {
-		fmt.Fprintf(stderr, "[step-2] FAILED: %v\n", err)
-		return 1
-	}
-	fmt.Fprintln(stdout, "[step-2] OpenBao token acquired (policies: signalloom-cardvault-agent)")
 
 	// Step 2a: Auto-claim with Signal Loom (best-effort — does not block the demo)
 	spiffeID := "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent"
@@ -136,8 +176,18 @@ func (a *agent) runDemo(stdout, stderr io.Writer) int {
 		}
 	}
 
-	// Step 3: Read credentials from OpenBao KV
+	// Step 3: Read credentials from OpenBao KV. A reused token that OpenBao
+	// now refuses (revoked, e.g. by a fleet-manager stun) is dropped and
+	// replaced once; a fresh token refused is a real failure.
 	username, password, err := a.readCredentials(token)
+	if err != nil && reused && errors.Is(err, errBaoDenied) {
+		fmt.Fprintln(stdout, "[step-3] cached OpenBao token refused; logging in again")
+		a.token, a.tokenExpiry = "", time.Time{}
+		if token, _, ok = a.baoToken(stdout, stderr); !ok {
+			return 1
+		}
+		username, password, err = a.readCredentials(token)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "[step-3] FAILED: %v\n", err)
 		return 1
@@ -207,44 +257,52 @@ func (a *agent) fetchSPIFFEIdentity() (string, error) {
 
 // exchangeForBaoToken posts the JWT-SVID to OpenBao's JWT auth endpoint.
 func (a *agent) exchangeForBaoToken(jwt string) (string, error) {
+	token, _, err := a.login(jwt)
+	return token, err
+}
+
+// login is exchangeForBaoToken that also returns the token's lease (0 when
+// OpenBao reports none).
+func (a *agent) login(jwt string) (string, time.Duration, error) {
 	payload, err := json.Marshal(map[string]string{"role": a.baoRole, "jwt": jwt})
 	if err != nil {
-		return "", fmt.Errorf("encode login request: %w", err)
+		return "", 0, fmt.Errorf("encode login request: %w", err)
 	}
 
 	url := strings.TrimRight(a.baoAddr, "/") + "/v1/auth/jwt/login"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return "", fmt.Errorf("create login request: %w", err)
+		return "", 0, fmt.Errorf("create login request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("OpenBao login: %w", err)
+		return "", 0, fmt.Errorf("OpenBao login: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", fmt.Errorf("read OpenBao response: %w", err)
+		return "", 0, fmt.Errorf("read OpenBao response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("OpenBao login returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return "", 0, fmt.Errorf("OpenBao login returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var result struct {
 		Auth struct {
-			ClientToken string `json:"client_token"`
+			ClientToken   string `json:"client_token"`
+			LeaseDuration int64  `json:"lease_duration"`
 		} `json:"auth"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("decode OpenBao response: %w", err)
+		return "", 0, fmt.Errorf("decode OpenBao response: %w", err)
 	}
 	if result.Auth.ClientToken == "" {
-		return "", fmt.Errorf("OpenBao response contains no client_token")
+		return "", 0, fmt.Errorf("OpenBao response contains no client_token")
 	}
-	return result.Auth.ClientToken, nil
+	return result.Auth.ClientToken, time.Duration(result.Auth.LeaseDuration) * time.Second, nil
 }
 
 // readCredentials fetches username/password from OpenBao KV v2.
@@ -265,6 +323,9 @@ func (a *agent) readCredentials(token string) (string, string, error) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", "", fmt.Errorf("read KV response: %w", err)
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return "", "", fmt.Errorf("%w: OpenBao KV returned %d: %s", errBaoDenied, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", "", fmt.Errorf("OpenBao KV returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))

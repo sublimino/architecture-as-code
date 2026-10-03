@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"regexp"
 	"testing"
 )
 
@@ -155,5 +157,57 @@ func TestFakeWriter_Reset(t *testing.T) {
 	fake.Reset()
 	if len(fake.Events()) != 0 {
 		t.Error("expected 0 events after reset")
+	}
+}
+
+// TestAllEventTypesInBootstrapCheck asserts vocabulary parity: every event type
+// emitted by signal-ingest (AllEventTypes) must be admitted by the database
+// CHECK constraint on signal_audit_trail in discovery-portal-bootstrap.sql.
+func TestAllEventTypesInBootstrapCheck(t *testing.T) {
+	// Locate bootstrap SQL relative to test directory
+	candidates := []string{
+		"../../../contracts/discovery-portal-bootstrap.sql",
+		"../../contracts/discovery-portal-bootstrap.sql",
+		"../contracts/discovery-portal-bootstrap.sql",
+		"contracts/discovery-portal-bootstrap.sql",
+		"d2-signalloom/contracts/discovery-portal-bootstrap.sql",
+	}
+
+	var content []byte
+	var err error
+	for _, path := range candidates {
+		content, err = os.ReadFile(path)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatalf("failed to locate discovery-portal-bootstrap.sql: %v", err)
+	}
+
+	sqlText := string(content)
+
+	// Extract allowed event_types from signal_audit_trail CHECK constraint
+	// Looking for signal_audit_trail_event_type_check or signal_audit_trail CHECK
+	re := regexp.MustCompile(`CHECK\s*\(\s*event_type\s+IN\s*\(([^)]+)\)\s*\)`)
+	matches := re.FindAllStringSubmatch(sqlText, -1)
+	if len(matches) == 0 {
+		t.Fatal("could not find event_type CHECK constraint in bootstrap SQL")
+	}
+
+	// Build set of all event types admitted across CHECK constraints in bootstrap SQL
+	admitted := make(map[string]bool)
+	strRe := regexp.MustCompile(`'([^']+)'`)
+	for _, m := range matches {
+		items := strRe.FindAllStringSubmatch(m[1], -1)
+		for _, it := range items {
+			admitted[it[1]] = true
+		}
+	}
+
+	for _, et := range AllEventTypes {
+		if !admitted[string(et)] {
+			t.Errorf("AllEventTypes contains %q, which is missing from bootstrap CHECK constraint", et)
+		}
 	}
 }

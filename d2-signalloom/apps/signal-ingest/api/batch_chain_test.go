@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,7 +37,10 @@ func newTestChainRouter(t *testing.T, aw audit.AuditWriter) (*ProtectedRouter, s
 	p := Principal{
 		Subject:     testProbeSubject,
 		TenantID:    testProbeTenant,
-		Permissions: map[Permission]bool{PermissionObservationWrite: true},
+		Permissions: map[Permission]bool{
+			PermissionObservationWrite: true,
+			PermissionCrossTenantWrite: true,
+		},
 	}
 	authn := staticAuthenticator{principal: p}
 	router, err := NewProtectedRouter(h, authn, aw, http.NotFoundHandler(), RouterOptions{})
@@ -50,6 +51,10 @@ func newTestChainRouter(t *testing.T, aw audit.AuditWriter) (*ProtectedRouter, s
 }
 
 func makeBatchObservation(id, target string) []byte {
+	return makeBatchObservationWithTenant(id, target, testProbeTenant)
+}
+
+func makeBatchObservationWithTenant(id, target, tenant string) []byte {
 	obs := []model.Observation{{
 		ID:              id,
 		Timestamp:       time.Now().UTC(),
@@ -63,7 +68,7 @@ func makeBatchObservation(id, target string) []byte {
 			"namespace": "fe-signalloom-agents",
 			"pod_name":  "agent-kusari-7d9f",
 			"target":    target,
-			"tenant_id": testProbeTenant,
+			"tenant_id": tenant,
 		},
 		Description: "test observation for " + target,
 	}}
@@ -707,7 +712,7 @@ func TestBatchChainStateIsPerKey(t *testing.T) {
 	epoch := "66666666666666666666666666666666"
 
 	// Key A sends seq 1
-	body1 := makeBatchObservation("obs-a-1", "/etc/a")
+	body1 := makeBatchObservationWithTenant("obs-a-1", "/etc/a", "tenant-a")
 	rA1 := makeChainRequest("key-a", epoch, 1, "", body1)
 	wA1 := httptest.NewRecorder()
 	router.ServeHTTP(wA1, rA1)
@@ -716,7 +721,7 @@ func TestBatchChainStateIsPerKey(t *testing.T) {
 	}
 
 	// Key B sends same epoch, seq 1 (should NOT conflict or replay against key A)
-	body2 := makeBatchObservation("obs-b-1", "/etc/b")
+	body2 := makeBatchObservationWithTenant("obs-b-1", "/etc/b", "tenant-b")
 	rB1 := makeChainRequest("key-b", epoch, 1, "", body2)
 	wB1 := httptest.NewRecorder()
 	router.ServeHTTP(wB1, rB1)
@@ -820,8 +825,10 @@ func TestBatchChainAuditRowsNameTheKeyNotTheValue(t *testing.T) {
 
 func TestBatchChainAuditStoreDownIs503(t *testing.T) {
 	fake := audit.NewFakeWriter()
-	fake.FailWith = errors.New("postgres connection failed")
 	router, st, _ := newTestChainRouter(t, fake)
+
+	// Now make audit sink fail
+	fake.FailWith = errors.New("postgres connection failed")
 
 	epoch := "88888888888888888888888888888888"
 	body := makeBatchObservation("obs-down", "/etc/down")
@@ -839,6 +846,30 @@ func TestBatchChainAuditStoreDownIs503(t *testing.T) {
 	obs, _ := st.QueryRange(context.Background(), store.Query{})
 	if len(obs) != 0 {
 		t.Fatalf("expected 0 stored observations, got %d", len(obs))
+	}
+
+	// 2. Anomaly-free batch (contiguous) with sink down:
+	// Restore healthy audit to establish seq 1
+	fake.FailWith = nil
+	r1ok := makeChainRequest(testProbeKey, epoch, 1, "", body)
+	w1ok := httptest.NewRecorder()
+	router.ServeHTTP(w1ok, r1ok)
+	if w1ok.Code != http.StatusCreated {
+		t.Fatalf("seq 1 retry: expected 201, got %d", w1ok.Code)
+	}
+
+	// Now fail sink again, and send contiguous seq 2
+	fake.FailWith = errors.New("postgres connection failed")
+	sum := sha256.Sum256(body)
+	prev := hex.EncodeToString(sum[:])
+	body2 := makeBatchObservation("obs-down-2", "/etc/down-2")
+	r2 := makeChainRequest(testProbeKey, epoch, 2, prev, body2)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, r2)
+
+	// Contiguous batches emit no batch chain audit events, so contiguous succeeds with 201
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("contiguous batch with sink down: expected 201, got %d: %s", w2.Code, w2.Body.String())
 	}
 }
 

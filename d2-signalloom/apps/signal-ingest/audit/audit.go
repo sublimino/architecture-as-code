@@ -26,6 +26,7 @@ const (
 	EventActorDismissed      EventType = "actor_dismissed"
 	EventCollectorRun        EventType = "collector_run"
 	EventPartitionDropped    EventType = "partition_dropped"
+	EventBatchChain          EventType = "batch_chain"
 )
 
 // AllEventTypes lists every event type admitted by the CHECK constraint.
@@ -38,6 +39,7 @@ var AllEventTypes = []EventType{
 	EventActorDismissed,
 	EventCollectorRun,
 	EventPartitionDropped,
+	EventBatchChain,
 }
 
 // Event is a single audit trail record destined for signal_audit_trail.

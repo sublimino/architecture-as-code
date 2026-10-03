@@ -16,7 +16,7 @@ destroying volatile heap memory, process state, and open socket telemetry before
 security responders can investigate.
 
 Signal Loom resolves this through **Behavioral Probe Recording and Simulation ("Healthz Replay")**
-managed by the `stun-sentinel` daemon/sidecar.
+managed by the `signalloom-warden` daemon/sidecar.
 
 <Mermaid
   label="Dynamic Probe Inspection, Healthz Replay, and Forensic Lease Sequence"
@@ -24,7 +24,7 @@ managed by the `stun-sentinel` daemon/sidecar.
     autonumber
     actor Operator as Security Operator / Policy Engine
     participant Kubelet as Node Kubelet
-    participant Sentinel as Stun-Sentinel (Sidecar/Daemon)
+    participant Sentinel as Signalloom-Warden (Sidecar/Daemon)
     participant Cgroup as Linux cgroups v2
     participant Agent as Agent Workload Container
     participant Audit as Central Evidence Lake (FrostDB)
@@ -76,7 +76,7 @@ managed by the `stun-sentinel` daemon/sidecar.
 
 ## 1. Dynamic Probe Inspection & Eviction Window Calculation
 
-When containment is triggered, `stun-sentinel` queries the Kubernetes API and the local
+When containment is triggered, `signalloom-warden` queries the Kubernetes API and the local
 Kubelet pod status to determine the exact probe tolerances configured on the Pod:
 ```
 T_eviction = (failureThreshold * periodSeconds) + timeoutSeconds
@@ -91,7 +91,7 @@ T_eviction = (failureThreshold * periodSeconds) + timeoutSeconds
 Without probe simulation, a frozen process triggers liveness probe timeouts within 30 seconds,
 causing Kubelet to terminate the container. 
 
-`stun-sentinel` overrides this by enforcing a bounded **Forensic Investigation Lease**
+`signalloom-warden` overrides this by enforcing a bounded **Forensic Investigation Lease**
 (default: **300 seconds**, configurable up to 900 seconds in cluster policy).
 
 ---
@@ -99,7 +99,7 @@ causing Kubelet to terminate the container.
 ## 2. Behavioral Probe Recording & Simulation ("Healthz Replay")
 
 ### Passive Recording Phase
-During normal agent execution, `stun-sentinel` acts as a transparent reverse proxy for inbound
+During normal agent execution, `signalloom-warden` acts as a transparent reverse proxy for inbound
 Kubelet probes on the Pod's loopback interface:
 1. **HTTP Probes**: Records status code (`200 OK`), content type, response headers, static body digests,
    and typical response latency (p50, p95).
@@ -108,10 +108,10 @@ Kubelet probes on the Pod's loopback interface:
 
 ### Simulation Phase (Active Freeze)
 Upon receiving a stun command:
-1. `stun-sentinel` writes `1` to `/sys/fs/cgroup/cgroup.freeze` for the target container cgroup.
+1. `signalloom-warden` writes `1` to `/sys/fs/cgroup/cgroup.freeze` for the target container cgroup.
 2. The agent's execution stops instantaneously at the CPU schedule level. No instructions execute;
    memory allocations, file descriptors, and thread stacks remain static.
-3. When Kubelet sends a liveness or readiness check, `stun-sentinel` intercepts the probe request.
+3. When Kubelet sends a liveness or readiness check, `signalloom-warden` intercepts the probe request.
 4. Sentinel synthesizes the response matching the recorded baseline signature, returning `200 OK`
    with the expected headers and body payload. Kubelet observes a healthy response and leaves the Pod running.
 
@@ -124,7 +124,7 @@ Certain health probes cannot be safely simulated without compromising security i
 - **Stateful Mutual TLS (mTLS)**: Probes requiring dynamic session state renegotiation.
 - **Deep Application Checksums**: Probes that query internal database sequence numbers or dynamic cache states.
 
-`stun-sentinel` continuously validates whether the probe payload is deterministic. If the probe
+`signalloom-warden` continuously validates whether the probe payload is deterministic. If the probe
 requires unpredictable dynamic entropy or stateful crypto handshakes:
 1. Sentinel flags the probe as **`UNSIMULATEABLE_PROBE`**.
 2. **Simulation is refused**: Sentinel does not emit synthetic responses. Faking non-deterministic
@@ -156,7 +156,7 @@ During the active 300-second forensic lease, the agent is quarantined:
    Inspect memory without destroying the container:
    ```bash
    # Stream memory core dump of frozen container to secure storage
-   kubectl exec -n fe-signalloom-agents stun-sentinel-pod -- \
+   kubectl exec -n fe-signalloom-agents signalloom-warden-pod -- \
      /opt/sentinel/bin/sentinel-dump --target-pid 18492 --out /tmp/agent-dump.core
    ```
 2. **Automated Policy Remediation**:

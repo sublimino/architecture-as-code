@@ -1131,7 +1131,7 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/phase3-governor-verification.bats test/spire-federation-openbao-jwt.bats \
 	test/tenant-hash-vectors.bats test/unit/sldc-p0-harness.bats \
 	test/sentinel-capabilities.bats test/sentinel-image-provenance.bats \
-	d2-signalloom/test/stun-sentinel-daemonset.bats test/demo-agent-autoclaim.bats \
+	d2-signalloom/test/signalloom-warden-daemonset.bats test/demo-agent-autoclaim.bats \
 	test/dex-subject-tenants.bats test/pipefail-grep-q-lint.bats test/teardown-kind-race.bats \
 	test/sldc-ingest-bearer.bats test/signalfusion-demo-auth.bats d2-signalloom/test/ingest-routes-offline.bats \
 	test/agent-swarm-tenancy.bats test/agent-swarm-flux-rbac.bats test/cgroup-freeze-live-gate.bats \
@@ -1146,7 +1146,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/afm-rbac-exporter-manifests.bats \
 	test/afm-rbac-exporter-push.bats \
 	test/sltm-ingest-reload-ratelimit.bats \
-	test/sltm-ingest-chain.bats
+	test/sltm-ingest-chain.bats \
+	test/old-probe-name-guard.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \

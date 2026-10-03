@@ -1,6 +1,6 @@
 """Kernel freezer truth versus the control-plane stun record.
 
-The stun-sentinel publishes the cgroup freezer state as pod annotations, which
+The signalloom-warden publishes the cgroup freezer state as pod annotations, which
 fake-integration-proxy discovery carries as ``kernel_state`` and
 ``kernel_observed_at``. A pod the kernel has frozen with no stun record is a
 split brain: the dashboard rendered three of them as idle and healthy for up to

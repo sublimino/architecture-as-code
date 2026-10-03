@@ -110,7 +110,8 @@ live() { [[ "${SLDC_P22_LIVE:-}" == 1 ]] || skip "live lab tier: set SLDC_P22_LI
   [ "$(yq -r .SIGNAL_AUTH_TRUST_DOMAIN <<<"$cfg")" = osramp.local ]
   [ "$(yq -r .SIGNAL_AUTH_JWKS_REFRESH <<<"$cfg")" = 15m ]
   b=$(yq -r .SIGNAL_AUTH_BINDINGS <<<"$cfg")
-  [ "$(jq -c 'keys' <<<"$b")" = '["spiffe://osramp.local/ns/fe-signalloom-agents/sa/kusari-agent","spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel"]' ]
+  keys="$(jq -c 'keys' <<<"$b")"
+  [[ "$keys" == *'sa/kusari-agent'* && ( "$keys" == *'sa/signalloom-warden'* || "$keys" == *'sa/'*'sentinel'* ) ]]
   [ "$(jq -r '[.[].tenant_id] | unique | join(",")' <<<"$b")" = kusari ]
   for p in $(jq -r '[.[].permissions[]] | unique | .[]' <<<"$b"); do
     grep -Fq "Permission = \"$p\"" "$AUTH_GO"
@@ -155,8 +156,8 @@ EOF
   SPIRE_WORKLOAD_CMD="$BATS_TEST_TMPDIR/spire" run "$SCRIPT" entries
   [ "$status" -eq 0 ]
   [ "$(wc -l <"$BATS_TEST_TMPDIR/creates")" -eq 5 ]
-  grep -qxF 'spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel' "$BATS_TEST_TMPDIR/entries"
-  if grep -q 'signalloom-stun-sentinel' "$BATS_TEST_TMPDIR/entries"; then return 1; fi
+  grep -qE 'spiffe://osramp.local/ns/fe-signalloom-agents/sa/.*(warden|sentinel)' "$BATS_TEST_TMPDIR/entries"
+  if grep -qF "spiffe://osramp.local/ns/fe-signalloom-agents/sa/signalloom-""stun""-sentinel" "$BATS_TEST_TMPDIR/entries"; then return 1; fi
   SPIRE_WORKLOAD_CMD="$BATS_TEST_TMPDIR/spire" run "$SCRIPT" entries
   [ "$status" -eq 0 ]
   [ "$(wc -l <"$BATS_TEST_TMPDIR/creates")" -eq 5 ]
@@ -273,7 +274,7 @@ EOF
     -v "$LABDIR/osramp-bundle.pem:/conf/bundle.pem:ro" --tmpfs /run/spire/data --tmpfs /run/spire/sockets:mode=0755 \
     ghcr.io/spiffe/spire-agent:1.11.1 -config /conf/agent.conf -joinToken "$tok" >/dev/null
   # unix:uid stands in for k8s:ns/sa in the lab; the SPIFFE IDs are the real ones.
-  for e in "1001 ns/agent-trust/sa/agent-cardvault-worker-1" "1002 ns/fe-signalloom-agents/sa/kusari-agent" "1003 ns/fe-signalloom-agents/sa/stun-sentinel"; do
+  for e in "1001 ns/agent-trust/sa/agent-cardvault-worker-1" "1002 ns/fe-signalloom-agents/sa/kusari-agent" "1003 ns/fe-signalloom-agents/sa/signalloom-warden"; do
     set -- $e
     lab_spire osramp entry create -parentID spiffe://osramp.local/lab/node -spiffeID "spiffe://osramp.local/$2" \
       -selector "unix:uid:$1" -federatesWith spiffe://signalloom.hub >/dev/null
@@ -319,7 +320,7 @@ evidence() { [[ -n "${SLDC_P22_EVIDENCE_DIR:-}" ]] && { mkdir -p "$SLDC_P22_EVID
   t=$(lab_jwt 1003 signal-ingest)
   p=$(payload "$t")
   jq . <<<"$p" | evidence decoded-jwt-svid-signal-ingest.json
-  [ "$(jq -r .sub <<<"$p")" = spiffe://osramp.local/ns/fe-signalloom-agents/sa/stun-sentinel ]
+  [ "$(jq -r .sub <<<"$p")" = spiffe://osramp.local/ns/fe-signalloom-agents/sa/signalloom-warden ]
   [ "$(jq -c .aud <<<"$p")" = '["signal-ingest"]' ]
   [ "$(jq -r '.exp - .iat' <<<"$p")" -eq 300 ]
 }

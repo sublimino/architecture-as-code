@@ -57,7 +57,7 @@ const (
 	PlaneSpire EnforcementPlane = "spire"
 	// PlaneAdmission blocks pod reconstitution and rescheduling via admission webhooks (node-capability-guard).
 	PlaneAdmission EnforcementPlane = "admission"
-	// PlaneFreeze freezes container processes in-place using cgroup v2 or SIGSTOP (stun-sentinel).
+	// PlaneFreeze freezes container processes in-place using cgroup v2 or SIGSTOP (signalloom-warden).
 	PlaneFreeze EnforcementPlane = "freeze"
 	// PlaneGitOps pauses Flux reconciliation of the contained workload by
 	// annotating the pod and its owning Deployment with
@@ -320,7 +320,7 @@ type FreezeRequest struct {
 	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
-// FreezeResponse defines the wire response from the stun sentinel freeze engine.
+// FreezeResponse defines the wire response from the signalloom warden freeze engine.
 type FreezeResponse struct {
 	SchemaVersion   string           `json:"schema_version"`
 	IdempotencyKey  string           `json:"idempotency_key"`

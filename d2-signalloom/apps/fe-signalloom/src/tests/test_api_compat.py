@@ -1072,7 +1072,7 @@ def test_operational_inventory_response_envelope_and_models(client, monkeypatch)
                             "node": "node-1",
                             "phase": "Running",
                             "pod_uid": "uid-12345",
-                            # The stun-sentinel annotation, as discovery carries it.
+                            # The signalloom-warden annotation, as discovery carries it.
                             "kernel_state": "running",
                             "kernel_observed_at": "2026-09-07T09:00:00Z",
                         }

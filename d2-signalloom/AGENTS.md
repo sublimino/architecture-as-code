@@ -23,7 +23,7 @@ flowchart TB
 
   subgraph ENFORCE["Enforcement & Telemetry"]
     SENSOR["agentmaxxing-host-sensor<br/>(Python procfs and netlink sensor)"]
-    SENTINEL["stun-sentinel<br/>(eBPF Network Containment)"]
+    SENTINEL["signalloom-warden<br/>(eBPF Network Containment)"]
     NETASSERT["netassert-controller<br/>(Network Policy Assertions)"]
   end
 
@@ -60,7 +60,7 @@ flowchart TB
 | API backend | Python FastAPI | [`apps/fe-signalloom/src/`](apps/fe-signalloom/src/) |
 | Fleet Manager | Go multi-plane controller | [`apps/fleet-manager/`](apps/fleet-manager/) |
 | Host Sensor | Python procfs and netlink sensor | [`apps/agentmaxxing-host-sensor/`](apps/agentmaxxing-host-sensor/) |
-| Stun Sentinel | Go & eBPF tc-drop filter | [`apps/stun-sentinel/`](apps/stun-sentinel/) |
+| SignalLoom Warden | Go & eBPF tc-drop filter | [`apps/stun-sentinel/`](apps/stun-sentinel/) |
 | Integration services | Python fixture and discovery proxy | [`apps/fake-integration-proxy/`](apps/fake-integration-proxy/) |
 | Identity | Dex OIDC (local static user) | [`infra/inf-signalloom/base/dex.yaml`](infra/inf-signalloom/base/dex.yaml) |
 | Secrets and identity | OpenBao, SPIRE | [`infra/inf-bao/`](infra/inf-bao/) |
@@ -72,7 +72,7 @@ flowchart TB
 | Policy compiler | Go CLI. Compiles CEL invariants into admission policies and nono Landlock profiles. | [`cmd/policy-compiler/`](cmd/policy-compiler/) |
 | Policy library | Go package for the policy compiler (CEL checks, CEL and Landlock output) | [`pkg/policy/`](pkg/policy/) |
 | riskctl bridge | Go wrapper. Runs `tools/riskctl/riskctl` from the repository root. `make riskctl` builds that binary from [`tools/riskctl/`](../tools/riskctl/). | [`cmd/riskctl/`](cmd/riskctl/) |
-| Host deployment manifests | Stun Sentinel DaemonSet and NetworkPolicy, Tetragon audit telemetry | [`deploy/`](deploy/) |
+| Host deployment manifests | Signalloom Warden DaemonSet and NetworkPolicy, Tetragon audit telemetry | [`deploy/`](deploy/) |
 | Governance contracts | AgentMaxxing JSON Schemas, fixtures, and a Python schema checker | [`governance/`](governance/) |
 | Design-system demo | Standalone React app with fixture data only | [`design-system-demo/`](design-system-demo/) |
 | NetAssert runner | Agent pod resolver script for the NetAssert Job image | [`netassert-runner/`](netassert-runner/), [`netassert-runner.Dockerfile`](netassert-runner.Dockerfile) |
@@ -210,8 +210,8 @@ All application source code resides under `apps/`:
 | `prod-deploy-gate` | [`apps/prod-deploy-gate/`](apps/prod-deploy-gate/) | Pre-deployment gating controller enforcing attestation checks. |
 | `prompt-commit-summarizer` | [`apps/prompt-commit-summarizer/`](apps/prompt-commit-summarizer/) | Automated Git commit message summarisation agent. |
 | `signal-ingest` | [`apps/signal-ingest/`](apps/signal-ingest/) | High-throughput telemetry ingestion service. |
-| `signalloom-stun-sentinel` | [`apps/signalloom-stun-sentinel/`](apps/signalloom-stun-sentinel/) | STUN protocol network barrier daemon. |
-| `stun-sentinel` | [`apps/stun-sentinel/`](apps/stun-sentinel/) | eBPF tc-drop filter and network containment controller. |
+| `signalloom-warden` | [`apps/signalloom-stun-sentinel/`](apps/signalloom-stun-sentinel/) | STUN protocol network barrier daemon. |
+| `stun-sentinel` (library) | [`apps/stun-sentinel/`](apps/stun-sentinel/) | eBPF tc-drop filter and network containment controller. |
 | `supercred-demo-runner` | [`apps/supercred-demo-runner/`](apps/supercred-demo-runner/) | Automated driver for the SuperCred credential escalation demo. |
 | `swarm-governor` | [`apps/swarm-governor/`](apps/swarm-governor/) | Governance controller orchestrating multi-agent coordination. |
 | `triage-ci-worker` | [`apps/triage-ci-worker/`](apps/triage-ci-worker/) | Automated CI failure triage agent. |

@@ -44,7 +44,7 @@ const SWARM_AGENTS = [
   { id: 'prod-deploy-gate', role: 'hitl-proxy', credentialed: false },
   { id: 'agent-cardvault', role: 'supercred-demo', credentialed: false },
   { id: 'nono-containment-probe', role: 'containment-probe', credentialed: false },
-  { id: 'stun-sentinel', role: 'sentinel', credentialed: false },
+  { id: 'signalloom-warden', role: 'sentinel', credentialed: false },
 ]
 
 interface AgentFixture {
@@ -166,7 +166,7 @@ describe('SwarmCredentialInventory — SPIFFE registration entries', () => {
       'agent-cardvault',
       'nono-containment-probe',
       'prod-deploy-gate',
-      'stun-sentinel',
+      'signalloom-warden',
     ])
   })
 

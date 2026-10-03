@@ -122,7 +122,7 @@ esac
 # ── Step 5: the sentinel's own health (resync interval, reconcile count) ─────
 # Matched first: these jsonpaths would otherwise fall into the Step 1 catch-alls.
 case "${ARGS}" in
-  *"get pod"*"name=stun-sentinel"*) echo -n "stun-sentinel-x7k2p"; exit 0 ;;
+  *"get pod"*"name=signalloom-warden"*) echo -n "signalloom-warden-x7k2p"; exit 0 ;;
   *"get pod"*"io/stun-reason}"*)
       # After an authorised recovery fleet-manager blanks the reason.
       recovered && [ "${MUT}" != "step6_record_left" ] && exit 0
@@ -130,9 +130,9 @@ case "${ARGS}" in
       # step5_stun_not_from_sentinel: a stun someone else wrote, e.g. a
       # dashboard click, is not the sentinel's detection being recorded.
       if [ "${MUT}" = "step5_stun_not_from_sentinel" ]; then echo -n "fleet-manager cascade containment"
-      else echo -n "stun-sentinel detection: sys_enter_openat /etc/passwd"; fi
+      else echo -n "signalloom-warden detection: sys_enter_openat /etc/passwd"; fi
       exit 0 ;;
-  *"get --raw"*"pods/stun-sentinel-x7k2p:8081/proxy/healthz"*)
+  *"get --raw"*"pods/signalloom-warden-x7k2p:8081/proxy/healthz"*)
       # Every read is a later moment: reconcile_count advances (unless the
       # reconciler is idle) and, from the second read on, a resync has run.
       n=$(( $(cat "${STATE}/health_reads" 2>/dev/null || echo 0) + 1 ))
@@ -283,7 +283,7 @@ case "${ARGS}" in
       # signal-ingest redacts labels.target only, so the path rides there alone.
       obs() { # ts tenant target
           local d; d="$(printf '%s' "$3" | sha256sum | cut -c1-16)"
-          printf '{"id":"stun-sentinel:fe-signalloom-agents/%s:%s:sys_enter_openat:%s","timestamp":"%s","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat/%s","labels":{"syscall":"sys_enter_openat","target":"%s","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","severity":"CRITICAL","direct_reaction":"cgroup_frozen","cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"description":"sys_enter_openat target %s by fe-signalloom-agents/%s"}' \
+          printf '{"id":"signalloom-warden:fe-signalloom-agents/%s:%s:sys_enter_openat:%s","timestamp":"%s","layer":"endpoint_host","fidelity":"strong","source":"signalloom-warden","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat/%s","labels":{"syscall":"sys_enter_openat","target":"%s","tenant_id":"%s","pod_name":"%s","namespace":"fe-signalloom-agents","severity":"CRITICAL","direct_reaction":"cgroup_frozen","cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/pod%s.slice"},"description":"sys_enter_openat target %s by fe-signalloom-agents/%s"}' \
               "${POD}" "$1" "${d}" "$1" "${d}" "$3" "$2" "${POD}" "${UID_//-/_}" "${d}" "${POD}"
       }
       # The real store answers an UNBOUNDED query with its oldest rows, so a

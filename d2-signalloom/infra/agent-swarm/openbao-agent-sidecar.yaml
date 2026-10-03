@@ -74,7 +74,7 @@
 #   - name: openbao-agent
 #     image: openbao/openbao:2.1.0
 #     # bao directly: the image's docker-entrypoint.sh runs `id -u openbao`,
-#     # reading /etc/passwd, which the stun sentinel freezes a watched pod on.
+#     # reading /etc/passwd, which the signalloom warden freezes a watched pod on.
 #     # HOME keeps bao's home lookup off the user database. Enforced by
 #     # d2-signalloom/test/openbao-sidecar-entrypoint.bats.
 #     command: ["bao", "agent", "-config=/etc/openbao/agent.hcl"]

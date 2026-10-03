@@ -59,7 +59,7 @@ metadata:
   annotations:
     signalloom.io/card: CRKC-P1-4
     signalloom.io/role: telemetry-producer
-    signalloom.io/enforcement-owner: "stun-sentinel (Tier 0) / flux-kustomize (Tier 1)"
+    signalloom.io/enforcement-owner: "signalloom-warden (Tier 0) / flux-kustomize (Tier 1)"
 data:
   enforcement: "disabled"
   # gRPC export socket the signal-ingest ebpf collector dials.

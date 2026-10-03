@@ -26,7 +26,7 @@ description: Separate verified demonstration behaviour from planned platform beh
 
 ### Active Containment & Cyber Resilience (SLER)
 - **3-Plane Deterministic Containment**: Execution Freeze, Dynamic Credential Revocation, and eBPF TC Packet Severance (`SL-EP-03`).
-- **Stun-Sentinel Healthz Replay**: Behavioral probe recording & simulation with a 300s forensic investigation lease and fail-closed eviction (`SL-EP-03`).
+- **Signalloom-Warden Healthz Replay**: Behavioral probe recording & simulation with a 300s forensic investigation lease and fail-closed eviction (`SL-EP-03`).
 - **Live BATS Red-Team Harness**: Dynamic verification suite asserting sub-50ms containment under live load (`SL-EP-04`).
 
 ### Data Protection & Supply Chain

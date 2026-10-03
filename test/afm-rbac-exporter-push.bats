@@ -3,7 +3,7 @@
 # Copyright 2026 ControlPlane Security Authors
 #
 # @id      afm-rbac-exporter-push
-# @target  d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac-exporter/export.py
+# @target  d2-signalloom/infra/agent-swarm/signalloom-warden/rbac-exporter/export.py
 # @doc     docs/Proposal — Signal Loom Spireless Token-Based Agent Identity Migration (2026-Q4).md
 # @spec    SLTM Phase 1, D2/D3/ADR-06 (P1-2)
 #
@@ -21,7 +21,8 @@ setup_file() {
   mkdir -p "${T}/config"
 
   # Extract export.py directly from the rendered ConfigMap
-  kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel" 2>/dev/null \
+  local kust="$(ls -d "${REPO_ROOT}"/d2-signalloom/infra/agent-swarm/signalloom-* 2>/dev/null | grep -E "(warden|sentinel)$" | head -n 1)"
+  kubectl kustomize "$kust" 2>/dev/null \
     | yq -r 'select(.kind == "ConfigMap" and .metadata.name == "signalloom-rbac-exporter-script*") | .data["export.py"]' > "${T}/export.py" || true
 
   # Python stub server script

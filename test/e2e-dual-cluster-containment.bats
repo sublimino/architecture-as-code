@@ -3,7 +3,7 @@
 # SLDC-P5-1 - five-step automated end-to-end containment verification.
 #
 # @id      e2e-dual-cluster-containment
-# @target  d2-signalloom/apps/kusari-agent, d2-signalloom/apps/signalloom-stun-sentinel
+# @target  d2-signalloom/apps/kusari-agent, d2-signalloom/apps/signalloom-warden
 # @doc     docs/eap/SLDC-P5-1-E2E-CONTAINMENT.md
 # @spec    Proposal - Signal Loom Local Dual-Cluster EAP Pilot Validation … Appendix F.1
 # @lib     scripts/lib/wait.sh
@@ -277,10 +277,10 @@ cgroup_reports_frozen() {
         | grep -q '^frozen 1$'
 }
 
-# sentinel_pod names the stun-sentinel DaemonSet pod on the workload node:
+# sentinel_pod names the signalloom-warden DaemonSet pod on the workload node:
 # the one whose reconciler owns this pod's cgroup.
 sentinel_pod() {
-    ${K_WORKLOAD} get pod -n "${NS}" -l app.kubernetes.io/name=stun-sentinel \
+    ${K_WORKLOAD} get pod -n "${NS}" -l app.kubernetes.io/name=signalloom-warden \
         --field-selector "spec.nodeName=${NODE}" -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null
 }
 
@@ -366,7 +366,7 @@ stun_recorded() {
     [ "$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}')" = "disabled" ] || return 1
     [[ "$(${K_WORKLOAD} get pod "$1" -n "${NS}" \
-        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}')" == "stun-sentinel detection: "* ]]
+        -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}')" == "signalloom-warden detection: "* ]]
 }
 
 # agent_pod_rows lists the agent's pods as "<uid>|<phase>|<ready>" lines.
@@ -662,7 +662,7 @@ export -f registry_row claim_kusari_agent observations_json sensitive_openat_obs
     # cascade (the one pin writer), names the syscall and the provoked target.
     run ${K_WORKLOAD} get pod "${pod_name}" -n "${NS}" \
         -o 'jsonpath={.metadata.annotations.signalloom\.io/stun-reason}'
-    [[ "$output" == "stun-sentinel detection: sys_enter_openat /etc/"* ]]
+    [[ "$output" == "signalloom-warden detection: sys_enter_openat /etc/"* ]]
     local stun_reason="$output"
 
     # Persistence: the sentinel's own reconciler used to thaw this freeze on

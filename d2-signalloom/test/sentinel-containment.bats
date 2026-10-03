@@ -13,9 +13,9 @@ setup() {
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
   export CGO_ENABLED="${CGO_ENABLED:-0}"
-  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel"
-  DAEMONSET_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml"
-  RBAC_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml"
+  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
+  DAEMONSET_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml"
+  RBAC_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml"
   CARDVAULT_MANIFEST="${REPO_ROOT}/d2-signalloom/apps/cardvault/base/deployment.yaml"
   AGENT_NS="fe-signalloom-agents"
   command -v yq >/dev/null || skip "yq is required"
@@ -237,16 +237,16 @@ cluster_up() {
 
 # ── 3. Live Cluster Verification (when cluster is running) ───────────────────
 
-@test "LIVE: signalloom-stun-sentinel DaemonSet is ready" {
+@test "LIVE: signalloom-warden DaemonSet is ready" {
   cluster_up || skip "no cluster"
   local ready desired
-  desired="$(kubectl get daemonset stun-sentinel -n "$AGENT_NS" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || true)"
-  [ -n "$desired" ] || skip "stun-sentinel DaemonSet not deployed"
+  desired="$(kubectl get daemonset signalloom-warden -n "$AGENT_NS" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || true)"
+  [ -n "$desired" ] || skip "signalloom-warden DaemonSet not deployed"
 
   # Allow in-flight rollout or transient reconciliations up to 10s
-  kubectl rollout status daemonset/stun-sentinel -n "$AGENT_NS" --timeout=10s >/dev/null 2>&1 || true
+  kubectl rollout status daemonset/signalloom-warden -n "$AGENT_NS" --timeout=10s >/dev/null 2>&1 || true
 
-  ready="$(kubectl get daemonset stun-sentinel -n "$AGENT_NS" -o jsonpath='{.status.numberReady}' 2>/dev/null || true)"
+  ready="$(kubectl get daemonset signalloom-warden -n "$AGENT_NS" -o jsonpath='{.status.numberReady}' 2>/dev/null || true)"
   [ "$ready" = "$desired" ]
 }
 

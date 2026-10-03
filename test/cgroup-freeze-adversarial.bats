@@ -3,7 +3,7 @@
 # Copyright 2026 ControlPlane Security Authors
 #
 # @id      cgroup-freeze-adversarial
-# @target  d2-signalloom/apps/stun-sentinel/pkg/cgroup/freezer.go
+# @target  d2-signalloom/apps/signalloom-warden/pkg/cgroup/freezer.go
 # @doc     docs/slaat/p1-4/sentinel-landlock-confinement-adversarial-dossier.md
 # @spec    SLAAT-P1-4
 #
@@ -17,9 +17,9 @@
 # independent of the sentinel.
 #
 # The expensive live cycle runs ONCE in setup_file() against an ISOLATED
-# stun-sentinel instance that scripts/stress-agent-cgroups.sh builds and
+# signalloom-warden instance that scripts/stress-agent-cgroups.sh builds and
 # installs itself (own namespace, own port, own credentials) — it never
-# touches the live deployed signalloom-stun-sentinel pod or any other card's
+# touches the live deployed signalloom-warden pod or any other card's
 # fixtures. Each test then asserts one property of the resulting artifact,
 # matching the structure test/cgroup-freeze-stun.bats already established.
 

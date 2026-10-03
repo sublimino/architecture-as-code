@@ -64,7 +64,7 @@ export const ACT_DESCRIPTIONS: Record<string, ActDescription> = {
   '2': {
     title: 'eBPF Kernel Probes',
     subtitle: 'Attach eBPF tracepoints and capture microsecond socket/packet transport delays',
-    hint: 'Activates kernel-level latency probes in stun-sentinel, measuring TCP handshake and packet transit delays with sub-microsecond precision.',
+    hint: 'Activates kernel-level latency probes in signalloom-warden, measuring TCP handshake and packet transit delays with sub-microsecond precision.',
   },
   '3': {
     title: 'FrostDB Columnar Stream',

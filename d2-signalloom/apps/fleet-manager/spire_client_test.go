@@ -18,6 +18,7 @@ import (
 	spiretypes "github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"k8s.io/client-go/kubernetes/fake"
 )
@@ -153,7 +154,9 @@ func startTestGRPCServer(t *testing.T, srv *mockEntryServer) (*grpcSpireClient, 
 		_ = s.Serve(lis)
 	}()
 
-	client, err := NewGRPCSpireClient(lis.Addr().String())
+	// The mock serves plaintext, so the test says so explicitly: production
+	// never dials TCP without mTLS (spireTransportFor).
+	client, err := NewGRPCSpireClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		s.Stop()
 		_ = lis.Close()

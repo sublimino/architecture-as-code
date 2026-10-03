@@ -29,7 +29,35 @@ const (
 	// an honest absence of one. "unknown" is deliberately not a member of the
 	// dashboard's state union, so it cannot be mistaken for a live state.
 	StateUnknown = "unknown"
+	// StateReplaced is a recovered agent whose contained pod was deleted so
+	// its controller starts a clean one. The frozen process never ran again.
+	StateReplaced = "replaced"
 )
+
+// RecoverMode chooses how an authorised recovery releases a contained agent.
+type RecoverMode string
+
+const (
+	// RecoverReplace, the default, deletes the contained pod so its
+	// controller starts a clean one from the declared template. Thawing a
+	// compromised process resumes it mid-attack: live, 2026-10-03, kusari
+	// reopened /etc/passwd within 2 s of a thaw and was re-stunned.
+	RecoverReplace RecoverMode = "replace"
+	// RecoverThaw releases the pod in place and so resumes the frozen
+	// process: a forensic choice, made explicitly, never the default.
+	RecoverThaw RecoverMode = "thaw"
+)
+
+// ParseRecoverMode reads a request's mode; empty means RecoverReplace.
+func ParseRecoverMode(s string) (RecoverMode, error) {
+	switch RecoverMode(s) {
+	case "", RecoverReplace:
+		return RecoverReplace, nil
+	case RecoverThaw:
+		return RecoverThaw, nil
+	}
+	return "", fmt.Errorf("unknown recover mode %q (want %q or %q)", s, RecoverReplace, RecoverThaw)
+}
 
 // cascadeOperation names which mirror-image operation produced a TargetOutcome.
 const (
@@ -194,6 +222,21 @@ type GitOpsPlane interface {
 type CredentialPlaneRevoker interface {
 	RevokeCredentialsPlanesIn(ctx context.Context, namespace, agentID string) ([]PlaneResult, error)
 }
+
+// PodReplacer is an optional FleetClient capability: release a contained
+// agent by deleting its pod so the pod's controller starts a clean one. The
+// result is a freeze-plane PlaneResult whose details.action is
+// replaceActionReplaced, or replaceActionNotContained when the pod carries no
+// containment and there is nothing frozen to discard. A client without it
+// cannot recover in RecoverReplace mode, and never silently thaws instead.
+type PodReplacer interface {
+	ReplaceContainedPod(ctx context.Context, namespace, agentID string) PlaneResult
+}
+
+const (
+	replaceActionReplaced     = "replace_pod"
+	replaceActionNotContained = "not_contained"
+)
 
 // PodNameResolver is an optional FleetClient capability that names the pod an
 // agent id resolves to, so the freeze PlaneResult can say which pod it froze.
@@ -643,12 +686,18 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 	return result, nil
 }
 
-// Recover executes a recovery operation in topological order.
+// Recover executes a recovery in topological order, replacing contained pods
+// (RecoverReplace).
+func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) (*CascadeResult, error) {
+	return o.RecoverWithMode(ctx, stunnedIDs, RecoverReplace)
+}
+
+// RecoverWithMode executes a recovery operation in topological order.
 //
 // Carries the same honesty contract as Stun: the pre-state is read rather than
 // asserted, both steps record their real outcome, and an agent is only reported
-// running if the label write succeeded.
-func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) (*CascadeResult, error) {
+// running (or replaced) if its release succeeded.
+func (o *CascadeOrchestrator) RecoverWithMode(ctx context.Context, stunnedIDs []string, mode RecoverMode) (*CascadeResult, error) {
 	start := time.Now()
 
 	recoveryOrder := o.dag.RecoveryOrder(stunnedIDs)
@@ -721,18 +770,14 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 			gitops = &pr
 		}
 
-		// Step 4: write the running label.
-		outcome.StateWrite = StepResult{Attempted: true}
-		if err := o.client.SetPodState(ctx, namespace, id, StateRunning); err != nil {
-			slog.Warn("failed to set pod state", "agent", id, "error", err)
-			outcome.StateWrite.Error = err.Error()
-		} else {
-			outcome.StateWrite.Succeeded = true
-		}
+		// Step 4: the release. Replace discards the contained pod; thaw (or
+		// a pod with nothing contained) writes the running label in place.
+		var released string
+		outcome.StateWrite, released = o.release(ctx, result, namespace, id, mode)
 
 		outcome.ToState = currentState
 		if outcome.StateWrite.Succeeded {
-			outcome.ToState = StateRunning
+			outcome.ToState = released
 		}
 
 		outcome.Outcome = withGitOps(classifyOutcome(outcome.StateRead, outcome.Credential, outcome.StateWrite), gitops)
@@ -758,6 +803,38 @@ func (o *CascadeOrchestrator) Recover(ctx context.Context, stunnedIDs []string) 
 	result.finish(start)
 
 	return result, nil
+}
+
+// release is a recovery's step 4. It never thaws in replace mode: a client
+// that cannot replace fails the release instead.
+func (o *CascadeOrchestrator) release(ctx context.Context, result *CascadeResult, namespace, id string, mode RecoverMode) (StepResult, string) {
+	step := StepResult{Attempted: true}
+	if mode != RecoverThaw {
+		rp, ok := o.client.(PodReplacer)
+		if !ok {
+			step.Error = "recover mode replace: this fleet client cannot replace a pod, so nothing was released (mode=thaw releases in place, resuming the frozen process)"
+			slog.Warn("recover release refused", "agent", id, "error", step.Error)
+			return step, ""
+		}
+		pr := rp.ReplaceContainedPod(ctx, namespace, id)
+		if pr.Details["action"] != replaceActionNotContained {
+			result.Planes = append(result.Planes, withAgentID(pr, id))
+			if pr.Outcome != OutcomeContained {
+				step.Error = pr.Error
+				slog.Warn("failed to replace contained pod", "agent", id, "error", pr.Error)
+				return step, ""
+			}
+			step.Succeeded = true
+			return step, StateReplaced
+		}
+	}
+	if err := o.client.SetPodState(ctx, namespace, id, StateRunning); err != nil {
+		slog.Warn("failed to set pod state", "agent", id, "error", err)
+		step.Error = err.Error()
+		return step, ""
+	}
+	step.Succeeded = true
+	return step, StateRunning
 }
 
 // withAgentID stamps the target's DAG id on a plane result. fe-signalloom

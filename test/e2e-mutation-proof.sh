@@ -72,9 +72,16 @@ MUT="${MUT:-none}"
 STATE="${SLDC_FAKE_STATE:?SLDC_FAKE_STATE required}"
 POD="agent-kusari-5685ff664b-kv25k"
 UID_="e02fe214-5d7c-423b-9fa9-f933932d6679"
+# The clean pod the Deployment starts once fleet-manager retires the frozen one.
+POD2="agent-kusari-5685ff664b-mj26p"
+UID2="7c0b4d2e-9a51-4f3e-b1c8-2d6e0f9a4b13"
 
 frozen() { [ -f "${STATE}/frozen" ]; }
 recovered() { [ -f "${STATE}/recovered" ]; }
+# replaced: the recovery retired the frozen pod and a clean one serves.
+replaced() { recovered && [ "${MUT}" != "step6_thawed_in_place" ] && [ "${MUT}" != "step6_old_pod_survives" ]; }
+# restunned: the live failure of a thaw, a re-stun one resync later.
+restunned() { [ "${MUT}" = "step6_restunned_after_resync" ] && [ -f "${STATE}/resynced_after_recover" ]; }
 
 case "${ARGS}" in
   *"version --client"*)   echo '{"clientVersion":{"gitVersion":"v1.31.0"}}'; exit 0 ;;
@@ -86,7 +93,18 @@ case "${ARGS}" in
   *"get secret fleet-manager-caller-keys"*"-n fe-signalloom"*".data.operator"*)
       printf '%s' "${FAKE_OPERATOR_KEY}" | base64 | tr -d '\n'; exit 0 ;;
   *"get pod"*"labels.signalloom\.io/stunned}"*)
-      if recovered; then echo -n "false"; else echo -n "true"; fi; exit 0 ;;
+      if restunned || { recovered && [ "${MUT}" = "step6_replacement_stunned" ]; }; then echo -n "true"
+      elif recovered; then echo -n "false"; else echo -n "true"; fi; exit 0 ;;
+  *"get pod"*"labels.signalloom\.ai/state}"*)
+      if restunned || { recovered && [ "${MUT}" = "step6_replacement_stunned" ]; }; then echo -n "stunned"
+      elif recovered; then echo -n "active"; else echo -n "stunned"; fi; exit 0 ;;
+  *"get pod"*"range .items"*)
+      # The agent's pods as uid|phase|ready rows.
+      if [ "${MUT}" = "step6_old_pod_survives" ] && recovered; then
+          printf '%s|Running|true\n%s|Running|true\n' "${UID_}" "${UID2}"
+      elif replaced; then printf '%s|Running|true\n' "${UID2}"
+      else printf '%s|Running|true\n' "${UID_}"; fi
+      exit 0 ;;
 esac
 
 # ── Step 5: the sentinel's own health (resync interval, reconcile count) ─────
@@ -109,6 +127,12 @@ case "${ARGS}" in
       rc=$(( 100 + n ))
       [ "${MUT}" = "step5_reconciler_idle" ] && rc=100
       [ "${n}" -gt 1 ] && touch "${STATE}/resynced"
+      # The same for the replacement: a resync after the recovery.
+      if recovered; then
+          m=$(( $(cat "${STATE}/health_reads_after_recover" 2>/dev/null || echo 0) + 1 ))
+          echo "${m}" >"${STATE}/health_reads_after_recover"
+          [ "${m}" -gt 1 ] && touch "${STATE}/resynced_after_recover"
+      fi
       printf '{"status":"ok","reconcile_count":%s,"resync_seconds":1,"stun_record_failures":0}\n' "${rc}"
       exit 0 ;;
 esac
@@ -130,8 +154,8 @@ case "${ARGS}" in
 esac
 
 case "${ARGS}" in
-  *"get pod"*"metadata.uid"*)   echo -n "${UID_}"; exit 0 ;;
-  *"get pod"*"metadata.name"*)  echo -n "${POD}"; exit 0 ;;
+  *"get pod"*"metadata.uid"*)   if replaced; then echo -n "${UID2}"; else echo -n "${UID_}"; fi; exit 0 ;;
+  *"get pod"*"metadata.name"*)  if replaced; then echo -n "${POD2}"; else echo -n "${POD}"; fi; exit 0 ;;
   *"get pod"*"status.phase"*)   echo -n "Running"; exit 0 ;;
   *"get pod"*restartCount*)
       if [ "${MUT}" = "step5_restart_h1_breach" ] && frozen; then echo -n "1"
@@ -287,8 +311,10 @@ esac
 case "${ARGS}" in
   *"find /sys/fs/cgroup"*) echo "${CG}"; exit 0 ;;
   *cgroup.events*)
-      # An authorised recovery thaws the pod (the sentinel honours the resume).
-      if [ -f "${STATE}/recovered" ] && [ "${MUT}" != "step6_left_frozen" ]; then
+      # After an authorised recovery the agent's cgroup is the clean
+      # replacement's: never frozen (unless a mutation says otherwise).
+      if [ -f "${STATE}/recovered" ] && [ "${MUT}" != "step6_left_frozen" ] \
+         && ! { [ "${MUT}" = "step6_restunned_after_resync" ] && [ -f "${STATE}/resynced_after_recover" ]; }; then
           echo "populated 1"; echo "frozen 0"; exit 0
       fi
       # The legacy-reconciler defect: frozen, then thawed by the next resync.
@@ -343,15 +369,21 @@ case "${url}" in
     [ -n "${hdr}" ] && grep -qx "Authorization: Bearer ${FAKE_OPERATOR_KEY}" "${hdr}" || code=401
     [ "${data}" = '{"agent_ids":["agent-kusari-agent"]}' ] || code=400
     [ "${MUT:-}" = "step6_recover_refused" ] && code=403
-    # Today's live answer: released (state written) while SPIRE and Bao could
-    # not restore credentials, so 207 with the credential step reported failed.
+    # The live answer shape: the contained pod replaced (released) while
+    # credentials may not have come back, so 207 with the credential step
+    # reported. The freeze plane names the pod it retired.
     if [ "${code}" = 200 ]; then
       code=207
       cred='"credential":{"attempted":true,"succeeded":false,"error":"spire server unreachable"},'
       [ "${MUT:-}" = "step6_credential_unreported" ] && cred=''
       write='true'
       [ "${MUT:-}" = "step6_release_not_written" ] && write='false'
-      [ -n "${out}" ] && printf '{"overall_outcome":"partial","targets":[{"agent_id":"agent-kusari-agent","operation":"recover","outcome":"partial","from_state":"stunned","to_state":"running","state_read":{"attempted":true,"succeeded":true},%s"state_write":{"attempted":true,"succeeded":%s}}]}' "${cred}" "${write}" >"${out}"
+      to='replaced'
+      retired='e02fe214-5d7c-423b-9fa9-f933932d6679'
+      [ "${MUT:-}" = "step6_replaced_other_pod" ] && retired='11111111-2222-3333-4444-555555555555'
+      planes=',"planes":[{"plane":"freeze","outcome":"contained","details":{"agent_id":"agent-kusari-agent","action":"replace_pod","pod":"agent-kusari-5685ff664b-kv25k","pod_uid":"'"${retired}"'"}}]'
+      if [ "${MUT:-}" = "step6_thawed_in_place" ]; then to='running'; planes=''; fi
+      [ -n "${out}" ] && printf '{"overall_outcome":"partial","targets":[{"agent_id":"agent-kusari-agent","operation":"recover","outcome":"partial","from_state":"stunned","to_state":"%s","state_read":{"attempted":true,"succeeded":true},%s"state_write":{"attempted":true,"succeeded":%s}}]%s}' "${to}" "${cred}" "${write}" "${planes}" >"${out}"
       touch "${STATE}/recovered"
     else
       [ -n "${out}" ] && printf '{"overall_outcome":"refused"}' >"${out}"
@@ -449,9 +481,14 @@ MUTATIONS=(
   "step6_credential_unreported|6|a recovery that does not report its credential step is not accepted"
   "step6_release_not_written|6|a recovery whose release (state write) failed is not accepted"
   "step6_left_deployment_pin|6|teardown that left the Deployment's reconcile=disabled pin fails"
-  "step6_left_pod_pin|6|teardown that left the Pod's reconcile=disabled pin fails"
-  "step6_record_left|6|teardown that left the stun reason on the pod fails"
-  "step6_left_frozen|6|teardown that left the cgroup frozen fails"
+  "step6_left_pod_pin|6|a replacement still carrying the Pod's reconcile=disabled pin fails"
+  "step6_record_left|6|a replacement carrying a stun reason fails"
+  "step6_left_frozen|6|a replacement whose cgroup is frozen fails"
+  "step6_thawed_in_place|6|a recovery that thaws the compromised pod in place, not replacing it, fails"
+  "step6_old_pod_survives|6|a recovery that leaves the contained pod running beside its replacement fails"
+  "step6_replaced_other_pod|6|a recovery that retired some other pod than the one frozen fails"
+  "step6_replacement_stunned|6|a replacement that comes up stunned is not a clean recovery"
+  "step6_restunned_after_resync|6|a replacement re-stunned by the next sentinel resync fails (the live thaw failure)"
 )
 
 declare -a PLAN=()

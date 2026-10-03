@@ -343,8 +343,19 @@ case "${url}" in
     [ -n "${hdr}" ] && grep -qx "Authorization: Bearer ${FAKE_OPERATOR_KEY}" "${hdr}" || code=401
     [ "${data}" = '{"agent_ids":["agent-kusari-agent"]}' ] || code=400
     [ "${MUT:-}" = "step6_recover_refused" ] && code=403
-    [ -n "${out}" ] && printf '{"overall_outcome":"%s"}' "$([ "${code}" = 200 ] && echo contained || echo refused)" >"${out}"
-    [ "${code}" = 200 ] && touch "${STATE}/recovered"
+    # Today's live answer: released (state written) while SPIRE and Bao could
+    # not restore credentials, so 207 with the credential step reported failed.
+    if [ "${code}" = 200 ]; then
+      code=207
+      cred='"credential":{"attempted":true,"succeeded":false,"error":"spire server unreachable"},'
+      [ "${MUT:-}" = "step6_credential_unreported" ] && cred=''
+      write='true'
+      [ "${MUT:-}" = "step6_release_not_written" ] && write='false'
+      [ -n "${out}" ] && printf '{"overall_outcome":"partial","targets":[{"agent_id":"agent-kusari-agent","operation":"recover","outcome":"partial","from_state":"stunned","to_state":"running","state_read":{"attempted":true,"succeeded":true},%s"state_write":{"attempted":true,"succeeded":%s}}]}' "${cred}" "${write}" >"${out}"
+      touch "${STATE}/recovered"
+    else
+      [ -n "${out}" ] && printf '{"overall_outcome":"refused"}' >"${out}"
+    fi
     printf '%s' "${code}"; exit 0 ;;
   */api/v1/observations*)
     [ -n "${hdr}" ] && grep -qxF "Authorization: Bearer ${SLDC_FAKE_READER_KEY}" "${hdr}" || exit 22
@@ -435,6 +446,8 @@ MUTATIONS=(
   "step5_reconciler_idle|5|persistence is not claimed until the sentinel has reconciled after the freeze"
   "step5_stun_not_from_sentinel|5|a stun record that does not name the sentinel's detection fails"
   "step6_recover_refused|6|a recovery fleet-manager refused is not a clean teardown"
+  "step6_credential_unreported|6|a recovery that does not report its credential step is not accepted"
+  "step6_release_not_written|6|a recovery whose release (state write) failed is not accepted"
   "step6_left_deployment_pin|6|teardown that left the Deployment's reconcile=disabled pin fails"
   "step6_left_pod_pin|6|teardown that left the Pod's reconcile=disabled pin fails"
   "step6_record_left|6|teardown that left the stun reason on the pod fails"

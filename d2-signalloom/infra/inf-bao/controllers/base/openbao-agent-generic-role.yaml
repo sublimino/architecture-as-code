@@ -108,7 +108,7 @@ metadata:
     # below is what actually changes the spec in lockstep with the
     # ConfigMap, so the two annotations are a pair -- force alone is a
     # no-op without a corresponding spec diff to force past.
-    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 3
   template:

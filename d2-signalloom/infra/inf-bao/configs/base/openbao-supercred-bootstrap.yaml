@@ -20,7 +20,7 @@ kind: Job
 metadata:
   name: openbao-supercred-bootstrap
   annotations:
-    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 6
   template:

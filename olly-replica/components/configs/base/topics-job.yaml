@@ -19,7 +19,7 @@ kind: Job
 metadata:
   name: olly-topics
   annotations:
-    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/force: Enabled
     kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   backoffLimit: 10

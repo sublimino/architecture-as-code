@@ -259,22 +259,29 @@ EOF
   [[ "${img}" != *":latest"* ]]
 }
 
+# The exporter shares the sentinel's bundle directory; it must add its own
+# objects and never alter the sentinel's. This used to diff the three files
+# against `git merge-base HEAD~1 integration`, which failed on any branch (and
+# on the integration line itself) that legitimately changed the sentinel, e.g.
+# an image re-pin. Now: the sentinel's objects rendered from the whole bundle
+# must equal the same objects rendered from the sentinel's own files alone,
+# so only something in the bundle that transforms them can fail it.
 @test "exporter manifests: sentinel DaemonSet, rbac.yaml and service-account.yaml unchanged from base ref" {
-  local base
-  base="$(git merge-base HEAD~1 refs/heads/integration/sltm-v0.1.0 2>/dev/null || echo "HEAD~1")"
-
-  local base_ds curr_ds base_role curr_role base_sa curr_sa
-  base_ds="$(git show "${base}:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml" 2>/dev/null)"
-  curr_ds="$(cat "${BUNDLE_DIR}/daemonset.yaml")"
-  [ "${base_ds}" = "${curr_ds}" ]
-
-  base_role="$(git show "${base}:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/rbac.yaml" 2>/dev/null)"
-  curr_role="$(cat "${BUNDLE_DIR}/rbac.yaml")"
-  [ "${base_role}" = "${curr_role}" ]
-
-  base_sa="$(git show "${base}:d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/service-account.yaml" 2>/dev/null)"
-  curr_sa="$(cat "${BUNDLE_DIR}/service-account.yaml")"
-  [ "${base_sa}" = "${curr_sa}" ]
+  local alone bundle_render alone_render sel
+  alone="${BATS_TEST_TMPDIR}/sentinel-alone"
+  mkdir -p "${alone}"
+  cp "${BUNDLE_DIR}"/{service-account.yaml,rbac.yaml,configmap.yaml,daemonset.yaml} "${alone}/"
+  cat >"${alone}/kustomization.yaml" <<'KUST'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: fe-signalloom-agents
+resources: [service-account.yaml, rbac.yaml, configmap.yaml, daemonset.yaml]
+KUST
+  sel='select((.kind == "DaemonSet") or (.kind == "Role" and .metadata.name == "stun-sentinel") or (.kind == "RoleBinding" and .metadata.name == "stun-sentinel") or (.kind == "ServiceAccount" and .metadata.name == "stun-sentinel"))'
+  bundle_render="$(KUBECONFIG=/dev/null kubectl kustomize "${BUNDLE_DIR}" | yq ea -o=json -I=0 "[${sel}] | sort_by(.kind + .metadata.name)")"
+  alone_render="$(KUBECONFIG=/dev/null kubectl kustomize "${alone}" | yq ea -o=json -I=0 "[${sel}] | sort_by(.kind + .metadata.name)")"
+  [ "$(jq 'length' <<<"${alone_render}")" -ge 3 ] || { echo "sentinel objects not found: ${alone_render}"; return 1; }
+  [ "${bundle_render}" = "${alone_render}" ] || { diff <(jq . <<<"${alone_render}") <(jq . <<<"${bundle_render}"); return 1; }
 }
 
 @test "exporter manifests: overlay renders apply correct cluster id and suspend state" {

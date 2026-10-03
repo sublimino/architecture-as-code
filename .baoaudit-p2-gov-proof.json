@@ -11,7 +11,7 @@
   },
   "verification_summary": {
     "signal_ingest_race_sweep": "PASS (0 race conditions, 100% test coverage)",
-    "signalloom_stun_sentinel_sweep": "PASS (0 race conditions, 100% test coverage)",
+    "signalloom_warden_sweep": "PASS (0 race conditions, 100% test coverage)",
     "dashboard_vitest": "PASS (31/31 passing in IdentityAuditPanel & WeavePage)",
     "dashboard_build": "PASS (bun run build clean in 2.87s)",
     "cel_correlation_rules": "PASS (symmetric evaluation verified)",

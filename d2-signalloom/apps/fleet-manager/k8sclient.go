@@ -186,11 +186,11 @@ func (c *k8sFleetClient) resolvePod(ctx context.Context, namespace, agentID stri
 	}
 }
 
-// requireSentinelWatched refuses to act on a pod the stun sentinel does not
+// requireSentinelWatched refuses to act on a pod the signalloom warden does not
 // watch.
 //
 // The sentinel's informer is filtered to signalloom.ai/agent=true
-// (signalloom-stun-sentinel/main.go:303). Neither resolution path above enforces
+// (signalloom-warden/main.go:303). Neither resolution path above enforces
 // that: the direct Get is by name, and the selector fallback matches on
 // agent-name. Patching a pod that lacks the discovery label writes all three
 // containment labels and returns nil — a full success — for a workload that was
@@ -206,7 +206,7 @@ func requireSentinelWatched(pod *corev1.Pod, namespace, agentID string) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"resolve pod %s/%s: %w: pod %q lacks %s=true, so the stun sentinel does not watch it and "+
+		"resolve pod %s/%s: %w: pod %q lacks %s=true, so the signalloom warden does not watch it and "+
 			"labelling it would report a containment that can never be enforced",
 		namespace, agentID, ErrEnforcementUnavailable, pod.Name, AgentLabel)
 }
@@ -255,7 +255,7 @@ func (c *k8sFleetClient) GetPodState(ctx context.Context, namespace, agentID str
 //
 // "The whole containment state" is three labels and three annotations, not one
 // label. The sentinel's isPodStunned is an OR of THREE terms
-// (signalloom-stun-sentinel/main.go:31-43): state==stunned, stunned=="true", or
+// (signalloom-warden/main.go:31-43): state==stunned, stunned=="true", or
 // containment-mode=="frozen". Writing only the state label is enough to FREEZE a
 // pod — but it is not enough to THAW one. Restore the state label alone and a
 // stale containment-mode=frozen keeps the OR true, so the workload stays frozen

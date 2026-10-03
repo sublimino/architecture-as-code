@@ -61,7 +61,7 @@ rthooks:
   enabled: false
 
 # Resource ceiling. An unbounded Tetragon agent on a single-node kind cluster
-# competes with stun-sentinel for the same CPU during a containment event.
+# competes with signalloom-warden for the same CPU during a containment event.
 resources:
   limits:
     cpu: 500m

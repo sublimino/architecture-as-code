@@ -179,7 +179,7 @@ export interface AgentResponse {
   credential_state?: AgentCredentialState | null
   kernel_telemetry?: SentinelKernelTelemetry | null
   /**
-   * Kernel freezer truth from the stun-sentinel's cgroup annotations, carried
+   * Kernel freezer truth from the signalloom-warden's cgroup annotations, carried
    * by discovery. Absent or "unknown" means nobody observed the cgroup; the UI
    * must not read it as running.
    */

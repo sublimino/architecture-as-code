@@ -854,7 +854,7 @@
     "reviewed_at": "2026-09-07T20:06:27Z",
     "reviewer": "supervisor",
     "verdict": "APPROVED",
-    "reason": "CRKC-P1-2 verified: stun-sentinel cgroup.freeze controller sub-50ms execution halting (latency 0.069ms), 12/12 probes pass, 23/23 BATS pass, p99 < 25ms benchmark pass (commit 9886f3ce)"
+    "reason": "CRKC-P1-2 verified: signalloom-warden cgroup.freeze controller sub-50ms execution halting (latency 0.069ms), 12/12 probes pass, 23/23 BATS pass, p99 < 25ms benchmark pass (commit 9886f3ce)"
   },
   "a1a92": {
     "task_id": "a1a92",
@@ -2013,7 +2013,7 @@
     "reviewed_at": "2026-09-10T21:16:01Z",
     "reviewer": "antigravity",
     "verdict": "pass",
-    "reason": "Preflight proof verified clean: Stun Sentinel cgroup freezer, eBPF classifier hooks (tc_drop.bpf.o), static hermetic build, and signal-ingest test suite passing 100%"
+    "reason": "Preflight proof verified clean: Signalloom Warden cgroup freezer, eBPF classifier hooks (tc_drop.bpf.o), static hermetic build, and signal-ingest test suite passing 100%"
   },
   "7db86": {
     "task_id": "7db86",
@@ -2774,7 +2774,7 @@
     "reviewed_at": "2026-09-15T05:28:47.614Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Stun-sentinel implementations unified into mature cgroup-v2 freezer engine; hostPID/privileged/hostPath invariants preserved, emptiness gates enforced, full benchmarks and Go unit tests pass"
+    "reason": "Signalloom-warden implementations unified into mature cgroup-v2 freezer engine; hostPID/privileged/hostPath invariants preserved, emptiness gates enforced, full benchmarks and Go unit tests pass"
   },
   "1d127": {
     "task_id": "1d127",
@@ -2837,7 +2837,7 @@
     "reviewed_at": "2026-09-15T06:41:24.339448Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "In-process Witness attestation engine delivered in fleet-manager (1.3ms avg latency), tamper evidence, causal authorization chain binding, and stun-sentinel emitter integration verified across 11 Go unit tests and 13 emitter tests"
+    "reason": "In-process Witness attestation engine delivered in fleet-manager (1.3ms avg latency), tamper evidence, causal authorization chain binding, and signalloom-warden emitter integration verified across 11 Go unit tests and 13 emitter tests"
   },
   "32b43": {
     "task_id": "32b43",

@@ -18,7 +18,7 @@ const ALL_SWARM_AGENTS = [
   'prod-deploy-gate',
   'agent-cardvault',
   'nono-containment-probe',
-  'signalloom-stun-sentinel',
+  'signalloom-warden',
 ]
 
 const CREDENTIALED_AGENTS = [
@@ -97,7 +97,7 @@ describe('credentialInventory — swarm credential records', () => {
   })
 
   it('no credentials exist for non-credentialed agents', () => {
-    const nonCredentialed = ['hosted-daytona-coder', 'nono-containment-probe', 'signalloom-stun-sentinel']
+    const nonCredentialed = ['hosted-daytona-coder', 'nono-containment-probe', 'signalloom-warden']
     const credWorkloads = FAKE_SWARM_CREDENTIALS.map((c) => c.workload)
     for (const agent of nonCredentialed) {
       expect(credWorkloads).not.toContain(agent)

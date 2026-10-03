@@ -52,7 +52,7 @@ flowchart TB
 
   subgraph ENFORCE["Host sensors and enforcement"]
     SENSOR["agentmaxxing-host-sensor<br/>(procfs + netlink)"]
-    SENTINEL["stun-sentinel<br/>(eBPF tc drop)"]
+    SENTINEL["signalloom-warden<br/>(eBPF tc drop)"]
   end
 
   subgraph IDENTITY["Identity and storage"]

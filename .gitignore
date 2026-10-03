@@ -73,7 +73,7 @@ test/acceptance/.auth/
 
 # Embedded BPF bytecode objects: override ~/.gitignore_global `*.o` rule so
 # bpf_embed.go has its object present in fresh worktrees without rebuilding.
-!d2-signalloom/apps/stun-sentinel/pkg/tc/tc_drop.bpf.o
+!d2-signalloom/apps/signalloom-warden/pkg/tc/tc_drop.bpf.o
 
 
 # riskctl build output (regenerate with `make riskctl`)

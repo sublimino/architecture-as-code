@@ -74,7 +74,7 @@ spec:
           image: openbao/openbao:2.1.0
           # bao directly, not the image's docker-entrypoint.sh: that script's
           # `id -u openbao` reads /etc/passwd inside this watched agent pod,
-          # and the stun sentinel froze every fresh pod on it (live,
+          # and the signalloom warden froze every fresh pod on it (live,
           # 2026-10-03). It runs as uid 100, so the script's chown/su-exec
           # branch has nothing to do here anyway. HOME keeps bao's home
           # lookup off the user database. Pinned by

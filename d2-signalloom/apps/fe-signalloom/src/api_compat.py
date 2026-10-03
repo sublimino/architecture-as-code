@@ -318,7 +318,7 @@ class AgentResponse(BaseModel):
     created_at: str | None
     credential_state: AgentCredentialState | None = None
     kernel_telemetry: SentinelKernelTelemetry | None = None
-    # Kernel freezer truth observed by the stun-sentinel (pod annotations,
+    # Kernel freezer truth observed by the signalloom-warden (pod annotations,
     # carried by discovery). Never derived from lifecycle or stun fields.
     kernel_state: Literal["frozen", "running", "unknown"] = "unknown"
     kernel_observed_at: str | None = None
@@ -2014,7 +2014,7 @@ def _kernel_view(discovered: dict[str, Any] | None, stunned: bool) -> dict[str, 
     """Kernel freezer state from discovery, and where it contradicts the stun record.
 
     ``kernel_state`` is taken only from discovery's ``kernel_state`` field, which
-    the proxy reads from the stun-sentinel's cgroup annotations. Lifecycle state,
+    the proxy reads from the signalloom-warden's cgroup annotations. Lifecycle state,
     ``stunned_at`` and ``kernel_telemetry`` are control-plane claims about what
     should have happened; none of them is evidence of what the kernel did, so
     none of them can produce "frozen" here. Anything unrecognised is "unknown",

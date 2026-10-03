@@ -82,7 +82,7 @@ require_escape_proof() {
 }
 
 require_live_cluster() {
-  have_live_cluster || skip "no live kind-osramp cluster with stun-sentinel deployed"
+  have_live_cluster || skip "no live kind-osramp cluster with signalloom-warden deployed"
 }
 
 require_evasion_proof() {
@@ -114,7 +114,7 @@ require_evasion_proof() {
 require_burst_fix_deployed() {
   require_live_cluster
   local image
-  image="$(kubectl --context kind-osramp get pods -n fe-signalloom-agents -l app.kubernetes.io/name=stun-sentinel \
+  image="$(kubectl --context kind-osramp get pods -n fe-signalloom-agents -l app.kubernetes.io/name=signalloom-warden \
     -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null)"
   case "${image}" in
   *slaat-p2-4*) return 0 ;;

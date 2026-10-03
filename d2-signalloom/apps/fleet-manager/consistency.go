@@ -49,7 +49,7 @@ const (
 	// baoConsumerLabel admits a pod to OpenBao through inf-bao's NetworkPolicy;
 	// it is also how a pod declares itself an OpenBao consumer.
 	baoConsumerLabel = "bao.controlplane.io/consumer"
-	// The stun sentinel reads <pod cgroup>/cgroup.events on every reconcile and
+	// The signalloom warden reads <pod cgroup>/cgroup.events on every reconcile and
 	// publishes the kernel's own answer here. This file only reads it.
 	kernelFrozenAnnotation     = "signalloom.io/kernel-frozen"
 	kernelObservedAtAnnotation = "signalloom.io/kernel-observed-at"
@@ -106,7 +106,7 @@ type ConsistencyGitOps struct {
 }
 
 // ConsistencyKernel is the cgroup freeze state as last observed by the node's
-// stun sentinel. Frozen is null when the annotation is absent or malformed:
+// signalloom warden. Frozen is null when the annotation is absent or malformed:
 // unknown is never read as "not frozen". It does not gate `queried` — the
 // annotation is a published observation, not a plane this service can query.
 type ConsistencyKernel struct {

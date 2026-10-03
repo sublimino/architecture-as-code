@@ -19,7 +19,7 @@ setup() {
 }
 
 @test "netebpf adversarial: all signal-ingest and sentinel race tests pass" {
-  cd "$REPO_ROOT/d2-signalloom/apps/signalloom-stun-sentinel"
+  cd "$REPO_ROOT/d2-signalloom/apps/signalloom-warden"
   run go test -v -race ./...
   [ "$status" -eq 0 ]
 

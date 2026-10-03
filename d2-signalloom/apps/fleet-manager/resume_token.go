@@ -28,9 +28,9 @@ import (
 // need "an attributable governance resume token signed by an authorized
 // operator". What the repository has instead is one shared secret:
 //
-//	apps/stun-sentinel/cmd/stun-sentinel/main.go:56
+//	apps/signalloom-warden/cmd/signalloom-warden/main.go:56
 //	    resumeToken: os.Getenv("STUN_RESUME_TOKEN"),
-//	apps/stun-sentinel/cmd/stun-sentinel/main.go:272
+//	apps/signalloom-warden/cmd/signalloom-warden/main.go:272
 //	    resumeValidate := constantTimeTokenValidator(cfg.resumeToken)
 //
 // That is a BEARER credential, and a bearer credential is not weak attribution

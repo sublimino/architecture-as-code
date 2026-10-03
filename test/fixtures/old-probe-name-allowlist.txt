@@ -1,0 +1,20 @@
+# Permanent allow-list for legacy stun-sentinel probe name occurrences.
+# Every entry must have a path or path:anchor and a '# reason'.
+# Empty/stale entries that suppress nothing will cause the guard to exit 1.
+
+scripts/check-old-probe-name.sh # scanner implementation contains old probe name search patterns
+test/fixtures/old-probe-name-allowlist.txt # allow-list self-reference
+test/fixtures/old-probe-name-pending-p3-1.txt # temporary list of P3-1 paths containing old probe name
+test/old-probe-name-guard.bats # test suite plants and asserts old probe names
+d2-signalloom/apps/stun-sentinel/ # R3 go-module directory kept as library module
+test/sandbox-confinement-hardening.bats # R3 go-module path export and test targets
+test/fixtures/eap-evidence/step4-ebpf-observation.json:stun-sentinel # R4 wire-data observation source fixture
+d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json:stun-sentinel # R4 wire-data observation batch chain vector fixture
+test/p1-sentinel-preflight.bats:signalloom-stun-sentinel # preflight fallback path for unmigrated branch
+test/p5-operational-preflight.bats # preflight checks for legacy probe names and R3 module paths
+test/source-id-tracked.bats # source-id tracking test asserts R3 module path and make targets
+test/phase1-governor-verification.bats:go stun-sentinel test # R3 module test runner assertion
+test/phase1-governor-verification.bats:go signalloom-stun-sentinel test # R3 module test runner assertion
+test/phase1-governor-verification.bats:d2-signalloom/apps/stun-sentinel # R3 module failure output assertion
+d2-signalloom/AGENTS.md:apps/stun-sentinel # R3 library module directory path link
+d2-signalloom/AGENTS.md:apps/signalloom-stun-sentinel # pre-migration daemon app directory link

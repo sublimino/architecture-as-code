@@ -5,7 +5,7 @@
 # Live, 2026-10-03: every fresh agent-cardvault pod was frozen within 3 s of
 # creation. Its openbao-agent sidecar ran the openbao image's
 # docker-entrypoint.sh, whose chown checks run `id -u openbao` and so read
-# /etc/passwd inside the agent pod, and the stun sentinel freezes a watched
+# /etc/passwd inside the agent pod, and the signalloom warden freezes a watched
 # pod on exactly that open. Every agent with the same sidecar carries the
 # same trap on restart. So every container running the openbao image sets
 # its own `command` (bao, never the script), and every `bao agent` sets HOME

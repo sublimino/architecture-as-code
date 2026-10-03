@@ -268,7 +268,7 @@ func orderCredentialPlanes(planes []PlaneResult) []PlaneResult {
 }
 
 // freezePlaneResult records the stun state write as a PlaneResult. The write
-// IS the freeze request the stun sentinel acts on, so a successful write is
+// IS the freeze request the signalloom warden acts on, so a successful write is
 // contained and a failed one unavailable with its error.
 func (o *CascadeOrchestrator) freezePlaneResult(ctx context.Context, namespace, agentID string, write StepResult, latencyMs int64) PlaneResult {
 	pod := agentID

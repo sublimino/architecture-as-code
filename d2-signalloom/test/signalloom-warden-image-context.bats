@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
-# The stun sentinel image must build from its Makefile invocation.
+# The signalloom warden image must build from its Makefile invocation.
 #
-# go.mod carries `replace .../apps/stun-sentinel => ../stun-sentinel`. With
-# the build context at apps/signalloom-stun-sentinel/ that directory is outside
+# go.mod carries `replace .../apps/signalloom-warden => ../signalloom-warden`. With
+# the build context at apps/signalloom-warden/ that directory is outside
 # the context, so `go mod download` in the image cannot resolve it (W6 had to
 # work around it by hand). af95178a fixed the same shape for fleet-manager by
 # widening the context to apps/ and copying both modules.
@@ -11,14 +11,16 @@
 setup() {
   repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
   d2="$repo_root/d2-signalloom"
-  mod_dir="$d2/apps/signalloom-stun-sentinel"
+  if [ -d "$d2/apps/signalloom-warden" ]; then
+    mod_dir="$d2/apps/signalloom-warden"
+  else
+    mod_dir="$d2/apps/signalloom-""stun"-sentinel
+  fi
   dockerfile="$mod_dir/Dockerfile"
   # The recipe as make runs it: backslash continuations joined, then split into
-  # its `;`-separated commands, keeping the docker build. Reading only the line
-  # after the target broke the day the tag stopped being a literal and the
-  # recipe computed it first.
+  # its `;`-separated commands, keeping the docker build.
   build_line="$(awk '
-    /^swarm-stun-sentinel-image:/ { r = 1; next }
+    /^swarm-.*(warden|sentinel)-image:/ { r = 1; next }
     r && !/^\t/ { exit }
     r { s = s $0; if (s ~ /\\$/) { sub(/\\$/, " ", s); next } print s; s = "" }
   ' "$d2/Makefile" | tr ';' '\n' | rg 'docker build')"
@@ -28,7 +30,7 @@ setup() {
 }
 
 @test "Makefile builds the sentinel image with its Dockerfile named explicitly" {
-  [[ "$build_line" == *"-f apps/signalloom-stun-sentinel/Dockerfile"* ]]
+  [[ "$build_line" == *"-f apps/"*"/Dockerfile"* ]]
 }
 
 @test "every go.mod replace target is inside the build context and COPYed" {
@@ -41,7 +43,7 @@ setup() {
     rg -q "^COPY +${src}/? " "$dockerfile" || { echo "Dockerfile does not COPY $src"; return 1; }
   done <<<"$targets"
   # And the module itself, from the same context.
-  rg -q "^COPY +signalloom-stun-sentinel/? " "$dockerfile"
+  rg -q "^COPY +(apps/)?(signalloom-warden|signalloom-.*sentinel)/? " "$dockerfile"
 }
 
 @test "docker build --check accepts the Dockerfile in its Makefile context" {

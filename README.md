@@ -145,7 +145,7 @@ flowchart TB
     P_ADM["2 · Admission (ConfigMap block-list)"]
     P_BAO["3 · Secrets (OpenBao lease revocation)"]
     P_SPIRE["4 · Workload identity (SPIRE entry eviction)"]
-    P_FREEZE["5 · Host freeze (stun-sentinel: cgroup v2, eBPF tc drop)"]
+    P_FREEZE["5 · Host freeze (signalloom-warden: cgroup v2, eBPF tc drop)"]
     FM --> P_MESH
     FM --> P_ADM
     FM --> P_BAO

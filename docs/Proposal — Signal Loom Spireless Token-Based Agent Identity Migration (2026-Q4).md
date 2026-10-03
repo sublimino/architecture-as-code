@@ -716,7 +716,7 @@ Because the running `stun-sentinel` probe binary self-excludes only `stun-sentin
 | P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
 | P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
 | P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | — | — | — | — | — |
-| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | — | — | — | — | — |
+| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | pass — delivered: c6e2ac28c65c56b0056f3642d6eabea41ce398cc (see Errata — SLTM-P3-2) | — | — | — | — |
 | P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | — | — | — | — | — |
 | P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | — | — | — | — | — |
 | P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | — | — | — | — | — |
@@ -1537,3 +1537,59 @@ No-overlap cutover executed via four ordered stages (keys minted first -> old DS
 - Evidence artifact committed: `docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLTM-P3-2
+
+- **Logical ID:** P3-2
+- **Created:** 2026-10-03 11:00:00+01:00
+- **Last Updated:** 2026-10-03 11:00:00+01:00
+- **Harness:** `antigravity`
+- **Commit:** `c6e2ac28`
+- **Delivered Commit SHA:** `c6e2ac28c65c56b0056f3642d6eabea41ce398cc`
+- **Base Ref:** `refs/heads/integration/sltm-v0.1.0` (at `a647bf94545e03a678c433c295a5e18ec226f660`)
+- **Merge Base Check:** `git merge-base --is-ancestor HEAD refs/heads/integration/sltm-v0.1.0` -> `0` (clean ancestor)
+
+##### 1. Failing-First Baseline Measurement (T1)
+- Initial guard execution against unrenamed tree: `scripts/check-old-probe-name.sh` exited `1` with `FINDINGS: 304 unallowed occurrences found` across living docs and test suites.
+
+##### 2. Mutation Proofs (T2)
+Six mutations executed against guard scanner and test suite:
+1. **Case-insensitive match (`-i` flag removed):** `rg -n -e` instead of `rg -n -i -e` -> BATS test `planted StunSentinel variant exits 1 and names path:line` failed with exit `0` (caught).
+2. **File path scan disabled:** scanner searches content only -> BATS test `planted file name containing old probe name exits 1` failed with exit `0` (caught).
+3. **Empty tracked files check:** scanner exits `0` on empty file count -> BATS test `empty git repository exits 2` failed with exit `0` (caught).
+4. **Stale allow-list entry check:** unused allow-list entries ignored -> BATS test `allowlist entry that suppresses nothing exits 1 (stale pre-approval)` failed with exit `0` (caught).
+5. **RECORDS exclusion widening:** RECORDS regex widened to `.*` -> BATS test `planted stun-sentinel in a living file exits 1 and names path:line` failed (caught).
+6. **Real repository planted occurrence:** `stun-sentinel` planted in `README.md:510` -> `scripts/check-old-probe-name.sh` exited `1` with `README.md:510:stun-sentinel test string` and `FINDINGS: 2 unallowed occurrences found` (caught).
+
+##### 3. Renamed Files and Counts (T3)
+- Total files updated/renamed in delivered commit: `80` files.
+- Test suites renamed via `git mv`:
+  - `d2-signalloom/test/stun-sentinel-daemonset.bats` -> `d2-signalloom/test/signalloom-warden-daemonset.bats`
+  - `d2-signalloom/test/stun-sentinel-image-context.bats` -> `d2-signalloom/test/signalloom-warden-image-context.bats`
+- Guard deliverables created:
+  - `scripts/check-old-probe-name.sh` (tracked-files scan, dynamic RECORDS read from `scripts/docs-lint.sh:45`, allowlist parsing, stale entry detection).
+  - `test/fixtures/old-probe-name-allowlist.txt` (permanent allowlist with `# reason` comments for R3 module paths, R4 wire-data fixtures, guard self-references).
+  - `test/fixtures/old-probe-name-pending-p3-1.txt` (temporary allowlist of 228 P3-1 owned files to allow green merge boundary during parallel development; deleted by P3-GOV).
+  - `test/old-probe-name-guard.bats` (15 BATS tests exercising clean repo, planted spelling variants, planted filenames, RECORDS paths, allowlisted paths, untracked files, stale allowlist entries, usage errors, and real repo clean scan).
+- Living docs and tests updated: `55` living docs and repos-level tests updated from `stun-sentinel`/`stun sentinel` to `signalloom-warden`/`signalloom warden`.
+
+##### 4. Expected Docs-Rewrite-Guard Token Substitutions (T4)
+Running `make docs-rewrite-guard FILES='...'` on changed living docs reports:
+- `d2-signalloom/apps/docs-signalloom/src/content/docs/operate/stun-agent.mdx`: `stun-sentinel` -> `signalloom-warden`
+- `d2-signalloom/apps/docs-signalloom/src/content/docs/operate/containment-runbook.mdx`: `stun-sentinel` -> `signalloom-warden`
+- `docs/eap/SLDC-P5-1-E2E-CONTAINMENT.md`: `signalloom-stun-sentinel` -> `signalloom-warden`
+- `README.md`: `stun-sentinel` -> `signalloom-warden`
+- `d2-signalloom/README.md`: `stun-sentinel` -> `signalloom-warden`
+- `d2-signalloom/AGENTS.md`: `signalloom-stun-sentinel` -> `signalloom-warden`
+
+##### 5. Test Suite Verification Results (T5)
+- `./scripts/check-old-probe-name.sh`: `SCANNED CLEAN: 4700 files` (exit code `0`).
+- `KUBECONFIG=/dev/null bats test/old-probe-name-guard.bats`: `15/15 PASS` (exit code `0`).
+- `KUBECONFIG=/dev/null make test-sldc-offline`: `662/662 BATS tests PASS`, `7/7 Go packages PASS`, `pytest PASS`, `bun PASS` (exit code `0`).
+- `KUBECONFIG=/dev/null make test-sltm-probe-apikey`: `19/19 (10 PASS offline, 9 skipped live)` (exit code `0`).
+- `KUBECONFIG=/dev/null make docs-lint`: `670 file(s) clean` (exit code `0`).
+- `KUBECONFIG=/dev/null make docs-lint-test`: `56/56 PASS` (exit code `0`).
+- `bash scripts/lint-pipefail-grep-q.sh scripts/check-old-probe-name.sh`: `SCANNED CLEAN` (exit code `0`).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

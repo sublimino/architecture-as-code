@@ -462,7 +462,7 @@ KERNEL_OBSERVED_AT_ANNOTATION = "signalloom.io/kernel-observed-at"
 
 
 def _kernel_state(annotations: dict[str, object]) -> dict[str, object]:
-    """Kernel freezer truth as published by the stun-sentinel, or "unknown".
+    """Kernel freezer truth as published by the signalloom-warden, or "unknown".
 
     The sentinel reads `cgroup.events` on the node and writes two annotations.
     This is the only source: the stun label, lifecycle state and pod phase are

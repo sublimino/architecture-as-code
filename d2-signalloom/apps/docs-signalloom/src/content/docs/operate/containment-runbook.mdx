@@ -270,12 +270,12 @@ This section addresses high-risk failure modes identified during Phase 1 through
   ```
 
 ### Issue 2: Forensic Memory Snapshot Retention Warning
-- **Symptom:** Stun Sentinel logs `quarantine_retention_prune_warning` or disk space on `/var/log/signalloom/quarantine` approaches threshold.
+- **Symptom:** Signalloom Warden logs `quarantine_retention_prune_warning` or disk space on `/var/log/signalloom/quarantine` approaches threshold.
 - **Root Cause:** Multiple high-memory container freezes generated dumps exceeding `MaxTotalSizeBytes` (default 10GB) or `MaxSnapshots` (default 100).
 - **Remediation:**
   ```bash
   # Trigger manual dry-run prune evaluation
-  stun-sentinel --quarantine-prune-dry-run
+  signalloom-warden --quarantine-prune-dry-run
   # Check snapshot disk usage
   du -sh /var/log/signalloom/quarantine/*
   ```

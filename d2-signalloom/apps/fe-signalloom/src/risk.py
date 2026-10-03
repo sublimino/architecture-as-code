@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import urllib.parse
 from typing import Annotated, Any
 
 import httpx
@@ -156,7 +157,8 @@ async def get_agent_risk(
         params["seed"] = seed
     if model is not None:
         params["model"] = model
-    return await _proxy("GET", f"/api/v1/risk/agents/{agent_id}", principal, params=params)
+    quoted = urllib.parse.quote(agent_id, safe="")
+    return await _proxy("GET", f"/api/v1/risk/agents/{quoted}", principal, params=params)
 
 
 @router.get("/api/v1/risk/fleet")

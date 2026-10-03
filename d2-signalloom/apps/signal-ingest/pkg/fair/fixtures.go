@@ -154,8 +154,15 @@ func (s *FixtureSource) AgentTelemetry(id string) (Telemetry, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if t, ok := s.agents[id]; ok {
+		t.AgentID = id
+		return t, true
+	}
+
 	slug := id
-	if idx := strings.LastIndex(id, ":"); idx != -1 {
+	if idx := strings.LastIndex(id, "/"); idx != -1 {
+		slug = id[idx+1:]
+	} else if idx := strings.LastIndex(id, ":"); idx != -1 {
 		slug = id[idx+1:]
 	}
 

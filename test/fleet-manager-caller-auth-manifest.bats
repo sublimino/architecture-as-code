@@ -41,7 +41,7 @@ fm_env() {
   local scopes; scopes="$(fm_env | grep '_SCOPES|' | cut -d'|' -f1,2)"
   grep -qE 'FLEET_MANAGER_KEY_.*_SCOPES\|stun' <<<"$scopes"
   grep -qx 'FLEET_MANAGER_KEY_FE_SIGNALLOOM_SCOPES|stun' <<<"$scopes"
-  grep -qx 'FLEET_MANAGER_KEY_DASHBOARD_SCOPES|stun,deploy,scan,reset' <<<"$scopes"
+  grep -qx 'FLEET_MANAGER_KEY_DASHBOARD_SCOPES|stun,deploy,scan,reset,read' <<<"$scopes"  # read: the workload registry (GET /api/v1/fleet/workloads) feeds remote discovery
   [ "$(grep -c 'recover' <<<"$scopes")" -eq 1 ]
   grep -q '^FLEET_MANAGER_KEY_OPERATOR_SCOPES|.*recover' <<<"$scopes"
 }

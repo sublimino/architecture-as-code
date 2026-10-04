@@ -30,6 +30,12 @@ type PolicyBundle struct {
 	Rules       []PolicyRule `json:"rules" yaml:"rules"`
 	RawBundle   string       `json:"raw_bundle,omitempty" yaml:"raw_bundle,omitempty"`
 	Checksum    string       `json:"checksum" yaml:"checksum"`
+
+	// DryRun marks a bundle that arrived over POST /api/v1/policies/bundles.
+	// Per SLAWS v2 §4.4 that route registers a dry-run bundle only and never
+	// persists: the flag is set by the handler, is never set by LoadFrameworks
+	// or by the boot loader, and the registration is absent after a restart.
+	DryRun bool `json:"dry_run" yaml:"dry_run"`
 }
 
 // VersionHistoryItem provides a summary for a historical version of a bundle.

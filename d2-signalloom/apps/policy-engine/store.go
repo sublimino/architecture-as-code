@@ -14,6 +14,7 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
 
 // PolicyStore manages versioned policy bundles across tenants and frameworks.
@@ -22,14 +23,23 @@ type PolicyStore struct {
 	bundles   map[string]map[string][]*PolicyBundle
 	active    map[string]map[string]*PolicyBundle
 	celEngine *CELEngine
+
+	// obsBundles is the DURABLE observation-policy set: tenant -> bundles read
+	// from POLICY_BUNDLES_DIR at boot (SLAWS v2 §4.4, D6). It is deliberately a
+	// separate map from `bundles` above, which holds framework bundles and the
+	// dry-run registrations the HTTP API accepts. Keeping them apart is what
+	// makes "a registration never survives a restart" structural rather than a
+	// convention someone has to remember.
+	obsBundles map[string][]*obscel.Bundle
 }
 
 // NewPolicyStore creates an initialized, thread-safe PolicyStore.
 func NewPolicyStore(celEngine *CELEngine) *PolicyStore {
 	return &PolicyStore{
-		bundles:   make(map[string]map[string][]*PolicyBundle),
-		active:    make(map[string]map[string]*PolicyBundle),
-		celEngine: celEngine,
+		bundles:    make(map[string]map[string][]*PolicyBundle),
+		active:     make(map[string]map[string]*PolicyBundle),
+		celEngine:  celEngine,
+		obsBundles: make(map[string][]*obscel.Bundle),
 	}
 }
 
@@ -57,9 +67,10 @@ func parseSemver(v string) ([]int, error) {
 }
 
 // compareSemver compares two semantic versions:
-//  -1 if v1 < v2
-//   0 if v1 == v2
-//   1 if v1 > v2
+//
+//	-1 if v1 < v2
+//	 0 if v1 == v2
+//	 1 if v1 > v2
 func compareSemver(v1, v2 string) (int, error) {
 	n1, err := parseSemver(v1)
 	if err != nil {

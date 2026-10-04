@@ -474,20 +474,46 @@ func newProbeServer(h *api.Handlers) *http.Server {
 // pipeline makes of the store on a live path. A warm-up failure is logged and
 // not fatal: the consequence is bounded (a window mid-flight at restart
 // under-counts until it refills) and is strictly better than refusing to ingest.
+// The deduper is threaded through rather than created here because it is the
+// SAME accepted-ID set on both sides of the policy sink and on the HTTP path.
+// Composition order, outermost first:
+//
+//	tenant binder  (in the collector adapter: BindTenant(sink, cfg.TenantID))
+//	  -> dedupe    (claims the derived Observation.ID)
+//	    -> policy  (stage 1, stage 2)
+//	      -> store
+//
+// Binder outside dedupe: the binder refuses a mismatched tenant_id and stamps
+// an absent one, and a record that is about to be REFUSED must not have had its
+// ID claimed — otherwise the corrected redelivery reads as a duplicate.
+//
+// Dedupe outside policy: a replay must never reach stage 1, because the damage
+// is not only the duplicate row, it is the stage-2 burst counter advancing on a
+// redelivery rather than on an event. Deduping inside policy would drop the
+// duplicate finding at the write and still have counted the burst.
+//
+// Policy's own output (findings, decisions) goes back out through a SECOND
+// dedupe seam over the same set (Options.DerivedSink), so a finding is written
+// once; the source observation goes out through the raw store sink because it
+// has already passed the gate upstream and would otherwise be refused as a
+// duplicate of its own claim.
 func buildPolicyPipeline(
 	ctx context.Context,
 	storeSink collectors.IngestionSink,
 	signalStore store.SignalStore,
 	bundles []*obscel.Bundle,
 	metrics *policy.Metrics,
+	deduper *collectors.Deduper,
 ) (collectors.IngestionSink, *policy.Store, *policy.AsyncAlerter) {
 	if len(bundles) == 0 {
-		// No bundles: hand back the undecorated sink and store. Nothing is
-		// evaluated and nothing costs anything, which is the state every estate
-		// that has not shipped a bundle is in.
+		// No bundles: nothing is evaluated and nothing costs anything, which is
+		// the state every estate that has not shipped a bundle is in. Ingest is
+		// still idempotent — duplicate suppression is a durability property, not
+		// a policy feature, so it must not be contingent on a bundle existing.
 		slog.Warn("observation policy is loaded with zero bundles; no finding or decision will be produced",
 			"env", policy.BundlesDirEnv)
-		return storeSink, nil, nil
+		return collectors.NewDedupeSink(storeSink, deduper),
+			policy.NewStoreWithDeduper(signalStore, nil, deduper), nil
 	}
 
 	evaluator, err := obscel.NewEvaluator()
@@ -520,17 +546,33 @@ func buildPolicyPipeline(
 			"env", policy.WebhookURLEnv)
 	}
 
+	// Findings and decisions carry derived IDs of their own, so they go out
+	// through the dedupe seam. The SOURCE observation does not: it was claimed
+	// by the outer seam before stage 1, and routing it back through a sink
+	// guarding the same set would refuse the first write as a duplicate of its
+	// own claim.
+	opts.DerivedSink = collectors.NewDedupeSink(storeSink, deduper)
+
 	sink := policy.NewSink(storeSink, signalStore, evaluator, policy.StaticBundles(bundles), opts)
+
+	// Dedupe sits OUTSIDE policy so a replay never reaches stage 1 and cannot
+	// advance a stage-2 window. The collector adapters wrap what they are given
+	// with BindTenant, which puts the binder outside this, which is where it
+	// belongs: a record the binder is about to refuse must not have had its ID
+	// claimed.
+	ingestSink := collectors.NewDedupeSink(sink, deduper)
 
 	// The HTTP path needs the concrete *policy.Sink to reach Evaluate, so it can
 	// keep its atomic batch Append. The type assertion cannot fail: NewSink
-	// returns exactly that type.
-	httpStore := policy.NewStore(signalStore, sink.(*policy.Sink))
+	// returns exactly that type. It gets the SAME deduper, as a batch filter
+	// ahead of the atomic Append.
+	httpStore := policy.NewStoreWithDeduper(signalStore, sink.(*policy.Sink), deduper)
 
 	slog.Info("observation policy wired at the shared ingestion sink",
 		"bundles", len(bundles), "windows", windows.Len(),
-		"warmup_findings", windows.WarmedCount(), "warmup_horizon", windows.LongestWindow().String())
-	return sink, httpStore, alerter
+		"warmup_findings", windows.WarmedCount(), "warmup_horizon", windows.LongestWindow().String(),
+		"dedupe_order", "binder>dedupe>policy>store")
+	return ingestSink, httpStore, alerter
 }
 
 func main() {
@@ -660,6 +702,27 @@ func main() {
 	// Collector sink adapter backed by signal store
 	storeSink := collectors.NewStoreSink(signalStore)
 
+	// --- W8: idempotent ingest -------------------------------------------------
+	//
+	// Observation.ID is derived precisely so a replay is recognisably the same
+	// record, and nothing enforced it: restarting this process in fixture mode
+	// re-appended the whole awslogs corpus with an unchanged ID set. The
+	// accepted-ID set is created HERE, before the policy pipeline, because it is
+	// shared by the collector sink chain, the policy pipeline's own output and
+	// the HTTP batch path — one set, so a record admitted by one door cannot be
+	// admitted again by another.
+	//
+	// Warm-up runs before any collector starts and is the reason a restart does
+	// not re-admit the fixtures. A failure is logged, not fatal: the consequence
+	// is bounded (a window of duplicates until the set refills from live
+	// traffic) and is strictly better than refusing to ingest. Same asymmetry as
+	// the stage-2 warm-up below.
+	ingestDeduper := collectors.NewDeduperFromEnv(slog.Default())
+	if err := ingestDeduper.Warm(ctx, signalStore, ingestDeduper.WarmWindow(), time.Now(), slog.Default()); err != nil {
+		slog.Warn("ingest idempotency warm-up failed; a redelivery from before this restart will be re-admitted once",
+			"error", err, "window", ingestDeduper.WarmWindow().String())
+	}
+
 	// --- SLAWS P2-1..P2-3: observation policy at the shared sink ------------------------------
 	//
 	// Policy wraps the sink rather than the store, which is what makes "every
@@ -683,7 +746,7 @@ func main() {
 	}
 
 	policySink, policyHTTPStore, policyAlerter := buildPolicyPipeline(
-		ctx, storeSink, signalStore, policyBundles, policyMetrics)
+		ctx, storeSink, signalStore, policyBundles, policyMetrics, ingestDeduper)
 	if policyAlerter != nil {
 		defer policyAlerter.Close()
 	}
@@ -890,6 +953,12 @@ func main() {
 		// /api/v1/policy/stats route, so the counters sit behind the same
 		// authentication as every other series and no api/ route table changes.
 		_, _ = io.WriteString(w, policyMetrics.Render())
+		// W8. dedupe_dropped_total is the series that says the control is
+		// working; dedupe_warmed_ids is the one that says a restart did not
+		// re-admit the backlog. Rendered at zero rather than absent, because an
+		// absent dropped_total reads as "nothing was duplicated", which is
+		// exactly how this defect stayed invisible.
+		_, _ = io.WriteString(w, ingestDeduper.Render())
 	})
 
 	// Rate limit and reload interval settings

@@ -103,7 +103,9 @@ test.describe("SuperCredential demo — instructor window and audience window", 
       ]);
 
       await expect(instructor.locator(RUN_PHASE_4)).toBeVisible({ timeout: 30_000 });
-      await expect(audience.getByText(/cardvault/i).first()).toBeVisible({ timeout: 60_000 });
+      // The Who-Authorized panel on /agents lists every agent id in a <select>, so the first
+      // "cardvault" text in DOM order is a hidden <option> that never becomes visible.
+      await expect(audience.getByText(/cardvault/i).filter({ visible: true }).first()).toBeVisible({ timeout: 60_000 });
 
       // ── Precondition: phase 4 requires active agent state ──────────────
       // A clean deploy begins idle and a rehearsal can leave it stunned, so

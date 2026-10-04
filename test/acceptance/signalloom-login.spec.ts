@@ -21,15 +21,16 @@ test("user can log out and is returned to the Dex login page", async ({ page }) 
   // Click the sign-out button in the sidebar.
   await page.getByTitle("Sign out").click();
 
-  // If the dashboard lands on /login (the signed-out page), click "Sign in with Dex"
-  // to proceed to Dex.
+  // After logout the dashboard either lands on /login (the signed-out page, whose
+  // "Sign in with Dex" button must be clicked) or AutoSignIn redirects straight to
+  // Dex. isVisible() does not wait, so an immediate probe lost that race whenever
+  // the signed-out page was still rendering; wait for whichever appears first.
   const dexBtn = page.getByRole("button", { name: /sign in with dex/i });
-  if (await dexBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+  const loginInput = page.locator('input[name="login"]');
+  await expect(dexBtn.or(loginInput).first()).toBeVisible({ timeout: 15_000 });
+  if (await dexBtn.isVisible()) {
     await dexBtn.click();
   }
-
-  // After logout the session is cleared and AutoSignIn/Dex button redirects to Dex.
-  const loginInput = page.locator('input[name="login"]');
   await expect(loginInput).toBeVisible({ timeout: 15_000 });
   expect(page.url()).toContain("/dex/auth");
 

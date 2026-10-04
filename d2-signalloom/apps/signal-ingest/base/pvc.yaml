@@ -1,0 +1,33 @@
+# Durable home for the signal store (SLAWS P1-1).
+#
+# signal-ingest writes FrostDB Parquet segments to SIGNAL_STORE_DIR (/data/signals)
+# when SIGNAL_STORE=frostdb. That directory was an emptyDir, which the kubelet
+# deletes with the pod, so the "durable" store survived exactly as long as one pod
+# did. This claim is what makes the backlog outlive a reschedule, an image bump and
+# a node drain -- and therefore what makes the DuckDB last-resort read
+# (docs/signalloom/runbooks/slaws-duckdb-last-resort.md) and the segment
+# attestation high-water mark mean anything.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-store
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    app.kubernetes.io/component: signal-fusion
+    app.kubernetes.io/part-of: signalloom
+spec:
+  accessModes:
+    # One writer. The Deployment is replicas: 1 and FrostDB takes an exclusive
+    # lock on its directory, so ReadWriteOnce is the honest mode; ReadWriteMany
+    # would advertise a concurrency the store does not support.
+    - ReadWriteOnce
+  # storageClassName is deliberately omitted so the cluster's default class
+  # provisions the volume -- kind's `standard` (rancher.io/local-path) locally,
+  # whatever the platform offers elsewhere. Setting it to "" would mean "no class"
+  # and disable dynamic provisioning, leaving the pod Pending; naming a class
+  # explicitly would make this manifest cluster-specific.
+  resources:
+    requests:
+      # Sized for the demo backlog, not a retention policy. retention/ prunes
+      # segments; this is the ceiling that prunes failing cannot exceed.
+      storage: 10Gi

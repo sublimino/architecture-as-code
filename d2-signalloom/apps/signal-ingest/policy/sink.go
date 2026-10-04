@@ -112,19 +112,40 @@ func (s *Sink) IngestObservation(ctx context.Context, obs *model.Observation) er
 	if err := s.inner.IngestObservation(ctx, obs); err != nil {
 		return err
 	}
+	// Decide second.
+	s.Evaluate(ctx, obs)
+	return nil
+}
 
-	// Decide second — but never over our own output.
+// Evaluate runs stage 1 and stage 2 over an observation that has ALREADY been
+// stored, writing findings and decisions but not the observation itself.
+//
+// It exists so the HTTP ingest path can keep its batch semantics. That handler
+// validates a whole batch and then calls Store.Append once, atomically; routing
+// it through IngestObservation per observation would turn a batch that is
+// accepted or rejected as a unit into one that can half-land. So the store
+// wrapper appends the batch exactly as before and then calls Evaluate per row —
+// the same deciding code the collector path runs, reached by a second door
+// rather than copied.
+//
+// It returns nothing by design: there is no policy outcome a caller should act
+// on. Every fault is counted and logged.
+func (s *Sink) Evaluate(ctx context.Context, obs *model.Observation) {
+	if obs == nil {
+		return
+	}
+	// Never over our own output.
 	if obs.Source == obscel.SourceFinding || obs.Source == obscel.SourceDecision {
-		return nil
+		return
 	}
 	if s.eval == nil || s.bundles == nil {
-		return nil
+		return
 	}
 
 	tenant := obs.Labels[TenantLabel]
 	bundles := s.bundles(tenant)
 	if len(bundles) == 0 {
-		return nil
+		return
 	}
 
 	projected := toObscel(obs)
@@ -142,7 +163,6 @@ func (s *Sink) IngestObservation(ctx context.Context, obs *model.Observation) er
 			s.emitFinding(ctx, f, obs, b)
 		}
 	}
-	return nil
 }
 
 // emitFinding writes one finding and offers it to stage 2.

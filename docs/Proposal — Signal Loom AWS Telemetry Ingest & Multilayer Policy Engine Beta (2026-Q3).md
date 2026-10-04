@@ -9,7 +9,7 @@ date: 2026-10-03
 status: v2 implemented on integration/slaws-v0.1.0 (2026-10-04); acceptance evidence in Errata; awaiting sign-off and the kind-osramp run
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T17:14
+updated: 2026-10-05T00:56
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -421,6 +421,14 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 | beyond the six: `make test-obscel` | rc 0, 97 pass | rc 0, 97 pass |
 
 `diff totals.key`: identical. Run 5 (same tip) also passed with the same totals. The only commit after `89d1f938` is this errata; `git diff --name-only 89d1f938..HEAD` names this file alone and is recorded in the ISA artefacts. All earlier pairs are superseded.
+
+#### Errata — kind-osramp leg, P4-GOV (2026-10-05, lead, branch `slaws/p4-gov-cluster`)
+
+- Run with Andy's explicit authorisation; the kubeconfig was taken from kind through Docker because the session profile denies `~/.kube/config`. Fixture mode only; no AWS account was touched.
+- Four defects visible only in-cluster, all fixed and tested: (1) no manifest supplied `SIGNAL_SEGMENT_PSEUDONYM_KEY`, so the FrostDB store failed closed at boot: Secret `signal-ingest-segment-pseudonym` is minted by `make signal-ingest-pseudonym-key` (called from the standup) and read by `secretKeyRef`; (2) the FrostDB label allow-list lacked the §2.3 awslogs keys, so fixture ingestion was refused at observation 0: admitted, with a frostdb-tagged test appending the whole fixture corpus; (3) no overlay selected fixture mode: `fe-signalloom/local` sets `COLLECTOR_AWSLOGS_MODE=fixture`, `AWSLOGS_TENANT_ID=kusari`; (4) the store appended every row again on restart (12→24, 4→8): `collectors.DedupeSink` (bounded set, warmed from the durable store at boot, composed binder → dedupe → policy → store, findings and decisions through the same seam) plus `store.DedupeByID` on the query, replay and warm-up read paths. A replay can no longer manufacture a stage-2 burst.
+- Also found by the hub lifecycle spec (other session): the bundles ConfigMap added to `policy-engine/base` in `7f804725` is applied by the SuperCred demo runner, whose Role had no configmaps verbs; the Role fix is on the feature line owned by that session.
+- Result at image `src-1c311f837f98534a`: rollout clean; store type frostdb on the bound 10Gi PVC; bundle `kusari-iam-change` 1.0.0 loaded; collector `awslogs` fixture mode; store via the read API: cloud_control_plane 12 distinct rows (aws:iam 6, aws:cloudtrail 2, policy_finding 4), network_egress 4 (aws:vpcflow 3, policy_finding 1); 5 findings, 0 decisions (the corpus has no three qualifying IAM events by one actor within 10 min); actor pseudonymised; label keys exactly the §2.3 set. After `rollout restart`: identical ID sets, identical finding list, counts unchanged; boot log `warmed_ids=449`. Evidence `/tmp/slaws/live/snap{A,B}.json`, pod logs.
+- Not done: no Weave screenshot (the Interceptor daemon is not installed on this host; the page streams the same observations verified through the API). Pushes to GitHub are blocked for both sessions by the gpg ssh agent refusing to sign; all commits are local on `slaws/p4-gov-cluster` and the cluster artefacts were pushed from that tree.
 
 #### Errata — image pin discipline (lead)
 

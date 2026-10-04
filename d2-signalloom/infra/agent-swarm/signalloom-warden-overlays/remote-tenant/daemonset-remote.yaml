@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# The remote-tenant DaemonSet patch. A strategic merge patch, so every list
+# below merges on its own merge key (`name` for env, volumes and volumeMounts)
+# and the base keeps everything this file does not name.
+#
+# Four groups of change, each explained where it appears:
+#   1. the two key refs stop being optional,
+#   2. the cluster identity the hub keys its registry on,
+#   3. the two report and poll intervals,
+#   4. the TLS trust store for the hub's certificate.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: signalloom-warden
+  namespace: fe-signalloom-agents
+spec:
+  template:
+    spec:
+      containers:
+        - name: sentinel
+          env:
+            # ── 1. The two key refs are REQUIRED on a remote cluster ─────────
+            #
+            # On the central cluster both are optional on purpose: the warden
+            # enforces locally, and a missing key must not stop the freeze. A
+            # remote warden has no local consumer of its observations and no
+            # local fleet-manager, so a keyless pod does nothing at all except
+            # freeze pods that nobody can see or release. It also cannot report
+            # its workloads, so the hub never learns the cluster exists.
+            #
+            # optional: false therefore turns a silent no-op into a pod that
+            # waits in ContainerCreating until the operator applies the two
+            # Secrets. Apply the Secrets first (see --emit-remote-secrets in
+            # scripts/fleet-manager-caller-keys.sh and
+            # scripts/sldc-ingest-bearer.sh) and the wait is zero.
+            - name: SIGNAL_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: signalloom-warden-ingest-token
+                  key: token
+                  optional: false
+            - name: FLEET_MANAGER_STUN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: signalloom-warden-fleet-key
+                  key: token
+                  optional: false
+            # ── 2. Cluster identity ──────────────────────────────────────────
+            #
+            # fleet-manager keys its workload registry cluster_id/namespace/name
+            # (docs/EAP/remote-contract.md). It is the only thing that
+            # distinguishes this cluster's `agent-x-7d6-abc` from the hub's, so
+            # it must be unique across every cluster that reports to one hub.
+            # It also appears in every stun record and in the ack.
+            #
+            # PARAMETER. Change it per pilot. `kusari-prod` is the pilot value.
+            # It is a literal, not a ConfigMap key, because a cluster that
+            # reports under the wrong identity corrupts another cluster's
+            # registry rows, and a literal in the overlay is the thing a
+            # reviewer reads first.
+            - name: SIGNAL_CLUSTER_ID
+              value: "kusari-prod"
+            # ── 3. Report and poll intervals ─────────────────────────────────
+            #
+            # FLEET_REPORT_INTERVAL: how often the full workload report is
+            # posted. The hub drops a registry row not reported for three
+            # intervals, so this value times three is how long a deleted pod
+            # stays visible on the Fleet page, and how long after a network
+            # partition the whole cluster disappears from it.
+            #
+            # FLEET_POLL_INTERVAL: how often stun state is fetched. It is the
+            # upper bound on the delay between an operator pressing Stun and
+            # the cgroup freezing on the node. Keep it well under the report
+            # interval. Both carry the contract's defaults, stated here rather
+            # than inherited from the binary so the pilot can read them.
+            #
+            # PARAMETERS. Raise the report interval on a large cluster (the
+            # report carries every watched pod). Lowering the poll interval
+            # below a second buys nothing: the freeze is local and immediate
+            # once the record arrives.
+            - name: FLEET_REPORT_INTERVAL
+              value: "60s"
+            - name: FLEET_POLL_INTERVAL
+              value: "10s"
+            # ── 4. TLS trust for the hub ─────────────────────────────────────
+            #
+            # The hub's gateway serves a certificate from a self-signed
+            # ClusterIssuer, which no node trusts. SIGNAL_TLS_CA_FILE names a
+            # PEM bundle the warden's two HTTP clients add to their root pool.
+            #
+            # PARAMETER, with a mount behind it. The file comes from the
+            # OPTIONAL Secret signalloom-hub-ca below. "Optional" is a
+            # deliberate trade: a cluster whose hub already serves a publicly
+            # trusted certificate needs no Secret and no change to this file,
+            # and the warden falls back to the system roots. A warden that
+            # finds this path absent must therefore log that fallback and keep
+            # running, never refuse to start.
+            #
+            # Export the bundle from the hub with
+            #   kubectl --context "$HUB" -n ingress get secret cluster-tls \
+            #     -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.pem
+            # then
+            #   kubectl --context "$REMOTE" -n fe-signalloom-agents \
+            #     create secret generic signalloom-hub-ca --from-file=ca.pem
+            - name: SIGNAL_TLS_CA_FILE
+              value: "/etc/signalloom/hub-ca/ca.pem"
+          volumeMounts:
+            - name: hub-ca
+              mountPath: /etc/signalloom/hub-ca
+              readOnly: true
+      volumes:
+        # optional: true, matching SIGNAL_TLS_CA_FILE above. With the Secret
+        # absent the directory is empty and the named file does not exist.
+        - name: hub-ca
+          secret:
+            secretName: signalloom-hub-ca
+            optional: true

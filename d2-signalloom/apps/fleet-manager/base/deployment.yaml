@@ -94,6 +94,26 @@ spec:
                   optional: true
             - name: FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES
               value: "stun"
+            # A REMOTE cluster's warden (docs/EAP/remote-contract.md). It posts
+            # POST /api/v1/fleet/workloads/report, reads
+            # GET /api/v1/fleet/stun-state and acknowledges with
+            # POST /api/v1/fleet/stun-state/ack. Scope `report` covers exactly
+            # those three and nothing else.
+            #
+            # A SEPARATE caller from signalloom-warden above, not a widened
+            # one. `stun` lets a caller request a freeze of any agent the hub
+            # knows, including the hub's own. A remote node reports what it
+            # sees and obeys what it is told, so it needs none of that, and a
+            # key that carried both scopes would let a pilot cluster stun the
+            # central estate. Disjoint scopes, two keys, one Secret each.
+            - name: FLEET_MANAGER_KEY_WARDEN
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: warden
+                  optional: true
+            - name: FLEET_MANAGER_KEY_WARDEN_SCOPES
+              value: "report"
             - name: FLEET_MANAGER_KEY_FE_SIGNALLOOM
               valueFrom:
                 secretKeyRef:

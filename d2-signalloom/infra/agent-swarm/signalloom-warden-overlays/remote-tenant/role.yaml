@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# Role signalloom-warden, for a cluster that runs NO agent-swarm base.
+#
+# ── Why this file is a second copy, and why that is the lesser evil ──────────
+#
+# The warden base ships the RoleBinding and not the Role (ADR-14): Flux
+# dry-runs every object of a Kustomization before it applies any, and the API
+# server answers NotFound for a RoleBinding whose Role does not exist, so a
+# Kustomization carrying both never applies on a fresh cluster. The central
+# cluster therefore gets the Role from agent-swarm-base, one layer earlier,
+# from ../../ebpf-sentinel-rbac.yaml.
+#
+# A remote cluster runs no agent-swarm base. Left alone it gets a RoleBinding
+# that resolves to nothing, and a warden whose pod informer is forbidden. The
+# three ways to avoid that:
+#
+#   1. tell the pilot to `kubectl apply -f ../../ebpf-sentinel-rbac.yaml`
+#      first. That was the old instruction. It is one more hand step, it is
+#      silently skippable, and skipping it produces a Running pod that observes
+#      nothing, which reads as a broken probe.
+#   2. reference ../../ebpf-sentinel-rbac.yaml from the overlay. Kustomize
+#      refuses a file above its own root, so this needs
+#      --load-restrictor LoadRestrictionsNone on every render, and a bare
+#      `kubectl apply -k` stops working. The point of the overlay is that the
+#      bare command is complete.
+#   3. this file, with test/signalloom-warden-manifests.bats asserting that its
+#      rules are byte-for-byte the rules of the Role in
+#      ../../ebpf-sentinel-rbac.yaml.
+#
+# Option 3 keeps one hand step out of the pilot runbook and makes drift a test
+# failure rather than a privilege surprise. Change the rules in
+# ../../ebpf-sentinel-rbac.yaml and the test tells you to change them here.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: signalloom-warden
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-warden
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "sentinel"
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch"]
+  # Owner-chain stun record: signalloom.io/stunned on the pod's ReplicaSet or
+  # Deployment. get only (named lookups from ownerReferences), no list/watch.
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments"]
+    verbs: ["get"]

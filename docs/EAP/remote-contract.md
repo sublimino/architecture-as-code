@@ -54,11 +54,15 @@ answers 202 with the record. It takes no local Kubernetes action.
 `GET /api/v1/fleet/stun-state?cluster_id=` (scope `report`) returns every
 record for that cluster whose state is `stun_requested` or
 `resume_requested`. The warden polls it every `FLEET_POLL_INTERVAL`
-(default 10s). For `stun_requested` it freezes the named pod if that pod is
-on its node and not already frozen. For `resume_requested` it releases the
-hold. It then calls `POST /api/v1/fleet/stun-state/ack` with
-`{id, state: "stunned"|"resumed", node, at}`.
-`POST /api/v1/fleet/resume/{agent}` on a registry target sets
+(default 10s). It freezes the named pod if it is on its node and not frozen,
+and it releases the hold for `resume_requested`. It then calls
+`POST /api/v1/fleet/stun-state/ack`. The body is:
+
+```json
+{"id": "...", "state": "stunned", "node": "ip-10-0-1-7", "at": "RFC3339"}
+```
+
+`state` is `stunned` or `resumed`. `POST /api/v1/fleet/resume/{agent}` on a registry target sets
 `resume_requested`. The existing local path is unchanged.
 
 ## Discovery and tenancy

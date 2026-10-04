@@ -3,6 +3,17 @@ import type { Binding, RBACData, Role, Subject } from './afmApi'
 export interface AfmClusterImport {
   id: string
   name: string
+  // Which cluster the RBAC was read FROM, as opposed to `id`, which identifies
+  // this import inside AFM.
+  //
+  // `id` is generated per import as `signalloom-<stamp>-<rand>`, and both the
+  // prefix and the sortable stamp are load bearing: `selectMostRecentImport`
+  // uses them to pick the import the embed shows. So `id` cannot also name a
+  // cluster. The gateway's importer keys are each bound to one cluster
+  // (`AFM_IMPORT_KEYS`) and compared `id` against that binding, which could
+  // never match a generated id, so only a superadmin could import. This field
+  // is what the binding is checked against now.
+  source_cluster?: string
   rbac: {
     subjects: Subject[]
     roles: Role[]
@@ -14,7 +25,7 @@ type YamlScalar = string | number | boolean | null
 type YamlValue = YamlScalar | YamlValue[] | { [key: string]: YamlValue | undefined }
 
 const INDENT = '  '
-const PREFERRED_KEY_ORDER = ['id', 'name', 'rbac', 'subjects', 'roles', 'bindings', 'scope', 'namespace', 'rules', 'roleRef', 'verbs', 'apiGroups', 'resources', 'kind']
+const PREFERRED_KEY_ORDER = ['id', 'name', 'source_cluster', 'rbac', 'subjects', 'roles', 'bindings', 'scope', 'namespace', 'rules', 'roleRef', 'verbs', 'apiGroups', 'resources', 'kind']
 const BOOLEAN_PATTERN = /^(?:true|false|yes|no|on|off)$/i
 const NULL_PATTERN = /^(?:null|~)$/i
 const SPECIAL_FLOAT_PATTERN = /^[+-]?\.(?:inf|nan)$/i

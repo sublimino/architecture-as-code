@@ -74,10 +74,18 @@ Do not use this page. See [onboarding](onboarding.md#1-get-an-identity).
 | Who | Any signed-in user. A claim succeeds only when the workload's `signalloom.ai/tenant` equals the user's tenant and the workload declares a model. |
 | Spec | [`kagent-agents.spec.ts`](../../test/acceptance/kagent-agents.spec.ts), [`smoke.spec.ts`](../../test/acceptance/smoke.spec.ts) "Agents page renders past loading" |
 
-The list comes from the discovery service on the central cluster, label
-`signalloom.ai/agent=true`, namespaces `fe-signalloom-agents` and
-`fe-signalloom`. It is not filtered by tenant. Workloads on the Kusari cluster
-are not in it. See [onboarding](onboarding.md#4-how-your-agents-appear).
+The list has two sources. First, the discovery service on the central cluster,
+label `signalloom.ai/agent=true`, namespaces `fe-signalloom-agents` and
+`fe-signalloom`. Second, `fleet-manager`'s workload registry, which the warden
+on a remote cluster reports into.
+
+A remote row carries `origin: "remote"` with `cluster_id`, `pod` and `frozen`.
+Its id has the form `remote:<cluster>/<namespace>/<pod>`.
+
+The list is filtered by tenant. You see only workloads whose
+`signalloom.ai/tenant` label is your own, and a superadmin sees all. A workload
+declaring no tenant is shown to nobody. See
+[onboarding](onboarding.md#4-how-your-agents-appear).
 
 ## /agents/:id
 
@@ -106,7 +114,7 @@ which samples containers named `kusari-agent` and the namespace
 | Shows | Live observations from the signal layers, converging on provisional actors, with an evidence drawer and a coverage panel |
 | Component | [`WeavePage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx) |
 | Reads | `GET /api/signals/observations`, `GET /api/signals/actors`, `GET /api/signals/coverage`, stream `GET /api/signals/observations/stream` |
-| Actions | **Seed fixtures** calls `POST /api/signals/collectors/seed`. **Promote** renders for an actionable actor but has no click handler. |
+| Actions | **Seed fixtures** calls `POST /api/signals/collectors/seed`. **Promote** renders for an actionable actor but has no click handler. See [faq-and-limits](faq-and-limits.md#summary-table). |
 | Who | Any signed-in user. Reads act for the user's tenant. |
 | Spec | [`cloudaudit-dashboard.spec.ts`](../../test/acceptance/cloudaudit-dashboard.spec.ts), [`risk-audit.spec.ts`](../../test/acceptance/risk-audit.spec.ts) "Surface 5" |
 
@@ -285,7 +293,7 @@ The superadmin toggle is not here. It is in the sidebar footer.
 | Shows | The fleet demo: topology graph, risk gauge, per-agent state table, and a five-second heartbeat |
 | Component | [`FleetDemoPage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/FleetDemoPage.tsx) |
 | Reads | `GET /fleet-api/v1/fleet/topology`, straight to `fleet-manager` |
-| Actions | **Deploy Fleet**, **Scan Fleet**, **Stun** with a mandatory reason, **Recover Fleet**, **Reset Fleet**. They call `POST /fleet-api/v1/fleet/{deploy,scan,stun/{id},recover,reset}` ([`fleetApi.ts`](../../d2-signalloom/apps/dashboard-signalloom/src/api/fleetApi.ts)). |
+| Actions | **Deploy Fleet**, **Scan Fleet**, **Stun** with a mandatory reason, **Reset Fleet** call `POST /fleet-api/v1/fleet/{deploy,scan,stun/{id},reset}`. **Recover Fleet** calls `POST /api/v1/fleet/recover` on the portal instead ([`fleetApi.ts`](../../d2-signalloom/apps/dashboard-signalloom/src/api/fleetApi.ts)). |
 | Who | Superadmin only. The route redirects everyone else to `/agents`. `/fleet/audience` is the read-only view. |
 | Spec | [`risk-audit.spec.ts`](../../test/acceptance/risk-audit.spec.ts) "Surface 12" |
 
@@ -293,7 +301,18 @@ A `kusari-operator` session cannot open this page. The `/fleet-api/` proxy
 checks `GET /api/v1/auth/check`, which answers `204` for a superadmin and
 `403` otherwise, then swaps in the `dashboard` caller key. That key has the
 scopes `stun`, `deploy`, `scan`, and `reset`. It has no `recover` and no
-`resume`, so **Recover Fleet** answers `403` even for the superadmin. The
-agents on this page are the five demo agents in
+`resume`, which belong to the `operator` break-glass key.
+
+**Recover Fleet** therefore does not go through `/fleet-api/`. It posts to
+`POST /api/v1/fleet/recover` on the portal. That route checks
+`require_superadmin` against the verified token and then presents the operator
+key itself
+([`fleet_operator.py`](../../d2-signalloom/apps/fe-signalloom/src/fleet_operator.py)),
+so the key never reaches the browser. The button is disabled unless
+`GET /api/v1/me` reports `superadmin: true`. `POST /api/v1/fleet/resume/{agent}`
+is the single-agent form, on the same gate and the same key. Both are audited as
+`fleet.recover_requested` and `fleet.resume_requested` before being forwarded,
+and both answer `503 fleet_operator_key_unavailable` if the portal holds no
+operator key. The agents on this page are the five demo agents in
 [`fleet-config.yaml`](../../d2-signalloom/apps/fleet-manager/base/fleet-config.yaml).
 The Kusari stub is not among them.

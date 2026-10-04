@@ -200,9 +200,21 @@ spec:
             # call, so a rotation needs no restart. A path, never the value.
             - name: SIGNAL_INGEST_KEY_FILE
               value: /etc/fe-signalloom/ingest-key/token
-            # AFM import gateway key configuration: JSON array of authorized keys.
+            # AFM import gateway key configuration: JSON array of authorized
+            # keys, each bound to exactly one cluster (src/afm_import.py). The
+            # binding is checked against the payload's "source_cluster", the
+            # cluster the RBAC was read from -- not against "id", which is the
+            # per-import identifier AFM sorts on and could never match a
+            # cluster name. A mismatch is still 403 cluster_not_bound.
+            #
+            # Two entries: the central cluster, and the remote pilot cluster
+            # whose id is a parameter so one overlay serves any pilot. Set
+            # REMOTE_CLUSTER_ID through this Kustomization's existing
+            # postBuild.substituteFrom, the same mechanism PUBLIC_ORIGIN uses
+            # above. A key with no file on disk is logged and skipped, so the
+            # second entry costs nothing until its Secret exists.
             - name: AFM_IMPORT_KEYS
-              value: '[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]'
+              value: '[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"},{"name":"afm-importer-remote","scopes":["afm:import"],"cluster":"${REMOTE_CLUSTER_ID:=kusari-prod}"}]'
           startupProbe:
             httpGet:
               path: /livez

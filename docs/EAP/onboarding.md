@@ -2,7 +2,7 @@
 
 This page takes a Kusari engineer from no access to a signed-in session that
 shows the pilot tenant and its agents. It describes the tree at commit
-`dfc1a849`. It derives from ADR-03 and ADR-12 in
+`02d18d07`. It derives from ADR-03 and ADR-12 in
 [the Spireless proposal](../Proposal%20—%20Signal%20Loom%20Spireless%20Token-Based%20Agent%20Identity%20Migration%20%282026-Q4%29.md)
 and from the portal code in
 [`d2-signalloom/apps/fe-signalloom/src`](../../d2-signalloom/apps/fe-signalloom/src).

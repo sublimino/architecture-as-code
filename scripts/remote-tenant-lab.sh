@@ -314,11 +314,11 @@ step_4_dns() {
 	corefile="$(remote -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
 	[ -n "$corefile" ] || { fail "4 dns" "could not read the remote Corefile"; return 0; }
 	block="    hosts lab-hub-gateway {\n       $HUB_BRIDGE_IP $HUB_GATEWAY_HOST\n       fallthrough\n    }"
-	if ! printf '%s' "$corefile" | grep -q "$HUB_BRIDGE_IP $HUB_GATEWAY_HOST"; then
+	if ! grep -q "$HUB_BRIDGE_IP $HUB_GATEWAY_HOST" <<<"$corefile"; then
 		# Insert the block right after the `ready` line of the .:53 server; the
 		# hosts plugin must precede forward, and `ready` always sits before it.
 		corefile="$(printf '%s' "$corefile" | awk -v blk="$block" 'done==0 && /^    ready$/ {print; gsub(/\\n/, "\n", blk); print blk; done=1; next} {print}')"
-		printf '%s' "$corefile" | grep -q 'lab-hub-gateway' || { fail "4 dns" "could not place the hosts block in the Corefile"; return 0; }
+		grep -q 'lab-hub-gateway' <<<"$corefile" || { fail "4 dns" "could not place the hosts block in the Corefile"; return 0; }
 		remote -n kube-system create configmap coredns --from-literal=Corefile="$corefile" --dry-run=client -o yaml \
 			| remote -n kube-system apply -f - >/dev/null || { fail "4 dns" "could not update the remote Corefile"; return 0; }
 		remote -n kube-system rollout restart deployment/coredns >/dev/null 2>&1 || true

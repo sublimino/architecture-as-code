@@ -2,7 +2,7 @@
 
 This page describes what the warden does when an agent misbehaves. It covers
 the triggers, the records, the resume path, and the forensic bundle. It
-describes the tree at commit `dfc1a849`. It derives from ADR-12
+describes the tree at commit `02d18d07`. It derives from ADR-12
 and ADR-13 in
 [the Spireless proposal](../Proposal%20—%20Signal%20Loom%20Spireless%20Token-Based%20Agent%20Identity%20Migration%20%282026-Q4%29.md),
 from the live status in

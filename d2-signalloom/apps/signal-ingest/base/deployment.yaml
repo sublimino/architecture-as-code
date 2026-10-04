@@ -37,7 +37,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-71c3fb00b490a19c
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-31e41731462adb80
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -80,6 +80,16 @@ spec:
             # probe timeout. 3s leaves the handler room to answer.
             timeoutSeconds: 3
           env:
+            # Selects the Parquet-backed FrostDB store (store/factory_frostdb.go).
+            # This is load-bearing and silent if wrong: NewStoreFromEnv returns an
+            # in-memory store for ANY other value, including unset, so the claim
+            # below would be mounted, empty, and never written to -- a pod that
+            # reports healthy while losing every observation on restart. It also
+            # requires an image built `-tags frostdb`; without the tag the
+            # !frostdb factory ignores this value entirely.
+            # TestReconciledManifestStoresSignalsDurably asserts both halves.
+            - name: SIGNAL_STORE
+              value: frostdb
             - name: SIGNAL_STORE_DIR
               value: /data/signals
             - name: DATABASE_URL
@@ -148,8 +158,14 @@ spec:
             limits:
               memory: 128Mi
       volumes:
+        # The FrostDB Parquet segments and their attestation evidence. The ephemeral
+        # volume this replaces was deleted with the pod, so every reschedule or
+        # image bump silently discarded the backlog the DuckDB last-resort runbook
+        # and the segment verifier both read -- see
+        # docs/signalloom/runbooks/slaws-duckdb-last-resort.md.
         - name: signal-store
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: signal-store
         - name: signal-auth-jwks
           configMap:
             name: signal-ingest-jwks

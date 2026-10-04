@@ -805,7 +805,14 @@ func handleCoverage(w http.ResponseWriter, _ *http.Request) {
 		BlindSpots: []BlindSpot{
 			{ID: "local_transport", Layer: "network_egress", Description: "Agent communicating via Unix socket or localhost -- invisible at the network layer"},
 			{ID: "session_inheritance", Layer: "identity_authorization", Description: "Agent riding a human's existing session -- no distinct identity signal"},
-			{ID: "cloud_control_plane", Layer: "cloud_control_plane", Description: "Layer not deployed -- cloud API calls not observed"},
+			// Deployed, not fed. The layer is in model.InScopeLayers() and the
+			// correlation rules already pair against it, so "not deployed" sent an
+			// operator looking for a missing layer instead of a missing collector.
+			// It remains a blind spot until one lands: no cloud observations are
+			// arriving either way, which is why the counts below are unchanged.
+			{ID: "cloud_control_plane", Layer: "cloud_control_plane", Description: "Layer deployed, awaiting a collector -- no collector is feeding cloud API calls yet"},
+			// Unlike the above, protocol genuinely is out of scope: it is absent from
+			// model.InScopeLayers() and nothing evaluates against it.
 			{ID: "protocol_analysis", Layer: "protocol", Description: "Layer not deployed -- protocol-level signals not observed"},
 			{ID: "encrypted_c2", Layer: "network_egress", Description: "Command-and-control over TLS to allowed destinations -- content invisible"},
 		},

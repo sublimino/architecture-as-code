@@ -62,7 +62,7 @@ const EVENT_TYPES = [
   'violation.acknowledged',
   'compliance.reassess_requested', 'compliance.scan_completed',
   // Requests forwarded to an upstream service, recorded before forwarding.
-  'policy.bundle_submitted', 'policy.rollback_requested', 'rbac.scan_requested',
+  'policy.bundle_submitted', 'policy.rollback_requested', 'rbac.scan_requested', 'afm.cluster_import_requested',
   'api_key.created', 'api_key.rotated',
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
@@ -111,6 +111,7 @@ const EVENT_COLORS: Record<string, string> = {
   'policy.bundle_submitted': 'var(--violet)',
   'policy.rollback_requested': 'var(--violet)',
   'rbac.scan_requested': 'var(--cyan)',
+  'afm.cluster_import_requested': 'var(--cyan)', // operator or exporter import through the AFM gateway
   'api_key.created': 'var(--teal)',
   'api_key.rotated': 'var(--cyan)',
   'nhi.enrolled': 'var(--teal)',

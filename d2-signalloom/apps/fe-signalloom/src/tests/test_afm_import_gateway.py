@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from db.connection import set_pool_for_testing
 from main import app
+from conftest import EAP_ALICE, EAP_OPERATOR, eap_bearer
 
 DEFAULT_CLUSTER = "kind-osramp"
 DEFAULT_KEY_NAME = "afm-importer"
@@ -496,3 +497,49 @@ def test_digest_compare_is_constant_time(key_env, outbound, monkeypatch):
     )
     assert resp_bad.status_code == 401
     assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# T4 Operator path: the dashboard's own superadmin token
+# ---------------------------------------------------------------------------
+
+
+def test_superadmin_dex_token_imports_any_cluster_and_is_audited_as_the_operator(key_env, outbound, eap_jwt_env):
+    """The RBAC importer panel sends the page's Dex bearer; a superadmin may import any cluster id."""
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body("signalloom-operator-import"),
+        headers={**eap_bearer(EAP_OPERATOR), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(outbound) == 1
+    assert outbound[0].url.path == "/clusters/import"
+    assert "authorization" not in {k.lower() for k in outbound[0].headers}
+    assert json.loads(outbound[0].content)["id"] == "signalloom-operator-import"
+
+
+def test_non_superadmin_dex_token_is_403_and_never_retried_as_a_key(key_env, outbound, eap_jwt_env):
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body(),
+        headers={**eap_bearer(EAP_ALICE), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "superadmin_required"
+    assert outbound == []
+
+
+def test_operator_path_needs_no_importer_key_configuration(outbound, eap_jwt_env, monkeypatch):
+    """A dashboard import must not fail 503 on an estate whose importer key was never minted."""
+    monkeypatch.delenv("AFM_IMPORT_KEYS", raising=False)
+    monkeypatch.setenv("AFM_BASE_URL", "http://afm-platform.fe-k8s-afm.svc.cluster.local:8000")
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body("signalloom-no-key"),
+        headers={**eap_bearer(EAP_OPERATOR), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(outbound) == 1

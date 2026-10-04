@@ -18,7 +18,8 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request, Response
 import httpx
 
-from api_compat import APIError, Principal, _audit_outbound_request
+from api_compat import APIError, Principal, _audit_outbound_request, authenticated_principal
+from superadmin import is_superadmin
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,26 @@ def _load_keys() -> list[tuple[dict[str, Any], str]]:
     return loaded_keys
 
 
+def _operator_principal(auth_val: str) -> Principal | None:
+    """The superadmin behind a Dex bearer, ``None`` when the bearer is not a token we issue.
+
+    Two credentials open this route. A machine presents a named importer key bound to one
+    cluster (the rbac-exporter CronJob). An operator in the dashboard presents the Dex token
+    the page already holds, and may import any cluster: the same superadmin rule the
+    dashboard's nginx gate applies to every other AFM mutation (efa7e8e5). A token that
+    validates but is not a superadmin is refused here, never retried as a key.
+    """
+    try:
+        principal = authenticated_principal(auth_val)
+    except APIError as exc:
+        if exc.status_code == 401:
+            return None  # not a JWT we accept: the key path decides
+        raise  # a verdict on a real token (host scope, unbound tenant) stands
+    if not is_superadmin(principal):
+        raise APIError(403, "superadmin_required", "Superadmin access is required to import a cluster")
+    return principal
+
+
 @router.post("/clusters/import")
 async def import_cluster(request: Request) -> Response:
     """Authenticated import gateway for AFM cluster models."""
@@ -149,24 +170,27 @@ async def import_cluster(request: Request) -> Response:
     if not presented_token:
         raise APIError(401, "authentication_required", "Bearer token cannot be empty")
 
-    # 2. Key loading and constant-time digest comparison across ALL keys
-    loaded_keys = _load_keys()
-    presented_digest = hashlib.sha256(presented_token.encode("utf-8")).digest()
-
+    # 2. Operator path: a superadmin's own Dex token. Otherwise key loading and
+    #    constant-time digest comparison across ALL keys.
+    operator = _operator_principal(auth_val)
     matched_key_spec: dict[str, Any] | None = None
-    for spec, loaded_token in loaded_keys:
-        expected_digest = hashlib.sha256(loaded_token.encode("utf-8")).digest()
-        match = hmac.compare_digest(presented_digest, expected_digest)
-        if match and matched_key_spec is None:
-            matched_key_spec = spec
+    if operator is None:
+        loaded_keys = _load_keys()
+        presented_digest = hashlib.sha256(presented_token.encode("utf-8")).digest()
 
-    if matched_key_spec is None:
-        raise APIError(401, "invalid_token", "Presented Bearer token is invalid")
+        for spec, loaded_token in loaded_keys:
+            expected_digest = hashlib.sha256(loaded_token.encode("utf-8")).digest()
+            match = hmac.compare_digest(presented_digest, expected_digest)
+            if match and matched_key_spec is None:
+                matched_key_spec = spec
 
-    key_name = matched_key_spec["name"]
+        if matched_key_spec is None:
+            raise APIError(401, "invalid_token", "Presented Bearer token is invalid")
 
-    # 3. Scope check
-    if "afm:import" not in matched_key_spec.get("scopes", []):
+    key_name = matched_key_spec["name"] if matched_key_spec is not None else f"operator:{operator.subject}"
+
+    # 3. Scope check (keys only; the operator path is the superadmin rule)
+    if matched_key_spec is not None and "afm:import" not in matched_key_spec.get("scopes", []):
         logger.warning("AFM importer key %s lacks scope afm:import", key_name)
         raise APIError(403, "scope_required", "Presented key lacks required scope afm:import")
 
@@ -204,15 +228,16 @@ async def import_cluster(request: Request) -> Response:
     if not isinstance(cluster_id, str) or not cluster_id:
         raise APIError(422, "invalid_payload_schema", "Request body must contain a non-empty string 'id'")
 
-    # 6. Bound cluster verification
-    bound_cluster = matched_key_spec.get("cluster")
-    if cluster_id != bound_cluster:
-        logger.warning("Cluster ID mismatch: payload id %s != bound cluster %s for key %s", cluster_id, bound_cluster, key_name)
-        raise APIError(403, "cluster_not_bound", f"Key {key_name} is not authorized for cluster {cluster_id}")
+    # 6. Bound cluster verification (keys are bound to one cluster; an operator is not)
+    if matched_key_spec is not None:
+        bound_cluster = matched_key_spec.get("cluster")
+        if cluster_id != bound_cluster:
+            logger.warning("Cluster ID mismatch: payload id %s != bound cluster %s for key %s", cluster_id, bound_cluster, key_name)
+            raise APIError(403, "cluster_not_bound", f"Key {key_name} is not authorized for cluster {cluster_id}")
 
     # 7. Audit logging before upstream mutation
     logger.info("AFM cluster import requested for cluster %s with key %s (%d bytes)", cluster_id, key_name, len(body_bytes))
-    principal = Principal(tenant="system", subject=f"key:{key_name}", email=None)
+    principal = operator if operator is not None else Principal(tenant="system", subject=f"key:{key_name}", email=None)
     await _audit_outbound_request(
         principal=principal,
         event_type="afm.cluster_import_requested",

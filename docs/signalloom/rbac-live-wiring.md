@@ -127,7 +127,10 @@ rules:
 ```
 
 Read-only, RBAC-resource-scoped, no wildcards. Runs every 30 minutes,
-POSTs the converted payload to AFM's own `/clusters/import`.
+POSTs the converted payload through fe-signalloom's import gateway
+(`/api/v1/afm/clusters/import`, importer key bound to the cluster). The
+dashboard's RBAC importer panel sends through the same gateway as the
+signed-in superadmin; AFM's own `/clusters/import` is closed at nginx.
 
 **2. fe-signalloom-api's reach to AFM** (new, added by this work): the API
 pod calls AFM over HTTP only — it makes no Kubernetes API calls of its own,

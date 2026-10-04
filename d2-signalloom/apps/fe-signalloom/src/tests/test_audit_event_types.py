@@ -64,7 +64,9 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # after a merge: it turns the test green while leaving the database constraint
 # missing an event type. Point it at whichever migration runs LAST, and make
 # that migration enumerate every type.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "049_agent_transition_failed_event_type.sql"
+# 050 (SLTM-P1-1) recreated it with 049's list plus afm.cluster_import_requested and
+# did not repoint this line; 051 touches signal_audit_trail, not audit_events.
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "050_afm_cluster_import_event_type.sql"
 
 
 EVENT_TYPE_POSITION = 2

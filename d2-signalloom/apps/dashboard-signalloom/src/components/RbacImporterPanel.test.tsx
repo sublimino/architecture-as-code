@@ -76,7 +76,7 @@ function routeFetch(routes: Routes = {}) {
     if (url === '/afm/clusters') {
       return routes.clusters ? routes.clusters() : Promise.resolve(response(clustersFixture))
     }
-    if (url === '/afm/clusters/import') {
+    if (url === '/api/v1/afm/clusters/import') {
       return routes.importPost ? routes.importPost() : Promise.resolve(response({}))
     }
     if (url.endsWith('/rbac')) {

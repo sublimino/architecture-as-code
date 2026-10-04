@@ -1,8 +1,9 @@
 -- 055 — admit 'actor.promote_requested'
 --
 -- The Weave page's Promote button now reaches signal-ingest's
--- POST /api/v1/actors/{id}/promote through fe-signalloom (src/actor_promote.py),
--- superadmin-gated, with the gateway key presented server-side. The request is
+-- POST /api/v1/actors/{id}/promote through fe-signalloom's existing proxy
+-- (src/signal_fusion.py promote_actor), now superadmin-gated, with the gateway
+-- key presented server-side. The request is
 -- recorded before it is forwarded, under the caller's own tenant, on the
 -- pattern of 'fleet.recover_requested': the event names a request, not an
 -- outcome; the outcome ('actor_promoted') belongs to signal-ingest's own

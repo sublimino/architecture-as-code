@@ -114,7 +114,7 @@ export default function WeavePage() {
     }
   }, [getAccessTokenSilently, fetchData])
 
-  // Promote is superadmin-gated server-side (fe-signalloom actor_promote.py);
+  // Promote is superadmin-gated server-side (fe-signalloom signal_fusion.py promote_actor);
   // the page shows the server's refusal rather than hiding the button on a
   // client-side guess.
   const handlePromote = useCallback(async (actor: ProvisionalActor) => {

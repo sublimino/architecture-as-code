@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
@@ -231,10 +232,14 @@ async def list_invites(
     return InviteListResponse(invites=[_summary(row, now) for row in rows])
 
 
-class RedeemingIdentity(BaseModel):
-    """A verified Dex identity that may or may not have a tenant yet."""
+@dataclass(frozen=True)
+class RedeemingPrincipal:
+    """A verified Dex identity that may or may not have a tenant yet.
 
-    model_config = ConfigDict(extra="forbid")
+    A dataclass, not a request model: it is built from the validated token,
+    never parsed from the body, and test_audit_provenance treats every
+    pydantic model in a module as client-supplied input.
+    """
 
     subject: str
     email: str | None
@@ -248,9 +253,9 @@ class RedeemingIdentity(BaseModel):
         return self.email or self.subject
 
 
-async def redeeming_identity(
+async def redeeming_principal(
     authorization: Annotated[str | None, Header()] = None,
-) -> RedeemingIdentity:
+) -> RedeemingPrincipal:
     """``authenticated_principal`` minus the tenant requirement.
 
     Same header shape, same signature and issuer checks, same host-credential
@@ -262,7 +267,7 @@ async def redeeming_identity(
     current = await lookup_subject_binding(subject)
     if current is None:
         current = settings.api_subject_tenants.get(subject)
-    return RedeemingIdentity(subject=subject, email=_email_claim(claims), current_tenant=current)
+    return RedeemingPrincipal(subject=subject, email=_email_claim(claims), current_tenant=current)
 
 
 @router.post(
@@ -272,7 +277,7 @@ async def redeeming_identity(
 )
 async def redeem_invite(
     body: InviteRedeemRequest,
-    identity: Annotated[RedeemingIdentity, Depends(redeeming_identity)],
+    principal: Annotated[RedeemingPrincipal, Depends(redeeming_principal)],
 ) -> InviteRedeemResponse:
     """Bind the caller's verified subject to the invite's tenant.
 
@@ -297,39 +302,39 @@ async def redeem_invite(
             raise APIError(410, "invite_redeemed", "This invite has already been redeemed")
         if invite["expires_at"] <= now:
             raise APIError(410, "invite_expired", "This invite has expired")
-        if identity.email is not None and identity.email.strip().lower() != invite["email"]:
+        if principal.email is not None and principal.email.strip().lower() != invite["email"]:
             raise APIError(
                 403, "invite_email_mismatch", "This invite was issued to a different email address",
             )
         tenant = invite["tenant"]
-        if identity.current_tenant is not None and identity.current_tenant != tenant:
+        if principal.current_tenant is not None and principal.current_tenant != tenant:
             raise APIError(
                 409,
                 "tenant_mismatch",
-                f"Subject is already bound to tenant {identity.current_tenant!r}; "
+                f"Subject is already bound to tenant {principal.current_tenant!r}; "
                 f"this invite is for {tenant!r}",
             )
 
         await conn.execute(
             "UPDATE invites SET redeemed_by = $2, redeemed_at = $3 WHERE id = $1",
-            invite["id"], identity.subject, now,
+            invite["id"], principal.subject, now,
         )
         await conn.execute(
             """INSERT INTO subject_tenants (subject, tenant, bound_via, bound_at)
                VALUES ($1, $2, 'invite', $3)
                ON CONFLICT (subject) DO UPDATE
                  SET tenant = EXCLUDED.tenant, bound_via = EXCLUDED.bound_via, bound_at = EXCLUDED.bound_at""",
-            identity.subject, tenant, now,
+            principal.subject, tenant, now,
         )
         await _audit_log(
-            conn, tenant, "invite.redeemed", None, None, identity.actor,
-            {"invite_id": str(invite["id"]), "subject": identity.subject, "email": invite["email"], "tenant": tenant},
+            conn, tenant, "invite.redeemed", None, None, principal.actor,
+            {"invite_id": str(invite["id"]), "subject": principal.subject, "email": invite["email"], "tenant": tenant},
         )
     # The cache may hold "no binding" for this subject from the lookup a moment
     # ago; the next request must see the row, not the cache.
-    invalidate_subject_binding(identity.subject)
+    invalidate_subject_binding(principal.subject)
     return InviteRedeemResponse(
-        subject=identity.subject, tenant=tenant, bound_via="invite", bound_at=now, email=identity.email,
+        subject=principal.subject, tenant=tenant, bound_via="invite", bound_at=now, email=principal.email,
     )
 
 

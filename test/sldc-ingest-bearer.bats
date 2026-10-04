@@ -16,6 +16,9 @@
 # argv, so a test can assert what was NOT called and that no token ever crossed
 # into a command line.
 
+# `run !` (used by the --emit-remote-secrets cases) needs 1.5.0 or later.
+bats_require_minimum_version 1.5.0
+
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/sldc-ingest-bearer.sh"
 
@@ -323,4 +326,75 @@ TWO_KEYS=$'stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun
 	[ "$status" -eq 0 ]
 	[ "$(expiry kind-osramp "$ISSUER_NS" "$ISSUER")" = "2026-12-31" ]
 	[ "$(applies)" -eq 0 ]
+}
+
+# --- --emit-remote-secrets ----------------------------------------------------
+#
+# The flag writes a consumer Secret as a FILE for another cluster to apply. It
+# must converge first and emit second, write nothing for a key that has no
+# consumer, and leave no key value in argv or on stdout.
+
+@test "--emit-remote-secrets without a directory is a usage error (exit 2)" {
+	run "$SCRIPT" --context kind-osramp --key stun-sentinel --emit-remote-secrets
+	[ "$status" -eq 2 ]
+	[ "$(applies)" -eq 0 ]
+}
+
+@test "--emit-remote-secrets writes the consumer Secret, with the converged value" {
+	local dir="$BATS_TEST_TMPDIR/transfer"
+	run "$SCRIPT" --context kind-osramp --key stun-sentinel --emit-remote-secrets "$dir"
+	[ "$status" -eq 0 ]
+	[ -f "$dir/$CONSUMER.yaml" ]
+	grep -q "^  name: $CONSUMER\$" "$dir/$CONSUMER.yaml"
+	grep -q "^  namespace: $CONSUMER_NS\$" "$dir/$CONSUMER.yaml"
+	# The value in the file is the value this run left in the issuer Secret.
+	# Emitting before the last converge would write a value the cluster does
+	# not hold, and the remote caller would be rejected with a valid-looking
+	# key.
+	local emitted
+	emitted="$(awk '$1 == "token:" {print $2; exit}' "$dir/$CONSUMER.yaml" | base64 -d)"
+	[ "$emitted" = "$(token kind-osramp "$ISSUER_NS" "$ISSUER")" ]
+}
+
+@test "--emit-remote-secrets emits the warden's key under the name the overlay reads" {
+	# signalloom-warden is the key a remote cluster's warden holds, and
+	# signalloom-warden-ingest-token is the Secret the remote-tenant overlay's
+	# DaemonSet resolves SIGNAL_INGEST_TOKEN from.
+	local dir="$BATS_TEST_TMPDIR/transfer"
+	run "$SCRIPT" --context kind-osramp --key signalloom-warden --emit-remote-secrets "$dir"
+	[ "$status" -eq 0 ]
+	[ -f "$dir/signalloom-warden-ingest-token.yaml" ]
+	grep -q '^  namespace: fe-signalloom-agents$' "$dir/signalloom-warden-ingest-token.yaml"
+	grep -q '^  token: ' "$dir/signalloom-warden-ingest-token.yaml"
+}
+
+@test "--emit-remote-secrets writes files 0600 in a 0700 directory" {
+	local dir="$BATS_TEST_TMPDIR/transfer"
+	run "$SCRIPT" --context kind-osramp --key stun-sentinel --emit-remote-secrets "$dir"
+	[ "$status" -eq 0 ]
+	[ "$(stat -c '%a' "$dir")" = "700" ]
+	[ "$(stat -c '%a' "$dir/$CONSUMER.yaml")" = "600" ]
+}
+
+@test "--emit-remote-secrets writes nothing for a key that has no consumer Secret" {
+	local dir="$BATS_TEST_TMPDIR/transfer"
+	run "$SCRIPT" --context kind-osramp --key sldc-live-bats --emit-remote-secrets "$dir"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"no consumer Secret"* ]]
+	# The directory is never created for a key with nothing to emit, so an
+	# empty transfer directory cannot be mistaken for a completed export.
+	run ! ls "$dir"
+}
+
+@test "--emit-remote-secrets never puts a value in argv or on stdout" {
+	local dir="$BATS_TEST_TMPDIR/transfer"
+	printf '%s' "$GOOD_TOKEN" | "$SCRIPT" --context kind-osramp --key stun-sentinel --from-stdin 2>/dev/null
+	: >"$FAKE_LOG"
+	run "$SCRIPT" --context kind-osramp --key stun-sentinel --emit-remote-secrets "$dir"
+	[ "$status" -eq 0 ]
+	run ! grep -qF "$GOOD_TOKEN" "$FAKE_LOG"
+	[[ "$output" != *"$GOOD_TOKEN"* ]]
+	# The file itself does hold it. That is the whole point of the flag, and
+	# the reason it is 0600.
+	grep -qF "$(printf '%s' "$GOOD_TOKEN" | base64 | tr -d '\n')" "$dir/$CONSUMER.yaml"
 }

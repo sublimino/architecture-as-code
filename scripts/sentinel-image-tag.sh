@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# sentinel-image-tag.sh - print the signalloom-warden (stun sentinel) image tag.
+# sentinel-image-tag.sh - print the signalloom-warden image tag.
 #
 # @id     sentinel-image-tag
 # @lib    scripts/lib/source-id.sh

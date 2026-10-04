@@ -5,7 +5,6 @@ package awslogs
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,15 +24,17 @@ var ErrLiveClientsNotWired = errors.New("awslogs: no SQS/S3/STS client wired and
 
 // NotificationParser extracts the object references from one SQS message body.
 //
-// It is injectable because the live and fixture paths see genuinely different
-// bodies. The default, objectRefsFrom, reads the direct S3 event notification that
-// the fakes produce. A live account may fan out through SNS first and will post a
-// one-off `s3:TestEvent` the day the bucket is wired up, neither of which the
-// default understands — so the live factory supplies a parser that does.
+// It stays injectable so a deployment with an unusual notification plumbing can
+// supply its own, but it no longer has to: the default, objectRefsFrom, is
+// ParseS3Notification, the same parser the live package exposes — SNS envelope,
+// s3:TestEvent and percent-decoded keys included. It was previously a second,
+// weaker implementation, so whether an object key with a space in it round-tripped
+// depended on which path was wired.
 //
 // The three outcomes are distinct and the collector relies on all three: refs to
-// fetch, nil/nil for "nothing here and nothing wrong", and an error to leave the
-// message in flight for the queue's redrive policy.
+// fetch, nil/nil for "nothing here and nothing wrong" (which PollOnce discards and
+// acknowledges), and an error to leave the message in flight for the queue's redrive
+// policy.
 type NotificationParser func(body string) ([]ObjectRef, error)
 
 // LiveClientFactory builds the AWS seams for one collector configuration.
@@ -131,7 +132,8 @@ func WithAWS(sqs SQSClient, s3 S3Fetcher, sts STSAssumer) Option {
 
 // WithNotificationParser overrides how an SQS message body is turned into object
 // references. The default reads a direct S3 event notification; the live factory
-// supplies one that also unwraps SNS and ignores s3:TestEvent.
+// supplies the same one by name. Overriding is for an unusual plumbing, not for
+// SNS or s3:TestEvent, both of which the default already handles.
 func WithNotificationParser(parse NotificationParser) Option {
 	return func(c *Collector) { c.parser = parse }
 }
@@ -545,40 +547,6 @@ func (c *Collector) ackAndRelease(ctx context.Context, ring *DiskRingBuffer, rec
 		c.acked.Add(1)
 	}
 	return ring.Commit()
-}
-
-// s3Notification is the subset of an S3 event notification the collector reads.
-type s3Notification struct {
-	Records []struct {
-		S3 struct {
-			Bucket struct {
-				Name string `json:"name"`
-			} `json:"bucket"`
-			Object struct {
-				Key string `json:"key"`
-			} `json:"object"`
-		} `json:"s3"`
-	} `json:"Records"`
-}
-
-// objectRefsFrom extracts the object references from an S3 event notification body.
-func objectRefsFrom(body string) ([]ObjectRef, error) {
-	var note s3Notification
-	if err := json.Unmarshal([]byte(body), &note); err != nil {
-		return nil, fmt.Errorf("awslogs: decoding S3 notification: %w", err)
-	}
-
-	var refs []ObjectRef
-	for _, r := range note.Records {
-		if r.S3.Bucket.Name == "" || r.S3.Object.Key == "" {
-			continue
-		}
-		refs = append(refs, ObjectRef{Bucket: r.S3.Bucket.Name, Key: r.S3.Object.Key})
-	}
-	if len(refs) == 0 {
-		return nil, errors.New("awslogs: S3 notification names no object")
-	}
-	return refs, nil
 }
 
 // Compile-time proof of the shapes the registry needs. Stop() with NO return value is

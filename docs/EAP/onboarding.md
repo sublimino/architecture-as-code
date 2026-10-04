@@ -35,9 +35,8 @@ subject to a tenant server-side, in two places, in this order
    [`053_invites_and_subject_tenants.sql`](../../d2-signalloom/apps/fe-signalloom/src/db/migrations/053_invites_and_subject_tenants.sql)),
    written when a subject redeems an invite. The lookup is cached per subject
    for 30 seconds
-   ([`api_compat.py:1690-1704`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py))
-   and the cache entry is dropped on redeem, so a new binding is live on the
-   next request.
+   ([`api_compat.py:1690-1704`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py)).
+   Redeem drops the cache entry, so a new binding is live on the next request.
 2. The `API_SUBJECT_TENANTS` environment variable of the `fe-signalloom`
    Deployment
    ([`deployment.yaml:108-115`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml)).
@@ -93,23 +92,23 @@ second is self-service through an invite.
    ([`RedeemInvite.tsx:111`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/RedeemInvite.tsx)),
    and shows the tenant you are now bound to.
 
-The redeem route accepts a verified Dex identity that has no tenant yet; that
+The redeem route accepts a verified Dex identity that has no tenant yet. That
 is its purpose
 ([`invites.py:251-266`](../../d2-signalloom/apps/fe-signalloom/src/invites.py)).
-It refuses a token's `email` claim that differs from the invite's email
-(`403 invite_email_mismatch`), a subject already bound to a different tenant
-(`409 tenant_mismatch`), and an expired or spent invite (`410`). A superadmin
-lists invites with `GET /api/v1/invites`; the listing never includes a token.
-Both actions appear on the [Audit Trail](pages.md#audit) as `invite.created`
-and `invite.redeemed`.
+It refuses three things. A token whose `email` claim differs from the
+invite's email gets `403 invite_email_mismatch`. A subject already bound to a
+different tenant gets `409 tenant_mismatch`. An expired or spent invite gets
+`410`. A superadmin lists invites with `GET /api/v1/invites`. The listing
+never includes a token. Both actions appear on the
+[Audit Trail](pages.md#audit) as `invite.created` and `invite.redeemed`.
 
 A `403 tenant_forbidden` after a successful redeem means the ID token's `sub`
 differs from the one that redeemed. The binding is by subject, not by email.
 
-The environment-table route still works and ControlPlane can use it instead of
-an invite: add the subject to `API_SUBJECT_TENANTS` in
+The environment-table route still works. ControlPlane can use it instead of
+an invite by adding the subject to `API_SUBJECT_TENANTS` in
 [`deployment.yaml`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml)
-and roll the `fe-signalloom` Deployment. The table wins over the environment
+and rolling the `fe-signalloom` Deployment. The table wins over the environment
 map when both name the same subject.
 
 ## 2. Log in
@@ -144,19 +143,23 @@ Expected output:
 ## 3. What you see first
 
 On the first login the dashboard redirects you to `/onboarding`, the
-three-step wizard. The gate is in
+wizard. The gate is in
 [`ProtectedRoute.tsx:72-77`](../../d2-signalloom/apps/dashboard-signalloom/src/auth/ProtectedRoute.tsx).
 It fires when the tenant has no connected connector and the wizard status is
 neither `completed` nor `skipped`
 ([`App.tsx:269-283`](../../d2-signalloom/apps/dashboard-signalloom/src/App.tsx)).
 
-The wizard steps are, in order
-([`OnboardingWizard.tsx:15-19`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx)):
+A tenant with no saved progress sees a welcome screen first
+([`OnboardingWizard.tsx:368`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx)).
+The persisted steps are, in order
+([`OnboardingWizard.tsx:40-46`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx)):
 
 | Step | Asks for | What it does |
 | :--- | :--- | :--- |
 | Organization and Identity | Organisation name, workspace id, admin email, environment, description | Saves the form with `PUT /api/onboarding/state`. It does not create a tenant and does not bind you to one. |
-| Identity Provider | Issuer URL, client id, client secret, scopes | Saves the form. **Test Connection** is a client-side simulation and sends no request. See [faq-and-limits](faq-and-limits.md#summary-table). |
+| Identity Provider | Issuer URL, client id, client secret, scopes | Saves the form. **Test Connection** calls `GET /api/v1/me` with your session token and shows the subject and tenant the portal verified, or the HTTP status it answered ([`OnboardingWizard.tsx:213-217`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx), [`IdpLinkageStep.tsx:128-150`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/IdpLinkageStep.tsx)). It proves the session, not the issuer URL in the form; the message says so. |
+| Scan preferences | Scan cadence, alert email, alert threshold | Loads from `GET /api/tenant/settings` and saves with `PATCH /api/tenant/settings/preferences` ([`OnboardingWizard.tsx:251`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx)), the same row the Settings page edits. A failed save keeps you on the step with the server's message. |
+| API key | Nothing; an opt-in reveal | **Reveal my API key**, then a confirmation, calls `POST /api/tenants/{tenant}/api-keys/initial` ([`OnboardingWizard.tsx:278`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx)). The key is shown once. **I'll do this later** moves on without calling it. |
 | Containment and Consent | Policy tier, zero-trust identity, autonomous containment, audit retention | Saves the form. **Complete** calls `POST /api/onboarding/complete`. |
 
 You can select **Skip**. It calls `POST /api/onboarding/skip`, records the
@@ -165,10 +168,10 @@ status per tenant in the `tenant_onboarding` table, and sends you to
 browser flag so the gate does not fire again at once.
 
 NOTE: The wizard has no step that adds a cluster and no step that connects a
-provider. The provider steps exist as files in
+provider. The provider steps in
 [`src/components/onboarding/`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/)
-but the wizard does not import them. The tenant is fixed by the subject map in
-[step 1](#1-get-an-identity), not by this wizard.
+belong to the Connectors page, which owns that flow. The tenant is fixed by
+the binding in [step 1](#1-get-an-identity), not by this wizard.
 
 ## 4. How your agents appear
 

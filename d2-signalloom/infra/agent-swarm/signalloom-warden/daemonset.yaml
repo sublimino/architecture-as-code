@@ -92,7 +92,7 @@ spec:
           # version name: v0.2.0 was reused for ~7 different builds. Overlays
           # change only newName (the kind clusters use the in-cluster zot
           # repository) and inherit this tag.
-          image: ghcr.io/controlplaneio-in-toto/signalloom-warden:src-66581dce2356
+          image: ghcr.io/controlplaneio-in-toto/signalloom-warden:src-4a6f60eb66ba
           # IfNotPresent, never Never: Never cannot pull, so it makes this base
           # unusable anywhere the image was not side-loaded first.
           imagePullPolicy: IfNotPresent

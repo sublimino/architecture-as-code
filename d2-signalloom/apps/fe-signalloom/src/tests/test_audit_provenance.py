@@ -867,16 +867,6 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
 # of error this file exists to prevent. An entry here is a debt with a name on
 # it, and it reads as one.
 AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
-    ("signal_fusion.py", "promote_actor"): (
-        "RULED AUDIT-WORTHY; the event is not written yet. "
-        "POST /actors/{actor_id}/promote transitions a provisional actor to "
-        "an issued identity in the agent_registry. That is the highest-stakes "
-        "state change in Signal Fusion — the closing beat of the three-act demo "
-        "and the action a regulator would want evidence of. The Go service owns "
-        "the signal_audit_trail table and will write the event; the Python proxy "
-        "should verify it landed. Delete this entry when the audit write is "
-        "confirmed end-to-end."
-    ),
     ("api_compat.py", "network_tests_scan"): (
         "RULED AUDIT-WORTHY; the event is not written yet. "
         "POST /network-tests/scan fires an active network reachability probe "
@@ -887,14 +877,6 @@ AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
         "authenticated_principal's own wrapper. Owned by the endpoints agent. "
         "Delete this entry when the event lands; do NOT move it to "
         "NOT_AUDIT_WORTHY, that question has been answered."
-    ),
-    ("signal_fusion.py", "promote_actor"): (
-        "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "
-        "POST /actors/{actor_id}/promote elevates a provisional actor to the "
-        "agent registry -- a material state change that regulated customers "
-        "need a record of. The Go service owns a signal_audit_trail table but "
-        "the Python layer does not yet write its own event. Delete this entry "
-        "when audit lands at either layer."
     ),
     ("signal_fusion.py", "run_correlation"): (
         "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "

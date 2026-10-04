@@ -50,6 +50,9 @@ def token_with_email(subject: str, email: str | None) -> str:
 class _TablePool:
     """Just enough Postgres for invites.py: three tables, matched by SQL text."""
 
+    #: The binding lookup consults only a pool that declares the table.
+    serves_subject_bindings = True
+
     def __init__(self) -> None:
         self.invites: list[dict[str, Any]] = []
         self.subject_tenants: dict[str, dict[str, Any]] = {}
@@ -104,6 +107,10 @@ class _TablePool:
         raise AssertionError(f"unexpected execute: {sql}")
 
 
+def table_of(get_pool) -> Any:
+    return get_pool.table
+
+
 @pytest.fixture
 def pool(monkeypatch):
     table = _TablePool()
@@ -111,11 +118,13 @@ def pool(monkeypatch):
     async def get_pool():
         return table
 
+    get_pool.table = table
     return table, get_pool
 
 
 def _configure(monkeypatch, get_pool):
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    monkeypatch.setattr(api_compat, "_pool", table_of(get_pool))
     monkeypatch.setattr(api_compat.settings, "api_subject_tenants", dict(SUBJECTS))
     monkeypatch.setattr(api_compat.settings, "api_superadmin_subjects", {SUPERADMIN})
     monkeypatch.setattr(api_compat.settings, "api_superadmin_emails", set())
@@ -291,14 +300,13 @@ def test_redeem_requires_a_database(monkeypatch):
 
 def test_a_failing_binding_lookup_falls_back_to_the_environment_map(monkeypatch):
     class _Broken:
+        serves_subject_bindings = True
+
         async def fetchrow(self, *_a, **_k):
             raise RuntimeError("connection reset")
 
-    async def get_pool():
-        return _Broken()
-
     with client_for(monkeypatch) as client:
-        monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+        monkeypatch.setattr(api_compat, "_pool", _Broken())
         monkeypatch.setattr(api_compat.settings, "api_subject_tenants", dict(SUBJECTS))
         response = client.get("/api/v1/me", headers=bearer(token_with_email("alice", None)))
 

@@ -19,7 +19,6 @@ from environment_lifecycle import GLOBAL_REAPER_DAEMON, install_environment_life
 from environment_routing import install_environment_routing_api
 from fleet_operator import install_fleet_operator_api
 from invites import install_invites_api
-from actor_promote import install_actor_promote_api
 from me import install_me_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
@@ -109,7 +108,6 @@ install_auth_check_api(app)
 install_me_api(app)
 install_fleet_operator_api(app)
 install_invites_api(app)
-install_actor_promote_api(app)
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,
 # dependency or handler can read them, for http and websocket scopes alike.

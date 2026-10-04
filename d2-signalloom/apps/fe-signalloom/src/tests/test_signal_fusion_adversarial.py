@@ -45,12 +45,20 @@ def _override_tenant(tenant: str = "tenant-demo"):
     return _override_principal(tenant)
 
 
-def _override_principal(tenant: str = "tenant-demo"):
-    """Override authenticated_principal to return a fixed principal."""
+def _override_principal(tenant: str = "tenant-demo", *, superadmin: bool = False):
+    """Override authenticated_principal to return a fixed principal.
+
+    ``superadmin=True`` also satisfies ``require_superadmin`` with the same
+    principal: promote is gated on it (signal_fusion.promote_actor), and the
+    gate is a separate dependency, so overriding the principal alone leaves it
+    refusing.
+    """
     from api_compat import Principal, authenticated_principal
-    app.dependency_overrides[authenticated_principal] = lambda: Principal(
-        tenant=tenant, subject="test-subject", email="test@example.com"
-    )
+    from superadmin import require_superadmin
+    principal = Principal(tenant=tenant, subject="test-subject", email="test@example.com")
+    app.dependency_overrides[authenticated_principal] = lambda: principal
+    if superadmin:
+        app.dependency_overrides[require_superadmin] = lambda: principal
     return authenticated_principal
 
 
@@ -297,7 +305,7 @@ class TestMalformedRequests:
         mock_resp.json.return_value = {"status": "promoted"}
         mock_instance.request = AsyncMock(return_value=mock_resp)
 
-        dep = _override_principal()
+        dep = _override_principal(superadmin=True)
         try:
             resp = client.post("/api/signals/actors/..%2F..%2Fadmin/promote")
             # FastAPI decodes %2F to / which breaks the route pattern -> 404
@@ -316,7 +324,7 @@ class TestMalformedRequests:
         mock_resp.json.return_value = {"status": "promoted"}
         mock_instance.request = AsyncMock(return_value=mock_resp)
 
-        dep = _override_principal()
+        dep = _override_principal(superadmin=True)
         try:
             resp = client.post("/api/signals/actors/..admin../promote")
             assert resp.status_code == 200

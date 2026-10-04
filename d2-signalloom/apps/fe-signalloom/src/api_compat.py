@@ -1715,7 +1715,7 @@ async def lookup_subject_binding(subject: str) -> str | None:
     cached = _subject_binding_cache.get(subject)
     if cached is not None and cached[1] > now:
         return cached[0]
-    pool = await _get_pool()
+    pool = _subject_binding_pool()
     if pool is None:
         return None
     tenant: str | None
@@ -1733,6 +1733,29 @@ async def lookup_subject_binding(subject: str) -> str | None:
         tenant = None
     _subject_binding_cache[subject] = (tenant, now + SUBJECT_BINDING_TTL_SECONDS)
     return tenant
+
+
+def _subject_binding_pool() -> Any:
+    """The pool the binding lookup may use, or ``None``.
+
+    Reads the live pool and never creates one: ``_get_pool`` carries retry and
+    backoff state, and a lookup that ran *before* the handler would consume a
+    retry the handler's ``_require_pool`` was owed (the recovery path in
+    test_resilience_dependency_faults is exactly that sequence). The first
+    request after boot therefore resolves from the environment map alone; the
+    lifespan and every pooled handler establish the pool for the ones after.
+
+    Only a real ``asyncpg.Pool``, or a stand-in that declares
+    ``serves_subject_bindings``, is consulted. The suite's fakes stand in for
+    specific tables and raise on SQL they do not know; running the lookup
+    against them would turn every test's first request into a logged failure.
+    """
+    pool = _pool
+    if pool is None:
+        return None
+    if isinstance(pool, asyncpg.Pool) or getattr(pool, "serves_subject_bindings", False):
+        return pool
+    return None
 
 
 def _unverified_subject(authorization: str | None) -> str | None:

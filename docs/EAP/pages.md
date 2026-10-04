@@ -115,7 +115,7 @@ which samples containers named `kusari-agent` and the namespace
 | Shows | Live observations from the signal layers, converging on provisional actors, with an evidence drawer and a coverage panel |
 | Component | [`WeavePage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx) |
 | Reads | `GET /api/signals/observations`, `GET /api/signals/actors`, `GET /api/signals/coverage`, stream `GET /api/signals/observations/stream` |
-| Actions | **Seed fixtures** calls `POST /api/signals/collectors/seed`. **Promote** on an actionable actor asks for confirmation, then calls `POST /api/v1/actors/{id}/promote` ([`WeavePage.tsx:120`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx)), which the portal proxies to `signal-ingest` behind `require_superadmin` ([`actor_promote.py:50-68`](../../d2-signalloom/apps/fe-signalloom/src/actor_promote.py)). A refusal is shown on the card. |
+| Actions | **Seed fixtures** calls `POST /api/signals/collectors/seed`. **Promote** on an actionable actor asks for confirmation, then calls `POST /api/signals/actors/{id}/promote` ([`WeavePage.tsx:120`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx)), which the portal audits and proxies to `signal-ingest` behind `require_superadmin` ([`signal_fusion.py`](../../d2-signalloom/apps/fe-signalloom/src/signal_fusion.py) `promote_actor`). A refusal is shown on the card. |
 | Who | Any signed-in user. Reads act for the user's tenant. **Promote** is superadmin only and acts for the superadmin's own tenant. |
 | Spec | [`cloudaudit-dashboard.spec.ts`](../../test/acceptance/cloudaudit-dashboard.spec.ts), [`risk-audit.spec.ts`](../../test/acceptance/risk-audit.spec.ts) "Surface 5" |
 

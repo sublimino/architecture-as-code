@@ -4,6 +4,17 @@ import { login, config } from "./helpers";
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL ?? config.base;
 
+/**
+ * The wizard opens on a welcome screen for a tenant with no saved progress
+ * (OnboardingWizard.tsx showWelcome); the step container and the skip
+ * control render only after it. Every flow below starts by dismissing it.
+ */
+async function dismissWelcome(page: import("@playwright/test").Page): Promise<void> {
+  await expect(page.locator('[data-testid="onboarding-welcome"]')).toBeVisible({ timeout: 15_000 });
+  await page.locator('[data-testid="welcome-continue-button"]').click();
+  await expect(page.locator('[data-testid="onboarding-wizard-container"]')).toBeVisible({ timeout: 15_000 });
+}
+
 test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
   test.afterAll(async () => {
     try {
@@ -56,11 +67,12 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     await login(page, { demoMode: true, skipOnboarding: false });
   });
 
-  test("complete end-to-end 3-step onboarding walkthrough with persistence and celebration", async ({
+  test("complete end-to-end five-step onboarding walkthrough with persistence and celebration", async ({
     page,
   }) => {
     // Navigate directly to onboarding wizard
     await page.goto(`${DASHBOARD_URL}/onboarding`);
+    await dismissWelcome(page);
 
     // Verify wizard container mounted
     const wizard = page.locator('[data-testid="onboarding-wizard-container"]');
@@ -105,10 +117,18 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     const connSuccess = page.locator('[data-testid="idp-connection-success"]');
     await expect(connSuccess).toBeVisible({ timeout: 10_000 });
 
-    // Advance to Step 3
+    // Advance to Step 3: scan preferences, kept at their defaults
+    await page.locator('[data-testid="next-step-button"]').click();
+    await expect(page.getByRole("heading", { level: 1, name: "Set your scan preferences" })).toBeVisible();
+
+    // Advance to Step 4: the optional API key reveal, declined here
+    await page.locator('[data-testid="next-step-button"]').click();
+    await expect(page.getByRole("heading", { level: 1, name: "Your API key" })).toBeVisible();
+
+    // Advance to Step 5
     await page.locator('[data-testid="next-step-button"]').click();
 
-    // Step 3: Containment Policy & Consent
+    // Step 5: Containment Policy & Consent
     await expect(
       page.getByRole("heading", { level: 1, name: "Containment Policy & Security Consent" }),
     ).toBeVisible();
@@ -147,6 +167,7 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     page,
   }) => {
     await page.goto(`${DASHBOARD_URL}/onboarding`);
+    await dismissWelcome(page);
 
     const skipBtn = page.locator('[data-testid="skip-onboarding-button"]').first();
     await expect(skipBtn).toBeVisible({ timeout: 15_000 });
@@ -158,6 +179,7 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
 
   test("step navigation preserves user inputs on back and forward traversal", async ({ page }) => {
     await page.goto(`${DASHBOARD_URL}/onboarding`);
+    await dismissWelcome(page);
 
     const orgInput = page.locator('[data-testid="input-organization-name"]');
     await expect(orgInput).toBeVisible({ timeout: 15_000 });

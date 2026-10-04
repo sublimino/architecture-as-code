@@ -137,10 +137,10 @@ export default function PreferencesStep({ initialValues, submitting, error, onSu
         )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-          <button type="button" className="btn btn-secondary" onClick={onBack} disabled={submitting}>
+          <button type="button" className="btn btn-secondary" data-testid="back-step-button" onClick={onBack} disabled={submitting}>
             Back
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
+          <button type="submit" className="btn btn-primary" data-testid="next-step-button" disabled={submitting}>
             {submitting ? 'Saving…' : 'Continue'}
           </button>
         </div>

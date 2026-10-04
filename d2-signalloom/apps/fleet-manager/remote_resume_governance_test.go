@@ -363,9 +363,23 @@ func TestRemoteResume_RegistryEntryGone_ResolvesThroughTheHold(t *testing.T) {
 	if record.State != RemoteResumeRequested || record.ID != stun.ID {
 		t.Fatalf("unexpected record: %#v", record)
 	}
-	// A name with no standing hold still 404s: the hold, not the name, resolves.
-	other, _ := remoteDualSignedToken(t, "ghost-pod", remoteGovNamespace, 2)
-	if code, _ := postRemoteResume(t, s, remoteResumeBody(t, other, "idem-gone-2")); code != http.StatusNotFound {
-		t.Fatalf("ghost pod: status = %d, want 404", code)
+	// A name with no standing hold still 404s (TestRemoteResume_NoStunRecord_Is404AndTokenNotConsumed).
+}
+
+// With the registry entry gone and the resume already requested, a replay of
+// the same token must still answer 409 from the ledger, not 404.
+func TestRemoteResume_RegistryEntryGone_ReplayIsStillConflict(t *testing.T) {
+	token, reg := remoteDualSignedToken(t, remoteGovPod, remoteGovNamespace, 2)
+	s, _ := newRemoteGovernedServer(t, reg)
+	if code, text := postRemoteResume(t, s, remoteResumeBody(t, token, "idem-replay-1")); code != http.StatusAccepted {
+		t.Fatalf("first resume: %d %s", code, text)
+	}
+	empty := workloadReportFor(remoteGovCluster, "node-a", remoteGovNamespace, remoteGovPod, remoteGovOwner, time.Date(2026, 10, 4, 10, 1, 0, 0, time.UTC))
+	empty.Pods = nil
+	if _, _, err := s.workloads.Apply(empty); err != nil {
+		t.Fatal(err)
+	}
+	if code, text := postRemoteResume(t, s, remoteResumeBody(t, token, "idem-replay-2")); code != http.StatusConflict {
+		t.Fatalf("replay with the registry empty: %d, want 409: %s", code, text)
 	}
 }

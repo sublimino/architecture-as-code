@@ -501,8 +501,12 @@ step_5b_target() {
 		# The pod THIS run created. A previous run's pod can still be in the
 		# registry while it terminates, and stunning that one ends in a 404 at
 		# resume once its entry is gone (lab run 2, 2026-10-04).
+		# A terminating pod keeps phase Running, so the selector is not enough:
+		# exclude anything with a deletionTimestamp and take the newest.
 		LAB_TARGET_POD="$(remote -n "$AGENTS_NS" get pods -l app.kubernetes.io/name="$LAB_TARGET_NAME" \
-			--field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+			--sort-by=.metadata.creationTimestamp \
+			-o custom-columns='NAME:.metadata.name,DEL:.metadata.deletionTimestamp' --no-headers 2>/dev/null \
+			| awk '$2 == "<none>" { name = $1 } END { print name }')"
 		[ -n "$LAB_TARGET_POD" ] || { fail "5b target" "no Running pod for deployment/$LAB_TARGET_NAME"; return 0; }
 		pass "5b target" "deployment/$LAB_TARGET_NAME running as pod $LAB_TARGET_POD in $AGENTS_NS on $REMOTE_CTX"
 	else

@@ -266,9 +266,11 @@ func (s *RemoteStunStore) ByID(id string) (RemoteStunRecord, bool) {
 	return record, found
 }
 
-// HeldByName returns the one record for a pod name whose hold still stands
-// (stun_requested or stunned). Two clusters holding the same pod name is
-// ambiguous and reports nothing, like the registry's own name lookup.
+// HeldByName returns the one record for a pod name whose hold still stands:
+// stun_requested, stunned, or resume_requested (the warden has not released
+// it yet, and a replayed resume must still reach the ledger). Two clusters
+// holding the same pod name is ambiguous and reports nothing, like the
+// registry's own name lookup.
 func (s *RemoteStunStore) HeldByName(name string) (RemoteStunRecord, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -278,7 +280,7 @@ func (s *RemoteStunStore) HeldByName(name string) (RemoteStunRecord, bool) {
 		if record.Name != name {
 			continue
 		}
-		if record.State == RemoteStunRequested || record.State == RemoteStunned {
+		if record.State == RemoteStunRequested || record.State == RemoteStunned || record.State == RemoteResumeRequested {
 			out = record
 			n++
 		}

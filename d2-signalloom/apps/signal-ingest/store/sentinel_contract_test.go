@@ -37,11 +37,19 @@ func readSentinelGolden(t *testing.T) []model.Observation {
 }
 
 // TestSentinelGoldenObservationPersistsThroughTheConfiguredStore runs under both build tags.
-// NewStoreFromEnv("frostdb", …) is the production selection path: without -tags frostdb it yields
-// the memory store, with it the FrostDB segment store and its closed label allow-list. Either way
-// the sentinel's observation must be accepted and come back out with every wire label key.
+// NewStoreFromEnv("frostdb", …) is the production selection path: without -tags frostdb it is
+// refused (SLAWS v2 D1, no silent downgrade to memory); with it the FrostDB segment store and
+// its closed label allow-list accept the sentinel's observation and return every wire label key.
 func TestSentinelGoldenObservationPersistsThroughTheConfiguredStore(t *testing.T) {
 	s, err := NewStoreFromEnv("frostdb", t.TempDir())
+	if !HasFrostDB {
+		// An untagged binary refuses the durable store rather than silently running in
+		// memory (SLAWS v2 D1); the persistence contract itself is proven under -tags frostdb.
+		if err == nil {
+			t.Fatalf("untagged binary must refuse SIGNAL_STORE=frostdb, got %T", s)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("NewStoreFromEnv: %v", err)
 	}

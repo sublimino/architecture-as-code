@@ -9,7 +9,7 @@ date: 2026-10-03
 status: draft v2 (grilled 2026-10-04, awaiting sign-off)
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T07:47
+updated: 2026-10-04T07:48
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -178,7 +178,7 @@ Bundles are versioned files under `policy/bundles/<tenant>/<name>.yaml`, Flux-re
 
 | Phase | Milestone | Scope | Target |
 | :--- | :--- | :--- | :--- |
-| **P0** | Baseline | Six acceptance commands on `83b7f6e3`; the `awslogs` scaffold (`899d2609`) is recorded as a stub: synthetic poll, `Pop` fabricates records, no WAL read, no fsync, `ModeLive` hardcoded, unregistered. | done, see §8 |
+| **P0** | Baseline | Six acceptance commands on `f906be8f`; the `awslogs` scaffold (`899d2609`) is recorded as a stub: synthetic poll, `Pop` fabricates records, no WAL read, no fsync, `ModeLive` hardcoded, unregistered. | done, see §8 |
 | **P1** | Durable store and contract | FrostDB on a PVC in the manifests; seven-layer flip; label contract with the negative test; shared tenant binder on both ingest paths; collector registered in fixture mode. | 2026-10-08 |
 | **P2** | Two-stage evaluator | `pkg/obscel`; stage 1 at the sink; findings as observations; stage 2 windows with boot warm-up; first Kusari bundle in git; regression replay command; shadow → warn → enforce. | 2026-10-14 |
 | **P3** | Live AWS collector | SQS, S3, `sts:AssumeRole` behind interfaces with fakes; delete-after-Append; eviction metrics; read-only trust document for Kusari. | 2026-10-17 |
@@ -244,7 +244,7 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 #### Mission identity
 - Canonical repository: `/home/andy/src/cp/osramp-demo`
 - Shortcode: `SLAWS`
-- Integration branch: `refs/heads/integration/slaws-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor` at `83b7f6e3`.
+- Integration branch: `refs/heads/integration/slaws-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor`, advanced to `f906be8f` on 2026-10-04 (the §8 code review was taken at `83b7f6e3`; P0 re-confirms each finding at the new tip).
 - Target components: `d2-signalloom/apps/signal-ingest/{collectors/awslogs,collectors/registry.go,collectors/sink.go,model,store,correlation}`, `d2-signalloom/apps/policy-engine/{cel_eval.go,store.go,handlers.go,fair}`, new `d2-signalloom/pkg/obscel`, `policy/bundles/`, `d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx`.
 - Acceptance commands (offline, every phase): `KUBECONFIG=/dev/null make test-signal-ingest`; `KUBECONFIG=/dev/null make test-signal-ingest-frostdb`; `cd d2-signalloom/apps/policy-engine && go test -count=1 ./...`; `KUBECONFIG=/dev/null make test-sldc-offline`; `bash scripts/check-old-probe-name.sh`; `KUBECONFIG=/dev/null make docs-lint`.
 - No work has started on this board. `899d2609` predates it and is a stub (§8), not a baseline.
@@ -268,7 +268,7 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 
 | Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
 | :--- | :--- | :--- | :--- | ---: | :--- | :--- |
-| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Prove harness, branch and the six acceptance commands on `83b7f6e3`; confirm §8. |
+| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Prove harness, branch and the six acceptance commands on `f906be8f`; confirm §8 still holds at the new tip. |
 | P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Map the sink, the HTTP tenant binder, the FrostDB factory and manifests; file:line table for P1. |
 | P1-1 | context-mode; Hardening | Go platform engineer | M | 120m | antigravity | `SIGNAL_STORE=frostdb`, `-tags frostdb` build, PVC in manifests, DuckDB runbook; seven-layer flip. |
 | P1-2 | context-mode; Hardening | Go collector engineer | M | 120m | antigravity | Register `awslogs` with mode gating, fixture mode, `Stopper` fix, per-account config with tenant. |
@@ -290,7 +290,7 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | baseline | Run the six acceptance commands on `integration/slaws-v0.1.0` at `83b7f6e3`; record totals; `kanban-check.sh doctor`; confirm each §8 finding with file:line. | — | Six commands rc 0; totals and §8 confirmation in errata | S | antigravity | — | — | — | — | — |
+| P0 | baseline | Run the six acceptance commands on `integration/slaws-v0.1.0` at `f906be8f`; record totals; `kanban-check.sh doctor`; confirm each §8 finding with file:line. | — | Six commands rc 0; totals and §8 confirmation in errata | S | antigravity | — | — | — | — | — |
 | P1-PRE | preflight | Table of the sink (`collectors/sink.go`), HTTP tenant binder (`api/tenancy_grants.go`), store factory, manifests; name the exact edits for P1-1..P1-4. | P0 | File:line table; no code change | S | antigravity | — | — | — | — | — |
 | P1-1 | implementation | `SIGNAL_STORE=frostdb` and PVC in `base/deployment.yaml`; `-tags frostdb` in the image build; delete the stale comment on `LayerCloudControlPlane`; fix `api/handlers.go:808`; DuckDB runbook under `docs/signalloom/`. | P1-PRE | `make test-signal-ingest-frostdb`; deploy render test asserts PVC; runbook executed once against a local Parquet dir | M | antigravity | — | — | — | — | — |
 | P1-2 | implementation | Register `awslogs` in `NewRegistryFromEnvWithReceiver` behind `COLLECTOR_AWSLOGS_MODE`; fixture mode reads `testdata/*.json`; `Stop()` satisfies `Stopper`; `AWSCollectorConfig` carries `tenant_id`. | P1-PRE | `registry_lifecycle_test.go` and `mode_matrix_test.go` rows for awslogs; mutation dropping the mode gate fails | M | antigravity | — | — | — | — | — |

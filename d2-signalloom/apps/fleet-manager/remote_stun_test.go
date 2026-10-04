@@ -811,3 +811,55 @@ func TestRemoteStunPendingFiltersSortsAndNeverReturnsNil(t *testing.T) {
 		t.Fatalf("empty pending = %#v, want non-nil empty slice", empty)
 	}
 }
+
+// TestRemoteRoutesRejectWrongMethodThroughMux pins the four remote paths at the
+// mux, not just at their handlers.
+//
+// The gateway in front of fleet-manager forwards every verb rather than
+// filtering by method, so fleet-manager is the only thing standing between a
+// stray PUT or DELETE and a handler that was written expecting one verb. Go's
+// ServeMux patterns here are method-agnostic by design (the alternative,
+// method-qualified patterns, would answer a wrong verb with the mux's own 405
+// and never reach the handler's error envelope), which means the handler's own
+// check is load-bearing. Asserting it through s.routes() rather than by calling
+// the handler directly is what makes this a test of the deployed path.
+func TestRemoteRoutesRejectWrongMethodThroughMux(t *testing.T) {
+	now := time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)
+	s := newTestServer(t)
+	s.workloads = newRemoteWorkloadRegistry(t, now,
+		workloadReportFor("cluster-a", "node-a", "tenant-a", "remote-api-0", "remote-api", now),
+	)
+	s.remoteStuns = newRemoteStunTestStore(&remoteStunTestClock{current: now})
+	s.callerKeys = remoteCallerKeys(t)
+	handler := s.routes()
+
+	// Each path is paired with a verb it does NOT serve.
+	cases := []struct {
+		path   string
+		method string
+	}{
+		{path: "/api/v1/fleet/workloads/report", method: http.MethodGet},
+		{path: "/api/v1/fleet/workloads/report", method: http.MethodDelete},
+		{path: "/api/v1/fleet/workloads", method: http.MethodPost},
+		{path: "/api/v1/fleet/workloads", method: http.MethodPut},
+		{path: "/api/v1/fleet/stun-state", method: http.MethodPost},
+		{path: "/api/v1/fleet/stun-state", method: http.MethodDelete},
+		{path: "/api/v1/fleet/stun-state/ack", method: http.MethodGet},
+		{path: "/api/v1/fleet/stun-state/ack", method: http.MethodPut},
+	}
+
+	for _, test := range cases {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			response := call(t, handler, test.method, test.path, "", "Bearer "+wardenWorkloadKey)
+			if response.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status = %d, want 405; body=%s", response.Code, response.Body.String())
+			}
+			// The envelope matters as much as the code: callers parse
+			// {"error":...} and a bare status with an empty body is
+			// indistinguishable from a proxy having answered instead.
+			if !strings.Contains(response.Body.String(), "method not allowed") {
+				t.Fatalf("body %q does not carry the error envelope", response.Body.String())
+			}
+		})
+	}
+}

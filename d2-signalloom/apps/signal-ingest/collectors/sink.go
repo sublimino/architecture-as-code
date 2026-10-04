@@ -5,6 +5,7 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/tenancy"
 )
 
 // StoreSink adapts a store.SignalStore to satisfy IngestionSink.
@@ -26,14 +27,28 @@ func (s *StoreSink) IngestObservation(ctx context.Context, obs *model.Observatio
 }
 
 // BindTenant wraps an IngestionSink so that every observation passing through it is
-// bound to tenantID with the same rules the HTTP path applies (SLAWS v2 D7, ISC-28..30):
-// an absent tenant_id label is stamped; a mismatched one is rejected. Collectors that
-// know their tenant from configuration (awslogs, one instance per account) wrap their
-// sink with this instead of trusting the record.
-//
-// Seam stub: the binder body is delivered by the tenant-binder card; until then this is
-// a passthrough so dependants compile against the frozen signature.
+// bound to tenantID with the same rule the HTTP path applies (SLAWS v2 D7, ISC-28..30):
+// an absent tenant_id label is stamped; a mismatched one is refused and never forwarded.
+// Collectors that know their tenant from configuration (awslogs, one instance per account)
+// wrap their sink with this instead of trusting the record.
 func BindTenant(sink IngestionSink, tenantID string) IngestionSink {
-	_ = tenantID
-	return sink
+	return &tenantBoundSink{inner: sink, tenantID: tenantID}
+}
+
+type tenantBoundSink struct {
+	inner    IngestionSink
+	tenantID string
+}
+
+// IngestObservation binds then forwards. The caller's observation is not mutated; the bound
+// copy is what reaches the inner sink.
+func (s *tenantBoundSink) IngestObservation(ctx context.Context, obs *model.Observation) error {
+	if obs == nil {
+		return nil
+	}
+	batch := []model.Observation{*obs}
+	if err := tenancy.BindObservations(s.tenantID, false, batch); err != nil {
+		return err
+	}
+	return s.inner.IngestObservation(ctx, &batch[0])
 }

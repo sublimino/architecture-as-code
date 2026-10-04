@@ -107,12 +107,12 @@ who onboards from zero on the pilot's secondary cluster.
 
 | Document | What it covers |
 | :--- | :--- |
-| [`kusari/README.md`](kusari/README.md) | Pilot overview, what Kusari gets, reading order, and the source records |
-| [`kusari/onboarding.md`](kusari/onboarding.md) | Numbered steps from no access to a signed-in session bound to tenant `kusari` |
-| [`kusari/pages.md`](kusari/pages.md) | One section per dashboard page: path, API calls, actions, and who may take them |
-| [`kusari/secondary-cluster.md`](kusari/secondary-cluster.md) | What runs on the Kusari cluster, the hub-side keys, and the checks for each step |
-| [`kusari/enforcement.md`](kusari/enforcement.md) | Detection triggers, the freeze chain, how it is recorded, how to resume, and the forensic bundle |
-| [`kusari/faq-and-limits.md`](kusari/faq-and-limits.md) | Known limits with the file that proves each one, and what to do instead |
+| [`kusari/README.md`](EAP/README.md) | Pilot overview, what Kusari gets, reading order, and the source records |
+| [`kusari/onboarding.md`](EAP/onboarding.md) | Numbered steps from no access to a signed-in session bound to tenant `kusari` |
+| [`kusari/pages.md`](EAP/pages.md) | One section per dashboard page: path, API calls, actions, and who may take them |
+| [`kusari/secondary-cluster.md`](EAP/secondary-cluster.md) | What runs on the Kusari cluster, the hub-side keys, and the checks for each step |
+| [`kusari/enforcement.md`](EAP/enforcement.md) | Detection triggers, the freeze chain, how it is recorded, how to resume, and the forensic bundle |
+| [`kusari/faq-and-limits.md`](EAP/faq-and-limits.md) | Known limits with the file that proves each one, and what to do instead |
 
 Deploy to GCP after the local tests pass. The GCP workflow costs money and needs cloud credentials.
 

@@ -6,10 +6,10 @@ tags:
   - signalloom
   - kusari
 date: 2026-10-03
-status: draft v2 (grilled 2026-10-04, awaiting sign-off)
+status: v2 implemented on integration/slaws-v0.1.0 (2026-10-04); acceptance evidence in Errata; awaiting sign-off and the kind-osramp run
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T15:09
+updated: 2026-10-04T15:57
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -344,3 +344,28 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 
 - Worker W3 produced nothing; the lead built the card. `tenancy.BindObservations` is the rule; `api.bindWriteTenancy` and `collectors.BindTenant` both call it and surface `tenancy.ErrTenantMismatch`.
 - Forge (GPT-5.4 via `codex exec`) could not run: Codex's bwrap sandbox needs `CLONE_NEWUSER`, denied here. Attempting to escape the sandbox was refused; all cards were built by Claude engineers natively.
+
+#### Errata — SLAWS-P2-1/P2-2/P2-3 pipeline (2026-10-04, branch `slaws-pipeline-w5`, merged `18a2b4bf`)
+
+- Stage 1 runs at the sink after the write (`policy.NewSink`); findings and decisions are written back as observations (`policy_finding`, `policy_decision`). HTTP ingest is routed through `policy.Store.Append`, a store wrapper that keeps the batch atomic, not a handler edit.
+- Replay: `signal-ingest replay --bundles <dir> --from <RFC3339> --to <RFC3339> [--tenant t] --out <file>`; runbook `docs/signalloom/runbooks/slaws-policy-replay.md`. Replay equals live on the fixture corpus; the comparison includes decisions by line count because a shared-projection bug would cancel on both sides of a byte comparison.
+- Warm-up cannot rebuild a window keyed on `labels.<k>` because stored findings carry the closed policy label set; `Warm` warns per such window. The shipped bundle keys on `[tenant_id, actor]`.
+- The FrostDB label allow-list refused every finding and decision write (`bundle_id`, `bundle_version`, `source_observation_id`, `mode`, `window_id`, `count`, `finding_ids`); fixed by the lead in `store/label_allowlist.go` (`1dbdcac6`). One replay mutation (removing the skip-own-output filter) survives because the sink's own source guard already refuses to evaluate findings; recorded as defence in depth.
+- Counters compose into the existing metrics handler; no new route. Both apps share namespace `fe-signalloom`; signal-ingest mounts the existing `policy-engine-bundles` ConfigMap (`optional: true`).
+
+#### Errata — SLAWS-P3-1/P3-2 live AWS (2026-10-04, branch `slaws-aws-live-w6`, merged `ec931148`)
+
+- `live` imports `awslogs`, so the core package cannot import `live`; live mode is wired by `awslogs.SetLiveClientFactory` from `live`'s `init` and a blank import in `collectors/awslogs_adapter.go`, guarded by a test that fails if the import is removed.
+- Crash test: the child process SIGKILLs itself inside the sink after the durable write and before the ack; a file-backed SQS fake survives the child. Exactly-once in the store is proven by derived IDs.
+- `aws-sdk-go-v2` was already indirect at v1.16.0 via `thanos-io/objstore`; it is now direct at v1.47.1 with `config`, `credentials`, `service/{s3,sqs,sts}`. Wider blast radius than the five named modules; full suite green.
+
+#### Errata — SLAWS pull-path fixes (2026-10-04, branch `slaws-pull-fixes-w7`, merged `2bfbba03`)
+
+- A notification naming no object (`s3:TestEvent`, unrelated event) is acknowledged and counted (`discarded`); a non-JSON body is not deleted and is counted separately so a poisoned queue stays visible.
+- A record replayed from the WAL whose receipt handle SQS rejects as stale is released without ack (`stale_ack` counter) and left to redelivery, where the derived `Observation.ID` dedupes. A non-stale delete failure still keeps the record buffered.
+- One notification parser in the core package, URL-decoding keys; `live` delegates to it.
+- Pull-only is asserted in code: the live clients call exactly `ReceiveMessage`, `DeleteMessage`, `GetObject`, `AssumeRole`; fixture mode never invokes the client factory.
+
+#### Errata — image pin discipline (lead)
+
+- Every merge that touches signal-ingest sources, `go.mod`, the Dockerfile or `pkg/obscel` moves the immutable image tag; the lead re-pinned after each wave (`432cae1e`, `936b401c`, `81fb97e8`, `bcf7de3f`, final `f39b3bbd`). The zot build site in `d2-signalloom/Makefile` and the image-tag bats probe were updated to the new build context (`5383a747`).

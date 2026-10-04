@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,11 +45,19 @@ type HealthServer struct {
 	// fleetStunFailures counts correlator freezes fleet-manager did not record.
 	fleetStunFailures func() int64
 	// captures serves GET /captures and /captures/<id>[/<artifact>]
-	// (capture.go); nil means 404. The listener carries no authentication,
-	// so only the manifest and the two spec-analogue artifacts are served,
-	// never the quarantine snapshot with its process memory.
+	// (capture.go); nil means 404. Only the manifest and the two
+	// spec-analogue artifacts are served, never the quarantine snapshot with
+	// its process memory, and every request passes capturesGate first.
 	captures *captureWriter
-	server   *http.Server
+	// capturesToken returns the bearer a reader must present; "" means the
+	// route is disabled (403 captures_disabled). Read per request so a
+	// Secret mounted after start is honoured.
+	capturesToken func() string
+	// capturesAllow lists the source networks a reader may come from. The
+	// warden is hostNetwork, so no NetworkPolicy can bind this listener; this
+	// in-process list is the enforced network control. Default: loopback.
+	capturesAllow []*net.IPNet
+	server        *http.Server
 }
 
 func newHealthServer(addr string, dryRun bool, cgroupRoot string, reconcileCount *atomic.Int64) *HealthServer {
@@ -152,6 +162,16 @@ func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if status, code := h.capturesGate(r); status != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if status == http.StatusUnauthorized {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="signalloom-warden-captures"`)
+		}
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
+		return
+	}
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/captures"), "/")
 	if rest == "" {
 		ids, err := h.captures.ids()
@@ -175,6 +195,79 @@ func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(body)
+}
+
+// capturesGate decides whether a /captures request may proceed: the source
+// address must be inside capturesAllow and the Authorization header must
+// carry the configured bearer. The token comparison is constant-time and the
+// network check runs first, so an address outside the list learns nothing
+// about the token. Returns (0, "") when the request may proceed.
+func (h *HealthServer) capturesGate(r *http.Request) (int, string) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	allow := h.capturesAllow
+	if allow == nil {
+		allow = defaultCapturesAllow()
+	}
+	permitted := false
+	for _, n := range allow {
+		if ip != nil && n.Contains(ip) {
+			permitted = true
+			break
+		}
+	}
+	if !permitted {
+		return http.StatusForbidden, "captures_source_not_allowed"
+	}
+	want := ""
+	if h.capturesToken != nil {
+		want = strings.TrimSpace(h.capturesToken())
+	}
+	if want == "" {
+		return http.StatusForbidden, "captures_disabled"
+	}
+	scheme, got, found := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") ||
+		subtle.ConstantTimeCompare([]byte(strings.TrimSpace(got)), []byte(want)) != 1 {
+		return http.StatusUnauthorized, "captures_unauthorized"
+	}
+	return 0, ""
+}
+
+// defaultCapturesAllow is loopback only: a reader on the node itself
+// (kubectl exec, a node-local operator), nothing across the network.
+func defaultCapturesAllow() []*net.IPNet {
+	nets, _ := parseCIDRList("127.0.0.0/8,::1/128")
+	return nets
+}
+
+// parseCIDRList parses a comma-separated CIDR list; a bare address is a host.
+func parseCIDRList(list string) ([]*net.IPNet, error) {
+	var out []*net.IPNet
+	for _, item := range strings.Split(list, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if !strings.Contains(item, "/") {
+			if ip := net.ParseIP(item); ip != nil {
+				if ip.To4() != nil {
+					item += "/32"
+				} else {
+					item += "/128"
+				}
+			}
+		}
+		_, n, err := net.ParseCIDR(item)
+		if err != nil {
+			return nil, fmt.Errorf("captures allow list: %q: %w", item, err)
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 // serveMetrics writes Prometheus text exposition without a client library.

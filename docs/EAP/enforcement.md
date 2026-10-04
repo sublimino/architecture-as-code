@@ -280,6 +280,39 @@ records that the packager refused the last candidate on five contract
 violations. The sealed bundle that
 [`SLDC-P6-PREFLIGHT.md`](../eap/SLDC-P6-PREFLIGHT.md) names is fixture-origin.
 
+### Reading a capture
+
+The warden serves its captures on the health listener at `/captures`,
+`/captures/<stun-id>` (the manifest) and `/captures/<stun-id>/<artifact>`.
+The route is closed until two things hold. The source address must be
+inside `CAPTURES_ALLOW_CIDRS`, which defaults to loopback, so a reader must
+be on the node itself. The request must carry the bearer stored in the
+optional Secret `signalloom-warden-captures-token`. Without that Secret the
+route answers `403 captures_disabled`. A wrong bearer answers `401`. A
+source outside the list answers `403 captures_source_not_allowed` before
+the bearer is examined.
+
+The warden runs with host networking, and the usual CNIs do not enforce a
+NetworkPolicy on such a pod. The allow-list is therefore the control that
+holds. The base still ships `signalloom-warden-captures`, an ingress policy
+that admits only pods labelled `signalloom.ai/captures-reader=true`, for a
+CNI that does enforce on host-network pods.
+
+To read on the pilot cluster:
+
+```bash
+kubectl -n fe-signalloom-agents create secret generic signalloom-warden-captures-token \
+  --from-literal=token="$(openssl rand -base64 32)"
+TOKEN="$(kubectl -n fe-signalloom-agents get secret signalloom-warden-captures-token -o jsonpath='{.data.token}' | base64 -d)"
+POD="$(kubectl -n fe-signalloom-agents get pods -l app.kubernetes.io/name=signalloom-warden -o name | head -1)"
+kubectl -n fe-signalloom-agents exec "$POD" -- \
+  wget -qO- --header "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/captures
+```
+
+The mounted Secret is read on every request, so creating it after the
+warden started is enough. Only the manifest and the two artifacts are
+served. The quarantine snapshot stays on the node's spool.
+
 ## Live status of the chain
 
 [`SLDC-P5-1-E2E-CONTAINMENT.md`](../eap/SLDC-P5-1-E2E-CONTAINMENT.md) records

@@ -481,3 +481,33 @@ secret_ref() {
   gw="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "allow-signal-ingest-ingress") | .spec.ingress[].from[] | select(.namespaceSelector != null) | .namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' "${np}" | grep -cx ingress || true)"
   [ "${gw}" -ge 1 ]
 }
+
+# ── captures gate: token mount, env, and the stated network policy ───────────
+
+@test "T6 captures: CAPTURES_TOKEN_FILE names a path inside the optional captures-token mount" {
+  local out tf mount secret optional
+  out="$(remote_render remote-tenant)"
+  tf="$(env_value CAPTURES_TOKEN_FILE "${out}")"
+  [ -n "${tf}" ]
+  mount="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "captures-token") | .mountPath' "${out}")"
+  [ -n "${mount}" ]
+  case "${tf}" in "${mount}/"*) ;; *) return 1 ;; esac
+  secret="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.volumes[] | select(.name == "captures-token") | .secret.secretName' "${out}")"
+  optional="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.volumes[] | select(.name == "captures-token") | .secret.optional' "${out}")"
+  [ "${secret}" = "signalloom-warden-captures-token" ]
+  [ "${optional}" = "true" ]
+}
+
+@test "T6 captures: the base ships an ingress NetworkPolicy for the health listener, reader-labelled pods only" {
+  local out name port label
+  out="$(remote_render remote-tenant-dev)"
+  name="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .metadata.name' "${out}")"
+  [ "${name}" = "signalloom-warden-captures" ]
+  port="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .spec.ingress[0].ports[0].port' "${out}")"
+  [ "${port}" = "8081" ]
+  label="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .spec.ingress[0].from[0].podSelector.matchLabels["signalloom.ai/captures-reader"]' "${out}")"
+  [ "${label}" = "true" ]
+  # Ingress-only, and it selects the warden pods and nothing wider.
+  [ "$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .spec.policyTypes | join(",")' "${out}")" = "Ingress" ]
+  [ "$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .spec.podSelector.matchLabels["app.kubernetes.io/name"]' "${out}")" = "signalloom-warden" ]
+}

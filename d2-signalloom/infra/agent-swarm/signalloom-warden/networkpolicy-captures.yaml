@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# Ingress policy for the warden's health listener (:8081, where /captures is
+# served). Only pods labelled signalloom.ai/captures-reader=true in this
+# namespace may reach it, plus the kubelet's probes, which NetworkPolicy
+# never blocks.
+#
+# Honest limit: the warden runs hostNetwork (its tc filters and RTM_GETLINK
+# must act in the host netns), and the common CNIs do not enforce
+# NetworkPolicy on host-network pods. The control that IS enforced is the
+# warden's own source allow-list (CAPTURES_ALLOW_CIDRS, default loopback)
+# plus the bearer in signalloom-warden-captures-token. This object states
+# the intended reachability for a CNI that enforces on host-network pods and
+# is asserted by test/signalloom-warden-manifests.bats.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: signalloom-warden-captures
+  labels:
+    app.kubernetes.io/name: signalloom-warden
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: signalloom-warden
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              signalloom.ai/captures-reader: "true"
+      ports:
+        - protocol: TCP
+          port: 8081

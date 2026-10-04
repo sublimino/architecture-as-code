@@ -223,11 +223,14 @@ func TestHealthListenerServesCapturesButNeverTheQuarantineDumps(t *testing.T) {
 	id := h.trigs[0].StunID
 	srv := newHealthServer(":0", false, t.TempDir(), &atomic.Int64{})
 	srv.captures = h.w
+	srv.capturesToken = func() string { return "reader-token-123" }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
 	get := func(path string) (int, string, string) {
-		resp, err := http.Get(ts.URL + path)
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer reader-token-123")
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -279,5 +282,73 @@ func TestLocalStunIDIsSafeAndUnique(t *testing.T) {
 	b := localStunID(holdPodUID, time.Unix(0, 2))
 	if a == b || !captureIDPattern.MatchString(a) || !strings.HasPrefix(a, "local-e02fe214-") {
 		t.Fatalf("a=%q b=%q", a, b)
+	}
+}
+
+// The captures route is gated twice: the source must be inside the allow-list
+// (loopback by default; the warden is hostNetwork, so this is the enforced
+// network control) and the request must carry the configured bearer. With no
+// token configured the route is disabled.
+func TestCapturesRouteRequiresAllowedSourceAndBearer(t *testing.T) {
+	h := newCaptureHarness(t)
+	h.detect()
+	h.wait(t)
+	id := h.trigs[0].StunID
+	srv := newHealthServer(":0", false, t.TempDir(), &atomic.Int64{})
+	srv.captures = h.w
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	do := func(path, bearer string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	// 1. no token configured: disabled, whatever the caller presents.
+	if code, body := do("/captures", "anything"); code != 403 || !strings.Contains(body, "captures_disabled") {
+		t.Fatalf("no token configured: %d %s", code, body)
+	}
+	srv.capturesToken = func() string { return "reader-token-123" }
+	// 2. missing or wrong bearer: 401, and the id list is not disclosed.
+	for _, bearer := range []string{"", "wrong"} {
+		if code, body := do("/captures", bearer); code != 401 || strings.Contains(body, id) {
+			t.Fatalf("bearer %q: %d %s", bearer, code, body)
+		}
+	}
+	// 3. right bearer from loopback (the httptest client): served.
+	if code, body := do("/captures/"+id, "reader-token-123"); code != 200 || !strings.Contains(body, "warden-capture") {
+		t.Fatalf("authorised read: %d %s", code, body)
+	}
+	// 4. right bearer from a source outside the allow-list: refused before
+	// the token is even examined, and the body says why.
+	allow, err := parseCIDRList("10.42.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.capturesAllow = allow
+	if code, body := do("/captures/"+id, "reader-token-123"); code != 403 || !strings.Contains(body, "captures_source_not_allowed") {
+		t.Fatalf("source outside the list: %d %s", code, body)
+	}
+	// 5. /healthz and /metrics stay open: the gate is on captures only.
+	if code, _ := do("/healthz", ""); code != 200 {
+		t.Fatalf("/healthz gated by mistake: %d", code)
+	}
+}
+
+func TestParseCIDRListAcceptsHostsAndRefusesGarbage(t *testing.T) {
+	nets, err := parseCIDRList("127.0.0.0/8, 172.19.0.10 ,::1")
+	if err != nil || len(nets) != 3 || nets[1].String() != "172.19.0.10/32" || nets[2].String() != "::1/128" {
+		t.Fatalf("nets=%v err=%v", nets, err)
+	}
+	if _, err := parseCIDRList("not-a-network"); err == nil {
+		t.Fatal("garbage accepted")
 	}
 }

@@ -1636,9 +1636,15 @@ class Principal:
         return self.email or self.subject
 
 
-def authenticated_principal(
-    authorization: Annotated[str | None, Header()] = None,
-) -> Principal:
+def verified_bearer_claims(authorization: str | None) -> dict[str, Any]:
+    """The validated claims of a ``Bearer`` ID token, with no tenant decision.
+
+    The first half of ``authenticated_principal``: header shape, signature,
+    issuer, audience and the host-credential scope restriction. Split out so
+    ``invites.redeem`` can accept a Dex identity that has *no* tenant yet --
+    the whole point of an invite is to give it one -- without re-implementing
+    any of the checks that make the identity trustworthy.
+    """
     if authorization is None:
         raise APIError(401, "authentication_required", "Bearer authentication is required")
     scheme, separator, token = authorization.partition(" ")
@@ -1655,15 +1661,125 @@ def authenticated_principal(
             "host_credential_scope_restricted",
             "External host credentials grant audit-upload-only permissions and cannot access operator control plane APIs",
         )
+    return claims
 
-    tenant = settings.api_subject_tenants.get(claims["sub"])
-    if tenant is None:
-        raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
 
+def _email_claim(claims: dict[str, Any]) -> str | None:
     email = claims.get("email")
     if not isinstance(email, str) or not email.strip():
-        email = None
-    return Principal(tenant=tenant, subject=claims["sub"], email=email)
+        return None
+    return email
+
+
+# ---------------------------------------------------------------------------
+# Subject -> tenant binding (migration 053), consulted before the environment map
+# ---------------------------------------------------------------------------
+#
+# ``authenticated_principal`` is a *sync* dependency and is also called as a
+# plain function (``afm_import.py``, the adversarial token suites), so it
+# cannot await a query itself. The lookup therefore runs in a small async
+# dependency, ``subject_binding_hint``, that FastAPI resolves first and hands
+# in. The hint is keyed on the token's *unverified* ``sub``; it is only ever
+# used after ``validate_jwt`` has confirmed the same ``sub``, so a forged
+# subject can at most warm the cache for a name it cannot then present.
+#
+# Results are cached per subject for a short TTL so the binding is not one
+# query per request, and ``invalidate_subject_binding`` is called on redeem so
+# a freshly bound subject is live on its next request.
+
+SUBJECT_BINDING_TTL_SECONDS = 30.0
+_subject_binding_cache: dict[str, tuple[str | None, float]] = {}
+#: The hint's shape: ``(subject the lookup was keyed on, bound tenant)``.
+SubjectBinding = tuple[str, str]
+
+
+def invalidate_subject_binding(subject: str | None = None) -> None:
+    """Forget a cached binding (one subject, or all of them when ``None``)."""
+    if subject is None:
+        _subject_binding_cache.clear()
+    else:
+        _subject_binding_cache.pop(subject, None)
+
+
+async def lookup_subject_binding(subject: str) -> str | None:
+    """The tenant ``subject_tenants`` binds ``subject`` to, or ``None``.
+
+    ``None`` means "no row, or no database": both fall through to the
+    ``API_SUBJECT_TENANTS`` map, which remains the documented fallback. A
+    database *error* is also ``None``, logged: refusing every login because the
+    binding table is briefly unreachable would take the environment-mapped
+    pilot operators down with it, and the environment map is exactly the path
+    that does not need the database.
+    """
+    now = time.monotonic()
+    cached = _subject_binding_cache.get(subject)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+    pool = await _get_pool()
+    if pool is None:
+        return None
+    tenant: str | None
+    try:
+        row = await pool.fetchrow(
+            "SELECT tenant FROM subject_tenants WHERE subject = $1", subject,
+        )
+    except Exception:  # noqa: BLE001 -- availability over a transient fault; see docstring
+        logger.warning("subject binding lookup failed; falling back to API_SUBJECT_TENANTS", exc_info=True)
+        return None
+    tenant = row["tenant"] if row else None
+    if isinstance(tenant, str) and tenant.strip():
+        tenant = tenant.strip()
+    else:
+        tenant = None
+    _subject_binding_cache[subject] = (tenant, now + SUBJECT_BINDING_TTL_SECONDS)
+    return tenant
+
+
+def _unverified_subject(authorization: str | None) -> str | None:
+    """The ``sub`` claim as written, with no verification. A cache key only."""
+    if not authorization:
+        return None
+    _scheme, _sep, token = authorization.partition(" ")
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (ValueError, TypeError):
+        return None
+    sub = claims.get("sub") if isinstance(claims, dict) else None
+    return sub if isinstance(sub, str) and sub else None
+
+
+async def subject_binding_hint(
+    authorization: Annotated[str | None, Header()] = None,
+) -> SubjectBinding | None:
+    """Pre-resolve the caller's binding so the sync principal can use it."""
+    sub = _unverified_subject(authorization)
+    if sub is None:
+        return None
+    tenant = await lookup_subject_binding(sub)
+    return (sub, tenant) if tenant else None
+
+
+def resolve_tenant(claims: dict[str, Any], binding: SubjectBinding | None) -> str | None:
+    """The tenant for verified ``claims``: the binding table first, then the map."""
+    sub = claims["sub"]
+    if binding is not None and binding[0] == sub:
+        return binding[1]
+    return settings.api_subject_tenants.get(sub)
+
+
+def authenticated_principal(
+    authorization: Annotated[str | None, Header()] = None,
+    binding: Annotated[SubjectBinding | None, Depends(subject_binding_hint)] = None,
+) -> Principal:
+    claims = verified_bearer_claims(authorization)
+    tenant = resolve_tenant(claims, binding)
+    if tenant is None:
+        raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
+    return Principal(tenant=tenant, subject=claims["sub"], email=_email_claim(claims))
 
 
 def authenticated_tenant(

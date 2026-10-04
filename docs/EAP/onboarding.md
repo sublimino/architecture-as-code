@@ -17,8 +17,8 @@ Prerequisites:
   central cluster serves a self-signed certificate from
   [`cluster-issuer.yaml`](../../d2-infra/components/cert-manager/configs/base/cluster-issuer.yaml).
   Accept the certificate warning once.
-- The pilot credentials from ControlPlane. There is no self-service invite in
-  this tree. See [step 1](#1-get-an-identity).
+- A Dex identity and an invite token from ControlPlane. See
+  [step 1](#1-get-an-identity).
 
 ## How identity and tenancy work
 
@@ -28,11 +28,23 @@ central cluster. The dashboard sends the ID token to the portal API as an
 ([`client.ts:317-322`](../../d2-signalloom/apps/dashboard-signalloom/src/api/client.ts)).
 
 The portal does not read a tenant claim from the token. It maps the token
-subject to a tenant with a server-side table, the `API_SUBJECT_TENANTS`
-environment variable of the `fe-signalloom` Deployment
-([`deployment.yaml:108-115`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml)).
-A subject that is not in the table gets `403 tenant_forbidden`
-([`api_compat.py:1644-1647`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py)).
+subject to a tenant server-side, in two places, in this order
+([`api_compat.py:1766-1781`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py)):
+
+1. The `subject_tenants` table (migration
+   [`053_invites_and_subject_tenants.sql`](../../d2-signalloom/apps/fe-signalloom/src/db/migrations/053_invites_and_subject_tenants.sql)),
+   written when a subject redeems an invite. The lookup is cached per subject
+   for 30 seconds
+   ([`api_compat.py:1690-1704`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py))
+   and the cache entry is dropped on redeem, so a new binding is live on the
+   next request.
+2. The `API_SUBJECT_TENANTS` environment variable of the `fe-signalloom`
+   Deployment
+   ([`deployment.yaml:108-115`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml)).
+   This is the fallback, and the only path when the portal has no database.
+
+A subject in neither gets `403 tenant_forbidden`
+([`api_compat.py:1781`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py)).
 
 The table maps one subject to tenant `kusari`: `kusari-operator`. The Dex
 identity is `kusari-operator@signalloom.local`, defined in
@@ -56,23 +68,49 @@ never promotes.
 
 ## 1. Get an identity
 
-There is no invite flow in this tree. The dashboard has a page at
-`/redeem-invite` that posts to `/api/registry/signup`
-([`RedeemInvite.tsx:88-92`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/RedeemInvite.tsx)).
-The portal API has no route with that path, and it has no users table
-([`onboarding.py:29-30`](../../d2-signalloom/apps/fe-signalloom/src/onboarding.py)).
-Do not use that page.
+Two things have to be true: Dex knows the identity, and the portal maps its
+subject to tenant `kusari`. The first is still an edit by ControlPlane. The
+second is self-service through an invite.
 
-1. Ask ControlPlane for the pilot credentials. The username is
-   `kusari-operator@signalloom.local`. The password is the Dex static password
-   for that user.
-2. If Kusari needs a second login, ask ControlPlane to add it. The operator
-   adds a `staticPasswords` entry to
-   [`dex.yaml`](../../d2-signalloom/infra/inf-signalloom/base/dex.yaml),
-   adds the subject to `API_SUBJECT_TENANTS` in
-   [`deployment.yaml`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml),
-   and restarts the `dex` Deployment. Dex reads its config once at start and never
-   reloads it. The comment at `dex.yaml:116-136` records this.
+1. Ask ControlPlane for a Dex identity. For the pilot that is
+   `kusari-operator@signalloom.local`, already mapped to `kusari` by the
+   environment table. For a second person, ControlPlane adds a
+   `staticPasswords` entry to
+   [`dex.yaml`](../../d2-signalloom/infra/inf-signalloom/base/dex.yaml) and
+   restarts the `dex` Deployment. Dex reads its config once at start and never
+   reloads it. The comment at `dex.yaml:116-136` records this. The portal does
+   not create identities.
+2. Ask ControlPlane for an invite. A superadmin calls
+   `POST /api/v1/invites` with `{"email": "<the Dex email>", "tenant": "kusari"}`
+   ([`invites.py:183-215`](../../d2-signalloom/apps/fe-signalloom/src/invites.py)).
+   The response carries a one-time `token`. The table keeps only its sha256
+   ([`invites.py:203`](../../d2-signalloom/apps/fe-signalloom/src/invites.py)),
+   so the token cannot be recovered later. It expires after seven days
+   ([`invites.py:57`](../../d2-signalloom/apps/fe-signalloom/src/invites.py)).
+3. Sign in with the Dex identity ([step 2](#2-log-in)), then open
+   `/redeem-invite?token=<token>` and select **Redeem invite**. The page posts
+   the token with your ID token to `POST /api/v1/invites/redeem`
+   ([`RedeemInvite.tsx:111`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/RedeemInvite.tsx)),
+   and shows the tenant you are now bound to.
+
+The redeem route accepts a verified Dex identity that has no tenant yet; that
+is its purpose
+([`invites.py:251-266`](../../d2-signalloom/apps/fe-signalloom/src/invites.py)).
+It refuses a token's `email` claim that differs from the invite's email
+(`403 invite_email_mismatch`), a subject already bound to a different tenant
+(`409 tenant_mismatch`), and an expired or spent invite (`410`). A superadmin
+lists invites with `GET /api/v1/invites`; the listing never includes a token.
+Both actions appear on the [Audit Trail](pages.md#audit) as `invite.created`
+and `invite.redeemed`.
+
+A `403 tenant_forbidden` after a successful redeem means the ID token's `sub`
+differs from the one that redeemed. The binding is by subject, not by email.
+
+The environment-table route still works and ControlPlane can use it instead of
+an invite: add the subject to `API_SUBJECT_TENANTS` in
+[`deployment.yaml`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml)
+and roll the `fe-signalloom` Deployment. The table wins over the environment
+map when both name the same subject.
 
 ## 2. Log in
 

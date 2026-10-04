@@ -1,22 +1,36 @@
-import { useState, type CSSProperties, FormEvent } from 'react'
+/**
+ * /redeem-invite: bind the signed-in Dex identity to a tenant.
+ *
+ * The page sits behind ProtectedRoute, so the caller already holds a Dex ID
+ * token. It posts the one-time invite token to POST /api/v1/invites/redeem with
+ * that bearer; the server verifies the identity, looks the token up by hash,
+ * and writes the subject -> tenant binding (migration 053). Nothing here
+ * creates a tenant or an identity: the tenant is the one the invite names, and
+ * the identity is the one Dex already issued.
+ *
+ * The earlier version of this page posted an org form to /api/registry/signup,
+ * a route that does not exist in this tree. docs/EAP/onboarding.md said so.
+ */
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useAuth0 } from '../auth/oidc'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
-const INVITE_CODE_RE = /^SL-[A-Z0-9]{4}-[A-Z0-9]{4}$/
+const REDEEM_PATH = '/api/v1/invites/redeem'
+//: Anything shorter cannot be a token the API issued (32 url-safe bytes).
+const MIN_TOKEN_LENGTH = 16
 
-type DataRegion = 'us' | 'eu'
-
-interface FormState {
-  org_name: string
-  admin_email: string
-  admin_name: string
-  data_region: DataRegion
+interface ApiErrorBody {
+  error?: { code?: string; message?: string }
+  message?: string
 }
 
-interface ApiError {
-  error?: string
-  message?: string
-  retry_after_seconds?: number
+export interface RedeemResult {
+  subject: string
+  tenant: string
+  bound_via: string
+  bound_at: string
+  email?: string | null
 }
 
 const inputStyle: CSSProperties = {
@@ -28,6 +42,7 @@ const inputStyle: CSSProperties = {
   color: 'var(--text, #e0e0e0)',
   fontSize: 14,
   boxSizing: 'border-box',
+  fontFamily: 'var(--font-mono, monospace)',
 }
 
 const labelStyle: CSSProperties = {
@@ -38,241 +53,148 @@ const labelStyle: CSSProperties = {
   fontWeight: 500,
 }
 
-const fieldStyle: CSSProperties = { marginBottom: 20 }
+const pageStyle: CSSProperties = { maxWidth: 480, margin: '60px auto', padding: '0 24px' }
+const headingStyle: CSSProperties = { fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }
+const mutedStyle: CSSProperties = { color: 'var(--muted, #888)', lineHeight: 1.6, fontSize: 14 }
 
-function formatRetryAfter(seconds: number): string {
-  if (seconds >= 3600) {
-    const h = Math.ceil(seconds / 3600)
-    return `${h} hour${h !== 1 ? 's' : ''}`
+/** The message a given refusal deserves. Exported so the test can pin the mapping. */
+export function messageFor(status: number, body: ApiErrorBody): string {
+  const code = body.error?.code
+  const serverMessage = body.error?.message ?? body.message
+  switch (status) {
+    case 401:
+      return 'Your session has expired. Sign in again, then reopen the invite link.'
+    case 403:
+      if (code === 'invite_email_mismatch')
+        return 'This invite was issued to a different email address. Sign in with the account it was sent to.'
+      return serverMessage || 'This identity is not allowed to redeem the invite.'
+    case 404:
+      return 'No invite matches this token. Check the link, or ask your operator for a new invite.'
+    case 409:
+      return serverMessage || 'Your account is already bound to a different tenant. Ask your operator to move it.'
+    case 410:
+      if (code === 'invite_expired') return 'This invite has expired. Ask your operator for a new one.'
+      return 'This invite has already been redeemed.'
+    case 503:
+      return 'The portal cannot reach its database right now. Try again in a few minutes.'
+    default:
+      return serverMessage || 'Something went wrong, please try again.'
   }
-  if (seconds >= 60) {
-    const m = Math.ceil(seconds / 60)
-    return `${m} minute${m !== 1 ? 's' : ''}`
-  }
-  return `${seconds} second${seconds !== 1 ? 's' : ''}`
 }
 
 export default function RedeemInvite() {
   const [searchParams] = useSearchParams()
-  const rawCode = searchParams.get('code') ?? ''
+  const { getAccessTokenSilently } = useAuth0()
+  // `token` is the current parameter; `code` is kept so an older link still lands.
+  const fromLink = searchParams.get('token') ?? searchParams.get('code') ?? ''
 
-  const [form, setForm] = useState<FormState>({
-    org_name: '',
-    admin_email: '',
-    admin_name: '',
-    data_region: 'us',
-  })
+  const [token, setToken] = useState(fromLink)
   const [submitting, setSubmitting] = useState(false)
-  const [success, setSuccess] = useState(false)
-  const [errors, setErrors] = useState<Partial<Record<keyof FormState | '_global', string>>>({})
+  const [result, setResult] = useState<RedeemResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  function validate(): boolean {
-    const next: typeof errors = {}
-    if (!form.org_name.trim() || form.org_name.trim().length < 2)
-      next.org_name = 'Organization name must be at least 2 characters.'
-    if (!form.admin_name.trim())
-      next.admin_name = 'Your name is required.'
-    if (!form.admin_email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.admin_email))
-      next.admin_email = 'A valid email address is required.'
-    setErrors(next)
-    return Object.keys(next).length === 0
-  }
+  useEffect(() => {
+    setToken(fromLink)
+  }, [fromLink])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!validate()) return
+    const candidate = token.trim()
+    if (candidate.length < MIN_TOKEN_LENGTH) {
+      setError('Paste the full invite token from your operator.')
+      return
+    }
     setSubmitting(true)
-    setErrors({})
-
+    setError(null)
     try {
-      const resp = await fetch(`${API_BASE}/api/registry/signup`, {
+      const bearer = await getAccessTokenSilently()
+      const resp = await fetch(`${API_BASE}${REDEEM_PATH}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, invite_code: rawCode }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+        body: JSON.stringify({ token: candidate }),
       })
-
-      if (resp.status === 400) {
-        const body: ApiError = await resp.json().catch(() => ({}))
-        setErrors({ _global: body.message || 'This invite code is invalid or has already been used.' })
-        return
-      }
-
-      if (resp.status === 429) {
-        const body: ApiError = await resp.json().catch(() => ({}))
-        const wait = body.retry_after_seconds
-          ? `Please try again in ${formatRetryAfter(body.retry_after_seconds)}.`
-          : 'You have been rate limited. Please try again later.'
-        setErrors({ _global: wait })
-        return
-      }
-
       if (!resp.ok) {
-        const body: ApiError = await resp.json().catch(() => ({}))
-        setErrors({ _global: body.message || 'Something went wrong, please try again.' })
+        const body: ApiErrorBody = await resp.json().catch(() => ({}))
+        setError(messageFor(resp.status, body))
         return
       }
-
-      setSuccess(true)
+      setResult((await resp.json()) as RedeemResult)
     } catch {
-      setErrors({ _global: 'Network error. Please check your connection and try again.' })
+      setError('Network error. Please check your connection and try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  function field(key: keyof FormState) {
-    return (v: string) => setForm(f => ({ ...f, [key]: v }))
-  }
-
-  if (!rawCode) {
+  if (result) {
     return (
-      <div style={{ maxWidth: 480, margin: '80px auto', textAlign: 'center', padding: '0 24px' }}>
-        <h1 style={{ fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }}>
-          Invite link required
-        </h1>
-        <p style={{ color: 'var(--muted, #888)', lineHeight: 1.6 }}>
-          No invite code was found. Please use the invite link provided by your operator.
+      <div style={{ ...pageStyle, textAlign: 'center', marginTop: 80 }} data-testid="redeem-success">
+        <h1 style={headingStyle}>You are in</h1>
+        <p style={mutedStyle}>
+          <strong>{result.email ?? result.subject}</strong> is now bound to tenant{' '}
+          <strong data-testid="bound-tenant">{result.tenant}</strong>. The binding is live on your
+          next request; no sign-out is needed.
         </p>
-      </div>
-    )
-  }
-
-  if (!INVITE_CODE_RE.test(rawCode)) {
-    return (
-      <div style={{ maxWidth: 480, margin: '80px auto', textAlign: 'center', padding: '0 24px' }}>
-        <h1 style={{ fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }}>
-          Invalid invite code
-        </h1>
-        <p style={{ color: 'var(--muted, #888)', lineHeight: 1.6 }}>
-          The code "{rawCode}" is not a valid Signal Loom invite code. Check the invite link sent by your operator.
-        </p>
-      </div>
-    )
-  }
-
-  if (success) {
-    return (
-      <div style={{ maxWidth: 480, margin: '80px auto', textAlign: 'center', padding: '0 24px' }}>
-        <div style={{ fontSize: 48, marginBottom: 24 }}>&#x1F4EC;</div>
-        <h1 style={{ fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }}>
-          Check your email
-        </h1>
-        <p style={{ color: 'var(--muted, #888)', lineHeight: 1.6 }}>
-          We've sent a password setup link to <strong>{form.admin_email}</strong>.
-          Follow the link to set your password and sign in to your new workspace.
-        </p>
+        <a
+          href="/"
+          style={{
+            display: 'inline-block',
+            marginTop: 24,
+            padding: '10px 20px',
+            background: 'var(--cyan, #00d4ff)',
+            color: 'var(--bg)',
+            borderRadius: 6,
+            textDecoration: 'none',
+            fontWeight: 600,
+          }}
+        >
+          Open the dashboard
+        </a>
       </div>
     )
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: '60px auto', padding: '0 24px' }}>
+    <div style={pageStyle}>
       <div style={{ marginBottom: 36 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text, #e0e0e0)', marginBottom: 8 }}>
-          Create your workspace
-        </h1>
-        <p style={{ color: 'var(--muted, #888)', fontSize: 14 }}>
-          Invite code:{' '}
-          <code style={{ color: 'var(--cyan, #00d4ff)', fontFamily: 'monospace' }}>{rawCode}</code>
+        <h1 style={{ ...headingStyle, fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Redeem your invite</h1>
+        <p style={mutedStyle}>
+          Your operator issued a one-time token that binds the account you are signed in with to a tenant.
+          {fromLink ? ' The token from your link is filled in below.' : ' Paste it here.'}
         </p>
       </div>
 
-      {errors._global && (
-        <div style={{
-          background: 'rgba(220,50,50,0.1)',
-          border: '1px solid rgba(220,50,50,0.4)',
-          borderRadius: 6,
-          padding: '12px 16px',
-          marginBottom: 20,
-          color: 'var(--error)',
-          fontSize: 14,
-        }}>
-          {errors._global}
+      {error && (
+        <div
+          role="alert"
+          style={{
+            background: 'rgba(255, 71, 87, 0.1)',
+            border: '1px solid var(--error, #ff4757)',
+            borderRadius: 6,
+            padding: '12px 16px',
+            marginBottom: 24,
+            color: 'var(--error, #ff4757)',
+            fontSize: 14,
+          }}
+        >
+          {error}
         </div>
       )}
 
       <form onSubmit={handleSubmit} noValidate>
-        <div style={fieldStyle}>
-          <label htmlFor="org_name" style={labelStyle}>Organization name *</label>
+        <div style={{ marginBottom: 20 }}>
+          <label htmlFor="invite_token" style={labelStyle}>Invite token *</label>
           <input
-            id="org_name"
+            id="invite_token"
             type="text"
-            value={form.org_name}
-            onChange={e => field('org_name')(e.target.value)}
-            placeholder="Acme Corp"
-            style={{ ...inputStyle, borderColor: errors.org_name ? 'var(--error)' : undefined }}
+            autoComplete="off"
+            spellCheck={false}
+            value={token}
+            onChange={e => setToken(e.target.value)}
+            placeholder="paste the token from your invite"
+            style={inputStyle}
             disabled={submitting}
           />
-          {errors.org_name && (
-            <span style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'block' }}>
-              {errors.org_name}
-            </span>
-          )}
-        </div>
-
-        <div style={fieldStyle}>
-          <label htmlFor="admin_name" style={labelStyle}>Your name *</label>
-          <input
-            id="admin_name"
-            type="text"
-            value={form.admin_name}
-            onChange={e => field('admin_name')(e.target.value)}
-            placeholder="Jane Smith"
-            style={{ ...inputStyle, borderColor: errors.admin_name ? 'var(--error)' : undefined }}
-            disabled={submitting}
-          />
-          {errors.admin_name && (
-            <span style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'block' }}>
-              {errors.admin_name}
-            </span>
-          )}
-        </div>
-
-        <div style={fieldStyle}>
-          <label htmlFor="admin_email" style={labelStyle}>Work email *</label>
-          <input
-            id="admin_email"
-            type="email"
-            value={form.admin_email}
-            onChange={e => field('admin_email')(e.target.value)}
-            placeholder="jane@acme.com"
-            style={{ ...inputStyle, borderColor: errors.admin_email ? 'var(--error)' : undefined }}
-            disabled={submitting}
-          />
-          {errors.admin_email && (
-            <span style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'block' }}>
-              {errors.admin_email}
-            </span>
-          )}
-        </div>
-
-        <div style={fieldStyle}>
-          <span style={labelStyle}>Data region</span>
-          <div style={{ display: 'flex', gap: 16 }}>
-            {(['us', 'eu'] as DataRegion[]).map(region => (
-              <label
-                key={region}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  cursor: 'pointer',
-                  color: 'var(--text, #e0e0e0)',
-                  fontSize: 14,
-                }}
-              >
-                <input
-                  type="radio"
-                  name="data_region"
-                  value={region}
-                  checked={form.data_region === region}
-                  onChange={() => field('data_region')(region)}
-                  disabled={submitting}
-                />
-                {region.toUpperCase()}
-              </label>
-            ))}
-          </div>
         </div>
 
         <button
@@ -291,13 +213,13 @@ export default function RedeemInvite() {
             transition: 'background 0.2s',
           }}
         >
-          {submitting ? 'Creating workspace...' : 'Create workspace'}
+          {submitting ? 'Redeeming...' : 'Redeem invite'}
         </button>
       </form>
 
       <p style={{ marginTop: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted, #888)' }}>
-        Already have an account?{' '}
-        <a href="/" style={{ color: 'var(--cyan, #00d4ff)', textDecoration: 'none' }}>Sign in</a>
+        Already bound to a tenant?{' '}
+        <a href="/" style={{ color: 'var(--cyan, #00d4ff)', textDecoration: 'none' }}>Open the dashboard</a>
       </p>
     </div>
   )

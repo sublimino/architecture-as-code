@@ -187,6 +187,16 @@ def eap_jwt_env(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_subject_binding_cache():
+    """``authenticated_principal`` caches subject -> tenant bindings for a short
+    TTL. The cache is module-level and would otherwise let one test's binding
+    (or its "no binding" verdict) leak into the next."""
+    api_compat.invalidate_subject_binding()
+    yield
+    api_compat.invalidate_subject_binding()
+
+
+@pytest.fixture(autouse=True)
 def _eap_test_salt(monkeypatch: pytest.MonkeyPatch):
     """Provide a default test salt in the environment for offline hermetic test runs."""
     import os

@@ -356,6 +356,10 @@ def unscoped_statements(pool: RecordingPool, tenant: str) -> list[tuple[str, tup
 
 DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/agents", None),
+    # Looks the token up by hash and, on success, writes subject_tenants and
+    # an audit row under the invite's tenant. With the recording pool the
+    # lookup returns no row (404), after the statements this sweep inspects.
+    ("POST", "/api/v1/invites/redeem", {"token": "not-a-real-invite-token"}),
     ("GET", "/api/v1/agents", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/origin-verification", None),
@@ -733,6 +737,15 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/v1/fleet/recover"),
     ("POST", "/api/v1/fleet/resume/{agent_id}"),
     ("POST", "/api/v1/afm/clusters/import"),             # importer key bound to one cluster, or a superadmin token; no DB; SLTM-P1-1
+    # Invites (invites.py, migration 053). Both are require_superadmin and act
+    # across tenants by role: the superadmin names the tenant an invite is
+    # for. The invites table deliberately carries `tenant`, not `tenant_id`,
+    # so it is outside TENANT_OWNED_TABLES; the only tenant-owned write is the
+    # audit row, filed under the invite's tenant. Covered by test_invites.py
+    # and by SUPERADMIN_ROUTES below. The redeem route is a plain
+    # authenticated route and is swept in DB_ROUTES.
+    ("POST", "/api/v1/invites"),
+    ("GET", "/api/v1/invites"),
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results
@@ -1676,6 +1689,10 @@ SUPERADMIN_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     # to be here, not in the browser, because the key is presented server-side.
     ("POST", "/api/v1/fleet/recover", None),
     ("POST", "/api/v1/fleet/resume/demo-agent", None),
+    # Issuing an invite binds a future subject to a tenant of the issuer's
+    # choosing; listing them reveals every pending email across tenants.
+    ("POST", "/api/v1/invites", {"email": "new@example.test", "tenant": "tenant-a"}),
+    ("GET", "/api/v1/invites", None),
 ]
 
 

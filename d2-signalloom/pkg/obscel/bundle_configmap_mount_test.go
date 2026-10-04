@@ -7,9 +7,11 @@ import (
 )
 
 // A kubelet ConfigMap volume is laid out as:
-//   <dir>/<key>              -> symlink to ..data/<key>
-//   <dir>/..data             -> symlink to ..2026_10_04_08_00_00.123456789
-//   <dir>/..2026_10_04_.../<key>  the real file
+//
+//	<dir>/<key>              -> symlink to ..data/<key>
+//	<dir>/..data             -> symlink to ..2026_10_04_08_00_00.123456789
+//	<dir>/..2026_10_04_.../<key>  the real file
+//
 // LoadBundleDir must load each bundle exactly once from that layout (SLAWS D6).
 func TestLoadBundleDirLoadsAConfigMapMountExactlyOnce(t *testing.T) {
 	dir := t.TempDir()

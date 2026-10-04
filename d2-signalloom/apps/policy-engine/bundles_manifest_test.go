@@ -50,9 +50,9 @@ func TestRenderedBundlesConfigMapIsCurrent(t *testing.T) {
 		t.Fatalf("rendered ConfigMap missing; run make policy-bundles-render: %v", err)
 	}
 	var cm struct {
-		Kind     string            `yaml:"kind"`
+		Kind     string                `yaml:"kind"`
 		Metadata struct{ Name string } `yaml:"metadata"`
-		Data     map[string]string `yaml:"data"`
+		Data     map[string]string     `yaml:"data"`
 	}
 	if err := yaml.Unmarshal(raw, &cm); err != nil {
 		t.Fatal(err)

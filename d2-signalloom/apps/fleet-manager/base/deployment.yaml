@@ -132,7 +132,7 @@ spec:
                   key: dashboard
                   optional: true
             - name: FLEET_MANAGER_KEY_DASHBOARD_SCOPES
-              value: "stun,deploy,scan,reset"
+              value: "stun,deploy,scan,reset,read"
             # The operator break-glass key: the only caller that may /recover
             # (which thaws every stunned agent) or /reset.
             - name: FLEET_MANAGER_KEY_OPERATOR

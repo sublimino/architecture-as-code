@@ -51,10 +51,13 @@ type workloadPod struct {
 }
 
 type workloadReport struct {
-	ClusterID  string        `json:"cluster_id"`
-	Node       string        `json:"node"`
-	ReportedAt string        `json:"reported_at"`
-	Pods       []workloadPod `json:"pods"`
+	ClusterID  string `json:"cluster_id"`
+	Node       string `json:"node"`
+	ReportedAt string `json:"reported_at"`
+	// ReportIntervalSeconds tells the hub this reporter's cadence so its
+	// eviction (three missed reports) follows the configured interval.
+	ReportIntervalSeconds int           `json:"report_interval_seconds"`
+	Pods                  []workloadPod `json:"pods"`
 }
 
 // fleetReporter builds and posts the report.
@@ -116,7 +119,8 @@ func ownerOf(pod *corev1.Pod) *workloadOwner {
 // build renders the report for this node: every watched pod scheduled here
 // that is not the warden itself and has not finished.
 func (r *fleetReporter) build() workloadReport {
-	rep := workloadReport{ClusterID: r.clusterID, Node: r.node, ReportedAt: r.now().UTC().Format(time.RFC3339), Pods: []workloadPod{}}
+	rep := workloadReport{ClusterID: r.clusterID, Node: r.node, ReportedAt: r.now().UTC().Format(time.RFC3339),
+		ReportIntervalSeconds: int(r.interval / time.Second), Pods: []workloadPod{}}
 	for _, pod := range r.listPods() {
 		if pod == nil || isSentinelPod(pod) {
 			continue

@@ -379,7 +379,7 @@ signal-ingest-image-tag: ## Print signal-ingest's immutable image tag; refuses w
 signal-ingest-image: ## Build the signal-ingest image under its immutable source tag.
 	@tag=$$(../scripts/signal-ingest-image-tag.sh) || exit 1; \
 	echo "building $(SIGNAL_INGEST_IMAGE_ZOT):$$tag"; \
-	docker build -t $(SIGNAL_INGEST_IMAGE_ZOT):$$tag -f apps/signal-ingest/Dockerfile apps/
+	docker build -t $(SIGNAL_INGEST_IMAGE_ZOT):$$tag -f apps/signal-ingest/Dockerfile .
 
 signal-ingest-image-pin: ## Point the signal-ingest Deployment at the current source tag.
 	@tag=$$(../scripts/signal-ingest-image-tag.sh) || exit 1; \

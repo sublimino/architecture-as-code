@@ -131,6 +131,10 @@ const MaxDescriptionLen = 200
 // TypeBufferEviction is the value of the type label on an eviction observation.
 const TypeBufferEviction = "buffer_eviction"
 
+// TypeProjectionFailure is the type label on the durable record a collector writes when a
+// buffered object cannot be projected; the object stays in the customer bucket (§2.1).
+const TypeProjectionFailure = "projection_failure"
+
 // ResourceTypeENI is the resource_type of every VPC Flow record.
 const ResourceTypeENI = "AWS::EC2::NetworkInterface"
 

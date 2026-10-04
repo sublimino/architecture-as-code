@@ -127,7 +127,16 @@ func LoadBundleDir(dir string) ([]*Bundle, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !isBundleFile(p) {
+		if d.IsDir() {
+			// A kubelet ConfigMap mount lays files out as <key> -> ..data/<key> with ..data a
+			// symlink to a timestamped ..YYYY_MM_DD_* directory. Walking into the dot
+			// directories would load every bundle twice; skip them (nested below the root).
+			if p != dir && strings.HasPrefix(d.Name(), "..") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isBundleFile(p) {
 			return nil
 		}
 		paths = append(paths, p)

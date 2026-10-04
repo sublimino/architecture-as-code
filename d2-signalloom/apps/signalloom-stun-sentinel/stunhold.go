@@ -94,6 +94,18 @@ func (s *stunHolds) freezeFor(pod *corev1.Pod, syscall, target string) error {
 	return nil
 }
 
+// isHeld reports whether a hold stands on uid: the pod is frozen by this
+// warden and will not be thawed by a resync.
+func (s *stunHolds) isHeld(uid types.UID) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.held[uid]
+	return ok
+}
+
 // awaitingRecord reports whether pod still has a hold nobody has recorded:
 // the condition under which a failed stun delivery is worth retrying.
 func (s *stunHolds) awaitingRecord(pod *corev1.Pod) bool {

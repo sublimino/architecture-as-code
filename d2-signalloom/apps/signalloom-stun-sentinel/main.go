@@ -502,6 +502,18 @@ func main() {
 	}
 
 	factory.Start(ctx.Done())
+
+	// Remote-cluster contract: the workload report. Observation only, on its
+	// own goroutine; a failed report is retried at the next interval and
+	// never gates a freeze.
+	tenants, _ := correlator.ParseTenantMap(cfg.TenantMap)
+	reporter := newFleetReporter(os.Getenv("FLEET_MANAGER_URL"), func() string { return stunner.key }, hub.fleet,
+		cfg.ClusterID, cfg.NodeName, cfg.FleetReportInterval)
+	reporter.listPods = func() []*corev1.Pod { return podsFromIndexer(informer.GetIndexer()) }
+	reporter.tenantFor = func(pod *corev1.Pod) string { return tenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName) }
+	reporter.frozen = func(pod *corev1.Pod) bool { return reconciler.holds.isHeld(pod.UID) || kernelFrozenFor(freezer, pod) }
+	go reporter.run(ctx)
+
 	// Initialize and start in-sentinel pure-Go eBPF probe loader & correlator (SLDC-P1-1, SLDC-P1-2)
 	go func() {
 		loader, err := bpfebpf.NewLoader(bpfebpf.LoaderOptions{
@@ -536,6 +548,29 @@ func main() {
 	}()
 
 	controller.run(ctx.Done())
+}
+
+// podsFromIndexer returns the informer's current pods.
+func podsFromIndexer(indexer cache.Indexer) []*corev1.Pod {
+	items := indexer.List()
+	pods := make([]*corev1.Pod, 0, len(items))
+	for _, item := range items {
+		if pod, ok := item.(*corev1.Pod); ok {
+			pods = append(pods, pod)
+		}
+	}
+	return pods
+}
+
+// kernelFrozenFor reads the pod's cgroup.events. Unknown (no cgroup, unreadable)
+// is reported as not frozen: the report says what the kernel confirms.
+func kernelFrozenFor(freezer *cgroupFreezer, pod *corev1.Pod) bool {
+	cg, err := freezer.resolvePodCgroup(string(pod.UID))
+	if err != nil {
+		return false
+	}
+	frozen, err := readKernelFrozen(cg)
+	return err == nil && frozen
 }
 
 // reportCorrelatorStats logs the correlator's pipeline counters whenever they

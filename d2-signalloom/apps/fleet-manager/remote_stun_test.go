@@ -863,3 +863,23 @@ func TestRemoteRoutesRejectWrongMethodThroughMux(t *testing.T) {
 		})
 	}
 }
+
+// An acked record leaves the warden's pending view but stays in the observer's
+// include=all view, so a stun can be followed to its end.
+func TestRemoteStunStateIncludeAllKeepsAckedRecords(t *testing.T) {
+	store := newRemoteStunTestStore(&remoteStunTestClock{current: time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)})
+	rec := store.Request("cluster-a", "ns", "pod-1", "lab", "operator")
+	if _, err := store.Ack(rec.ID, RemoteStunned, "node-a", "2026-10-04T19:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Pending("cluster-a"); len(got) != 0 {
+		t.Fatalf("pending after ack = %d, want 0", len(got))
+	}
+	all := store.All("cluster-a")
+	if len(all) != 1 || all[0].ID != rec.ID || all[0].State != RemoteStunned {
+		t.Fatalf("all after ack = %+v", all)
+	}
+	if got := store.All("cluster-b"); len(got) != 0 {
+		t.Fatalf("another cluster's view leaked: %+v", got)
+	}
+}

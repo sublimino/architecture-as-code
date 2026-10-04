@@ -80,10 +80,10 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	[[ "$output" == *"must differ"* ]]
 }
 
-@test "lab: a dry run passes all ten steps and mutates nothing" {
+@test "lab: a dry run passes all eleven steps and mutates nothing" {
 	dry
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"VERDICT: PASS (10/10 passed)"* ]]
+	[[ "$output" == *"VERDICT: PASS (11/11 passed)"* ]]
 	# No kubectl at all under --dry-run: every call is printed instead.
 	[ ! -s "${STATE}/argv" ]
 }

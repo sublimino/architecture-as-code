@@ -220,6 +220,16 @@ func (s *RemoteStunStore) Ack(id string, state RemoteStunState, node, at string)
 // Pending returns the outstanding containment and release intents for one
 // cluster in a deterministic order suitable for repeated warden polls.
 func (s *RemoteStunStore) Pending(clusterID string) []RemoteStunRecord {
+	return s.list(clusterID, false)
+}
+
+// All returns every record of the cluster, acked ones included: the view an
+// observer (dashboard, operator, the lab) reads to follow a stun to its end.
+func (s *RemoteStunStore) All(clusterID string) []RemoteStunRecord {
+	return s.list(clusterID, true)
+}
+
+func (s *RemoteStunStore) list(clusterID string, all bool) []RemoteStunRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -228,7 +238,7 @@ func (s *RemoteStunStore) Pending(clusterID string) []RemoteStunRecord {
 		if record.ClusterID != clusterID {
 			continue
 		}
-		if record.State == RemoteStunRequested || record.State == RemoteResumeRequested {
+		if all || record.State == RemoteStunRequested || record.State == RemoteResumeRequested {
 			records = append(records, record)
 		}
 	}
@@ -520,7 +530,14 @@ func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records := s.remoteStuns.Pending(clusterID)
+	// include=all is the observer's view; the warden reads the default, the
+	// records it still has to act on.
+	var records []RemoteStunRecord
+	if r.URL.Query().Get("include") == "all" {
+		records = s.remoteStuns.All(clusterID)
+	} else {
+		records = s.remoteStuns.Pending(clusterID)
+	}
 	if records == nil {
 		records = make([]RemoteStunRecord, 0)
 	}

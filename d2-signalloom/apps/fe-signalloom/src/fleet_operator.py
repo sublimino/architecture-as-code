@@ -157,22 +157,80 @@ async def resume_agent(
     principal: Annotated[Principal, Depends(require_superadmin)],
     payload: dict[str, Any] | None = Body(default=None),
 ) -> JSONResponse:
-    """Resume one agent, local or remote. Superadmin only, operator key server-side."""
+    """Resume one agent, local or remote. Superadmin only, operator key server-side.
+
+    The superadmin gate says who may ask. It does not say who approved: that is
+    the dual-signed resume token fleet-manager verifies on both the local and
+    the remote path. The token and the idempotency key are forwarded exactly as
+    the client sent them, because the signatures cover the token's bytes and
+    the ledger keys the retry on the idempotency key. This portal never signs,
+    so the operator private keys never reach it.
+
+    The audit names the token and the operators who signed it, never the
+    signatures: an operator id is attribution, a signature is a credential.
+    """
     reason = None
+    token: dict[str, Any] | None = None
+    idempotency_key: str | None = None
     if isinstance(payload, dict):
         candidate = payload.get("reason")
         if isinstance(candidate, str) and candidate.strip():
             reason = candidate.strip()
+        candidate = payload.get("token")
+        if isinstance(candidate, dict) and candidate:
+            token = candidate
+        candidate = payload.get("idempotency_key")
+        if isinstance(candidate, str) and candidate.strip():
+            idempotency_key = candidate.strip()
 
     _require_operator_key()
     await _audit_outbound_request(
-        principal, "fleet.resume_requested", {"agent_id": agent_id, "reason": reason}, "fleet resume",
+        principal,
+        "fleet.resume_requested",
+        {
+            "agent_id": agent_id,
+            "reason": reason,
+            "token_id": _token_id(token),
+            "operator_ids": _operator_ids(token),
+            "idempotency_key": idempotency_key,
+        },
+        "fleet resume",
     )
+    body: dict[str, Any] = {"agent_id": agent_id}
+    if reason:
+        body["reason"] = reason
+    if token is not None:
+        body["token"] = token
+    if idempotency_key:
+        body["idempotency_key"] = idempotency_key
     return await _forward(
         principal,
         path=f"/api/v1/fleet/resume/{quote(agent_id, safe='')}",
-        body={"agent_id": agent_id, "reason": reason} if reason else {"agent_id": agent_id},
+        body=body,
     )
+
+
+def _token_id(token: dict[str, Any] | None) -> str | None:
+    if not token:
+        return None
+    value = token.get("token_id")
+    return value if isinstance(value, str) and value else None
+
+
+def _operator_ids(token: dict[str, Any] | None) -> list[str]:
+    """The signers' identities, in signing order. Signature bytes are never read."""
+    if not token:
+        return []
+    signatures = token.get("signatures")
+    if not isinstance(signatures, list):
+        return []
+    ids: list[str] = []
+    for entry in signatures:
+        if isinstance(entry, dict):
+            value = entry.get("operator_id")
+            if isinstance(value, str) and value:
+                ids.append(value)
+    return ids
 
 
 def install_fleet_operator_api(app: Any) -> None:

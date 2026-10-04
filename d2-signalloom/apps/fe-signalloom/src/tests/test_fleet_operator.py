@@ -104,6 +104,97 @@ def test_a_superadmin_resumes_one_agent_with_its_reason_carried_through(monkeypa
     assert sent[0]["headers"]["Authorization"] == "Bearer operator-break-glass"
 
 
+_SIGNED_TOKEN = {
+    "schema_version": "sler.signalloom.io/v1alpha1",
+    "token_id": "rt-0123456789abcdef01234567",
+    "alg": "ed25519",
+    "agent_id": "remote-api-0",
+    "namespace": "tenant-a",
+    "audience": "signalloom-fleet/local",
+    "operator_id": "spiffe://signalloom.io/operator/alice",
+    "governance_approval_ref": "CHG-2026-10-04-0007",
+    "issued_at": "2026-10-04T12:00:00Z",
+    "expires_at": "2026-10-04T12:10:00Z",
+    "nonce": "cmVzdW1lLXRva2VuLWNsaS1jb21wYXQtbm9uY2U=",
+    "trust_root_id": "signalloom-operator-root/2026-q3",
+    "required_signatures": 2,
+    "signature": "QUxJQ0UtU0lHTkFUVVJFLUJZVEVT",
+    "signatures": [
+        {
+            "operator_id": "spiffe://signalloom.io/operator/alice",
+            "key_id": "sha256:aa",
+            "alg": "ed25519",
+            "signed_at": "2026-10-04T12:00:10Z",
+            "signature": "QUxJQ0UtU0lHTkFUVVJFLUJZVEVT",
+        },
+        {
+            "operator_id": "spiffe://signalloom.io/operator/bob",
+            "key_id": "sha256:bb",
+            "alg": "ed25519",
+            "signed_at": "2026-10-04T12:00:20Z",
+            "signature": "Qk9CLVNJR05BVFVSRS1CWVRFUw==",
+        },
+    ],
+}
+
+
+def test_the_resume_token_and_idempotency_key_pass_through_unchanged(monkeypatch, fleet):
+    """The signatures cover the token's bytes, so the proxy must not touch them."""
+    fleet.status = 202
+    fleet.body = {"state": "resume_requested"}
+
+    with client_for(monkeypatch, fleet) as client:
+        headers = _as_superadmin(monkeypatch, client)
+        api_compat.reset_tenant_state("tenant-demo")
+        response = client.post(
+            "/api/v1/fleet/resume/remote-api-0",
+            json={"token": _SIGNED_TOKEN, "idempotency_key": "resume-remote-api-0-rt-0123"},
+            headers=headers,
+        )
+        assert response.status_code == 202
+        events = client.get("/api/audit", headers=headers).json()
+
+    sent = [p for p in fleet.posts if "/fleet/resume/" in p["url"]]
+    assert len(sent) == 1
+    assert sent[0]["json"]["token"] == _SIGNED_TOKEN
+    assert sent[0]["json"]["idempotency_key"] == "resume-remote-api-0-rt-0123"
+    assert sent[0]["json"]["agent_id"] == "remote-api-0"
+    assert "reason" not in sent[0]["json"]
+
+    # Audited by token id and operator ids, never by signature bytes.
+    resumes = [
+        e for e in events.get("events", events.get("data", []))
+        if e["event_type"] == fleet_operator.EVENT_FLEET_RESUME
+    ]
+    assert len(resumes) == 1
+    detail = resumes[0]["detail"]
+    assert detail["token_id"] == "rt-0123456789abcdef01234567"
+    assert detail["operator_ids"] == [
+        "spiffe://signalloom.io/operator/alice",
+        "spiffe://signalloom.io/operator/bob",
+    ]
+    assert detail["idempotency_key"] == "resume-remote-api-0-rt-0123"
+    serialised = str(detail)
+    assert "QUxJQ0UtU0lHTkFUVVJFLUJZVEVT" not in serialised
+    assert "Qk9CLVNJR05BVFVSRS1CWVRFUw==" not in serialised
+
+
+def test_a_resume_without_a_token_forwards_no_token_field(monkeypatch, fleet):
+    """fleet-manager decides what a tokenless resume means; the proxy invents nothing."""
+    fleet.status = 403
+    fleet.body = {"error": "a dual-signed resume token is required to resume a remote workload"}
+
+    with client_for(monkeypatch, fleet) as client:
+        response = client.post(
+            "/api/v1/fleet/resume/remote-api-0", json={}, headers=_as_superadmin(monkeypatch, client)
+        )
+
+    assert response.status_code == 403
+    sent = [p for p in fleet.posts if "/fleet/resume/" in p["url"]]
+    assert len(sent) == 1
+    assert sent[0]["json"] == {"agent_id": "remote-api-0"}
+
+
 @pytest.mark.parametrize(
     "method,path",
     [("POST", "/api/v1/fleet/recover"), ("POST", "/api/v1/fleet/resume/demo-agent")],

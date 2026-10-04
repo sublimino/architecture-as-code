@@ -124,8 +124,8 @@ type ErrorResponse struct {
 
 // server holds the shared state for all HTTP handlers.
 type server struct {
-	dag               *DAG
-	orchestrator      *CascadeOrchestrator
+	dag          *DAG
+	orchestrator *CascadeOrchestrator
 	// enforcement records which FleetClient implementation was installed at
 	// startup, so /health can report it rather than infer it. Nil in unit tests
 	// that construct a server directly; handleHealth treats that as
@@ -418,7 +418,7 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// This branch is reached only after local resolution has failed,
 			// so a local agent's resume cannot be diverted into remote state.
-			if s.handleRemoteResumeFallback(w, req.AgentID, resolved) {
+			if s.handleRemoteResumeFallback(w, req, resolved) {
 				return
 			}
 			writeUnknownAgent(w, resolved)

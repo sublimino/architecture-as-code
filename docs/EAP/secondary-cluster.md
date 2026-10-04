@@ -249,6 +249,62 @@ Expected output:
 /warden-fleet -> fleet-manager:8082
 ```
 
+### 4. Provision the operator keys for a governed resume
+
+A resume of a Kusari pod is governed exactly like a resume of a central pod.
+`fleet-manager` accepts it only with a token signed by enough operators. It
+verifies the signatures against operator public keys loaded at start. No key
+is loaded until the operator mints one, so a fresh hub refuses every resume.
+
+One script mints the keypairs and publishes the public halves. Run it on the
+central cluster, once.
+
+```bash
+# Operator, on the central cluster
+scripts/fleet-operator-keys.sh --context "$CENTRAL"
+# or
+make fleet-operator-keys CONTEXT="$CENTRAL"
+```
+
+| What | Where | Who reads it |
+| :--- | :--- | :--- |
+| Private keys, `alice.key` and `bob.key`, mode `0600` | `<keys_dir>/fleet-operators/` on the operator's machine | `cmd/resume-token sign`, by file path |
+| Public entries, `keys.json` | ConfigMap `fe-signalloom/fleet-manager-operator-keys`, key `keys.json` | `fleet-manager`, env `OPERATOR_KEYS_JSON` |
+
+`<keys_dir>` is the shared `.keys/` of the main checkout
+([`scripts/lib/keys.sh`](../../scripts/lib/keys.sh)). The private keys never
+reach a cluster. The script is idempotent and `--rotate` replaces every
+keypair. `demo-signalloom-up` runs the target after `fleet-manager-keys`.
+
+The operator IDs default to `spiffe://signalloom.demo/operator/alice` and
+`spiffe://signalloom.demo/operator/bob`. A pilot names its own with
+`--operators`.
+
+`fleet-manager` also pins the audience and trust root a token must carry
+([`fleet-manager/base/deployment.yaml`](../../d2-signalloom/apps/fleet-manager/base/deployment.yaml)).
+The local values are `FLEET_AUDIENCE=signalloom-fleet/local` and
+`OPERATOR_TRUST_ROOT_ID=signalloom-operators-v1`. A pilot overlay overrides
+both. A token minted for one estate is refused on another.
+
+`fleet-manager` loads the ConfigMap at container start. After the first mint
+or a rotation, restart it:
+
+```bash
+kubectl --context "$CENTRAL" -n fe-signalloom rollout restart deploy/fleet-manager
+```
+
+Check, on the central cluster:
+
+```bash
+kubectl --context "$CENTRAL" -n fe-signalloom get configmap fleet-manager-operator-keys -o jsonpath='{.data.keys\.json}'
+```
+
+The output is a JSON array with one `operator_id` and `public_key` per
+operator. Step 9 of
+[`scripts/remote-tenant-lab.sh`](../../scripts/remote-tenant-lab.sh) mints,
+signs and posts such a token for a Kusari pod, and step 9b proves a replay
+is refused.
+
 ## Kusari-side steps
 
 ### 1. Check the nodes

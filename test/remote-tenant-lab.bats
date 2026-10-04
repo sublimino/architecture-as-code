@@ -32,7 +32,19 @@ echo "$*" >>"${FAKE_STATE}/argv"
 exit 0
 EOF
 	chmod +x "${BATS_TEST_TMPDIR}/bin/kubectl"
+	# A `go` that records itself and fails: the dry run must never build or
+	# run cmd/resume-token, and a real toolchain on PATH would hide that.
+	cat >"${BATS_TEST_TMPDIR}/bin/go" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"${FAKE_STATE}/go-argv"
+exit 1
+EOF
+	chmod +x "${BATS_TEST_TMPDIR}/bin/go"
+	export PATH="${BATS_TEST_TMPDIR}/bin:${PATH}"
 	export SLDC_KUBECTL="${BATS_TEST_TMPDIR}/bin/kubectl" FAKE_STATE="${STATE}"
+	# A pinned keys dir so the operator-key paths the dry run renders are
+	# deterministic and never the shared checkout's.
+	export KEYS_DIR="${BATS_TEST_TMPDIR}/keys"
 }
 
 dry() { run bash "${SCRIPT}" --dry-run "$@"; }
@@ -80,12 +92,13 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	[[ "$output" == *"must differ"* ]]
 }
 
-@test "lab: a dry run passes all eleven steps and mutates nothing" {
+@test "lab: a dry run passes all twelve steps and mutates nothing" {
 	dry
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"VERDICT: PASS (11/11 passed)"* ]]
-	# No kubectl at all under --dry-run: every call is printed instead.
+	[[ "$output" == *"VERDICT: PASS (12/12 passed)"* ]]
+	# No kubectl and no go at all under --dry-run: every call is printed.
 	[ ! -s "${STATE}/argv" ]
+	[ ! -e "${STATE}/go-argv" ]
 }
 
 @test "lab: the table names every step of the remote contract, in order" {
@@ -97,7 +110,7 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	# column would fail on formatting instead of on order.
 	local s prev=0 line
 	for s in "1 preflight" "2 keys" "3 secrets" "4 dns" "5 overlay" \
-		"6 report" "7 stun" "8 stun ack" "9 resume" "10 resume ack"; do
+		"6 report" "7 stun" "8 stun ack" "9 resume" "9b replay" "10 resume ack"; do
 		line="$(grep -n "^PASS  *${s} " <<<"$output" | head -1 | cut -d: -f1)"
 		[ -n "${line}" ]
 		[ "${line}" -gt "${prev}" ]
@@ -194,4 +207,76 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	# can delete a cluster is a lab somebody runs by accident.
 	run ! grep -E 'kind (create|delete) cluster' "${SCRIPT}"
 	run ! grep -E 'kubectl.*delete (ns|namespace)' "${SCRIPT}"
+}
+
+# --- the governed resume (steps 2, 9 and 9b) --------------------------------
+
+@test "lab: step 2 ensures the operator keys on the hub, before the overlay is applied" {
+	dry
+	[ "$status" -eq 0 ]
+	local keys_line overlay_line
+	keys_line="$(grep -n 'fleet-operator-keys.sh --context kind-osramp' <<<"$output" | head -1 | cut -d: -f1)"
+	overlay_line="$(grep -n 'DRY-RUN apply overlay' <<<"$output" | head -1 | cut -d: -f1)"
+	[ -n "${keys_line}" ]
+	[ -n "${overlay_line}" ]
+	[ "${keys_line}" -lt "${overlay_line}" ]
+	[[ "$output" == *"operator keys alice bob in place"* ]]
+}
+
+@test "lab: step 9 mints for the registry target in the remote namespace, for the hub's audience and trust root" {
+	dry
+	[ "$status" -eq 0 ]
+	local mint
+	mint="$(grep 'DRY-RUN resume-token mint:' <<<"$output" | head -1)"
+	[ -n "${mint}" ]
+	# The agent is the registry pod name exactly as the hub lists it.
+	[[ "${mint}" == *"--agent <first registry pod>"* ]]
+	[[ "${mint}" == *"--namespace fe-signalloom-agents"* ]]
+	[[ "${mint}" == *"--audience signalloom-fleet/local"* ]]
+	[[ "${mint}" == *"--trust-root signalloom-operators-v1"* ]]
+	[[ "${mint}" == *"--approval remote-tenant-lab"* ]]
+	[[ "${mint}" == *"--lifetime 10m"* ]]
+	[[ "${mint}" == *"--required-signatures 2"* ]]
+	# The live run READS both from the Deployment; the dry run says what it assumed.
+	[[ "$output" == *"read FLEET_AUDIENCE and OPERATOR_TRUST_ROOT_ID from deploy/fleet-manager on kind-osramp"* ]]
+}
+
+@test "lab: step 9 signs with both operator keys from keys_dir, by file path, then builds the request body" {
+	dry
+	[ "$status" -eq 0 ]
+	local opdir="${KEYS_DIR}/fleet-operators"
+	[[ "$output" == *"resume-token sign alice: "*"--operator spiffe://signalloom.demo/operator/alice --key ${opdir}/alice.key"* ]]
+	[[ "$output" == *"resume-token sign bob: "*"--operator spiffe://signalloom.demo/operator/bob --key ${opdir}/bob.key"* ]]
+	[[ "$output" == *"resume-token request: "*"--token "*"/resume-token.json --out "*"/resume-request.json"* ]]
+	# mint, then both signatures, then request, then the POST: in that order.
+	local m s1 s2 r p
+	m="$(grep -n 'resume-token mint:' <<<"$output" | head -1 | cut -d: -f1)"
+	s1="$(grep -n 'resume-token sign alice:' <<<"$output" | head -1 | cut -d: -f1)"
+	s2="$(grep -n 'resume-token sign bob:' <<<"$output" | head -1 | cut -d: -f1)"
+	r="$(grep -n 'resume-token request:' <<<"$output" | head -1 | cut -d: -f1)"
+	p="$(grep -n 'POST /api/v1/fleet/resume/<first registry pod> with the signed request body' <<<"$output" | head -1 | cut -d: -f1)"
+	[ -n "$m" ] && [ -n "$s1" ] && [ -n "$s2" ] && [ -n "$r" ] && [ -n "$p" ]
+	[ "$m" -lt "$s1" ] && [ "$s1" -lt "$s2" ] && [ "$s2" -lt "$r" ] && [ "$r" -lt "$p" ]
+}
+
+@test "lab: step 9b replays the consumed token under a new idempotency key and expects 409" {
+	dry
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"same token and a new idempotency_key, expect 409"* ]]
+	local nine nineb ten
+	nine="$(grep -n '^PASS  *9 resume ' <<<"$output" | head -1 | cut -d: -f1)"
+	nineb="$(grep -n '^PASS  *9b replay ' <<<"$output" | head -1 | cut -d: -f1)"
+	ten="$(grep -n '^PASS  *10 resume ack ' <<<"$output" | head -1 | cut -d: -f1)"
+	[ "$nine" -lt "$nineb" ] && [ "$nineb" -lt "$ten" ]
+	# The live path asserts the status code, and 409 only: a 4xx of any other
+	# kind is a broken request, not a working replay ledger.
+	grep -q '\[ "\$code" = "409" \]' "${SCRIPT}"
+}
+
+@test "lab: the token and the request body are posted from files, never from argv" {
+	# `--data "@file"`: a signed token in argv would sit in /proc for the life
+	# of the call, same as a bearer.
+	grep -q -- '--data "@\$datafile"' "${SCRIPT}"
+	# Both resume POSTs, step 9 and the 9b replay, go through fm_file.
+	[ "$(grep -c 'fm_file POST "/api/v1/fleet/resume/\$TARGET"' "${SCRIPT}")" -eq 2 ]
 }

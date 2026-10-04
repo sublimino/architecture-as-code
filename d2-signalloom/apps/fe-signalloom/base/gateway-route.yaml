@@ -93,9 +93,11 @@ spec:
 # {FLEET_MANAGER_URL}/api/v1/fleet/stun/{pod}; both backends enforce their own
 # named static keys (SIGNAL_AUTH_STATIC_KEYS, FLEET_MANAGER_KEY_*), so the gateway
 # adds no auth and no path survives without a key. The prefixes are distinct from
-# /api (fe-signalloom-api) and are stripped before forwarding, so the warden
-# overlay sets SIGNAL_INGEST_URL=https://<host>/ingest and
-# FLEET_MANAGER_URL=https://<host>/fleet
+# /api (fe-signalloom-api) and from every client-side route in App.tsx (a bare
+# /fleet prefix hijacked the dashboard's own /fleet page, 2026-10-04); they are
+# stripped before forwarding, so the warden
+# overlay sets SIGNAL_INGEST_URL=https://<host>/warden-ingest and
+# FLEET_MANAGER_URL=https://<host>/warden-fleet
 # (infra/agent-swarm/signalloom-warden-overlays/remote-tenant).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -113,7 +115,7 @@ spec:
     - matches:
         - path:
             type: PathPrefix
-            value: /ingest
+            value: /warden-ingest
       filters:
         - type: URLRewrite
           urlRewrite:
@@ -126,7 +128,7 @@ spec:
     - matches:
         - path:
             type: PathPrefix
-            value: /fleet
+            value: /warden-fleet
       filters:
         - type: URLRewrite
           urlRewrite:

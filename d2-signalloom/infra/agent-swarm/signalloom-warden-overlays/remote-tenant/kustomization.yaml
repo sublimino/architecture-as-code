@@ -14,8 +14,8 @@
 #
 # No SPIRE, no OpenBao, no signal-ingest, no fe-signalloom run here. Every
 # observation is forwarded to the central cluster's signal-ingest and every
-# stun record to its fleet-manager, through the central gateway's /ingest and
-# /fleet routes (apps/fe-signalloom/base/gateway-route.yaml), each
+# stun record to its fleet-manager, through the central gateway's /warden-ingest and
+# /warden-fleet routes (apps/fe-signalloom/base/gateway-route.yaml), each
 # authenticated by the warden's named key. Enforcement (cgroup freeze, veth
 # drop, hold-until-authorised-resume) stays local to the node and needs no
 # central round trip to take effect; only its record does.
@@ -35,7 +35,7 @@ patches:
     patch: |
       - op: replace
         path: /data/SIGNAL_INGEST_URL
-        value: https://dashboard.osramp.acme.local/ingest
+        value: https://dashboard.osramp.acme.local/warden-ingest
       - op: replace
         path: /data/FLEET_MANAGER_URL
-        value: https://dashboard.osramp.acme.local/fleet
+        value: https://dashboard.osramp.acme.local/warden-fleet

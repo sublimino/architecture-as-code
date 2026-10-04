@@ -117,16 +117,16 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 }
 
 @test "standup: healthy targets run in order and pass" {
-	run bash "$standup_sh"
+	ANTHROPIC_API_KEY=test-stub run bash "$standup_sh"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"VERDICT: PASS"* ]]
 	grep -qx dual-cluster-up "$STUB_LOG"
-	[ "$(grep '^make' "$STUB_LOG" | sed 's/^make -C [^ ]* //' | tr '\n' ' ')" = "up swarm-kagent-up swarm-knative-up demo-signalloom-up demo-agent-trust-up healthcheck " ]
+	[ "$(grep '^make' "$STUB_LOG" | sed 's/^make -C [^ ]* //' | tr '\n' ' ')" = "up swarm-kagent-up swarm-knative-up demo-signalloom-up demo-kagent-credentials demo-kagent-up demo-agent-trust-up healthcheck " ]
 }
 
 @test "standup restores saved auxiliary containers but never a kind control plane" {
 	printf 'signalloom-aux\nosramp-control-plane\n' >"$SLDC_SAVED_CONTAINERS_FILE"
-	run bash "$standup_sh"
+	ANTHROPIC_API_KEY=test-stub run bash "$standup_sh"
 	[ "$status" -eq 0 ]
 	grep -qx 'docker start signalloom-aux' "$STUB_LOG"
 	run ! grep -q 'docker start osramp-control-plane' "$STUB_LOG"

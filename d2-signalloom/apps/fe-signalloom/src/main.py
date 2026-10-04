@@ -17,6 +17,8 @@ from coding_agent_telemetry import install_coding_agent_telemetry_api
 from demo_runner import install_demo_runner_api
 from environment_lifecycle import GLOBAL_REAPER_DAEMON, install_environment_lifecycle_api
 from environment_routing import install_environment_routing_api
+from fleet_operator import install_fleet_operator_api
+from me import install_me_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
 from afm_import import install_afm_import_api
@@ -102,6 +104,8 @@ install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
 install_scenario_seeding_api(app)
 install_auth_check_api(app)
+install_me_api(app)
+install_fleet_operator_api(app)
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,
 # dependency or handler can read them, for http and websocket scopes alike.

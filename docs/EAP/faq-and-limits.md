@@ -13,13 +13,16 @@ and from the code named in each answer.
 | :--- | :--- | :--- | :--- |
 | The warden has no CA option and the hub certificate is self-signed | [`ebpf_correlator.go`](../../d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go) `httpClient`, [`cluster-issuer.yaml`](../../d2-infra/components/cert-manager/configs/base/cluster-issuer.yaml) | No observation and no stun record reaches the hub from the Kusari cluster | Ask ControlPlane for a certificate the nodes trust, or an image with the CA. Watch the spool. |
 | `fleet-manager` cannot resolve a pod on another cluster | [`agent_resolution.go`](../../d2-signalloom/apps/fleet-manager/agent_resolution.go), [`fleet-config.yaml`](../../d2-signalloom/apps/fleet-manager/base/fleet-config.yaml) | A Kusari stun record answers `404 unknown agent`. The freeze holds with no central record. | Read the warden log and the pod annotation on the Kusari cluster. |
-| No product path resumes a freeze on a remote cluster | [`stunhold.go`](../../d2-signalloom/apps/signalloom-stun-sentinel/stunhold.go), [`health.go`](../../d2-signalloom/apps/signalloom-stun-sentinel/health.go) | A frozen Kusari pod stays frozen until a label write or a delete on that cluster | Follow [enforcement](enforcement.md#how-to-resume). |
+| A remote freeze is resumed only by a superadmin | [`fleet_operator.py`](../../d2-signalloom/apps/fe-signalloom/src/fleet_operator.py) | `POST /api/v1/fleet/resume/{agent}` sets `resume_requested`; the warden acts on its next poll. A `kusari-operator` cannot call it | Ask ControlPlane, or follow [enforcement](enforcement.md#how-to-resume) for the label write. |
 | The remote-tenant overlay keeps the central tenant map | [`remote-tenant/kustomization.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant/kustomization.yaml) | Kusari observations carry `tenant_id: __unattributed__` and are invisible to a tenant user | Patch the ConfigMap. See [secondary-cluster](secondary-cluster.md#4-map-your-workloads-to-the-tenant). |
-| The agent list reads the central cluster only | [`api_compat.py`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py) `AGENT_DISCOVERY_URL`, [`server.py`](../../d2-signalloom/apps/fake-integration-proxy/server.py) | Kusari workloads are not on `/agents` and cannot be claimed | Use `/weave` for Kusari signals. Use the stub on the central cluster for the claim flow. |
-| The agent list is not tenant-filtered | [`api_compat.py`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py) `agents()` | Every user sees every discovered workload | Treat registry rows and claims as the tenant boundary, not the list. |
+| A remote workload is listed but cannot be claimed | [`fleet_workloads.py`](../../d2-signalloom/apps/fe-signalloom/src/fleet_workloads.py), [`claim_tenancy.py`](../../d2-signalloom/apps/fe-signalloom/src/claim_tenancy.py) | Kusari workloads appear on `/agents` with `origin: "remote"`, but the claim path resolves against central discovery, so a remote pod has no governed record | Use the stub on the central cluster for the claim flow. Use `/weave` for Kusari signals. |
+| A remote agent has no telemetry and no local pod | [`cadvisor_poller.py`](../../d2-signalloom/apps/fe-signalloom/src/cadvisor_poller.py) | The dossier's telemetry tab is empty for a remote agent: the poller scrapes this cluster's kubelet | Read the pod on the Kusari cluster. |
+| The remote registry is unreadable without a read key | [`fleet_workloads.py`](../../d2-signalloom/apps/fe-signalloom/src/fleet_workloads.py) | With `FLEET_MANAGER_READ_KEY` unset, `/api/agents` reports `source_health_detail.remote_registry` as `unavailable` and lists no remote workload | Ask ControlPlane for a `fleet-manager` caller key with scope `read`. |
 | No invite or signup route | [`onboarding.py`](../../d2-signalloom/apps/fe-signalloom/src/onboarding.py), [`RedeemInvite.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/RedeemInvite.tsx) | New users are a Dex config edit plus a subject map edit | Ask ControlPlane. See [onboarding](onboarding.md#1-get-an-identity). |
-| The RBAC exporter and importer are bound to the central cluster | [`rbac-exporter-cronjob.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/rbac-exporter-cronjob.yaml), [`fe-signalloom/base/deployment.yaml`](../../d2-signalloom/apps/fe-signalloom/base/deployment.yaml) `AFM_IMPORT_KEYS` | `/rbac-analysis` and `/collusion-access` show no Kusari cluster | Suspend the CronJob. Hand ControlPlane an RBAC export for a superadmin import. |
-| Four cAdvisor telemetry routes answer without a token | [`cadvisor_poller.py`](../../d2-signalloom/apps/fe-signalloom/src/cadvisor_poller.py), [`SLDC-P5-CHECKLIST-AUDIT.md`](../eap/SLDC-P5-CHECKLIST-AUDIT.md) | Anyone who reaches the gateway can read agent CPU samples | Known to ControlPlane. Do not expose the gateway beyond the pilot network. |
+| The onboarding wizard's **Test Connection** sends no request | [`IdpLinkageStep.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/IdpLinkageStep.tsx) | A green tick on step 2 proves nothing about the issuer | Ignore it. Confirm the issuer by logging in. |
+| **Promote** on `/weave` has no click handler | [`WeavePage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx) | The button renders for an actionable actor and does nothing | Nothing to do; a provisional actor needs no promotion for the pilot. |
+| The RBAC exporter is bound to the central cluster | [`rbac-exporter-cronjob.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/rbac-exporter-cronjob.yaml) | Nothing on the Kusari cluster exports its own RBAC | Suspend the CronJob. Run the exporter script by hand and hand the JSON to ControlPlane. |
+| The cAdvisor telemetry routes fail closed when discovery is down | [`cadvisor_poller.py`](../../d2-signalloom/apps/fe-signalloom/src/cadvisor_poller.py) | They are authenticated and tenant-scoped from the pod's `signalloom.ai/tenant` label, so an unreadable discovery service answers `503` rather than serving unfiltered samples | Check the discovery service. |
 | The forensic bundle is produced by hand | [`package-eap-evidence.sh`](../../scripts/package-eap-evidence.sh) | No bundle appears when a freeze happens | Ask ControlPlane to run the packager after a containment run. |
 | The AWS ingest and policy engine are not built | SLAWS proposal, section 8 | No AWS signals in the pilot yet | Prepare the read-only role from [`slaws-kusari-trust-policy.md`](../signalloom/slaws-kusari-trust-policy.md). |
 | No test covers the remote-tenant path | [`test/signalloom-warden-manifests.bats`](../../test/signalloom-warden-manifests.bats) | The `/warden-ingest` and `/warden-fleet` routes have never been exercised by a suite | Run the checks in [secondary-cluster](secondary-cluster.md#5-check-the-network-path-and-tls) and report the result. |
@@ -66,9 +69,19 @@ flow in this tree that registers a remote pod as a governed agent.
 
 The exporter CronJob needs the in-cluster portal Service and a Secret that
 only exists on the central cluster, and the base leaves `AFM_CLUSTER_ID`
-empty. The static import key is bound to cluster `kind-osramp`. The gateway
-has no prefix that routes to `/api/v1/afm/clusters/import`. So nothing on the
-Kusari cluster can import.
+empty. The gateway has no prefix that routes to
+`/api/v1/afm/clusters/import`. So nothing on the Kusari cluster can import
+by itself.
+
+`AFM_IMPORT_KEYS` now carries two key specs. One for the central cluster, one
+for a remote cluster whose id is the `REMOTE_CLUSTER_ID` substitution. So a key
+can be bound to the pilot cluster.
+
+The binding is checked against the payload's `source_cluster`, the cluster the
+RBAC was read from. The importer panel sends the selected cluster id there. The
+check used to read `id`, which is the per-import identifier AFM sorts on. No key
+binding could ever match it, so only a superadmin could import. A mismatch is
+still `403 cluster_not_bound`.
 
 What to do: suspend the CronJob on the Kusari cluster. For a one-off
 analysis, run the exporter script by hand against the Kusari cluster. Save
@@ -116,6 +129,6 @@ after those records were written, so the code is ahead of both.
 | Probe batching and spool chain checks at the hub | Spireless proposal, Phase 2 wire contract |
 | AWS CloudTrail ingest, CEL policy bundles, findings as observations | SLAWS proposal, P1 to P4-GOV |
 | The forensic bundle schema aligned with the observation wire format | Not tracked. See [enforcement](enforcement.md#the-forensic-bundle). |
-| A remote-cluster resume path | Not tracked in any proposal in this tree |
 | A CA option for the warden | Not tracked in any proposal in this tree |
-| `fleet-manager` inventory of remote pods | Not tracked in any proposal in this tree |
+| Claiming a remote pod as a governed agent | Not tracked in any proposal in this tree |
+| A real **Test Connection** on the onboarding wizard | Not tracked in any proposal in this tree |

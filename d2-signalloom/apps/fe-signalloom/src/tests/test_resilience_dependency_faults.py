@@ -333,7 +333,11 @@ def test_agent_list_returns_agents_when_discovery_is_healthy(
     client: TestClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Mechanism proof: the empty list above is caused by the fault, not the stub."""
-    _stub_proxy(monkeypatch, payload={"agents": [{"id": "a-1", "name": "one"}]})
+    # The tenant label is the pod's own (signalloom.ai/tenant, carried by
+    # discovery): /api/agents shows a non-superadmin only its own tenant's
+    # workloads, so an unlabelled fixture would be filtered out and this
+    # mechanism proof would assert nothing.
+    _stub_proxy(monkeypatch, payload={"agents": [{"id": "a-1", "name": "one", "tenant": TENANT}]})
 
     response = client.get("/api/agents", headers=_bearer())
 

@@ -86,6 +86,8 @@ var defaultLabelAllowList = map[string]struct{}{
 	"rule_version":     {},
 	// SLAWS v2 D3: findings and decisions are observations in this store. These keys are
 	// closed policy metadata or sha256-derived identifiers; none names a person.
+	// Collector operational records (buffer_eviction, projection_failure) are typed by this key.
+	"type":                  {},
 	"bundle_id":             {},
 	"bundle_version":        {},
 	"source_observation_id": {},

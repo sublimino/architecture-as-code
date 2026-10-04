@@ -48,13 +48,16 @@ test("full login → logout → re-login cycle works without errors", async ({ p
   // First login.
   await loginExpectingDex(page);
 
-  // Logout.
+  // Logout. Same race as the logout test above: wait for whichever of the
+  // signed-out page's button or the Dex form appears first.
   await page.getByTitle("Sign out").click();
   const dexBtn = page.getByRole("button", { name: /sign in with dex/i });
-  if (await dexBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+  const loginInput = page.locator('input[name="login"]');
+  await expect(dexBtn.or(loginInput).first()).toBeVisible({ timeout: 15_000 });
+  if (await dexBtn.isVisible()) {
     await dexBtn.click();
   }
-  await expect(page.locator('input[name="login"]')).toBeVisible({ timeout: 15_000 });
+  await expect(loginInput).toBeVisible({ timeout: 15_000 });
 
   // Re-login - proves the session was fully cleared and a fresh login works.
   await loginExpectingDex(page);

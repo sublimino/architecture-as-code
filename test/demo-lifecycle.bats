@@ -156,7 +156,10 @@ SCRIPT
   [ -n "$up_line" ]
   [ "$health_line" -lt "$up_line" ]
   [[ "$output" == *"push-local-signalloom"* ]]
-  [[ "$output" != *"make up"* ]]
+  # No recipe COMMAND may re-run the base bring-up. Comment lines are printed
+  # by make -n too, and the key-minting comment names `make up` as the thing
+  # that already happened, so only non-comment lines are inspected.
+  ! printf '%s\n' "$output" | grep -v '^[[:space:]]*#' | grep -q 'make up'
 }
 
 # Was "demo ResourceSets default to inactive inputs", asserting `inputs: []` in

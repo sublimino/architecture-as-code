@@ -300,34 +300,30 @@ CLUSTER_NAME ?= osramp
 # Its workload table assumes a context-relative Dockerfile only for context
 # "."; the two primitives below are the shared hashing, called with this
 # image's own context. A COPY of a missing path is refused, never hashed away.
+# Both tags come from scripts/sentinel-image-tag.sh, and the recipes below call
+# the script directly rather than `$(MAKE) -s sentinel-image-tag`: a recipe
+# line containing $(MAKE) is executed even under `make -n`, and the sub-make
+# inherits -n, so the build/load/push on that line ran for real against the
+# sub-make's printed recipe text instead of a tag. The script exports the two
+# input definitions so they stay single-sourced here.
+export SENTINEL_DOCKERFILE SENTINEL_IMAGE_INPUTS
+SENTINEL_TAG_SH := ../scripts/sentinel-image-tag.sh
+
 sentinel-image-source-id: ## Print the sentinel image tag, src-<12 hex> of the files the Dockerfile COPYs (no cleanliness check).
-	@source ../scripts/lib/source-id.sh || exit 2; \
-	mapfile -t paths < <(source_id_copied_paths apps/$(SENTINEL_DOCKERFILE) $(SENTINEL_DOCKERFILE)); \
-	[ "$${#paths[@]}" -gt 0 ] || { echo "sentinel-image-source-id: no COPY sources in apps/$(SENTINEL_DOCKERFILE)" >&2; exit 2; }; \
-	for p in "$${paths[@]}"; do \
-		[ -e "apps/$$p" ] || { echo "sentinel-image-source-id: the Dockerfile COPYs $$p, which does not exist" >&2; exit 2; }; \
-	done; \
-	id=$$(source_id_hash_paths apps "$${paths[@]}") && [ -n "$$id" ] || { echo "sentinel-image-source-id: empty fingerprint" >&2; exit 2; }; \
-	printf 'src-%s\n' "$${id:0:12}"
+	@$(SENTINEL_TAG_SH) --no-dirty-check
 
 sentinel-image-tag: ## Print the immutable sentinel image tag; refuses when the image's inputs have uncommitted changes.
-	@source ../scripts/lib/source-id.sh || exit 2; \
-	dirty=$$(source_id_dirty_inputs . $(SENTINEL_IMAGE_INPUTS)) || { echo "sentinel-image-tag: git status failed; refusing" >&2; exit 2; }; \
-	if [ -n "$$dirty" ]; then \
-		echo "sentinel-image-tag: refusing a -dirty build; inputs that are not the committed source (modified, untracked or ignored -- an ignored file still enters the docker build context):" >&2; \
-		printf '%s\n' "$$dirty" >&2; exit 1; \
-	fi; \
-	$(MAKE) -s --no-print-directory sentinel-image-source-id
+	@$(SENTINEL_TAG_SH)
 
 swarm-stun-sentinel-image: ## Build the one signalloom-stun-sentinel DaemonSet image, tagged with its source fingerprint.
-	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
+	@tag=$$($(SENTINEL_TAG_SH)) || exit 1; \
 	echo "building $(SENTINEL_IMAGE_ZOT):$$tag"; \
 	docker build -t $(SENTINEL_IMAGE_ZOT):$$tag \
 		-t $(SENTINEL_IMAGE_CANONICAL):$$tag \
 		-f apps/signalloom-stun-sentinel/Dockerfile apps/
 
 sentinel-image-pin: ## Point the base DaemonSet (and so both overlays) at the current source-fingerprint tag.
-	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
+	@tag=$$($(SENTINEL_TAG_SH)) || exit 1; \
 	perl -pi -e 's#^(\s*image: \Q$(SENTINEL_IMAGE_CANONICAL)\E:)\S+#$${1}'"$$tag"'#' $(SENTINEL_DAEMONSET); \
 	grep -q "image: $(SENTINEL_IMAGE_CANONICAL):$$tag" $(SENTINEL_DAEMONSET) || { echo "sentinel-image-pin: $(SENTINEL_DAEMONSET) was not updated" >&2; exit 1; }; \
 	perl -pi -e 's#^(signalloom-warden\t(?:[^\t]*\t){2})\Q$(SENTINEL_IMAGE_CANONICAL)\E:[^\t]+#$${1}$(SENTINEL_IMAGE_CANONICAL):'"$$tag"'#' $(SENTINEL_CATALOG); \
@@ -336,7 +332,7 @@ sentinel-image-pin: ## Point the base DaemonSet (and so both overlays) at the cu
 	echo "pinned $(SENTINEL_DAEMONSET) and the $(SENTINEL_CATALOG) signalloom-warden row to :$$tag"
 
 sentinel-image-publish: swarm-stun-sentinel-image ## Load the source-fingerprint image onto kind CLUSTER_NAME and publish it to zot (cluster required).
-	@tag=$$($(MAKE) -s --no-print-directory sentinel-image-tag) || exit 1; \
+	@tag=$$($(SENTINEL_TAG_SH)) || exit 1; \
 	CLUSTER_NAME=$(CLUSTER_NAME) ../scripts/kind-load-verified.sh $(SENTINEL_IMAGE_ZOT):$$tag && \
 	../scripts/push-local-image.sh $(SENTINEL_IMAGE_ZOT):$$tag $(SENTINEL_IMAGE_PUSH):$$tag
 

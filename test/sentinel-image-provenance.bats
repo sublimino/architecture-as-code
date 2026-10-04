@@ -110,7 +110,7 @@ assert_source_tag() {
   [ -f "${SWARM}/${output#./}/kustomization.yaml" ]
 }
 
-# The real d2-signalloom/Makefile recipe and the real scripts/lib/source-id.sh,
+# The real d2-signalloom/Makefile recipe, scripts/sentinel-image-tag.sh and scripts/lib/source-id.sh,
 # in a throwaway repository: the real checkout is never dirtied.
 scratch_repo() {
   local scratch="${BATS_TEST_TMPDIR}/repo" apps
@@ -118,6 +118,7 @@ scratch_repo() {
   mkdir -p "${apps}/stun-sentinel" "${apps}/signalloom-stun-sentinel" "${scratch}/scripts/lib"
   cp "${REPO_ROOT}/d2-signalloom/Makefile" "${scratch}/d2-signalloom/Makefile"
   cp "${REPO_ROOT}/scripts/lib/source-id.sh" "${scratch}/scripts/lib/source-id.sh"
+  cp -p "${REPO_ROOT}/scripts/sentinel-image-tag.sh" "${scratch}/scripts/sentinel-image-tag.sh"
   cp "${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel/Dockerfile" "${apps}/signalloom-stun-sentinel/Dockerfile"
   for d in stun-sentinel signalloom-stun-sentinel; do
     echo "module x/${d}" >"${apps}/${d}/go.mod"

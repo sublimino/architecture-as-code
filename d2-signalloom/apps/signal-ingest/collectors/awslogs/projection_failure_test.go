@@ -90,11 +90,12 @@ func TestCollector_UnprojectableObjectIsNotAckedWhenTheRecordIsRefused(t *testin
 		t.Fatalf("Start: %v", err)
 	}
 	defer c.Stop()
-	if _, err := c.PollOnce(context.Background()); err != nil {
-		t.Fatalf("PollOnce: %v", err)
-	}
-	if _, err := c.Drain(context.Background()); err == nil {
-		t.Fatal("Drain must surface the refused record")
+	// PollOnce drains inline, so the refusal may surface from either call; one of them
+	// must report it, and neither may acknowledge the message.
+	_, pollErr := c.PollOnce(context.Background())
+	_, drainErr := c.Drain(context.Background())
+	if pollErr == nil && drainErr == nil {
+		t.Fatal("the refused projection_failure record must surface as an error from PollOnce or Drain")
 	}
 	if got := sqs.Deleted(); len(got) != 0 {
 		t.Fatalf("nothing may be acknowledged when the failure record is refused, deleted=%v", got)

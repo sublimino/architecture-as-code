@@ -64,6 +64,9 @@ const (
 	captureFreezeFile      = "step5-cgroup-freeze.txt"     // analogue of bundle artifact 6
 	captureQuarantineDir   = "quarantine"
 	captureTimeout         = 5 * time.Second
+	// captureFreezeConfirmWait bounds the wait for cgroup.events to report
+	// `frozen 1` after cgroup.freeze was written.
+	captureFreezeConfirmWait = 2 * time.Second
 )
 
 // captureIDPattern bounds a stun id to a safe directory name.
@@ -222,7 +225,13 @@ func (w *captureWriter) write(ctx context.Context, pod *corev1.Pod, res *cgroup.
 	if len(pids) == 0 && w.listProcs != nil {
 		pids, _ = w.listProcs(res.CgroupPath)
 	}
-	if err := w.artifact(m, dir, captureFreezeFile, w.freezeText(res.CgroupPath, pids, at)); err != nil {
+	// cgroup.freeze is written synchronously but the kernel flips the `frozen`
+	// line of cgroup.events only once every task has stopped, so a capture
+	// taken immediately after the write can read `frozen 0` or a half-written
+	// file. Wait, bounded, for the kernel's own confirmation before rendering
+	// the artifact; the artifact says so if the confirmation never came.
+	confirmed := waitKernelFrozen(res.CgroupPath, captureFreezeConfirmWait)
+	if err := w.artifact(m, dir, captureFreezeFile, w.freezeText(res.CgroupPath, pids, at, confirmed)); err != nil {
 		return nil, err
 	}
 
@@ -261,10 +270,13 @@ func (w *captureWriter) artifact(m *wardenCaptureManifest, dir, name string, bod
 
 // freezeText renders the cgroup state as artifact 6 does: the cgroup.events
 // lines verbatim (the `frozen 1` line is the proof), the pids, cpu.stat.
-func (w *captureWriter) freezeText(cgroupPath string, pids []int, at time.Time) []byte {
+func (w *captureWriter) freezeText(cgroupPath string, pids []int, at time.Time, confirmed bool) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "captured_at: %s\n", at.Format(time.RFC3339Nano))
 	fmt.Fprintf(&b, "cgroup_path: %s\n", cgroupPath)
+	if !confirmed {
+		fmt.Fprintf(&b, "# kernel_frozen_confirmed: false (cgroup.events did not report frozen 1 within %s)\n", captureFreezeConfirmWait)
+	}
 	for _, f := range []string{"cgroup.events", "cpu.stat"} {
 		body, err := os.ReadFile(filepath.Join(cgroupPath, f))
 		if err != nil {
@@ -346,4 +358,19 @@ func (w *captureWriter) open(id, name string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return body, ctype, nil
+}
+
+// waitKernelFrozen polls cgroup.events until it reports `frozen 1` or the
+// bound passes. It returns whether the kernel confirmed the freeze.
+func waitKernelFrozen(cgroupPath string, bound time.Duration) bool {
+	deadline := time.Now().Add(bound)
+	for {
+		if frozen, err := readKernelFrozen(cgroupPath); err == nil && frozen {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

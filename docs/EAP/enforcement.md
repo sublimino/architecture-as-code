@@ -190,6 +190,54 @@ The body carries an Ed25519 multi-signature resume token, schema
 The dashboard's **Recover Fleet** button uses the `dashboard` key, which has no
 `resume` or `recover` scope, so it answers `403`.
 
+### The token flow
+
+The same token governs a local and a remote resume. For a remote workload the
+token names the registry pod name and its namespace. The operator tool is
+[`fleet-manager/cmd/resume-token`](../../d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go).
+Private keys and tokens travel only as file paths, never on argv. Two
+operators each hold their own key. Run every command from
+`d2-signalloom/apps/fleet-manager`.
+
+Each operator generates a key once. The printed entry is the registry record
+fleet-manager loads from its operator key bundle:
+
+```bash
+go run ./cmd/resume-token keygen   --operator spiffe://signalloom.io/operator/alice --out "$KEYS" --name alice
+go run ./cmd/resume-token keygen   --operator spiffe://signalloom.io/operator/bob --out "$KEYS" --name bob
+```
+
+One operator mints the unsigned token. `--audience` and `--trust-root` are
+fleet-manager's `FLEET_AUDIENCE` and `OPERATOR_TRUST_ROOT_ID`. `--approval` is
+the change record that authorises the release:
+
+```bash
+go run ./cmd/resume-token mint   --agent "$POD" --namespace "$NAMESPACE"   --audience "$FLEET_AUDIENCE" --trust-root "$OPERATOR_TRUST_ROOT_ID"   --approval CHG-2026-10-04-0007 --lifetime 10m --required-signatures 2   --out token.json
+```
+
+Both operators sign the same file, in place:
+
+```bash
+go run ./cmd/resume-token sign --token token.json   --operator spiffe://signalloom.io/operator/alice --key "$KEYS/alice.key"
+go run ./cmd/resume-token sign --token token.json   --operator spiffe://signalloom.io/operator/bob --key "$KEYS/bob.key"
+```
+
+Either operator wraps the signed token in the request body and posts it with
+the `operator` key:
+
+```bash
+go run ./cmd/resume-token request --token token.json --out request.json
+curl -sS -X POST "$FLEET_MANAGER/api/v1/fleet/resume/$POD"   -H "Authorization: Bearer $OPERATOR_KEY"   -H "Content-Type: application/json" --data @request.json
+```
+
+A local agent answers `200` once its credentials are rotated and its pod is
+unfrozen. A remote workload answers `202` with the `resume_requested` record
+the warden will act on. No token answers `403`. A token bound to another pod
+or namespace answers `400`. A replayed token answers `409`. The same request
+sent again with the same `idempotency_key` answers `202` and changes nothing.
+The portal's `/api/v1/fleet/resume/{agent_id}` route forwards `token` and
+`idempotency_key` unchanged for a superadmin.
+
 On the Kusari cluster there is no product path to resume. The warden exposes
 no resume endpoint and never polls `fleet-manager`. `fleet-manager` cannot
 write labels on a pod in another cluster. The hold lives in the warden process

@@ -109,6 +109,17 @@ type Collector struct {
 	acked     atomic.Uint64
 	errors    atomic.Uint64
 	assumed   atomic.Uint64
+	// discarded counts messages acknowledged because they named no object: an
+	// s3:TestEvent, an unrelated event on a shared queue, an S3 record with no key.
+	// They never reach the ring or the sink, so without a counter they are a queue
+	// draining with nothing to show for it — indistinguishable from a notification
+	// filter that is dropping every real event.
+	discarded atomic.Uint64
+	// unparseable counts messages left in flight because the body is not something we
+	// understand at all. Kept separate from discarded on purpose: conflating them
+	// would let a parser defect drain a customer's queue while the only symptom was an
+	// empty store.
+	unparseable atomic.Uint64
 }
 
 // Option configures a Collector.
@@ -323,6 +334,13 @@ func (c *Collector) Stats() map[string]uint64 {
 		"acknowledged_total": c.acked.Load(),
 		"errors_total":       c.errors.Load(),
 		"assume_role_total":  c.assumed.Load(),
+		// acknowledged_total counts acks that follow a durable write and a sink
+		// acceptance. These two are the acks and non-acks that do not: a discard never
+		// reaches the sink, and an unparseable body is never acked at all. Reading them
+		// together is what tells an operator whether a quiet store means a quiet
+		// account, a notification filter dropping everything, or a poisoned queue.
+		"discarded_total":   c.discarded.Load(),
+		"unparseable_total": c.unparseable.Load(),
 	}
 	if ring := c.Ring(); ring != nil {
 		out["dropped_total"] = ring.Dropped()
@@ -447,7 +465,23 @@ func (c *Collector) PollOnce(ctx context.Context) (int, error) {
 			// would discard telemetry on the strength of our own parser being right,
 			// and the queue's redrive policy is the correct place for a poison message.
 			c.errors.Add(1)
+			c.unparseable.Add(1)
 			slog.Error("awslogs cannot parse notification; leaving it in flight", "message_id", msg.MessageID, "error", err)
+			continue
+		}
+		if len(refs) == 0 {
+			// Nothing to fetch and nothing wrong: an s3:TestEvent, an unrelated event on
+			// a shared queue, or an S3 record with no bucket or key.
+			//
+			// This has to be acknowledged HERE, because the ack path is driven from the
+			// ring: Drain peeks a record, puts it past the sink and then deletes that
+			// record's message. A message producing no record has nothing to carry its
+			// receipt handle to a delete, so before this branch existed it sat in flight
+			// until its visibility timeout expired, came back, produced no record again,
+			// and repeated for the life of the queue. Every bucket posts exactly one
+			// s3:TestEvent when its notification configuration is attached, so every
+			// pilot began with one permanently redelivering message.
+			c.discardMessage(ctx, msg)
 			continue
 		}
 		for _, ref := range refs {
@@ -472,6 +506,35 @@ func (c *Collector) PollOnce(ctx context.Context) (int, error) {
 	}
 
 	return c.Drain(ctx)
+}
+
+// discardMessage acknowledges a message that named no object, without touching the
+// ring or the sink.
+//
+// Not touching the ring is the whole design. A discard carries no durability claim —
+// there is nothing to be durable about — so it does not consume a buffer slot, does
+// not emit an observation describing nothing, and does not move acknowledged_total,
+// which the ordering tests read as "every observation reached the sink, then the
+// message was deleted". It moves discarded_total instead.
+//
+// A failed delete is counted and swallowed rather than returned. The discard mutates
+// no durable state, so SQS redelivering the message simply means the next poll
+// discards it again: idempotent by construction. Failing the whole poll here would
+// stall the real notifications queued behind it on the strength of one TestEvent the
+// collector does not need.
+func (c *Collector) discardMessage(ctx context.Context, msg Message) {
+	if msg.ReceiptHandle == "" || c.sqs == nil {
+		return
+	}
+	if err := c.sqs.DeleteMessage(ctx, c.cfg.QueueURL, msg.ReceiptHandle); err != nil {
+		c.errors.Add(1)
+		slog.Error("awslogs cannot acknowledge a notification that named no object; it will redeliver and be discarded again",
+			"message_id", msg.MessageID, "error", err)
+		return
+	}
+	c.discarded.Add(1)
+	slog.Debug("awslogs discarded a notification that named no object",
+		"message_id", msg.MessageID, "discarded_total", c.discarded.Load())
 }
 
 // Drain projects and ingests every buffered record, acknowledging each one's SQS

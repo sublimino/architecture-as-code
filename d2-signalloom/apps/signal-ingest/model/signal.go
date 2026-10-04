@@ -14,13 +14,13 @@ const MaxLabelValueLen = 4096
 type Layer string
 
 const (
-	LayerNetworkEgress    Layer = "network_egress"
-	LayerIdentityAuth     Layer = "identity_authorization"
-	LayerApplicationSaaS  Layer = "application_saas"
-	LayerEndpointHost     Layer = "endpoint_host"
-	LayerBehavioural      Layer = "behavioural"
-	LayerCloudControlPlane Layer = "cloud_control_plane" // out of scope
-	LayerProtocol         Layer = "protocol"              // out of scope
+	LayerNetworkEgress     Layer = "network_egress"
+	LayerIdentityAuth      Layer = "identity_authorization"
+	LayerApplicationSaaS   Layer = "application_saas"
+	LayerEndpointHost      Layer = "endpoint_host"
+	LayerBehavioural       Layer = "behavioural"
+	LayerCloudControlPlane Layer = "cloud_control_plane"
+	LayerProtocol          Layer = "protocol" // out of scope
 )
 
 // ValidLayers returns the set of all known layers.
@@ -65,9 +65,9 @@ type FidelityTier string
 
 const (
 	FidelityDefinitive     FidelityTier = "definitive"     // cryptographic proof
-	FidelityStrong         FidelityTier = "strong"          // verified chain
-	FidelitySuggestive     FidelityTier = "suggestive"      // pattern match
-	FidelityCircumstantial FidelityTier = "circumstantial"  // timing/correlation
+	FidelityStrong         FidelityTier = "strong"         // verified chain
+	FidelitySuggestive     FidelityTier = "suggestive"     // pattern match
+	FidelityCircumstantial FidelityTier = "circumstantial" // timing/correlation
 )
 
 // FidelityWeight returns a numeric weight for confidence derivation.

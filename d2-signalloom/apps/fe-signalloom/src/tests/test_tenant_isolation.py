@@ -746,6 +746,11 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     # authenticated route and is swept in DB_ROUTES.
     ("POST", "/api/v1/invites"),
     ("GET", "/api/v1/invites"),
+    # Promote, proxied to signal-ingest with the gateway key behind
+    # require_superadmin (actor_promote.py). Audits through
+    # _audit_outbound_request under the caller's own tenant; reads no
+    # tenant-owned table. Covered by test_actor_promote.py and SUPERADMIN_ROUTES.
+    ("POST", "/api/v1/actors/{actor_id}/promote"),
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results
@@ -1693,6 +1698,9 @@ SUPERADMIN_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     # choosing; listing them reveals every pending email across tenants.
     ("POST", "/api/v1/invites", {"email": "new@example.test", "tenant": "tenant-a"}),
     ("GET", "/api/v1/invites", None),
+    # Promotion turns a provisional correlation into an actor the product acts
+    # on; the gateway key that reaches signal-ingest is presented server-side.
+    ("POST", "/api/v1/actors/actor-shadow-llm-001/promote", None),
 ]
 
 

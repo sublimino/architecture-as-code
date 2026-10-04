@@ -66,6 +66,8 @@ const EVENT_TYPES = [
   'fleet.recover_requested', 'fleet.resume_requested',
   // Membership: a superadmin issued an invite, a Dex subject redeemed it (migration 054).
   'invite.created', 'invite.redeemed',
+  // Weave promotion through the superadmin-gated proxy (migration 055).
+  'actor.promote_requested',
   'api_key.created', 'api_key.rotated',
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
@@ -124,6 +126,8 @@ const EVENT_COLORS: Record<string, string> = {
   // grant, cyan for the subject taking it up.
   'invite.created': 'var(--teal)',
   'invite.redeemed': 'var(--cyan)',
+  // A promotion is a change the product then acts on: violet, like a policy bundle.
+  'actor.promote_requested': 'var(--violet)',
   'api_key.created': 'var(--teal)',
   'api_key.rotated': 'var(--cyan)',
   'nhi.enrolled': 'var(--teal)',

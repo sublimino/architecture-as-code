@@ -257,8 +257,11 @@ export const weaveApi = {
   getCoverage: (token: string) =>
     req<CoverageStatement>('/signals/coverage', token),
 
+  // Through fe-signalloom's superadmin-gated proxy (actor_promote.py), which
+  // presents the signal-ingest gateway key server-side. The browser never
+  // talks to signal-ingest directly.
   promoteActor: (token: string, id: string) =>
-    req<{ status: string }>(`/signals/actors/${id}/promote`, token, { method: 'POST' }),
+    req<{ id?: string; status: string }>(`/v1/actors/${encodeURIComponent(id)}/promote`, token, { method: 'POST' }),
 
   runCorrelation: (token: string) =>
     req<{ status: string }>('/signals/correlate', token, { method: 'POST' }),

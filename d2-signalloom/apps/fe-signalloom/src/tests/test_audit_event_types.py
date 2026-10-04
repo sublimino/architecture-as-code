@@ -66,7 +66,7 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # that migration enumerate every type.
 # 050 (SLTM-P1-1) recreated it with 049's list plus afm.cluster_import_requested and
 # did not repoint this line; 051 touches signal_audit_trail, not audit_events.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "050_afm_cluster_import_event_type.sql"
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "052_fleet_operator_event_types.sql"
 
 
 EVENT_TYPE_POSITION = 2

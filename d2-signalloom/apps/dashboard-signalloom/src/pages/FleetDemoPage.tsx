@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import AgentDeepLink from '../components/AgentDeepLink'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
+import { useServerSuperadmin } from '../auth/superadmin'
 import FleetTopology from '../components/fleet/FleetTopology'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
 import FleetBadge, { stateToken, trustToken } from '../components/fleet/FleetBadge'
@@ -184,7 +185,10 @@ interface FleetDemoPageProps {
 
 export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) {
   const { superadmin } = useAppContext()
-  const { getAccessTokenSilently } = useAuth0()
+  const { user, getAccessTokenSilently } = useAuth0()
+  // The server's verdict, not the sidebar toggle: Recover is break-glass and
+  // the toggle is a visibility control the browser owns.
+  const { superadmin: serverSuperadmin } = useServerSuperadmin(user, getAccessTokenSilently)
 
   // Connection mode and heartbeat state.
   const [sourceMode, setSourceMode] = useState<'live' | 'demo'>('live')
@@ -866,13 +870,19 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   data-testid="fleet-recover-btn"
                   className="btn btn-secondary"
                   onClick={handleRecover}
-                  disabled={recoverLoading}
+                  // Acts only for a superadmin the SERVER confirmed. The
+                  // sidebar toggle behind showControls is a visibility flag the
+                  // browser owns, so it is not sufficient to arm break-glass;
+                  // the real gate is require_superadmin on
+                  // POST /api/v1/fleet/recover, and this keeps the button from
+                  // promising an action the server will refuse.
+                  disabled={recoverLoading || !serverSuperadmin}
                   style={FILL_COLUMN}
                 >
                   {recoverLoading ? <ButtonWait testId="fleet-recover-loader" label="Recovering" /> : 'Recover Fleet'}
                 </button>
                 <HelpHint label="What the Recover Fleet control does" testId="fleet-recover-help">
-                  Restores credentials to every stunned agent and marks it running again, in dependency order so nothing is brought back before the agent it relies on. It reverses a stun; it does not redeploy anything that was torn down. From this dashboard it answers 403 by design: un-containing the whole fleet needs the operator key, which the dashboard does not hold.
+                  Restores credentials to every stunned agent and marks it running again, in dependency order so nothing is brought back before the agent it relies on. It reverses a stun; it does not redeploy anything that was torn down. Un-containing the whole fleet needs fleet-manager's operator key, which the browser never holds: this goes to the portal at POST /api/v1/fleet/recover, which checks that you are a superadmin and then presents that key itself. It is refused for anyone else, and for everyone if the portal was not given the key.
                 </HelpHint>
               </div>
               <LoadingState

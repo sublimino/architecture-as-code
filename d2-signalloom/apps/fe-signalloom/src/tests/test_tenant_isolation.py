@@ -722,6 +722,16 @@ def _template_for(concrete: str) -> str:
 #: that stops being true the sweep must gain it.
 NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/v1/auth/check"),                       # role check only, no data; covered by test_auth_check
+    # Identity of the caller, from the validated token plus process config:
+    # there is no table to scope. Covered by test_me.py.
+    ("GET", "/api/v1/me"),
+    # Break-glass thaw, proxied to fleet-manager with its operator key behind
+    # require_superadmin (fleet_operator.py). Both audit through
+    # _audit_outbound_request, which files under the caller's own tenant, and
+    # neither reads a tenant-owned table. Covered by test_fleet_operator.py and
+    # by SUPERADMIN_ROUTES below.
+    ("POST", "/api/v1/fleet/recover"),
+    ("POST", "/api/v1/fleet/resume/{agent_id}"),
     ("POST", "/api/v1/afm/clusters/import"),             # importer key bound to one cluster, or a superadmin token; no DB; SLTM-P1-1
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
@@ -1661,6 +1671,11 @@ SUPERADMIN_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/demo/supercred/runs/any-run-id/log", None),
     ("GET", "/api/demo/supercred/runs/any-run-id/stream", None),
     ("POST", "/api/audit/privileged-invocations", {"step_id": "1", "kind": "step"}),
+    # Break-glass: /recover thaws every stunned agent and /resume thaws one,
+    # and both are granted to fleet-manager's operator key alone. The gate has
+    # to be here, not in the browser, because the key is presented server-side.
+    ("POST", "/api/v1/fleet/recover", None),
+    ("POST", "/api/v1/fleet/resume/demo-agent", None),
 ]
 
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -416,6 +417,29 @@ func main() {
 	// Set once the clientset exists; read concurrently by /metrics.
 	var kernelRef atomic.Pointer[kernelPublisher]
 	healthSrv.frozenUnlabelled = func() int { return kernelRef.Load().frozenUnlabelledCount() }
+	// /captures: bearer from CAPTURES_TOKEN or the mounted Secret, read per
+	// request; source allow-list from CAPTURES_ALLOW_CIDRS (default loopback).
+	healthSrv.capturesToken = func() string {
+		if v := strings.TrimSpace(os.Getenv("CAPTURES_TOKEN")); v != "" {
+			return v
+		}
+		body, err := os.ReadFile(cfg.CapturesTokenFile)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(body))
+	}
+	if cfg.CapturesAllowCIDRs != "" {
+		allow, err := parseCIDRList(cfg.CapturesAllowCIDRs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "CAPTURES_ALLOW_CIDRS: %v\n", err)
+			os.Exit(1)
+		}
+		healthSrv.capturesAllow = allow
+	}
+	logEvent(stunEvent{Timestamp: now(), Event: "captures_policy", Decision: "configured",
+		Details: map[string]interface{}{"allow_cidrs": cfg.CapturesAllowCIDRs, "token_file": cfg.CapturesTokenFile,
+			"token_present": healthSrv.capturesToken() != ""}})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

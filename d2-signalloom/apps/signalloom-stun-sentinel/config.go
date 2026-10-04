@@ -11,6 +11,10 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
 )
 
+// defaultCapturesTokenFile is where the DaemonSet mounts the optional
+// signalloom-warden-captures-token Secret.
+const defaultCapturesTokenFile = "/etc/signalloom/captures-token/token"
+
 // Config encapsulates runtime configuration options for the STUN sentinel.
 type Config struct {
 	DryRun         bool   `json:"dry_run"`
@@ -37,7 +41,13 @@ type Config struct {
 	// Remote-cluster contract (docs/EAP/remote-contract.md). ClusterID names
 	// this cluster in every fleet-manager report and poll; NodeName scopes
 	// the report to this node's pods and signs every ack.
-	ClusterID           string        `json:"cluster_id,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
+	// CapturesTokenFile holds the bearer a /captures reader must present
+	// (CAPTURES_TOKEN overrides it, env first like the other keys). Empty
+	// and absent both leave the route disabled. CapturesAllowCIDRs is the
+	// source allow-list for the route; default loopback only.
+	CapturesTokenFile   string        `json:"captures_token_file,omitempty"`
+	CapturesAllowCIDRs  string        `json:"captures_allow_cidrs,omitempty"`
 	NodeName            string        `json:"node_name,omitempty"`
 	FleetReportInterval time.Duration `json:"fleet_report_interval"`
 	FleetPollInterval   time.Duration `json:"fleet_poll_interval"`
@@ -128,6 +138,11 @@ func parseConfig(args []string) (*Config, error) {
 	}
 
 	cfg.IngestToken = strings.TrimSpace(os.Getenv("SIGNAL_INGEST_TOKEN"))
+	cfg.CapturesTokenFile = strings.TrimSpace(os.Getenv("CAPTURES_TOKEN_FILE"))
+	if cfg.CapturesTokenFile == "" {
+		cfg.CapturesTokenFile = defaultCapturesTokenFile
+	}
+	cfg.CapturesAllowCIDRs = strings.TrimSpace(os.Getenv("CAPTURES_ALLOW_CIDRS"))
 
 	// Spool directory: --spool-dir flag -> SIGNAL_INGEST_SPOOL_DIR env -> default /var/lib/signalloom/spool
 	if *spoolDirFlag != "" {

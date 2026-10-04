@@ -19,6 +19,7 @@ resources:
   - rbac-exporter-serviceaccount.yaml
   - rbac-exporter-cronjob.yaml
   - rbac-exporter-networkpolicy.yaml
+  - networkpolicy-captures.yaml
 
 configMapGenerator:
   - name: signalloom-rbac-exporter-script

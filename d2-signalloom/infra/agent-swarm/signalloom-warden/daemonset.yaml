@@ -192,6 +192,17 @@ spec:
                   name: signalloom-warden-governance
                   key: resume-token
                   optional: true
+            # /captures on the health listener is gated twice (health.go
+            # capturesGate): the source must be inside CAPTURES_ALLOW_CIDRS
+            # (default loopback, so only a reader on the node itself) and the
+            # request must carry the bearer in the optional Secret below. With
+            # no Secret the route answers 403 captures_disabled. The warden is
+            # hostNetwork, so no NetworkPolicy can bind this listener: the
+            # allow-list is the enforced network control; the NetworkPolicy
+            # in networkpolicy-captures.yaml documents the intent for a CNI
+            # that enforces on host-network pods.
+            - name: CAPTURES_TOKEN_FILE
+              value: /etc/signalloom/captures-token/token
           ports:
             - name: health
               containerPort: 8081
@@ -235,6 +246,9 @@ spec:
             - name: spool
               mountPath: /var/lib/signalloom/spool
               readOnly: false
+            - name: captures-token
+              mountPath: /etc/signalloom/captures-token
+              readOnly: true
           resources:
             limits:
               memory: 128Mi
@@ -255,3 +269,10 @@ spec:
           hostPath:
             path: /var/lib/signalloom/spool
             type: DirectoryOrCreate
+        # Optional: created by the operator to enable /captures reads
+        # (kubectl create secret generic signalloom-warden-captures-token
+        # --from-literal=token=...). Absent means the route is disabled.
+        - name: captures-token
+          secret:
+            secretName: signalloom-warden-captures-token
+            optional: true

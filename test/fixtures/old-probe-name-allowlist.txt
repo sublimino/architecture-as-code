@@ -26,3 +26,7 @@ d2-signalloom/AGENTS.md:apps/stun-sentinel # R3 library module directory path li
 d2-signalloom/AGENTS.md:apps/signalloom-stun-sentinel # pre-migration daemon app directory link
 d2-signalloom/apps/fleet-manager/Dockerfile:stun-sentinel # R3 go-module directory (apps/stun-sentinel) copied into the fleet-manager build context; the rename kept the module path
 scripts/sentinel-image-tag.sh:stun-sentinel # image-input defaults name the R3 go-module directories apps/stun-sentinel and apps/signalloom-stun-sentinel (same paths d2-signalloom/Makefile carries)
+docs/EAP/enforcement.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
+docs/EAP/faq-and-limits.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
+docs/EAP/README.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
+docs/EAP/secondary-cluster.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP

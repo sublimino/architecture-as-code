@@ -62,8 +62,28 @@ and it releases the hold for `resume_requested`. It then calls
 {"id": "...", "state": "stunned", "node": "ip-10-0-1-7", "at": "RFC3339"}
 ```
 
-`state` is `stunned` or `resumed`. `POST /api/v1/fleet/resume/{agent}` on a registry target sets
-`resume_requested`. The existing local path is unchanged.
+`state` is `stunned` or `resumed`.
+
+`POST /api/v1/fleet/resume/{agent}` on a registry target sets
+`resume_requested`. The caller needs the `resume` scope. That scope says who
+may ask. It does not say who approved. A remote resume therefore carries a
+dual-signed resume token in the body, under the same governance as a local
+resume. The token has the same schema as the local one,
+`sler.signalloom.io/v1alpha1`. Its `audience` and `trust_root_id` are
+fleet-manager's `FLEET_AUDIENCE` and `OPERATOR_TRUST_ROOT_ID`. Its `agent_id`
+is the registry pod name and its `namespace` is the pod's namespace, even when
+the caller named the owner. fleet-manager verifies the token, consumes it once
+in the replay ledger, writes an attested record naming the cluster, and only
+then sets `resume_requested`. A request with no token answers `403`. A replayed
+token with a different `idempotency_key` answers `409`. A retry with the same
+`idempotency_key` answers `202` with the current record and writes nothing.
+
+The operator tool is
+[`fleet-manager/cmd/resume-token`](../../d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go).
+Run it with `go run ./cmd/resume-token` from
+`d2-signalloom/apps/fleet-manager`. The flow is `keygen`, `mint`, `sign`
+twice, `request`, then the POST. [`enforcement.md`](enforcement.md#how-to-resume)
+walks through it. The existing local path is unchanged.
 
 ## Discovery and tenancy
 

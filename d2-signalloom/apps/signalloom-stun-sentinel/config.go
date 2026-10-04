@@ -33,7 +33,21 @@ type Config struct {
 	SpoolMaxAge   time.Duration `json:"spool_max_age"`
 	BatchMax      int           `json:"batch_max"`
 	BatchLinger   time.Duration `json:"batch_linger"`
+
+	// Remote-cluster contract (docs/EAP/remote-contract.md). ClusterID names
+	// this cluster in every fleet-manager report and poll; NodeName scopes
+	// the report to this node's pods and signs every ack.
+	ClusterID           string        `json:"cluster_id,omitempty"`
+	NodeName            string        `json:"node_name,omitempty"`
+	FleetReportInterval time.Duration `json:"fleet_report_interval"`
+	FleetPollInterval   time.Duration `json:"fleet_poll_interval"`
 }
+
+// Remote-contract defaults.
+const (
+	DefaultFleetReportInterval = 60 * time.Second
+	DefaultFleetPollInterval   = 10 * time.Second
+)
 
 // parseConfig parses command-line flags and environment variables with the following precedence:
 // 1. Explicit command-line flags (--dry-run, --health-addr, etc.)
@@ -184,6 +198,27 @@ func parseConfig(args []string) (*Config, error) {
 			return nil, fmt.Errorf("SIGNAL_INGEST_BATCH_LINGER: invalid duration %q: %v", val, err)
 		}
 		cfg.BatchLinger = parsed
+	}
+
+	cfg.ClusterID = strings.TrimSpace(os.Getenv("SIGNAL_CLUSTER_ID"))
+	cfg.NodeName = strings.TrimSpace(os.Getenv("NODE_NAME"))
+
+	cfg.FleetReportInterval = DefaultFleetReportInterval
+	if val := os.Getenv("FLEET_REPORT_INTERVAL"); val != "" {
+		parsed, err := time.ParseDuration(val)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("FLEET_REPORT_INTERVAL: invalid duration %q: %v", val, err)
+		}
+		cfg.FleetReportInterval = parsed
+	}
+
+	cfg.FleetPollInterval = DefaultFleetPollInterval
+	if val := os.Getenv("FLEET_POLL_INTERVAL"); val != "" {
+		parsed, err := time.ParseDuration(val)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("FLEET_POLL_INTERVAL: invalid duration %q: %v", val, err)
+		}
+		cfg.FleetPollInterval = parsed
 	}
 
 	return cfg, nil

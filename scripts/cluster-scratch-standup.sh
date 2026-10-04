@@ -63,6 +63,20 @@ make -C "$REPO_ROOT" swarm-knative-up
 # 5. Deploy Signal Loom governance platform
 echo "Deploying Signal Loom slice..."
 make -C "$REPO_ROOT" demo-signalloom-up
+# 5b. The eight declarative Kagent agents: the estate acceptance suite asserts the
+#     swarm, its detail pages and timelines, and nothing else deploys them
+#     (2026-10-04: 16 acceptance failures on every fresh estate traced here).
+#     The agents need a real model credential (Secret kagent-anthropic-key, minted
+#     from ANTHROPIC_API_KEY through OpenBao by demo-kagent-credentials, which
+#     refuses to run without one). Without the key the eight pods would sit in
+#     CreateContainerConfigError, so the step is skipped loudly instead.
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "Deploying the Kagent agent swarm..."
+  make -C "$REPO_ROOT" demo-kagent-credentials
+  make -C "$REPO_ROOT" demo-kagent-up
+else
+  echo "WARN: ANTHROPIC_API_KEY is unset; skipping the Kagent agent swarm (export it and run: make demo-kagent-credentials demo-kagent-up)" >&2
+fi
 
 # 6. Deploy Agent Trust slice
 echo "Deploying Agent Trust slice..."

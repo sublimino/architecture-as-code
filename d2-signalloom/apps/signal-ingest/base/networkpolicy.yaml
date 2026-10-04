@@ -50,7 +50,7 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: fe-signalloom
-        # The Envoy gateway, for the remote-cluster warden routes /ingest and /fleet
+        # The Envoy gateway, for the remote-cluster warden routes /warden-ingest and /warden-fleet
         # (apps/fe-signalloom/base/gateway-route.yaml). Key-authenticated upstream.
         - namespaceSelector:
             matchLabels:

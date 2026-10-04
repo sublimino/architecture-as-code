@@ -37,9 +37,9 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 	run bash "$root/scripts/cluster-clean-teardown.sh"
 	[ "$status" -eq 0 ]
 	[ -s "$XDG_RUNTIME_DIR/sldc-saved-containers.txt" ]
-	run bash "$root/scripts/cluster-scratch-standup.sh"
+	ANTHROPIC_API_KEY=test-stub run bash "$root/scripts/cluster-scratch-standup.sh"
 	[ "$status" -eq 0 ]
 	[ ! -e "$XDG_RUNTIME_DIR/sldc-saved-containers.txt" ]
 	sequence="$(sed -E 's/^make -C [^ ]+ /make /' "$STUB_LOG" | grep -E '^(kind delete|docker (stop|start)|make|dual-cluster-up)' | tr '\n' '|')"
-	[ "$sequence" = "kind delete cluster --name signalloom-hub|kind delete cluster --name osramp|docker stop signalloom-aux|docker stop osramp-control-plane|docker start signalloom-aux|dual-cluster-up|make up|make swarm-kagent-up|make swarm-knative-up|make demo-signalloom-up|make demo-agent-trust-up|make healthcheck|" ]
+	[ "$sequence" = "kind delete cluster --name signalloom-hub|kind delete cluster --name osramp|docker stop signalloom-aux|docker stop osramp-control-plane|docker start signalloom-aux|dual-cluster-up|make up|make swarm-kagent-up|make swarm-knative-up|make demo-signalloom-up|make demo-kagent-credentials|make demo-kagent-up|make demo-agent-trust-up|make healthcheck|" ]
 }

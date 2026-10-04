@@ -289,8 +289,11 @@ export async function login(page: Page, opts?: { demoMode?: boolean; skipOnboard
     // the App renders <Spinner /> — no Sidebar exists yet. waitForURL
     // resolves as soon as the browser URL leaves /dex/, but the token
     // exchange can take several seconds on a cold Dex. Wait for the network
-    // round-trip to settle before timing the Sidebar assertion.
-    await page.waitForLoadState("networkidle", { timeout: 20_000 });
+    // round-trip to settle before timing the Sidebar assertion. Not
+    // "networkidle": the agents dashboard holds a telemetry event-stream open
+    // (GET /api/telemetry/agents), so idle never comes once telemetry works.
+    await page.waitForLoadState("load", { timeout: 20_000 });
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
   }
 
   // Sidebar mounted = app rendered post-auth

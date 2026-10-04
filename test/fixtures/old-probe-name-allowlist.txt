@@ -30,3 +30,6 @@ docs/EAP/enforcement.md # EAP pilot docs link to source directories and Secret n
 docs/EAP/faq-and-limits.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
 docs/EAP/README.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
 docs/EAP/secondary-cluster.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
+d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth (the resume-token signer)
+d2-signalloom/apps/fleet-manager/cmd/resume-token/main_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
+d2-signalloom/apps/fleet-manager/resume_token_cli_compat_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth

@@ -51,11 +51,28 @@ type Options struct {
 	Observer Observer
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
+
+	// DerivedSink receives the pipeline's OWN output -- finding and decision
+	// observations -- and defaults to the inner sink, which is what every
+	// caller before idempotency wanted.
+	//
+	// It is separate because the ingest path is now deduped on BOTH sides of
+	// this sink and the two seams share one accepted-ID set. The source
+	// observation is claimed upstream, before stage 1, so that a replay never
+	// reaches the evaluator and never advances a stage-2 window. If the
+	// pipeline then wrote that same observation back through a sink guarding
+	// the same set, the FIRST write would be refused as a duplicate of its own
+	// claim. So the source observation goes out through `inner` undecorated
+	// (it has already passed the gate) and only derived records -- whose IDs
+	// are their own, derived from the finding content -- are offered to the
+	// dedupe seam. One claim per record, one entry per ID.
+	DerivedSink collectors.IngestionSink
 }
 
 // Sink wraps an IngestionSink with the two-stage policy pipeline.
 type Sink struct {
 	inner    collectors.IngestionSink
+	derived  collectors.IngestionSink
 	store    store.SignalStore
 	eval     obscel.Evaluator
 	bundles  BundleResolver
@@ -83,8 +100,13 @@ func NewSink(
 	if log == nil {
 		log = slog.Default()
 	}
+	derived := opts.DerivedSink
+	if derived == nil {
+		derived = inner
+	}
 	return &Sink{
 		inner:    inner,
+		derived:  derived,
 		store:    st,
 		eval:     eval,
 		bundles:  bundles,
@@ -173,7 +195,7 @@ func (s *Sink) emitFinding(ctx context.Context, f obscel.Finding, src *model.Obs
 	}
 
 	fo := findingObservation(f, src, b.Mode)
-	if err := s.inner.IngestObservation(ctx, &fo); err != nil {
+	if err := s.derived.IngestObservation(ctx, &fo); err != nil {
 		s.metrics.observeFindingWriteError()
 		s.log.Error("policy finding could not be stored; the detection happened and was not recorded",
 			"finding", f.ID, "rule", f.RuleID, "error", err)
@@ -209,7 +231,7 @@ func (s *Sink) emitDecision(ctx context.Context, d obscel.Decision, trigger *mod
 	}
 
 	do := decisionObservation(d, trigger)
-	if err := s.inner.IngestObservation(ctx, &do); err != nil {
+	if err := s.derived.IngestObservation(ctx, &do); err != nil {
 		s.metrics.observeDecisionWriteError()
 		s.log.Error("policy decision could not be stored",
 			"decision", d.ID, "window", d.WindowID, "error", err)

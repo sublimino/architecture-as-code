@@ -11,7 +11,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
-func row(id, desc string) model.Observation {
+func dedupeRow(id, desc string) model.Observation {
 	return model.Observation{
 		ID:          id,
 		Timestamp:   time.Unix(1700000000, 0).UTC(),
@@ -20,7 +20,7 @@ func row(id, desc string) model.Observation {
 	}
 }
 
-func ids(rows []model.Observation) []string {
+func dedupeRowIDs(rows []model.Observation) []string {
 	out := make([]string, 0, len(rows))
 	for i := range rows {
 		out = append(out, rows[i].ID)
@@ -29,8 +29,8 @@ func ids(rows []model.Observation) []string {
 }
 
 func TestDedupeByID_CollapsesDuplicatesAndKeepsOrder(t *testing.T) {
-	in := []model.Observation{row("a", "1"), row("b", "1"), row("a", "2"), row("c", "1"), row("b", "2")}
-	got := ids(DedupeByID(in))
+	in := []model.Observation{dedupeRow("a", "1"), dedupeRow("b", "1"), dedupeRow("a", "2"), dedupeRow("c", "1"), dedupeRow("b", "2")}
+	got := dedupeRowIDs(DedupeByID(in))
 	want := []string{"a", "b", "c"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("want %v, got %v", want, got)
@@ -40,7 +40,7 @@ func TestDedupeByID_CollapsesDuplicatesAndKeepsOrder(t *testing.T) {
 // The surviving row is the first occurrence, not the last: the replay command
 // and Weave must agree on which copy they are looking at.
 func TestDedupeByID_KeepsTheFirstOccurrence(t *testing.T) {
-	in := []model.Observation{row("a", "first"), row("a", "second")}
+	in := []model.Observation{dedupeRow("a", "first"), dedupeRow("a", "second")}
 	out := DedupeByID(in)
 	if len(out) != 1 || out[0].Description != "first" {
 		t.Fatalf("want the first copy, got %+v", out)
@@ -48,15 +48,15 @@ func TestDedupeByID_KeepsTheFirstOccurrence(t *testing.T) {
 }
 
 func TestDedupeByID_PassesThroughUnidentifiedRows(t *testing.T) {
-	in := []model.Observation{row("", "x"), row("", "y"), row("a", "1"), row("a", "2")}
+	in := []model.Observation{dedupeRow("", "x"), dedupeRow("", "y"), dedupeRow("a", "1"), dedupeRow("a", "2")}
 	out := DedupeByID(in)
 	if len(out) != 3 {
-		t.Fatalf("want 3 rows (two unkeyable, one deduped), got %d: %v", len(out), ids(out))
+		t.Fatalf("want 3 rows (two unkeyable, one deduped), got %d: %v", len(out), dedupeRowIDs(out))
 	}
 }
 
 func TestDedupeByID_LeavesACleanResultUntouched(t *testing.T) {
-	in := []model.Observation{row("a", "1"), row("b", "1")}
+	in := []model.Observation{dedupeRow("a", "1"), dedupeRow("b", "1")}
 	out := DedupeByID(in)
 	if len(out) != 2 {
 		t.Fatalf("want 2, got %d", len(out))
@@ -70,7 +70,7 @@ func TestDedupeByID_HandlesEmptyAndSingle(t *testing.T) {
 	if out := DedupeByID(nil); out != nil {
 		t.Fatalf("nil in, want nil out, got %v", out)
 	}
-	one := []model.Observation{row("a", "1")}
+	one := []model.Observation{dedupeRow("a", "1")}
 	if out := DedupeByID(one); len(out) != 1 {
 		t.Fatalf("want 1, got %d", len(out))
 	}
@@ -79,7 +79,7 @@ func TestDedupeByID_HandlesEmptyAndSingle(t *testing.T) {
 // A store seeded with the duplicate rows the defect produced must read back as
 // one row per ID once the read side collapses them.
 func TestDedupeByID_RepairsAStoreWrittenBeforeTheFix(t *testing.T) {
-	corpus := []model.Observation{row("a", "1"), row("b", "1"), row("c", "1")}
+	corpus := []model.Observation{dedupeRow("a", "1"), dedupeRow("b", "1"), dedupeRow("c", "1")}
 	st := NewMemoryStore()
 	for pass := 0; pass < 2; pass++ {
 		if err := st.Append(nil, corpus); err != nil { //nolint:staticcheck // MemoryStore ignores ctx

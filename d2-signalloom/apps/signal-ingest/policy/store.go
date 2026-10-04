@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
@@ -42,8 +43,9 @@ import (
 // fail the Append, because Evaluate returns nothing — there is no policy outcome
 // a writer should be told about.
 type Store struct {
-	inner store.SignalStore
-	sink  *Sink
+	inner  store.SignalStore
+	sink   *Sink
+	dedupe *collectors.Deduper
 }
 
 // NewStore wraps inner. The sink's own inner sink must write to the SAME store,
@@ -52,16 +54,48 @@ func NewStore(inner store.SignalStore, sink *Sink) *Store {
 	return &Store{inner: inner, sink: sink}
 }
 
+// NewStoreWithDeduper is NewStore plus idempotency.
+//
+// `d` must be the SAME Deduper the collector path's DedupeSink holds. The
+// defect is not "the collector path replays" or "the HTTP path replays" — it is
+// that the derived ID was never enforced anywhere, and two independent sets
+// would let a record admitted by one door be admitted again by the other.
+func NewStoreWithDeduper(inner store.SignalStore, sink *Sink, d *collectors.Deduper) *Store {
+	return &Store{inner: inner, sink: sink, dedupe: d}
+}
+
 // Append stores the batch atomically, then evaluates each observation.
+//
+// Deduplication happens FIRST, over the whole batch, for the same reason the
+// Append is batched at all: a half-landed batch is a worse failure than no
+// policy, and filtering before the write keeps the accept-or-reject-as-a-unit
+// property while removing records that are already durable. A batch that is
+// entirely a replay returns nil — a redelivery is a successful no-op, and
+// reporting it as an error would make an SQS consumer retry the one thing that
+// is already correct.
+//
+// A refused Append releases the claims. Otherwise a transient store fault would
+// be upgraded to permanent loss: the IDs would be claimed, the rows would not
+// exist, and the retry that would have repaired it would read as a duplicate.
 func (s *Store) Append(ctx context.Context, observations []model.Observation) error {
-	if err := s.inner.Append(ctx, observations); err != nil {
+	batch := observations
+	if s.dedupe != nil {
+		batch = s.dedupe.FilterObservations(observations)
+		if len(batch) == 0 {
+			return nil
+		}
+	}
+	if err := s.inner.Append(ctx, batch); err != nil {
+		if s.dedupe != nil {
+			s.dedupe.Release(batch)
+		}
 		return err
 	}
 	if s.sink == nil {
 		return nil
 	}
-	for i := range observations {
-		s.sink.Evaluate(ctx, &observations[i])
+	for i := range batch {
+		s.sink.Evaluate(ctx, &batch[i])
 	}
 	return nil
 }

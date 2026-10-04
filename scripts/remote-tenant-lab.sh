@@ -26,6 +26,9 @@
 #   --timeout         per-wait budget in seconds. Default 180.
 #   --dry-run         print every step and mutate nothing.
 #   --keep            leave the overlay, the Secrets and the transfer directory
+#   --load-kind-image load the overlay's warden image into the remote Kind
+#                     node before applying (the canonical ghcr.io name is not
+#                     published; a Kind remote can only have it loaded)
 #                     in place for inspection.
 #
 # Exit: 0 every step passed, 1 a step failed, 2 usage.
@@ -63,8 +66,9 @@
 #     step 4 splices a CoreDNS `hosts` entry on the REMOTE cluster mapping it
 #     to the hub's bridge address.
 #   * the port. The warden's URL carries no port, so it would try 443, and the
-#     local gateway is published on NodePort 30754. --hub-url therefore
-#     defaults to the host AND the NodePort. A pilot cluster whose hub is on
+#     hub gateway is published on a NodePort (discovered from the Envoy
+#     Gateway Service, 30476 on the local lab). --hub-url therefore
+#     defaults to the host AND that NodePort. A pilot cluster whose hub is on
 #     443 passes --hub-url https://<host> and nothing else changes.
 #
 # ── Why --dry-run exists ────────────────────────────────────────────────────
@@ -83,7 +87,9 @@ KUBECTL="${SLDC_KUBECTL:-kubectl}"
 CURL="${LAB_CURL:-curl}"
 # The two bridge facts, same defaults and same names as scripts/lib/dual-cluster.sh.
 HUB_BRIDGE_IP="${SLDC_OSRAMP_IP:-172.19.0.10}"
-HUB_GATEWAY_NODEPORT="${LAB_HUB_NODEPORT:-30754}"
+# Discovered from the hub's Envoy Gateway Service in main(); 30754 is the host
+# port-forward and is not reachable from another cluster.
+HUB_GATEWAY_NODEPORT="${LAB_HUB_NODEPORT:-}"
 HUB_GATEWAY_HOST="${LAB_HUB_HOST:-dashboard.osramp.acme.local}"
 
 HUB_CTX="kind-osramp"
@@ -94,6 +100,7 @@ TRANSFER_DIR=""
 TIMEOUT=180
 DRY_RUN=0
 KEEP=0
+LOAD_KIND_IMAGE=0
 # A local port for the hub's fleet-manager. The operator key must not reach
 # argv, so every call reads the header from stdin with `-H @-`.
 FM_LOCAL_PORT="${LAB_FM_PORT:-18082}"
@@ -169,6 +176,7 @@ fm_key() {
 # of the call. Bodies go through --data @- for the same reason.
 fm() {
 	local method="$1" path="$2" body="${3:-}" key
+	ensure_port_forward
 	key="$(fm_key)"
 	[ -n "$key" ] || return 1
 	if [ -n "$body" ]; then
@@ -198,6 +206,20 @@ start_port_forward() {
 	wait_for 30 "fleet-manager port-forward" -- \
 		bash -c "exec 3<>/dev/tcp/127.0.0.1/${FM_LOCAL_PORT}" \
 		|| die "the fleet-manager port-forward never came up on ${FM_LOCAL_PORT}" 1
+}
+
+# ensure_port_forward: a kubectl port-forward dies quietly when its pod rolls
+# or the API connection drops, and the next request then reads as a lab
+# failure. Re-establish it when nothing listens on the local port.
+ensure_port_forward() {
+	[ "$DRY_RUN" -eq 1 ] && return 0
+	if bash -c "exec 3<>/dev/tcp/127.0.0.1/${FM_LOCAL_PORT}" 2>/dev/null; then
+		return 0
+	fi
+	log "fleet-manager port-forward is gone; re-establishing"
+	[ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
+	PF_PID=""
+	start_port_forward
 }
 
 cleanup() {
@@ -276,35 +298,54 @@ step_3_apply_secrets() {
 }
 
 step_4_dns() {
-	# A CoreDNS `hosts` entry on the remote cluster for the hub's gateway name.
-	# The warden runs ClusterFirstWithHostNet, so cluster DNS answers it.
-	local patch
-	patch="$(printf 'data:\n  gateway.override: |\n    hosts {\n      %s %s\n      fallthrough\n    }\n' \
-		"$HUB_BRIDGE_IP" "$HUB_GATEWAY_HOST")"
+	# A CoreDNS `hosts` block on the remote cluster for the hub's gateway name.
+	# The warden runs ClusterFirstWithHostNet, so CoreDNS answers it; without
+	# the block CoreDNS forwards upstream and the host's own /etc/hosts (a
+	# tailnet address, say) comes back, which the Kind node cannot reach.
 	if [ "$DRY_RUN" -eq 1 ]; then
 		printf 'DRY-RUN coredns hosts entry: %s -> %s\n' "$HUB_GATEWAY_HOST" "$HUB_BRIDGE_IP" >&2
 		pass "4 dns" "$HUB_GATEWAY_HOST -> $HUB_BRIDGE_IP (dry run)"
 		return 0
 	fi
-	# A ConfigMap key is enough only when the cluster's Corefile imports the
-	# directory. Checked rather than assumed, because a silently ignored key
-	# reads as a DNS failure three steps later.
-	if remote -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}' |
-		grep -q 'import.*custom\|hosts {'; then
-		printf '%s' "$patch" | remote -n kube-system patch configmap coredns-custom \
-			--type merge --patch-file /dev/stdin >/dev/null 2>&1 || true
+	local corefile block
+	corefile="$(remote -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
+	[ -n "$corefile" ] || { fail "4 dns" "could not read the remote Corefile"; return 0; }
+	block="    hosts lab-hub-gateway {\n       $HUB_BRIDGE_IP $HUB_GATEWAY_HOST\n       fallthrough\n    }"
+	if ! printf '%s' "$corefile" | grep -q "$HUB_BRIDGE_IP $HUB_GATEWAY_HOST"; then
+		# Insert the block right after the `ready` line of the .:53 server; the
+		# hosts plugin must precede forward, and `ready` always sits before it.
+		corefile="$(printf '%s' "$corefile" | awk -v blk="$block" 'done==0 && /^    ready$/ {print; gsub(/\\n/, "\n", blk); print blk; done=1; next} {print}')"
+		printf '%s' "$corefile" | grep -q 'lab-hub-gateway' || { fail "4 dns" "could not place the hosts block in the Corefile"; return 0; }
+		remote -n kube-system create configmap coredns --from-literal=Corefile="$corefile" --dry-run=client -o yaml \
+			| remote -n kube-system apply -f - >/dev/null || { fail "4 dns" "could not update the remote Corefile"; return 0; }
+		remote -n kube-system rollout restart deployment/coredns >/dev/null 2>&1 || true
+		remote -n kube-system rollout status deployment/coredns --timeout=120s >/dev/null 2>&1 || true
 	fi
-	# Whatever CoreDNS does, the DaemonSet also gets a hostAliases-equivalent
-	# through the node: assert resolution from a pod rather than trusting it.
-	if wait_for "$TIMEOUT" "gateway name resolves on $REMOTE_CTX" -- \
-		remote -n kube-system get configmap coredns; then
+	# Prove it from a pod rather than trusting the ConfigMap.
+	if wait_for "$TIMEOUT" "$HUB_GATEWAY_HOST resolves to $HUB_BRIDGE_IP on $REMOTE_CTX" -- \
+		sh -c "$KUBECTL --context '$REMOTE_CTX' -n kube-system run lab-dns-\$\$ --rm -i --restart=Never --image=busybox:1.36 --command -- nslookup '$HUB_GATEWAY_HOST' 2>/dev/null | grep -q '$HUB_BRIDGE_IP'"; then
 		pass "4 dns" "$HUB_GATEWAY_HOST -> $HUB_BRIDGE_IP"
 	else
-		fail "4 dns" "$HUB_GATEWAY_HOST does not resolve on $REMOTE_CTX"
+		fail "4 dns" "$HUB_GATEWAY_HOST does not resolve to $HUB_BRIDGE_IP on $REMOTE_CTX"
 	fi
 }
 
+# load_warden_image: the overlay names the canonical ghcr.io image, which is
+# built locally and never pushed, so a Kind remote has to have it loaded
+# (imagePullPolicy IfNotPresent then finds it). Only with --load-kind-image.
+load_warden_image() {
+	[ "${LOAD_KIND_IMAGE:-0}" -eq 1 ] || return 0
+	local img name
+	img="$($KUBECTL kustomize "$OVERLAY_DIR" 2>/dev/null | grep -o 'ghcr.io/[^ "]*signalloom-warden:[^ "]*' | head -1)"
+	[ -n "$img" ] || { fail "5 overlay" "could not read the warden image from $OVERLAY_DIR"; return 1; }
+	name="${REMOTE_CTX#kind-}"
+	run_or_echo "kind load $img into $name" -- kind load docker-image "$img" --name "$name" >/dev/null || {
+		fail "5 overlay" "kind load docker-image $img --name $name failed"; return 1; }
+	log "loaded $img into kind cluster $name"
+}
+
 step_5_overlay() {
+	load_warden_image || return 0
 	# The overlay's committed URL has no port and the lab gateway is a
 	# NodePort, so the two URLs are patched after apply rather than committed:
 	# a NodePort does not belong in a pilot manifest.
@@ -449,6 +490,7 @@ main() {
 		--timeout) TIMEOUT="${2:-}"; shift 2 || die "--timeout needs a value" 2 ;;
 		--dry-run) DRY_RUN=1; shift ;;
 		--keep) KEEP=1; shift ;;
+		--load-kind-image) LOAD_KIND_IMAGE=1; shift ;;
 		-h | --help) usage; return 0 ;;
 		*) usage >&2; die "unknown argument: $1" 2 ;;
 		esac
@@ -458,6 +500,12 @@ main() {
 	done
 	case "$TIMEOUT" in '' | *[!0-9]*) die "--timeout must be a whole number of seconds" 2 ;; esac
 	[ "$HUB_CTX" != "$REMOTE_CTX" ] || die "--hub-context and --remote-context must differ" 2
+	if [ -z "$HUB_GATEWAY_NODEPORT" ] && [ "$DRY_RUN" -eq 0 ]; then
+		HUB_GATEWAY_NODEPORT="$(hub -n ingress get svc -l gateway.envoyproxy.io/owning-gateway-name=cluster \
+			-o jsonpath='{.items[0].spec.ports[?(@.port==443)].nodePort}' 2>/dev/null || true)"
+	fi
+	# A dry run reads nothing from either cluster, so it takes the lab default.
+	[ -n "$HUB_GATEWAY_NODEPORT" ] || HUB_GATEWAY_NODEPORT=30476
 	HUB_URL="${HUB_URL:-https://${HUB_GATEWAY_HOST}:${HUB_GATEWAY_NODEPORT}}"
 
 	trap cleanup EXIT

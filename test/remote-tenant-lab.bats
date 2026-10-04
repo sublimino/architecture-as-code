@@ -112,7 +112,7 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	[[ "$output" == *"remote kind-signalloom-hub"* ]]
 	# The NodePort is in the default URL because the warden's own URL carries
 	# no port and the lab gateway is not on 443.
-	[[ "$output" == *"https://dashboard.osramp.acme.local:30754"* ]]
+	[[ "$output" == *"https://dashboard.osramp.acme.local:30476"* ]]
 }
 
 @test "lab: --hub-url overrides the derived URL for both prefixes" {
@@ -120,7 +120,7 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"https://hub.example.test/warden-ingest"* ]]
 	[[ "$output" == *"https://hub.example.test/warden-fleet"* ]]
-	[[ "$output" != *"30754/warden-ingest"* ]]
+	[[ "$output" != *"30476/warden-ingest"* ]]
 }
 
 @test "lab: --cluster-id reaches both the DaemonSet env and the registry query" {

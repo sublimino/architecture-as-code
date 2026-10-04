@@ -142,7 +142,7 @@ spec:
                   key: operator
                   optional: true
             - name: FLEET_MANAGER_KEY_OPERATOR_SCOPES
-              value: "stun,resume,recover,deploy,scan,reset"
+              value: "stun,resume,recover,deploy,scan,reset,read"
             # SPIRE plane. The server API on :8081 speaks only mTLS, so the
             # client takes this pod's X509-SVID from the SPIRE agent socket and
             # accepts only spiffe://signalloom.demo/spire/server (override with

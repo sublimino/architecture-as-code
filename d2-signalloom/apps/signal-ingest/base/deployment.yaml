@@ -37,7 +37,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-ec8492f70d1e4ee5
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-2650afaab70b1905
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -80,8 +80,41 @@ spec:
             # probe timeout. 3s leaves the handler room to answer.
             timeoutSeconds: 3
           env:
+            # Selects the Parquet-backed FrostDB store (store/factory_frostdb.go).
+            # This is load-bearing and silent if wrong: NewStoreFromEnv returns an
+            # in-memory store for ANY other value, including unset, so the claim
+            # below would be mounted, empty, and never written to -- a pod that
+            # reports healthy while losing every observation on restart. It also
+            # requires an image built `-tags frostdb`; without the tag the
+            # !frostdb factory ignores this value entirely.
+            # TestReconciledManifestStoresSignalsDurably asserts both halves.
+            - name: SIGNAL_STORE
+              value: frostdb
             - name: SIGNAL_STORE_DIR
               value: /data/signals
+            # SLAWS v2 D6, ISC-51: observation-policy bundles are Flux-reconciled
+            # FILES, loaded once at boot, never registered over the API. This is
+            # the SAME ConfigMap policy-engine mounts (declared once in
+            # apps/policy-engine/base/bundles-configmap.yaml and rendered from
+            # policy/bundles/) at the same path, because both apps share the
+            # fe-signalloom namespace under the fe-signalloom kustomization's
+            # targetNamespace. Referenced, never duplicated: two copies of a
+            # bundle set is two policies that can disagree.
+            #
+            # A missing or empty mount is zero bundles and a startup WARNING
+            # naming the directory, not a boot failure -- every deployment
+            # predates this feature. A bundle that fails to conform IS a boot
+            # failure: a half-loaded policy set is indistinguishable at runtime
+            # from a policy set that chose not to detect anything.
+            - name: POLICY_BUNDLES_DIR
+              value: /etc/policy-engine/bundles
+            # SLAWS v2 D5: where a stage-2 decision is alerted. Unset means
+            # decisions are stored and not alerted, which is the correct default
+            # while every shipped bundle is in shadow mode. Delivery is bounded
+            # (3 attempts, 5s total) and runs off the ingest path, so a dead
+            # webhook cannot slow a collector.
+            - name: POLICY_ALERT_WEBHOOK_URL
+              value: ""
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -136,6 +169,11 @@ spec:
             - name: signal-ingest-static-keys
               mountPath: /etc/signal-ingest/static-keys
               readOnly: true
+            # The observation-policy bundle set named by POLICY_BUNDLES_DIR.
+            # readOnly because policy is git: the only writer is Flux.
+            - name: policy-bundles
+              mountPath: /etc/policy-engine/bundles
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -148,11 +186,26 @@ spec:
             limits:
               memory: 128Mi
       volumes:
+        # The FrostDB Parquet segments and their attestation evidence. The ephemeral
+        # volume this replaces was deleted with the pod, so every reschedule or
+        # image bump silently discarded the backlog the DuckDB last-resort runbook
+        # and the segment verifier both read -- see
+        # docs/signalloom/runbooks/slaws-duckdb-last-resort.md.
         - name: signal-store
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: signal-store
         - name: signal-auth-jwks
           configMap:
             name: signal-ingest-jwks
+        # policy-engine-bundles is OWNED by apps/policy-engine/base/bundles-configmap.yaml
+        # and is referenced here, not redeclared. optional: true so a cluster that
+        # has not yet reconciled the bundle ConfigMap gets a pod that boots with
+        # zero bundles and says so in the log, rather than one stuck in
+        # ContainerCreating -- the same fail-open choice the static-keys mounts make.
+        - name: policy-bundles
+          configMap:
+            name: policy-engine-bundles
+            optional: true
         # optional: true per source, so one caller's Secret not yet minted
         # disables that caller's key (logged at ERROR) instead of holding the
         # whole pod in ContainerCreating. Every key named in

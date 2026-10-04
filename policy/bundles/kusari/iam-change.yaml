@@ -1,0 +1,76 @@
+# SLAWS first observation-policy bundle (proposal §4.2, §4.4, D6).
+#
+# Bundles are versioned files, Flux-reconciled into a ConfigMap and loaded at
+# boot by policy-engine from POLICY_BUNDLES_DIR. They are not registered over
+# the API: `POST /api/v1/policies/bundles` is a dry-run surface only and never
+# joins the boot-loaded set.
+#
+# Mode is `shadow`: findings are emitted and stored, nothing is warned on and
+# nothing is enforced. Promotion to warn, then enforce, is a reviewed commit
+# that bumps `version`.
+#
+# Two deviations from the proposal §4.2 sample, both deliberate:
+#
+#  1. Label access is guarded with `has(...)`. Bare `obs.labels.k` on an absent
+#     key is a CEL evaluation error, which this evaluator records as an
+#     evaluator fault. §4.1 makes `has()` the binding missing-key idiom, so an
+#     unlabelled CloudTrail record is a clean false here, not a fault.
+#  2. §4.2 lists `CreateAccessKey` inside the privilege-change rule. It is split
+#     into its own rule instead, so access-key creation carries its own rule_id
+#     and its own severity rather than being counted as a policy mutation. The
+#     two rules are therefore disjoint and one event produces one finding.
+#
+# Label keys are the binding contract in §2.3.
+
+id: kusari-iam-change
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+vars:
+  # Identities permitted to make privilege changes. Anything outside this list
+  # making an IAM policy change is a finding. An empty list is rejected at load:
+  # it would silently turn every break-glass action into a finding.
+  break_glass_actors:
+    - "arn:aws:iam::123456789012:user/break-glass"
+
+rules:
+  - id: iam-priv-change
+    name: IAM privilege change by a non-break-glass identity
+    severity: high
+    expression: |-
+      obs.layer == "cloud_control_plane" &&
+      has(obs.labels.event_source) &&
+      obs.labels.event_source == "iam.amazonaws.com" &&
+      has(obs.labels.event_name) &&
+      obs.labels.event_name in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserPolicy"] &&
+      !(obs.actor in vars.break_glass_actors)
+
+  - id: access-key-created
+    name: Long-lived access key created by a non-break-glass identity
+    severity: high
+    expression: |-
+      obs.layer == "cloud_control_plane" &&
+      has(obs.labels.event_source) &&
+      obs.labels.event_source == "iam.amazonaws.com" &&
+      has(obs.labels.event_name) &&
+      obs.labels.event_name == "CreateAccessKey" &&
+      !(obs.actor in vars.break_glass_actors)
+
+  - id: vpc-reject
+    name: VPC Flow Log rejected an egress flow
+    severity: low
+    expression: |-
+      obs.layer == "network_egress" &&
+      has(obs.labels.event_name) &&
+      obs.labels.event_name == "REJECT"
+
+windows:
+  # Stage 2 is declared here, never in CEL. A single IAM change is a finding;
+  # three by the same actor inside ten minutes is a decision.
+  - id: iam-change-burst
+    over_rule: iam-priv-change
+    key: [tenant_id, actor]
+    window: 10m
+    threshold: 3
+    severity: high

@@ -141,6 +141,7 @@ func NewRegistryFromEnvWithReceiver(sink IngestionSink, rcv *audit.WebhookReceiv
 	reg.Register(NewKAgentCollector(resolveEnvMode("COLLECTOR_KAGENT_MODE", "SIGNAL_COLLECTOR_KAGENT", "KAGENT_MODE"), sink))
 	reg.Register(NewWorkspaceSaaSCollector(resolveEnvMode("COLLECTOR_WORKSPACESAAS_MODE", "SIGNAL_COLLECTOR_WORKSPACESAAS", "WORKSPACESAAS_MODE"), sink))
 	reg.Register(NewAgentNonoCollector(resolveEnvMode("COLLECTOR_AGENTNONO_MODE", "SIGNAL_COLLECTOR_AGENTNONO", "AGENTNONO_MODE"), sink))
+	reg.Register(NewAWSLogsCollector(resolveEnvMode("COLLECTOR_AWSLOGS_MODE", "SIGNAL_COLLECTOR_AWSLOGS", "AWSLOGS_MODE"), sink))
 	reg.Register(NewFixtureCollector(resolveEnvMode("COLLECTOR_FIXTURES_MODE", "SIGNAL_COLLECTOR_FIXTURES", "FIXTURES_MODE"), sink))
 
 	return reg
@@ -160,4 +161,3 @@ func ResolveEnvMode(keys ...string) Mode {
 func resolveEnvMode(keys ...string) Mode {
 	return ResolveEnvMode(keys...)
 }
-

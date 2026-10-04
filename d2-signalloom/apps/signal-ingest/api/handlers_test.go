@@ -232,6 +232,52 @@ func TestCoverage(t *testing.T) {
 	}
 }
 
+// TestCoverageDoesNotCallCloudControlPlaneUndeployed: cloud_control_plane IS a deployed layer --
+// it is in model.InScopeLayers() and the correlation rules pair against it -- so reporting it as
+// "Layer not deployed" told an operator the wrong thing about why they see no cloud events. The
+// honest gap is narrower and actionable: the layer is live, no collector is feeding it yet.
+//
+// It stays a blind spot, and the counts stay at 5/5 and "5 of 7 layers active": no cloud
+// observations are arriving, so coverage has not actually changed. Promoting it to a covered layer
+// is the separate seven-layer flip (SLAWS v2 §5, P1), which also owns the dashboard's
+// "5 of 7 layers instrumented" assertion. This test pins the description only.
+func TestCoverageDoesNotCallCloudControlPlaneUndeployed(t *testing.T) {
+	_, mux := newTestHandlers(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/coverage", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	var resp CoverageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode coverage: %v", err)
+	}
+
+	var found bool
+	for _, bs := range resp.BlindSpots {
+		if bs.ID != "cloud_control_plane" {
+			continue
+		}
+		found = true
+		if strings.Contains(bs.Description, "not deployed") {
+			t.Errorf("cloud_control_plane gap says %q, but the layer is in model.InScopeLayers()", bs.Description)
+		}
+		if !strings.Contains(bs.Description, "no collector") {
+			t.Errorf("cloud_control_plane gap says %q; it must name the real gap, an absent collector", bs.Description)
+		}
+	}
+	if !found {
+		t.Fatal("no cloud_control_plane entry in blind_spots")
+	}
+
+	// The sibling entry is the control: protocol genuinely is not deployed (it is absent from
+	// InScopeLayers()), so its wording must NOT be softened by the same edit.
+	for _, bs := range resp.BlindSpots {
+		if bs.ID == "protocol_analysis" && !strings.Contains(bs.Description, "not deployed") {
+			t.Errorf("protocol_analysis gap says %q; protocol is out of scope and should still say so", bs.Description)
+		}
+	}
+}
+
 func TestSeedFixtures(t *testing.T) {
 	_, mux := newTestHandlers(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/collectors/seed", nil)

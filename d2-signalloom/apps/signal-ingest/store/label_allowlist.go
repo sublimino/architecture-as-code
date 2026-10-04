@@ -113,7 +113,6 @@ var defaultLabelAllowList = map[string]struct{}{
 	"severity":              {},
 	"category":              {},
 	"outcome":               {},
-	"protocol":              {},
 	"direction":             {},
 	"port":                  {},
 	"region":                {},

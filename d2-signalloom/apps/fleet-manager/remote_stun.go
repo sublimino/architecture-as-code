@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -264,6 +266,15 @@ func (s *RemoteStunStore) ByID(id string) (RemoteStunRecord, bool) {
 	return record, found
 }
 
+// Current returns the record for a workload without changing it. The resume
+// path uses it to answer "nothing to resume" before any token is consumed.
+func (s *RemoteStunStore) Current(clusterID, namespace, name string) (RemoteStunRecord, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, found := s.records[workloadKey{ClusterID: clusterID, Namespace: namespace, Name: name}]
+	return record, found
+}
+
 // Len returns the number of workload-keyed records.
 func (s *RemoteStunStore) Len() int {
 	s.mu.Lock()
@@ -378,10 +389,27 @@ type RemoteStunAuditLogEntry struct {
 	State       RemoteStunState `json:"state"`
 	ResolvedBy  string          `json:"resolved_by"`
 	Remote      bool            `json:"remote"`
+	// TokenID and OperatorIDs attribute a resume to the operators who signed
+	// its token. Absent on a stun, which carries no token.
+	TokenID     string   `json:"token_id,omitempty"`
+	OperatorIDs []string `json:"operator_ids,omitempty"`
 }
 
 func emitRemoteStunAudit(event, requested string, target remoteTarget, record RemoteStunRecord) {
+	emitRemoteAudit(event, requested, target, record, "", nil)
+}
+
+// emitRemoteResumeAudit records a governed remote resume, naming the token and
+// the operators whose signatures verified. It is emitted only after the token
+// passed, so an audit line here always means an approved release.
+func emitRemoteResumeAudit(requested string, target remoteTarget, record RemoteStunRecord, tokenID string, operatorIDs []string) {
+	emitRemoteAudit(AgentResumeRequestedEventName, requested, target, record, tokenID, operatorIDs)
+}
+
+func emitRemoteAudit(event, requested string, target remoteTarget, record RemoteStunRecord, tokenID string, operatorIDs []string) {
 	entry := RemoteStunAuditLogEntry{
+		TokenID:     tokenID,
+		OperatorIDs: operatorIDs,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 		Event:       event,
 		AgentID:     requested,
@@ -453,13 +481,31 @@ func (s *server) handleRemoteStunFallback(w http.ResponseWriter, r *http.Request
 	return true
 }
 
+// errRemoteResumeTokenRequired is the refusal for a remote resume that carries
+// no token at all. It is distinct from a malformed token on purpose: the
+// caller did not present governance, rather than presenting it badly.
+var errRemoteResumeTokenRequired = errors.New("a dual-signed resume token is required to resume a remote workload")
+
+// remoteResumePlane is the attested plane name for a resume the hub records
+// and the remote warden enforces.
+const remoteResumePlane = "remote-warden"
+
 // handleRemoteResumeFallback handles a registry resume only after local agent
 // resolution has failed, so no local agent's release can be diverted through
 // the remote intent store.
-func (s *server) handleRemoteResumeFallback(w http.ResponseWriter, requested string, local agentResolution) bool {
+//
+// The remote branch is held to the same governance as the local one. The
+// caller key's `resume` scope says who may ask; it says nothing about who
+// approved. Approval is the dual-signed resume token, verified against the
+// registry pod name the token must name, then consumed exactly once in the
+// replay ledger, then attested. Only after all three does the hub write
+// resume_requested for the warden to act on. Nothing is mutated on any
+// failing path, so a refused request leaves the stun record as it was.
+func (s *server) handleRemoteResumeFallback(w http.ResponseWriter, req ResumeRequest, local agentResolution) bool {
 	if s.workloads == nil || s.remoteStuns == nil {
 		return false
 	}
+	requested := req.AgentID
 
 	target, tried, found := s.resolveRemoteTarget(requested)
 	if !found {
@@ -468,28 +514,181 @@ func (s *server) handleRemoteResumeFallback(w http.ResponseWriter, requested str
 		return true
 	}
 
+	if req.Token.TokenID == "" && len(req.Token.Signatures) == 0 && req.Token.Signature == "" {
+		writeError(w, http.StatusForbidden, errRemoteResumeTokenRequired.Error())
+		return true
+	}
+
+	now := time.Now().UTC()
+	policy := s.resumePolicy
+	if policy.RequiredSignatures == 0 {
+		policy = DefaultResumeTokenPolicy(policy.Audience, policy.TrustRootID)
+	}
+	// The token binds to the registry pod name and namespace, not to whatever
+	// alias the caller used to find it. A token minted for one replica must
+	// not release another that shares its owner name.
+	boundTarget := TargetRef{
+		AgentID:   target.Workload.Name,
+		Namespace: target.Workload.Namespace,
+		PodName:   target.Workload.Name,
+		NodeName:  target.Workload.Node,
+	}
+	if err := VerifyResumeToken(req.Token, boundTarget, s.keyRegistry, policy, now); err != nil {
+		writeError(w, remoteResumeStatus(err), fmt.Sprintf("resume token verification failed: %v", err))
+		return true
+	}
+	operatorIDs := make([]string, 0, len(req.Token.Signatures))
+	for _, sig := range req.Token.Signatures {
+		operatorIDs = append(operatorIDs, sig.OperatorID)
+	}
+
+	// Existence is checked before the ledger consumes the token: a token spent
+	// on a 404 would be a token spent on nothing.
+	current, found := s.remoteStuns.Current(
+		target.Workload.ClusterID,
+		target.Workload.Namespace,
+		target.Workload.Name,
+	)
+	if !found {
+		local.Tried = append(local.Tried, tried...)
+		local.Tried = append(local.Tried, "remote stun record (not found; nothing to resume)")
+		writeUnknownAgent(w, local)
+		return true
+	}
+
+	idempotencyKey := req.IdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("resume-%s-%s", requested, req.Token.TokenID)
+	}
+	if s.replayLedger != nil {
+		isRetry, _, err := s.replayLedger.CheckAndRecord(req.Token.TokenID, idempotencyKey, operatorIDs, now)
+		if err != nil {
+			writeError(w, remoteResumeStatus(err), err.Error())
+			return true
+		}
+		if isRetry {
+			// The same request again: answer with what the first one did and
+			// write nothing. A second resume_requested would re-open a record
+			// the warden may already have acknowledged.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(current)
+			return true
+		}
+	}
+
+	if s.attestationEngine != nil {
+		if err := s.attestRemoteResume(req, target, current, idempotencyKey, operatorIDs, now); err != nil {
+			slog.Error("witness attestation signing failed for remote resume",
+				"agent", requested, "cluster_id", target.Workload.ClusterID, "error", err)
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("attestation failed: %v", err))
+			return true
+		}
+	}
+
 	record, err := s.remoteStuns.RequestResume(
 		target.Workload.ClusterID,
 		target.Workload.Namespace,
 		target.Workload.Name,
 		callerName(w),
 	)
-	if errors.Is(err, ErrRemoteStunNotFound) {
-		local.Tried = append(local.Tried, tried...)
-		local.Tried = append(local.Tried, "remote stun record (not found; nothing to resume)")
-		writeUnknownAgent(w, local)
-		return true
-	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return true
 	}
 
-	emitRemoteStunAudit(AgentResumeRequestedEventName, requested, target, record)
+	emitRemoteResumeAudit(requested, target, record, req.Token.TokenID, operatorIDs)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(record)
 	return true
+}
+
+// remoteResumeStatus maps a governance failure onto the status handleResume
+// uses for the same failure. Every other verification failure of a presented
+// token is a refusal, not a server fault: the token was read and found
+// wanting.
+func remoteResumeStatus(err error) int {
+	switch {
+	case errors.Is(err, ErrResumeTokenReplayed):
+		return http.StatusConflict
+	case errors.Is(err, ErrResumeTokenTargetMismatch),
+		errors.Is(err, ErrResumeTokenMalformed),
+		errors.Is(err, ErrResumeTokenSchemaVersion),
+		errors.Is(err, ErrResumeTokenUnsupportedAlgorithm),
+		errors.Is(err, ErrResumeTokenProjectionMismatch),
+		errors.Is(err, ErrResumeTokenShortNonce):
+		return http.StatusBadRequest
+	default:
+		return http.StatusForbidden
+	}
+}
+
+// attestRemoteResume writes the forensic ledger record for a remote resume.
+// The hub is not the enforcer here, and the record says so: the single plane
+// is the remote warden, its outcome is the intent the hub recorded, and the
+// details carry the cluster coordinates with remote set to true.
+func (s *server) attestRemoteResume(req ResumeRequest, target remoteTarget, current RemoteStunRecord, idempotencyKey string, operatorIDs []string, now time.Time) error {
+	attReq := attestation.ResumeAttestationRequest{
+		EventID:        fmt.Sprintf("resume-%s-%d", req.AgentID, now.UnixNano()),
+		EventType:      attestation.EventContainmentResumed,
+		IdempotencyKey: idempotencyKey,
+		Authorization: attestation.AuthorizationEvidence{
+			DecisionID:            req.Token.GovernanceApprovalRef,
+			TriggerReason:         "attributable_governance_resume",
+			TriggerDescription:    "Dual-operator attributable governance token presented and verified for a remote workload",
+			TriggeredBy:           strings.Join(operatorIDs, ","),
+			DelegationEdgeRevoked: false,
+		},
+		Target: attestation.TargetIdentity{
+			AgentID:   target.Workload.Name,
+			Namespace: target.Workload.Namespace,
+			PodName:   target.Workload.Name,
+			PodUID:    target.Workload.UID,
+			NodeName:  target.Workload.Node,
+			TenantID:  target.Workload.Tenant,
+		},
+		Execution: attestation.ExecutionEvidence{
+			OverallOutcome: string(RemoteResumeRequested),
+			TotalLatencyMs: 0,
+			Planes: []attestation.PlaneExecutionEvidence{{
+				Plane:   remoteResumePlane,
+				Outcome: string(RemoteResumeRequested),
+				Details: map[string]any{
+					"cluster_id": target.Workload.ClusterID,
+					"namespace":  target.Workload.Namespace,
+					"name":       target.Workload.Name,
+					"stun_id":    current.ID,
+					"remote":     true,
+				},
+			}},
+		},
+		GovernanceResume: attestation.GovernanceResumeEvidence{
+			TokenID:               req.Token.TokenID,
+			OperatorIDs:           operatorIDs,
+			GovernanceApprovalRef: req.Token.GovernanceApprovalRef,
+			CredentialsRotated:    false,
+			ProcessesResumed:      0,
+			UnfreezeLatencyMs:     0,
+		},
+		Timestamp: now,
+	}
+	record, _, err := s.attestationEngine.AttestResume(context.Background(), attReq)
+	if err != nil {
+		return err
+	}
+	slog.Info("governance resume decision executed",
+		"event", ResumeDecisionEventName,
+		"agent_id", req.AgentID,
+		"namespace", target.Workload.Namespace,
+		"cluster_id", target.Workload.ClusterID,
+		"remote", true,
+		"token_id", req.Token.TokenID,
+		"operator_ids", operatorIDs,
+		"governance_approval_ref", req.Token.GovernanceApprovalRef,
+		"idempotency_key", idempotencyKey,
+		"attested_record_digest", record.Attestation.StatementDigest)
+	return nil
 }
 
 // RemoteStunStateResponse wraps pending records and preserves an empty JSON

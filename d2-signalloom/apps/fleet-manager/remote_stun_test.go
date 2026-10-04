@@ -590,12 +590,18 @@ func TestRemoteStunNotFoundIncludesResolutionAttempts(t *testing.T) {
 
 func TestRemoteResume(t *testing.T) {
 	now := time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)
+	// The remote branch is held to the same governance as the local one, so
+	// the request carries a dual-signed token bound to the registry pod name.
+	token, reg := remoteDualSignedToken(t, "remote-api-0", "tenant-a", 2)
 	s := newTestServer(t)
 	s.workloads = newRemoteWorkloadRegistry(t, now,
 		workloadReportFor("cluster-a", "node-a", "tenant-a", "remote-api-0", "remote-api", now),
 	)
 	s.remoteStuns = newRemoteStunTestStore(&remoteStunTestClock{current: now})
 	s.callerKeys = remoteCallerKeys(t)
+	s.keyRegistry = reg
+	s.resumePolicy = dualPolicy()
+	s.replayLedger = NewReplayLedger()
 	stun := s.remoteStuns.Request("cluster-a", "tenant-a", "remote-api-0", "reason", "warden")
 
 	response := call(
@@ -603,7 +609,7 @@ func TestRemoteResume(t *testing.T) {
 		s.routes(),
 		http.MethodPost,
 		"/api/v1/fleet/resume/remote-api-0",
-		`{}`,
+		remoteResumeBody(t, token, "idem-remote-resume"),
 		"Bearer "+operatorRemoteKey,
 	)
 	if response.Code != http.StatusAccepted {
@@ -618,12 +624,15 @@ func TestRemoteResume(t *testing.T) {
 	unknown.workloads = s.workloads
 	unknown.remoteStuns = newRemoteStunTestStore(&remoteStunTestClock{current: now})
 	unknown.callerKeys = remoteCallerKeys(t)
+	unknown.keyRegistry = reg
+	unknown.resumePolicy = dualPolicy()
+	unknown.replayLedger = NewReplayLedger()
 	response = call(
 		t,
 		unknown.routes(),
 		http.MethodPost,
 		"/api/v1/fleet/resume/remote-api-0",
-		`{}`,
+		remoteResumeBody(t, token, "idem-remote-unknown"),
 		"Bearer "+operatorRemoteKey,
 	)
 	if response.Code != http.StatusNotFound {

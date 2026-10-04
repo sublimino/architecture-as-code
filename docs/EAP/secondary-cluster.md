@@ -64,18 +64,23 @@ implements it.
 | :--- | :--- | :--- | :--- |
 | DaemonSet `signalloom-warden` | `fe-signalloom-agents` | [`daemonset.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml) | One pod per node. `hostPID`, `hostNetwork`, `dnsPolicy: ClusterFirstWithHostNet`, tolerates every taint. |
 | ServiceAccount `signalloom-warden` | `fe-signalloom-agents` | [`service-account.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/service-account.yaml) | |
-| Role `signalloom-warden` | `fe-signalloom-agents` | [`agent-swarm/rbac.yaml`](../../d2-signalloom/infra/agent-swarm/rbac.yaml) | `pods: get, list, watch, patch` and `replicasets, deployments: get`. ADR-14 keeps the Role in the base. |
+| Role `signalloom-warden` | `fe-signalloom-agents` | [`remote-tenant/role.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant/role.yaml) | `pods: get, list, watch, patch` and `replicasets, deployments: get`. Rendered by the overlay. A test pins it to the central copy. |
 | RoleBinding `signalloom-warden` | `fe-signalloom-agents` | [`rbac.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml) | Binds the ServiceAccount to the Role. |
 | ConfigMap `signalloom-warden-config` | `fe-signalloom-agents` | [`configmap.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/configmap.yaml) | `SIGNAL_INGEST_URL`, `FLEET_MANAGER_URL`, `SENTINEL_TENANT_MAP`. The overlay patches the two URLs. |
 | Secret `signalloom-warden-ingest-token` | `fe-signalloom-agents` | Copied from the central cluster | Key `token`. The value of the `signal-ingest` named key `signalloom-warden`. |
-| Secret `signalloom-warden-fleet-key` | `fe-signalloom-agents` | Copied from the central cluster | Key `token`. The value of the `fleet-manager` caller key `signalloom-warden`. |
+| Secret `signalloom-warden-fleet-key` | `fe-signalloom-agents` | Copied from the central cluster | Key `token`. The value of the `fleet-manager` caller key `warden`, scope `report`. |
+| Secret `signalloom-hub-ca` | `fe-signalloom-agents` | Created by the pilot | Optional. A PEM bundle for the hub's certificate. See [step 5](#5-check-the-network-path-and-tls). |
 | CronJob `signalloom-rbac-exporter` | `fe-signalloom-agents` | [`rbac-exporter-cronjob.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/rbac-exporter-cronjob.yaml) | Rendered by the base. Not usable on a remote cluster in this tree. See [the RBAC exporter](#the-rbac-exporter). |
 
 The overlay does not render SPIRE, OpenBao, `signal-ingest`, `fe-signalloom`,
-or the dashboard. It does not render the Role either. The Role comes from
-[`agent-swarm/rbac.yaml`](../../d2-signalloom/infra/agent-swarm/rbac.yaml),
-which the base `signalloom-warden` Kustomization does not include. You apply
-it in [step 3](#3-apply-the-warden-overlay).
+or the dashboard. It does render the Role, from
+[`remote-tenant/role.yaml`](../../d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant/role.yaml).
+The base ships the RoleBinding and not the Role, because ADR-14 keeps the Role
+one layer earlier on the central cluster. A remote cluster runs no such layer,
+so the overlay carries its own copy. The copy is a deliberate trade, and `role.yaml` records why. Kustomize refuses
+a file above its own root. A reference would therefore need a flag on every
+render. `test/signalloom-warden-manifests.bats`
+fails if the two copies disagree, so RBAC cannot drift.
 
 ### Image
 
@@ -116,16 +121,43 @@ fails if a mount or capability is added without a reason.
 | `SIGNAL_INGEST_URL` | ConfigMap | `https://dashboard.osramp.acme.local/warden-ingest` |
 | `FLEET_MANAGER_URL` | ConfigMap | `https://dashboard.osramp.acme.local/warden-fleet` |
 | `SENTINEL_TENANT_MAP` | ConfigMap | The base map. It names the central cluster's agents, not Kusari's. See [step 4](#4-map-your-workloads-to-the-tenant). |
-| `SIGNAL_INGEST_TOKEN` | Secret `signalloom-warden-ingest-token`, key `token`, optional | |
-| `FLEET_MANAGER_STUN_KEY` | Secret `signalloom-warden-fleet-key`, key `token`, optional | |
+| `SIGNAL_INGEST_TOKEN` | Secret `signalloom-warden-ingest-token`, key `token`, required | |
+| `FLEET_MANAGER_STUN_KEY` | Secret `signalloom-warden-fleet-key`, key `token`, required | |
+| `SIGNAL_CLUSTER_ID` | literal | `kusari-prod`. Change it per pilot. |
+| `FLEET_REPORT_INTERVAL` | literal | `60s`. The report period. |
+| `FLEET_POLL_INTERVAL` | literal | `10s`. The stun-state poll period. |
+| `SIGNAL_TLS_CA_FILE` | literal, with a mount | `/etc/signalloom/hub-ca/ca.pem` from optional Secret `signalloom-hub-ca`. |
+| `SIGNAL_TLS_INSECURE_SKIP_VERIFY` | `remote-tenant-dev` only | Unset in `remote-tenant`. |
+| `SIGNAL_DEV_MODE` | `remote-tenant-dev` only | Unset in `remote-tenant`. |
 | `STUN_FREEZE_TOKEN`, `STUN_RESUME_TOKEN` | Secret `signalloom-warden-governance`, optional | Gate the warden's own cgroup writes. Absent in the overlay. |
 | `NODE_NAME`, `POD_NAME`, `POD_NAMESPACE`, `POD_UID` | downward API | Self-identity. The warden never freezes itself. |
 | `HEALTH_ADDR` | literal | `:8081`. Serves `/healthz`, `/readyz`, `/metrics` only. |
 
-WARNING: Both key references are `optional: true`. A warden that starts
-before its Secrets exist runs without keys. It then logs every observation to
-stdout and drops it, and it never records a stun. Create the Secrets before
-you apply the DaemonSet, or restart the DaemonSet after.
+Both key references are required in this overlay, unlike the central cluster
+where both are optional. A remote warden with no keys cannot report its
+workloads and cannot record a stun, so the hub never learns the cluster exists.
+A pod created before its Secrets therefore waits in `ContainerCreating` instead
+of running and doing nothing. Apply the two Secrets first and the wait is zero.
+
+### Every parameter of the overlay
+
+The overlay's own `kustomization.yaml` carries this table and a note on each
+row. It is repeated here so a reader of this page does not have to open the
+manifest.
+
+| Parameter | Where to change it |
+| :--- | :--- |
+| `SIGNAL_INGEST_URL`, `FLEET_MANAGER_URL` | the ConfigMap patch in `kustomization.yaml` |
+| `SENTINEL_TENANT_MAP` | the ConfigMap patch in `kustomization.yaml` |
+| `SIGNAL_CLUSTER_ID` | `daemonset-remote.yaml` |
+| `FLEET_REPORT_INTERVAL`, `FLEET_POLL_INTERVAL` | `daemonset-remote.yaml` |
+| `SIGNAL_TLS_CA_FILE`, Secret `signalloom-hub-ca` | `daemonset-remote.yaml` |
+| `SIGNAL_TLS_INSECURE_SKIP_VERIFY`, `SIGNAL_DEV_MODE` | the `remote-tenant-dev` overlay |
+
+The first three rows are ConfigMap keys, so an operator can patch them on a
+live cluster and restart the DaemonSet. The rest are literals on the pod
+template. Each one is a statement about what the cluster is, so such a change
+should arrive as a commit.
 
 ## Hub-side prerequisites
 
@@ -140,7 +172,7 @@ Neither prints a key value.
 | Key | Script | Make target | Issuer Secret (central) | Consumer Secret (central) |
 | :--- | :--- | :--- | :--- | :--- |
 | `signal-ingest` key `signalloom-warden` | [`scripts/sldc-ingest-bearer.sh`](../../scripts/sldc-ingest-bearer.sh) | `make sldc-ingest-keys CONTEXT=<ctx>` | `fe-signalloom/signal-ingest-key-signalloom-warden`, keys `token` and `expires` | `fe-signalloom-agents/signalloom-warden-ingest-token`, key `token` |
-| `fleet-manager` caller key `signalloom-warden` | [`scripts/fleet-manager-caller-keys.sh`](../../scripts/fleet-manager-caller-keys.sh) | `make fleet-manager-keys CONTEXT=<ctx>` | `fe-signalloom/fleet-manager-caller-keys`, key `signalloom-warden` | `fe-signalloom-agents/signalloom-warden-fleet-key`, key `token` |
+| `fleet-manager` caller key `warden` | [`scripts/fleet-manager-caller-keys.sh`](../../scripts/fleet-manager-caller-keys.sh) | `make fleet-manager-keys CONTEXT=<ctx>` | `fe-signalloom/fleet-manager-caller-keys`, key `warden` | `fe-signalloom-agents/signalloom-warden-fleet-key`, key `token` |
 
 `demo-signalloom-up` runs both targets first, then `afm-importer-key`
 ([`Makefile`](../../Makefile), target `demo-signalloom-up`). The comment there
@@ -156,10 +188,22 @@ warden DaemonSet.
 The grant of the `signalloom-warden` ingest key is `observations:write` and
 `tenant:cross-write` for tenant `kusari`
 ([`jwt-auth-config.yaml`](../../d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml),
-`SIGNAL_AUTH_STATIC_KEYS`). The key cannot read anything. The `fleet-manager`
-caller `signalloom-warden` has the scope `stun` only
-([`fleet-manager/base/deployment.yaml`](../../d2-signalloom/apps/fleet-manager/base/deployment.yaml),
-`FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES`).
+`SIGNAL_AUTH_STATIC_KEYS`). The key cannot read anything.
+
+There are two `fleet-manager` callers for the warden, and a remote cluster gets
+the second one
+([`fleet-manager/base/deployment.yaml`](../../d2-signalloom/apps/fleet-manager/base/deployment.yaml)).
+
+| Caller | Scope | Who holds it | What it may do |
+| :--- | :--- | :--- | :--- |
+| `signalloom-warden` | `stun` | the warden on the central cluster | record a freeze it already performed |
+| `warden` | `report` | the warden on a remote cluster | report workloads, read stun state, acknowledge it |
+
+Two callers rather than one widened caller. `stun` lets a caller request a
+freeze of any agent the hub knows, including the central cluster's own. A
+remote node reports what it sees and obeys what it is told, so it needs none of
+that. One key carrying both scopes would let a pilot cluster freeze the central
+estate. The scopes are disjoint and each has its own Secret key.
 
 Check, on the central cluster:
 
@@ -172,20 +216,24 @@ The first command prints a date within 90 days. The second lists both Secrets.
 
 ### 2. Copy the two consumer Secrets to the Kusari cluster
 
-The Secrets travel as Kubernetes objects. The operator exports them from the
-central cluster and Kusari applies them.
+The Secrets travel as Kubernetes objects. One command on the central cluster
+writes both, under the names the overlay reads.
 
 ```bash
 # Operator, on the central cluster
-for s in signalloom-warden-ingest-token signalloom-warden-fleet-key; do
-  kubectl --context "$CENTRAL" -n fe-signalloom-agents get secret "$s" -o json \
-    | jq 'del(.metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp, .metadata.managedFields, .metadata.ownerReferences)' \
-    > "/secure/transfer/$s.json"
-done
+scripts/fleet-manager-caller-keys.sh --context "$CENTRAL" \
+  --emit-remote-secrets /secure/transfer
 ```
 
-Hand the two files to Kusari over an agreed secure channel. Kusari applies them
-in [step 2 of the Kusari steps](#2-create-the-namespace-and-the-secrets).
+It writes `signalloom-warden-fleet-key.yaml` (the `warden` caller key) and
+`signalloom-warden-ingest-token.yaml` to a directory it creates mode `0700`,
+each file mode `0600`. It reads the ingest key rather than minting one, so run
+`scripts/sldc-ingest-bearer.sh --context "$CENTRAL" --key signalloom-warden`
+first. That script takes the same flag for its own consumer Secrets.
+
+The two files hold key material in clear base64. Hand them to Kusari over an
+agreed secure channel, then delete them. Kusari applies them in
+[step 2 of the Kusari steps](#2-create-the-namespace-and-the-secrets).
 
 ### 3. Confirm the gateway route exists
 
@@ -213,8 +261,8 @@ Expected output:
 
 1. Run `kubectl apply -f d2-signalloom/infra/agent-swarm/namespace.yaml`. The
    file is [`namespace.yaml`](../../d2-signalloom/infra/agent-swarm/namespace.yaml).
-2. Run `kubectl apply -f /secure/transfer/signalloom-warden-ingest-token.json`.
-3. Run `kubectl apply -f /secure/transfer/signalloom-warden-fleet-key.json`.
+2. Run `kubectl apply -f /secure/transfer/signalloom-warden-ingest-token.yaml`.
+3. Run `kubectl apply -f /secure/transfer/signalloom-warden-fleet-key.yaml`.
 4. Delete the transfer files.
 
 Check: `kubectl -n fe-signalloom-agents get secret` lists both Secrets, each
@@ -222,14 +270,17 @@ with one data key, `token`.
 
 ### 3. Apply the warden overlay
 
-1. Run `kubectl apply -f d2-signalloom/infra/agent-swarm/rbac.yaml`. This
-   creates the Role the RoleBinding needs. ADR-14 records why the Role must
-   exist before the binding is applied.
-2. Run `kubectl apply -k d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant`.
-3. Wait for the DaemonSet: `kubectl -n fe-signalloom-agents rollout status ds/signalloom-warden`.
+1. Run `kubectl apply -k d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant`.
+2. Wait for the DaemonSet: `kubectl -n fe-signalloom-agents rollout status ds/signalloom-warden`.
 
-NOTE: The agent-swarm `rbac.yaml` also defines Roles for the other swarm
-agents. They are harmless on the Kusari cluster, but they are not needed.
+That one command is the whole apply. The overlay renders the Role as well, so
+there is no separate `kubectl apply -f` of the agent-swarm RBAC and no chance
+of skipping it. Skipping it used to produce a `Running` pod whose pod informer
+was forbidden, which reads as a broken probe rather than as a missing Role.
+
+Set the three parameters that are specific to your cluster before this step:
+`SIGNAL_CLUSTER_ID` in `daemonset-remote.yaml`, the two hub URLs, and
+`SENTINEL_TENANT_MAP`. The map is covered in [step 4](#4-map-your-workloads-to-the-tenant).
 
 Check: every warden pod is `Running` and `1/1`. Then read the readiness
 endpoint on one pod:
@@ -257,8 +308,9 @@ frozen, and its observations carry `tenant_id: __unattributed__`
 
 The tenant never comes from a pod label. It comes from `SENTINEL_TENANT_MAP`,
 one `namespace/serviceaccount=tenant` or `namespace=tenant` entry per line. The
-remote-tenant overlay does not patch the map, so it ships the central cluster's
-agents.
+remote-tenant overlay replaces the whole map with one entry,
+`fe-signalloom-agents=kusari`, so a pilot pod is attributed to the pilot tenant
+and never to `__unattributed__`. Change the tenant name there if yours differs.
 
 1. Label every Kusari workload pod template with `signalloom.ai/agent: "true"`
    and `signalloom.ai/tenant: kusari`. Run them in `fe-signalloom-agents`, or
@@ -291,18 +343,32 @@ must hold on every node.
    URL.
 3. The certificate chain validates. The central cluster's certificate comes
    from a self-signed `ClusterIssuer`
-   ([`cluster-issuer.yaml`](../../d2-infra/components/cert-manager/configs/base/cluster-issuer.yaml)).
-   The warden's HTTP clients use the Go default transport with the container's
-   system roots and have no CA option
-   ([`ebpf_correlator.go`](../../d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go),
-   `httpClient`, and [`fleetstun.go`](../../d2-signalloom/apps/signalloom-stun-sentinel/fleetstun.go)).
+   ([`cluster-issuer.yaml`](../../d2-infra/components/cert-manager/configs/base/cluster-issuer.yaml)),
+   which no node trusts. Mount the hub's CA so the warden's two HTTP clients
+   add it to their root pool.
 
-WARNING: With the self-signed certificate the warden's posts fail with
+```bash
+# Operator, on the central cluster
+kubectl --context "$CENTRAL" -n ingress get secret cluster-tls \
+  -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.pem
+
+# Kusari
+kubectl -n fe-signalloom-agents create secret generic signalloom-hub-ca \
+  --from-file=ca.pem
+```
+
+The overlay already sets `SIGNAL_TLS_CA_FILE` to `/etc/signalloom/hub-ca/ca.pem`
+and mounts that Secret, so no manifest change is needed. The mount is optional,
+so a hub that serves a publicly trusted certificate needs no Secret at all.
+
+WARNING: Without a trusted chain the warden's posts fail with
 `x509: certificate signed by unknown authority`. Observations go to the spool
-and stun records are retried six times and then dropped. There is no
-environment variable for a CA bundle and no mount for one. Until the central
-cluster serves a certificate from a CA the nodes trust, or the image carries
-the CA, the forwarding path does not work. See
+and stun records are retried and then dropped. A lab that cannot present a
+trusted certificate uses the `remote-tenant-dev` overlay, which sets
+`SIGNAL_TLS_INSECURE_SKIP_VERIFY=true` and `SIGNAL_DEV_MODE=true`. The warden
+refuses to start with the first of those unless the second is also set.
+Verification can therefore never be skipped by one stray variable. Never apply that
+overlay to a pilot cluster. See
 [faq-and-limits](faq-and-limits.md#the-warden-cannot-reach-the-hub).
 
 Check, from a warden pod, once the record and certificate are in place:
@@ -374,7 +440,17 @@ is applied by hand and posts to its own `signal-ingest`, not across the bridge.
 Map yourself onto `kind-signalloom-hub` when you read those records, and onto
 `kind-osramp` for the services you talk to.
 
-No test in the tree renders the `remote-tenant` overlay or exercises the
-`/warden-ingest` and `/warden-fleet` routes.
 [`test/signalloom-warden-manifests.bats`](../../test/signalloom-warden-manifests.bats)
-renders the two kind overlays only.
+renders all four overlays. For `remote-tenant` and `remote-tenant-dev` it
+checks every parameter in the table above. It also checks the Role against the
+central copy, the two required key references, and the route naming no
+method. It cannot
+check that the routes carry live traffic.
+
+[`scripts/remote-tenant-lab.sh`](../../scripts/remote-tenant-lab.sh) does that,
+against the two local Kind clusters. It mints the keys and applies the Secrets and
+the `remote-tenant-dev` overlay. It then waits for the workload report, stuns a
+remote pod, waits for the acknowledgement, resumes and waits again. Last it
+prints a pass or fail table. `--dry-run` prints every step and changes nothing.
+[`test/remote-tenant-lab.bats`](../../test/remote-tenant-lab.bats) covers the
+dry run.

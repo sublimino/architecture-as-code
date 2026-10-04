@@ -5,6 +5,8 @@ go 1.27.0
 require (
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/cilium/tetragon/api v1.1.0
+	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine v0.0.0
+	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel v0.0.0-00010101000000-000000000000
 	github.com/google/cel-go v0.30.0
 	github.com/lib/pq v1.12.3
 	github.com/polarsignals/frostdb v0.0.0-20260121113628-9e5cfe0171ad
@@ -23,7 +25,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine v0.0.0
 	github.com/coreos/etcd v3.3.27+incompatible // indirect
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
 	github.com/coreos/pkg v0.0.0-20220810130054-c7d1c02cb6cf // indirect
@@ -78,6 +79,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250106144421-5f5ef82da422 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine => ../policy-engine

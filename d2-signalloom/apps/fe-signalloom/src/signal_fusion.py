@@ -16,8 +16,9 @@ import httpx
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api_compat import APIError, Principal, authenticated_principal
+from api_compat import APIError, Principal, _audit_outbound_request, authenticated_principal
 from ingest_client import ingest_headers
+from superadmin import require_superadmin
 
 logger = logging.getLogger(__name__)
 
@@ -171,14 +172,35 @@ async def query_authorization(
     return await _proxy("GET", "/api/v1/authorization", principal, params=params)
 
 
+#: Event type admitted by migration 055.
+EVENT_ACTOR_PROMOTE = "actor.promote_requested"
+
+
 @router.post("/actors/{actor_id}/promote")
 async def promote_actor(
     actor_id: str,
-    principal: Annotated[Principal, Depends(authenticated_principal)],
+    principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> JSONResponse:
-    """Promote a provisional actor to the agent registry."""
+    """Promote a provisional actor to the agent registry. Superadmin only.
+
+    Promotion is the Weave's highest-stakes decision: it turns a provisional
+    correlation into an actor the product acts on. So the gate is
+    ``require_superadmin`` over the verified principal, and the request is
+    audited *before* it is forwarded, so an attempted promotion cannot happen
+    unrecorded even if signal-ingest then refuses it. The event names a
+    request; the outcome (``actor_promoted``) is signal-ingest's own record.
+
+    ``write=True``: a write acts for the caller's own tenant, never ``*``, so a
+    superadmin promotes actors in the tenant it is bound to and signal-ingest
+    answers another tenant's actor like an absent one (404), passed through.
+    """
     quoted = urllib.parse.quote(actor_id, safe="")
-    return await _proxy("POST", f"/api/v1/actors/{quoted}/promote", principal)
+    # The literal sits at the call site so test_audit_event_types can resolve
+    # it; EVENT_ACTOR_PROMOTE names the same string for callers and tests.
+    await _audit_outbound_request(
+        principal, "actor.promote_requested", {"actor_id": actor_id}, "actor promote",
+    )
+    return await _proxy("POST", f"/api/v1/actors/{quoted}/promote", principal, write=True)
 
 
 @router.get("/coverage")

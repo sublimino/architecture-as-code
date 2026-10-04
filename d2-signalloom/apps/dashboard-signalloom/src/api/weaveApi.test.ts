@@ -62,11 +62,11 @@ describe('weaveApi live-mode endpoints', () => {
     expect(mockReq).toHaveBeenCalledWith('/signals/coverage', 'tok')
   })
 
-  it('promoteActor calls req with POST /signals/actors/:id/promote', async () => {
+  it('promoteActor calls req with POST /signals/actors/:id/promote, id encoded', async () => {
     const { weaveApi } = await import('./weaveApi')
-    await weaveApi.promoteActor('tok', 'actor-001')
+    await weaveApi.promoteActor('tok', 'actor/001')
     expect(mockReq).toHaveBeenCalledWith(
-      '/signals/actors/actor-001/promote',
+      '/signals/actors/actor%2F001/promote',
       'tok',
       { method: 'POST' },
     )

@@ -6,6 +6,7 @@ package policy
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -434,4 +435,18 @@ func countSource(t *testing.T, st store.SignalStore, source string) int {
 		}
 	}
 	return n
+}
+
+// testLogger routes package logs into the test's output so a warm-up or load
+// warning is attributable to the test that provoked it.
+func testLogger(t *testing.T) *slog.Logger {
+	t.Helper()
+	return slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
+}
+
+type testWriter struct{ t *testing.T }
+
+func (w testWriter) Write(p []byte) (int, error) {
+	w.t.Logf("%s", p)
+	return len(p), nil
 }

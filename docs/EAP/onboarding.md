@@ -44,12 +44,15 @@ Two other identities exist. `demo-user@signalloom.local` is the superadmin and
 maps to `tenant-demo`. `viewer@signalloom.local` is a plain user of
 `tenant-demo`. Neither sees tenant `kusari` data through tenant-scoped routes.
 
-NOTE: The superadmin check is a name match. The portal matches
-`demo-user@signalloom.local` or subject `demo-user`
-([`superadmin.py:20-21`](../../d2-signalloom/apps/fe-signalloom/src/superadmin.py)).
-The dashboard matches the same email or `preferred_username`
-([`superadmin.ts:18-35`](../../d2-signalloom/apps/dashboard-signalloom/src/auth/superadmin.ts)).
-No group claim and no role table is read.
+NOTE: The superadmin check is an allow-list, not a role table and not a group
+claim. The Deployment sets `API_SUPERADMIN_EMAILS` and
+`API_SUPERADMIN_SUBJECTS` explicitly. `superadmin.py` carries the same demo
+values as defaults. The dashboard follows the server. `GET /api/v1/me` returns
+`subject`, `tenant`, `email` and `superadmin`, the same verdict
+`require_superadmin` applies. The browser-side name match in
+[`superadmin.ts`](../../d2-signalloom/apps/dashboard-signalloom/src/auth/superadmin.ts)
+is now the pre-flight answer for the first render only, and a failed request
+never promotes.
 
 ## 1. Get an identity
 
@@ -115,7 +118,7 @@ The wizard steps are, in order
 | Step | Asks for | What it does |
 | :--- | :--- | :--- |
 | Organization and Identity | Organisation name, workspace id, admin email, environment, description | Saves the form with `PUT /api/onboarding/state`. It does not create a tenant and does not bind you to one. |
-| Identity Provider | Issuer URL, client id, client secret, scopes | Saves the form. **Test Connection** is a client-side simulation and sends no request. |
+| Identity Provider | Issuer URL, client id, client secret, scopes | Saves the form. **Test Connection** is a client-side simulation and sends no request. See [faq-and-limits](faq-and-limits.md#summary-table). |
 | Containment and Consent | Policy tier, zero-trust identity, autonomous containment, audit retention | Saves the form. **Complete** calls `POST /api/onboarding/complete`. |
 
 You can select **Skip**. It calls `POST /api/onboarding/skip`, records the
@@ -131,7 +134,7 @@ but the wizard does not import them. The tenant is fixed by the subject map in
 
 ## 4. How your agents appear
 
-The portal does not read the Kusari cluster. It gets the agent list from the
+The portal reads two sources. It gets the central agent list from the
 discovery service `fake-integration-proxy` in the central cluster
 ([`api_compat.py:49-52`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py)).
 That service lists pods that carry the label `signalloom.ai/agent=true` in the
@@ -143,9 +146,21 @@ central cluster. The pilot stub `agent-kusari` is one of them. Its Deployment
 carries `signalloom.ai/tenant: kusari` and `signalloom.ai/model: deterministic`
 ([`deployment.yaml:18-20`](../../d2-signalloom/infra/agent-swarm/kusari-agent/deployment.yaml)).
 
-Workloads on the Kusari cluster do not appear on `/agents` in this tree. The
-warden on that cluster still observes them and posts observations and stun
-records to the central cluster. Those appear on `/weave`. See
+Workloads on the Kusari cluster appear on `/agents` too, through
+`fleet-manager`'s workload registry. The warden reports the pods on its node,
+and the portal merges that registry
+([`fleet_workloads.py`](../../d2-signalloom/apps/fe-signalloom/src/fleet_workloads.py)).
+A remote row carries `origin: "remote"` with `cluster_id`, `pod` and `frozen`.
+Its id is `remote:<cluster>/<namespace>/<pod>`.
+
+The registry is an inventory, not a governance record. A remote pod cannot be
+claimed. It has no cAdvisor telemetry and no local pod object, so its dossier
+degrades rather than inventing one.
+
+Reading the registry needs `FLEET_MANAGER_READ_KEY`, a `fleet-manager` caller
+key with scope `read`. Without it `/api/agents` reports
+`source_health_detail.remote_registry` as `unavailable` and lists no remote
+workload. See
 [faq-and-limits](faq-and-limits.md#my-cluster-workloads-are-not-on-the-agents-page).
 
 A discovered agent becomes a governed agent when a user claims it. The claim is
@@ -164,11 +179,15 @@ never invents a model name.
 Check: the row shows a governed lifecycle state, and `/audit` shows a claim
 event for the agent.
 
-CAUTION: The agent list itself is not filtered by tenant. Every discovered
-workload in the two namespaces is listed for every signed-in user
-([`api_compat.py:3586-3634`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py)).
-Only registry rows and claims are tenant-scoped. Do not treat the list as a
-tenant boundary.
+The agent list is filtered by tenant. You see a discovered, registry or remote
+workload only when its declared `signalloom.ai/tenant` is exactly yours. A
+superadmin sees every tenant's.
+
+A workload that declares no tenant is shown to nobody. That hides the
+platform's own `controlplane`-labelled agents and any unlabelled workload.
+Neither was claimable
+([`api_compat.py`](../../d2-signalloom/apps/fe-signalloom/src/api_compat.py),
+`_visible_to_tenant`).
 
 ## 5. Where to go next
 

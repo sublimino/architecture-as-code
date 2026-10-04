@@ -7,6 +7,9 @@ resources:
   # test/networkpolicy-coverage.bats fails if any workload in the namespace
   # loses its egress policy.
   - networkpolicy.yaml
+  # Before deployment.yaml, which mounts it: the Deployment's claimName names
+  # this object, and a pod whose claim does not exist stays Pending forever.
+  - pvc.yaml
   - deployment.yaml
   - service.yaml
   # Every route is authenticated (api.ProtectedRouter), and main refuses to

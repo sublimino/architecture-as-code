@@ -41,27 +41,28 @@ goes to `/weave`. An unknown path goes to `/agents`.
 
 | | |
 | :--- | :--- |
-| Shows | A three-step wizard: Organization and Identity, Identity Provider, Containment and Consent |
+| Shows | A welcome screen for a tenant with no progress, then five steps: Organization and Identity, Identity Provider, Scan preferences, API key, Containment and Consent |
 | Component | [`OnboardingWizard.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/OnboardingWizard.tsx) |
-| Reads | `GET /api/onboarding/status`, `GET /api/onboarding/state` |
-| Actions | **Next** and **Back** save with `PUT /api/onboarding/state`. **Complete** calls `POST /api/onboarding/complete`. **Skip** calls `POST /api/onboarding/skip`. |
+| Reads | `GET /api/onboarding/status`, `GET /api/onboarding/state`, `GET /api/tenant/settings`, and `GET /api/v1/me` on **Test Connection** |
+| Actions | **Next** and **Back** save with `PUT /api/onboarding/state`. **Continue** on Scan preferences calls `PATCH /api/tenant/settings/preferences`. **Reveal my API key** calls `POST /api/tenants/{tenant}/api-keys/initial` after a confirmation. **Complete** calls `POST /api/onboarding/complete`. **Skip** calls `POST /api/onboarding/skip`. |
 | Who | Any signed-in user, for their own tenant |
 | Spec | [`onboarding.spec.ts`](../../test/acceptance/onboarding.spec.ts): the full walkthrough, skip, and back-and-forward persistence |
 
 The wizard does not create a tenant, does not bind you to one, and has no
-cluster or connector step. **Test Connection** on step 2 sends no request.
-See [onboarding](onboarding.md#3-what-you-see-first).
+cluster or connector step. **Test Connection** proves the session against
+the portal, not the issuer URL in the form. See
+[onboarding](onboarding.md#3-what-you-see-first).
 
 ## /redeem-invite
 
 | | |
 | :--- | :--- |
-| Shows | A "Create your workspace" form, gated on `?code=SL-XXXX-XXXX` |
+| Shows | A one-field form for the invite token, prefilled from `?token=` (`?code=` still works) |
 | Component | [`RedeemInvite.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/RedeemInvite.tsx) |
-| Actions | Submit posts to `/api/registry/signup` |
-| Who | Nobody. The portal has no route at that path. |
+| Actions | **Redeem invite** posts the token with your session token to `POST /api/v1/invites/redeem` and shows the tenant you are now bound to |
+| Who | Any Dex identity the portal can verify, with or without a tenant. A subject already bound to a different tenant gets `409`. |
 
-Do not use this page. See [onboarding](onboarding.md#1-get-an-identity).
+See [onboarding](onboarding.md#1-get-an-identity) for how an invite is issued.
 
 ## /agents
 
@@ -114,8 +115,8 @@ which samples containers named `kusari-agent` and the namespace
 | Shows | Live observations from the signal layers, converging on provisional actors, with an evidence drawer and a coverage panel |
 | Component | [`WeavePage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx) |
 | Reads | `GET /api/signals/observations`, `GET /api/signals/actors`, `GET /api/signals/coverage`, stream `GET /api/signals/observations/stream` |
-| Actions | **Seed fixtures** calls `POST /api/signals/collectors/seed`. **Promote** renders for an actionable actor but has no click handler. See [faq-and-limits](faq-and-limits.md#summary-table). |
-| Who | Any signed-in user. Reads act for the user's tenant. |
+| Actions | **Seed fixtures** calls `POST /api/signals/collectors/seed`. **Promote** on an actionable actor asks for confirmation, then calls `POST /api/v1/actors/{id}/promote` ([`WeavePage.tsx:120`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx)), which the portal proxies to `signal-ingest` behind `require_superadmin` ([`actor_promote.py:50-68`](../../d2-signalloom/apps/fe-signalloom/src/actor_promote.py)). A refusal is shown on the card. |
+| Who | Any signed-in user. Reads act for the user's tenant. **Promote** is superadmin only and acts for the superadmin's own tenant. |
 | Spec | [`cloudaudit-dashboard.spec.ts`](../../test/acceptance/cloudaudit-dashboard.spec.ts), [`risk-audit.spec.ts`](../../test/acceptance/risk-audit.spec.ts) "Surface 5" |
 
 This is the page where a warden observation from the Kusari cluster appears,
@@ -139,7 +140,10 @@ user. See [secondary-cluster](secondary-cluster.md#4-map-your-workloads-to-the-t
 
 Events come from the `audit_events` table of the portal, scoped by
 `tenant_id`. Claims, credential actions, compliance scans, and stuns proxied
-through the portal appear here. A stun recorded by the warden straight to
+through the portal appear here. So do `invite.created` and `invite.redeemed`,
+filed under the invite's tenant, and `actor.promote_requested`, filed under
+the superadmin's own tenant
+([`AuditTrail.tsx:68-70`](../../d2-signalloom/apps/dashboard-signalloom/src/views/AuditTrail.tsx)). A stun recorded by the warden straight to
 `fleet-manager` does not.
 
 ## /compliance

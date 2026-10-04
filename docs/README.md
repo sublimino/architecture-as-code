@@ -49,7 +49,7 @@ flowchart TB
     BACK["deploying-a-backend-service.md"]
     RB["gcp-demo/RUNBOOK.md"]
     OPS["gcp-demo/OPERATIONS.md"]
-    KUS["kusari/ pilot pages"]
+    KUS["EAP/ pilot pages"]
   end
 
   subgraph debug["3 · Debug it"]

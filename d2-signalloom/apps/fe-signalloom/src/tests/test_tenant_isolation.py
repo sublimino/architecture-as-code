@@ -722,6 +722,7 @@ def _template_for(concrete: str) -> str:
 #: that stops being true the sweep must gain it.
 NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/v1/auth/check"),                       # role check only, no data; covered by test_auth_check
+    ("POST", "/api/v1/afm/clusters/import"),             # key-authenticated gateway bound to one cluster, no DB; SLTM-P1-1
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results

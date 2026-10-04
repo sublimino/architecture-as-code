@@ -740,9 +740,13 @@ async def _trigger_cluster_scan(
         }
 
         try:
+            # KubeSec-AFM's escalation model forbids extra inputs (pydantic extra="forbid"):
+            # a body carrying trigger_source is answered 422 and no scan is queued. The
+            # trigger source is Signal Loom's own record (audited above, returned below),
+            # not an upstream field. Seen on the 2026-10-03 cold estate.
             afm_res = await client.post(
                 f"{AFM_BASE_URL}/clusters/{cluster_id}/analysis/escalation",
-                json={"trigger_source": trigger_source},
+                json={},
             )
         except httpx.HTTPError as exc:
             logger.warning("rbac_correlation: scan request for %s failed: %s", cluster_id, exc)

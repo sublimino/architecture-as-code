@@ -142,11 +142,14 @@ def test_an_unauthenticated_caller_is_401_and_nothing_is_sent(outbound):
 
 
 def test_the_federation_proxy_never_forwards_a_client_written_acting_tenant(outbound):
+    # The federation proxy presents the gateway key like every other signal-ingest proxy, so the
+    # acting headers are always the validated principal's: a client-written "*"/root never survives.
     forged = {"X-SignalLoom-Acting-Tenant": "*", "X-SignalLoom-Acting-Subject": "root"}
     call(USER, "GET", "/api/v1/federation/peers", headers=forged)
     req = only(outbound, "/api/v1/federation/peers")
-    assert "x-signalloom-acting-tenant" not in req.headers
-    assert "x-signalloom-acting-subject" not in req.headers
+    assert req.headers["authorization"] == f"Bearer {GATEWAY_KEY}"
+    assert req.headers["x-signalloom-acting-tenant"] == "kusari"
+    assert req.headers["x-signalloom-acting-subject"] == "alice"
 
 
 # The claim flows sync delegation edges into signal-ingest outside any request handler, so they name

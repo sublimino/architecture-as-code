@@ -1,8 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { afm, config, guards, login } from "./helpers";
+import { afm, config, guards, login, getAuthToken } from "./helpers";
 
 test.describe("RBAC analysis importer", () => {
   let importedClusterId: string | undefined;
+  // The AFM mutation gate needs the page's Dex bearer; the worker-scoped
+  // `request` fixture inherits cookies only, so the test body captures it.
+  let bearer: string | undefined;
 
   test.beforeAll(async ({ request }) => {
     test.skip(!guards.afmDeployed(), "k8s-afm slice not deployed — run: make demo-k8s-afm-up");
@@ -12,7 +15,10 @@ test.describe("RBAC analysis importer", () => {
   test.afterEach(async ({ request }) => {
     if (!importedClusterId) return;
 
-    const deletion = await request.delete(`${config.base}/afm/clusters/${importedClusterId}`);
+    expect(bearer, "no OIDC token captured before the import").toBeTruthy();
+    const deletion = await request.delete(`${config.base}/afm/clusters/${importedClusterId}`, {
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
     expect(deletion.ok()).toBeTruthy();
     importedClusterId = undefined;
   });
@@ -46,6 +52,8 @@ test.describe("RBAC analysis importer", () => {
     await afmFrame.getByRole("link", { name: "Import", exact: true }).click();
     await expect(afmFrame.getByRole("heading", { name: "Import RBAC Data" })).toBeVisible();
 
+    bearer = (await getAuthToken(page)) ?? undefined;
+    expect(bearer, "no OIDC token in page storage").toBeTruthy();
     const importId = `signalloom-agents-e2e-${Date.now()}`;
     await afmFrame.getByLabel("ID (optional)").fill(importId);
     const importYaml = afmFrame.getByPlaceholder("rbac: { subjects: [], roles: [], bindings: [] }");

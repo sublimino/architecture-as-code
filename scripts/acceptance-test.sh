@@ -324,6 +324,23 @@ if [[ ! -d node_modules/@playwright ]]; then
   echo "    Installing Playwright dependencies..."
   bun install --frozen-lockfile 2>/dev/null || bun install
 fi
+# The coding-agent harness bundles the REAL dashboard component tree, which
+# resolves its own imports (axios, react-router) from the dashboard's
+# node_modules. A cold checkout has none, and bun reports it as
+# "Could not resolve: axios" from src/api/client.ts (seen on the 2026-10-03 rebuild).
+DASHBOARD_DIR="${TEST_DIR}/../../d2-signalloom/apps/dashboard-signalloom"
+# The probe names both packages the harness bundle resolves, so a half-installed
+# tree re-installs. Under CI a stale lockfile fails hard; locally it falls back to
+# a lockfile-mutating install so a developer is not blocked.
+if [[ -f "${DASHBOARD_DIR}/package.json" ]] \
+  && [[ ! -d "${DASHBOARD_DIR}/node_modules/axios" || ! -d "${DASHBOARD_DIR}/node_modules/react-router" ]]; then
+  echo "    Installing dashboard dependencies for the coding-agent harness..."
+  if [[ -n "${CI:-}" ]]; then
+    (cd "${DASHBOARD_DIR}" && bun install --frozen-lockfile)
+  else
+    (cd "${DASHBOARD_DIR}" && (bun install --frozen-lockfile 2>/dev/null || bun install))
+  fi
+fi
 set +e
 bunx playwright test --config=playwright.config.ts "$@"
 EXIT=$?

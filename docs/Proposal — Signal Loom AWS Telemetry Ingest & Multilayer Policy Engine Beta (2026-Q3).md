@@ -9,7 +9,7 @@ date: 2026-10-03
 status: draft v2 (grilled 2026-10-04, awaiting sign-off)
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T07:48
+updated: 2026-10-04T15:09
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -310,4 +310,37 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 
 ### Spec: Errata
 
-_No work has started. Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 supersedes v1 on 2026-10-04 after the §8 review and §9 grill; v1's P0 "scaffold merged" claim is withdrawn._
+_Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 supersedes v1 on 2026-10-04 after the §8 review and §9 grill; v1's P0 "scaffold merged" claim is withdrawn._
+
+#### Errata — SLAWS-P0 (2026-10-04)
+
+- Baseline at `f906be8f`: all six acceptance commands rc 0 (signal-ingest 1067 pass, frostdb 1115, policy-engine 4 packages, sldc-offline 732, probe-name 0 findings, docs-lint 673 clean). Every §8 finding re-confirmed at that tip.
+- Seam commit `6ebfcbee` landed `pkg/obscel` (skeleton + determinism contract), `collectors.BindTenant` stub, `make test-obscel`, `scripts/slaws-acceptance.sh`, and `replace` directives in both apps. Dependency direction fixed: both apps import `pkg/obscel`; neither imports the other.
+- The integration branch carried the v1 proposal until `94dd3905`; workers were re-pointed at v2.
+
+#### Errata — SLAWS-P1-1 (2026-10-04, branch `slaws-store-durable-w1`, merged `a3ec3863`)
+
+- §2.2 did not name where `-tags frostdb` lands: `d2-signalloom/apps/signal-ingest/Dockerfile`, with the image build context moved from `d2-signalloom/apps/` to `d2-signalloom/` so `pkg/obscel` is inside it (`scripts/signalfusion-images.sh`). `internal/imagetag` now hashes frostdb-tagged inputs and `pkg/obscel`; before this card the shared module was unpinned.
+- Runbook path: `docs/signalloom/runbooks/slaws-duckdb-last-resort.md` (real DuckDB output over a Parquet dir; 15 columns, actors as `hmac_*`, `description` plaintext).
+- Telemetry-gap entry for `cloud_control_plane` was reworded, not removed: `api/handlers_test.go` pins "5 of 7 layers active"; promoting the layer to covered is a separate change once a collector feeds it.
+- Inherited defects, not fixed: `TestKeyReloadWatchReloadDetectsSymlinkSwap` is load-flaky; ~50 files in the module are not gofmt-clean at base.
+
+#### Errata — SLAWS-P1-2/P1-3/P1-4 (2026-10-04, branch `slaws-awslogs-collector-w2`, merged `b200787a`)
+
+- WAL format bumped to `SLRBV2` (length-prefixed JSON frames); v1 files fail loudly. The ring buffers the raw S3 object, so replay re-projects with current code. Unclean exit is at-least-once by design; derived `Observation.ID` dedupes. Ack ordering is durable → sink → ack → release via `Peek`/`Commit`.
+- `go test -race` cannot run in the build sandbox (no cgo). Concurrency tests substitute; a `-race` run outside the sandbox is a required follow-up (ISA ISC-35, deferred).
+- Multi-account per deployment is supported in code (`NewAWSLogsCollectorWithConfig`) but only one account is wired from env; an indexed env scheme is a decision for the pilot.
+- `TestTombstonePublishesThresholdNotMeasurement` (`privacy/tombstone/tombstone_test.go:265`) is flaky by construction (~0.3%): it asserts a four-digit number is absent from a document that contains random hex. Not touched.
+
+#### Errata — SLAWS-P2-1 engine side / P3-2 auth (2026-10-04, branch `feat/slaws/obscel-evaluator`, merged `850ca7f3`)
+
+- `obs` is a native CEL type, so a misspelt field is a compile error `Conform` catches at load. Bare `obs.labels.k` on an absent key is a CEL error; `has(obs.labels.k)` is the binding idiom and the shipped bundle uses it. §4.1's "bare access never errors" is withdrawn.
+- §4.2's stage-2 YAML sample used `over: finding.rule_id == …`; the frozen type is `Window.OverRule`, so the key is `over_rule: iam-priv-change`. `CreateAccessKey` is its own rule (`access-key-created`) so the burst window does not double-count one event.
+- `vars.X` and `bundle.vars.X` both compile. `LoadBundleDir` is fail-closed; `main` exits on a malformed bundle. `/api/v1/policies` (bare) is key-guarded too.
+- Bundles reach the engine via `scripts/render-policy-bundles.sh` → `policy-engine/base/bundles-configmap.yaml` (`make policy-bundles-render`), mounted at `/etc/policy-engine/bundles`; a test fails when the render is stale; the loader skips kubelet `..data` directories (`7f804725`).
+- Bench: `BenchmarkEvaluateObservation` ≈ 11 µs per observation for the three-rule bundle (≈ 3.7 µs per rule), recorded, not a gate.
+
+#### Errata — SLAWS-P1-4 binder (2026-10-04, lead, `daa0e7da`)
+
+- Worker W3 produced nothing; the lead built the card. `tenancy.BindObservations` is the rule; `api.bindWriteTenancy` and `collectors.BindTenant` both call it and surface `tenancy.ErrTenantMismatch`.
+- Forge (GPT-5.4 via `codex exec`) could not run: Codex's bwrap sandbox needs `CLONE_NEWUSER`, denied here. Attempting to escape the sandbox was refused; all cards were built by Claude engineers natively.

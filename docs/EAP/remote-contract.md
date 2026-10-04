@@ -3,7 +3,7 @@
 Describes the tree at the commit named in the git log entry that added this
 file. Derives from ADR-11 to ADR-14 in
 [the Spireless proposal](../Proposal%20—%20Signal%20Loom%20Spireless%20Token-Based%20Agent%20Identity%20Migration%20%282026-Q4%29.md).
-Every builder of the remote path implements exactly this contract; the
+Every builder of the remote path implements exactly this contract. The
 pages under `docs/EAP/` describe it to the pilot.
 
 ## Roles
@@ -54,11 +54,16 @@ answers 202 with the record. It takes no local Kubernetes action.
 `GET /api/v1/fleet/stun-state?cluster_id=` (scope `report`) returns every
 record for that cluster whose state is `stun_requested` or
 `resume_requested`. The warden polls it every `FLEET_POLL_INTERVAL`
-(default 10s), freezes the named pod if it is on its node and not frozen,
-releases the hold for `resume_requested`, then
-`POST /api/v1/fleet/stun-state/ack` with `{id, state: "stunned"|"resumed",
-node, at}`. `POST /api/v1/fleet/resume/{agent}` on a registry target sets
-`resume_requested`; the existing local path is unchanged.
+(default 10s). It freezes the named pod if it is on its node and not frozen,
+and it releases the hold for `resume_requested`. It then calls
+`POST /api/v1/fleet/stun-state/ack`. The body is:
+
+```json
+{"id": "...", "state": "stunned", "node": "ip-10-0-1-7", "at": "RFC3339"}
+```
+
+`state` is `stunned` or `resumed`. `POST /api/v1/fleet/resume/{agent}` on a registry target sets
+`resume_requested`. The existing local path is unchanged.
 
 ## Discovery and tenancy
 

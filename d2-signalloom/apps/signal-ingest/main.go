@@ -28,11 +28,13 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pkg/fair"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/policy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/privacy/tombstone"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/retention"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/subjectkey"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
 
 // ErasureTenantEnvVar names the tenant the process-global quarantine engine speaks for.
@@ -459,9 +461,91 @@ func newProbeServer(h *api.Handlers) *http.Server {
 	}
 }
 
+// buildPolicyPipeline assembles the observation-policy pipeline (SLAWS P2-1..P2-3,
+// ISC-51, ISC-56) and returns the three handles main needs: the sink every
+// collector is wired to, the store wrapper the HTTP ingest path is given, and the
+// async alerter to drain at shutdown.
+//
+// It is a function rather than inline wiring so the boot order is visible in one
+// place, and so the zero-bundle case is obviously a complete, working pipeline
+// that evaluates nothing rather than a half-built one.
+//
+// Warm-up happens HERE, before any collector starts, and is the only read this
+// pipeline makes of the store on a live path. A warm-up failure is logged and
+// not fatal: the consequence is bounded (a window mid-flight at restart
+// under-counts until it refills) and is strictly better than refusing to ingest.
+func buildPolicyPipeline(
+	ctx context.Context,
+	storeSink collectors.IngestionSink,
+	signalStore store.SignalStore,
+	bundles []*obscel.Bundle,
+	metrics *policy.Metrics,
+) (collectors.IngestionSink, *policy.Store, *policy.AsyncAlerter) {
+	if len(bundles) == 0 {
+		// No bundles: hand back the undecorated sink and store. Nothing is
+		// evaluated and nothing costs anything, which is the state every estate
+		// that has not shipped a bundle is in.
+		slog.Warn("observation policy is loaded with zero bundles; no finding or decision will be produced",
+			"env", policy.BundlesDirEnv)
+		return storeSink, nil, nil
+	}
+
+	evaluator, err := obscel.NewEvaluator()
+	if err != nil {
+		slog.Error("observation-policy evaluator could not be built; refusing startup", "error", err)
+		os.Exit(1)
+	}
+
+	windows := policy.NewWindowsWithLogger(bundles, slog.Default())
+	if err := windows.Warm(ctx, signalStore, time.Now()); err != nil {
+		slog.Warn("stage-2 warm-up failed; windows start empty and a burst in flight at restart will under-count until it refills",
+			"error", err)
+	}
+	metrics.ObserveWarmup(uint64(windows.WarmedCount()), windows.Len())
+
+	var alerter *policy.AsyncAlerter
+	opts := policy.Options{
+		Windows: windows,
+		Metrics: metrics,
+		Logger:  slog.Default(),
+	}
+	if webhook := policy.NewWebhookFromEnv(metrics, slog.Default()); webhook != nil {
+		// Wrapped async so a slow or dead webhook cannot extend a collector's
+		// ingest path by the retry budget.
+		alerter = policy.NewAsyncAlerter(webhook, 0, metrics, slog.Default())
+		opts.Alerter = alerter
+		slog.Info("observation-policy decision alerts enabled", "env", policy.WebhookURLEnv)
+	} else {
+		slog.Info("observation-policy decision alerts are not configured; decisions are stored only",
+			"env", policy.WebhookURLEnv)
+	}
+
+	sink := policy.NewSink(storeSink, signalStore, evaluator, policy.StaticBundles(bundles), opts)
+
+	// The HTTP path needs the concrete *policy.Sink to reach Evaluate, so it can
+	// keep its atomic batch Append. The type assertion cannot fail: NewSink
+	// returns exactly that type.
+	httpStore := policy.NewStore(signalStore, sink.(*policy.Sink))
+
+	slog.Info("observation policy wired at the shared ingestion sink",
+		"bundles", len(bundles), "windows", windows.Len(),
+		"warmup_findings", windows.WarmedCount(), "warmup_horizon", windows.LongestWindow().String())
+	return sink, httpStore, alerter
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	// SLAWS P2-3, ISC-55: `signal-ingest replay ...` is a one-shot regression
+	// run over the backlog, not a server. It is dispatched before any listener,
+	// collector or audit wiring is built, because none of that is needed to read
+	// the store and none of it should be started by a command that exits.
+	if policy.IsReplayInvocation(os.Args) {
+		os.Exit(policy.RunReplayCommand(context.Background(), os.Args, func() (store.SignalStore, error) {
+			return store.NewStoreFromEnv(os.Getenv("SIGNAL_STORE"), os.Getenv("SIGNAL_STORE_DIR"))
+		}))
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -576,28 +660,57 @@ func main() {
 	// Collector sink adapter backed by signal store
 	storeSink := collectors.NewStoreSink(signalStore)
 
-	// Audit webhook receiver
-	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, storeSink)
+	// --- SLAWS P2-1..P2-3: observation policy at the shared sink ------------------------------
+	//
+	// Policy wraps the sink rather than the store, which is what makes "every
+	// collector flows through stage 1" true by construction: there is exactly one
+	// sink and every collector in the registry is handed it. The ordering inside
+	// the wrapper is store-first-decide-second, so no rule can fail, delay or
+	// alter a write.
+	//
+	// Bundles are Flux-reconciled files loaded once here (D6). A missing directory
+	// is zero bundles and a warning, never a boot failure: every deployment
+	// predates this feature. A bundle that fails to conform IS a boot failure,
+	// because a half-loaded policy set is indistinguishable at runtime from a
+	// policy set that chose not to detect anything.
+	policyMetrics := policy.NewMetrics()
+	policyBundlesDir := policy.BundlesDirFromEnv()
+	policyBundles, policyLoadErr := policy.LoadBundles(policyBundlesDir, slog.Default())
+	if policyLoadErr != nil {
+		slog.Error("observation-policy bundles are present and broken; refusing startup",
+			"dir", policyBundlesDir, "error", policyLoadErr)
+		os.Exit(1)
+	}
+
+	policySink, policyHTTPStore, policyAlerter := buildPolicyPipeline(
+		ctx, storeSink, signalStore, policyBundles, policyMetrics)
+	if policyAlerter != nil {
+		defer policyAlerter.Close()
+	}
+
+	// Audit webhook receiver. It takes the POLICY sink, not the raw store sink, so
+	// webhook-delivered audit observations are evaluated like any other source.
+	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, policySink)
 
 	// Collector registry: constructed and started at boot before HTTP server.
 	// Collector registry: constructed and started at boot before HTTP server.
-	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, workspacesaas, and fixtures collectors to storeSink.
+	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, workspacesaas, and fixtures collectors to the policy sink.
 	// Reuses the auditReceiver for k8saudit mounting.
-	collectorRegistry := collectors.NewRegistryFromEnvWithReceiver(storeSink, auditReceiver)
+	collectorRegistry := collectors.NewRegistryFromEnvWithReceiver(policySink, auditReceiver)
 
 	// --- Phase 2 Collector Registration Seam (SFDP-P2-PRE) ---
 	// P2-1: gcpaudit
 	// gcpaudit collector registered via NewRegistryFromEnv (COLLECTOR_GCPAUDIT_MODE)
 
 	// P2-2: baoaudit (OpenBao audit device stream receiver)
-	// Registers baoaudit.AuditReceiver with shared storeSink, Start() driven by
+	// Registers baoaudit.AuditReceiver with the shared policy sink, Start() driven by
 	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
-	_ = collectors.NewBaoAuditCollector(collectors.ResolveEnvMode("COLLECTOR_BAOAUDIT_MODE", "SIGNAL_COLLECTOR_BAOAUDIT", "BAOAUDIT_MODE"), storeSink)
+	_ = collectors.NewBaoAuditCollector(collectors.ResolveEnvMode("COLLECTOR_BAOAUDIT_MODE", "SIGNAL_COLLECTOR_BAOAUDIT", "BAOAUDIT_MODE"), policySink)
 
 	// P2-2: spirea (SPIRE SVID issuance collector)
-	// Registers spirea.SPIREIssuanceCollector with shared storeSink, Start() driven by
+	// Registers spirea.SPIREIssuanceCollector with the shared policy sink, Start() driven by
 	// registry lifecycle, Stop() on shutdown, mode-gated live|fixture|off.
-	_ = collectors.NewSPIREACollector(collectors.ResolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), storeSink)
+	_ = collectors.NewSPIREACollector(collectors.ResolveEnvMode("COLLECTOR_SPIREA_MODE", "SIGNAL_COLLECTOR_SPIREA", "SPIREA_MODE"), policySink)
 
 	// P2-3: k8saudit (K8s audit receiver webhook mount)
 	// Mounted via auditReceiver and registered in registry with live/fixture/off modes.
@@ -617,7 +730,7 @@ func main() {
 	// Tetragon is a telemetry producer only — no LSM enforcement. Containment
 	// belongs to stun-sentinel (Tier 0) and Flux (Tier 1).
 	// See docs/signalloom/tetragon-telemetry-pipeline.md.
-	tetragonCollector := ebpf.NewCollectorFromEnv(storeSink)
+	tetragonCollector := ebpf.NewCollectorFromEnv(policySink)
 	collectorRegistry.Register(tetragonCollector)
 
 	if err := collectorRegistry.Start(ctx); err != nil {
@@ -687,8 +800,25 @@ func main() {
 		slog.Info("Article 17 erasure gate configured", "route", "POST /api/v1/privacy/erasure/{id}")
 	}
 
+	// ISC-56: the HTTP ingest path goes through policy too.
+	//
+	// `POST /api/v1/observations` calls Store.Append directly (api/handlers.go,
+	// two call sites: the unchained and the chained branch), so the routing is
+	// done by giving Handlers a store wrapper rather than by editing the
+	// handler. That keeps api/ untouched and, more importantly, keeps the
+	// handler's atomic batch Append atomic -- policy.Store appends the whole
+	// batch exactly as before and only then evaluates each row.
+	//
+	// Only Handlers.Store is swapped. The correlation engine and the retention
+	// controller keep the raw store: they are readers and sweepers, and policy
+	// has nothing to say about either.
+	httpObservationStore := store.SignalStore(signalStore)
+	if policyHTTPStore != nil {
+		httpObservationStore = policyHTTPStore
+	}
+
 	handlers := &api.Handlers{
-		Store:           signalStore,
+		Store:           httpObservationStore,
 		Engine:          engine,
 		Audit:           auditWriter,
 		AuditReady:      auditReady,
@@ -756,6 +886,10 @@ func main() {
 		_, _ = io.WriteString(w, agentNonoMetrics.Render())
 		_, _ = io.WriteString(w, correlation.DefaultQuarantineMetrics().Render())
 		_, _ = io.WriteString(w, retentionMetrics.Render())
+		// SLAWS P2-3, ISC-54. Composed here rather than exposed on a new
+		// /api/v1/policy/stats route, so the counters sit behind the same
+		// authentication as every other series and no api/ route table changes.
+		_, _ = io.WriteString(w, policyMetrics.Render())
 	})
 
 	// Rate limit and reload interval settings

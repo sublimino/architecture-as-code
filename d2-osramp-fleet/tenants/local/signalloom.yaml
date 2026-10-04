@@ -527,6 +527,17 @@ spec:
         - apiGroups: [""]
           resources: ["services"]
           verbs: ["get", "list", "create", "update", "patch", "delete"]
+        # policy-engine's base ships ConfigMap policy-engine-bundles (the CEL
+        # bundles in git, SLAWS 7f804725); the runner applies that base in
+        # step 1, so it needs the ConfigMap verbs apply uses. Bound to the
+        # one name: the runner has no business with other ConfigMaps here.
+        - apiGroups: [""]
+          resources: ["configmaps"]
+          resourceNames: ["policy-engine-bundles"]
+          verbs: ["get", "update", "patch", "delete"]
+        - apiGroups: [""]
+          resources: ["configmaps"]
+          verbs: ["create"]
         # cardvault/base/networkpolicy.yaml is in that kustomization, so L178's
         # apply creates it and L360's delete removes it.
         - apiGroups: ["networking.k8s.io"]

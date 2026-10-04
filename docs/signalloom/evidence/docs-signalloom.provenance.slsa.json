@@ -5,7 +5,7 @@
     {
       "name": "pkg:docker/zot.registry.svc.cluster.local%3A5000/acme/images/signalloom/apps/docs-signalloom@latest?platform=linux%2Famd64",
       "digest": {
-        "sha256": "95142ec8ea74e180e55094ad41d4b550fec9c4eb4559283864364cc4b70a85f7"
+        "sha256": "438fdd24d3dcc1a1d3dd5165ab743a005812c983111990250645ddbe33cb78ed"
       }
     }
   ],
@@ -45,7 +45,7 @@
         "request": {
           "frontend": "dockerfile.v0",
           "args": {
-            "build-arg:GIT_REF": "855612b7-dirty",
+            "build-arg:GIT_REF": "8b199c2a-dirty",
             "build-arg:SOURCE_ID": "ad830e3aacc41755f2a94ee5421aa2cb3b53695bf7655e84415b0b4388540df3"
           },
           "locals": [
@@ -62,11 +62,11 @@
             },
             "request": {
               "args": {
-                "build-arg:GIT_REF": "855612b7-dirty",
+                "build-arg:GIT_REF": "8b199c2a-dirty",
                 "build-arg:SOURCE_ID": "ad830e3aacc41755f2a94ee5421aa2cb3b53695bf7655e84415b0b4388540df3",
                 "vcs:localdir:context": "d2-signalloom/apps/docs-signalloom",
                 "vcs:localdir:dockerfile": "d2-signalloom/apps/docs-signalloom",
-                "vcs:revision": "855612b79b043c54c1a199d53a2fbe6fa5bd444d",
+                "vcs:revision": "8b199c2ad113960448a66df4c75b78d2edf087df",
                 "vcs:source": "git@github.com:controlplaneio-in-toto/osramp-demo"
               }
             }
@@ -77,24 +77,24 @@
       "internalParameters": {
         "buildConfig": {
           "digestMapping": {
-            "sha256:00ba83d3ab84b9fda6d528db50ddbf341d183197067c9e14326c8cf065b2e842": "step6",
-            "sha256:01bcd8135902051628cec6cf9755ca54310b80e0f6c5ae7c066d527a268175a3": "step11",
-            "sha256:12808afc059ed0f989a4f9e6122ef520f5e73ce0993150fce6306264fe6c9946": "step12",
-            "sha256:1f828b89cb0b79df2fb23c21284d897e21660ae5912298565fa4f9d05fbd07c8": "step15",
-            "sha256:240fffe9db89373c4a85eaa6c13dbd0cedb4920da6ab2b7c560a1accea47540a": "step9",
-            "sha256:36f5c9b3151b0a1008e1e72895505686cb5a6063a49a48ad56a5b7000fc438dd": "step17",
-            "sha256:5b1afe40e0ec89f1a53205dad20cf0f94c2a293683162e4226f03616749e4fd8": "step16",
+            "sha256:1aab245a2cc747c9049e339da4a0bef2e22d96668fb5466365ceba4e1326e5a2": "step16",
+            "sha256:1efb2f02b71d42de41e17148c396c257413c35485f6bb96d01ce803143f89c89": "step14",
+            "sha256:468bb200b7bf9dc79bd4ea2cd35d6c6740994c0287e72c02851c870cb76a05eb": "step11",
+            "sha256:47aae15d012ee51ef16b0409b1bf846408abf13f4f7827f9c98d9370496f6899": "step7",
+            "sha256:494bb3a1e5e2f97935f7b6e8ae1b857f057a8d094a8e04d2046a3bea9e750a15": "step2",
+            "sha256:4f5cb4d69a81ecab0f16111b7a353bc211a8d0623df886687e3e556e8cd6a934": "step8",
             "sha256:5f31e1862e3719ff11e65b835fd6a29be625aa66d119527ca46ade1979ec62df": "step3",
-            "sha256:7a8792d35d182ee5656f485da863fa76aeebf407c8619a10f5968841da4f593c": "step14",
+            "sha256:62b67103eb87c0104dd24696412d1bdfb25e2b731ee6958f6c7a8944642c057d": "step15",
+            "sha256:6b98a66d6dc6c8a6dd3c4b19e5d5747e4a13f249d932de708630f8e163713a54": "step1",
+            "sha256:7463c624106952d935e3860ce8fb34d85875222f11d4693bf0f30962259316a1": "step5",
+            "sha256:7ff3525d3b37a755c41ad09773a221db5cc6183e890c9cc519b12276727d136b": "step12",
             "sha256:86016e3f3ab3d290f9d0dd92b4551a402dbb5fd650cda8e4e17569df5f0cc960": "step13",
+            "sha256:881e0397446e0c5a880ef54862729fbc7d927ccbb7d4cd1550a28c33039bbe5a": "step6",
+            "sha256:932a7ba6c983b7edefc89289291bf8cf2f7673a51f515debe018f795b276a577": "step10",
             "sha256:93d4e9668a0ec1c89397c3b2dc625821f71732bf20aec48177b9f26f119f1637": "step0",
-            "sha256:ace7822de54fd87e58062aa081db0b77400b3f79330d7bd3b80f87479623ed20": "step7",
-            "sha256:b7dcd306820ede1a3fab85bba8938417783a0823c59d6879a391ed81569b7f46": "step2",
+            "sha256:adbc5112c558277f4c0d5762b3d890a6ec223da286ccebff419f734c96b77a85": "step9",
             "sha256:c6c2a9a1fe7d967dad784af927e947e0b21e9429f122eb375a922d50b3786ffa": "step4",
-            "sha256:c77cfaae40fa83018c0e486ecc87435b56ec5b82f5af88f2a125540d1cce13e8": "step1",
-            "sha256:dcaa4ae3f8e5e31cfe87aadbcaefd787801e9fba84e37be066ab5ce82b04af63": "step5",
-            "sha256:e877fc8c41f8d483f181f67fd68cdfbd2a3e14af9f93f577ba85e0f0335b4e7e": "step10",
-            "sha256:ee376130cfab8b743616546ad5b00c2c1fb50ac68a7f2dae27c9c2700fb77c7f": "step8"
+            "sha256:db2ea0e4c91eb352700667f505e9b2b4d67ebafcf52a41024575ab32d1ea1ad6": "step17"
           },
           "llbDefinition": [
             {
@@ -420,7 +420,7 @@
                         "NODE_VERSION=22.23.2",
                         "YARN_VERSION=1.22.22",
                         "SOURCE_ID=ad830e3aacc41755f2a94ee5421aa2cb3b53695bf7655e84415b0b4388540df3",
-                        "GIT_REF=855612b7-dirty"
+                        "GIT_REF=8b199c2a-dirty"
                       ],
                       "removeMountStubsRecursive": true
                     },
@@ -643,14 +643,14 @@
         "id": ""
       },
       "metadata": {
-        "invocationId": "x2ukfwvqjrl1wajzpibu3t76w",
-        "startedOn": "2026-10-04T18:05:00.505858033Z",
-        "finishedOn": "2026-10-04T18:05:07.281682411Z",
+        "invocationId": "5p7nm02qz7bzpmia7emqid04v",
+        "startedOn": "2026-10-04T22:42:13.002425978Z",
+        "finishedOn": "2026-10-04T22:42:19.790685808Z",
         "buildkit_metadata": {
           "vcs": {
             "localdir:context": "d2-signalloom/apps/docs-signalloom",
             "localdir:dockerfile": "d2-signalloom/apps/docs-signalloom",
-            "revision": "855612b79b043c54c1a199d53a2fbe6fa5bd444d",
+            "revision": "8b199c2ad113960448a66df4c75b78d2edf087df",
             "source": "git@github.com:controlplaneio-in-toto/osramp-demo"
           },
           "source": {
@@ -954,8 +954,8 @@
                   }
                 ],
                 "digestMapping": {
-                  "sha256:927f7063b6a01fc0fe56cad6052f0da8adae52cd9e5fb1eb531420947de0cea2": "step1",
-                  "sha256:d067c591a46ead83786fa86a7f968c9ea80e16c6d3c018cd1daa39fff67fb654": "step0"
+                  "sha256:4e88d0bd53f826e0c5cc7c8166c8f56f03ce2988965f6bc360d4c5cb3da3cd36": "step0",
+                  "sha256:d429cb015f698df91d203580fa43bf2f365cfc7e6f639bb38467a2b183f6b315": "step1"
                 }
               }
             ]
@@ -1143,7 +1143,7 @@
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:697cc6f68cd2103fc555e2e6c5b544588cccda755c11456bd4d57a432e4ac103",
+                  "digest": "sha256:85b2743fd9ac8872c378a5abbe24396e83b45ad438428a4157a5497b589262aa",
                   "size": 237
                 }
               ]
@@ -1221,13 +1221,13 @@
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:697cc6f68cd2103fc555e2e6c5b544588cccda755c11456bd4d57a432e4ac103",
+                  "digest": "sha256:85b2743fd9ac8872c378a5abbe24396e83b45ad438428a4157a5497b589262aa",
                   "size": 237
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:71dee1ba27f7728c980573b3b155846634fdd143cae8cea06826c560bb7c4162",
-                  "size": 414695
+                  "digest": "sha256:4c4e35ab7cbf3d54f99d7c6ece7cb38c47615521bde8fc9db25890cf6df02d22",
+                  "size": 414696
                 }
               ]
             ],
@@ -1295,18 +1295,18 @@
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:697cc6f68cd2103fc555e2e6c5b544588cccda755c11456bd4d57a432e4ac103",
+                  "digest": "sha256:85b2743fd9ac8872c378a5abbe24396e83b45ad438428a4157a5497b589262aa",
                   "size": 237
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:71dee1ba27f7728c980573b3b155846634fdd143cae8cea06826c560bb7c4162",
-                  "size": 414695
+                  "digest": "sha256:4c4e35ab7cbf3d54f99d7c6ece7cb38c47615521bde8fc9db25890cf6df02d22",
+                  "size": 414696
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:1cb64bf87045198b69ddb6899e7fec701677f73479a17bbb78511ad5d21928ef",
-                  "size": 414691
+                  "digest": "sha256:e2a5dd27657445b56d23a7d478796b09ab0d78f38eb4d562f61195819f91d46d",
+                  "size": 414689
                 }
               ]
             ],
@@ -1374,22 +1374,22 @@
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:697cc6f68cd2103fc555e2e6c5b544588cccda755c11456bd4d57a432e4ac103",
+                  "digest": "sha256:85b2743fd9ac8872c378a5abbe24396e83b45ad438428a4157a5497b589262aa",
                   "size": 237
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:71dee1ba27f7728c980573b3b155846634fdd143cae8cea06826c560bb7c4162",
-                  "size": 414695
+                  "digest": "sha256:4c4e35ab7cbf3d54f99d7c6ece7cb38c47615521bde8fc9db25890cf6df02d22",
+                  "size": 414696
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:1cb64bf87045198b69ddb6899e7fec701677f73479a17bbb78511ad5d21928ef",
-                  "size": 414691
+                  "digest": "sha256:e2a5dd27657445b56d23a7d478796b09ab0d78f38eb4d562f61195819f91d46d",
+                  "size": 414689
                 },
                 {
                   "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                  "digest": "sha256:19c3c901817ab87a96ebaa3ab18d9b92b72440a58124c797264334bf72fd4883",
+                  "digest": "sha256:a2c041874085f603cca6db441c14c4375811616761f809e330cb042afe7b9932",
                   "size": 414690
                 }
               ]

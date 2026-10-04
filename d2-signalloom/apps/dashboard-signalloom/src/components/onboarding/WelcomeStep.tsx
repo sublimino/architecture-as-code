@@ -67,7 +67,7 @@ export default function WelcomeStep({ onContinue, onOpenHelp }: Props) {
         {' '}anytime from the sidebar too.
       </p>
 
-      <button className="btn btn-primary" onClick={onContinue}>
+      <button className="btn btn-primary" data-testid="welcome-continue-button" onClick={onContinue}>
         Get started
       </button>
     </div>

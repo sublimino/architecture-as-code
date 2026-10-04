@@ -9,7 +9,7 @@ date: 2026-10-03
 status: v2 implemented on integration/slaws-v0.1.0 (2026-10-04); acceptance evidence in Errata; awaiting sign-off and the kind-osramp run
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T16:14
+updated: 2026-10-04T16:45
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -384,6 +384,25 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 
 `diff totals.key` between the runs: identical. The fixture e2e (policy package, including the empty-bundles mutation gate) ran green inside both tagged and untagged signal-ingest commands in both runs.
 - **Known flaky tests, pre-existing, named for the operator:** `TestKeyReloadWatchReloadDetectsSymlinkSwap` (load-sensitive 10 s deadline) and `TestTombstonePublishesThresholdNotMeasurement` (`privacy/tombstone/tombstone_test.go:265`, asserts a four-digit number is absent from a document containing random hex, about 0.3 % per run). A red acceptance on one of these two is not a SLAWS regression.
+
+#### Errata — Cato round 2 fixes and the final counted runs (2026-10-04, lead, `632fcf8d`, `1efe1de1`)
+
+- Cato (gpt-5.6-sol via codex, code in scope, 154 KB bundle) found no tenant-binding bypass and no critical issue. Two code findings fixed: the plaintext `description` repeated the principal ARN that the store pseudonymises in `ActorHint` (now omitted, test asserts it); an unprojectable object was acknowledged with only a log line and a counter (now a `projection_failure` observation naming the object is stored first; if the store refuses it nothing is acknowledged).
+- Accepted as designed, recorded: label values (`source_ip`, resource names, `error_code`) are the §2.3 projection chosen in D4; the eviction observation's timestamp is the buffered record's receipt time because eviction is an operational event; ISC-35 `-race` remains deferred to a run outside the sandbox.
+- Final counted runs at tip `1efe1de1`, clean tree at start and end of both:
+
+| Command | Run 3 | Run 4 |
+| :--- | :--- | :--- |
+| `make test-signal-ingest` | rc 0, 3336 pass, 0 fail | rc 0, 3336 pass, 0 fail |
+| `make test-signal-ingest-frostdb` | rc 0, 3382 pass, 0 fail | rc 0, 3382 pass, 0 fail |
+| policy-engine `go test -v ./...` | rc 0, 458 pass, 0 fail | rc 0, 458 pass, 0 fail |
+| `make test-sldc-offline` | rc 0, 681 pass, 0 fail | rc 0, 681 pass, 0 fail |
+| `scripts/check-old-probe-name.sh` | rc 0 | rc 0 |
+| `make docs-lint` | rc 0 | rc 0 |
+| beyond the six: `make test-obscel` | rc 0, 97 pass | rc 0, 97 pass |
+
+`diff totals.key`: identical. The only commit after `1efe1de1` is this errata (docs-lint re-run clean on it). Earlier pairs (`4151c8b5`: 3330 / 3376 / 458 / 681; `f39b3bbd`: 3326 / 3374) are superseded.
+- Process notes: `632fcf8d` landed with one red test because `PollOnce` drains inline; fixed in `1efe1de1` before any run was counted. A `git checkout -- .` earlier reverted an unstaged allow-list fix while leaving a mutated untracked test in place; both were caught by re-running the suites and corrected in follow-up commits (`1dbdcac6`, `b1aec847`). Never rely on `checkout` to restore a mutation applied to an untracked file.
 
 #### Errata — image pin discipline (lead)
 

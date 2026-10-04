@@ -366,7 +366,7 @@ func correlatorOptions(cfg *Config) ([]correlator.Option, []stunEvent) {
 
 	if cfg.IngestToken == "" {
 		events = append(events, stunEvent{Timestamp: now(), Event: "ingest_token_missing",
-			Error: "SIGNAL_INGEST_TOKEN is empty (Secret stun-sentinel-ingest-token, key token): detections are logged and frozen but NOT posted to signal-ingest"})
+			Error: "SIGNAL_INGEST_TOKEN is empty (Secret signalloom-warden-ingest-token, key token): detections are logged, frozen and SPOOLED until the key arrives (keys.go), not posted"})
 	} else {
 		opts = append(opts, correlator.WithBearerToken(cfg.IngestToken))
 	}
@@ -445,9 +445,23 @@ func main() {
 	// before the controller runs so the first resync finds a hold, not drift.
 	reconciler.holds.remote = newRemoteStunStore(cfg.SpoolDir)
 	restoreRemoteHolds(reconciler.holds)
+	// The two hub keys (keys.go). Neither gates enforcement: a missing fleet
+	// key holds stun deliveries and defers the report and poll; a missing
+	// ingest key spools observations. Both are waited for, with a WARN a
+	// minute, instead of running keyless.
+	ingestKey := newKeySource("signal_ingest_token", "SIGNAL_INGEST_TOKEN", "SIGNAL_INGEST_TOKEN_FILE")
+	fleetKey := newKeySource("fleet_caller_key", "FLEET_MANAGER_STUN_KEY", "FLEET_MANAGER_STUN_KEY_FILE")
+	go ingestKey.await(ctx)
+	fleetKeyReady := make(chan struct{})
+	go func() {
+		if fleetKey.await(ctx) {
+			close(fleetKeyReady)
+		}
+	}()
+
 	// A new correlator freeze is recorded by fleet-manager's stun cascade, the
 	// one writer of the Flux pin. The key comes from a Secret via env.
-	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), os.Getenv("FLEET_MANAGER_STUN_KEY"), hub.fleet)
+	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), fleetKey.get, hub.fleet)
 	stunner.stillHeld = reconciler.holds.awaitingRecord
 	reconciler.holds.recordStun = stunner.stun
 	healthSrv.fleetStunFailures = stunner.failures.Load
@@ -511,17 +525,16 @@ func main() {
 	// own goroutine; a failed report is retried at the next interval and
 	// never gates a freeze.
 	tenants, _ := correlator.ParseTenantMap(cfg.TenantMap)
-	reporter := newFleetReporter(os.Getenv("FLEET_MANAGER_URL"), func() string { return stunner.key }, hub.fleet,
+	reporter := newFleetReporter(os.Getenv("FLEET_MANAGER_URL"), fleetKey.get, hub.fleet,
 		cfg.ClusterID, cfg.NodeName, cfg.FleetReportInterval)
 	reporter.listPods = func() []*corev1.Pod { return podsFromIndexer(informer.GetIndexer()) }
 	reporter.tenantFor = func(pod *corev1.Pod) string { return tenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName) }
 	reporter.frozen = func(pod *corev1.Pod) bool { return reconciler.holds.isHeld(pod.UID) || kernelFrozenFor(freezer, pod) }
-	go reporter.run(ctx)
 
 	// Remote-cluster contract: the stun-state poll. Freezes and releases
 	// through the hold table, so the reconciler and the correlator see one
 	// truth; acks only what the kernel confirmed.
-	poller := newFleetPoller(os.Getenv("FLEET_MANAGER_URL"), func() string { return stunner.key }, hub.fleet,
+	poller := newFleetPoller(os.Getenv("FLEET_MANAGER_URL"), fleetKey.get, hub.fleet,
 		cfg.ClusterID, cfg.NodeName, cfg.FleetPollInterval, reconciler.holds)
 	poller.findPod = func(namespace, name string) *corev1.Pod {
 		obj, ok, err := informer.GetIndexer().GetByKey(namespace + "/" + name)
@@ -531,7 +544,17 @@ func main() {
 		pod, _ := obj.(*corev1.Pod)
 		return pod
 	}
-	go poller.run(ctx)
+	// Both start once the fleet key is there: a report or poll without a
+	// key is a 401 every tick, and the first report should be a real one.
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-fleetKeyReady:
+		}
+		go reporter.run(ctx)
+		go poller.run(ctx)
+	}()
 
 	// Initialize and start in-sentinel pure-Go eBPF probe loader & correlator (SLDC-P1-1, SLDC-P1-2)
 	go func() {
@@ -557,6 +580,11 @@ func main() {
 		opts, events := correlatorOptions(cfg)
 		for _, ev := range events {
 			logEvent(ev)
+		}
+		if cfg.IngestToken == "" {
+			// No token in the environment: the sender asks the key source at
+			// every post and spools until it answers.
+			opts = append(opts, correlator.WithBearerTokenSource(ingestKey.get))
 		}
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr,
 			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot), correlator.WithHTTPClient(hub.ingest))...)

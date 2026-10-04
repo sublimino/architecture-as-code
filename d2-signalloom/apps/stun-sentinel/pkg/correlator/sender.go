@@ -20,14 +20,14 @@ import (
 
 // Sender constants
 const (
-	DefaultBatchMax                    = 100
-	DefaultBatchLinger                 = 250 * time.Millisecond
-	DefaultRetryAfterCap               = 300 * time.Second
-	minBackoff                         = 1 * time.Second
-	maxBackoff                         = 30 * time.Second
-	HeaderSignalLoomBatchEpoch         = "X-SignalLoom-Batch-Epoch"
-	HeaderSignalLoomBatchSeq           = "X-SignalLoom-Batch-Seq"
-	HeaderSignalLoomBatchPrev          = "X-SignalLoom-Batch-Prev"
+	DefaultBatchMax            = 100
+	DefaultBatchLinger         = 250 * time.Millisecond
+	DefaultRetryAfterCap       = 300 * time.Second
+	minBackoff                 = 1 * time.Second
+	maxBackoff                 = 30 * time.Second
+	HeaderSignalLoomBatchEpoch = "X-SignalLoom-Batch-Epoch"
+	HeaderSignalLoomBatchSeq   = "X-SignalLoom-Batch-Seq"
+	HeaderSignalLoomBatchPrev  = "X-SignalLoom-Batch-Prev"
 )
 
 type dispatchResult int
@@ -53,6 +53,9 @@ type Sender struct {
 	client      *http.Client
 	ingestURL   string
 	bearerToken string
+	// tokenSource, when set, is asked for the bearer at every post; an empty
+	// answer means "not yet": spool, do not drop (WithBearerTokenSource).
+	tokenSource func() string
 	stats       *pipelineStats
 
 	batchBuf []TelemetryObservation
@@ -83,9 +86,27 @@ func newSender(m *SentinelProbeManager, spool *Spool, batchMax int, batchLinger 
 		client:      m.httpClient,
 		ingestURL:   m.ingestURL,
 		bearerToken: m.bearerToken,
+		tokenSource: m.tokenSource,
 		stats:       &m.stats,
 		backoff:     minBackoff,
 	}
+}
+
+// token is the bearer to post with now. See SentinelProbeManager.token.
+func (s *Sender) token() string {
+	if s.bearerToken != "" {
+		return s.bearerToken
+	}
+	if s.tokenSource != nil {
+		return strings.TrimSpace(s.tokenSource())
+	}
+	return ""
+}
+
+// awaitingToken reports a token source that has not produced a key yet:
+// batches are spooled until it does.
+func (s *Sender) awaitingToken() bool {
+	return s.bearerToken == "" && s.tokenSource != nil && s.tokenSource() == ""
 }
 
 func generateEpoch() string {
@@ -134,8 +155,10 @@ func (s *Sender) run(ctx context.Context) {
 			// 1. logObservation is called FIRST: stdout ebpf_detection is independent of delivery
 			logObservation(obs)
 
-			// 2. If no bearer token configured, count missing and drop (never spool without token)
-			if s.bearerToken == "" {
+			// 2. No bearer and no source that could produce one: count missing
+			// and drop (never spool what can never be sent). A source that has
+			// not answered yet is different: the batch is spooled below.
+			if s.token() == "" && !s.awaitingToken() {
 				s.stats.ingestTokenMissing.Add(1)
 				continue
 			}
@@ -190,9 +213,10 @@ func (s *Sender) flushCurrentBatch(ctx context.Context, shutdown bool) {
 	sum := sha256.Sum256(bodyBytes)
 	s.lastPrev = hex.EncodeToString(sum[:])
 
-	// Check if on-disk spool is non-empty
+	// Check if on-disk spool is non-empty. A key that has not arrived yet
+	// also spools: the batch waits on disk, in order, for the key.
 	spoolBatches, _ := s.spool.ListBatches()
-	if len(spoolBatches) > 0 || shutdown {
+	if len(spoolBatches) > 0 || shutdown || s.awaitingToken() {
 		// Non-empty spool or shutdown: append to spool tail to preserve strict FIFO order
 		_, _ = s.spool.WriteBatch(env)
 		return
@@ -207,7 +231,7 @@ func (s *Sender) flushCurrentBatch(ctx context.Context, shutdown bool) {
 
 	case resultAuthRefused:
 		s.stats.dispatchAuthRefused.Add(1)
-		logAuthRefused(env.Epoch, env.Seq, s.bearerToken, err)
+		logAuthRefused(env.Epoch, env.Seq, s.token(), err)
 		s.backoff = minBackoff
 
 	case resultRejected:
@@ -237,6 +261,9 @@ func (s *Sender) drainSpool(ctx context.Context) {
 			return
 		default:
 		}
+		if s.awaitingToken() {
+			return // the spool waits for the key; the retry timer re-checks
+		}
 
 		batches, err := s.spool.ListBatches()
 		if err != nil || len(batches) == 0 {
@@ -256,7 +283,7 @@ func (s *Sender) drainSpool(ctx context.Context) {
 			// Bad auth: delete spooled batch, do not retry
 			_ = s.spool.DeleteBatch(head.Path)
 			s.stats.dispatchAuthRefused.Add(1)
-			logAuthRefused(head.Envelope.Epoch, head.Envelope.Seq, s.bearerToken, err)
+			logAuthRefused(head.Envelope.Epoch, head.Envelope.Seq, s.token(), err)
 			s.backoff = minBackoff
 
 		case resultRejected:
@@ -281,7 +308,8 @@ func (s *Sender) drainSpool(ctx context.Context) {
 }
 
 func (s *Sender) sendEnvelope(ctx context.Context, env SpoolEnvelope) (dispatchResult, time.Duration, error) {
-	if s.bearerToken == "" {
+	token := s.token()
+	if token == "" {
 		return resultAuthRefused, 0, ErrIngestTokenMissing
 	}
 
@@ -292,7 +320,7 @@ func (s *Sender) sendEnvelope(ctx context.Context, env SpoolEnvelope) (dispatchR
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.bearerToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set(HeaderSignalLoomBatchEpoch, env.Epoch)
 	req.Header.Set(HeaderSignalLoomBatchSeq, strconv.FormatUint(env.Seq, 10))
 	req.Header.Set(HeaderSignalLoomBatchPrev, env.Prev)

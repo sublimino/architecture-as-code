@@ -190,9 +190,32 @@ func WithBearerToken(token string) Option {
 	}
 }
 
+// WithBearerTokenSource sets a function the sender asks for the bearer on
+// every post, for a key that is not available at start (the Secret mounted
+// late, or a key file that appears later). While the source returns "" the
+// sender SPOOLS every batch instead of dropping it, and the spool is drained
+// once a token appears. A fixed WithBearerToken takes precedence when set.
+func WithBearerTokenSource(source func() string) Option {
+	return func(m *SentinelProbeManager) {
+		m.tokenSource = source
+	}
+}
+
+// token is the bearer to post with right now: the fixed token, else what the
+// source currently returns, else "".
+func (m *SentinelProbeManager) token() string {
+	if m.bearerToken != "" {
+		return m.bearerToken
+	}
+	if m.tokenSource != nil {
+		return strings.TrimSpace(m.tokenSource())
+	}
+	return ""
+}
+
 // IngestTokenConfigured reports whether observations can be posted at all.
 func (m *SentinelProbeManager) IngestTokenConfigured() bool {
-	return m.bearerToken != ""
+	return m.token() != ""
 }
 
 // WithSensitiveList overrides the default sensitive prefix list. It can only
@@ -289,6 +312,7 @@ type SentinelProbeManager struct {
 	freezeManager *FreezeManager
 	httpClient    *http.Client
 	bearerToken   string
+	tokenSource   func() string // WithBearerTokenSource; nil without one
 	procRoot      string
 	tenants       *TenantMap
 
@@ -911,7 +935,8 @@ func writeCorrelatorEvent(ev correlatorEvent) {
 
 // dispatchObservation transmits a single TelemetryObservation to signal-ingest via HTTP POST.
 func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) error {
-	if m.bearerToken == "" {
+	token := m.token()
+	if token == "" {
 		return ErrIngestTokenMissing
 	}
 	payload, err := json.Marshal([]ingestObservation{obs.toIngest()})
@@ -926,7 +951,7 @@ func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.bearerToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

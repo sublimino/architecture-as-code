@@ -40,6 +40,9 @@ const (
 // Key names only are logged, never raw key values or digests.
 // Adding a brand-new key name still requires updating SIGNAL_AUTH_STATIC_KEYS and restarting the service.
 func (a *StaticBearerAuthenticator) Reload(now time.Time) {
+	// Taken before the files are read: a swap that lands mid-read differs from this
+	// fingerprint and is picked up on the next tick rather than lost.
+	fp := a.fingerprint()
 	currentMap := map[string]staticKey{}
 	if ptr := a.keys.Load(); ptr != nil {
 		for _, k := range *ptr {
@@ -128,6 +131,7 @@ func (a *StaticBearerAuthenticator) Reload(now time.Time) {
 	}
 
 	a.keys.Store(&kept)
+	a.loadedFp.Store(&fp)
 }
 
 // WatchReload polls the key secret directory periodically and calls Reload whenever the directory
@@ -140,16 +144,15 @@ func (a *StaticBearerAuthenticator) WatchReload(ctx context.Context, interval ti
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	lastFp := a.fingerprint()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case t := <-ticker.C:
 			curFp := a.fingerprint()
-			if !curFp.equal(lastFp) {
+			last := a.loadedFp.Load()
+			if last == nil || !curFp.equal(*last) {
 				a.Reload(t)
-				lastFp = curFp
 			}
 		}
 	}

@@ -117,6 +117,11 @@ type StaticBearerAuthenticator struct {
 	dir      string
 	keys     atomic.Pointer[[]staticKey]
 	onRevoke func(subject string)
+	// loadedFp is the directory fingerprint Reload last read the keys from. WatchReload
+	// compares each tick against it, so a swap that lands between the constructor's load
+	// and the watcher's first tick is still seen; a baseline taken when the watcher starts
+	// would silently adopt that swap as current and never reload.
+	loadedFp atomic.Pointer[dirFingerprint]
 }
 
 // SetRevokeCallback registers a hook called when a key is revoked during Reload.

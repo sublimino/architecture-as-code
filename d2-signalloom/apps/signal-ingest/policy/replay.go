@@ -86,6 +86,12 @@ func Replay(ctx context.Context, st store.SignalStore, opts ReplayOptions) (find
 	if err != nil {
 		return 0, 0, fmt.Errorf("policy: replay QueryRange: %w", err)
 	}
+	// One row per derived ID. Replaying a segment that holds the same
+	// observation twice would emit the finding twice and advance a stage-2
+	// window by two, so "replay equals live" would be false against any store
+	// written before ingest became idempotent — and false in the direction that
+	// manufactures a burst.
+	rows = store.DedupeByID(rows)
 
 	input := make([]model.Observation, 0, len(rows))
 	for _, row := range rows {

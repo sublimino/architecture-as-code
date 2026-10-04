@@ -143,6 +143,31 @@ spec:
                   optional: true
             - name: FLEET_MANAGER_KEY_OPERATOR_SCOPES
               value: "stun,resume,recover,deploy,scan,reset,read"
+            # Resume governance (resume_token.go). A resume is accepted only
+            # with a token signed by enough operators whose PUBLIC keys are
+            # loaded here at start. The ConfigMap is written at bootstrap by
+            # scripts/fleet-operator-keys.sh (make fleet-operator-keys); the
+            # private halves stay under <keys_dir>/fleet-operators/ and are
+            # never applied. Optional, so a cluster that has not minted keys
+            # still starts: every governed resume then fails closed, which is
+            # the correct answer with no operators to attribute it to. The
+            # file and directory forms, OPERATOR_KEY_BUNDLE_FILE and
+            # OPERATOR_KEY_DIR, stay available for a pilot that mounts a
+            # bundle instead.
+            - name: OPERATOR_KEYS_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: fleet-manager-operator-keys
+                  key: keys.json
+                  optional: true
+            # The audience a token must name and the trust root id it must
+            # carry, checked by DefaultResumeTokenPolicy. Plain values for the
+            # local estate; a pilot overlay overrides both with its own, so a
+            # token minted for the lab is refused on a pilot and vice versa.
+            - name: FLEET_AUDIENCE
+              value: "signalloom-fleet/local"
+            - name: OPERATOR_TRUST_ROOT_ID
+              value: "signalloom-operators-v1"
             # SPIRE plane. The server API on :8081 speaks only mTLS, so the
             # client takes this pod's X509-SVID from the SPIRE agent socket and
             # accepts only spiffe://signalloom.demo/spire/server (override with

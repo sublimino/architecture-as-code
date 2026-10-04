@@ -64,6 +64,12 @@ def fleet(monkeypatch: pytest.MonkeyPatch):
 
 def _as_superadmin(monkeypatch, client):
     monkeypatch.setattr(api_compat.settings, "api_subject_tenants", dict(SUBJECTS))
+    # Stated explicitly, not inherited: tests/test_eap_anonymous_surface.py
+    # assigns settings.api_superadmin_emails/subjects directly rather than
+    # through monkeypatch, so those defaults are gone for every module that runs
+    # after it in a full session. A test that needs a superadmin has to name one.
+    monkeypatch.setattr(api_compat.settings, "api_superadmin_subjects", {SUPERADMIN})
+    monkeypatch.setattr(api_compat.settings, "api_superadmin_emails", set())
     return bearer(token_for(SUPERADMIN))
 
 

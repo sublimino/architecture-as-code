@@ -46,6 +46,22 @@ fm_env() {
   grep -q '^FLEET_MANAGER_KEY_OPERATOR_SCOPES|.*recover' <<<"$scopes"
 }
 
+@test "caller-auth manifest: operator public keys come from the operator-keys ConfigMap, optional, with the local audience and trust root" {
+  # OPERATOR_KEYS_JSON is PUBLIC material, so a ConfigMap rather than a
+  # Secret, and optional so an estate that has not minted keys still starts
+  # (every governed resume then fails closed). Audience and trust root are
+  # plain values a pilot overlay overrides.
+  run q 'select(.kind == "Deployment" and .metadata.name == "fleet-manager")
+    | .spec.template.spec.containers[] | select(.name == "fleet-manager") | .env[]
+    | select(.name == "OPERATOR_KEYS_JSON")
+    | [(.value // ""), .valueFrom.configMapKeyRef.name, .valueFrom.configMapKeyRef.key, (.valueFrom.configMapKeyRef.optional | tostring)] | join("|")' "${FM}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "|fleet-manager-operator-keys|keys.json|true" ]
+  local rows; rows="$(fm_env | grep -E '^(FLEET_AUDIENCE|OPERATOR_TRUST_ROOT_ID)\|')"
+  grep -qx 'FLEET_AUDIENCE|signalloom-fleet/local|' <<<"$rows"
+  grep -qx 'OPERATOR_TRUST_ROOT_ID|signalloom-operators-v1|' <<<"$rows"
+}
+
 @test "caller-auth manifest: the node ipBlock admits fleet-manager's http port and nothing else" {
   run q 'select(.kind == "NetworkPolicy" and .metadata.name == "fleet-manager") | .spec.ingress[]
     | select(.from[].ipBlock) | [(.from | length), (.ports | length), .ports[0].port] | join(" ")' "${FM}"

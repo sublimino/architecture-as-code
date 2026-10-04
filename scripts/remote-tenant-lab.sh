@@ -8,7 +8,7 @@
 # @id     remote-tenant-lab
 # @doc    docs/EAP/secondary-cluster.md
 # @tests  test/remote-tenant-lab.bats
-# @lib    scripts/lib/dual-cluster.sh
+# @lib    scripts/lib/dual-cluster.sh, scripts/lib/keys.sh
 #
 # Usage:
 #   scripts/remote-tenant-lab.sh [--hub-context CTX] [--remote-context CTX]
@@ -36,19 +36,33 @@
 # ── What this proves, in order ───────────────────────────────────────────────
 #
 #   1  both contexts answer, and the two overlays render
-#   2  the hub mints the `warden` caller key and emits the two remote Secrets
+#   2  the hub mints the `warden` caller key, emits the two remote Secrets,
+#      and holds the two operator keypairs (scripts/fleet-operator-keys.sh)
 #   3  the remote cluster holds the namespace and both Secrets
 #   4  the remote cluster resolves the hub's gateway name
 #   5  the remote-tenant-dev overlay is applied and the DaemonSet rolls out
 #   6  the hub's registry lists this cluster's pods (the workload report)
 #   7  a stun of a remote pod is accepted, 202, with a record
 #   8  the warden acknowledges it: the record reaches state `stunned`
-#   9  a resume is accepted
-#  10  the warden acknowledges that too: state `resumed`
+#   9  a resume carrying a token signed by both operators is accepted, 202
+#  9b  the same token with a different idempotency key is refused, 409
+#  10  the warden acknowledges the resume: state `resumed`
 #
 # Steps 6 to 10 are the contract in docs/EAP/remote-contract.md. Each is a
 # bounded wait, so a Go side that is not finished yet fails one named row
 # rather than hanging.
+#
+# ── The resume token ────────────────────────────────────────────────────────
+#
+# A remote resume is governed exactly like a local one: fleet-manager accepts
+# POST /api/v1/fleet/resume/<name> only with a token (resume_token.go) minted
+# for that agent, for the audience and trust root its own Deployment names,
+# and signed by enough operators whose public keys it loaded from ConfigMap
+# fe-signalloom/fleet-manager-operator-keys. Step 9 mints, signs and posts
+# one with fleet-manager's cmd/resume-token, using the private keys under
+# <keys_dir>/fleet-operators/ that step 2 ensures. Private keys reach the
+# tool as FILE PATHS, never as values. Step 9b proves the replay ledger: the
+# consumed token, presented again under another idempotency key, is 409.
 #
 # ── Addressing: how the two Kind clusters reach each other ──────────────────
 #
@@ -82,6 +96,8 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+# shellcheck source=scripts/lib/keys.sh
+. "$SCRIPT_DIR/lib/keys.sh"
 
 KUBECTL="${SLDC_KUBECTL:-kubectl}"
 CURL="${LAB_CURL:-curl}"
@@ -107,6 +123,15 @@ FM_LOCAL_PORT="${LAB_FM_PORT:-18082}"
 
 AGENTS_NS="fe-signalloom-agents"
 FLEET_NS="fe-signalloom"
+# The resume-governance operators step 9 signs with. scripts/fleet-operator-keys.sh
+# mints them under <keys_dir>/fleet-operators/ and publishes the public halves.
+OPKEYS_DIR="${LAB_OPERATOR_KEYS_DIR:-$(keys_dir_abs "$REPO_ROOT")/fleet-operators}"
+LAB_OPERATORS=(alice bob)
+OPERATOR_PREFIX="spiffe://signalloom.demo/operator/"
+FM_DIR="$REPO_ROOT/d2-signalloom/apps/fleet-manager"
+# What the dry run assumes the hub Deployment names; the live run READS them.
+FLEET_AUDIENCE_DEFAULT="signalloom-fleet/local"
+TRUST_ROOT_DEFAULT="signalloom-operators-v1"
 OVERLAY_DIR="$REPO_ROOT/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant-dev"
 NAMESPACE_MANIFEST="$REPO_ROOT/d2-signalloom/infra/agent-swarm/namespace.yaml"
 
@@ -186,6 +211,38 @@ fm() {
 	else
 		printf 'Authorization: Bearer %s' "$key" | $CURL -sS -X "$method" \
 			-H @- "http://127.0.0.1:${FM_LOCAL_PORT}${path}"
+	fi
+}
+
+# fm_file METHOD PATH DATAFILE BODYOUT -> the HTTP status on stdout, the
+# response body in BODYOUT. The body is read by curl from DATAFILE (`@file`),
+# so a signed token is never an argv element either.
+fm_file() {
+	local method="$1" path="$2" datafile="$3" bodyout="$4" key
+	ensure_port_forward
+	key="$(fm_key)"
+	[ -n "$key" ] || return 1
+	printf 'Authorization: Bearer %s' "$key" | $CURL -sS -o "$bodyout" -w '%{http_code}' \
+		-X "$method" -H @- -H 'Content-Type: application/json' \
+		--data "@$datafile" "http://127.0.0.1:${FM_LOCAL_PORT}${path}"
+}
+
+# fm_deploy_env NAME -> the value the hub's fleet-manager Deployment sets for
+# env NAME, so the token names the audience and trust root the verifier holds
+# rather than whatever this script assumed.
+fm_deploy_env() {
+	hub -n "$FLEET_NS" get deploy fleet-manager \
+		-o "jsonpath={.spec.template.spec.containers[?(@.name=='fleet-manager')].env[?(@.name=='$1')].value}" 2>/dev/null
+}
+
+# resume_token ARGS...: fleet-manager's cmd/resume-token, the binary
+# scripts/fleet-operator-keys.sh built next to the keys when it has, else
+# `go run` from the module.
+resume_token() {
+	if [ -x "$OPKEYS_DIR/resume-token" ]; then
+		"$OPKEYS_DIR/resume-token" "$@"
+	else
+		(cd "$FM_DIR" && go run ./cmd/resume-token "$@")
 	fi
 }
 
@@ -274,13 +331,48 @@ step_2_mint_and_emit() {
 		if [ "$DRY_RUN" -eq 1 ] ||
 			{ [ -f "$TRANSFER_DIR/signalloom-warden-fleet-key.yaml" ] &&
 				[ -f "$TRANSFER_DIR/signalloom-warden-ingest-token.yaml" ]; }; then
-			pass "2 keys" "warden caller key minted, two Secrets emitted"
+			ensure_operator_keys || return 1
+			pass "2 keys" "warden caller key minted, two Secrets emitted, operator keys ${LAB_OPERATORS[*]} in place"
 			return 0
 		fi
 		fail "2 keys" "the emitter wrote no files to $TRANSFER_DIR"
 		return 1
 	fi
 	fail "2 keys" "fleet-manager-caller-keys.sh --emit-remote-secrets failed"
+}
+
+# ensure_operator_keys: the two operator keypairs step 9 signs with, and the
+# hub ConfigMap of their public halves. The script is idempotent, so it runs
+# whenever a keypair is absent locally and ALSO when the ConfigMap may be: a
+# fresh hub with stale local keys would otherwise verify against nothing.
+# fleet-manager reads the ConfigMap at start, so a newly created key set is
+# followed by a rollout restart before any resume is attempted.
+ensure_operator_keys() {
+	local n out
+	if [ "$DRY_RUN" -eq 1 ]; then
+		run_or_echo "operator keys (when absent)" -- bash "$REPO_ROOT/scripts/fleet-operator-keys.sh" --context "$HUB_CTX"
+		return 0
+	fi
+	out="$(bash "$REPO_ROOT/scripts/fleet-operator-keys.sh" --context "$HUB_CTX" </dev/null)" || {
+		fail "2 keys" "scripts/fleet-operator-keys.sh --context $HUB_CTX failed"
+		return 1
+	}
+	for n in "${LAB_OPERATORS[@]}"; do
+		[ -s "$OPKEYS_DIR/$n.key" ] || {
+			fail "2 keys" "no private key for operator $n at $OPKEYS_DIR/$n.key"
+			return 1
+		}
+	done
+	case "$out" in
+	*"created:"*)
+		log "operator keys were created; restarting the hub fleet-manager so it loads them"
+		hub -n "$FLEET_NS" rollout restart deploy/fleet-manager >/dev/null 2>&1 || true
+		wait_for "$TIMEOUT" "fleet-manager rollout after operator keys" -- \
+			hub -n "$FLEET_NS" rollout status deploy/fleet-manager --timeout=30s ||
+			{ fail "2 keys" "fleet-manager did not roll out after the operator keys were created"; return 1; }
+		;;
+	esac
+	return 0
 }
 
 step_3_apply_secrets() {
@@ -471,18 +563,95 @@ step_8_stun_ack() {
 	fi
 }
 
+# The token, the request body and the responses live in TRANSFER_DIR (0700,
+# removed on exit unless --keep) next to the emitted Secrets.
+RESUME_TOKEN_FILE=""
+RESUME_REQUEST_FILE=""
+
 step_9_resume() {
+	RESUME_TOKEN_FILE="$TRANSFER_DIR/resume-token.json"
+	RESUME_REQUEST_FILE="$TRANSFER_DIR/resume-request.json"
+	local aud root n
 	if [ "$DRY_RUN" -eq 1 ]; then
-		printf 'DRY-RUN POST /api/v1/fleet/resume/%s\n' "$TARGET" >&2
-		pass "9 resume" "POST /api/v1/fleet/resume/$TARGET (dry run)"
+		aud="$FLEET_AUDIENCE_DEFAULT"
+		root="$TRUST_ROOT_DEFAULT"
+		printf 'DRY-RUN read FLEET_AUDIENCE and OPERATOR_TRUST_ROOT_ID from deploy/fleet-manager on %s (assuming %s, %s)\n' \
+			"$HUB_CTX" "$aud" "$root" >&2
+	else
+		aud="$(fm_deploy_env FLEET_AUDIENCE)"
+		root="$(fm_deploy_env OPERATOR_TRUST_ROOT_ID)"
+		[ -n "$aud" ] && [ -n "$root" ] || {
+			fail "9 resume" "deploy/fleet-manager on $HUB_CTX sets no FLEET_AUDIENCE or OPERATOR_TRUST_ROOT_ID"
+			return 1
+		}
+	fi
+	# Mint for the registry pod name exactly as the hub lists it, in the
+	# remote namespace, for the hub's own audience and trust root.
+	run_or_echo "resume-token mint" -- resume_token mint \
+		--agent "$TARGET" --namespace "$AGENTS_NS" \
+		--audience "$aud" --trust-root "$root" \
+		--approval remote-tenant-lab --lifetime 10m --required-signatures 2 \
+		--out "$RESUME_TOKEN_FILE" || {
+		fail "9 resume" "resume-token mint failed for $TARGET"
+		return 1
+	}
+	# Both operators sign. The private key is a FILE PATH argument.
+	for n in "${LAB_OPERATORS[@]}"; do
+		run_or_echo "resume-token sign $n" -- resume_token sign \
+			--token "$RESUME_TOKEN_FILE" --operator "${OPERATOR_PREFIX}${n}" \
+			--key "$OPKEYS_DIR/$n.key" || {
+			fail "9 resume" "resume-token sign failed for operator $n"
+			return 1
+		}
+	done
+	run_or_echo "resume-token request" -- resume_token request \
+		--token "$RESUME_TOKEN_FILE" --out "$RESUME_REQUEST_FILE" || {
+		fail "9 resume" "resume-token request failed"
+		return 1
+	}
+	if [ "$DRY_RUN" -eq 1 ]; then
+		printf 'DRY-RUN POST /api/v1/fleet/resume/%s with the signed request body, expect 202 resume_requested\n' "$TARGET" >&2
+		pass "9 resume" "POST /api/v1/fleet/resume/$TARGET, token signed by ${LAB_OPERATORS[*]} (dry run)"
 		return 0
 	fi
-	local body
-	body="$(fm POST "/api/v1/fleet/resume/$TARGET" '{"reason":"remote-tenant-lab"}')"
-	if grep -qF 'resume_requested' <<<"$body"; then
-		pass "9 resume" "$TARGET accepted, record state resume_requested"
+	local code body="$TRANSFER_DIR/resume-response.json"
+	code="$(fm_file POST "/api/v1/fleet/resume/$TARGET" "$RESUME_REQUEST_FILE" "$body")"
+	# A registry hit answers 202 with a record whose state is resume_requested.
+	if [ "$code" = "202" ] && grep -qF 'resume_requested' <"$body"; then
+		pass "9 resume" "$TARGET accepted, 202, record state resume_requested"
 	else
-		fail "9 resume" "no resume_requested record for $TARGET: ${body:0:160}"
+		fail "9 resume" "expected 202 resume_requested for $TARGET, got $code: $(head -c 160 "$body")"
+	fi
+}
+
+# step_9b: the replay ledger. The token step 9 consumed, posted again under a
+# DIFFERENT idempotency key, must be refused with 409 (the same key would be
+# an idempotent retry and is not a replay).
+step_9b_replay() {
+	if [ "$DRY_RUN" -eq 1 ]; then
+		printf 'DRY-RUN POST /api/v1/fleet/resume/%s again with the same token and a new idempotency_key, expect 409\n' "$TARGET" >&2
+		pass "9b replay" "same token, new idempotency key, 409 (dry run)"
+		return 0
+	fi
+	local replay="$TRANSFER_DIR/resume-replay.json" body="$TRANSFER_DIR/resume-replay-response.json" code
+	[ -s "$RESUME_REQUEST_FILE" ] || {
+		fail "9b replay" "no request body from step 9 to replay"
+		return 1
+	}
+	sed -E 's/"idempotency_key"[[:space:]]*:[[:space:]]*"[^"]*"/"idempotency_key": "remote-tenant-lab-replay-'"$(date +%s)"'"/' \
+		"$RESUME_REQUEST_FILE" >"$replay" || {
+		fail "9b replay" "could not write $replay"
+		return 1
+	}
+	grep -qF 'remote-tenant-lab-replay-' <"$replay" || {
+		fail "9b replay" "the request body carries no idempotency_key to change"
+		return 1
+	}
+	code="$(fm_file POST "/api/v1/fleet/resume/$TARGET" "$replay" "$body")"
+	if [ "$code" = "409" ]; then
+		pass "9b replay" "consumed token under a new idempotency key refused, 409"
+	else
+		fail "9b replay" "expected 409 for the replayed token, got $code: $(head -c 160 "$body")"
 	fi
 }
 
@@ -557,6 +726,7 @@ main() {
 		step_7_stun
 		step_8_stun_ack
 		step_9_resume
+		step_9b_replay
 		step_10_resume_ack
 	fi
 

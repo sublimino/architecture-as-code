@@ -298,20 +298,23 @@ holds. The base still ships `signalloom-warden-captures`, an ingress policy
 that admits only pods labelled `signalloom.ai/captures-reader=true`, for a
 CNI that does enforce on host-network pods.
 
-To read on the pilot cluster:
+To read on the pilot cluster, use a node debug pod: it shares the node's
+network namespace, so its loopback is the warden's loopback. The warden
+image carries no HTTP client of its own.
 
 ```bash
 kubectl -n fe-signalloom-agents create secret generic signalloom-warden-captures-token \
   --from-literal=token="$(openssl rand -base64 32)"
 TOKEN="$(kubectl -n fe-signalloom-agents get secret signalloom-warden-captures-token -o jsonpath='{.data.token}' | base64 -d)"
-POD="$(kubectl -n fe-signalloom-agents get pods -l app.kubernetes.io/name=signalloom-warden -o name | head -1)"
-kubectl -n fe-signalloom-agents exec "$POD" -- \
-  wget -qO- --header "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/captures
+NODE="$(kubectl -n fe-signalloom-agents get pods -l app.kubernetes.io/name=signalloom-warden -o jsonpath='{.items[0].spec.nodeName}')"
+kubectl debug "node/$NODE" -q --image=curlimages/curl:8.5.0 --attach=true -- \
+  curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/captures
 ```
 
 The mounted Secret is read on every request, so creating it after the
 warden started is enough. Only the manifest and the two artifacts are
-served. The quarantine snapshot stays on the node's spool.
+served. The quarantine snapshot stays on the node's spool. Delete the
+debug pod afterwards; `kubectl debug` leaves it behind.
 
 ## Live status of the chain
 

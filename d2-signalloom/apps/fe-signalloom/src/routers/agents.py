@@ -262,8 +262,12 @@ async def list_agents(
     - Agents in suspended / stunned / revoked lifecycle states
     """
     # Delegate to api_compat for base agent list retrieval
+    # The whole principal, not just its tenant: ``agents()`` now decides
+    # superadmin from it, so handing over only the tenant would silently give a
+    # superadmin a tenant-filtered list through this route and an unfiltered one
+    # through /api/agents.
     base_response = await api_compat.agents(
-        tenant_id=principal.tenant,
+        principal=principal,
         search=search,
         state=state,
         lifecycle_state=lifecycle_state,

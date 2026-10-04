@@ -11,6 +11,9 @@
 # The AFM importer key bootstrap against a fake kubectl that records argv and
 # the applied manifests. No cluster.
 
+# `run !` (used by the --cluster-id cases) needs 1.5.0 or later.
+bats_require_minimum_version 1.5.0
+
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   SCRIPT="${REPO_ROOT}/scripts/afm-importer-key.sh"
@@ -135,6 +138,65 @@ value() { awk -v k="  $1:" 'index($0,k)==1 {print $2; exit}' "${STATE}/applied";
   run bash "${SCRIPT}" --context unreachable-ctx </dev/null
   [ "$status" -ne 0 ]
   [ ! -f "${STATE}/applied" ]
+}
+
+# --- --cluster-id -------------------------------------------------------------
+#
+# The portal refuses an import whose key is bound to another cluster
+# (AFM_IMPORT_KEYS). --cluster-id records that binding and, for anything other
+# than the default, gives the key its own issuer Secret.
+
+@test "afm-importer-key: the default run records cluster kind-osramp on the issuer Secret" {
+  run bash "${SCRIPT}" --context kind-osramp </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$(value afm-importer.cluster)" | base64 -d)" = "kind-osramp" ]
+  # The default is the committed AFM_IMPORT_KEYS row, so the Secret name does
+  # not change and nothing that reads it has to learn a new one.
+  grep -q '^  name: fe-signalloom-afm-importer-key$' "${STATE}/applied"
+}
+
+@test "afm-importer-key: --cluster-id binds the key and gives it its own issuer Secret" {
+  run bash "${SCRIPT}" --context kind-signalloom-hub --cluster-id kusari-prod </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$(value afm-importer.cluster)" | base64 -d)" = "kusari-prod" ]
+  # Its own issuer Secret: one name for two clusters means the second mint
+  # silently replaces the first cluster's key.
+  grep -q '^  name: fe-signalloom-afm-importer-key-kusari-prod$' "${STATE}/applied"
+  run ! grep -q '^  name: fe-signalloom-afm-importer-key$' "${STATE}/applied"
+  # The consumer Secret keeps its single name: it is read by the exporter
+  # CronJob on whichever cluster that CronJob runs, and there is one per cluster.
+  grep -q '^  name: signalloom-rbac-exporter-afm-key$' "${STATE}/applied"
+}
+
+@test "afm-importer-key: a non-default cluster id prints the AFM_IMPORT_KEYS row to commit" {
+  # The row is a manifest, so it is printed and committed, never patched.
+  run bash "${SCRIPT}" --context kind-signalloom-hub --cluster-id kusari-prod </dev/null
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"cluster":"kusari-prod"'* ]]
+  [[ "$output" == *'AFM_IMPORT_KEYS'* ]]
+  [[ "$output" == *'AFM_CLUSTER_ID=kusari-prod'* ]]
+}
+
+@test "afm-importer-key: the existence check reads the cluster's OWN issuer Secret" {
+  # This is what keeps two clusters' keys apart. The idempotence check must
+  # query fe-signalloom-afm-importer-key-<id>, so a key already minted for
+  # kind-osramp does not read as "kusari-prod already has one".
+  #
+  # Asserted on argv rather than on the two values, because the fake kubectl
+  # matches a Secret name by prefix and cannot tell the two names apart.
+  run bash "${SCRIPT}" --context kind-osramp --cluster-id kusari-prod </dev/null
+  [ "$status" -eq 0 ]
+  grep -q 'get secret fe-signalloom-afm-importer-key-kusari-prod' "${STATE}/argv"
+}
+
+@test "afm-importer-key: --cluster-id with no value, or not a DNS label, is exit 2" {
+  run bash "${SCRIPT}" --context kind-osramp --cluster-id </dev/null
+  [ "$status" -eq 2 ]
+  # Rejected before any key is generated, not by the API server afterwards.
+  run bash "${SCRIPT}" --context kind-osramp --cluster-id 'Kusari_Prod' </dev/null
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"DNS label"* ]]
+  [ ! -e "${STATE}/applied" ]
 }
 
 @test "afm-importer-key: failed apply exits 1" {

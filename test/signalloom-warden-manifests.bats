@@ -280,3 +280,204 @@ setup() {
   go vet ./...
   go test -count=1 ./...
 }
+
+# ── Remote cluster overlays (docs/EAP/remote-contract.md) ────────────────────
+#
+# A secondary cluster applies remote-tenant with one `kubectl apply -k`, so
+# these tests render it as the pilot does, with no --load-restrictor and no
+# prior `kubectl apply -f` of anything else. Each test names the single fact it
+# pins, because a composite assertion on a whole render tells you the overlay
+# is wrong without telling you which parameter is wrong.
+
+# remote_render OVERLAY -> the render path, after asserting it is non-empty.
+remote_render() {
+  local dir="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/$1"
+  local out="${BATS_TEST_TMPDIR}/$1.yaml"
+  [ -d "${dir}" ]
+  kubectl kustomize "${dir}" >"${out}"
+  [ -s "${out}" ]
+  printf '%s' "${out}"
+}
+
+# env_value NAME FILE -> the literal value of a container env var, empty if it
+# has none (a valueFrom ref has no .value, and that reads as empty here).
+env_value() {
+  yq -r "select(.kind == \"DaemonSet\") | .spec.template.spec.containers[0].env[] | select(.name == \"$1\") | .value // \"\"" "$2" | sed '/^$/d'
+}
+
+@test "T5 remote-tenant renders without a load restrictor, so a bare kubectl apply -k works" {
+  # No --load-restrictor here on purpose: kustomize refuses a file above the
+  # overlay root, so this is the test that stops the Role being referenced as
+  # ../../ebpf-sentinel-rbac.yaml and the pilot command growing a flag.
+  local out
+  out="$(remote_render remote-tenant)"
+  yq -r 'select(. != null) | .kind' "${out}" | grep -qx DaemonSet
+}
+
+@test "T5 remote-tenant renders the Role, the RoleBinding and the ServiceAccount" {
+  local out objs obj
+  out="$(remote_render remote-tenant)"
+  objs="$(yq -r 'select(. != null) | "\(.kind)/\(.metadata.name)"' "${out}" | LC_ALL=C sort -u)"
+  for obj in Role/signalloom-warden RoleBinding/signalloom-warden \
+    ServiceAccount/signalloom-warden DaemonSet/signalloom-warden \
+    ConfigMap/signalloom-warden-config; do
+    echo "${objs}" | grep -qx "${obj}"
+  done
+}
+
+@test "T5 the overlay Role is the central Role: same rules, so RBAC cannot drift" {
+  # role.yaml is a deliberate second copy. This is what makes the copy safe:
+  # change the rules in ebpf-sentinel-rbac.yaml without changing the overlay
+  # and this test fails.
+  local out central overlay
+  out="$(remote_render remote-tenant)"
+  # -o=json, because the two files write the same rules in different YAML
+  # styles (flow sequences in one, block in the other) and a text compare of
+  # the YAML would fail on formatting rather than on privilege.
+  central="$(yq -o=json -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .rules' \
+    "${SWARM_BASE}/ebpf-sentinel-rbac.yaml")"
+  overlay="$(yq -o=json -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .rules' "${out}")"
+  [ -n "${central}" ]
+  [ "${overlay}" = "${central}" ]
+}
+
+# secret_ref NAME FILE -> "<secret> <optional>" for one env var's secretKeyRef.
+#
+# The sed strips the blank lines yq emits for every document in the render that
+# is not the DaemonSet. Without it the captured value carries leading newlines
+# and every comparison against it fails for a reason that has nothing to do
+# with the manifest.
+secret_ref() {
+  yq -r "select(.kind == \"DaemonSet\") | .spec.template.spec.containers[0].env[] | select(.name == \"$1\") | .valueFrom.secretKeyRef.name + \" \" + (.valueFrom.secretKeyRef.optional | tostring)" "$2" | sed '/^$/d'
+}
+
+@test "T5 remote-tenant: both key refs are required, so a keyless warden never runs" {
+  local out
+  out="$(remote_render remote-tenant)"
+  # The Secret names are the ones the two minting scripts write, and optional
+  # is false because a remote warden with no key freezes pods nobody can see.
+  [ "$(secret_ref SIGNAL_INGEST_TOKEN "${out}")" = "signalloom-warden-ingest-token false" ]
+  [ "$(secret_ref FLEET_MANAGER_STUN_KEY "${out}")" = "signalloom-warden-fleet-key false" ]
+}
+
+@test "T5 remote-tenant: cluster id and the two intervals carry the contract defaults" {
+  local out
+  out="$(remote_render remote-tenant)"
+  [ "$(env_value SIGNAL_CLUSTER_ID "${out}")" = "kusari-prod" ]
+  [ "$(env_value FLEET_REPORT_INTERVAL "${out}")" = "60s" ]
+  [ "$(env_value FLEET_POLL_INTERVAL "${out}")" = "10s" ]
+}
+
+@test "T5 remote-tenant: SIGNAL_TLS_CA_FILE names a path inside the optional hub-ca mount" {
+  local out ca mount secret optional
+  out="$(remote_render remote-tenant)"
+  ca="$(env_value SIGNAL_TLS_CA_FILE "${out}")"
+  [ -n "${ca}" ]
+  mount="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "hub-ca") | .mountPath' "${out}")"
+  [ -n "${mount}" ]
+  # The variable must point INSIDE the mount, or the bundle is never read.
+  case "${ca}" in "${mount}/"*) ;; *) return 1 ;; esac
+  secret="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.volumes[] | select(.name == "hub-ca") | .secret.secretName' "${out}")"
+  optional="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.volumes[] | select(.name == "hub-ca") | .secret.optional' "${out}")"
+  [ "${secret}" = "signalloom-hub-ca" ]
+  [ "${optional}" = "true" ]
+}
+
+@test "T5 remote-tenant: the tenant map is the PILOT tenant, not the central map" {
+  local out map
+  out="$(remote_render remote-tenant)"
+  map="$(yq -r 'select(.kind == "ConfigMap" and .metadata.name == "signalloom-warden-config") | .data.SENTINEL_TENANT_MAP' "${out}")"
+  [ -n "${map}" ]
+  echo "${map}" | grep -q 'fe-signalloom-agents=kusari'
+  # The central map's service-account rows must be gone. Inheriting them
+  # reports every pilot pod as __unattributed__, which is the defect this
+  # overlay exists to prevent.
+  run grep -q 'fe-signalloom-agents/kagent-k8s-reader=tenant-demo' <<<"${map}"
+  [ "$status" -ne 0 ]
+  run grep -q 'fe-signalloom-agents/cpai-engineer=controlplane' <<<"${map}"
+  [ "$status" -ne 0 ]
+}
+
+@test "T5 remote-tenant: both hub URLs are the gateway prefixes, over HTTPS" {
+  local out ingest fleet
+  out="$(remote_render remote-tenant)"
+  ingest="$(yq -r 'select(.kind == "ConfigMap" and .metadata.name == "signalloom-warden-config") | .data.SIGNAL_INGEST_URL' "${out}")"
+  fleet="$(yq -r 'select(.kind == "ConfigMap" and .metadata.name == "signalloom-warden-config") | .data.FLEET_MANAGER_URL' "${out}")"
+  [ "${ingest}" = "https://dashboard.osramp.acme.local/warden-ingest" ]
+  [ "${fleet}" = "https://dashboard.osramp.acme.local/warden-fleet" ]
+}
+
+@test "T5 remote-tenant: the public ghcr image, and the tag the catalogue pins" {
+  # This cluster has no zot, so the overlay keeps the public reference, and the
+  # tag is inherited from the base so a bump is not chased into every overlay.
+  local out image catalogued
+  out="$(remote_render remote-tenant)"
+  image="$(yq -r 'select(.kind == "DaemonSet") | .spec.template.spec.containers[0].image' "${out}")"
+  catalogued="$(awk -F'\t' '$1 == "signalloom-warden" {print $4}' "${REPO_ROOT}/test/fixtures/cold-start-manifests.tsv")"
+  [ -n "${catalogued}" ]
+  [ "${image}" = "${catalogued}" ]
+}
+
+@test "T5 remote-tenant: the RBAC exporter CronJob is suspended, not left to fail" {
+  local out
+  out="$(remote_render remote-tenant)"
+  [ "$(yq -r 'select(.kind == "CronJob") | .spec.suspend' "${out}")" = "true" ]
+}
+
+@test "T6 remote-tenant-dev sets both development variables, and remote-tenant sets neither" {
+  local dev prod
+  dev="$(remote_render remote-tenant-dev)"
+  prod="$(remote_render remote-tenant)"
+  [ "$(env_value SIGNAL_TLS_INSECURE_SKIP_VERIFY "${dev}")" = "true" ]
+  # SIGNAL_DEV_MODE is the gate: the warden refuses to start with skip-verify
+  # alone, so one without the other is a pod that never runs.
+  [ "$(env_value SIGNAL_DEV_MODE "${dev}")" = "true" ]
+  [ -z "$(env_value SIGNAL_TLS_INSECURE_SKIP_VERIFY "${prod}")" ]
+  [ -z "$(env_value SIGNAL_DEV_MODE "${prod}")" ]
+}
+
+@test "T6 remote-tenant-dev changes nothing else: same ids, URLs, keys and objects" {
+  local dev prod dev_objs prod_objs
+  dev="$(remote_render remote-tenant-dev)"
+  prod="$(remote_render remote-tenant)"
+  [ "$(env_value SIGNAL_CLUSTER_ID "${dev}")" = "$(env_value SIGNAL_CLUSTER_ID "${prod}")" ]
+  [ "$(env_value SIGNAL_TLS_CA_FILE "${dev}")" = "$(env_value SIGNAL_TLS_CA_FILE "${prod}")" ]
+  [ "$(env_value FLEET_POLL_INTERVAL "${dev}")" = "$(env_value FLEET_POLL_INTERVAL "${prod}")" ]
+  dev_objs="$(yq -r 'select(. != null) | "\(.kind)/\(.metadata.name)"' "${dev}" | LC_ALL=C sort -u)"
+  prod_objs="$(yq -r 'select(. != null) | "\(.kind)/\(.metadata.name)"' "${prod}" | LC_ALL=C sort -u)"
+  [ "${dev_objs}" = "${prod_objs}" ]
+}
+
+@test "T7 the gateway route reaches fleet-manager and names no method" {
+  # A PathPrefix match with no `method` forwards GET and POST alike, which is
+  # what GET /api/v1/fleet/workloads and GET /api/v1/fleet/stun-state depend
+  # on. A rule that named a verb would 404 the others.
+  local route fleet_backend methods
+  route="${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/base/gateway-route.yaml"
+  [ -f "${route}" ]
+  fleet_backend="$(yq -r 'select(.kind == "HTTPRoute" and .metadata.name == "signalloom-remote-warden") | .spec.rules[] | select(.matches[0].path.value == "/warden-fleet") | .backendRefs[0].name' "${route}")"
+  [ "${fleet_backend}" = "fleet-manager" ]
+  methods="$(yq -r 'select(.kind == "HTTPRoute" and .metadata.name == "signalloom-remote-warden") | .spec.rules[].matches[].method // ""' "${route}" | tr -d '\n')"
+  [ -z "${methods}" ]
+}
+
+@test "T7 fleet-manager admits the gateway and declares the warden caller key" {
+  [ -s "${TMP_FM}" ]
+  local gw key scopes
+  gw="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "fleet-manager") | .spec.ingress[].from[] | select(.namespaceSelector != null) | .namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' "${TMP_FM}" | grep -cx ingress || true)"
+  [ "${gw}" -ge 1 ]
+  key="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "fleet-manager") | .spec.template.spec.containers[0].env[] | select(.name == "FLEET_MANAGER_KEY_WARDEN") | .valueFrom.secretKeyRef.key' "${TMP_FM}")"
+  scopes="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "fleet-manager") | .spec.template.spec.containers[0].env[] | select(.name == "FLEET_MANAGER_KEY_WARDEN_SCOPES") | .value' "${TMP_FM}")"
+  [ "${key}" = "warden" ]
+  [ "${scopes}" = "report" ]
+  # Disjoint from the local warden's scope: one key may not do both jobs.
+  [ "${scopes}" != "stun" ]
+}
+
+@test "T8 signal-ingest admits the gateway for the /warden-ingest route" {
+  local np gw
+  np="${REPO_ROOT}/d2-signalloom/apps/signal-ingest/base/networkpolicy.yaml"
+  [ -f "${np}" ]
+  gw="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "allow-signal-ingest-ingress") | .spec.ingress[].from[] | select(.namespaceSelector != null) | .namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' "${np}" | grep -cx ingress || true)"
+  [ "${gw}" -ge 1 ]
+}

@@ -81,3 +81,5 @@ require (
 )
 
 replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine => ../policy-engine
+
+replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel => ../../pkg/obscel

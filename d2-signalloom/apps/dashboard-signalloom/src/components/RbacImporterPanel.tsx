@@ -289,6 +289,11 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
       const afmImport = convertRbacToAfmImport(rbac, selectedCluster, effectiveNamespace)
       afmImport.id = generateImportId(now)
       afmImport.name = generateImportName(effectiveNamespace, now)
+      // The cluster the RBAC came from, which is what the gateway's importer
+      // key binding is checked against. Without it a key bound to a cluster
+      // was compared against the generated import id and could never match, so
+      // Send to AFM worked only for a superadmin.
+      afmImport.source_cluster = selectedCluster.id
 
       lastImportPayloadRef.current = afmImport
       setYamlText(emitYaml(afmImport))

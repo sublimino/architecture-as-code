@@ -228,12 +228,37 @@ async def import_cluster(request: Request) -> Response:
     if not isinstance(cluster_id, str) or not cluster_id:
         raise APIError(422, "invalid_payload_schema", "Request body must contain a non-empty string 'id'")
 
+    # Which cluster the RBAC was READ FROM, as opposed to ``id``, which is the
+    # identifier of this import inside AFM.
+    #
+    # The two are not the same thing and conflating them made every key-bound
+    # import impossible. ``id`` is generated per import as
+    # ``signalloom-<YYYYMMDDTHHMMSS>-<rand>`` (dashboard ``afmYaml.ts``); the
+    # prefix and the sortable stamp are what the AFM embed uses to select the
+    # most recent import, so it cannot be repurposed to name a cluster. But the
+    # key binding below compared it against ``cluster``, so a key bound to
+    # ``kind-osramp`` could never match and only a superadmin (who presents no
+    # key) could import at all.
+    #
+    # ``source_cluster`` carries the selected cluster id instead. It is
+    # optional: an older client that omits it falls back to ``id``, which
+    # preserves the existing refusal rather than quietly widening the binding.
+    source_cluster = body_json.get("source_cluster")
+    if source_cluster is not None and (not isinstance(source_cluster, str) or not source_cluster):
+        raise APIError(
+            422, "invalid_payload_schema", "'source_cluster' must be a non-empty string when present",
+        )
+    bound_target = source_cluster if isinstance(source_cluster, str) else cluster_id
+
     # 6. Bound cluster verification (keys are bound to one cluster; an operator is not)
     if matched_key_spec is not None:
         bound_cluster = matched_key_spec.get("cluster")
-        if cluster_id != bound_cluster:
-            logger.warning("Cluster ID mismatch: payload id %s != bound cluster %s for key %s", cluster_id, bound_cluster, key_name)
-            raise APIError(403, "cluster_not_bound", f"Key {key_name} is not authorized for cluster {cluster_id}")
+        if bound_target != bound_cluster:
+            logger.warning(
+                "Cluster binding mismatch: source cluster %s != bound cluster %s for key %s",
+                bound_target, bound_cluster, key_name,
+            )
+            raise APIError(403, "cluster_not_bound", f"Key {key_name} is not authorized for cluster {bound_target}")
 
     # 7. Audit logging before upstream mutation
     logger.info("AFM cluster import requested for cluster %s with key %s (%d bytes)", cluster_id, key_name, len(body_bytes))
@@ -241,7 +266,12 @@ async def import_cluster(request: Request) -> Response:
     await _audit_outbound_request(
         principal=principal,
         event_type="afm.cluster_import_requested",
-        detail={"key": key_name, "cluster_id": cluster_id, "bytes": len(body_bytes)},
+        detail={
+            "key": key_name,
+            "cluster_id": cluster_id,
+            "source_cluster": bound_target,
+            "bytes": len(body_bytes),
+        },
         what="afm_import",
     )
 

@@ -251,6 +251,12 @@ class AgentResponse(BaseModel):
     record_class: Literal["registered", "discovered", "resolved", "fixture"] = "registered"
     is_registry_linked: bool = False
 
+    # Remote-cluster provenance (docs/EAP/remote-contract.md). Null for every
+    # central-cluster agent.
+    cluster_id: str | None = None
+    pod: str | None = None
+    frozen: bool | None = None
+
     # Section 2.1 Enriched Structures
     runtime: RuntimeMetadata | None = None
     responsibility: ResponsibilityMetadata | None = None
@@ -286,6 +292,10 @@ class SourceHealthMap(BaseModel):
     k8s_discovery: SourceHealthDetail
     postgres_registry: SourceHealthDetail
     crypto_proofs: SourceHealthDetail
+    # fleet-manager's remote workload registry (docs/EAP/remote-contract.md).
+    # Optional so a deployment that merges no remote cluster is still contract
+    # conformant.
+    remote_registry: SourceHealthDetail | None = None
 
 
 class PaginationMetadata(BaseModel):

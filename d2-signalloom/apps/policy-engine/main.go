@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
 
 // Request/response types for legacy PodSpec evaluation
@@ -214,12 +216,39 @@ func main() {
 	mux.HandleFunc("/readyz", handleReadyz)
 	mux.HandleFunc("/api/v1/evaluate", handleEvaluate)
 
+	// Observation policy: the durable bundle set is read from disk at boot, not
+	// registered over the API (SLAWS v2 §4.4, D6).
+	obsEvaluator, err := obscel.NewEvaluator()
+	if err != nil {
+		slog.Error("failed initializing observation evaluator", "error", err)
+		os.Exit(1)
+	}
+
+	bundlesDir := os.Getenv(BundlesDirEnv)
+	if bundlesDir == "" {
+		bundlesDir = DefaultBundlesDir
+	}
+	loaded, err := store.LoadObservationBundles(bundlesDir)
+	if err != nil {
+		// A malformed bundle is a broken deployment, not an empty one. Booting
+		// anyway would serve a policy set that silently detects less than the
+		// one in git.
+		slog.Error("failed loading observation bundles", "dir", bundlesDir, "error", err)
+		os.Exit(1)
+	}
+	slog.Info("observation bundles loaded", "dir", bundlesDir, "bundles", loaded,
+		"tenants", store.ObservationBundleTenants())
+
 	// Versioned Policy Endpoints
 	policyHandlers := NewPolicyEngineHandlers(store, celEngine)
-	mux.HandleFunc("/api/v1/policies", policyHandlers.HandleListPolicies)
-	mux.HandleFunc("/api/v1/policies/evaluate", policyHandlers.HandleEvaluatePolicies)
-	mux.HandleFunc("/api/v1/policies/bundles", policyHandlers.HandleRegisterBundle)
-	mux.HandleFunc("/api/v1/policies/rollback", policyHandlers.HandleRollback)
+	obsHandlers := NewObservationHandlers(store, obsEvaluator)
+	apiKeys := ParseAPIKeys(os.Getenv(APIKeysEnv))
+	if len(apiKeys) > 0 {
+		slog.Info("policy and observation APIs require a bearer key")
+	} else {
+		slog.Warn("policy and observation APIs are unauthenticated", "hint", "set "+APIKeysEnv)
+	}
+	registerGuardedRoutes(mux, policyHandlers, obsHandlers, apiKeys)
 
 	// Compliance scanner: FAIR risk engine + framework hierarchy + CEL evaluation.
 	policyRoot := os.Getenv("POLICY_ROOT")
@@ -275,6 +304,46 @@ func main() {
 	}
 
 	slog.Info("stopped")
+}
+
+// GuardedRoutes is every path that key auth covers when POLICY_API_KEYS is set
+// (SLAWS v2 §4.3). /healthz, /readyz, /api/v1/evaluate and the compliance
+// routes are deliberately absent: probes must not carry a credential, and the
+// compliance scanner is a separate surface this card does not change.
+//
+// /api/v1/policies is in the set even though it has no trailing path segment:
+// it returns bundle contents, so it is as sensitive as the routes beneath it.
+var GuardedRoutes = []string{
+	"/api/v1/policies",
+	"/api/v1/policies/evaluate",
+	"/api/v1/policies/bundles",
+	"/api/v1/policies/rollback",
+	"/api/v1/observations/evaluate",
+}
+
+// registerGuardedRoutes mounts the policy and observation APIs behind key auth.
+//
+// Routing and authentication are registered together, in one place, on purpose:
+// a route added here cannot be reached without passing through RequireAPIKey,
+// which is the failure mode a separate middleware list invites.
+func registerGuardedRoutes(mux *http.ServeMux, ph *PolicyEngineHandlers, oh *ObservationHandlers, keys []string) {
+	handlers := map[string]http.HandlerFunc{
+		"/api/v1/policies":              ph.HandleListPolicies,
+		"/api/v1/policies/evaluate":     ph.HandleEvaluatePolicies,
+		"/api/v1/policies/bundles":      ph.HandleRegisterBundle,
+		"/api/v1/policies/rollback":     ph.HandleRollback,
+		"/api/v1/observations/evaluate": oh.HandleEvaluateObservation,
+	}
+	for _, route := range GuardedRoutes {
+		h, ok := handlers[route]
+		if !ok {
+			// Unreachable unless GuardedRoutes and the table above drift apart;
+			// panicking at boot beats serving a route with no handler or, worse,
+			// a handler with no guard.
+			panic("policy-engine: no handler registered for guarded route " + route)
+		}
+		mux.HandleFunc(route, RequireAPIKey(keys, h))
+	}
 }
 
 // findPolicyRoot walks up from the working directory to find a policy/ directory

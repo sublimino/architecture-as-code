@@ -151,6 +151,10 @@ func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *ht
 		bundle.TenantID = tenantID
 	}
 
+	// §4.4: this route is a dry-run surface. The flag is set here, not by the
+	// caller, so a client cannot register something that claims to be durable.
+	bundle.DryRun = true
+
 	if err := h.store.RegisterBundle(bundle.TenantID, &bundle); err != nil {
 		writeError(w, http.StatusBadRequest, "failed to register policy bundle: "+err.Error())
 		return

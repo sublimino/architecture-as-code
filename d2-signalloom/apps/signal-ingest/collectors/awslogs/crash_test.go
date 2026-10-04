@@ -78,6 +78,14 @@ type fileSQSState struct {
 	Handles  map[string]string          `json:"handles"`   // receipt handle -> message ID
 	Deleted  []string                   `json:"deleted"`   // message IDs, in delete order
 	Receives int                        `json:"receives"`
+	// Stale holds the receipt handles this fake has reissued. A delete presented with
+	// one of these is the stale-handle rejection a restarted consumer earns, and it
+	// has to be distinguishable from a handle the queue has simply never seen.
+	Stale []string `json:"stale"`
+	// StaleDeletes counts delete attempts made with a reissued handle, so the parent
+	// can assert the restart actually took that path rather than passing for some
+	// other reason.
+	StaleDeletes int `json:"stale_deletes"`
 }
 
 // fileSQS is an awslogs.SQSClient whose whole state is a JSON file, fsynced on every
@@ -159,11 +167,16 @@ func (q *fileSQS) seed(msg awslogs.Message) error {
 // does when a visibility timeout expires with no delete — the state a crashed
 // consumer leaves behind.
 //
-// The receipt handle is preserved rather than reissued. Real SQS issues a NEW handle
-// on re-delivery and may reject a delete with the old one; see the report note on
-// the replayed-record ack path. Preserving it keeps this test focused on the claim
-// the proposal makes (stored exactly once, message re-delivered then deleted) rather
-// than entangling it with a separate defect.
+// The receipt handle is REISSUED, and the old one is invalidated, because that is
+// what SQS does. This fake used to preserve the handle, which made the restart path
+// look like it worked: the replayed record presented the handle the dead process had
+// been given, the fake accepted it, and the delete succeeded. Against a real queue
+// that delete is rejected with ReceiptHandleIsInvalid for ever — the handle can never
+// become valid again — so the record was never released, the object was re-projected
+// and re-ingested on every drain, and the collector wedged on its own backlog. The
+// test could not see any of that, which is the reason it is modelled here now.
+//
+// The message ID is preserved: it is the same message, redelivered.
 func (q *fileSQS) recoverInFlight() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -173,6 +186,13 @@ func (q *fileSQS) recoverInFlight() error {
 	}
 	for handle, msg := range st.InFlight {
 		delete(st.InFlight, handle)
+		// Forget the old handle so a delete presented with it is rejected rather than
+		// silently honoured, and remember that it WAS ours so the rejection can name
+		// the right condition.
+		delete(st.Handles, handle)
+		st.Stale = append(st.Stale, handle)
+		msg.ReceiptHandle = handle + "-reissued"
+		st.Handles[msg.ReceiptHandle] = msg.MessageID
 		st.Queued = append(st.Queued, msg)
 	}
 	return q.save(st)
@@ -230,9 +250,25 @@ func (q *fileSQS) DeleteMessage(ctx context.Context, queueURL, receiptHandle str
 		return err
 	}
 
+	// A handle this fake reissued: the stale-handle rejection, recorded so the parent
+	// can prove the restart went through that branch. Checked before Handles so a
+	// reissued handle is never mistaken for a live one.
+	for _, stale := range st.Stale {
+		if stale == receiptHandle {
+			st.StaleDeletes++
+			if err := q.save(st); err != nil {
+				return err
+			}
+			return &awsfake.ReceiptHandleIsInvalidError{
+				ReceiptHandle: receiptHandle,
+				MessageID:     "", // the fake no longer maps it; the handle is all SQS would echo back
+			}
+		}
+	}
+
 	msgID, known := st.Handles[receiptHandle]
 	if !known {
-		return fmt.Errorf("fileSQS: ReceiptHandleIsInvalid: %q", receiptHandle)
+		return fmt.Errorf("fileSQS: DeleteMessage for a receipt handle this queue has never issued: %q", receiptHandle)
 	}
 
 	// Already deleted: idempotent, and not journalled twice. SQS behaves this way and
@@ -516,6 +552,19 @@ func TestCollector_SIGKILLBetweenTheDurableWriteAndTheSQSDeleteStoresExactlyOnce
 	st = readSQSState(t, dir)
 	if len(st.Deleted) != 1 || st.Deleted[0] != crashMessageID {
 		t.Errorf("delete journal = %v, want exactly [%s]", st.Deleted, crashMessageID)
+	}
+
+	// The restart went through the stale-handle path, which is the point of modelling
+	// the reissue: the replayed record presented the dead process's handle, the queue
+	// rejected it, the record was released anyway, and the redelivery was then acked
+	// under the new handle. Without this assertion the test would still pass if the
+	// fake quietly accepted the old handle — which is how the defect hid.
+	if st.StaleDeletes != 1 {
+		t.Errorf("the queue saw %d delete attempts with a reissued handle, want 1: the replayed record did not take the stale-handle path",
+			st.StaleDeletes)
+	}
+	if len(st.Stale) != 1 {
+		t.Errorf("the queue reissued %d handles, want 1", len(st.Stale))
 	}
 	if len(st.Queued) != 0 || len(st.InFlight) != 0 {
 		t.Errorf("after recovery the queue still holds queued=%d in_flight=%d, want 0/0", len(st.Queued), len(st.InFlight))

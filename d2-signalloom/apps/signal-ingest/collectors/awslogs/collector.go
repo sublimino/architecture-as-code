@@ -120,6 +120,13 @@ type Collector struct {
 	// would let a parser defect drain a customer's queue while the only symptom was an
 	// empty store.
 	unparseable atomic.Uint64
+	// staleAcks counts records released from the ring WITHOUT an acknowledgement
+	// because the receipt handle they were buffered with had been reissued by SQS.
+	// Each one is a deliberate at-least-once redelivery, deduplicated downstream by
+	// the content-addressed Observation.ID, and each one is worth seeing: a number
+	// that keeps climbing means the collector is restarting repeatedly, which the
+	// store cannot show because the rows are identical.
+	staleAcks atomic.Uint64
 }
 
 // Option configures a Collector.
@@ -341,6 +348,7 @@ func (c *Collector) Stats() map[string]uint64 {
 		// account, a notification filter dropping everything, or a poisoned queue.
 		"discarded_total":   c.discarded.Load(),
 		"unparseable_total": c.unparseable.Load(),
+		"stale_ack_total":   c.staleAcks.Load(),
 	}
 	if ring := c.Ring(); ring != nil {
 		out["dropped_total"] = ring.Dropped()
@@ -600,12 +608,35 @@ func (c *Collector) Drain(ctx context.Context) (int, error) {
 }
 
 // ackAndRelease deletes the SQS message and only then releases the buffer slot.
+//
+// There is one exemption, and it is narrow: a record REPLAYED from the WAL whose
+// delete is rejected because the handle has been reissued is released without an
+// acknowledgement. Everything else about a failed delete is unchanged — the record
+// stays buffered and the error propagates, because the message is still in flight
+// and the work is still owed.
 func (c *Collector) ackAndRelease(ctx context.Context, ring *DiskRingBuffer, rec *LogRecord) error {
-	// A record with no receipt handle came from a replay of a buffer written by a
-	// previous process, whose handles have long expired. There is nothing to ack.
+	// A record with no receipt handle has nothing to ack.
 	if rec.ReceiptHandle != "" && c.sqs != nil {
 		if err := c.sqs.DeleteMessage(ctx, c.cfg.QueueURL, rec.ReceiptHandle); err != nil {
-			return fmt.Errorf("awslogs: acknowledging %s: %w", rec.Object(), err)
+			if !rec.Replayed || !IsStaleReceiptHandle(err) {
+				return fmt.Errorf("awslogs: acknowledging %s: %w", rec.Object(), err)
+			}
+			// The handle was issued to a previous process. SQS reissues a handle on
+			// every redelivery and rejects the old one for ever, so retrying this
+			// delete can never succeed: the slot would never be released, the object
+			// would be re-projected and re-ingested on every drain, and the collector
+			// would wedge on its own backlog.
+			//
+			// Releasing it is safe because the message itself is NOT lost — the delete
+			// failed, so it is still queued and SQS will redeliver it under the new
+			// handle, at which point it is fetched and ingested again. Observation.ID
+			// is sha256 of the evidence ref, so those are the same rows: at-least-once
+			// delivery, exactly-once storage (§6.3, D4). That is the same guarantee the
+			// crash path already relies on, reached by a different route.
+			c.staleAcks.Add(1)
+			slog.Warn("awslogs releasing a replayed record whose receipt handle has been reissued; the message stays queued for redelivery and the observations deduplicate on ID",
+				"object", rec.Object(), "stale_ack_total", c.staleAcks.Load(), "error", err)
+			return ring.Commit()
 		}
 		c.acked.Add(1)
 	}

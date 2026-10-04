@@ -127,17 +127,43 @@ func TestParseS3Notification_MultipleRecords(t *testing.T) {
 	})
 }
 
-func TestParseS3Notification_RejectsUnparseableAndEmpty(t *testing.T) {
+// A body we cannot understand at all stays in flight: deleting it would discard a
+// customer's telemetry on the strength of our parser being right about an unfamiliar
+// shape, and the queue's redrive policy is the correct place for a poison message.
+func TestParseS3Notification_RejectsUnparseable(t *testing.T) {
 	for name, body := range map[string]string{
-		"not json":            `{`,
-		"no records":          `{"Records":[]}`,
-		"record without key":  `{"Records":[{"s3":{"bucket":{"name":"b"},"object":{}}}]}`,
-		"record without name": `{"Records":[{"s3":{"bucket":{},"object":{"key":"k"}}}]}`,
-		"undecodable key":     `{"Records":[{"s3":{"bucket":{"name":"b"},"object":{"key":"bad%zz"}}}]}`,
+		"not json":        `{`,
+		"undecodable key": `{"Records":[{"s3":{"bucket":{"name":"b"},"object":{"key":"bad%zz"}}}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if refs, err := live.ParseS3Notification([]byte(body)); err == nil {
 				t.Fatalf("want an error so the message stays in flight for the redrive policy, got refs %+v", refs)
+			}
+		})
+	}
+}
+
+// A body that IS valid JSON but names no object is "nothing to do", not an error.
+//
+// This used to be an error, and that was the defect: the collector left such a
+// message in flight, nothing ever acknowledged it — it never reaches the ring, which
+// is what the ack path is driven from — so it came back on every single poll until
+// the redrive policy moved it. The collector now discards and acknowledges these and
+// counts them, which is visible rather than permanent.
+func TestParseS3Notification_EmptyShapesAreNothingToDoNotErrors(t *testing.T) {
+	for name, body := range map[string]string{
+		"no records":          `{"Records":[]}`,
+		"record without key":  `{"Records":[{"s3":{"bucket":{"name":"b"},"object":{}}}]}`,
+		"record without name": `{"Records":[{"s3":{"bucket":{},"object":{"key":"k"}}}]}`,
+		"unrelated event":     `{"detail-type":"Scheduled Event","source":"aws.events"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			refs, err := live.ParseS3Notification([]byte(body))
+			if err != nil {
+				t.Fatalf("want no error so the collector can discard and acknowledge, got %v", err)
+			}
+			if len(refs) != 0 {
+				t.Fatalf("want no refs, got %+v", refs)
 			}
 		})
 	}

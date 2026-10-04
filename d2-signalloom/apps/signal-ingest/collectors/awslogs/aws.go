@@ -6,6 +6,7 @@ package awslogs
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,65 @@ import (
 // only thing standing between a customer's read-only trust policy and the classic
 // confused-deputy, so an empty value is a configuration defect and never a default.
 var ErrExternalIDRequired = errors.New("awslogs: external ID is required for sts:AssumeRole")
+
+// staleReceiptHandleCode is the SQS error code for a receipt handle that is no
+// longer valid. It is matched as a literal string rather than against
+// sqs/types.ReceiptHandleIsInvalid, because that type would put aws-sdk-go-v2 in
+// this package's import graph — which is the one thing the core/live split exists to
+// prevent (see the package comment on collectors/awslogs/live).
+const staleReceiptHandleCode = "ReceiptHandleIsInvalid"
+
+// apiErrorCoder is the shape every aws-sdk-go-v2 service error has
+// (smithy.APIError). Duck-typing it is how this package reads an SDK error code with
+// no SDK import: errors.As on an interface matches any error in the chain that
+// implements it, so a *types.ReceiptHandleIsInvalid wrapped twice by the live client
+// is still found.
+type apiErrorCoder interface {
+	ErrorCode() string
+}
+
+// IsStaleReceiptHandle reports whether err is SQS refusing a delete because the
+// receipt handle is no longer the one the message is in flight under.
+//
+// This is the one error on the ack path that must not leave a record buffered. The
+// ack ordering is durable → sink → ack → release, so a delete failure normally
+// leaves the record in the ring to be retried, which is right for a throttle, a
+// network blip or an expired credential. It is wrong for a reissued handle: SQS
+// issues a NEW handle every time a message is redelivered and rejects the old one
+// for ever, so a record replayed from the WAL after a restart is waiting to ack with
+// a token that can never become valid again. Retrying it re-ingests the same object
+// on every drain and the slot is never released — the collector wedges on its own
+// backlog while duplicating store writes.
+//
+// Both detections are needed and they catch different responses. The error code is
+// the structured signal and it is what the SDK returns for the common case. The text
+// match catches the responses that report the same condition as
+// InvalidParameterValue with the detail only in the message, which is what SQS
+// returns for a handle that has outlived its message's visibility window.
+//
+// It is deliberately narrow. The caller only applies the exemption to a record it
+// replayed from the WAL, so a rejection on a handle this process was just issued
+// stays an error — that is a defect in our own plumbing, not an expiry, and
+// releasing the slot would orphan a live message.
+func IsStaleReceiptHandle(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var coder apiErrorCoder
+	if errors.As(err, &coder) && coder.ErrorCode() == staleReceiptHandleCode {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, strings.ToLower(staleReceiptHandleCode)) {
+		return true
+	}
+	// Scoped to the handle: "expired" on its own also describes an expired
+	// credential, an expired token or an expired lease, none of which are safe to
+	// release a record on.
+	return strings.Contains(msg, "receipt handle") && strings.Contains(msg, "expired")
+}
 
 // Credentials is the time-bounded, read-only credential set returned by an STSAssumer.
 //

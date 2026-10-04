@@ -780,6 +780,10 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# Secrets into namespaces that exist after `make up`.
 	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
+	# The operator PUBLIC keys fleet-manager verifies resume tokens against,
+	# same timing rule as the caller keys above: the Deployment reads them
+	# from an optional configMapKeyRef at container start.
+	$(MAKE) fleet-operator-keys CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) afm-importer-key CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper
@@ -1055,11 +1059,13 @@ demo-signalloom-signalfusion-images: ## Build Signal Fusion images (signal-inges
 test-sltm-probe-apikey: ## SLTM Phase 1: the Kusari-cluster probe authenticates with its API key (offline: real binary; SLTM_LIVE=1: live cluster).
 	bats test/sltm-probe-apikey.bats
 
-.PHONY: sldc-ingest-keys fleet-manager-keys afm-importer-key
+.PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key
 sldc-ingest-keys: ## Mint/converge every signal-ingest key and consumer Secret on CONTEXT (idempotent; cluster required).
 	./scripts/sldc-ingest-bearer.sh --context $(CONTEXT)
 fleet-manager-keys: ## Mint/converge fleet-manager caller keys on CONTEXT (idempotent; cluster required).
 	./scripts/fleet-manager-caller-keys.sh --context $(CONTEXT)
+fleet-operator-keys: ## Mint the resume-governance operator keypairs and publish their PUBLIC halves as ConfigMap fe-signalloom/fleet-manager-operator-keys on CONTEXT (idempotent; cluster required). Private keys stay under $(KEYS_DIR)/fleet-operators/. Without this no governed resume can succeed.
+	./scripts/fleet-operator-keys.sh --context $(CONTEXT) </dev/null
 afm-importer-key: ## Mint the AFM importer static key on CONTEXT (idempotent; cluster required). Nothing called scripts/afm-importer-key.sh before 2026-10-04, so every fresh estate answered 401 on the AFM scan trigger.
 	./scripts/afm-importer-key.sh --context $(CONTEXT) </dev/null
 

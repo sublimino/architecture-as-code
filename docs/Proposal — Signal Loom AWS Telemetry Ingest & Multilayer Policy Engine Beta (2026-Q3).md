@@ -9,7 +9,7 @@ date: 2026-10-03
 status: v2 implemented on integration/slaws-v0.1.0 (2026-10-04); acceptance evidence in Errata; awaiting sign-off and the kind-osramp run
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T15:57
+updated: 2026-10-04T16:14
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -365,6 +365,25 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 - A record replayed from the WAL whose receipt handle SQS rejects as stale is released without ack (`stale_ack` counter) and left to redelivery, where the derived `Observation.ID` dedupes. A non-stale delete failure still keeps the record buffered.
 - One notification parser in the core package, URL-decoding keys; `live` delegates to it.
 - Pull-only is asserted in code: the live clients call exactly `ReceiveMessage`, `DeleteMessage`, `GetObject`, `AssumeRole`; fixture mode never invokes the client factory.
+
+#### Errata — closing fixes after the advisor review (2026-10-04, lead, `672d8818`, `254ecc5c`)
+
+- **No silent store downgrade.** A binary built without `-tags frostdb` now refuses `SIGNAL_STORE=frostdb` at boot (`store/factory.go`, `!frostdb`) instead of running in memory; `main` exits. `store.HasFrostDB` exposes the build tag; the sentinel store contract test asserts the refusal in untagged builds and persistence under the tag.
+- **Replay feedback loop pinned.** `policy/replay_loop_test.go`: a match-all rule over a store holding one raw observation, one stored finding and one stored decision replays to exactly one finding. The invariant is held by two guards (replay input filter and the sink's source guard); disabling one is masked by the other, disabling both fails the test. W5's surviving mutation is therefore a composite invariant with a test, not an unpinned one.
+- **Counted acceptance.** `scripts/slaws-acceptance.sh` runs policy-engine with `-v` so tests are counted, records `HEAD` at the start and end of every run, and records `make test-obscel` as a seventh line beyond the six (pkg/obscel is its own module; none of the six reaches it). The two counted runs are at tip `4151c8b5` (HEAD recorded at start and end of each run, run 2's tree dirty only by this errata draft):
+
+| Command | Run 1 | Run 2 |
+| :--- | :--- | :--- |
+| `make test-signal-ingest` | rc 0, 3330 pass, 0 fail | rc 0, 3330 pass, 0 fail |
+| `make test-signal-ingest-frostdb` | rc 0, 3376 pass, 0 fail | rc 0, 3376 pass, 0 fail |
+| policy-engine `go test -v ./...` | rc 0, 458 pass, 0 fail | rc 0, 458 pass, 0 fail |
+| `make test-sldc-offline` | rc 0, 681 pass, 0 fail | rc 0, 681 pass, 0 fail |
+| `scripts/check-old-probe-name.sh` | rc 0 | rc 0 |
+| `make docs-lint` | rc 0 | rc 0 |
+| beyond the six: `make test-obscel` | rc 0, 97 pass | rc 0, 97 pass |
+
+`diff totals.key` between the runs: identical. The fixture e2e (policy package, including the empty-bundles mutation gate) ran green inside both tagged and untagged signal-ingest commands in both runs.
+- **Known flaky tests, pre-existing, named for the operator:** `TestKeyReloadWatchReloadDetectsSymlinkSwap` (load-sensitive 10 s deadline) and `TestTombstonePublishesThresholdNotMeasurement` (`privacy/tombstone/tombstone_test.go:265`, asserts a four-digit number is absent from a document containing random hex, about 0.3 % per run). A red acceptance on one of these two is not a SLAWS regression.
 
 #### Errata — image pin discipline (lead)
 

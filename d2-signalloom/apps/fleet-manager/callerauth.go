@@ -1,6 +1,6 @@
 package main
 
-// Caller authentication for the mutating fleet routes.
+// Caller authentication for the privileged fleet routes.
 //
 // Every route that changes the fleet (stun, resume, recover, deploy, scan,
 // reset) used to answer anyone the NetworkPolicy let through. /recover thaws
@@ -18,9 +18,9 @@ package main
 //	401 no key, a malformed or duplicate header, or a key nobody holds
 //	403 a valid key whose caller lacks the route's scope
 //
-// No keys configured means every mutating route answers 401: there is no
-// anonymous mode. Read-only routes (health, topology, consistency, metrics)
-// are unchanged.
+// No keys configured means every authenticated route answers 401: there is no
+// anonymous mode. Public read-only routes (health, topology, consistency,
+// metrics) are unchanged.
 
 import (
 	"crypto/hmac"
@@ -33,7 +33,7 @@ import (
 	"strings"
 )
 
-// callerScope is one mutating capability a key can be granted.
+// callerScope is one authenticated fleet capability a key can be granted.
 type callerScope string
 
 const (
@@ -43,11 +43,41 @@ const (
 	scopeDeploy  callerScope = "deploy"
 	scopeScan    callerScope = "scan"
 	scopeReset   callerScope = "reset"
+	scopeReport  callerScope = "report"
+	scopeRead    callerScope = "read"
 )
 
+// The remote reporting path also requires coordinated manifest and bootstrap
+// work that deliberately does not belong in this unit. base/deployment.yaml
+// must declare a caller named warden whose FLEET_MANAGER_KEY_WARDEN comes from
+// Secret key "warden" and whose FLEET_MANAGER_KEY_WARDEN_SCOPES is exactly
+// "report". scripts/fleet-manager-caller-keys.sh must provision that named
+// Secret key. The warden DaemonSet receives it from the remote-tenant overlay
+// in a REMOTE cluster, and the key must carry ONLY report: it must never grant
+// stun, resume, recover, deploy, scan, or reset authority over the hub. A
+// remote cluster's key is the furthest-out credential in the system, so
+// widening it would turn compromise at the least trusted edge into control of
+// the central containment plane.
+//
+// base/deployment.yaml must also append read to the dashboard's currently exact
+// FLEET_MANAGER_KEY_DASHBOARD_SCOPES value "stun,deploy,scan,reset", allowing
+// the dashboard to list remote workloads. test/fleet-manager-caller-auth-manifest.bats
+// pins that value with an exact grep -qx, so the manifest and BATS edits must
+// land together rather than leaving a test that blesses the old authority.
+//
+// Until both the warden and dashboard wiring land, the gap is visibly
+// fail-closed: GET /api/v1/fleet/workloads answers the dashboard with 403 and
+// the warden cannot report at all. Neither failure silently weakens caller
+// authentication.
 var knownCallerScopes = map[callerScope]bool{
-	scopeStun: true, scopeResume: true, scopeRecover: true,
-	scopeDeploy: true, scopeScan: true, scopeReset: true,
+	scopeStun:    true,
+	scopeResume:  true,
+	scopeRecover: true,
+	scopeDeploy:  true,
+	scopeScan:    true,
+	scopeReset:   true,
+	scopeReport:  true,
+	scopeRead:    true,
 }
 
 // callerKeyEnvPrefix names a key: FLEET_MANAGER_KEY_STUN_SENTINEL holds the
@@ -160,7 +190,8 @@ func (c *callerKeys) authenticate(r *http.Request) (*callerKey, error) {
 // callerHeader names the authenticated caller for audit on the response.
 const callerHeader = "X-Fleet-Caller"
 
-// require wraps a mutating handler: 401 without a held key, 403 without scope.
+// require wraps an authenticated handler: 401 without a held key, 403 without
+// the required scope.
 func (c *callerKeys) require(scope callerScope, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller, err := c.authenticate(r)

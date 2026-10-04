@@ -17,15 +17,23 @@ func TestInputsAreExactlyWhatTheBinaryIsBuiltFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Inputs: %v", err)
 	}
+	// Paths are relative to the build context, which is d2-signalloom (ContextDir), so every
+	// module sits under apps/ -- except pkg/obscel, which is why the context is above apps/.
 	for _, want := range []string{
-		"signal-ingest/Dockerfile",
-		"signal-ingest/go.mod",
-		"signal-ingest/go.sum",
-		"signal-ingest/main.go",
-		"signal-ingest/store/memory.go",
-		"signal-ingest/identity/migrations/001_identity_graph.sql", // //go:embed
-		"policy-engine/go.mod",
-		"policy-engine/fair/fair.go", // replace => ../policy-engine
+		"apps/signal-ingest/Dockerfile",
+		"apps/signal-ingest/go.mod",
+		"apps/signal-ingest/go.sum",
+		"apps/signal-ingest/main.go",
+		"apps/signal-ingest/store/memory.go",
+		"apps/signal-ingest/identity/migrations/001_identity_graph.sql", // //go:embed
+		"apps/policy-engine/go.mod",
+		"apps/policy-engine/fair/fair.go", // replace => ../policy-engine
+		// The Dockerfile builds -tags frostdb, so the durable store IS the binary and must be
+		// pinned. These were asserted absent while the image was built without tags; listing
+		// with the build's own tags is what keeps the tag honest about the FrostDB store.
+		"apps/signal-ingest/store/frostdb.go",
+		"apps/signal-ingest/store/factory_frostdb.go",
+		"apps/signal-ingest/store/label_allowlist.go",
 	} {
 		if !slices.Contains(in, want) {
 			t.Errorf("Inputs omits %s, which the image build reads", want)
@@ -35,10 +43,10 @@ func TestInputsAreExactlyWhatTheBinaryIsBuiltFrom(t *testing.T) {
 		switch {
 		case strings.HasSuffix(p, "_test.go"):
 			t.Errorf("Inputs includes test file %s; tests do not change the binary", p)
-		case strings.HasPrefix(p, "signal-ingest/base/"), strings.HasPrefix(p, "signal-ingest/deploy/"):
+		case strings.HasPrefix(p, "apps/signal-ingest/base/"), strings.HasPrefix(p, "apps/signal-ingest/deploy/"):
 			t.Errorf("Inputs includes manifest %s; the manifest pins the tag, so hashing it is circular", p)
-		case p == "signal-ingest/store/label_allowlist.go", p == "signal-ingest/store/frostdb.go":
-			t.Errorf("Inputs includes %s, which only a -tags frostdb build compiles", p)
+		case p == "apps/signal-ingest/store/factory.go":
+			t.Errorf("Inputs includes %s, which only a build WITHOUT -tags frostdb compiles", p)
 		}
 	}
 	if !slices.IsSorted(in) {

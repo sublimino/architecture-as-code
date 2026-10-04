@@ -12,8 +12,12 @@ inputs="$(go run ./cmd/image-tag -inputs)"
 # (scripts/lib/source-id.sh: modified, untracked and ignored, failing closed).
 # shellcheck source=lib/source-id.sh
 source ../../../scripts/lib/source-id.sh # from the module dir (cd above)
+# ../.. is the Docker build context (d2-signalloom; internal/imagetag.ContextDir), which is what
+# the -inputs paths are relative to. It was .. while the context was d2-signalloom/apps; passing
+# the wrong root here makes `git status -- <paths>` match nothing, so every input reads as clean
+# and the guard silently stops refusing dirty builds.
 # shellcheck disable=SC2086
-dirty="$(source_id_dirty_inputs .. $inputs)" || {
+dirty="$(source_id_dirty_inputs ../.. $inputs)" || {
     echo "signal-ingest-image-tag: git status failed; refusing" >&2
     exit 2
 }

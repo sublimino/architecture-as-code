@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,6 +31,33 @@ import (
 
 // ErrNoSuchKey mirrors the S3 NoSuchKey error for an object the fake does not hold.
 var ErrNoSuchKey = errors.New("awsfake: NoSuchKey")
+
+// ReceiptHandleIsInvalidError mirrors the SQS ReceiptHandleIsInvalid API error.
+//
+// It carries an ErrorCode method because that is the shape aws-sdk-go-v2 errors
+// have (smithy.APIError), and awslogs.IsStaleReceiptHandle duck-types on exactly
+// that method rather than importing the SDK into the core package. So the fake
+// exercises the same branch of the predicate the real SDK error does, which is the
+// only thing that makes the fake an oracle for live behaviour rather than a
+// restatement of it.
+type ReceiptHandleIsInvalidError struct {
+	ReceiptHandle string
+	MessageID     string
+}
+
+func (e *ReceiptHandleIsInvalidError) Error() string {
+	return fmt.Sprintf("awsfake: ReceiptHandleIsInvalid: the receipt handle %q has expired and been reissued (message %s)",
+		e.ReceiptHandle, e.MessageID)
+}
+
+// ErrorCode is the smithy.APIError accessor. The string is the literal SQS error
+// code, not a paraphrase of it.
+func (e *ReceiptHandleIsInvalidError) ErrorCode() string { return "ReceiptHandleIsInvalid" }
+
+// ErrorMessage is the other smithy.APIError accessor the predicate may read. The
+// fault classifier is deliberately not implemented: it would need the smithy types
+// in this package's import graph, and nothing in the collector branches on it.
+func (e *ReceiptHandleIsInvalidError) ErrorMessage() string { return e.Error() }
 
 // FixedNow is the clock the fakes derive every observable time value from, so a
 // test asserting on credential expiry is reproducible.
@@ -47,6 +75,12 @@ type SQS struct {
 	queued   []awslogs.Message
 	inFlight map[string]awslogs.Message // receipt handle → message
 	deleted  []string                   // message IDs, in delete order
+	// stale maps a receipt handle this fake has reissued to the message ID it used to
+	// name. A delete presented with one of these is the stale-handle failure a
+	// restarted consumer hits, and it is reported as such rather than as an unknown
+	// handle — the two want opposite handling.
+	stale        map[string]string
+	redeliveries int
 	// ReceiveErr, when non-nil, is returned by the next ReceiveMessages call.
 	ReceiveErr error
 	// DeleteErr, when non-nil, is returned by every DeleteMessage call.
@@ -55,7 +89,11 @@ type SQS struct {
 
 // NewSQS returns an empty SQS fake bound to queueURL.
 func NewSQS(queueURL string) *SQS {
-	return &SQS{queueURL: queueURL, inFlight: make(map[string]awslogs.Message)}
+	return &SQS{
+		queueURL: queueURL,
+		inFlight: make(map[string]awslogs.Message),
+		stale:    make(map[string]string),
+	}
 }
 
 // Enqueue appends a message to the queue.
@@ -112,6 +150,11 @@ func (q *SQS) DeleteMessage(ctx context.Context, queueURL, receiptHandle string)
 	if q.DeleteErr != nil {
 		return q.DeleteErr
 	}
+	if msgID, reissued := q.stale[receiptHandle]; reissued {
+		// The handle named a real message once, and the message is still in the queue
+		// under a new handle. This is exactly what a restarted consumer presents.
+		return &ReceiptHandleIsInvalidError{ReceiptHandle: receiptHandle, MessageID: msgID}
+	}
 	m, ok := q.inFlight[receiptHandle]
 	if !ok {
 		return fmt.Errorf("awsfake: DeleteMessage for unknown or already-deleted receipt handle %q", receiptHandle)
@@ -142,6 +185,52 @@ func (q *SQS) Remaining() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.queued)
+}
+
+// Redeliver returns every in-flight message to the queue with a NEW receipt handle
+// and invalidates the old one, which is what SQS does when a visibility timeout
+// expires without a delete.
+//
+// The reissue is the part that matters and the part the fakes used to get wrong by
+// omission. A consumer that crashed after fsyncing a record but before deleting the
+// message holds the OLD handle in its buffer; on restart it replays that record and
+// tries to delete with the handle it saved. Real SQS rejects that with
+// ReceiptHandleIsInvalid. A fake that preserved the handle made the delete succeed,
+// so the whole stale-handle failure mode was invisible to every test — and the
+// consequence in production is a record the ring can never release, because
+// ackAndRelease fails for ever on a handle that will never become valid again.
+//
+// The message ID is preserved: it is the same message, redelivered.
+func (q *SQS) Redeliver() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if len(q.inFlight) == 0 {
+		return nil
+	}
+
+	// Deterministic order: tests assert on receive order, and map iteration is not an
+	// order. Sort by the handle the message was last delivered under, which tracks
+	// enqueue order because handles are derived from message IDs.
+	handles := make([]string, 0, len(q.inFlight))
+	for handle := range q.inFlight {
+		handles = append(handles, handle)
+	}
+	sort.Strings(handles)
+
+	for _, handle := range handles {
+		msg := q.inFlight[handle]
+		delete(q.inFlight, handle)
+		q.redeliveries++
+		// The old handle is now dead. Recording it rather than simply forgetting it is
+		// what lets DeleteMessage distinguish "a handle I reissued" — a stale handle,
+		// the error a restarted consumer deserves — from "a handle I have never heard
+		// of", which is a defect in the caller.
+		q.stale[handle] = msg.MessageID
+		msg.ReceiptHandle = fmt.Sprintf("%s-redelivery-%d", msg.ReceiptHandle, q.redeliveries)
+		q.queued = append(q.queued, msg)
+	}
+	return nil
 }
 
 // S3 is a deterministic in-memory S3Fetcher.

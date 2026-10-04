@@ -68,6 +68,23 @@ type LogRecord struct {
 	Key           string    `json:"key"`
 	ReceiptHandle string    `json:"receipt_handle"`
 	Payload       []byte    `json:"payload"`
+
+	// Replayed reports that this record was recovered from the WAL when the buffer
+	// was opened, rather than pushed by the process that is reading it.
+	//
+	// It is NOT serialised, and that is the whole point: it is a fact about this
+	// record's provenance in THIS process, derived at open time, not a property of
+	// the record. Persisting it would be wrong twice — it would survive into a
+	// process that pushed the record itself, and it would need rewriting in place on
+	// every restart.
+	//
+	// The collector reads it on exactly one decision: ReceiptHandle came from a
+	// previous process, so SQS has long since reissued it and will reject a delete
+	// presented with it. For a replayed record that rejection is release-without-ack
+	// (the message is still queued and will redeliver); for a record this process
+	// buffered it is a real error. See Collector.ackAndRelease and
+	// IsStaleReceiptHandle.
+	Replayed bool `json:"-"`
 }
 
 // Origin returns the evidence origin for this record's payload.
@@ -89,6 +106,10 @@ type frame struct {
 	offset int64
 	length int64 // frame header + body
 	seq    uint64
+	// replayed marks a frame that was already in the WAL when this buffer was
+	// opened. Tracked on the frame rather than in the record body so it costs
+	// nothing on the write path and cannot be forged by a crafted payload.
+	replayed bool
 }
 
 // DiskRingBuffer is a bounded, crash-resilient FIFO on disk.
@@ -242,7 +263,9 @@ func (rb *DiskRingBuffer) replay() error {
 			break // a frame we cannot decode ends the readable region
 		}
 
-		rb.live = append(rb.live, frame{offset: offset, length: frameHeaderLen + bodyLen, seq: rec.SequenceID})
+		// Every frame found here predates this process, so its receipt handle predates
+		// this process too.
+		rb.live = append(rb.live, frame{offset: offset, length: frameHeaderLen + bodyLen, seq: rec.SequenceID, replayed: true})
 		if rec.SequenceID >= rb.nextSeq {
 			rb.nextSeq = rec.SequenceID + 1
 		}
@@ -474,6 +497,10 @@ func (rb *DiskRingBuffer) readFrameLocked(fr frame) (*LogRecord, error) {
 	if err := json.Unmarshal(body, &rec); err != nil {
 		return nil, fmt.Errorf("awslogs: decoding frame at offset %d: %w", fr.offset, err)
 	}
+	// Provenance comes from the index, not from the body. Replayed is `json:"-"`, so
+	// the unmarshal above always leaves it false and this is the only thing that can
+	// set it.
+	rec.Replayed = fr.replayed
 	return &rec, nil
 }
 
@@ -517,7 +544,11 @@ func (rb *DiskRingBuffer) compactLocked() error {
 			cleanup()
 			return fmt.Errorf("awslogs: writing frame during compaction: %w", err)
 		}
-		rebuilt = append(rebuilt, frame{offset: offset, length: fr.length, seq: fr.seq})
+		// Carry `replayed` across the rebuild. Compaction moves a frame, it does not
+		// change where the frame came from — and dropping the flag here would silently
+		// turn a replayed record back into a locally-pushed one, which is exactly the
+		// record whose stale receipt handle must be forgiven.
+		rebuilt = append(rebuilt, frame{offset: offset, length: fr.length, seq: fr.seq, replayed: fr.replayed})
 		offset += fr.length
 	}
 

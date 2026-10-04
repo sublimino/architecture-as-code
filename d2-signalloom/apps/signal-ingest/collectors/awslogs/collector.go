@@ -5,7 +5,6 @@ package awslogs
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,15 +24,17 @@ var ErrLiveClientsNotWired = errors.New("awslogs: no SQS/S3/STS client wired and
 
 // NotificationParser extracts the object references from one SQS message body.
 //
-// It is injectable because the live and fixture paths see genuinely different
-// bodies. The default, objectRefsFrom, reads the direct S3 event notification that
-// the fakes produce. A live account may fan out through SNS first and will post a
-// one-off `s3:TestEvent` the day the bucket is wired up, neither of which the
-// default understands — so the live factory supplies a parser that does.
+// It stays injectable so a deployment with an unusual notification plumbing can
+// supply its own, but it no longer has to: the default, objectRefsFrom, is
+// ParseS3Notification, the same parser the live package exposes — SNS envelope,
+// s3:TestEvent and percent-decoded keys included. It was previously a second,
+// weaker implementation, so whether an object key with a space in it round-tripped
+// depended on which path was wired.
 //
 // The three outcomes are distinct and the collector relies on all three: refs to
-// fetch, nil/nil for "nothing here and nothing wrong", and an error to leave the
-// message in flight for the queue's redrive policy.
+// fetch, nil/nil for "nothing here and nothing wrong" (which PollOnce discards and
+// acknowledges), and an error to leave the message in flight for the queue's redrive
+// policy.
 type NotificationParser func(body string) ([]ObjectRef, error)
 
 // LiveClientFactory builds the AWS seams for one collector configuration.
@@ -108,6 +109,24 @@ type Collector struct {
 	acked     atomic.Uint64
 	errors    atomic.Uint64
 	assumed   atomic.Uint64
+	// discarded counts messages acknowledged because they named no object: an
+	// s3:TestEvent, an unrelated event on a shared queue, an S3 record with no key.
+	// They never reach the ring or the sink, so without a counter they are a queue
+	// draining with nothing to show for it — indistinguishable from a notification
+	// filter that is dropping every real event.
+	discarded atomic.Uint64
+	// unparseable counts messages left in flight because the body is not something we
+	// understand at all. Kept separate from discarded on purpose: conflating them
+	// would let a parser defect drain a customer's queue while the only symptom was an
+	// empty store.
+	unparseable atomic.Uint64
+	// staleAcks counts records released from the ring WITHOUT an acknowledgement
+	// because the receipt handle they were buffered with had been reissued by SQS.
+	// Each one is a deliberate at-least-once redelivery, deduplicated downstream by
+	// the content-addressed Observation.ID, and each one is worth seeing: a number
+	// that keeps climbing means the collector is restarting repeatedly, which the
+	// store cannot show because the rows are identical.
+	staleAcks atomic.Uint64
 }
 
 // Option configures a Collector.
@@ -131,7 +150,8 @@ func WithAWS(sqs SQSClient, s3 S3Fetcher, sts STSAssumer) Option {
 
 // WithNotificationParser overrides how an SQS message body is turned into object
 // references. The default reads a direct S3 event notification; the live factory
-// supplies one that also unwraps SNS and ignores s3:TestEvent.
+// supplies the same one by name. Overriding is for an unusual plumbing, not for
+// SNS or s3:TestEvent, both of which the default already handles.
 func WithNotificationParser(parse NotificationParser) Option {
 	return func(c *Collector) { c.parser = parse }
 }
@@ -321,6 +341,14 @@ func (c *Collector) Stats() map[string]uint64 {
 		"acknowledged_total": c.acked.Load(),
 		"errors_total":       c.errors.Load(),
 		"assume_role_total":  c.assumed.Load(),
+		// acknowledged_total counts acks that follow a durable write and a sink
+		// acceptance. These two are the acks and non-acks that do not: a discard never
+		// reaches the sink, and an unparseable body is never acked at all. Reading them
+		// together is what tells an operator whether a quiet store means a quiet
+		// account, a notification filter dropping everything, or a poisoned queue.
+		"discarded_total":   c.discarded.Load(),
+		"unparseable_total": c.unparseable.Load(),
+		"stale_ack_total":   c.staleAcks.Load(),
 	}
 	if ring := c.Ring(); ring != nil {
 		out["dropped_total"] = ring.Dropped()
@@ -445,7 +473,23 @@ func (c *Collector) PollOnce(ctx context.Context) (int, error) {
 			// would discard telemetry on the strength of our own parser being right,
 			// and the queue's redrive policy is the correct place for a poison message.
 			c.errors.Add(1)
+			c.unparseable.Add(1)
 			slog.Error("awslogs cannot parse notification; leaving it in flight", "message_id", msg.MessageID, "error", err)
+			continue
+		}
+		if len(refs) == 0 {
+			// Nothing to fetch and nothing wrong: an s3:TestEvent, an unrelated event on
+			// a shared queue, or an S3 record with no bucket or key.
+			//
+			// This has to be acknowledged HERE, because the ack path is driven from the
+			// ring: Drain peeks a record, puts it past the sink and then deletes that
+			// record's message. A message producing no record has nothing to carry its
+			// receipt handle to a delete, so before this branch existed it sat in flight
+			// until its visibility timeout expired, came back, produced no record again,
+			// and repeated for the life of the queue. Every bucket posts exactly one
+			// s3:TestEvent when its notification configuration is attached, so every
+			// pilot began with one permanently redelivering message.
+			c.discardMessage(ctx, msg)
 			continue
 		}
 		for _, ref := range refs {
@@ -470,6 +514,35 @@ func (c *Collector) PollOnce(ctx context.Context) (int, error) {
 	}
 
 	return c.Drain(ctx)
+}
+
+// discardMessage acknowledges a message that named no object, without touching the
+// ring or the sink.
+//
+// Not touching the ring is the whole design. A discard carries no durability claim —
+// there is nothing to be durable about — so it does not consume a buffer slot, does
+// not emit an observation describing nothing, and does not move acknowledged_total,
+// which the ordering tests read as "every observation reached the sink, then the
+// message was deleted". It moves discarded_total instead.
+//
+// A failed delete is counted and swallowed rather than returned. The discard mutates
+// no durable state, so SQS redelivering the message simply means the next poll
+// discards it again: idempotent by construction. Failing the whole poll here would
+// stall the real notifications queued behind it on the strength of one TestEvent the
+// collector does not need.
+func (c *Collector) discardMessage(ctx context.Context, msg Message) {
+	if msg.ReceiptHandle == "" || c.sqs == nil {
+		return
+	}
+	if err := c.sqs.DeleteMessage(ctx, c.cfg.QueueURL, msg.ReceiptHandle); err != nil {
+		c.errors.Add(1)
+		slog.Error("awslogs cannot acknowledge a notification that named no object; it will redeliver and be discarded again",
+			"message_id", msg.MessageID, "error", err)
+		return
+	}
+	c.discarded.Add(1)
+	slog.Debug("awslogs discarded a notification that named no object",
+		"message_id", msg.MessageID, "discarded_total", c.discarded.Load())
 }
 
 // Drain projects and ingests every buffered record, acknowledging each one's SQS
@@ -535,50 +608,39 @@ func (c *Collector) Drain(ctx context.Context) (int, error) {
 }
 
 // ackAndRelease deletes the SQS message and only then releases the buffer slot.
+//
+// There is one exemption, and it is narrow: a record REPLAYED from the WAL whose
+// delete is rejected because the handle has been reissued is released without an
+// acknowledgement. Everything else about a failed delete is unchanged — the record
+// stays buffered and the error propagates, because the message is still in flight
+// and the work is still owed.
 func (c *Collector) ackAndRelease(ctx context.Context, ring *DiskRingBuffer, rec *LogRecord) error {
-	// A record with no receipt handle came from a replay of a buffer written by a
-	// previous process, whose handles have long expired. There is nothing to ack.
+	// A record with no receipt handle has nothing to ack.
 	if rec.ReceiptHandle != "" && c.sqs != nil {
 		if err := c.sqs.DeleteMessage(ctx, c.cfg.QueueURL, rec.ReceiptHandle); err != nil {
-			return fmt.Errorf("awslogs: acknowledging %s: %w", rec.Object(), err)
+			if !rec.Replayed || !IsStaleReceiptHandle(err) {
+				return fmt.Errorf("awslogs: acknowledging %s: %w", rec.Object(), err)
+			}
+			// The handle was issued to a previous process. SQS reissues a handle on
+			// every redelivery and rejects the old one for ever, so retrying this
+			// delete can never succeed: the slot would never be released, the object
+			// would be re-projected and re-ingested on every drain, and the collector
+			// would wedge on its own backlog.
+			//
+			// Releasing it is safe because the message itself is NOT lost — the delete
+			// failed, so it is still queued and SQS will redeliver it under the new
+			// handle, at which point it is fetched and ingested again. Observation.ID
+			// is sha256 of the evidence ref, so those are the same rows: at-least-once
+			// delivery, exactly-once storage (§6.3, D4). That is the same guarantee the
+			// crash path already relies on, reached by a different route.
+			c.staleAcks.Add(1)
+			slog.Warn("awslogs releasing a replayed record whose receipt handle has been reissued; the message stays queued for redelivery and the observations deduplicate on ID",
+				"object", rec.Object(), "stale_ack_total", c.staleAcks.Load(), "error", err)
+			return ring.Commit()
 		}
 		c.acked.Add(1)
 	}
 	return ring.Commit()
-}
-
-// s3Notification is the subset of an S3 event notification the collector reads.
-type s3Notification struct {
-	Records []struct {
-		S3 struct {
-			Bucket struct {
-				Name string `json:"name"`
-			} `json:"bucket"`
-			Object struct {
-				Key string `json:"key"`
-			} `json:"object"`
-		} `json:"s3"`
-	} `json:"Records"`
-}
-
-// objectRefsFrom extracts the object references from an S3 event notification body.
-func objectRefsFrom(body string) ([]ObjectRef, error) {
-	var note s3Notification
-	if err := json.Unmarshal([]byte(body), &note); err != nil {
-		return nil, fmt.Errorf("awslogs: decoding S3 notification: %w", err)
-	}
-
-	var refs []ObjectRef
-	for _, r := range note.Records {
-		if r.S3.Bucket.Name == "" || r.S3.Object.Key == "" {
-			continue
-		}
-		refs = append(refs, ObjectRef{Bucket: r.S3.Bucket.Name, Key: r.S3.Object.Key})
-	}
-	if len(refs) == 0 {
-		return nil, errors.New("awslogs: S3 notification names no object")
-	}
-	return refs, nil
 }
 
 // Compile-time proof of the shapes the registry needs. Stop() with NO return value is

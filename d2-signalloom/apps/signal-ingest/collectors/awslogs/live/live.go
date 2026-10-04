@@ -325,6 +325,24 @@ func NewClients(ctx context.Context, region, roleARN, externalID string) (*Clien
 		return nil, fmt.Errorf("awslogs/live: loading AWS configuration for %s: %w", region, err)
 	}
 
+	return NewClientsFromConfig(base, roleARN, externalID), nil
+}
+
+// NewClientsFromConfig builds the three seams on base, assuming roleARN with
+// externalID for the data-plane clients.
+//
+// Split out of NewClients so the wiring can be exercised without
+// LoadDefaultConfig. That function consults the ambient credential chain — shared
+// config, environment, SSO cache, and IMDS over the network — which makes the
+// assembled client set the one thing in this package a test could not reach without
+// leaving the process. The split is the difference between asserting on the clients
+// a deployment actually builds and asserting on three clients a test wired by hand;
+// the credentials cache in here is precisely the part most likely to make an API
+// call nobody intended (see TestLive_FactoryBuiltClientsAddNoFifthOperation).
+//
+// It performs no I/O: the role is assumed lazily, by the credentials cache, on the
+// first signed request.
+func NewClientsFromConfig(base aws.Config, roleARN, externalID string) *Clients {
 	// The provider holds the external ID, so every refresh presents it too. A refresh
 	// that dropped it would work until the first expiry and then fail with
 	// AccessDenied an hour into a pilot.
@@ -344,7 +362,7 @@ func NewClients(ctx context.Context, region, roleARN, externalID string) (*Clien
 		// relationship works, and proving that with credentials already minted by the
 		// same assumption would prove only that the cache has an entry.
 		STS: NewSTSAssumer(base),
-	}, nil
+	}
 }
 
 // Compile-time proof that the live implementations satisfy the seams. Without these

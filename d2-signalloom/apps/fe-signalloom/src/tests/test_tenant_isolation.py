@@ -878,16 +878,15 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("DELETE", "/api/connectors/{connector_id}"),
     ("DELETE", "/api/v1/connectors/{connector_id}"),
     # cAdvisor pod telemetry (cadvisor_poller.py): authenticated (router-level
-    # Depends(authenticated_principal)) but genuinely cluster-wide, not
-    # tenant-partitioned -- there is no tenant_id anywhere in AgentTelemetry
-    # or the poller's pod index, only namespace/pod_name. Same residual-gap
-    # class as test_rbac_correlation_routes_are_not_tenant_scoped_at_all
-    # below: an authenticated tenant that already knows (or guesses) another
-    # tenant's pod_name can read its telemetry. Not fixed here: retrofitting
-    # a tenant mapping onto pod-level cAdvisor metrics is a product decision
-    # about where that mapping lives, not a one-line filter -- same shape as
-    # the already-escalated RBAC finding, called out rather than silently
-    # excused.
+    # Depends(authenticated_principal)) AND tenant-partitioned since the
+    # remote-cluster work, but still not database-backed, which is why it stays
+    # on this list. A cAdvisor sample carries no tenant -- the poller indexes by
+    # namespace and pod name only -- so the pod-to-tenant mapping is read from
+    # the pod's own signalloom.ai/tenant label through claim_tenancy, the same
+    # source the claim decision uses. The gate is proved by
+    # test_cadvisor_telemetry_tenancy.py, including the two oracles it has to
+    # avoid (the 409 ambiguity answer and the SSE stream). Discovery being
+    # unreadable fails these closed.
     ("GET", "/api/telemetry/agents"),
     ("GET", "/api/v1/telemetry/agents"),
     ("GET", "/api/telemetry/agents/{pod_name}"),

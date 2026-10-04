@@ -16,3 +16,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
+
+replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel => ../../pkg/obscel

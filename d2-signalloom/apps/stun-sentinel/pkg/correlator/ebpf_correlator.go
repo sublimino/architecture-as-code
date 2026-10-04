@@ -618,11 +618,18 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 		syscallName = SyscallNameOpenat
 	}
 
+	// Severity: a sensitive open, exec or burst is CRITICAL and freezes; a
+	// connect is WARN, reported for correlation (docs/EAP/enforcement.md).
+	// Its target is the remote endpoint the probe captured, not a path.
+	target, severity := filename, SeverityCritical
+	if raw.Type == SyscallTypeConnect {
+		target, severity = raw.RemoteEndpoint(), SeverityWarn
+	}
 	obs := TelemetryObservation{
 		Timestamp:      eventWallTime(raw.TsNs).UTC().Format(time.RFC3339Nano),
 		Syscall:        syscallName,
-		Target:         filename,
-		Severity:       SeverityCritical,
+		Target:         target,
+		Severity:       severity,
 		DirectReaction: ReactionNone,
 	}
 
@@ -726,8 +733,16 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	raw.Type = uint8(ev.Type)
 	copy(raw.Comm[:], ev.Comm)
 	copy(raw.Filename[:], ev.Filename)
+	raw.Family, raw.DestPort, raw.DestAddr = ev.Family, ev.DestPort, ev.DestAddr
 	filename := ev.Filename
 	targetPID := ev.PID
+
+	// A connect carries an endpoint, not a path: it bypasses the sensitive
+	// path filter and the runtime-lookup exemption, is reported at WARN, and
+	// never freezes. Before this it died here with an empty filename.
+	if raw.Type == SyscallTypeConnect {
+		return m.reportConnect(raw, ev)
+	}
 
 	// SLAAT-P2-4: evasive-burst detection runs independently of, and before,
 	// the sensitive-path filter below. A rapid process-spawn flood (and the
@@ -795,6 +810,37 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 			obs.DirectReaction = ReactionCgroupFrozen
 		}
 	}
+	return obs, true
+}
+
+// reportConnect builds the WARN observation for a connect from a watched
+// pod. ok is false when the destination is unset (the probe filters to
+// AF_INET/AF_INET6, so this is drift) or no owning pod resolves.
+func (m *SentinelProbeManager) reportConnect(raw SyscallEvent, ev *ebpf.SyscallEvent) (TelemetryObservation, bool) {
+	if raw.RemoteEndpoint() == "" {
+		m.stats.notSensitive.Add(1)
+		return TelemetryObservation{}, false
+	}
+	var pod *corev1.Pod
+	if m.cgroupRoot != "" {
+		pod = m.lookupPodByCgroupID(ev.CgroupID)
+	} else {
+		pod = m.lookupPodByPID(ev.PID)
+		if pod == nil && raw.TGID != 0 {
+			pod = m.lookupPodByPID(raw.TGID)
+		}
+	}
+	if pod == nil {
+		m.stats.noPod.Add(1)
+		return TelemetryObservation{}, false
+	}
+	if m.fromSelf(pod) {
+		return TelemetryObservation{}, false
+	}
+	m.stats.matched.Add(1)
+	obs := m.NormalizeObservation(raw, pod)
+	obs.CgroupPath = m.cgroupPathFor(ev.CgroupID, ev.PID)
+	obs.Opener = &OpenerIdentity{Comm: ev.Comm, TGID: ev.TGID, UID: ev.UID, ExeIno: ev.ExeIno, ExeSize: ev.ExeSize}
 	return obs, true
 }
 

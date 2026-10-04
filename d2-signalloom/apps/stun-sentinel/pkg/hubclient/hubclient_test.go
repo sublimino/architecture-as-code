@@ -76,10 +76,25 @@ func TestCAFileAppendsTheHubIssuerToTheSystemRoots(t *testing.T) {
 	}
 }
 
-func TestCAFileMissingOrEmptyIsAStartupError(t *testing.T) {
-	if _, err := (Config{CAFile: filepath.Join(t.TempDir(), "absent.pem")}).Client(time.Second); err == nil {
-		t.Fatal("missing CA file must fail")
+// The CA Secret is optional in the manifests: an absent file is system roots
+// (named as such), not a refusal.
+func TestCAFileAbsentFallsBackToSystemRoots(t *testing.T) {
+	srv, _ := hub(t)
+	c := Config{CAFile: filepath.Join(t.TempDir(), "absent.pem")}
+	if !c.CAFileMissing() || c.Mode() != ModeSystemRoots {
+		t.Fatalf("missing=%v mode=%s", c.CAFileMissing(), c.Mode())
 	}
+	err := get(t, c, srv.URL)
+	var unknown x509.UnknownAuthorityError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("system roots must apply (x509 unknown authority), got %v", err)
+	}
+	if (Config{}).CAFileMissing() {
+		t.Fatal("no CA file configured is not a missing one")
+	}
+}
+
+func TestCAFileWithoutACertificateIsAStartupError(t *testing.T) {
 	empty := filepath.Join(t.TempDir(), "empty.pem")
 	if err := os.WriteFile(empty, []byte("not pem\n"), 0o600); err != nil {
 		t.Fatal(err)

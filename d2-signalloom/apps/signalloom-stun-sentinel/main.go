@@ -441,6 +441,10 @@ func main() {
 
 	reconciler := newStunReconciler(freezer, tc, probes)
 	reconciler.holds = newStunHolds(freezer)
+	// Remote holds persist across a restart (remotestore.go). Restore them
+	// before the controller runs so the first resync finds a hold, not drift.
+	reconciler.holds.remote = newRemoteStunStore(cfg.SpoolDir)
+	restoreRemoteHolds(reconciler.holds)
 	// A new correlator freeze is recorded by fleet-manager's stun cascade, the
 	// one writer of the Flux pin. The key comes from a Secret via env.
 	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), os.Getenv("FLEET_MANAGER_STUN_KEY"), hub.fleet)
@@ -514,6 +518,21 @@ func main() {
 	reporter.frozen = func(pod *corev1.Pod) bool { return reconciler.holds.isHeld(pod.UID) || kernelFrozenFor(freezer, pod) }
 	go reporter.run(ctx)
 
+	// Remote-cluster contract: the stun-state poll. Freezes and releases
+	// through the hold table, so the reconciler and the correlator see one
+	// truth; acks only what the kernel confirmed.
+	poller := newFleetPoller(os.Getenv("FLEET_MANAGER_URL"), func() string { return stunner.key }, hub.fleet,
+		cfg.ClusterID, cfg.NodeName, cfg.FleetPollInterval, reconciler.holds)
+	poller.findPod = func(namespace, name string) *corev1.Pod {
+		obj, ok, err := informer.GetIndexer().GetByKey(namespace + "/" + name)
+		if err != nil || !ok {
+			return nil
+		}
+		pod, _ := obj.(*corev1.Pod)
+		return pod
+	}
+	go poller.run(ctx)
+
 	// Initialize and start in-sentinel pure-Go eBPF probe loader & correlator (SLDC-P1-1, SLDC-P1-2)
 	go func() {
 		loader, err := bpfebpf.NewLoader(bpfebpf.LoaderOptions{
@@ -548,6 +567,21 @@ func main() {
 	}()
 
 	controller.run(ctx.Done())
+}
+
+// restoreRemoteHolds re-establishes every persisted remote hold. Errors are
+// logged per record; a bad store never stops the warden.
+func restoreRemoteHolds(h *stunHolds) {
+	if h == nil || h.remote == nil {
+		return
+	}
+	recs, err := h.remote.load()
+	if err != nil {
+		logEvent(stunEvent{Timestamp: now(), Event: "remote_stun_store_unreadable", Error: err.Error()})
+	}
+	for _, rec := range recs {
+		_ = h.restoreRemote(rec)
+	}
 }
 
 // podsFromIndexer returns the informer's current pods.

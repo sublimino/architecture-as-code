@@ -39,6 +39,11 @@ func newHubClients(cfg hubclient.Config) (*hubClients, stunEvent, error) {
 	if cfg.CAFile != "" {
 		details["ca_file"] = cfg.CAFile
 	}
+	if cfg.CAFileMissing() {
+		// The CA Secret is optional in the manifests: say the file was
+		// configured and absent, so a hub TLS failure later is explained.
+		details["ca_file_missing"] = true
+	}
 	return &hubClients{mode: cfg.Mode(), ingest: ingest, fleet: fleet},
 		stunEvent{Timestamp: now(), Event: "hub_tls_mode", Details: details}, nil
 }

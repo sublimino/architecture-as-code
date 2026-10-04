@@ -62,6 +62,20 @@ func TestHubTLSModeIsLoggedOnceAndBothClientsCarryIt(t *testing.T) {
 	}
 }
 
+func TestHubTLSAbsentCAFileIsSystemRootsWithANote(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "ca.pem")
+	hub, ev, err := newHubClients(hubclient.Config{CAFile: absent})
+	if err != nil {
+		t.Fatalf("an absent optional CA file must not refuse to start: %v", err)
+	}
+	if ev.Details["mode"] != "system_roots" || ev.Details["ca_file_missing"] != true || ev.Details["ca_file"] != absent {
+		t.Fatalf("startup event = %+v", ev)
+	}
+	if tr := hub.fleet.Transport.(*http.Transport); tr.TLSClientConfig.RootCAs != nil || tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("system roots: %+v", tr.TLSClientConfig)
+	}
+}
+
 func TestHubTLSRefusesSkipVerifyOutsideDevMode(t *testing.T) {
 	_, _, err := newHubClients(hubclient.Config{InsecureSkipVerify: true})
 	if !errors.Is(err, hubclient.ErrInsecureWithoutDevMode) {

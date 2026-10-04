@@ -359,8 +359,14 @@ def test_a_superadmin_sees_every_tenants_workloads(monkeypatch, remote_registry)
             "api_subject_tenants",
             {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
         )
-        # "demo-user" is on the default api_superadmin_subjects allow-list, so
-        # no email claim is needed to be recognised as the superadmin.
+        # Stated explicitly, not inherited: tests/test_eap_anonymous_surface.py
+        # assigns settings.api_superadmin_emails/subjects directly rather than
+        # through monkeypatch, so those defaults are gone for every module that
+        # runs after it in a full session. A test that needs a superadmin has to
+        # name one.
+        monkeypatch.setattr(api_compat.settings, "api_superadmin_subjects", {"demo-user"})
+        monkeypatch.setattr(api_compat.settings, "api_superadmin_emails", set())
+        # No email claim is needed: the subject allow-list is enough.
         body = client.get("/api/agents", headers=bearer(token_for("demo-user"))).json()
 
     assert sorted(a["id"] for a in body["agents"] if a["id"].startswith("pod-")) == ["pod-a", "pod-b"]

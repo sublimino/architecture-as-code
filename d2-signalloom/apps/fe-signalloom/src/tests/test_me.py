@@ -48,6 +48,13 @@ def test_a_superadmin_is_reported_as_one(monkeypatch):
             "api_subject_tenants",
             {"alice": "tenant-a", "demo-user": "tenant-demo"},
         )
+        # Stated explicitly, not inherited: tests/test_eap_anonymous_surface.py
+        # assigns settings.api_superadmin_emails/subjects directly rather than
+        # through monkeypatch, so those defaults are gone for every module that
+        # runs after it in a full session. A test that needs a superadmin has to
+        # name one.
+        monkeypatch.setattr(api_compat.settings, "api_superadmin_subjects", {"demo-user"})
+        monkeypatch.setattr(api_compat.settings, "api_superadmin_emails", set())
         body = client.get("/api/v1/me", headers=bearer(token_for("demo-user"))).json()
 
     assert body["subject"] == "demo-user"

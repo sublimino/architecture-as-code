@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# remote-tenant-dev: ../remote-tenant for a LAB, and nothing else.
+#
+# It exists because of one fact about the local two-cluster topology: the hub's
+# gateway serves a certificate from a self-signed ClusterIssuer, and there is
+# no CA bundle to mount until somebody exports one. Without that bundle every
+# post fails `x509: certificate signed by unknown authority`, observations go
+# to the spool, and stun records are retried and dropped. That looks like a
+# broken forwarding path when it is only an untrusted certificate.
+#
+# ── The two parameters this overlay adds, and the rule behind them ───────────
+#
+# | Parameter                       | Value | Effect |
+# | :------------------------------ | :---- | :----- |
+# | SIGNAL_TLS_INSECURE_SKIP_VERIFY | true  | the two HTTP clients accept any certificate |
+# | SIGNAL_DEV_MODE                 | true  | unlocks the line above |
+#
+# Neither works alone. The warden REFUSES TO START with
+# SIGNAL_TLS_INSECURE_SKIP_VERIFY=true unless SIGNAL_DEV_MODE=true
+# (docs/EAP/remote-contract.md), so skipping verification can never be reached
+# by one stray environment variable, a one-line patch, or an operator who
+# copied half of this file. Both have to be set, together, in a file whose name
+# says what it is for.
+#
+# Everything else comes from ../remote-tenant: the same two URLs, the same
+# tenant map, the same cluster id, the same intervals, the same required key
+# refs, and the same optional signalloom-hub-ca mount. Mount the CA Secret and
+# this overlay stops being needed, because SIGNAL_TLS_CA_FILE is already set.
+#
+# NEVER apply this to a pilot cluster. The scripted lab
+# (scripts/remote-tenant-lab.sh) applies this overlay, and the pilot runbook
+# (docs/EAP/secondary-cluster.md) applies ../remote-tenant.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../remote-tenant
+
+patches:
+  - target:
+      kind: DaemonSet
+      name: signalloom-warden
+    patch: |
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: signalloom-warden
+        namespace: fe-signalloom-agents
+      spec:
+        template:
+          spec:
+            containers:
+              - name: sentinel
+                env:
+                  - name: SIGNAL_TLS_INSECURE_SKIP_VERIFY
+                    value: "true"
+                  - name: SIGNAL_DEV_MODE
+                    value: "true"

@@ -11,7 +11,11 @@
 //   - system roots (neither variable set): the container's trust store;
 //   - SIGNAL_TLS_CA_FILE: a PEM bundle (mounted from a Secret) appended to the
 //     system roots, so a hub behind a private ClusterIssuer validates while
-//     public endpoints still do;
+//     public endpoints still do. The Secret is optional in the manifests, so
+//     a path that does not exist is not an error: the system roots apply and
+//     the warden says so in its startup line (CAFileMissing). A file that
+//     exists but is unreadable or holds no certificate still refuses: that
+//     is a misconfiguration, not an absence;
 //   - SIGNAL_TLS_INSECURE_SKIP_VERIFY=true: no verification at all. Only a
 //     development setting, so it is refused unless SIGNAL_DEV_MODE=true.
 //
@@ -76,14 +80,24 @@ func truthy(v string) bool {
 	return false
 }
 
+// CAFileMissing reports a configured CA file that does not exist: the
+// optional-Secret case, which falls back to the system roots.
+func (c Config) CAFileMissing() bool {
+	if c.CAFile == "" {
+		return false
+	}
+	_, err := os.Stat(c.CAFile)
+	return errors.Is(err, os.ErrNotExist)
+}
+
 // Mode reports which of the three applies to this configuration, before any
 // validation. Skip-verify takes precedence over a CA file because it makes
-// the CA file irrelevant.
+// the CA file irrelevant; a CA file that does not exist is system roots.
 func (c Config) Mode() Mode {
 	switch {
 	case c.InsecureSkipVerify:
 		return ModeInsecureSkipVerify
-	case c.CAFile != "":
+	case c.CAFile != "" && !c.CAFileMissing():
 		return ModeCAFile
 	default:
 		return ModeSystemRoots

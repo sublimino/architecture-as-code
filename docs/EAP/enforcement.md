@@ -190,6 +190,35 @@ The body carries an Ed25519 multi-signature resume token, schema
 The dashboard's **Recover Fleet** button uses the `dashboard` key, which has no
 `resume` or `recover` scope, so it answers `403`.
 
+`fleet-manager` verifies the token's signatures against operator public keys.
+It loads them at start from env `OPERATOR_KEYS_JSON`, which
+[`fleet-manager/base/deployment.yaml`](../../d2-signalloom/apps/fleet-manager/base/deployment.yaml)
+reads from ConfigMap `fe-signalloom/fleet-manager-operator-keys`, key
+`keys.json`. The reference is optional. With no ConfigMap the pod starts and
+every governed resume fails closed. Two more env values pin the policy:
+`FLEET_AUDIENCE` (`signalloom-fleet/local`) and `OPERATOR_TRUST_ROOT_ID`
+(`signalloom-operators-v1`). A pilot overlay overrides both.
+
+[`scripts/fleet-operator-keys.sh`](../../scripts/fleet-operator-keys.sh)
+provisions the keys, as `make fleet-operator-keys CONTEXT=<ctx>`. It mints
+two Ed25519 keypairs with `cmd/resume-token keygen`, for
+`spiffe://signalloom.demo/operator/alice` and `.../bob`. The private keys
+stay under `<keys_dir>/fleet-operators/` as `alice.key` and `bob.key`, mode
+`0600`, and never reach a cluster. Only the public entries go into the
+ConfigMap. The script is idempotent and `--rotate` replaces every keypair.
+`demo-signalloom-up` runs it right after `fleet-manager-keys`. Restart
+`fleet-manager` after the first mint or a rotation, because it reads the
+ConfigMap once at start.
+
+A remote resume takes the same token. For a pod a remote warden reported,
+`POST /api/v1/fleet/resume/{name}` on the hub records `resume_requested` and
+the warden acknowledges it. The token must be minted for that pod name in the
+remote namespace, for the hub's audience and trust root. Two operators must
+sign it. A consumed token presented again under a different idempotency key
+answers `409`. Step 9 and step 9b of
+[`scripts/remote-tenant-lab.sh`](../../scripts/remote-tenant-lab.sh) run
+that flow end to end.
+
 On the Kusari cluster there is no product path to resume. The warden exposes
 no resume endpoint and never polls `fleet-manager`. `fleet-manager` cannot
 write labels on a pod in another cluster. The hold lives in the warden process

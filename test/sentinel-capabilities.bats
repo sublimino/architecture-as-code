@@ -45,10 +45,10 @@ container_query() {
 mount_triples() {
   kubectl kustomize "${1:-$BASE_DIR}" | yq -r '
     select(.kind == "DaemonSet") | .spec.template.spec as $s
-    | ($s.volumes | map(select(.hostPath != null)) | map({key: .name, value: .hostPath.path}) | from_entries) as $host
     | $s.containers[0].volumeMounts[]
-    | select($host[.name] != null)
-    | .mountPath + "=" + $host[.name] + ":" + ((.readOnly // false) | tostring)' | sort
+    | . as $m
+    | select(($s.volumes[] | select(.name == $m.name) | .hostPath) != null)
+    | $m.mountPath + "=" + ($s.volumes[] | select(.name == $m.name) | .hostPath.path) + ":" + (($m.readOnly // false) | tostring)' | sort
 }
 
 @test "sentinel-capabilities: kustomize renders exactly one DaemonSet named signalloom-warden" {

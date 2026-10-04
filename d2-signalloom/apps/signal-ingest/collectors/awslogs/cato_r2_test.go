@@ -23,3 +23,24 @@ func TestDescriptionNeverRepeatsTheActorARN(t *testing.T) {
 		t.Fatalf("description must stay a one-line summary under 200 chars: %q", d)
 	}
 }
+
+// Cato round 3, ISC-23: a resource ARN that names a principal must not reach the
+// description through the resource_name door either, and neither must the source IP.
+func TestDescriptionNeverRepeatsResourceARNOrSourceIP(t *testing.T) {
+	labels := map[string]string{
+		LabelEventSource:  "iam.amazonaws.com",
+		LabelEventName:    "AttachUserPolicy",
+		LabelResourceType: "AWS::IAM::User",
+		LabelResourceName: "arn:aws:iam::123456789012:user/alice",
+		LabelSourceIP:     "203.0.113.5",
+	}
+	d := controlPlaneDescription(labels, "arn:aws:iam::123456789012:user/alice")
+	for _, leak := range []string{"user/alice", "123456789012", "203.0.113.5"} {
+		if strings.Contains(d, leak) {
+			t.Fatalf("description leaks %q: %q", leak, d)
+		}
+	}
+	if !strings.Contains(d, "AttachUserPolicy") {
+		t.Fatalf("description should still summarise the event: %q", d)
+	}
+}

@@ -288,18 +288,16 @@ func controlPlaneDescription(labels map[string]string, actor string) string {
 	b.WriteString(labels[LabelEventSource])
 	b.WriteString(" ")
 	b.WriteString(labels[LabelEventName])
-	if name := labels[LabelResourceName]; name != "" {
+	if rt := labels[LabelResourceType]; rt != "" {
 		b.WriteString(" on ")
-		b.WriteString(name)
+		b.WriteString(rt)
 	}
-	// The actor is deliberately NOT written here. ActorHint is pseudonymised by the
-	// store (segment schema v2); repeating the raw ARN in the plaintext description
-	// would defeat that (Cato round 2, ISC-23).
+	// Neither the actor nor the resource name nor the source IP is written here. ActorHint
+	// is pseudonymised by the store (segment schema v2) and a resource name is often an
+	// ARN that names a principal (AttachUserPolicy on a user); repeating either in the
+	// plaintext description would defeat that (Cato rounds 2 and 3, ISC-23). The values
+	// remain available as labels, which is the §2.3 projection.
 	_ = actor
-	if ip := labels[LabelSourceIP]; ip != "" {
-		b.WriteString(" from ")
-		b.WriteString(ip)
-	}
 	if code := labels[LabelErrorCode]; code != "" {
 		b.WriteString(" denied ")
 		b.WriteString(code)

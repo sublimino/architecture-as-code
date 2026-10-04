@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -69,6 +70,10 @@ type stunHolds struct {
 	// remote persists remote holds across a restart; nil means they die
 	// with the process like local holds.
 	remote *remoteStunStore
+	// onFreeze runs after a freeze that took a NEW hold, local or remote,
+	// with the engine's result (confirmed state, pids): the capture
+	// (capture.go). It runs on its own goroutine; nil disables it.
+	onFreeze func(pod *corev1.Pod, res *cgroup.FreezeResult, trig captureTrigger)
 
 	mu   sync.Mutex
 	held map[types.UID]*stunHold
@@ -87,7 +92,7 @@ func (s *stunHolds) freezeFor(pod *corev1.Pod, syscall, target string) error {
 		s.held[pod.UID] = h
 	}
 	h.gen++
-	_, err := s.freezer.engine.FreezePod(string(pod.UID), s.freezer.freezeToken)
+	res, err := s.freezer.engine.FreezePod(string(pod.UID), s.freezer.freezeToken)
 	if err != nil && !existed {
 		delete(s.held, pod.UID)
 	}
@@ -102,6 +107,9 @@ func (s *stunHolds) freezeFor(pod *corev1.Pod, syscall, target string) error {
 	}
 	if !existed && s.recordStun != nil {
 		go s.recordStun(pod.DeepCopy(), stunReasonFor(syscall, target))
+	}
+	if !existed && s.onFreeze != nil {
+		go s.onFreeze(pod.DeepCopy(), res, captureTrigger{Kind: "local", StunID: localStunID(string(pod.UID), h.at), Syscall: syscall, Target: target})
 	}
 	return nil
 }
@@ -157,6 +165,7 @@ func isAffirmativeRelease(pod *corev1.Pod) bool {
 // no-op freeze that reports alreadyHeld, so an ack lost before a restart is
 // simply sent again.
 func (s *stunHolds) freezeRemote(pod *corev1.Pod, id, reason string) (alreadyHeld bool, err error) {
+
 	s.mu.Lock()
 	h, existed := s.held[pod.UID]
 	if !existed {
@@ -168,7 +177,7 @@ func (s *stunHolds) freezeRemote(pod *corev1.Pod, id, reason string) (alreadyHel
 	h.remoteID = id
 	h.resumeRequested = false
 	h.gen++
-	_, err = s.freezer.engine.FreezePod(string(pod.UID), s.freezer.freezeToken)
+	res, err := s.freezer.engine.FreezePod(string(pod.UID), s.freezer.freezeToken)
 	if err != nil && !existed {
 		delete(s.held, pod.UID)
 	}
@@ -188,6 +197,9 @@ func (s *stunHolds) freezeRemote(pod *corev1.Pod, id, reason string) (alreadyHel
 			"stun_id": id, "reason": reason, "already_held": alreadyHeld}})
 	if s.notify != nil {
 		s.notify(pod.Namespace + "/" + pod.Name)
+	}
+	if !alreadyHeld && s.onFreeze != nil {
+		go s.onFreeze(pod.DeepCopy(), res, captureTrigger{Kind: "remote", StunID: id, Reason: reason})
 	}
 	return alreadyHeld, nil
 }

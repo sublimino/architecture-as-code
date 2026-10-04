@@ -6,170 +6,194 @@ tags:
   - signalloom
   - kusari
 date: 2026-10-03
-status: draft (bootstrap, awaiting sign-off)
+status: draft v2 (grilled 2026-10-04, awaiting sign-off)
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-04T01:21
+updated: 2026-10-04T07:47
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
 
 ## Executive Summary
 
-> **Executive Summary:** This proposal outlines the production architecture for pulling real-time AWS CloudTrail, IAM audit, VPC Flow, and S3 telemetry from customer AWS accounts (specifically for the upcoming Kusari pilot deployment), buffering them via a crash-resilient WAL-backed Disk Ring Buffer, and streaming them into the **Signal Loom Multilayer Policy Engine Beta**. The policy engine integrates CEL (Common Expression Language) predicate evaluation with Cedar formal SMT policy verification across 4 distinct telemetry planes (Cloud Control Plane, Endpoint Host, Network Egress, and Behavioural Application).
+> **Executive Summary:** Signal Loom will ingest CloudTrail, IAM and VPC Flow telemetry from customer AWS accounts (first pilot: Kusari) through a read-only cross-account role, project each record to a fixed label contract, persist it losslessly in FrostDB (Parquet on a persistent volume, DuckDB-readable as a last resort), and evaluate it with a **two-stage CEL policy pipeline** at the shared ingestion sink: stateless predicates per observation produce findings; windowed counters over findings produce decisions. Findings and decisions are stored as observations in the same store, so live evaluation, boot-time warm-up and regression replay over the backlog are one code path. Policy bundles are versioned files reconciled by Flux. The pilot never writes into the customer account; every action is a stored decision, an alert, or a recommendation.
+
+**v2 (2026-10-04)** supersedes v1 after a code review against `integration/slaws-v0.1.0` at `83b7f6e3` and a decision grill. Cedar is removed. The engine extension is restated as new plumbing. Delivery order is inverted: durable store and contract first, evaluator second, live AWS last. §8 records the code findings and §9 the decisions, so cards start from what exists rather than from v1's description.
 
 ---
 
 ## 1. Problem & Strategic Context
 
-As Signal Loom expands to support external pilot customers such as **Kusari**, security signal collection must span beyond local Kubernetes and eBPF sensors to encompass public cloud infrastructure telemetry. Specifically:
-1. **Multi-Account AWS Ingestion:** Kusari operates workloads in isolated AWS accounts. Signal Loom requires a zero-agent, low-latency mechanism to ingest CloudTrail event trails, IAM policy modifications, VPC Flow Logs, and S3 access logs.
-2. **Buffer Reliability:** Ingested cloud events must survive ingest node crashes and transient backend outages before commitment to FrostDB or evaluation by the policy engine.
-3. **Cross-Plane Policy Enforcement:** Threat actors cross boundaries—e.g., abusing stolen AWS IAM credentials to launch ephemeral EC2 instances, executing unauthorized tool calls via AI agents (KAgent), and egressing data over unexpected network paths. A unified policy engine must correlate actions across **Cloud, Host, Network, and AI Agent** execution contexts.
+As Signal Loom supports external pilot customers such as **Kusari**, signal collection must extend past local Kubernetes and eBPF sensors to public-cloud control-plane telemetry:
+
+1. **Multi-account AWS ingestion.** Kusari runs workloads in isolated AWS accounts. Signal Loom needs a zero-agent, read-only mechanism to ingest CloudTrail events, IAM changes and VPC Flow Logs.
+2. **No loss.** Every ingested cloud event must survive pod restarts and backend outages and remain queryable for regression analysis when a new policy ships.
+3. **Cross-layer policy.** Attackers cross boundaries: stolen IAM credentials, agent tool calls (KAgent), unexpected egress. A single policy pipeline must evaluate cloud, host, network, identity, SaaS and behavioural observations with one vocabulary, and must stay responsive: decisions are made against the stream, with historical awareness carried as findings, not as raw-disk queries.
 
 ---
 
-## 2. Telemetry Ingest & Disk Ring Buffer Architecture
+## 2. Ingest & Storage Architecture
 
-### 2.1 AWS Telemetry Collector Design
+### 2.1 AWS Telemetry Collector
 
-The AWS Telemetry Collector (`d2-signalloom/apps/signal-ingest/collectors/awslogs/`) implements a dual-worker asynchronous pipeline:
+`d2-signalloom/apps/signal-ingest/collectors/awslogs/` is a `collectors.Collector` registered through `NewRegistryFromEnvWithReceiver`, mode-gated by `COLLECTOR_AWSLOGS_MODE=live|fixture|off` exactly like `gcpaudit` and `baoaudit`. One collector instance per customer account, configured with `{tenant_id, role_arn, external_id, queue_url, region}`.
 
 ```
-┌─────────────────────────┐
-│     Customer AWS        │
-│ CloudTrail / VPC Flow   │
-└────────────┬────────────┘
-             │ S3 Object Creation Event
+┌──────────────────────────┐
+│  Customer AWS account    │   CloudTrail / IAM / VPC Flow → S3 (system of record for raw events)
+│  S3 ──► SQS notification │
+└────────────┬─────────────┘
+             │ sts:AssumeRole (read-only, external ID)
              ▼
-┌─────────────────────────┐
-│    AWS SQS Notification │
-└────────────┬────────────┘
-             │ Poll (sts:AssumeRole)
+┌─────────────────────────────────────────────────────────────┐
+│ awslogs collector (one per account, tenant from config)     │
+│  poll SQS ─► fetch S3 object ─► project to label contract   │
+│  ─► transport buffer (bounded, counted eviction)            │
+│  ─► IngestionSink (tenant binder, label allowlist)          │
+│  SQS delete only after Store.Append returns                 │
+└────────────┬────────────────────────────────────────────────┘
              ▼
-┌─────────────────────────────────────────────────────────┐
-│ AWSLogCollector (Go)                                   │
-│  ├── Worker 1: Poll SQS & Fetch S3 Payload              │
-│  └── DiskRingBuffer (WAL-backed Circular Buffer)        │
-│       ├── File: telemetry_ring.wal                      │
-│       └── In-Memory Index & Drop-Oldest Eviction Policy │
-└────────────┬────────────────────────────────────────────┘
-             │ Drain Loop
-             ▼
-┌─────────────────────────┐     ┌─────────────────────────┐
-│ Multilayer Policy Engine│ ──► │ FrostDB Columnar Engine │
-└─────────────────────────┘     └─────────────────────────┘
+┌──────────────────────────┐      ┌────────────────────────────┐
+│ FrostDB (Parquet, PVC)   │◄────►│ Policy pipeline (§3)       │
+│ raw + findings+decisions │      │ reads stream, writes back   │
+└──────────────────────────┘      └────────────────────────────┘
 ```
 
-#### Key Components:
-- **Cross-Account Authentication:** Uses AWS Security Token Service (`sts:AssumeRole`) with an external ID (`external_id`) to pull events securely without long-lived access keys.
-- **SQS Event Notifications:** S3 bucket notifications deliver log objects to an SQS queue. The collector polls SQS, retrieves log records asynchronously, and commits read markers only after buffer write.
-- **Disk Ring Buffer (`DiskRingBuffer`):**
-  - **Crash Resilience:** Every record is serialized and written to an append-only WAL (`telemetry_ring.wal`) on disk (`/tmp/signalloom/awslogs_ring`).
-  - **Bounded Memory & Drop-Oldest Eviction:** Hard limits on maximum record slots (e.g., 100,000 entries). When full, the oldest unread records are automatically evicted, preventing OOM during high-burst incidents.
-  - **Sequence Tracking:** Monotonically increasing sequence IDs track write and read offsets across service restarts.
+- **Read-only trust.** The assumed role grants `s3:GetObject`, `sqs:ReceiveMessage`, `sqs:DeleteMessage` and nothing else. Signal Loom never writes into the customer account.
+- **Projection, not payload.** Each record is projected to the label contract in §2.3. `description` is a one-line summary. `raw_evidence_ref` is the S3 object key plus record index; the customer bucket remains the system of record for raw events. In fixture mode the ref points into `collectors/awslogs/testdata/`.
+- **Transport buffer.** `DiskRingBuffer` guarantees nothing past the sink. It is bounded, its eviction is a counted metric and a finding, never silent, and its acknowledgement point is after `Store.Append`, so a buffer loss is always replayable from S3.
+- **Locally for the EAP** there is no S3. Fixture mode replays recorded records; the Parquet directory on disk is the only durable copy, which is why §2.2 is a P1 deliverable.
+
+### 2.2 Storage
+
+All observations, from every collector and from `POST /api/v1/observations`, land in one `store.SignalStore`. The deployed store becomes `FrostDBStore`:
+
+| Setting | v1 state at `83b7f6e3` | v2 requirement |
+| :--- | :--- | :--- |
+| `SIGNAL_STORE` | unset, so `MemoryStore` | `frostdb`, binary built with `-tags frostdb` |
+| `signal-store` volume | `emptyDir` | PersistentVolumeClaim |
+| Segment schema | v2 pseudonymised (HMAC actor columns) | unchanged; cloud events add no raw-identity column |
+| Reader of last resort | none | DuckDB over the Parquet directory, documented in a runbook |
+| Retention | reaper per tenant | unchanged; findings and decisions follow the same reaper |
+
+### 2.3 Label contract (binding for P1-4 and for every policy rule)
+
+The contract is documented once in `collectors/awslogs/contract_doc.go` and asserted by `contract_test.go`. Keys are additive only.
+
+| Key | CloudTrail | IAM | VPC Flow |
+| :--- | :--- | :--- | :--- |
+| `tenant_id` | from collector config | same | same |
+| `provider` | `aws` | `aws` | `aws` |
+| `aws_account_id` | `recipientAccountId` | same | `account-id` |
+| `aws_region` | `awsRegion` | same | region of the flow log |
+| `event_source` | `eventSource` | `iam.amazonaws.com` | `vpcflow` |
+| `event_name` | `eventName` | `eventName` | `ACCEPT` / `REJECT` |
+| `error_code` | `errorCode` if present | same | — |
+| `resource_type`, `resource_name` | first `resources[]` entry | policy / user / role | ENI id |
+| `source_ip` | `sourceIPAddress` | same | `srcaddr` |
+| `dst_ip`, `dst_port`, `protocol`, `bytes` | — | — | flow tuple |
+| actor | `ActorHint` from `userIdentity.arn`, pseudonymised by the store | same | — |
+
+**Negative contract:** no key or value may carry `sessionToken`, `accessKeyId`, `requestParameters`, `responseElements` or any raw JSON body. A fixture containing a session token is a required test and must never reach `Store.Append` in any column.
 
 ---
 
-## 3. Multilayer Policy Engine Beta Architecture
+## 3. Policy Pipeline
 
-The Policy Engine Beta (extends the existing `d2-signalloom/apps/policy-engine/`, never a second engine) evaluates incoming `model.Observation` records across 4 telemetry planes in real time:
+Policy evaluates at the shared `collectors.IngestionSink`, so every collector and the HTTP path are covered and nothing bypasses it. Evaluation never blocks the write: **store first, decide second.**
 
 ```
-                                 4-PLANE TELEMETRY INGESTION
-                                              │
-    ┌──────────────────────┬──────────────────┴───┬──────────────────────┐
-    ▼                      ▼                      ▼                      ▼
-[Plane 1: Cloud]      [Plane 2: Endpoint]    [Plane 3: Network]    [Plane 4: Application]
-AWS CloudTrail / IAM  eBPF Tetragon / Nono   VPC Flow / Envoy      KAgent / Agent Tool Logs
-    │                      │                      │                      │
-    └──────────────────────┴──────────────────┬───┴──────────────────────┘
-                                              │
-                                              ▼
-                             ┌──────────────────────────────────┐
-                             │    CEL Fast Predicate Engine     │  (<10us latency)
-                             │  - Rule matching                 │
-                             │  - Anomaly pre-filtering         │
-                             └────────────────┬─────────────────┘
-                                              │ High-risk matches
-                                              ▼
-                             ┌──────────────────────────────────┐
-                             │  Cedar & FAIR SMT Engine         │  (Formal Verification)
-                             │  - Entitlement verification      │
-                             │  - Risk scoring (0.0 - 1.0)      │
-                             └────────────────┬─────────────────┘
-                                              │
-                                              ▼
-                             ┌──────────────────────────────────┐
-                             │ Enforcement & Action Dispatcher  │
-                             │ - FrostDB Commit                 │
-                             │ - Alerting & Revocation Webhooks │
-                             └──────────────────────────────────┘
+ observation ──► Store.Append ──► Stage 1: CEL predicate per observation (stateless)
+                                      │ emits Finding{rule_id, bundle_version, tenant, actor, severity}
+                                      ▼
+                                  Store.Append(finding as observation, source=policy_finding)
+                                      │
+                                      ▼
+                                  Stage 2: windowed counters over findings (in-memory per tenant)
+                                      │ "3 × rule X for actor A in 10 min" ─► Decision
+                                      ▼
+                                  Store.Append(decision as observation) ─► alert webhook ─► Weave
 ```
 
-### 3.1 Telemetry Planes & Event Mapping
+- **Stage 1** is cheap and touches no disk. A single network anomaly is a finding, not an incident.
+- **Stage 2** reads findings only, never raw observations: the problem space shrinks at each stage. Windows are declared per rule; the longest declared window bounds boot-time warm-up, which is a `QueryRange` over `source == "policy_finding"`.
+- **Disk on the hot path is forbidden by default.** A rule may name an enrichment query explicitly; replay and warm-up are the only other readers.
+- **Multi-layer correlation** lives in stage 2: a cloud finding and a behavioural finding share the pseudonymised actor key. `correlation/engine.go` becomes a consumer of findings rather than a pairwise evaluator over stored observations.
+- **Staged enforcement.** Every bundle runs shadow → warn → enforce. Enforce means the decision is stored and alerted and the observation is labelled `policy_decision`; nothing is dropped and nothing in the customer account is touched.
 
-1. **Plane 1: Cloud Control Plane**
-   - *Sources:* AWS CloudTrail, IAM Audit Logs, GCP Audit Logs.
-   - *Model Layer:* `model.LayerCloudControlPlane`
-   - *Note (2026-10-03):* CLOUDAUDIT has already extended `InScopeLayers()` and built the FrostDB schema for `cloud_control_plane` (its errata); the `// out of scope` comment on the constant is stale. P1-PRE reconciles ownership with CLOUDAUDIT rather than ingesting first.
-   - *Policy Target:* IAM role escalations, unauthorized policy versions (`CreatePolicyVersion`), access key generation (`CreateAccessKey`).
+### 3.1 Layers
 
-2. **Plane 2: Endpoint Host**
-   - *Sources:* eBPF Tetragon tracepoints, Nono Landlock sandbox events, Linux auditd.
-   - *Model Layer:* `model.LayerEndpointHost`
-   - *Policy Target:* Unexpected process spawning (`execve`), privilege escalation, unauthorized binary executions.
+The model defines seven layers (`model/signal.go:16-24`). The proposal addresses six; `protocol` stays out of scope. The stale `// out of scope` comment on `LayerCloudControlPlane` is deleted in P1; the constant is already in `InScopeLayers()`.
 
-3. **Plane 3: Network Egress**
-   - *Sources:* AWS VPC Flow Logs, Envoy Gateway access logs, eBPF Socket Filter.
-   - *Model Layer:* `model.LayerNetworkEgress`
-   - *Policy Target:* Outbound traffic to unapproved IPs/domains, port scans, protocol mismatches.
-
-4. **Plane 4: Behavioural & Application**
-   - *Sources:* KAgent tool execution logs, OpenAI/Claude agent tool calls, OpenBao audit trail.
-   - *Model Layer:* `model.LayerBehavioural`
-   - *Policy Target:* Prompt injection detection, excessive secret retrieval, out-of-bounds agent action sequences.
+| Layer | Sources | First rule targets |
+| :--- | :--- | :--- |
+| `cloud_control_plane` | AWS CloudTrail, IAM; GCP audit (existing) | `CreatePolicyVersion`, `AttachUserPolicy`, `CreateAccessKey` by non-break-glass identities |
+| `network_egress` | VPC Flow, Envoy access logs, eBPF socket filter | REJECT bursts, egress to unapproved CIDRs |
+| `endpoint_host` | Tetragon, nono, auditd | unexpected `execve`, privilege escalation |
+| `identity_authorization` | OpenBao audit, SPIRE | secret retrieval bursts |
+| `application_saas` | Workspace, M365 | existing SFDP rules |
+| `behavioural` | KAgent, agent tool calls | out-of-bounds action sequences |
 
 ---
 
-## 4. Policy Evaluation Engine (CEL + entitlement engine per the P3-PRE ADR)
+## 4. Policy Language and Engine
 
-### 4.1 Hybrid Policy Pipeline
-- **Common Expression Language (CEL):** Used for low-latency, deterministic filter rules executed inline in Go. CEL expressions compile down to ASTs evaluated in $<10\mu s$ per observation.
-- **Entitlement / FAIR Integration:** Complex authorization checks, multi-attribute access control (ABAC), and formal risk evaluations will be deferred to either Cedar or CEL ABAC, pending the P3-PRE ADR (Cedar is not in the repo today); FAIR scoring already ships in `policy-engine/fair/`, calculating composite risk scores (`0.0` to `1.0`).
+**CEL only. Cedar is removed.** Cedar answers "may principal P do action A on resource R" against an entity store; nothing here asks permission. The need is predicates over an event stream with time windows, which CEL already does in three places in this repo (policy-engine, correlation, the VAP compiler in `pkg/policy`). Entitlement checks ("was this ARN allowed to `CreateAccessKey`") are a CEL rule over `obs.labels` plus an allowlist variable. FAIR scoring stays for decisions. P3-PRE becomes a one-page ADR recording this.
 
-### 4.2 Sample Policy Rule (CEL)
+### 4.1 Observation vocabulary
+
+A new shared package `d2-signalloom/pkg/obscel` owns one CEL environment exporting `obs` as a typed map: `id, timestamp, layer, source, fidelity, confidence, tenant_id, actor (pseudonym), labels (map<string,string>)`, plus `window` helpers for stage 2. Both engines use it; a conformance test compiles every shipped rule against it. Missing-key semantics are `has(obs.labels.k)` with absent keys evaluating false, never erroring, so an unlabelled record cannot become a denial by accident.
+
+### 4.2 Sample rules
 
 ```cel
-// Rule: Detect IAM privilege escalation by non-admin identity
+// Stage 1: IAM privilege change by a non-break-glass identity
 obs.layer == "cloud_control_plane" &&
-obs.source == "aws:cloudtrail" &&
-obs.labels["eventName"] in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserPolicy"] &&
-!obs.labels["userIdentityArn"].endsWith(":user/admin")
+obs.labels.event_source == "iam.amazonaws.com" &&
+obs.labels.event_name in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserPolicy", "CreateAccessKey"] &&
+!(obs.actor in bundle.vars.break_glass_actors)
 ```
+
+```yaml
+# Stage 2: declared in the bundle, not in CEL
+- id: iam-change-burst
+  over: finding.rule_id == "iam-priv-change"
+  key: [tenant_id, actor]
+  window: 10m
+  threshold: 3
+  severity: high
+```
+
+### 4.3 Engine changes (new plumbing, not configuration)
+
+`policy-engine` today evaluates `{agent, request, manifest, object}` (`cel_eval.go:25-30`), knows nothing of `Observation`, keeps bundles in two in-memory maps, and has no authentication. v2 adds: an `obs` input via `pkg/obscel`; a `PolicyEvaluator` interface used in-process by signal-ingest through the existing `replace` directive; bundle loading from files at boot (§4.4); key-based auth on the HTTP API, which is retained for dry-run and shadow evaluation from the dashboard only.
+
+### 4.4 Bundle governance
+
+Bundles are versioned files under `policy/bundles/<tenant>/<name>.yaml`, Flux-reconciled into a ConfigMap and loaded at boot the way frameworks are. Version monotonicity is checked in CI. Every rule change is a reviewed commit. `POST /api/v1/policies/bundles` registers a dry-run bundle only and never persists.
 
 ---
 
-## 5. Delivery Roadmap & Release Phases
+## 5. Delivery Roadmap
 
-| Phase | Milestone | Scope / Deliverables | Target Date |
+| Phase | Milestone | Scope | Target |
 | :--- | :--- | :--- | :--- |
-| **P0** | **AWS Collector & Ring Buffer** | Scaffold `DiskRingBuffer` and `AWSLogCollector` in `d2-signalloom/apps/signal-ingest/collectors/awslogs/`. Add unit tests. | Scaffold merged (`899d2609`): synthetic poll loop, no SQS/STS, not registered. Real work remains (P1). |
-| **P1** | **Kusari SQS Ingestion** | Wire SQS polling and `sts:AssumeRole` authentication for Kusari AWS account. | 2026-10-06 |
-| **P2** | **CEL Policy Engine Core** | Extend the existing `policy-engine` `CELEngine` with 4-plane observation variables and rule bundles. | 2026-10-10 |
-| **P3** | **Cedar & FAIR Integration** | Integrate Cedar SMT engine for authorization checks and multi-plane correlation. | 2026-10-15 |
-| **P4-GOV**| **Live Release & Audit** | Full lifecycle validation, heartbeat monitoring, and automated event reaping. | 2026-10-20 |
+| **P0** | Baseline | Six acceptance commands on `83b7f6e3`; the `awslogs` scaffold (`899d2609`) is recorded as a stub: synthetic poll, `Pop` fabricates records, no WAL read, no fsync, `ModeLive` hardcoded, unregistered. | done, see §8 |
+| **P1** | Durable store and contract | FrostDB on a PVC in the manifests; seven-layer flip; label contract with the negative test; shared tenant binder on both ingest paths; collector registered in fixture mode. | 2026-10-08 |
+| **P2** | Two-stage evaluator | `pkg/obscel`; stage 1 at the sink; findings as observations; stage 2 windows with boot warm-up; first Kusari bundle in git; regression replay command; shadow → warn → enforce. | 2026-10-14 |
+| **P3** | Live AWS collector | SQS, S3, `sts:AssumeRole` behind interfaces with fakes; delete-after-Append; eviction metrics; read-only trust document for Kusari. | 2026-10-17 |
+| **P4-GOV** | Release and audit | Fixture e2e on `kind-osramp` twice; Weave shows cloud layer and findings; DuckDB runbook executed against the PVC. | 2026-10-21 |
 
 ---
 
 ## 6. Verification & Test Strategy
 
-1. **Go Unit Testing:**
-   - Run `go test -v ./...` in `collectors/awslogs` verifying ring buffer push, pop, eviction, and WAL recovery.
-2. **Crash Resilience Simulation:**
-   - Simulate sudden process SIGKILL during active ring buffer writes and verify 0% data corruption upon restart.
-3. **FrostDB Ingestion Benchmarking:**
-   - Measure end-to-end throughput from SQS ingest through policy evaluation to FrostDB columnar write ($\ge 10,000\text{ events/sec}$).
+1. **Offline acceptance, every phase:** the six commands in the constitution, run twice with identical totals.
+2. **Contract:** `contract_test.go` asserts every documented key for every fixture and asserts the negative contract (no token, no raw body, in any column).
+3. **Durability:** SIGKILL the pod between `Store.Append` and SQS delete in a fake; assert the record is present exactly once after restart and the SQS message is re-delivered and deduplicated.
+4. **Evaluation:** fixture corpus drives stage 1 and stage 2; a mutation that disables the bundle turns the e2e red; replay over the corpus equals live results byte-for-byte.
+5. **Warm-up:** restart with findings on disk; stage 2 reproduces the same decision on the next matching finding.
+6. **Benchmarks:** `go test -bench` for stage 1 per-observation latency, recorded in errata, never a gate.
 
 ---
 
@@ -181,6 +205,38 @@ obs.labels["eventName"] in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserP
 - [[Proposal — Signal Fusion Workspace & M365 Ingest (2026-Q3)]]
 
 ---
+
+## 8. Code Reality at `83b7f6e3` (review of 2026-10-03)
+
+Findings that v1 contradicted, with locations, so cards start from the code:
+
+- `policy-engine/cel_eval.go:25-30` declares `agent, request, object, manifest` only. There is no `obs`. `Labels` is not projected into CEL in either engine (`correlation/engine.go:126`). The v1 sample rule compiles nowhere.
+- `policy-engine` does not import `signal-ingest/model`; signal-ingest never calls `policy-engine`. The only coupling is a Go import of `policy-engine/fair` via `signal-ingest/go.mod:83`.
+- Bundle store is two in-memory maps (`store.go:20-34`), no auth, tenant from a caller-asserted `X-Tenant-ID` (`handlers.go:22-28`). Routes `/api/v1/policies/{evaluate,bundles,rollback}` exist (`main.go:220-222`).
+- `fair/` is Monte Carlo over beta-PERT triples keyed to framework checks; it has no Observation input.
+- `pkg/policy` is the ValidatingAdmissionPolicy and nono/Landlock invariant compiler, imported only by `cmd/policy-compiler`. It is not an event engine.
+- `awslogs`: `Pop` fabricates constant records and never reads the WAL (`diskring.go:163-168`); no `Sync()`; no replay on restart; unbounded file growth; `Mode()` returns `ModeLive` (`collector.go:72-74`); `Stop() error` does not satisfy `collectors.Stopper`; not registered; no AWS SDK in `go.mod`; raw payload written to `description` (`collector.go:142`).
+- `LayerCloudControlPlane` is in `InScopeLayers()` (`signal.go:47`) with a stale `// out of scope` comment (`:22`); `api/handlers.go:808` still reports the layer as not deployed; `store/` has no per-layer schema. No CLOUDAUDIT artefact exists beyond receipt JSON at the repo root.
+- `api/batch_chain.go` is in-memory gap and replay classification, not a spool. No spool exists.
+- Base deployment sets `SIGNAL_STORE_DIR=/data/signals` but not `SIGNAL_STORE=frostdb`; the volume is `emptyDir` (`base/deployment.yaml:83,152`). The deployed store is `MemoryStore`.
+- Admission on the HTTP path is real (tenant binding `api/tenancy_grants.go:179-204`, `Validate()`, store-side label allowlist under `frostdb` tag). The in-process `StoreSink` path has no tenant binder.
+- `workspacesaas/contract_doc.go` documents layer/actor/timestamp obligations against CEL rules, not label keys.
+
+## 9. Decisions (grill of 2026-10-04)
+
+| # | Decision |
+| :--- | :--- |
+| D1 | No loss for any source. FrostDB on the hot path, Parquet on a PVC, DuckDB as last-resort reader, backlog regression queries required. |
+| D2 | Streaming-first evaluation. Stage 1 stateless predicate per observation emits findings; stage 2 windowed counters over findings only. Disk is for warm-up, named enrichment and replay. |
+| D3 | Findings and decisions are observations in the same store (`source=policy_finding`, `policy_decision`). Stage 2 windows in memory per tenant, rebuilt on boot for the longest declared window. |
+| D4 | Projected label set only on disk; one-line `description`; `raw_evidence_ref` to the S3 object in the customer bucket. Negative contract enforced by test. |
+| D5 | Read-only assumed role. Actions: stored decision, alert webhook with bounded retry, Weave finding. Revocation is a recommendation payload. |
+| D6 | Bundles are Flux-reconciled files under `policy/bundles/<tenant>/`, loaded at boot. API registration is dry-run only and gains key auth. |
+| D7 | Tenant from collector config, one `awslogs` instance per account, one binder shared by HTTP and in-process paths. |
+| D8 | Order: durable store and contract first, evaluator second, live AWS third. |
+| D9 | CEL only; Cedar removed. P3-PRE records the ADR. |
+
+---
 ## Appendix
 
 ### Spec: Shared Patterns
@@ -188,66 +244,70 @@ obs.labels["eventName"] in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserP
 #### Mission identity
 - Canonical repository: `/home/andy/src/cp/osramp-demo`
 - Shortcode: `SLAWS`
-- Integration branch: `refs/heads/integration/slaws-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor` at `f906be8f` (advanced from `83b7f6e3` on 2026-10-04 to carry the cold-start fixes `ccd32ac4` and `f906be8f`; pushed to origin).
-- Target components: `d2-signalloom/apps/signal-ingest/{collectors/awslogs,collectors/registry.go,model,store,correlation}`, `d2-signalloom/apps/policy-engine/{cel_eval.go,fair,handlers.go}`, `d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx`.
+- Integration branch: `refs/heads/integration/slaws-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor` at `83b7f6e3`.
+- Target components: `d2-signalloom/apps/signal-ingest/{collectors/awslogs,collectors/registry.go,collectors/sink.go,model,store,correlation}`, `d2-signalloom/apps/policy-engine/{cel_eval.go,store.go,handlers.go,fair}`, new `d2-signalloom/pkg/obscel`, `policy/bundles/`, `d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx`.
 - Acceptance commands (offline, every phase): `KUBECONFIG=/dev/null make test-signal-ingest`; `KUBECONFIG=/dev/null make test-signal-ingest-frostdb`; `cd d2-signalloom/apps/policy-engine && go test -count=1 ./...`; `KUBECONFIG=/dev/null make test-sldc-offline`; `bash scripts/check-old-probe-name.sh`; `KUBECONFIG=/dev/null make docs-lint`.
-- No work has started on this board. `899d2609` predates it and is the P0 baseline.
+- No work has started on this board. `899d2609` predates it and is a stub (§8), not a baseline.
 
 #### Architectural constitution
-- **One collector, one seam.** `awslogs` is a `collectors.Collector` (`Name/Mode/Start/Stop`) registered through `collectors.NewRegistryFromEnvWithReceiver`, mode-gated by `COLLECTOR_AWSLOGS_MODE=live|fixture|off` exactly like `gcpaudit` and `baoaudit`. It emits `model.Observation` into the shared `collectors.IngestionSink`; it never opens its own HTTP path into signal-ingest.
-- **Fixture mode is the test mode.** Recorded CloudTrail, IAM and VPC Flow records live under `collectors/awslogs/testdata/` and drive every unit and e2e test. `live` mode needs `AWS_PROFILE` or `sts:AssumeRole` with an external ID and is never exercised by a card.
-- **The ring buffer is a transport buffer, not a second spool.** `DiskRingBuffer` guarantees crash survival between SQS receipt and sink acceptance; durability past the sink is the existing spool / batch-chain contract in `api/batch_chain.go`. Read markers (SQS delete) commit only after `Push` returns.
-- **Planes are model layers.** Cloud = `LayerCloudControlPlane` (`source` `aws:cloudtrail`, `aws:iam`), Network = `LayerNetworkEgress` (`aws:vpcflow`), Endpoint = `LayerEndpointHost`, Behavioural = `LayerBehavioural`. Label keys are documented once in `collectors/awslogs/contract_doc.go` (mirroring `workspacesaas/contract_doc.go`) and asserted by a contract test.
-- **Policy lives in policy-engine.** Fast predicates are CEL rule bundles registered through `/api/v1/policies/bundles`; risk scoring is `fair/`; nothing new evaluates CEL outside `policy-engine` and `correlation/engine.go`.
-- **Inbound credentials are named static keys.** Out-of-process callers of signal-ingest use `Authorization: Bearer <key>` from a `signal-ingest-key-<name>` Secret; the key value never appears in argv, logs, ConfigMaps or git.
-- **Tests first, mutation second.** Every card writes its failing test before the change and records at least one mutation that the test kills. Benchmarks use `go test -bench` and record numbers in errata, never as gates.
-- **No live AWS, no cost, no egress** from any card. A card that needs an AWS endpoint uses a fake behind the interface.
+- **One collector, one seam.** `awslogs` is a `collectors.Collector` (`Name/Mode/Start/Stop()`) registered through `NewRegistryFromEnvWithReceiver`, mode-gated by `COLLECTOR_AWSLOGS_MODE=live|fixture|off`, `off` by default in every manifest. One instance per customer account; tenant comes from its config.
+- **Store first, decide second.** Policy evaluates at `IngestionSink` after `Store.Append`. No evaluation blocks a write. No evaluator reads raw observations from disk on the hot path.
+- **Findings are observations.** Stage 1 output is written back with `source=policy_finding`; stage 2 output with `source=policy_decision`. One store, one schema, one retention reaper, one replay path.
+- **Fixture mode is the test mode.** Recorded CloudTrail, IAM and VPC Flow records live under `collectors/awslogs/testdata/` and drive every test. `live` is never exercised by a card.
+- **The buffer is transport.** `DiskRingBuffer` guarantees nothing past the sink. Eviction is counted and emitted as a finding. SQS delete happens after `Store.Append` returns.
+- **Projection only.** The label contract (§2.3) is the only shape a cloud record takes on disk. The negative contract is a test.
+- **One tenant binder.** The HTTP binder in `api/tenancy_grants.go` and the in-process sink wrapper call the same function.
+- **One CEL vocabulary.** `pkg/obscel` is the only CEL environment for observations. Every shipped rule compiles against it in CI.
+- **Policy is git.** Bundles are files under `policy/bundles/<tenant>/`, Flux-reconciled, loaded at boot. The API registers dry-run bundles only.
+- **Read-only in the customer account.** The assumed role has three permissions and no write path exists in any card.
+- **Tests first, mutation second.** Every card writes its failing test before the change and records at least one mutation the test kills. Benchmarks are recorded, never gates.
+- **No live AWS, no cost, no egress** from any card. AWS endpoints are fakes behind interfaces.
 - **Commit discipline.** Unsigned, scoped conventional commits (`feat(awslogs): …`, `test(policy-engine): …`); never amend after reporting; the lead merges on report.
 
 ### Spec: Capability Plan
 
 | Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
 | :--- | :--- | :--- | :--- | ---: | :--- | :--- |
-| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Prove the harness, the integration branch and the six acceptance commands on `83b7f6e3` before any card runs. |
-| P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Inventory the `awslogs` scaffold gaps, the registry seam, CLOUDAUDIT's claim on `LayerCloudControlPlane`, and record the layer-scope decision. |
-| P1-1 | context-mode; Hardening | Go collector engineer | M | 120m | antigravity | Register `awslogs` with mode gating and a fixture mode; registry lifecycle tests are the existing pattern. |
-| P1-2 | context-mode; ThreatModel | Go cloud engineer | M | 150m | antigravity | SQS poll, S3 fetch, `sts:AssumeRole` with external ID behind interfaces with fakes; credential custody via Secret. |
-| P1-3 | Hardening; Science | Go reliability engineer | M | 120m | antigravity | WAL recovery under SIGKILL, drop-oldest eviction, sequence continuity; falsifiable crash test. |
-| P1-4 | context-mode | Go model engineer | M | 120m | antigravity | CloudTrail/IAM/VPC Flow to `model.Observation` mapping with a contract doc and contract test. |
-| P1-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P1, run the acceptance commands twice, reconcile errata, record the layer-scope decision as binding. |
-| P2-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Map `CELEngine`, the bundles API and `correlation/engine.go` so P2 extends rather than forks. |
-| P2-1 | context-mode; Hardening | Go policy engineer | M | 150m | antigravity | Four-plane CEL variables and the first rule bundle (IAM escalation, access-key creation, unapproved egress) with `-bench` evidence. |
-| P2-2 | context-mode; ThreatModel | Go integration engineer | M | 150m | antigravity | The drain loop evaluates through policy-engine (in-process library or `/api/v1/policies/evaluate` with a named key); fail-closed on evaluator error, recorded. |
-| P2-3 | context-mode | Go enforcement engineer | M | 120m | antigravity | Action dispatcher: FrostDB commit of matches, alert webhook with retry, no revocation side effects. |
-| P2-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P2, acceptance twice, mutation proof that a disabled rule bundle fails the e2e fixture test. |
-| P3-PRE | FirstPrinciples; Research | Decision analyst | S | 90m | antigravity | ADR: cedar-go versus CEL ABAC + FAIR for entitlement checks; measured on the fixture corpus. |
-| P3-1 | context-mode; Science | Go risk engineer | M | 120m | antigravity | FAIR 0.0-1.0 scores for cloud-plane matches via the existing `fair/` package; regression fixtures. |
-| P3-2 | context-mode | Go policy engineer | M | 150m | antigravity | Entitlement verification per the P3-PRE ADR (Cedar or CEL ABAC); multi-plane correlation rule across cloud + behavioural. |
-| P3-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P3, acceptance twice, ADR cited in errata. |
-| P4-GOV | ajm-auto-kanban; Interceptor | Governor | S | 90m | antigravity | Final acceptance on `kind-osramp` in fixture mode: Weave shows the cloud plane, e2e fixture suite twice in a row, live tiers of every acceptance command. |
+| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Prove harness, branch and the six acceptance commands on `83b7f6e3`; confirm §8. |
+| P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Map the sink, the HTTP tenant binder, the FrostDB factory and manifests; file:line table for P1. |
+| P1-1 | context-mode; Hardening | Go platform engineer | M | 120m | antigravity | `SIGNAL_STORE=frostdb`, `-tags frostdb` build, PVC in manifests, DuckDB runbook; seven-layer flip. |
+| P1-2 | context-mode; Hardening | Go collector engineer | M | 120m | antigravity | Register `awslogs` with mode gating, fixture mode, `Stopper` fix, per-account config with tenant. |
+| P1-3 | context-mode; ThreatModel | Go model engineer | M | 150m | antigravity | Label contract, projection, negative contract test, `raw_evidence_ref`, `contract_doc.go`. |
+| P1-4 | Hardening; Science | Go reliability engineer | M | 120m | antigravity | Shared tenant binder on `StoreSink`; transport buffer bounded with counted eviction; ack-after-Append. |
+| P1-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P1, acceptance twice, errata, Phase 1 patterns. |
+| P2-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Extension points in `cel_eval.go`, `store.go`, `correlation/engine.go`; design `pkg/obscel`. |
+| P2-1 | context-mode; Hardening | Go policy engineer | M | 150m | antigravity | `pkg/obscel` with conformance test; `PolicyEvaluator` interface; stage 1 at the sink; findings written back. |
+| P2-2 | context-mode; Science | Go policy engineer | M | 150m | antigravity | Stage 2 windows, boot warm-up, first Kusari bundle under `policy/bundles/kusari/`, shadow → warn → enforce. |
+| P2-3 | context-mode; ThreatModel | Go enforcement engineer | M | 120m | antigravity | Decision as observation, alert webhook with bounded retry, counters, regression replay command. |
+| P2-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P2, acceptance twice, mutation proof: disabled bundle turns the e2e red; replay equals live. |
+| P3-PRE | FirstPrinciples | Decision analyst | S | 45m | antigravity | ADR `docs/signalloom/adr/slaws-policy-language.md`: CEL only, Cedar rejected, with the reasoning in §4. |
+| P3-1 | context-mode; ThreatModel | Go cloud engineer | M | 150m | antigravity | `SQSClient`/`S3Fetcher`/`STSAssumer` interfaces, `aws-sdk-go-v2` live impl, fakes, external-ID enforcement, delete-after-Append. |
+| P3-2 | Hardening; Science | Go reliability engineer | M | 120m | antigravity | SIGKILL durability test, exactly-once after restart, eviction finding, bundle auth on the API. |
+| P3-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P3, acceptance twice, ADR cited, trust document template in docs. |
+| P4-GOV | ajm-auto-kanban; Interceptor | Governor | S | 90m | antigravity | Fixture e2e on `kind-osramp` twice; Weave shows cloud layer and findings; DuckDB runbook executed. |
 
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | baseline | Run every acceptance command on `integration/slaws-v0.1.0` at `f906be8f`; record totals; prove the board harness (`kanban-check.sh doctor`). | — | The six acceptance commands, rc 0 each; totals in errata | S | antigravity | — | — | — | — | — |
-| P1-PRE | preflight | Inventory `collectors/awslogs` versus the registry seam (`collectors/registry.go`, `main.go:582-600`), list the gaps (no registration, synthetic poll, no SDK), read CLOUDAUDIT's FrostDB `LayerCloudControlPlane` plan, and record the layer-scope decision and label-key contract draft in errata. | P0 | A gap table with file:line; the decision record; no code change | S | antigravity | — | — | — | — | — |
-| P1-1 | implementation | Register `awslogs` in `NewRegistryFromEnvWithReceiver` behind `COLLECTOR_AWSLOGS_MODE=live\|fixture\|off`; add fixture mode reading `testdata/*.json`; `off` is the default in every manifest. | P1-PRE | `registry_lifecycle_test.go` cases for awslogs; `go test ./collectors/...`; a mutation that drops the mode gate fails | M | antigravity | — | — | — | — | — |
-| P1-2 | implementation | Replace the synthetic poll with `SQSClient`/`S3Fetcher`/`STSAssumer` interfaces, a `live` implementation on `aws-sdk-go-v2` (added to `signal-ingest/go.mod`), fakes for tests, external-ID enforcement, and delete-after-Push semantics. | P1-1 | Unit tests with fakes: poll, fetch, assume-role failure, delete only after Push; no network in tests | M | antigravity | — | — | — | — | — |
-| P1-3 | implementation | Harden `DiskRingBuffer`: WAL replay on restart, drop-oldest eviction accounting, monotonic sequence across restart; a crash test that SIGKILLs a child writer mid-batch and asserts zero corruption. | P1-1 | `diskring_test.go` + `diskring_crash_test.go`; `go test -race ./collectors/awslogs/...`; mutation on the eviction branch fails | M | antigravity | — | — | — | — | — |
-| P1-4 | implementation | Map CloudTrail, IAM and VPC Flow records to `model.Observation` (`LayerCloudControlPlane`, `LayerNetworkEgress`), `source` values, label keys in `contract_doc.go`, redaction of secrets in payloads. | P1-1 | `contract_test.go` asserting every documented label key; fixture round-trip test; `make test-signal-ingest` | M | antigravity | — | — | — | — | — |
-| P1-GOV | governor | Merge P1-1..P1-4 into `integration/slaws-v0.1.0`, run the six acceptance commands twice with identical totals, bind the layer-scope decision, write `### Spec: Shared Patterns — Phase 1`. | P1-2, P1-3, P1-4 | Acceptance commands x2; errata with totals | S | antigravity | — | — | — | — | — |
-| P2-PRE | preflight | Read `policy-engine/cel_eval.go`, `handlers.go`, `/api/v1/policies/*`, `fair/`, `d2-signalloom/pkg/policy` (compiler, schema, equivalence) and `signal-ingest/correlation/engine.go`; record the extension points, the observation variable schema, and the bundle format for P2. | P1-GOV | Extension-point table with file:line; no code change | S | antigravity | — | — | — | — | — |
-| P2-1 | implementation | Extend `CELEngine` with the four-plane observation variables and ship the first rule bundle (IAM escalation, `CreateAccessKey`, unapproved egress); `go test -bench` for per-observation latency. | P2-PRE | `policy_test.go` + `policy_bench_test.go` additions; bundle round-trip through `/api/v1/policies/bundles`; bench numbers in errata | M | antigravity | — | — | — | — | — |
-| P2-2 | implementation | The `awslogs` drain loop evaluates each observation through policy-engine (in-process library preferred; else `/api/v1/policies/evaluate` with a `signal-ingest-key-<name>` bearer), fail-closed on evaluator error, with a decision recorded on the observation. | P2-1 | Integration test with a fake evaluator; fail-closed test; no key value in logs (grep test) | M | antigravity | — | — | — | — | — |
-| P2-3 | implementation | Action dispatcher: commit matches to FrostDB (`store/`), post an alert webhook with bounded retry, expose counters; no revocation or stun side effects. | P2-2 | FrostDB write test (`-tags frostdb`); webhook retry test with a fake server | M | antigravity | — | — | — | — | — |
-| P2-GOV | governor | Merge P2, acceptance twice, mutation proof: disabling the rule bundle makes the fixture e2e red. | P2-3 | Acceptance x2; mutation log | S | antigravity | — | — | — | — | — |
-| P3-PRE | preflight | ADR: cedar-go versus CEL ABAC plus FAIR for entitlement verification, measured on the fixture corpus (latency, expressiveness, dependency weight). | P2-GOV | `docs/signalloom/adr/slaws-entitlement.md`; benchmark table | S | antigravity | — | — | — | — | — |
-| P3-1 | implementation | FAIR 0.0-1.0 risk scores for cloud-plane matches through `policy-engine/fair/`, with regression fixtures and guard tests. | P3-PRE | `fair/*_test.go` additions; regression fixture; `go test ./fair/...` | M | antigravity | — | — | — | — | — |
-| P3-2 | implementation | Entitlement verification per the ADR and one multi-plane correlation rule (cloud `CreateAccessKey` followed by behavioural secret retrieval within 5 min). | P3-PRE, P3-1 | Correlation test on fixtures; ABAC/Cedar test per ADR | M | antigravity | — | — | — | — | — |
-| P3-GOV | governor | Merge P3, acceptance twice, ADR cited; `### Spec: Shared Patterns — Phase 3`. | P3-2 | Acceptance x2 | S | antigravity | — | — | — | — | — |
-| P4-GOV | governor | Final acceptance on `kind-osramp` in fixture mode: `COLLECTOR_AWSLOGS_MODE=fixture` deployed, Weave renders the cloud plane, the fixture e2e suite passes twice in a row, every acceptance command passes twice. | P3-GOV | Live fixture e2e x2; Interceptor screenshot of Weave cloud plane; acceptance x2 | S | antigravity | — | — | — | — | — |
+| P0 | baseline | Run the six acceptance commands on `integration/slaws-v0.1.0` at `83b7f6e3`; record totals; `kanban-check.sh doctor`; confirm each §8 finding with file:line. | — | Six commands rc 0; totals and §8 confirmation in errata | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | Table of the sink (`collectors/sink.go`), HTTP tenant binder (`api/tenancy_grants.go`), store factory, manifests; name the exact edits for P1-1..P1-4. | P0 | File:line table; no code change | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | `SIGNAL_STORE=frostdb` and PVC in `base/deployment.yaml`; `-tags frostdb` in the image build; delete the stale comment on `LayerCloudControlPlane`; fix `api/handlers.go:808`; DuckDB runbook under `docs/signalloom/`. | P1-PRE | `make test-signal-ingest-frostdb`; deploy render test asserts PVC; runbook executed once against a local Parquet dir | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | Register `awslogs` in `NewRegistryFromEnvWithReceiver` behind `COLLECTOR_AWSLOGS_MODE`; fixture mode reads `testdata/*.json`; `Stop()` satisfies `Stopper`; `AWSCollectorConfig` carries `tenant_id`. | P1-PRE | `registry_lifecycle_test.go` and `mode_matrix_test.go` rows for awslogs; mutation dropping the mode gate fails | M | antigravity | — | — | — | — | — |
+| P1-3 | implementation | Project CloudTrail, IAM and VPC Flow to `model.Observation` per §2.3; one-line `description`; `raw_evidence_ref`; `contract_doc.go`; negative contract. | P1-2 | `contract_test.go` asserts every key and the negative contract against a fixture with a session token; `make test-signal-ingest` | M | antigravity | — | — | — | — | — |
+| P1-4 | implementation | Extract the HTTP tenant binder into a function used by a `StoreSink` wrapper; bound `DiskRingBuffer`, count eviction, emit it as a finding; move SQS ack to after `Store.Append`. | P1-2 | Binder test on both paths; eviction counter test; `go test -race ./collectors/...` | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge P1-1..P1-4; acceptance twice with identical totals; `### Spec: Shared Patterns — Phase 1`. | P1-3, P1-4 | Acceptance x2; errata | S | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Read `cel_eval.go`, `store.go:371-440`, `correlation/engine.go:109-126`; design `pkg/obscel` (env, `obs` map, `has` semantics, conformance test); record extension points. | P1-GOV | Design note with file:line; no code change | S | antigravity | — | — | — | — | — |
+| P2-1 | implementation | `pkg/obscel`; `PolicyEvaluator` interface in policy-engine using it; stage 1 at the sink after `Store.Append`; findings written back with `source=policy_finding`. | P2-PRE | Conformance test compiles every rule; sink test shows finding stored; `-bench` per observation in errata | M | antigravity | — | — | — | — | — |
+| P2-2 | implementation | Stage 2 windows keyed by tenant+actor+rule with declared window and threshold; boot warm-up from `QueryRange`; first bundle at `policy/bundles/kusari/iam-change.yaml`; shadow → warn → enforce mode in bundle metadata. | P2-1 | Window test; restart warm-up test; bundle loaded at boot test; mode transition test | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | Decision written as observation; alert webhook with bounded retry; counters; `signal-ingest replay --bundle --from --to` command producing identical findings to live. | P2-2 | Webhook retry test with fake server; replay equals live on the corpus | M | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Merge P2; acceptance twice; mutation proof: disabled bundle turns the fixture e2e red; replay-equals-live recorded. | P2-3 | Acceptance x2; mutation log | S | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | ADR: CEL only, Cedar rejected (authorisation language, entity store, second schema), FAIR retained for decisions. | P2-GOV | `docs/signalloom/adr/slaws-policy-language.md` | S | antigravity | — | — | — | — | — |
+| P3-1 | implementation | `SQSClient`/`S3Fetcher`/`STSAssumer` interfaces; `aws-sdk-go-v2` live implementation; fakes; external-ID enforcement; delete-after-Append. | P1-GOV | Unit tests with fakes: poll, fetch, assume-role failure, delete only after Append; no network in tests | M | antigravity | — | — | — | — | — |
+| P3-2 | implementation | SIGKILL durability test between Append and delete; exactly-once after restart; key-based auth on `/api/v1/policies/*`; dry-run-only semantics on bundle registration. | P3-1, P2-GOV | Crash test; auth test; registration never persists test | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge P3; acceptance twice; ADR cited; read-only trust document template committed. | P3-2 | Acceptance x2 | S | antigravity | — | — | — | — | — |
+| P4-GOV | governor | `COLLECTOR_AWSLOGS_MODE=fixture` on `kind-osramp`; Weave shows cloud layer and findings; fixture e2e twice; DuckDB runbook executed against the PVC. | P3-GOV | Fixture e2e x2; Interceptor screenshot; runbook output | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
 
-_No work has started. Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order._
+_No work has started. Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 supersedes v1 on 2026-10-04 after the §8 review and §9 grill; v1's P0 "scaffold merged" claim is withdrawn._

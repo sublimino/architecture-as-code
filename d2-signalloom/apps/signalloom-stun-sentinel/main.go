@@ -10,8 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	bpfebpf "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
+	bpfebpf "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/hubclient"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -399,6 +400,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Hub TLS policy first: a refused policy must not start a warden that
+	// would then post keyless or trust nothing (remote-contract.md "TLS").
+	hub, tlsEvent, err := newHubClients(hubclient.FromEnv())
+	if err != nil {
+		logEvent(stunEvent{Timestamp: now(), Event: "startup_failed", Error: err.Error(), DryRun: cfg.DryRun})
+		os.Exit(1)
+	}
+	logEvent(tlsEvent)
+
 	reconcileCount := &atomic.Int64{}
 	healthSrv := newHealthServer(cfg.HealthAddr, cfg.DryRun, cfg.CgroupRoot, reconcileCount)
 	// Set once the clientset exists; read concurrently by /metrics.
@@ -433,7 +443,7 @@ func main() {
 	reconciler.holds = newStunHolds(freezer)
 	// A new correlator freeze is recorded by fleet-manager's stun cascade, the
 	// one writer of the Flux pin. The key comes from a Secret via env.
-	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), os.Getenv("FLEET_MANAGER_STUN_KEY"))
+	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), os.Getenv("FLEET_MANAGER_STUN_KEY"), hub.fleet)
 	stunner.stillHeld = reconciler.holds.awaitingRecord
 	reconciler.holds.recordStun = stunner.stun
 	healthSrv.fleetStunFailures = stunner.failures.Load
@@ -518,7 +528,7 @@ func main() {
 			logEvent(ev)
 		}
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr,
-			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot))...)
+			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot), correlator.WithHTTPClient(hub.ingest))...)
 		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, loader.Prefiltered, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})

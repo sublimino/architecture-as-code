@@ -63,7 +63,7 @@ func (f *fakeFleet) snapshot() []stunCall {
 // delivery (success or give-up) is signalled on the returned channel, so a test
 // asserts only after the goroutine freezeFor started has completed.
 func wireStunner(h *holdHarness, url, key string) (*fleetStunner, <-chan struct{}) {
-	st := newFleetStunner(url, key)
+	st := newFleetStunner(url, key, nil)
 	st.backoff = func(int) time.Duration { return 0 }
 	st.stillHeld = h.holds.awaitingRecord
 	done := make(chan struct{}, 8)
@@ -140,7 +140,7 @@ func TestATransientFleetFailureIsRetriedUntilDelivered(t *testing.T) {
 func TestRetriesStopOnceTheStunIsRecorded(t *testing.T) {
 	h := newHoldHarness(t)
 	fleet := newFakeFleet(t, http.StatusServiceUnavailable)
-	st := newFleetStunner(fleet.srv.URL, testStunKey)
+	st := newFleetStunner(fleet.srv.URL, testStunKey, nil)
 	st.stillHeld = h.holds.awaitingRecord
 	st.backoff = func(int) time.Duration {
 		h.reconcile(h.setLabels(stunTriple)) // the record lands between attempts

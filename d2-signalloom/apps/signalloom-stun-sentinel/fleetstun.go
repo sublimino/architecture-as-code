@@ -54,11 +54,16 @@ type fleetStunner struct {
 	delivered atomic.Int64
 }
 
-func newFleetStunner(baseURL, key string) *fleetStunner {
+// newFleetStunner builds the stun client. client carries the hub TLS policy
+// (hubtls.go); nil means a plain client, for tests against httptest.
+func newFleetStunner(baseURL, key string, client *http.Client) *fleetStunner {
+	if client == nil {
+		client = &http.Client{Timeout: fleetStunTimeout}
+	}
 	return &fleetStunner{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		key:     key,
-		client:  &http.Client{Timeout: fleetStunTimeout},
+		client:  client,
 		backoff: func(attempt int) time.Duration { return time.Duration(1<<attempt) * time.Second },
 	}
 }

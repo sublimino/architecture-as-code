@@ -291,6 +291,10 @@ func (ws *Windows) Warm(ctx context.Context, st store.SignalStore, now time.Time
 	if err != nil {
 		return err
 	}
+	// One row per derived ID. A stored finding duplicated by a pre-fix replay
+	// would warm its window twice, so a pod could come up already over
+	// threshold on evidence that is one event.
+	rows = store.DedupeByID(rows)
 
 	findings := make([]obscel.Finding, 0, len(rows))
 	for _, row := range rows {

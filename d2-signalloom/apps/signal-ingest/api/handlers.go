@@ -586,6 +586,11 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	// One row per derived ID. The write-side Deduper stops new duplicates; it
+	// cannot repair segments written before it existed, and those are the ones
+	// Weave reads. This runs BEFORE the limit is applied, so a page is `limit`
+	// distinct observations rather than `limit` rows of which some are copies.
+	obs = store.DedupeByID(obs)
 	obs = scopeObservations(obs, tenant, all, limit)
 
 	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that

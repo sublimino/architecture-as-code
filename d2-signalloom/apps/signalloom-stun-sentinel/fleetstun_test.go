@@ -4,10 +4,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -63,7 +65,7 @@ func (f *fakeFleet) snapshot() []stunCall {
 // delivery (success or give-up) is signalled on the returned channel, so a test
 // asserts only after the goroutine freezeFor started has completed.
 func wireStunner(h *holdHarness, url, key string) (*fleetStunner, <-chan struct{}) {
-	st := newFleetStunner(url, key, nil)
+	st := newFleetStunner(url, func() string { return key }, nil)
 	st.backoff = func(int) time.Duration { return 0 }
 	st.stillHeld = h.holds.awaitingRecord
 	done := make(chan struct{}, 8)
@@ -140,7 +142,7 @@ func TestATransientFleetFailureIsRetriedUntilDelivered(t *testing.T) {
 func TestRetriesStopOnceTheStunIsRecorded(t *testing.T) {
 	h := newHoldHarness(t)
 	fleet := newFakeFleet(t, http.StatusServiceUnavailable)
-	st := newFleetStunner(fleet.srv.URL, testStunKey, nil)
+	st := newFleetStunner(fleet.srv.URL, func() string { return testStunKey }, nil)
 	st.stillHeld = h.holds.awaitingRecord
 	st.backoff = func(int) time.Duration {
 		h.reconcile(h.setLabels(stunTriple)) // the record lands between attempts
@@ -154,16 +156,31 @@ func TestRetriesStopOnceTheStunIsRecorded(t *testing.T) {
 }
 
 func TestAnUnconfiguredStunnerHoldsTheFreezeAndSaysSo(t *testing.T) {
-	for _, cfg := range [][2]string{{"", testStunKey}, {"http://fleet-manager:8082", ""}} {
-		h := newHoldHarness(t)
-		st, done := wireStunner(h, cfg[0], cfg[1])
-		h.detectAndWait(done)
-		if st.failures.Load() != 1 || !strings.Contains(h.log.String(), `"kind":"unconfigured"`) {
-			t.Fatalf("cfg %q: failures=%d, log:\n%s", cfg, st.failures.Load(), h.log.String())
-		}
-		if !h.frozen() {
-			t.Fatal("an unconfigured stunner thawed the pod")
-		}
+	h := newHoldHarness(t)
+	st, done := wireStunner(h, "", testStunKey)
+	h.detectAndWait(done)
+	if st.failures.Load() != 1 || !strings.Contains(h.log.String(), `"kind":"unconfigured"`) {
+		t.Fatalf("failures=%d, log:\n%s", st.failures.Load(), h.log.String())
+	}
+	if !h.frozen() {
+		t.Fatal("an unconfigured stunner thawed the pod")
+	}
+}
+
+// A missing key is not an unconfigured stunner: it is waited for across the
+// attempts (keys.go) and the freeze is held throughout.
+func TestAMissingKeyIsWaitedForNotTreatedAsUnconfigured(t *testing.T) {
+	h := newHoldHarness(t)
+	st, done := wireStunner(h, "http://fleet-manager:8082", "")
+	h.detectAndWait(done)
+	if n := strings.Count(h.log.String(), `"kind":"key_missing"`); n != fleetStunMaxAttempts {
+		t.Fatalf("want %d key_missing retries, got %d:\n%s", fleetStunMaxAttempts, n, h.log.String())
+	}
+	if strings.Contains(h.log.String(), `"kind":"unconfigured"`) || !strings.Contains(h.log.String(), `"kind":"exhausted"`) {
+		t.Fatalf("log:\n%s", h.log.String())
+	}
+	if st.failures.Load() != fleetStunMaxAttempts+1 || !h.frozen() {
+		t.Fatalf("failures=%d frozen=%v", st.failures.Load(), h.frozen())
 	}
 }
 
@@ -186,5 +203,38 @@ func TestAHostileTargetBecomesAReasonFleetManagerAccepts(t *testing.T) {
 		if !unicode.IsPrint(r) {
 			t.Fatalf("reason keeps non-printable %U, which fleet-manager rejects with 400: %q", r, got)
 		}
+	}
+}
+
+// A fleet key that has not arrived is waited for while the hold stands, not
+// reported as unconfigured; the delivery lands once it does.
+func TestFleetStunWaitsForALateKey(t *testing.T) {
+	fleet := newFakeFleet(t, http.StatusOK)
+	var log bytes.Buffer
+	SetAuditOutput(&log)
+	t.Cleanup(func() { SetAuditOutput(os.Stdout) })
+	var mu sync.Mutex
+	key := ""
+	calls := 0
+	st := newFleetStunner(fleet.srv.URL, func() string { mu.Lock(); defer mu.Unlock(); return key }, nil)
+	st.backoff = func(int) time.Duration {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls == 2 {
+			key = testStunKey
+		}
+		return 0
+	}
+	st.stun(&corev1.Pod{}, "r")
+	got := fleet.snapshot()
+	if len(got) != 1 || got[0].auth != "Bearer "+testStunKey {
+		t.Fatalf("calls = %+v", got)
+	}
+	if n := strings.Count(log.String(), `"kind":"key_missing"`); n != 2 {
+		t.Fatalf("want two key_missing retries, got %d:\n%s", n, log.String())
+	}
+	if strings.Contains(log.String(), "unconfigured") {
+		t.Fatal("a late key is not an unconfigured stunner")
 	}
 }

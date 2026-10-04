@@ -105,7 +105,7 @@ func TestFleetStunnerUsesTheHubTLSPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := newFleetStunner(srv.URL, testStunKey, sys.fleet)
+	st := newFleetStunner(srv.URL, func() string { return testStunKey }, sys.fleet)
 	st.backoff = func(int) time.Duration { return 0 }
 	st.stun(stunPod(), "r")
 	if *hits != 0 {
@@ -120,7 +120,7 @@ func TestFleetStunnerUsesTheHubTLSPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	log.Reset()
-	st = newFleetStunner(srv.URL, testStunKey, withCA.fleet)
+	st = newFleetStunner(srv.URL, func() string { return testStunKey }, withCA.fleet)
 	st.stun(stunPod(), "r")
 	if *hits != 1 {
 		t.Fatalf("CA file must reach the hub; hits=%d", *hits)

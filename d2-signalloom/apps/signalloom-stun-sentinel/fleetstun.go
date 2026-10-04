@@ -43,7 +43,7 @@ const (
 
 type fleetStunner struct {
 	baseURL string
-	key     string
+	key     func() string // the caller key; "" while it has not arrived (keys.go)
 	client  *http.Client
 	backoff func(attempt int) time.Duration
 	// stillHeld reports whether the hold that asked for this stun still
@@ -56,9 +56,12 @@ type fleetStunner struct {
 
 // newFleetStunner builds the stun client. client carries the hub TLS policy
 // (hubtls.go); nil means a plain client, for tests against httptest.
-func newFleetStunner(baseURL, key string, client *http.Client) *fleetStunner {
+func newFleetStunner(baseURL string, key func() string, client *http.Client) *fleetStunner {
 	if client == nil {
 		client = &http.Client{Timeout: fleetStunTimeout}
+	}
+	if key == nil {
+		key = func() string { return "" }
 	}
 	return &fleetStunner{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -93,8 +96,8 @@ func (f *fleetStunner) stun(pod *corev1.Pod, reason string) {
 	if f == nil {
 		return
 	}
-	if f.baseURL == "" || f.key == "" {
-		f.fail(pod, 0, "unconfigured", "FLEET_MANAGER_URL and FLEET_MANAGER_STUN_KEY are both required; the freeze is held but not recorded")
+	if f.baseURL == "" {
+		f.fail(pod, 0, "unconfigured", "FLEET_MANAGER_URL is required; the freeze is held but not recorded")
 		return
 	}
 	body, _ := json.Marshal(map[string]string{"reason": reason})
@@ -105,7 +108,14 @@ func (f *fleetStunner) stun(pod *corev1.Pod, reason string) {
 				return
 			}
 		}
-		status, err := f.post(pod, body)
+		key := f.key()
+		if key == "" {
+			// The key has not arrived (keys.go): wait for it like a transient
+			// failure rather than giving up as unconfigured.
+			f.fail(pod, attempt, "key_missing", "FLEET_MANAGER_STUN_KEY not available yet; the freeze is held, delivery retried")
+			continue
+		}
+		status, err := f.post(pod, body, key)
 		switch {
 		case err != nil:
 			f.fail(pod, attempt, "transport", err.Error())
@@ -127,7 +137,7 @@ func (f *fleetStunner) stun(pod *corev1.Pod, reason string) {
 	f.fail(pod, fleetStunMaxAttempts-1, "exhausted", fmt.Sprintf("gave up after %d attempts", fleetStunMaxAttempts))
 }
 
-func (f *fleetStunner) post(pod *corev1.Pod, body []byte) (int, error) {
+func (f *fleetStunner) post(pod *corev1.Pod, body []byte, key string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), fleetStunTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -136,7 +146,7 @@ func (f *fleetStunner) post(pod *corev1.Pod, body []byte) (int, error) {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+f.key)
+	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := f.client.Do(req)
 	if err != nil {
 		return 0, err

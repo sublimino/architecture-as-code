@@ -3,6 +3,11 @@
 
 package correlator
 
+import (
+	"net"
+	"strconv"
+)
+
 const (
 	// Syscall event type identifiers matching eBPF probe definitions
 	SyscallTypeOpenat  uint8 = 1
@@ -32,7 +37,10 @@ const (
 	ReactionNone         = "none"
 )
 
-// SyscallEvent represents the binary layout of raw syscall events emitted by kernel eBPF probes.
+// SyscallEvent is the correlator's view of one decoded kernel record
+// (pkg/ebpf.SyscallEvent): the fields the normaliser reads. Family, DestPort
+// and DestAddr are set only for a connect, from the probe's own capture
+// (bpf/sentinel_probe.c trace_enter_connect); a connect has no Filename.
 type SyscallEvent struct {
 	TsNs     uint64 // bpf_ktime_get_ns() at the syscall (CLOCK_MONOTONIC)
 	PID      uint32
@@ -41,6 +49,18 @@ type SyscallEvent struct {
 	Type     uint8
 	Comm     [16]byte
 	Filename [256]byte
+	Family   uint16 // AF_INET or AF_INET6; 0 for a non-connect
+	DestPort uint16
+	DestAddr net.IP
+}
+
+// RemoteEndpoint formats a connect's destination as host:port ("[v6]:port"
+// for IPv6). Empty for a non-connect or an address the probe did not fill.
+func (e SyscallEvent) RemoteEndpoint() string {
+	if e.Type != SyscallTypeConnect || e.DestAddr == nil {
+		return ""
+	}
+	return net.JoinHostPort(e.DestAddr.String(), strconv.Itoa(int(e.DestPort)))
 }
 
 // TelemetryObservation defines the normalized telemetry payload streamed to signal-ingest.

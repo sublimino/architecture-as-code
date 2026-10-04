@@ -27,19 +27,52 @@ import (
 // Prefix marks a tag as a source digest, so it cannot be mistaken for a semver or `latest`.
 const Prefix = "src-"
 
+// BuildTags are the tags the Dockerfile's `go build` passes, and therefore the tags this package
+// must list with. They decide which files the binary is compiled from: under `frostdb`,
+// store/frostdb.go, store/factory_frostdb.go and store/label_allowlist.go are compiled and
+// store/factory.go is not. Listing without them would leave the durable store unpinned -- an edit
+// to the FrostDB store would not move the tag, so a stale image would pass the staleness gate.
+const BuildTags = "frostdb"
+
+// DockerfilePath is the Dockerfile's own path within the build context. It is an input to the
+// digest because the build command (tags, flags) is part of what produces the binary.
+const DockerfilePath = "apps/signal-ingest/Dockerfile"
+
+// ContextDir returns the Docker build context for a signal-ingest module directory: d2-signalloom,
+// two levels above the module, matching DEMO_IMAGES in scripts/signalfusion-images.sh.
+//
+// Two levels, not one: signal-ingest/go.mod has `replace ... /pkg/obscel => ../../pkg/obscel`,
+// which is outside d2-signalloom/apps, and docker refuses a COPY from outside the context. The
+// side effect that matters here is that pkg/obscel now resolves *inside* the context, so its files
+// are hashed into the tag instead of being skipped as module cache. A local replace target has no
+// go.sum entry, so nothing else was pinning it.
+func ContextDir(moduleDir string) (string, error) {
+	absModule, err := filepath.Abs(moduleDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(filepath.Dir(absModule)), nil
+}
+
 // Inputs returns the build inputs of the signal-ingest image, as paths relative to the Docker
-// build context (d2-signalloom/apps, the parent of moduleDir), sorted.
+// build context (d2-signalloom; see ContextDir), sorted.
 func Inputs(moduleDir string) ([]string, error) {
 	absModule, err := filepath.Abs(moduleDir)
 	if err != nil {
 		return nil, err
 	}
-	context := filepath.Dir(absModule)
+	context, err := ContextDir(moduleDir)
+	if err != nil {
+		return nil, err
+	}
 
-	cmd := exec.Command("go", "list", "-deps",
-		"-f", "{{if .Module}}{{if .Module.Replace}}{{.Module.Replace.Path}}{{else}}{{.Module.Path}}{{end}}{{end}}\t{{.Dir}}\t{{join .GoFiles \",\"}}\t{{join .EmbedFiles \",\"}}", ".")
+	// .Module.Dir (or .Module.Replace.Dir for a replaced module) locates each module root, so
+	// go.mod/go.sum are found by asking go rather than by assuming the first path segment is the
+	// module -- which stopped being true when the context moved above apps/.
+	cmd := exec.Command("go", "list", "-deps", "-tags", BuildTags,
+		"-f", "{{if .Module}}{{if .Module.Replace}}{{.Module.Replace.Path}}{{else}}{{.Module.Path}}{{end}}{{end}}\t{{.Dir}}\t{{join .GoFiles \",\"}}\t{{join .EmbedFiles \",\"}}\t{{if .Module}}{{if .Module.Replace}}{{.Module.Replace.Dir}}{{else}}{{.Module.Dir}}{{end}}{{end}}", ".")
 	cmd.Dir = absModule
-	// The Dockerfile builds `CGO_ENABLED=0 go build .` on linux with no tags; list for that target.
+	// The Dockerfile builds `CGO_ENABLED=0 go build -tags frostdb .` on linux; list for that target.
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOFLAGS=")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -48,21 +81,33 @@ func Inputs(moduleDir string) ([]string, error) {
 		return nil, fmt.Errorf("go list: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	set := map[string]struct{}{"signal-ingest/Dockerfile": {}}
+	// within reports a path's slash-form location inside the build context, and whether it is
+	// there at all. Outside means the module cache, which go.sum pins.
+	within := func(dir string) (string, bool) {
+		rel, err := filepath.Rel(context, dir)
+		if err != nil {
+			return "", false
+		}
+		rel = filepath.ToSlash(rel)
+		return rel, rel != ".." && !strings.HasPrefix(rel, "../")
+	}
+
+	set := map[string]struct{}{DockerfilePath: {}}
 	modules := map[string]struct{}{}
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
 		fields := strings.Split(sc.Text(), "\t")
-		if len(fields) != 4 || fields[0] == "" {
+		if len(fields) != 5 || fields[0] == "" {
 			continue // standard library
 		}
-		dir := fields[1]
-		rel, err := filepath.Rel(context, dir)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		rel, ok := within(fields[1])
+		if !ok {
 			continue // module cache: pinned by go.sum
 		}
-		modules[strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]] = struct{}{}
-		for _, list := range fields[2:] {
+		if modRel, ok := within(fields[4]); ok {
+			modules[modRel] = struct{}{}
+		}
+		for _, list := range fields[2:4] {
 			for _, f := range strings.Split(list, ",") {
 				if f != "" {
 					set[filepath.ToSlash(filepath.Join(rel, f))] = struct{}{}
@@ -159,11 +204,10 @@ func Tag(moduleDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	absModule, err := filepath.Abs(moduleDir)
+	context, err := ContextDir(moduleDir)
 	if err != nil {
 		return "", err
 	}
-	context := filepath.Dir(absModule)
 	tracked, err := TrackedInputs(context, in)
 	if err != nil {
 		return "", err

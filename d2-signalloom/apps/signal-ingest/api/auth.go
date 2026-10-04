@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -549,6 +550,26 @@ func (p *ProtectedRouter) EvictKeyBucket(subject string) {
 	p.mu.Unlock()
 }
 
+// actingSubjectPattern bounds the bucket suffix a gateway may add: one printable ASCII token.
+var actingSubjectPattern = regexp.MustCompile(`^[\x21-\x7e]{1,128}$`)
+
+// rateLimitKey names the token bucket a request draws from. A key is one bucket, except a
+// gateway (PermissionActForTenant) draws from one bucket per user it acts for: since SLTM every
+// dashboard user reaches this service through fe-signalloom's single gateway key, and a bucket
+// per key made one user's page load (20-odd routes, 100+ calls) answer 429 for everyone else.
+// Only a principal holding tenant:act-for can split its bucket, so a plain client cannot fan out
+// buckets by writing the header, and idle buckets are still evicted after IdleBucketEvictionAge.
+func rateLimitKey(principal Principal, r *http.Request) string {
+	if !principal.Permissions[PermissionActForTenant] {
+		return principal.Subject
+	}
+	values := r.Header.Values(ActingSubjectHeader)
+	if len(values) != 1 || !actingSubjectPattern.MatchString(values[0]) {
+		return principal.Subject
+	}
+	return principal.Subject + "/" + values[0]
+}
+
 func (p *ProtectedRouter) takeKeyToken(subject string, now time.Time) (bool, int, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -680,7 +701,7 @@ func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.now != nil {
 		now = p.now()
 	}
-	if allowed, retryAfter, auditNeeded := p.takeKeyToken(principal.Subject, now); !allowed {
+	if allowed, retryAfter, auditNeeded := p.takeKeyToken(rateLimitKey(principal, r), now); !allowed {
 		route, method := p.safeAuditRoute(r)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		if auditNeeded {

@@ -435,3 +435,62 @@ func TestRateLimitAuditDownYields503(t *testing.T) {
 		t.Fatalf("rate limit with audit down must be 503, got %d body=%s", w2.Code, w2.Body.String())
 	}
 }
+
+
+// Since SLTM every dashboard user reaches signal-ingest through fe-signalloom's one gateway key.
+// The gateway draws from a bucket per user it acts for; any other key's header is ignored.
+func TestRateLimitGatewayBucketIsPerActingSubject(t *testing.T) {
+	delegate, _, _ := testJWTDelegate(t)
+	expires := time.Now().Add(24 * time.Hour)
+	gatewayToken := testGatewayToken
+	plainToken := testSentinelToken
+	authn, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
+		{Name: "gateway", Token: gatewayToken, Subject: "static-key/fe-signalloom-gateway", TenantID: "fe-signalloom",
+			Permissions: []Permission{PermissionActForTenant, PermissionObservationWrite}, ActorIDs: []string{"*"}, ExpiresAt: expires},
+		{Name: "sentinel", Token: plainToken, Subject: "static-key/stun-sentinel", TenantID: "kusari",
+			Permissions: []Permission{PermissionObservationWrite}, ActorIDs: []string{"*"}, ExpiresAt: expires},
+	}, delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentTime := time.Now()
+	router := newRateLimitRouter(t, authn, audit.NewFakeWriter(), RouterOptions{KeyRatePerSecond: 1.0, KeyBurst: 1}, func() time.Time { return currentTime })
+
+	as := func(token, tenant, user string) *http.Request {
+		r := observationRequest(token)
+		if tenant != "" {
+			r.Header.Set(ActingTenantHeader, tenant)
+		}
+		if user != "" {
+			r.Header.Set(ActingSubjectHeader, user)
+		}
+		return r
+	}
+	// alice drains the gateway's bucket for alice; bob still has his own.
+	for i, want := range []int{http.StatusCreated, http.StatusTooManyRequests} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, as(gatewayToken, "kusari", "alice"))
+		if w.Code != want {
+			t.Fatalf("alice request %d: code %d, want %d", i+1, w.Code, want)
+		}
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, as(gatewayToken, "kusari", "bob"))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("bob behind the same gateway key was starved by alice: %d", w.Code)
+	}
+	// A key without tenant:act-for shares one bucket whatever header it writes.
+	for i, want := range []int{http.StatusCreated, http.StatusTooManyRequests} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, as(plainToken, "", "user-"+strconv.Itoa(i)))
+		if w.Code != want {
+			t.Fatalf("plain key request %d: code %d, want %d (header must not split its bucket)", i+1, w.Code, want)
+		}
+	}
+	// A malformed subject (two values, or a non-token) falls back to the key's own bucket.
+	r := as(gatewayToken, "kusari", "carol")
+	r.Header.Add(ActingSubjectHeader, "mallory")
+	if got := rateLimitKey(Principal{Subject: "gw", Permissions: map[Permission]bool{PermissionActForTenant: true}}, r); got != "gw" {
+		t.Fatalf("two acting-subject values must not name a bucket: %q", got)
+	}
+}

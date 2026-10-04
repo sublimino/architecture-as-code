@@ -42,7 +42,12 @@ type HealthServer struct {
 	frozenUnlabelled func() int
 	// fleetStunFailures counts correlator freezes fleet-manager did not record.
 	fleetStunFailures func() int64
-	server            *http.Server
+	// captures serves GET /captures and /captures/<id>[/<artifact>]
+	// (capture.go); nil means 404. The listener carries no authentication,
+	// so only the manifest and the two spec-analogue artifacts are served,
+	// never the quarantine snapshot with its process memory.
+	captures *captureWriter
+	server   *http.Server
 }
 
 func newHealthServer(addr string, dryRun bool, cgroupRoot string, reconcileCount *atomic.Int64) *HealthServer {
@@ -131,7 +136,45 @@ func (h *HealthServer) Handler() http.Handler {
 	mux.Handle("/health", livenessHandler)
 	mux.Handle("/readyz", readinessHandler)
 	mux.HandleFunc("/metrics", h.serveMetrics)
+	mux.HandleFunc("/captures", h.serveCaptures)
+	mux.HandleFunc("/captures/", h.serveCaptures)
 	return mux
+}
+
+// serveCaptures answers /captures (ids), /captures/<id> (manifest.json) and
+// /captures/<id>/<artifact> for the served artifact set only.
+func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.captures == nil {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/captures"), "/")
+	if rest == "" {
+		ids, err := h.captures.ids()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"kind": captureKind, "captures": ids})
+		return
+	}
+	id, name, _ := strings.Cut(rest, "/")
+	if name == "" {
+		name = captureManifestFile
+	}
+	body, ctype, err := h.captures.open(id, name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(body)
 }
 
 // serveMetrics writes Prometheus text exposition without a client library.

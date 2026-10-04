@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
 	bpfebpf "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/hubclient"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/quarantine"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -445,6 +447,20 @@ func main() {
 	// before the controller runs so the first resync finds a hold, not drift.
 	reconciler.holds.remote = newRemoteStunStore(cfg.SpoolDir)
 	restoreRemoteHolds(reconciler.holds)
+	// Capture on every new hold (capture.go), except in dry-run, where the
+	// engine freezes nothing and reports pid 1: there is no frozen process
+	// to snapshot and /proc/1 is the node's init.
+	if !cfg.DryRun {
+		captures := newCaptureWriter(cfg.SpoolDir, cfg.ClusterID, cfg.NodeName, quarantine.DefaultProcRoot)
+		captureTenants, _ := correlator.ParseTenantMap(cfg.TenantMap)
+		captures.tenantFor = func(pod *corev1.Pod) string {
+			return captureTenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName)
+		}
+		reconciler.holds.onFreeze = func(pod *corev1.Pod, res *cgroup.FreezeResult, trig captureTrigger) {
+			captures.capture(context.Background(), pod, res, trig)
+		}
+		healthSrv.captures = captures
+	}
 	// The two hub keys (keys.go). Neither gates enforcement: a missing fleet
 	// key holds stun deliveries and defers the report and poll; a missing
 	// ingest key spools observations. Both are waited for, with a WARN a

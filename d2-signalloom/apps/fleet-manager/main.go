@@ -135,6 +135,13 @@ type server struct {
 	replayLedger      *ReplayLedger
 	resumePolicy      ResumeTokenPolicy
 	attestationEngine *attestation.AttestationEngine
+	// workloads owns the receipt-clock workload view reported by wardens. Nil
+	// is tolerated by its handlers because focused tests construct server
+	// directly without assembling every production dependency.
+	workloads *WorkloadRegistry
+	// remoteStuns owns remote containment intentions and warden acknowledgements.
+	// Nil is tolerated by focused tests and answered as an unavailable service.
+	remoteStuns *RemoteStunStore
 	// callerKeys gates every mutating route; nil answers them all 401.
 	callerKeys *callerKeys
 }
@@ -255,6 +262,11 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(requestedAgentHeader, agentID)
 	resolved, err := s.resolveAgentID(r.Context(), agentID)
 	if err != nil {
+		// Local resolution always wins. A registry report cannot shadow a
+		// local DAG agent and redirect its containment away from the cascade.
+		if s.handleRemoteStunFallback(w, r, agentID, resolved) {
+			return
+		}
 		writeUnknownAgent(w, resolved)
 		return
 	}
@@ -404,6 +416,11 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(requestedAgentHeader, req.AgentID)
 		resolved, err := s.resolveAgentID(r.Context(), req.AgentID)
 		if err != nil {
+			// This branch is reached only after local resolution has failed,
+			// so a local agent's resume cannot be diverted into remote state.
+			if s.handleRemoteResumeFallback(w, req.AgentID, resolved) {
+				return
+			}
 			writeUnknownAgent(w, resolved)
 			return
 		}
@@ -489,7 +506,10 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 }
 
 // routes mounts every handler. Mutating routes sit behind a caller key with
-// the matching scope; read-only routes stay open.
+// the matching scope; workload reads are also scoped because they expose
+// cross-cluster tenant placement, while the remaining read-only routes stay
+// open. The two workload patterns are exact: neither ends in a slash, so the
+// list route cannot become a prefix handler that shadows the report route.
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
@@ -501,6 +521,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/v1/fleet/scan", s.callerKeys.require(scopeScan, s.handleScan))
 	mux.HandleFunc("/api/v1/fleet/recover", s.callerKeys.require(scopeRecover, s.handleRecover))
 	mux.HandleFunc("/api/v1/fleet/reset", s.callerKeys.require(scopeReset, s.handleReset))
+	mux.HandleFunc("/api/v1/fleet/workloads/report", s.callerKeys.require(scopeReport, s.handleWorkloadReport))
+	mux.HandleFunc("/api/v1/fleet/workloads", s.callerKeys.requireAny([]callerScope{scopeRead, scopeReport}, s.handleWorkloads))
+	mux.HandleFunc("/api/v1/fleet/stun-state", s.callerKeys.require(scopeReport, s.handleRemoteStunState))
+	mux.HandleFunc("/api/v1/fleet/stun-state/ack", s.callerKeys.require(scopeReport, s.handleRemoteStunAck))
 	registerConsistencyRoutes(mux, s)
 	return mux
 }
@@ -682,6 +706,17 @@ func main() {
 		orchestrator.SetAttestationEngine(attEngine)
 	}
 
+	// FLEET_REPORT_INTERVAL historically names a count of seconds, while Go
+	// operators naturally supply duration strings. Accept both "60" and "60s".
+	// A bad value warns and falls back instead of preventing startup, because
+	// the process must keep its break-glass routes reachable during recovery.
+	reportInterval, err := fleetReportIntervalFrom(os.Getenv("FLEET_REPORT_INTERVAL"))
+	if err != nil {
+		slog.Warn("invalid fleet report interval; using default", "error", err, "default", DefaultFleetReportInterval)
+	}
+	workloads := NewWorkloadRegistry(reportInterval, time.Now)
+
+	remoteStuns := NewRemoteStunStore(nil, nil)
 	s := &server{
 		dag:               dag,
 		orchestrator:      orchestrator,
@@ -690,6 +725,8 @@ func main() {
 		replayLedger:      replayLedger,
 		resumePolicy:      resumePolicy,
 		attestationEngine: attEngine,
+		workloads:         workloads,
+		remoteStuns:       remoteStuns,
 	}
 
 	// A key defect does not crash the process (break-glass must stay

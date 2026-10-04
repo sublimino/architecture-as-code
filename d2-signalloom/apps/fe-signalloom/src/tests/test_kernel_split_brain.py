@@ -33,6 +33,10 @@ def _disc(state: str = "idle", kernel_state: str | None = "frozen", **extra: Any
         "id": "agent-sir-lancelot",
         "name": "agent-sir-lancelot",
         "namespace": "fe-signalloom-agents",
+        # Discovery reports the pod's signalloom.ai/tenant label, and
+        # /api/agents now shows a non-superadmin only its own tenant's
+        # workloads, so a fixture without this is invisible to the caller.
+        "tenant": "tenant-a",
         "state": state,
         "phase": "Running",
         "service_account": "agent-sir-lancelot",

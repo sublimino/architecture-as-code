@@ -125,6 +125,7 @@ def test_agent_discovery_maps_proxy_payload_to_compat_response(monkeypatch):
                     "agents": [
                         {
                             "id": "pod-inventory-agent",
+                            "tenant": "tenant-a",
                             "name": "Inventory Agent",
                             "type": "service",
                             "state": "ready",

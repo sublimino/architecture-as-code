@@ -30,6 +30,15 @@ spec:
         - name: policy-engine
           image: policy-engine:local
           imagePullPolicy: IfNotPresent
+          env:
+            # SLAWS v2 D6: observation bundles are files under policy/bundles/, rendered
+            # into the policy-engine-bundles ConfigMap and loaded once at boot.
+            - name: POLICY_BUNDLES_DIR
+              value: /etc/policy-engine/bundles
+          volumeMounts:
+            - name: policy-bundles
+              mountPath: /etc/policy-engine/bundles
+              readOnly: true
           ports:
             - name: http
               containerPort: 8081
@@ -58,3 +67,7 @@ spec:
               memory: 16Mi
             limits:
               memory: 64Mi
+      volumes:
+        - name: policy-bundles
+          configMap:
+            name: policy-engine-bundles

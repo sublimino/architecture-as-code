@@ -627,10 +627,13 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 # suite. The dashboard tests run vitest with jsdom against the Weave, Signal
 # Fusion, and weaveApi test files.
 
-.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel
+.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render
 .PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
 .PHONY: test-signal-segment-verifier verify-signal-segments
 .PHONY: test-identity-rls-live
+
+policy-bundles-render: ## Render policy/bundles/ into the policy-engine bundles ConfigMap manifest (SLAWS D6).
+	bash scripts/render-policy-bundles.sh
 
 test-obscel: ## Run the shared observation-policy vocabulary and evaluator tests (SLAWS, pkg/obscel).
 	cd d2-signalloom/pkg/obscel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1

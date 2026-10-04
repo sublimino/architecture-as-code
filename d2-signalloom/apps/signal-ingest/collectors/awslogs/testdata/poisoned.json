@@ -1,0 +1,73 @@
+{
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T12:00:00Z",
+      "eventSource": "iam.amazonaws.com",
+      "eventName": "CreateAccessKey",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent",
+        "sessionContext": {
+          "webIdFederationData": {},
+          "attributes": {
+            "creationDate": "2026-10-02T11:59:00Z",
+            "mfaAuthenticated": "false"
+          }
+        }
+      },
+      "requestParameters": {
+        "userName": "kusari-build-runner",
+        "sessionToken": "POISON-SESSION-TOKEN-FQoGZXIvYXdzEBYaDFRISVNJU0FURVNU",
+        "accessKeyId": "POISONAKIAIOSFODNN7EXAMPLE"
+      },
+      "responseElements": {
+        "accessKey": {
+          "accessKeyId": "POISONAKIAI44QH8DHBEXAMPLE",
+          "secretAccessKey": "POISON-SECRET-wJalrXUtnFEMI/K7MDENG/bPxRfiCY",
+          "sessionToken": "POISON-SESSION-TOKEN-RESPONSE-IQoJb3JpZ2luX2VjEBY",
+          "status": "Active"
+        }
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::User",
+          "ARN": "arn:aws:iam::123456789012:user/kusari-build-runner"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T12:01:17Z",
+      "eventSource": "sts.amazonaws.com",
+      "eventName": "AssumeRole",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "198.51.100.77",
+      "userIdentity": {
+        "type": "AssumedRole",
+        "arn": "arn:aws:sts::123456789012:assumed-role/kusari-ci/build-9982",
+        "accountId": "123456789012",
+        "accessKeyId": "POISONASIAZ4Y7EXAMPLEKEY"
+      },
+      "requestParameters": {
+        "roleArn": "arn:aws:iam::123456789012:role/kusari-agent-exec",
+        "externalId": "POISON-EXTERNAL-ID-9f2c",
+        "sessionToken": "POISON-SESSION-TOKEN-REQ-AgoJb3JpZ2luX2VjEA"
+      },
+      "responseElements": {
+        "credentials": {
+          "accessKeyId": "POISONASIAZ4Y7EXAMPLERESP",
+          "sessionToken": "POISON-SESSION-TOKEN-CREDS-FwoGZXIvYXdzEB",
+          "expiration": "2026-10-02T13:01:17Z"
+        }
+      },
+      "resources": []
+    }
+  ]
+}

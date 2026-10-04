@@ -163,9 +163,9 @@ func TestModeMatrix_RepresentativeCollector_DistinctObservableBehaviour(t *testi
 			Type: "request",
 			Time: time.Now().UTC().Format(time.RFC3339Nano),
 			Request: &baoaudit.AuditRequest{
-				ID:                   "req-live-test-1",
-				Operation:            "read",
-				Path:                 "secret/data/payment/keys",
+				ID:                  "req-live-test-1",
+				Operation:           "read",
+				Path:                "secret/data/payment/keys",
 				ClientTokenAccessor: "acc-12345",
 			},
 			Auth: &baoaudit.AuditAuth{
@@ -228,6 +228,11 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 		makeFixture func(sink IngestionSink) Collector
 		makeLive    func(sink IngestionSink) Collector
 		expectedObs int
+		// liveWantErr marks a collector whose live mode must fail explicitly rather
+		// than start a worker. awslogs is the only one today: its aws-sdk-go-v2
+		// implementation is deferred to SLAWS P3-1, and a live mode that returned nil
+		// would be a collector reporting healthy while collecting nothing.
+		liveWantErr bool
 	}{
 		{
 			name: "gcpaudit",
@@ -308,6 +313,20 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 			expectedObs: len(AgentNonoFixtures(time.Now().UTC())),
 		},
 		{
+			name: "awslogs",
+			makeOff: func(sink IngestionSink) Collector {
+				return NewAWSLogsCollector(ModeOff, sink)
+			},
+			makeFixture: func(sink IngestionSink) Collector {
+				return NewAWSLogsCollector(ModeFixture, sink)
+			},
+			makeLive: func(sink IngestionSink) Collector {
+				return NewAWSLogsCollector(ModeLive, sink)
+			},
+			expectedObs: len(AWSLogsFixtures(time.Now().UTC())),
+			liveWantErr: true,
+		},
+		{
 			name: "fixtures",
 			makeOff: func(sink IngestionSink) Collector {
 				return NewFixtureCollector(ModeOff, sink)
@@ -362,8 +381,16 @@ func TestModeMatrix_AllCollectorsMatrix(t *testing.T) {
 			if colLive.Mode() != ModeLive {
 				t.Fatalf("%s: expected ModeLive, got %v", tc.name, colLive.Mode())
 			}
-			if err := colLive.Start(ctx); err != nil {
-				t.Fatalf("%s live: Start() failed: %v", tc.name, err)
+			errLive := colLive.Start(ctx)
+			if tc.liveWantErr {
+				if errLive == nil {
+					t.Fatalf("%s live: Start() returned nil, want an explicit error", tc.name)
+				}
+				if sinkLive.Count() != 0 {
+					t.Fatalf("%s live: ingested %d observations despite a deferred implementation", tc.name, sinkLive.Count())
+				}
+			} else if errLive != nil {
+				t.Fatalf("%s live: Start() failed: %v", tc.name, errLive)
 			}
 			if s, ok := colLive.(Stopper); ok {
 				s.Stop()

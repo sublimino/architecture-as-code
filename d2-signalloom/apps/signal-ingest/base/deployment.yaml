@@ -92,6 +92,29 @@ spec:
               value: frostdb
             - name: SIGNAL_STORE_DIR
               value: /data/signals
+            # SLAWS v2 D6, ISC-51: observation-policy bundles are Flux-reconciled
+            # FILES, loaded once at boot, never registered over the API. This is
+            # the SAME ConfigMap policy-engine mounts (declared once in
+            # apps/policy-engine/base/bundles-configmap.yaml and rendered from
+            # policy/bundles/) at the same path, because both apps share the
+            # fe-signalloom namespace under the fe-signalloom kustomization's
+            # targetNamespace. Referenced, never duplicated: two copies of a
+            # bundle set is two policies that can disagree.
+            #
+            # A missing or empty mount is zero bundles and a startup WARNING
+            # naming the directory, not a boot failure -- every deployment
+            # predates this feature. A bundle that fails to conform IS a boot
+            # failure: a half-loaded policy set is indistinguishable at runtime
+            # from a policy set that chose not to detect anything.
+            - name: POLICY_BUNDLES_DIR
+              value: /etc/policy-engine/bundles
+            # SLAWS v2 D5: where a stage-2 decision is alerted. Unset means
+            # decisions are stored and not alerted, which is the correct default
+            # while every shipped bundle is in shadow mode. Delivery is bounded
+            # (3 attempts, 5s total) and runs off the ingest path, so a dead
+            # webhook cannot slow a collector.
+            - name: POLICY_ALERT_WEBHOOK_URL
+              value: ""
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -146,6 +169,11 @@ spec:
             - name: signal-ingest-static-keys
               mountPath: /etc/signal-ingest/static-keys
               readOnly: true
+            # The observation-policy bundle set named by POLICY_BUNDLES_DIR.
+            # readOnly because policy is git: the only writer is Flux.
+            - name: policy-bundles
+              mountPath: /etc/policy-engine/bundles
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -169,6 +197,15 @@ spec:
         - name: signal-auth-jwks
           configMap:
             name: signal-ingest-jwks
+        # policy-engine-bundles is OWNED by apps/policy-engine/base/bundles-configmap.yaml
+        # and is referenced here, not redeclared. optional: true so a cluster that
+        # has not yet reconciled the bundle ConfigMap gets a pod that boots with
+        # zero bundles and says so in the log, rather than one stuck in
+        # ContainerCreating -- the same fail-open choice the static-keys mounts make.
+        - name: policy-bundles
+          configMap:
+            name: policy-engine-bundles
+            optional: true
         # optional: true per source, so one caller's Secret not yet minted
         # disables that caller's key (logged at ERROR) instead of holding the
         # whole pod in ContainerCreating. Every key named in

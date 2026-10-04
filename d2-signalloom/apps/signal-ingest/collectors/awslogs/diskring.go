@@ -405,6 +405,48 @@ func (rb *DiskRingBuffer) TryPop() (*LogRecord, bool, error) {
 	return rec, true, nil
 }
 
+// Peek returns the oldest record WITHOUT removing it. The second result is false when
+// the ring is empty.
+//
+// Peek/Commit is the pair the acknowledgement ordering is built on, and it is why the
+// collector does not use Pop. The sequence has to be: durable in the WAL, then past
+// the sink, then acknowledged to SQS, and only then released from the buffer. A Pop
+// that removed the record first would mean a sink failure silently dropped a record
+// that SQS still believes was delivered — buffered, unacknowledged and gone.
+func (rb *DiskRingBuffer) Peek() (*LogRecord, bool, error) {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	if rb.closed {
+		return nil, false, ErrRingClosed
+	}
+	if len(rb.live) == 0 {
+		return nil, false, nil
+	}
+	rec, err := rb.readFrameLocked(rb.live[0])
+	if err != nil {
+		return nil, false, err
+	}
+	return rec, true, nil
+}
+
+// Commit releases the oldest record, which the caller has acknowledged downstream.
+// It is a no-op on an empty ring.
+func (rb *DiskRingBuffer) Commit() error {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	if rb.closed {
+		return ErrRingClosed
+	}
+	if len(rb.live) == 0 {
+		return nil
+	}
+	rb.deadByte += rb.live[0].length
+	rb.live = rb.live[1:]
+	return rb.maybeCompactLocked()
+}
+
 func (rb *DiskRingBuffer) popOldestLocked() (*LogRecord, error) {
 	oldest := rb.live[0]
 	rec, err := rb.readFrameLocked(oldest)

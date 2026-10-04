@@ -43,22 +43,23 @@ type CollectorTwinVerifier func(ctx context.Context) (*TwinSuiteExecution, error
 
 // Global registry of verifiers mapping collector names to their twin test executions.
 var CollectorTwinVerifiers = map[string]CollectorTwinVerifier{
-	"gcpaudit":       verifyGCPAuditTwins,
-	"baoaudit":       verifyBaoAuditTwins,
-	"spirea":         verifySPIREATwins,
-	"netebpf":        verifyNetEBPFTwins,
-	"k8saudit":       verifyK8sAuditTwins,
-	"kagent":         verifyKAgentTwins,
-	"workspacesaas":  verifyWorkspaceSaaSTwins,
-	"fixtures":       verifyFixturesTwins,
-	"agentnono":       verifyAgentNonoTwins,
+	"gcpaudit":      verifyGCPAuditTwins,
+	"baoaudit":      verifyBaoAuditTwins,
+	"spirea":        verifySPIREATwins,
+	"netebpf":       verifyNetEBPFTwins,
+	"k8saudit":      verifyK8sAuditTwins,
+	"kagent":        verifyKAgentTwins,
+	"workspacesaas": verifyWorkspaceSaaSTwins,
+	"fixtures":      verifyFixturesTwins,
+	"agentnono":     verifyAgentNonoTwins,
+	"awslogs":       verifyAWSLogsTwins,
 }
 
 // RegistryCoverageReport holds the aggregate verification result across all registered collectors.
 type RegistryCoverageReport struct {
-	TotalCollectors     int
-	VerifiedCollectors  int
-	Executions          map[string]*TwinSuiteExecution
+	TotalCollectors    int
+	VerifiedCollectors int
+	Executions         map[string]*TwinSuiteExecution
 }
 
 // RunRegistryCoverageGuard verifies that every collector in the provided registry has a registered,
@@ -912,7 +913,6 @@ func TestCollectorFalsification_Fixtures(t *testing.T) {
 		t.Errorf("Fixtures distinctness test failed: %v", exec.ExecutionLog)
 	}
 }
-
 
 // --- AgentNono Verifier ---
 func verifyAgentNonoTwins(ctx context.Context) (*TwinSuiteExecution, error) {

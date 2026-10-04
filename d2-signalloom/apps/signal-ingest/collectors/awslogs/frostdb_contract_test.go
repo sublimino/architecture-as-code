@@ -22,6 +22,9 @@ func TestEveryAWSLogsFixtureAppendsToFrostDB(t *testing.T) {
 	if len(obs) == 0 {
 		t.Fatal("no fixture observations")
 	}
+	// The segment store fails closed without a pseudonymisation key (the same contract
+	// that stopped the kind-osramp pod); supply test key material as store's TestMain does.
+	t.Setenv(store.SegmentPseudonymKeyEnv, "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	st, err := store.NewFrostDBStore()
 	if err != nil {
 		t.Fatalf("NewFrostDBStore: %v", err)

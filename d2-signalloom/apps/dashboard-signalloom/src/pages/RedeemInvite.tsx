@@ -42,7 +42,7 @@ const inputStyle: CSSProperties = {
   color: 'var(--text, #e0e0e0)',
   fontSize: 14,
   boxSizing: 'border-box',
-  fontFamily: 'var(--font-mono, monospace)',
+  fontFamily: 'monospace',
 }
 
 const labelStyle: CSSProperties = {

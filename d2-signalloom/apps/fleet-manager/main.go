@@ -135,6 +135,10 @@ type server struct {
 	replayLedger      *ReplayLedger
 	resumePolicy      ResumeTokenPolicy
 	attestationEngine *attestation.AttestationEngine
+	// workloads owns the receipt-clock workload view reported by wardens. Nil
+	// is tolerated by its handlers because focused tests construct server
+	// directly without assembling every production dependency.
+	workloads *WorkloadRegistry
 	// callerKeys gates every mutating route; nil answers them all 401.
 	callerKeys *callerKeys
 }
@@ -489,7 +493,10 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 }
 
 // routes mounts every handler. Mutating routes sit behind a caller key with
-// the matching scope; read-only routes stay open.
+// the matching scope; workload reads are also scoped because they expose
+// cross-cluster tenant placement, while the remaining read-only routes stay
+// open. The two workload patterns are exact: neither ends in a slash, so the
+// list route cannot become a prefix handler that shadows the report route.
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
@@ -501,6 +508,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/v1/fleet/scan", s.callerKeys.require(scopeScan, s.handleScan))
 	mux.HandleFunc("/api/v1/fleet/recover", s.callerKeys.require(scopeRecover, s.handleRecover))
 	mux.HandleFunc("/api/v1/fleet/reset", s.callerKeys.require(scopeReset, s.handleReset))
+	mux.HandleFunc("/api/v1/fleet/workloads/report", s.callerKeys.require(scopeReport, s.handleWorkloadReport))
+	mux.HandleFunc("/api/v1/fleet/workloads", s.callerKeys.requireAny([]callerScope{scopeRead, scopeReport}, s.handleWorkloads))
 	registerConsistencyRoutes(mux, s)
 	return mux
 }
@@ -682,6 +691,16 @@ func main() {
 		orchestrator.SetAttestationEngine(attEngine)
 	}
 
+	// FLEET_REPORT_INTERVAL historically names a count of seconds, while Go
+	// operators naturally supply duration strings. Accept both "60" and "60s".
+	// A bad value warns and falls back instead of preventing startup, because
+	// the process must keep its break-glass routes reachable during recovery.
+	reportInterval, err := fleetReportIntervalFrom(os.Getenv("FLEET_REPORT_INTERVAL"))
+	if err != nil {
+		slog.Warn("invalid fleet report interval; using default", "error", err, "default", DefaultFleetReportInterval)
+	}
+	workloads := NewWorkloadRegistry(reportInterval, time.Now)
+
 	s := &server{
 		dag:               dag,
 		orchestrator:      orchestrator,
@@ -690,6 +709,7 @@ func main() {
 		replayLedger:      replayLedger,
 		resumePolicy:      resumePolicy,
 		attestationEngine: attEngine,
+		workloads:         workloads,
 	}
 
 	// A key defect does not crash the process (break-glass must stay

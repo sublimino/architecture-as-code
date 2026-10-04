@@ -14,11 +14,67 @@ import (
 	"time"
 )
 
-// ErrLiveClientsNotWired is returned when live mode is started without an AWS client
-// set. The aws-sdk-go-v2 implementation of the three seams is a later card (SLAWS
-// P3-1); until it lands, live mode fails loudly on start rather than running as a
-// collector that silently collects nothing.
-var ErrLiveClientsNotWired = errors.New("awslogs: live mode deferred: no SQS/S3/STS client wired (the aws-sdk-go-v2 implementation is SLAWS P3-1)")
+// ErrLiveClientsNotWired is returned when live mode is started with no AWS client
+// set and no live client factory registered.
+//
+// The aws-sdk-go-v2 implementation of the three seams lives in the `live`
+// subpackage, which registers itself through SetLiveClientFactory when it is linked
+// in. A binary that does not import it has no live mode, and this error says so
+// rather than running as a collector that silently collects nothing.
+var ErrLiveClientsNotWired = errors.New("awslogs: no SQS/S3/STS client wired and no live client factory registered (import collectors/awslogs/live to enable live mode)")
+
+// NotificationParser extracts the object references from one SQS message body.
+//
+// It is injectable because the live and fixture paths see genuinely different
+// bodies. The default, objectRefsFrom, reads the direct S3 event notification that
+// the fakes produce. A live account may fan out through SNS first and will post a
+// one-off `s3:TestEvent` the day the bucket is wired up, neither of which the
+// default understands — so the live factory supplies a parser that does.
+//
+// The three outcomes are distinct and the collector relies on all three: refs to
+// fetch, nil/nil for "nothing here and nothing wrong", and an error to leave the
+// message in flight for the queue's redrive policy.
+type NotificationParser func(body string) ([]ObjectRef, error)
+
+// LiveClientFactory builds the AWS seams for one collector configuration.
+//
+// This indirection exists because the dependency can only run one way: the `live`
+// package imports this one for Message, ObjectRef, Credentials and
+// ErrExternalIDRequired, so this one cannot import it back to call live.NewClients
+// from Start. Keeping the SDK out of the core package is the point — fixture mode
+// and every contract test build without it.
+type LiveClientFactory func(ctx context.Context, cfg AWSCollectorConfig) (SQSClient, S3Fetcher, STSAssumer, NotificationParser, error)
+
+var (
+	liveFactoryMu sync.RWMutex
+	liveFactory   LiveClientFactory
+)
+
+// SetLiveClientFactory registers the factory Start uses in live mode when no clients
+// were injected with WithAWS. The `live` package calls this from its init.
+//
+// Explicitly injected clients always win, so a test driving the fakes is never at
+// the mercy of whether some other package in the binary linked the SDK in.
+func SetLiveClientFactory(f LiveClientFactory) {
+	liveFactoryMu.Lock()
+	defer liveFactoryMu.Unlock()
+	liveFactory = f
+}
+
+// LiveClientFactoryRegistered reports whether a live client factory is available. It
+// is what lets a test assert that the live wiring is linked in, rather than
+// discovering at deployment that it is not.
+func LiveClientFactoryRegistered() bool {
+	liveFactoryMu.RLock()
+	defer liveFactoryMu.RUnlock()
+	return liveFactory != nil
+}
+
+func currentLiveFactory() LiveClientFactory {
+	liveFactoryMu.RLock()
+	defer liveFactoryMu.RUnlock()
+	return liveFactory
+}
 
 // Collector polls an SQS queue for S3 object notifications, fetches each object,
 // buffers it durably, projects it to the §2.3 label contract and acknowledges the
@@ -38,9 +94,10 @@ type Collector struct {
 	sink Sink
 	ring *DiskRingBuffer
 
-	sqs SQSClient
-	s3  S3Fetcher
-	sts STSAssumer
+	sqs    SQSClient
+	s3     S3Fetcher
+	sts    STSAssumer
+	parser NotificationParser
 
 	running    bool
 	noPollLoop bool
@@ -70,6 +127,13 @@ func WithAWS(sqs SQSClient, s3 S3Fetcher, sts STSAssumer) Option {
 		c.s3 = s3
 		c.sts = sts
 	}
+}
+
+// WithNotificationParser overrides how an SQS message body is turned into object
+// references. The default reads a direct S3 event notification; the live factory
+// supplies one that also unwraps SNS and ignores s3:TestEvent.
+func WithNotificationParser(parse NotificationParser) Option {
+	return func(c *Collector) { c.parser = parse }
 }
 
 // WithoutPollLoop starts live mode without the background poll goroutine, leaving
@@ -142,6 +206,16 @@ func (c *Collector) Start(ctx context.Context) error {
 		if err := c.cfg.Validate(ModeLive); err != nil {
 			c.mu.Unlock()
 			return err
+		}
+		// Nothing injected: build the seams from the registered live factory. The
+		// check is "all three absent" rather than "any absent" so that a test which
+		// injects a partial set still gets ErrLiveClientsNotWired instead of having
+		// the gaps quietly filled with clients that would dial AWS.
+		if c.sqs == nil && c.s3 == nil && c.sts == nil {
+			if err := c.buildLiveClients(ctx); err != nil {
+				c.mu.Unlock()
+				return err
+			}
 		}
 		if c.sqs == nil || c.s3 == nil || c.sts == nil {
 			c.mu.Unlock()
@@ -256,6 +330,36 @@ func (c *Collector) Stats() map[string]uint64 {
 	return out
 }
 
+// buildLiveClients populates the AWS seams from the registered live factory.
+//
+// The caller holds c.mu. A nil factory is not an error here: Start's own check turns
+// it into ErrLiveClientsNotWired, which names the missing import rather than a
+// missing factory variable.
+func (c *Collector) buildLiveClients(ctx context.Context) error {
+	factory := currentLiveFactory()
+	if factory == nil {
+		return nil
+	}
+	sqsClient, s3Client, stsClient, parse, err := factory(ctx, c.cfg)
+	if err != nil {
+		return fmt.Errorf("awslogs: building live AWS clients: %w", err)
+	}
+	c.sqs, c.s3, c.sts = sqsClient, s3Client, stsClient
+	// An explicit WithNotificationParser still wins: the factory only fills a gap.
+	if c.parser == nil {
+		c.parser = parse
+	}
+	return nil
+}
+
+// parseNotification turns a message body into object references.
+func (c *Collector) parseNotification(body string) ([]ObjectRef, error) {
+	if c.parser != nil {
+		return c.parser(body)
+	}
+	return objectRefsFrom(body)
+}
+
 func (c *Collector) assumeRole(ctx context.Context) (Credentials, error) {
 	if c.cfg.ExternalID == "" {
 		return Credentials{}, ErrMissingExternalID
@@ -335,7 +439,7 @@ func (c *Collector) PollOnce(ctx context.Context) (int, error) {
 	}
 
 	for _, msg := range msgs {
-		refs, err := objectRefsFrom(msg.Body)
+		refs, err := c.parseNotification(msg.Body)
 		if err != nil {
 			// A message we cannot parse is left in flight deliberately: deleting it
 			// would discard telemetry on the strength of our own parser being right,

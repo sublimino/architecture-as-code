@@ -217,8 +217,21 @@ func TestCollector_LiveModeWithoutClientsFailsExplicitly(t *testing.T) {
 	if !errors.Is(err, awslogs.ErrLiveClientsNotWired) {
 		t.Fatalf("Start without AWS clients: err = %v, want ErrLiveClientsNotWired", err)
 	}
-	if !strings.Contains(err.Error(), "deferred") {
-		t.Errorf("error does not say the implementation is deferred: %v", err)
+	// The error has to name the remedy, not just the symptom. It said "deferred"
+	// while SLAWS P3-1 was unbuilt; now that the aws-sdk-go-v2 implementation exists
+	// the actual cause of this error is a binary that never linked it in, so the
+	// error names the import that fixes it. An operator reading
+	// "no SQS/S3/STS client wired" alone would go looking at their AWS configuration,
+	// which is not where the problem is.
+	if !strings.Contains(err.Error(), "collectors/awslogs/live") {
+		t.Errorf("error does not name the import that enables live mode: %v", err)
+	}
+
+	// This package deliberately does not import the live package, so the factory must
+	// be unregistered here. If it were registered, this test would be asserting
+	// nothing: Start would have built real AWS clients and failed somewhere else.
+	if awslogs.LiveClientFactoryRegistered() {
+		t.Error("a live client factory is registered in the core package's tests; this test no longer proves the gate")
 	}
 }
 

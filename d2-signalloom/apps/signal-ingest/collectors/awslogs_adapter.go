@@ -10,6 +10,23 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/awslogs"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
+
+	// Linking the live package in is what gives the awslogs collector a live mode: it
+	// registers the aws-sdk-go-v2 implementation of the SQS, S3 and STS seams through
+	// awslogs.SetLiveClientFactory from its init (SLAWS P3-1).
+	//
+	// It has to be a blank import here rather than a direct call from
+	// Collector.Start, because the live package imports awslogs for Message,
+	// ObjectRef and Credentials, so the dependency can only run one way. Keeping the
+	// SDK out of the core package is the point — fixture mode and the §2.3 contract
+	// tests build without it.
+	//
+	// The import is in the awslogs adapter rather than in main so that anything
+	// constructing a registry gets live mode, including the mode-matrix tests that
+	// assert the gate. Dropping it does not break the build; it silently turns live
+	// mode into ErrLiveClientsNotWired, which is what
+	// TestAWSLogsLiveModeIsWired guards against.
+	_ "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/awslogs/live"
 )
 
 // AWSLogsCollector adapts the awslogs package to the Collector interface.

@@ -38,6 +38,12 @@ spec:
               app.kubernetes.io/name: fe-signalloom
         # The Envoy gateway, for the remote-cluster warden routes /warden-ingest and /warden-fleet
         # (apps/fe-signalloom/base/gateway-route.yaml). Key-authenticated upstream.
+        #
+        # One rule covers every path and verb the remote contract adds: the
+        # workload report, the registry read, the stun-state read and its ack
+        # all arrive on this same connection from this same proxy. A rule per
+        # endpoint would be four copies of one selector, and NetworkPolicy
+        # cannot see a path anyway.
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress

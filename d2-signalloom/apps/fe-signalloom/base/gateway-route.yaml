@@ -90,7 +90,24 @@ spec:
 # the signalloom-warden DaemonSet and its two Secrets, and forwards everything to
 # this cluster). The warden posts observations to
 # {SIGNAL_INGEST_URL}/api/v1/observations and stuns through
-# {FLEET_MANAGER_URL}/api/v1/fleet/stun/{pod}; both backends enforce their own
+# {FLEET_MANAGER_URL}/api/v1/fleet/stun/{pod}.
+#
+# ── Every path /warden-fleet has to carry (docs/EAP/remote-contract.md) ──────
+#
+#   POST /api/v1/fleet/workloads/report    the node's workload report
+#   GET  /api/v1/fleet/workloads           the hub's merged registry
+#   GET  /api/v1/fleet/stun-state          records this cluster must act on
+#   POST /api/v1/fleet/stun-state/ack      the acknowledgement
+#   POST /api/v1/fleet/stun/{agent}        the existing local-freeze record
+#
+# Each rule below is a bare PathPrefix match with NO `method` in it, so every
+# verb on every path under the prefix is forwarded, GET and POST alike. That is
+# deliberate and it is the reason the two GET routes need no second rule: a
+# `matches` entry that named a method would forward that verb and 404 the rest,
+# and the list above would then have to be maintained in two places. The
+# backends enforce the method, and the caller key enforces the scope.
+#
+# Both backends enforce their own
 # named static keys (SIGNAL_AUTH_STATIC_KEYS, FLEET_MANAGER_KEY_*), so the gateway
 # adds no auth and no path survives without a key. The prefixes are distinct from
 # /api (fe-signalloom-api) and from every client-side route in App.tsx (a bare

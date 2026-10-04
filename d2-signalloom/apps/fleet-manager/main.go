@@ -523,7 +523,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/v1/fleet/reset", s.callerKeys.require(scopeReset, s.handleReset))
 	mux.HandleFunc("/api/v1/fleet/workloads/report", s.callerKeys.require(scopeReport, s.handleWorkloadReport))
 	mux.HandleFunc("/api/v1/fleet/workloads", s.callerKeys.requireAny([]callerScope{scopeRead, scopeReport}, s.handleWorkloads))
-	mux.HandleFunc("/api/v1/fleet/stun-state", s.callerKeys.require(scopeReport, s.handleRemoteStunState))
+	// Reading stun state is observation: the warden (report) acts on it, the
+	// dashboard and operator (read) watch it. The ack stays report-only.
+	mux.HandleFunc("/api/v1/fleet/stun-state", s.callerKeys.requireAny([]callerScope{scopeRead, scopeReport}, s.handleRemoteStunState))
 	mux.HandleFunc("/api/v1/fleet/stun-state/ack", s.callerKeys.require(scopeReport, s.handleRemoteStunAck))
 	registerConsistencyRoutes(mux, s)
 	return mux

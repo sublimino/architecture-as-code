@@ -673,7 +673,7 @@ func TestRemoteStunStateScopeAndMethods(t *testing.T) {
 		want   int
 	}{
 		{name: "state no key", method: http.MethodGet, path: "/api/v1/fleet/stun-state?cluster_id=cluster-a", want: http.StatusUnauthorized},
-		{name: "state read key", method: http.MethodGet, path: "/api/v1/fleet/stun-state?cluster_id=cluster-a", auth: "Bearer " + dashboardWorkloadKey, want: http.StatusForbidden},
+		{name: "state read key (observation: the dashboard and operator watch stun state)", method: http.MethodGet, path: "/api/v1/fleet/stun-state?cluster_id=cluster-a", auth: "Bearer " + dashboardWorkloadKey, want: http.StatusOK},
 		{name: "state report key", method: http.MethodGet, path: "/api/v1/fleet/stun-state?cluster_id=cluster-a", auth: "Bearer " + wardenWorkloadKey, want: http.StatusOK},
 		{name: "state wrong method", method: http.MethodPost, path: "/api/v1/fleet/stun-state?cluster_id=cluster-a", auth: "Bearer " + wardenWorkloadKey, want: http.StatusMethodNotAllowed},
 		{name: "ack no key", method: http.MethodPost, path: "/api/v1/fleet/stun-state/ack", body: `{}`, want: http.StatusUnauthorized},

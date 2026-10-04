@@ -64,7 +64,11 @@ PLATFORM="${SUPERCRED_PLATFORM:-$(demo_host_platform)}"
 # relative; dockerfile is optional and defaults to <context>/Dockerfile)
 DEMO_IMAGES=(
   "cardvault:local|d2-signalloom/apps/cardvault|"
-  "policy-engine:local|d2-signalloom/apps/policy-engine|"
+  # policy-engine's build context is d2-signalloom/, not apps/policy-engine/:
+  # its go.mod now carries `replace .../pkg/obscel => ../../pkg/obscel`, so a
+  # context rooted at the app directory cannot see the module and the build
+  # fails with `replacement directory ../../pkg/obscel does not exist`.
+  "policy-engine:local|d2-signalloom|d2-signalloom/apps/policy-engine/Dockerfile"
   "cardvault-agent:local|d2-signalloom/apps/cardvault-agent|"
   # Deliberately verify the runner alongside the other SuperCred images. That
   # is stricter than the host-side CLI path alone requires, but omitting it

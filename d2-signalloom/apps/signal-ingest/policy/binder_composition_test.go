@@ -26,11 +26,11 @@ func TestBinderOutsideThePolicySinkStampsBeforeStageOne(t *testing.T) {
 		t.Fatalf("obscel.NewEvaluator: %v", err)
 	}
 	st := store.NewMemoryStore()
-	policySink := NewSink(collectors.BindTenant(collectors.NewStoreSink(st), e2eTenant), st, evaluator, StaticBundles(bundles), Options{
+	policySink := NewSink(collectors.NewStoreSink(st), st, evaluator, StaticBundles(bundles), Options{
 		Windows: NewWindowsWithLogger(bundles, testLogger(t)),
 		Logger:  testLogger(t),
 	})
-	bound := policySink
+	bound := collectors.BindTenant(policySink, e2eTenant)
 
 	unstamped := &model.Observation{
 		ID:             "binder-composition-attachuserpolicy",

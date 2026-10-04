@@ -101,28 +101,135 @@ func runE2E(t *testing.T, bundlesDir string) (*store.MemoryStore, *Metrics, *rec
 	metrics := NewMetrics()
 	alerter := &recordingAlerter{}
 
-	// collectors.NewStoreSink is the production inner sink, and BindTenant is
-	// called exactly as a collector calls it. BindTenant is a passthrough stub
-	// owned by another card; calling it here means this test starts exercising
-	// the real binder the moment it lands, rather than needing an edit.
-	var inner collectors.IngestionSink = collectors.NewStoreSink(st)
-	inner = collectors.BindTenant(inner, e2eTenant)
-
-	sink := NewSink(inner, st, evaluator, StaticBundles(bundles), Options{
+	// The composition order mirrors production exactly, and the order matters.
+	//
+	// main.go hands the registry the POLICY sink, and a collector that knows its
+	// tenant from configuration wraps the sink it was given with the binder
+	// (collectors/awslogs_adapter.go boundSink: BindTenant(c.sink, ...)). So the
+	// chain a collector observation travels is:
+	//
+	//	BindTenant  ->  policy.Sink  ->  collectors.StoreSink  ->  store
+	//
+	// The binder is OUTSIDE policy, which is what lets stage 1 read a tenant that
+	// the binder has stamped. Were it inside, an observation whose tenant_id the
+	// collector supplies by configuration rather than in the record would reach
+	// stage 1 unstamped, resolve zero bundles, and be silently undetected --
+	// a no-op detection control that looks exactly like a quiet estate.
+	// TestE2EFixture_BinderOutsidePolicyLetsStageOneSeeAStampedTenant pins it.
+	var chain collectors.IngestionSink = collectors.NewStoreSink(st)
+	sink := NewSink(chain, st, evaluator, StaticBundles(bundles), Options{
 		Windows: NewWindowsWithLogger(bundles, testLogger(t)),
 		Metrics: metrics,
 		Alerter: alerter,
 		Logger:  testLogger(t),
 	})
+	bound := collectors.BindTenant(sink, e2eTenant)
 
 	corpus := e2eCorpus(t)
 	SortObservations(corpus)
 	for i := range corpus {
-		if err := sink.IngestObservation(context.Background(), &corpus[i]); err != nil {
+		if err := bound.IngestObservation(context.Background(), &corpus[i]); err != nil {
 			t.Fatalf("IngestObservation(%s): %v", corpus[i].ID, err)
 		}
 	}
 	return st, metrics, alerter
+}
+
+// Stage 1 resolves bundles from the tenant_id label on the observation it is
+// HANDED, so whatever establishes tenancy must run BEFORE the policy sink.
+//
+// This is the invariant behind the composition order, and it is the half that is
+// verifiable here. An observation whose tenant label is absent matches no bundle
+// and produces nothing, while every write still succeeds -- a no-op detection
+// control that looks exactly like a quiet estate, and one that no assertion
+// about stored observations can see.
+//
+// Production satisfies the invariant by composing the binder outside policy:
+// main.go hands the registry the policy sink, and
+// collectors/awslogs_adapter.go boundSink wraps the sink it was given with
+// BindTenant(c.sink, cfg.TenantID). The ordering assertion that closes the loop
+// -- an UNSTAMPED observation becoming a finding through the bound chain --
+// needs the real binder, which arrives with the tenant-binder card (D7, P1-4).
+// On this branch collectors.BindTenant is still the declared passthrough stub,
+// so that assertion cannot pass yet and is deliberately not written as a test
+// that would be red on merge-base. See the report for the follow-up.
+func TestE2EFixture_StageOneResolvesBundlesFromTheStampedTenantLabel(t *testing.T) {
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	if err != nil {
+		t.Fatalf("LoadBundles: %v", err)
+	}
+	evaluator, err := obscel.NewEvaluator()
+	if err != nil {
+		t.Fatalf("obscel.NewEvaluator: %v", err)
+	}
+
+	newEvent := func(labels map[string]string) *model.Observation {
+		return &model.Observation{
+			ID:             "e2e-tenancy-attachuserpolicy",
+			Timestamp:      time.Date(2026, 10, 2, 9, 20, 0, 0, time.UTC),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityStrong,
+			Source:         "aws:iam",
+			Confidence:     0.9,
+			ActorHint:      "arn:aws:iam::123456789012:user/kusari-agent",
+			RawEvidenceRef: "testdata/tenancy#0",
+			Description:    "IAM privilege change",
+			Labels:         labels,
+		}
+	}
+
+	for _, tc := range []struct {
+		name         string
+		labels       map[string]string
+		wantFindings int
+	}{
+		{
+			name: "stamped tenant matches the bundle",
+			labels: map[string]string{
+				TenantLabel:    e2eTenant,
+				"event_source": "iam.amazonaws.com",
+				"event_name":   "AttachUserPolicy",
+			},
+			wantFindings: 1,
+		},
+		{
+			// The failure mode the composition order exists to prevent.
+			name: "absent tenant matches nothing, silently",
+			labels: map[string]string{
+				"event_source": "iam.amazonaws.com",
+				"event_name":   "AttachUserPolicy",
+			},
+			wantFindings: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := store.NewMemoryStore()
+			sink := NewSink(collectors.NewStoreSink(st), st, evaluator, StaticBundles(bundles), Options{
+				Windows: NewWindowsWithLogger(bundles, testLogger(t)),
+				Logger:  testLogger(t),
+			})
+			if err := sink.IngestObservation(context.Background(), newEvent(tc.labels)); err != nil {
+				t.Fatalf("IngestObservation: %v", err)
+			}
+
+			findings := storedBySource(t, st, obscel.SourceFinding)
+			if len(findings) != tc.wantFindings {
+				t.Fatalf("got %d findings, want %d", len(findings), tc.wantFindings)
+			}
+			// Either way the observation itself landed: an unresolvable tenant
+			// degrades detection, never ingest.
+			rows, err := st.QueryRange(context.Background(), store.Query{})
+			if err != nil {
+				t.Fatalf("QueryRange: %v", err)
+			}
+			if len(rows) != 1+tc.wantFindings {
+				t.Errorf("store holds %d rows, want 1 observation + %d findings", len(rows), tc.wantFindings)
+			}
+			if tc.wantFindings == 1 && findings[0].Labels[TenantLabel] != e2eTenant {
+				t.Errorf("finding tenant_id = %q, want %q", findings[0].Labels[TenantLabel], e2eTenant)
+			}
+		})
+	}
 }
 
 func storedBySource(t *testing.T, st store.SignalStore, source string) []model.Observation {

@@ -226,6 +226,9 @@ cleanup() {
 	# PID-file-only teardown. Never pkill a pattern that appears in this
 	# script's own command line.
 	[ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
+	if [ "$KEEP" -eq 0 ] && [ "$DRY_RUN" -eq 0 ]; then
+		remote -n "$AGENTS_NS" delete deployment "$LAB_TARGET_NAME" --ignore-not-found >/dev/null 2>&1 || true
+	fi
 	if [ "$KEEP" -eq 0 ] && [ -n "$TRANSFER_DIR" ] && [ -d "$TRANSFER_DIR" ]; then
 		rm -rf -- "$TRANSFER_DIR"
 	fi
@@ -380,6 +383,27 @@ registry_has_cluster() {
 		grep -qF "\"cluster_id\":\"$CLUSTER_ID\""
 }
 
+# step_5b: a workload for the warden to report and the hub to stun. The lab
+# cluster runs no agent, so it gets one: a sleeper labelled as an agent in the
+# watched namespace. Removed by cleanup unless --keep.
+LAB_TARGET_NAME="lab-agent"
+step_5b_target() {
+	if [ "$DRY_RUN" -eq 1 ]; then
+		pass "5b target" "deployment/$LAB_TARGET_NAME labelled signalloom.ai/agent=true (dry run)"
+		return 0
+	fi
+	if ! printf 'apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    signalloom.ai/agent: "true"\n    app.kubernetes.io/name: %s\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: %s\n  template:\n    metadata:\n      labels:\n        signalloom.ai/agent: "true"\n        app.kubernetes.io/name: %s\n    spec:\n      containers:\n        - name: agent\n          image: busybox:1.36\n          command: ["sh", "-c", "while true; do sleep 5; done"]\n' \
+		"$LAB_TARGET_NAME" "$AGENTS_NS" "$LAB_TARGET_NAME" "$LAB_TARGET_NAME" "$LAB_TARGET_NAME" \
+		| remote apply -f - >/dev/null; then
+		fail "5b target" "could not create deployment/$LAB_TARGET_NAME on $REMOTE_CTX"; return 0
+	fi
+	if wait_for "$TIMEOUT" "lab target rollout" -- remote -n "$AGENTS_NS" rollout status deployment/"$LAB_TARGET_NAME" --timeout=30s; then
+		pass "5b target" "deployment/$LAB_TARGET_NAME running in $AGENTS_NS on $REMOTE_CTX"
+	else
+		fail "5b target" "deployment/$LAB_TARGET_NAME did not become ready within ${TIMEOUT}s"
+	fi
+}
+
 step_6_report() {
 	if wait_for "$TIMEOUT" "workload report" -- registry_has_cluster; then
 		pass "6 report" "the hub registry lists cluster $CLUSTER_ID"
@@ -404,9 +428,15 @@ pick_target() {
 }
 
 # record_state ID_OR_NAME -> the state of the newest matching stun record.
+# record_state -> the state of THIS lab's stun record. The default stun-state
+# view lists only records the warden still has to act on, so an acked record
+# leaves it; include=all shows every record of the cluster and the lab's own
+# id selects one.
+RECORD_ID=""
 record_state() {
-	fm GET "/api/v1/fleet/stun-state?cluster_id=$CLUSTER_ID" |
-		grep -o '"state":"[^"]*"' | sed -n '$s/"state":"\([^"]*\)"/\1/p'
+	fm GET "/api/v1/fleet/stun-state?cluster_id=$CLUSTER_ID&include=all" |
+		grep -o "{[^{}]*\"id\":\"$RECORD_ID\"[^{}]*}" | head -1 |
+		grep -o '"state":"[^"]*"' | sed -n '1s/"state":"\([^"]*\)"/\1/p'
 }
 
 acked() { [ "$(record_state)" = "$1" ]; }
@@ -426,7 +456,8 @@ step_7_stun() {
 	# A registry hit answers 202 with a record whose state is stun_requested
 	# and which fleet-manager did NOT act on locally.
 	if grep -qF 'stun_requested' <<<"$body"; then
-		pass "7 stun" "$TARGET accepted, record state stun_requested"
+		RECORD_ID="$(grep -o '"id":"[^"]*"' <<<"$body" | head -1 | sed 's/"id":"\([^"]*\)"/\1/')"
+		pass "7 stun" "$TARGET accepted, record $RECORD_ID state stun_requested"
 	else
 		fail "7 stun" "no stun_requested record for $TARGET: ${body:0:160}"
 	fi
@@ -519,6 +550,7 @@ main() {
 	if [ "$FAILED" -eq 0 ]; then step_3_apply_secrets; fi
 	if [ "$FAILED" -eq 0 ]; then step_4_dns; fi
 	if [ "$FAILED" -eq 0 ]; then step_5_overlay; fi
+	if [ "$FAILED" -eq 0 ]; then step_5b_target; fi
 	if [ "$FAILED" -eq 0 ]; then
 		start_port_forward
 		step_6_report

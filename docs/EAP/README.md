@@ -2,7 +2,7 @@
 
 This directory is the user documentation for the Kusari Enterprise Access
 Preview (EAP) pilot of Signal Loom. The reader is a Kusari engineer who
-onboards from zero. The pages describe the tree at commit `dfc1a849` on branch
+onboards from zero. The pages describe the tree at commit `02d18d07` on branch
 `feat/signal-loop-and-bootstrap-refactor`. Each page names the proposal or
 record it derives from.
 
@@ -18,7 +18,7 @@ The architecture decisions that define this shape are ADR-11 to ADR-14 in
 
 ## What Kusari gets
 
-| Capability | Where | Status at `dfc1a849` |
+| Capability | Where | Status at `02d18d07` |
 | :--- | :--- | :--- |
 | A login to the Signal Loom dashboard, bound to tenant `kusari` | `https://dashboard.osramp.acme.local:30754` | Works with the pilot identity `kusari-operator`. See [onboarding](onboarding.md). |
 | A list of the agents that Signal Loom observes, with a dossier per agent | `/agents`, `/agents/:id` | Works. The list is not filtered by tenant. See [pages](pages.md#agents). |

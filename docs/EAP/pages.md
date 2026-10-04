@@ -2,7 +2,7 @@
 
 This page has one section per dashboard page a Kusari user will use. Each
 section gives the path, what the page shows, which API it calls, what actions
-it offers, and who may take them. It describes the tree at commit `dfc1a849`.
+it offers, and who may take them. It describes the tree at commit `02d18d07`.
 It derives from the route table in
 [`App.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/App.tsx), the
 pages under

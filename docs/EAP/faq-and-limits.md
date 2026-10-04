@@ -1,6 +1,6 @@
 # Kusari pilot: known limits and what to do
 
-This page lists what the tree at commit `dfc1a849` does not do for the pilot.
+This page lists what the tree at commit `02d18d07` does not do for the pilot.
 Each row names the file that proves it and what to do instead. It derives from the
 status block and ADR-12 in
 [the Spireless proposal](../Proposal%20—%20Signal%20Loom%20Spireless%20Token-Based%20Agent%20Identity%20Migration%20%282026-Q4%29.md),

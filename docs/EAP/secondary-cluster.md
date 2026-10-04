@@ -2,7 +2,7 @@
 
 This page says exactly what runs on the Kusari cluster, what the central
 cluster needs before that, and how to check each step. It describes the tree
-at commit `dfc1a849`. It derives from ADR-12 and ADR-14 in
+at commit `02d18d07`. It derives from ADR-12 and ADR-14 in
 [the Spireless proposal](../Proposal%20—%20Signal%20Loom%20Spireless%20Token-Based%20Agent%20Identity%20Migration%20%282026-Q4%29.md)
 and from the manifests under
 [`d2-signalloom/infra/agent-swarm/signalloom-warden/`](../../d2-signalloom/infra/agent-swarm/signalloom-warden/).

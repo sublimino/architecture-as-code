@@ -292,10 +292,10 @@ func controlPlaneDescription(labels map[string]string, actor string) string {
 		b.WriteString(" on ")
 		b.WriteString(name)
 	}
-	if actor != "" {
-		b.WriteString(" by ")
-		b.WriteString(actor)
-	}
+	// The actor is deliberately NOT written here. ActorHint is pseudonymised by the
+	// store (segment schema v2); repeating the raw ARN in the plaintext description
+	// would defeat that (Cato round 2, ISC-23).
+	_ = actor
 	if ip := labels[LabelSourceIP]; ip != "" {
 		b.WriteString(" from ")
 		b.WriteString(ip)

@@ -5,8 +5,11 @@ package awslogs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -582,8 +585,16 @@ func (c *Collector) Drain(ctx context.Context) (int, error) {
 			// way to make progress, and the raw object is still in the customer bucket,
 			// which §2.1 names as the system of record precisely for this case.
 			c.errors.Add(1)
-			slog.Error("awslogs cannot project buffered object; releasing it (the object remains in S3)",
+			slog.Error("awslogs cannot project buffered object; recording the failure, then releasing it (the object remains in S3)",
 				"object", rec.Object(), "error", err)
+			// Fail-closed means the failure leaves a durable trace before the queue
+			// advances: a projection_failure observation naming the object, so the
+			// operator can replay it from the bucket after a projector fix (Cato round 2,
+			// ISC-32). If the sink refuses that record, nothing is acknowledged.
+			fo := projectionFailureObservation(rec, c.cfg.TenantID, err)
+			if err := c.sink.IngestObservation(ctx, &fo); err != nil {
+				return acked, fmt.Errorf("awslogs: sink rejected the projection_failure record for %s, leaving the message unacknowledged: %w", rec.Object(), err)
+			}
 			if err := c.ackAndRelease(ctx, ring, rec); err != nil {
 				return acked, err
 			}
@@ -657,3 +668,32 @@ var (
 	_ interface{ Stop() }                        = (*Collector)(nil)
 	_ interface{ Health(context.Context) error } = (*Collector)(nil)
 )
+
+// projectionFailureObservation is the durable trace of an object the collector could
+// not project. Its ID derives from the object reference so a retried drain of the
+// same object dedupes; its timestamp is the buffered record's receipt time.
+func projectionFailureObservation(rec *LogRecord, tenantID string, cause error) model.Observation {
+	if tenantID == "" {
+		tenantID = rec.TenantID
+	}
+	sum := sha256.Sum256([]byte("awslogs:" + TypeProjectionFailure + ":" + tenantID + ":" + rec.Object()))
+	ts := rec.Timestamp
+	if ts.IsZero() {
+		ts = time.Unix(0, 0).UTC()
+	}
+	return model.Observation{
+		ID:             hex.EncodeToString(sum[:]),
+		Timestamp:      ts.UTC(),
+		Layer:          model.LayerCloudControlPlane,
+		Fidelity:       model.FidelityDefinitive,
+		Source:         SourceCollector,
+		Confidence:     1.0,
+		RawEvidenceRef: rec.Object(),
+		Description:    oneLine("awslogs projection failure: " + cause.Error()),
+		Labels: map[string]string{
+			LabelTenantID: tenantID,
+			LabelProvider: "aws",
+			LabelType:     TypeProjectionFailure,
+		},
+	}
+}

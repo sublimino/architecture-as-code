@@ -314,7 +314,7 @@ kubectl debug "node/$NODE" -q --image=curlimages/curl:8.5.0 --attach=true -- \
 The mounted Secret is read on every request, so creating it after the
 warden started is enough. Only the manifest and the two artifacts are
 served. The quarantine snapshot stays on the node's spool. Delete the
-debug pod afterwards; `kubectl debug` leaves it behind.
+debug pod afterwards. `kubectl debug` leaves it behind.
 
 ## Live status of the chain
 

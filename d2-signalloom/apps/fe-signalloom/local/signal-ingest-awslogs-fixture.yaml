@@ -1,0 +1,18 @@
+# SLAWS v2 P4-GOV: the kind-osramp (local) cluster runs the awslogs collector in
+# fixture mode, replaying the recorded CloudTrail, IAM and VPC Flow records from
+# collectors/awslogs/testdata into the store. No AWS account, no network, no cost.
+# Live mode is never selected by any manifest in this repository (D5).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-ingest
+spec:
+  template:
+    spec:
+      containers:
+        - name: signal-ingest
+          env:
+            - name: COLLECTOR_AWSLOGS_MODE
+              value: fixture
+            - name: AWSLOGS_TENANT_ID
+              value: kusari

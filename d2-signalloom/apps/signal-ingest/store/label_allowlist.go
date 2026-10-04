@@ -87,7 +87,22 @@ var defaultLabelAllowList = map[string]struct{}{
 	// SLAWS v2 D3: findings and decisions are observations in this store. These keys are
 	// closed policy metadata or sha256-derived identifiers; none names a person.
 	// Collector operational records (buffer_eviction, projection_failure) are typed by this key.
-	"type":                  {},
+	"type": {},
+	// SLAWS v2 §2.3: the awslogs projection (CloudTrail, IAM, VPC Flow). Keys only; values are
+	// AWS-shaped scalars (account id, region, event names, resource type and name, addresses,
+	// ports, byte counts). Found missing on kind-osramp: the first fixture observation was refused.
+	"aws_account_id":        {},
+	"aws_region":            {},
+	"event_source":          {},
+	"event_name":            {},
+	"error_code":            {},
+	"resource_type":         {},
+	"resource_name":         {},
+	"source_ip":             {},
+	"dst_ip":                {},
+	"dst_port":              {},
+	"protocol":              {},
+	"bytes":                 {},
 	"bundle_id":             {},
 	"bundle_version":        {},
 	"source_observation_id": {},

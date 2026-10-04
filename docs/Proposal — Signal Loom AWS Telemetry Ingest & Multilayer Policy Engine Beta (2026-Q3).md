@@ -9,7 +9,7 @@ date: 2026-10-03
 status: draft (bootstrap, awaiting sign-off)
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-03T21:37
+updated: 2026-10-04T01:21
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -188,7 +188,7 @@ obs.labels["eventName"] in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserP
 #### Mission identity
 - Canonical repository: `/home/andy/src/cp/osramp-demo`
 - Shortcode: `SLAWS`
-- Integration branch: `refs/heads/integration/slaws-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor` at `83b7f6e3` (pushed to origin 2026-10-03).
+- Integration branch: `refs/heads/integration/slaws-v0.1.0`, cut from `feat/signal-loop-and-bootstrap-refactor` at `f906be8f` (advanced from `83b7f6e3` on 2026-10-04 to carry the cold-start fixes `ccd32ac4` and `f906be8f`; pushed to origin).
 - Target components: `d2-signalloom/apps/signal-ingest/{collectors/awslogs,collectors/registry.go,model,store,correlation}`, `d2-signalloom/apps/policy-engine/{cel_eval.go,fair,handlers.go}`, `d2-signalloom/apps/dashboard-signalloom/src/pages/WeavePage.tsx`.
 - Acceptance commands (offline, every phase): `KUBECONFIG=/dev/null make test-signal-ingest`; `KUBECONFIG=/dev/null make test-signal-ingest-frostdb`; `cd d2-signalloom/apps/policy-engine && go test -count=1 ./...`; `KUBECONFIG=/dev/null make test-sldc-offline`; `bash scripts/check-old-probe-name.sh`; `KUBECONFIG=/dev/null make docs-lint`.
 - No work has started on this board. `899d2609` predates it and is the P0 baseline.
@@ -230,7 +230,7 @@ obs.labels["eventName"] in ["CreatePolicyVersion", "AttachUserPolicy", "PutUserP
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | baseline | Run every acceptance command on `integration/slaws-v0.1.0` at `83b7f6e3`; record totals; prove the board harness (`kanban-check.sh doctor`). | — | The six acceptance commands, rc 0 each; totals in errata | S | antigravity | — | — | — | — | — |
+| P0 | baseline | Run every acceptance command on `integration/slaws-v0.1.0` at `f906be8f`; record totals; prove the board harness (`kanban-check.sh doctor`). | — | The six acceptance commands, rc 0 each; totals in errata | S | antigravity | — | — | — | — | — |
 | P1-PRE | preflight | Inventory `collectors/awslogs` versus the registry seam (`collectors/registry.go`, `main.go:582-600`), list the gaps (no registration, synthetic poll, no SDK), read CLOUDAUDIT's FrostDB `LayerCloudControlPlane` plan, and record the layer-scope decision and label-key contract draft in errata. | P0 | A gap table with file:line; the decision record; no code change | S | antigravity | — | — | — | — | — |
 | P1-1 | implementation | Register `awslogs` in `NewRegistryFromEnvWithReceiver` behind `COLLECTOR_AWSLOGS_MODE=live\|fixture\|off`; add fixture mode reading `testdata/*.json`; `off` is the default in every manifest. | P1-PRE | `registry_lifecycle_test.go` cases for awslogs; `go test ./collectors/...`; a mutation that drops the mode gate fails | M | antigravity | — | — | — | — | — |
 | P1-2 | implementation | Replace the synthetic poll with `SQSClient`/`S3Fetcher`/`STSAssumer` interfaces, a `live` implementation on `aws-sdk-go-v2` (added to `signal-ingest/go.mod`), fakes for tests, external-ID enforcement, and delete-after-Push semantics. | P1-1 | Unit tests with fakes: poll, fetch, assume-role failure, delete only after Push; no network in tests | M | antigravity | — | — | — | — | — |

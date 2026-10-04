@@ -335,3 +335,37 @@ func TestRemoteResume_LocalPathUnchangedWithGovernanceConfigured(t *testing.T) {
 		t.Fatalf("a local resume touched the remote record: %q", got)
 	}
 }
+
+// A frozen pod leaves the registry as soon as the warden stops reporting it
+// (a replaced pod, a report with no pods). The hold is still real, so a
+// governed resume resolves through the stun record and is accepted.
+func TestRemoteResume_RegistryEntryGone_ResolvesThroughTheHold(t *testing.T) {
+	token, reg := remoteDualSignedToken(t, remoteGovPod, remoteGovNamespace, 2)
+	s, stun := newRemoteGovernedServer(t, reg)
+	if _, err := s.remoteStuns.Ack(stun.ID, RemoteStunned, "node-a", "2026-10-04T10:00:05Z"); err != nil {
+		t.Fatal(err)
+	}
+	// An empty report from the node drops the pod from the registry.
+	empty := workloadReportFor(remoteGovCluster, "node-a", remoteGovNamespace, remoteGovPod, remoteGovOwner, time.Date(2026, 10, 4, 10, 1, 0, 0, time.UTC))
+	empty.Pods = nil
+	if _, _, err := s.workloads.Apply(empty); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.workloads.ByPodName(remoteGovPod); len(got) != 0 {
+		t.Fatalf("registry still lists the pod: %+v", got)
+	}
+
+	code, text := postRemoteResume(t, s, remoteResumeBody(t, token, "idem-gone-1"))
+	if code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 via the hold: %s", code, text)
+	}
+	record := decodeRemoteStunRecord(t, text)
+	if record.State != RemoteResumeRequested || record.ID != stun.ID {
+		t.Fatalf("unexpected record: %#v", record)
+	}
+	// A name with no standing hold still 404s: the hold, not the name, resolves.
+	other, _ := remoteDualSignedToken(t, "ghost-pod", remoteGovNamespace, 2)
+	if code, _ := postRemoteResume(t, s, remoteResumeBody(t, other, "idem-gone-2")); code != http.StatusNotFound {
+		t.Fatalf("ghost pod: status = %d, want 404", code)
+	}
+}

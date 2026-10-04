@@ -266,6 +266,26 @@ func (s *RemoteStunStore) ByID(id string) (RemoteStunRecord, bool) {
 	return record, found
 }
 
+// HeldByName returns the one record for a pod name whose hold still stands
+// (stun_requested or stunned). Two clusters holding the same pod name is
+// ambiguous and reports nothing, like the registry's own name lookup.
+func (s *RemoteStunStore) HeldByName(name string) (RemoteStunRecord, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out RemoteStunRecord
+	n := 0
+	for _, record := range s.records {
+		if record.Name != name {
+			continue
+		}
+		if record.State == RemoteStunRequested || record.State == RemoteStunned {
+			out = record
+			n++
+		}
+	}
+	return out, n == 1
+}
+
 // Current returns the record for a workload without changing it. The resume
 // path uses it to answer "nothing to resume" before any token is consumed.
 func (s *RemoteStunStore) Current(clusterID, namespace, name string) (RemoteStunRecord, bool) {
@@ -508,6 +528,20 @@ func (s *server) handleRemoteResumeFallback(w http.ResponseWriter, req ResumeReq
 	requested := req.AgentID
 
 	target, tried, found := s.resolveRemoteTarget(requested)
+	if !found {
+		// A stunned pod can leave the registry while its hold stands: the
+		// warden reports only pods it still sees, and a frozen pod that the
+		// controller replaced is gone from the next report within a minute.
+		// The stun record is the authority for what is held, so a resume
+		// resolves against it when the registry no longer answers.
+		if record, ok := s.remoteStuns.HeldByName(requested); ok {
+			tried = append(tried, "stun record:"+record.ID+" (registry entry gone; resolved by the hold)")
+			target = remoteTarget{Workload: RegisteredWorkload{
+				ClusterID: record.ClusterID, Namespace: record.Namespace, Name: record.Name, Node: record.AckedNode,
+			}, By: "stun-record"}
+			found = true
+		}
+	}
 	if !found {
 		local.Tried = append(local.Tried, tried...)
 		writeUnknownAgent(w, local)

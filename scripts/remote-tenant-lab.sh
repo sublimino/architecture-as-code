@@ -470,15 +470,23 @@ step_5_overlay() {
 }
 
 # registry_has_cluster: the hub's workload registry holds a row for this lab.
+# registry_has_cluster: the hub lists the pod step 5b created (or, with no
+# seeded pod, any pod of the cluster).
 registry_has_cluster() {
-	fm GET "/api/v1/fleet/workloads?cluster_id=$CLUSTER_ID" |
-		grep -qF "\"cluster_id\":\"$CLUSTER_ID\""
+	local body
+	body="$(fm GET "/api/v1/fleet/workloads?cluster_id=$CLUSTER_ID")"
+	if [ -n "${LAB_TARGET_POD:-}" ]; then
+		grep -qF "\"name\":\"$LAB_TARGET_POD\"" <<<"$body"
+	else
+		grep -qF "\"cluster_id\":\"$CLUSTER_ID\"" <<<"$body"
+	fi
 }
 
 # step_5b: a workload for the warden to report and the hub to stun. The lab
 # cluster runs no agent, so it gets one: a sleeper labelled as an agent in the
 # watched namespace. Removed by cleanup unless --keep.
 LAB_TARGET_NAME="lab-agent"
+LAB_TARGET_POD=""
 step_5b_target() {
 	if [ "$DRY_RUN" -eq 1 ]; then
 		pass "5b target" "deployment/$LAB_TARGET_NAME labelled signalloom.ai/agent=true (dry run)"
@@ -490,7 +498,13 @@ step_5b_target() {
 		fail "5b target" "could not create deployment/$LAB_TARGET_NAME on $REMOTE_CTX"; return 0
 	fi
 	if wait_for "$TIMEOUT" "lab target rollout" -- remote -n "$AGENTS_NS" rollout status deployment/"$LAB_TARGET_NAME" --timeout=30s; then
-		pass "5b target" "deployment/$LAB_TARGET_NAME running in $AGENTS_NS on $REMOTE_CTX"
+		# The pod THIS run created. A previous run's pod can still be in the
+		# registry while it terminates, and stunning that one ends in a 404 at
+		# resume once its entry is gone (lab run 2, 2026-10-04).
+		LAB_TARGET_POD="$(remote -n "$AGENTS_NS" get pods -l app.kubernetes.io/name="$LAB_TARGET_NAME" \
+			--field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+		[ -n "$LAB_TARGET_POD" ] || { fail "5b target" "no Running pod for deployment/$LAB_TARGET_NAME"; return 0; }
+		pass "5b target" "deployment/$LAB_TARGET_NAME running as pod $LAB_TARGET_POD in $AGENTS_NS on $REMOTE_CTX"
 	else
 		fail "5b target" "deployment/$LAB_TARGET_NAME did not become ready within ${TIMEOUT}s"
 	fi
@@ -512,6 +526,10 @@ TARGET=""
 pick_target() {
 	if [ "$DRY_RUN" -eq 1 ]; then
 		TARGET="<first registry pod>"
+		return 0
+	fi
+	if [ -n "${LAB_TARGET_POD:-}" ]; then
+		TARGET="$LAB_TARGET_POD"
 		return 0
 	fi
 	TARGET="$(fm GET "/api/v1/fleet/workloads?cluster_id=$CLUSTER_ID" |

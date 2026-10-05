@@ -174,7 +174,13 @@ func TestActorIDWithDoubleSlash(t *testing.T) {
 	var derivedPatterns []string
 	var derivedRoutes []RouteRequirement
 	for _, req := range router.Inventory() {
-		if strings.Contains(req.Path, "{id}") {
+		// ActorScoped, not merely "the path contains {id}": since the SLAWS review API
+		// (POST /api/v1/policy/decisions/{id}/review) the {id} segment is not always an actor
+		// id, and this test's whole subject is the actor-scoped guard. Filtering on the
+		// inventory's own flag keeps the tripwire pointed at the thing it was built to guard —
+		// a NEW actor-scoped route still fails the literal list below — without asserting that
+		// a decision id must resolve to an actor.
+		if req.ActorScoped && strings.Contains(req.Path, "{id}") {
 			derivedPatterns = append(derivedPatterns, fmt.Sprintf("%s %s", req.Method, req.Path))
 			derivedRoutes = append(derivedRoutes, req)
 		}

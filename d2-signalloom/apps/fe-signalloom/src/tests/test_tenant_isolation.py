@@ -855,6 +855,26 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/signals/correlate"),
     ("POST", "/api/signals/collectors/seed"),
     ("GET", "/api/signals/observations/stream"),
+    # SLAWS policy review proxies (signal_policy.py). Exempt for a DIFFERENT and stronger reason
+    # than the block above, which is why they are listed separately rather than folded in.
+    #
+    # The block above rests on signal-ingest being single-tenant and the proxy discarding the
+    # authenticated tenant. These routes rest on the opposite: signal-ingest IS tenant-scoped on
+    # these paths (api/policy_routes.go resolves every one through observationReadScope, and
+    # api.TestPolicyFeedsAreTenantScoped / TestPolicyTenantParameterNarrowsOnlyForCrossTenantReaders
+    # pin it), and signal_policy._proxy forwards the verified tenant in
+    # X-SignalLoom-Acting-Tenant through ingest_client.ingest_headers, which reads it from the
+    # validated Principal and from nothing else.
+    #
+    # So they are exempt from THIS sweep because they issue no database statement in
+    # fe-signalloom at all -- there is no SQL here to bind a tenant to. The scoping they do have
+    # is enforced one hop away and tested there, plus
+    # tests/test_signal_policy.py::TestForwarding, which asserts the acting-tenant header on
+    # every route and that a write never acts for "*".
+    ("GET", "/api/signals/policy/findings"),
+    ("GET", "/api/signals/policy/decisions"),
+    ("GET", "/api/signals/policy/rates"),
+    ("POST", "/api/signals/policy/decisions/{decision_id}/review"),
     # Signed audit sessions -- verified and tested in test_audit_ingest.py
     ("GET", "/api/audit/sessions"),
     ("GET", "/api/audit/sessions/{session_id}"),

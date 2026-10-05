@@ -65,7 +65,7 @@ var shippedKeyGrants = map[string][]Permission{
 		PermissionObservationRead, PermissionObservationWrite, PermissionStream,
 		PermissionActorList, PermissionActorRead, PermissionActorWrite,
 		PermissionAnalysisRead, PermissionAnalysisRun, PermissionCollectorWrite,
-		PermissionRiskRead, PermissionDelegationWrite},
+		PermissionRiskRead, PermissionDelegationWrite, PermissionPolicyRead, PermissionPolicyReview},
 	// scripts/signalfusion-demo.sh: healthz, seed, correlate, inject, actors, coverage, promote.
 	"signalfusion-demo": {PermissionCrossTenantRead, PermissionHealth,
 		PermissionObservationWrite, PermissionCollectorWrite, PermissionAnalysisRun,

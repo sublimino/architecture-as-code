@@ -216,23 +216,50 @@ async function checkRuntime() {
 
 // ── The in-page helpers ───────────────────────────────────────────────────
 
-// The repo's own extractor, wrapped as a callable so Playwright treats it as a
-// function rather than guessing at an expression. Read at use time so an edit
-// to snapshot.js takes effect without touching this file.
-function snapshotFunctionSource() {
+// EVERY in-page probe below is a real JavaScript FUNCTION, never a string, and
+// that is load-bearing rather than stylistic.
+//
+// Playwright's `evaluate` accepts a string, and a string that LOOKS like an
+// arrow function is still evaluated as an EXPRESSION: `page.evaluate("() => {
+// return {k:1} }")` produces a function object in the page, which is
+// unserialisable, and the call resolves to `undefined`. Measured here.
+//
+// That failure is not loud. `waitForFunction("() => …")` evaluates the same
+// expression, gets a truthy function object, and resolves IMMEDIATELY — so a
+// render gate written as a string reports "rendered" for a blank page, on
+// every route, and the suite that was supposed to catch an unrendered page
+// goes green. The only safe forms are a real function (serialised via
+// toString) or an explicit IIFE expression; strings that merely look callable
+// are the trap.
+//
+// `snapshot.js` is read from disk, so it cannot be a literal function here. It
+// is already an IIFE EXPRESSION, which is the one string form Playwright
+// evaluates correctly — measured: wrapping it with `new Function` and relying
+// on `toString` returns `undefined`, because the serialised body opens with
+// the file's JSDoc block. So the file is passed through as an expression, and
+// the shape that makes that work is asserted rather than assumed: if someone
+// turns snapshot.js into a declaration or a module, this must say so and
+// stop, not return undefined on every route.
+function snapshotExpression() {
   const src = readFileSync(join(HERE, 'snapshot.js'), 'utf8').trim().replace(/;$/, '')
-  return `() => { return ${src}; }`
+  if (!/\)\s*\(\s*\)$/.test(src)) {
+    throw new Error(
+      'snapshot.js must remain a self-invoking expression ending in `})()`: it is handed to ' +
+        'page.evaluate() as an expression, and any other shape evaluates to undefined silently.',
+    )
+  }
+  return src
 }
 
 // What "the page changed" means. Deliberately coarse and deliberately biased
 // toward reporting change: a false "it changed" loses one dead-control
 // finding, a false "it did not" invents a defect on a working button.
-const FINGERPRINT_FN = `() => {
-  const root = document.getElementById('root');
-  const text = (document.body && document.body.innerText) || '';
-  let hash = 0;
+const FINGERPRINT_FN = () => {
+  const root = document.getElementById('root')
+  const text = (document.body && document.body.innerText) || ''
+  let hash = 0
   for (let i = 0; i < Math.min(text.length, 4000); i++) {
-    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0
   }
   return {
     url: window.location.href,
@@ -242,24 +269,33 @@ const FINGERPRINT_FN = `() => {
     textLength: text.length,
     textHash: hash,
     dialogs: document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]').length,
-  };
-}`
+  }
+}
 
-const RENDER_FN = `() => {
-  const root = document.getElementById('root');
-  if (!root) return { rendered: false, reason: 'no #root element in the document' };
-  if (root.children.length === 0) return { rendered: false, reason: '#root has no children — the SPA did not mount' };
-  const text = (document.body.innerText || '').trim();
-  if (text.length < 40) return { rendered: false, reason: 'rendered tree carries under 40 characters of text' };
-  if (/^(Signing in|Loading)\\.{0,3}$/i.test(text)) return { rendered: false, reason: 'stuck on a loading gate: ' + text.slice(0, 60) };
-  return { rendered: true, reason: '', textLength: text.length };
-}`
+const RENDER_FN = () => {
+  const root = document.getElementById('root')
+  if (!root) return { rendered: false, reason: 'no #root element in the document' }
+  if (root.children.length === 0) {
+    return { rendered: false, reason: '#root has no children — the SPA did not mount' }
+  }
+  const text = (document.body.innerText || '').trim()
+  if (text.length < 40) {
+    return { rendered: false, reason: `rendered tree carries only ${text.length} characters of text` }
+  }
+  // The offline failure mode that matters: ProtectedRoute parks on a
+  // PixelLoader labelled "Signing in" when the OIDC issuer is unreachable.
+  // A page showing nothing but a loading gate answered and did not render.
+  if (/^(signing in|loading)[.\s]*$/i.test(text)) {
+    return { rendered: false, reason: `stuck on a loading gate: ${text.slice(0, 60)}` }
+  }
+  return { rendered: true, reason: '', textLength: text.length }
+}
 
 // React's own boundary copy, react-router's default error element, and the
-// three crash cards this dashboard renders itself (views/AuditTrail.tsx,
+// crash cards this dashboard renders itself (views/AuditTrail.tsx,
 // views/Settings.tsx, views/Compliance.tsx, pages/FrameworkDetailPage.tsx).
-const BOUNDARY_FN = `() => {
-  const text = (document.body.innerText || '');
+const BOUNDARY_FN = () => {
+  const text = document.body.innerText || ''
   const needles = [
     'Something went wrong',
     'Unexpected Application Error',
@@ -267,13 +303,13 @@ const BOUNDARY_FN = `() => {
     'A client-side exception has occurred',
     'The above error occurred in',
     'Error boundary caught',
-  ];
+  ]
   for (const needle of needles) {
-    const at = text.indexOf(needle);
-    if (at >= 0) return text.slice(at, at + 240).replace(/\\s+/g, ' ');
+    const at = text.indexOf(needle)
+    if (at >= 0) return text.slice(at, at + 240).replace(/\s+/g, ' ')
   }
-  return null;
-}`
+  return null
+}
 
 // ── Session seeding ───────────────────────────────────────────────────────
 //
@@ -424,6 +460,7 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
   const deadline = started + opts.timeout * 1000
 
   const consoleErrors = []
+  const consoleNetworkEchoes = []
   const pageErrors = []
   const apiFailures = []
   const backendAbsent = []
@@ -439,11 +476,23 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
 
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return
-    consoleErrors.push({
-      text: msg.text().slice(0, 400),
-      location: msg.location?.()?.url || '',
-      url: page.url(),
-    })
+    const text = msg.text().slice(0, 400)
+    const entry = { text, location: msg.location?.()?.url || '', url: page.url() }
+    // Chromium itself logs `Failed to load resource: the server responded
+    // with a status of NNN` for every failed request. That is the NETWORK
+    // layer talking, not the application's code, and the `response` handler
+    // below already records the same event with its method, status and URL.
+    // Counting the echo as a console error would (a) double-count every
+    // network failure and (b) attribute the harness's missing backend to the
+    // app — measured: a first full run reported 48 CONSOLE_ERRORs that were
+    // 48 echoes of the 48 responses already classified BACKEND_ABSENT. The
+    // console oracle is for the app's own console.error; these are kept and
+    // reported separately so nothing is dropped.
+    if (/^Failed to load resource\b/.test(text)) {
+      consoleNetworkEchoes.push(entry)
+      return
+    }
+    consoleErrors.push(entry)
   })
   page.on('pageerror', (err) => {
     pageErrors.push({ message: String(err?.message ?? err).slice(0, 400), url: page.url() })
@@ -508,16 +557,25 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
   // the explicit render predicate below, which is the real gate.
   await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {})
 
-  let render = { rendered: false, reason: navError ? `navigation failed: ${navError}` : 'render predicate never satisfied' }
-  try {
-    await page.waitForFunction(RENDER_FN, null, { timeout: opts.renderTimeout })
-    render = await page.evaluate(RENDER_FN)
-  } catch {
+  // Polled rather than handed to `waitForFunction`, because RENDER_FN returns
+  // a REASON as well as a verdict and is therefore always truthy —
+  // `waitForFunction(RENDER_FN)` would resolve on the first tick whatever the
+  // page looked like. Writing the predicate twice (once boolean for the wait,
+  // once detailed for the report) is the other option, and two copies of a
+  // render definition drift apart silently. So: one definition, polled.
+  let render = {
+    rendered: false,
+    reason: navError ? `navigation failed: ${navError}` : 'render predicate never satisfied',
+  }
+  const renderDeadline = Date.now() + opts.renderTimeout
+  for (;;) {
     try {
       render = await page.evaluate(RENDER_FN)
     } catch (err) {
       render = { rendered: false, reason: `render probe failed: ${String(err?.message ?? err).slice(0, 160)}` }
     }
+    if (render.rendered || Date.now() >= renderDeadline) break
+    await page.waitForTimeout(250)
   }
 
   const finalUrl = page.url()
@@ -679,6 +737,7 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
     redirected_to: redirectedTo,
     document_status: navStatus,
     console_errors: consoleErrors,
+    console_network_echoes: consoleNetworkEchoes,
     console_errors_observable: true,
     page_errors: pageErrors,
     api_failures: apiFailures,
@@ -868,7 +927,7 @@ export async function main(argv) {
     await decider.start()
   }
 
-  const snapshotFn = snapshotFunctionSource()
+  const snapshotFn = snapshotExpression()
   let index = 0
   let defectTotal = 0
   let rendered = 0

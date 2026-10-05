@@ -402,6 +402,12 @@ type RouteRequirement struct {
 	Method, Path string
 	Permission   Permission
 	Enumeration  bool
+	// ActorScoped reports whether the route's {id} is an ACTOR id checked against the
+	// principal's per-actor allow-list. Added by the SLAWS review API, which is the first route
+	// whose {id} is something else (a decision id): without this, an inventory consumer can only
+	// see that a path contains {id} and has to guess what the id means. Guessing wrong in either
+	// direction is a security defect, so the inventory now says.
+	ActorScoped bool
 }
 
 func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
@@ -429,6 +435,15 @@ func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
 		{"GET", "/api/v1/telemetry/coding-agents/aggregate", "GET /api/v1/telemetry/coding-agents/aggregate", PermissionObservationRead, true, false, h.handleAggregateCodingAgentTelemetry},
 		{"POST", "/api/v1/telemetry/coding-agents/aggregate", "POST /api/v1/telemetry/coding-agents/aggregate", PermissionObservationRead, true, false, h.handleAggregateCodingAgentTelemetry},
 		{"POST", "/api/v1/telemetry/coding-agents/ordering", "POST /api/v1/telemetry/coding-agents/ordering", PermissionObservationRead, false, false, h.handleCodingAgentOrdering},
+		// SLAWS review API. The reads are enumeration-budgeted like every other list route: a
+		// review queue is paged through, and a principal that can page it without limit can
+		// inventory the estate's detections. The POST is not: recording one verdict is one call,
+		// and spending a reader's page budget on an attributable write would make a busy reviewer
+		// unable to record what they just read.
+		{"GET", "/api/v1/policy/findings", "GET /api/v1/policy/findings", PermissionPolicyRead, true, false, h.handlePolicyFindings},
+		{"GET", "/api/v1/policy/decisions", "GET /api/v1/policy/decisions", PermissionPolicyRead, true, false, h.handlePolicyDecisions},
+		{"GET", "/api/v1/policy/rates", "GET /api/v1/policy/rates", PermissionPolicyRead, true, false, h.handlePolicyRates},
+		{"POST", "/api/v1/policy/decisions/{id}/review", "POST /api/v1/policy/decisions/{id}/review", PermissionPolicyReview, false, false, h.handlePolicyReview},
 	}
 	if metrics != nil {
 		r = append(r, routeDefinition{"GET", "/metrics", "GET /metrics", PermissionMetrics, false, false, metrics.ServeHTTP})
@@ -625,7 +640,7 @@ func (p *ProtectedRouter) takeKeyToken(subject string, now time.Time) (bool, int
 }
 
 func (p *ProtectedRouter) register(rd routeDefinition) {
-	requirement := RouteRequirement{rd.method, rd.path, rd.permission, rd.enumeration}
+	requirement := RouteRequirement{rd.method, rd.path, rd.permission, rd.enumeration, rd.actorScoped}
 	p.inventory = append(p.inventory, requirement)
 	p.registered[rd.pattern] = requirement
 	slog.Info("HTTP authorization route registered", "method", rd.method, "route", rd.path, "permission", rd.permission, "enumeration", rd.enumeration)

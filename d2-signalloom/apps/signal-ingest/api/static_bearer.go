@@ -79,6 +79,12 @@ var KnownPermissions = map[Permission]bool{
 	PermissionCrossTenantRead:  true,
 	PermissionCrossTenantWrite: true,
 	PermissionActForTenant:     true,
+	// SLAWS review API. Without these two entries StaticBearerConfig.validate refuses a
+	// legitimate grant for the review routes and TestKnownPermissionsCoversEveryRoute fails: an
+	// unknown permission grants nothing, so a key configured for policy:read would silently get
+	// no access at all.
+	PermissionPolicyRead:   true,
+	PermissionPolicyReview: true,
 }
 
 // StaticBearerConfig is one named static key: its value, the single principal it maps to, and

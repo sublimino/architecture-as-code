@@ -130,6 +130,14 @@ func (p Projector) projectCloudTrailRecord(rec cloudTrailRecord, origin Origin, 
 	if rec.ErrorCode != "" {
 		labels[LabelErrorCode] = rec.ErrorCode
 	}
+	// The ACTING principal's account, so the cross-account question is a
+	// comparison of two labels rather than a dissection of obs.actor -- which is a
+	// keyed pseudonym by the time a rule sees it, and carries no ARN structure on
+	// either the live or the replay path. Omitted, never empty, when no account is
+	// named: see LabelActorAccountID.
+	if actorAccount := actorAccountOf(rec.UserIdentity.ARN); actorAccount != "" {
+		labels[LabelActorAccountID] = actorAccount
+	}
 
 	resourceType, resourceName := resourceOf(rec)
 	if resourceType != "" {
@@ -152,6 +160,37 @@ func (p Projector) projectCloudTrailRecord(rec cloudTrailRecord, origin Origin, 
 		Labels:         labels,
 		Description:    controlPlaneDescription(labels, rec.UserIdentity.ARN),
 	}, nil
+}
+
+// arnAccountField is the 0-based index of the account component of an ARN:
+// arn:<partition>:<service>:<region>:<account-id>:<resource>.
+const arnAccountField = 4
+
+// actorAccountOf returns the AWS account named by an ARN, or "" when it names
+// none.
+//
+// It is a field index and nothing more -- no partition allowlist, no service
+// switch -- because the account's POSITION is the stable part of the ARN grammar
+// across partitions (aws, aws-cn, aws-us-gov) and across the two shapes an
+// assuming principal takes (arn:aws:iam::<acct>:... and
+// arn:aws:sts::<acct>:assumed-role/...). Matching on a prefix is what the CEL
+// rule used to do and it needed two cases to cover one question.
+//
+// Three inputs yield "" and all three mean "no account is named": an empty ARN
+// (an AWS service principal), a string that is not an ARN at all, and a genuine
+// ARN whose account field is empty by design (arn:aws:s3:::bucket). They are not
+// distinguished because no caller has a different answer for them, and because
+// the alternative -- falling back to the recipient account -- would make every
+// one of them read as same-account, which is the silent-false direction.
+func actorAccountOf(arn string) string {
+	fields := strings.Split(arn, ":")
+	// A well-formed ARN has SIX components, so the resource component must be
+	// present for the account component to be trustworthy. Accepting five would
+	// read the last field of a truncated string as an account.
+	if len(fields) < arnAccountField+2 || fields[0] != "arn" {
+		return ""
+	}
+	return fields[arnAccountField]
 }
 
 // resourceOf returns the resource type and name for a record: the first resources[]

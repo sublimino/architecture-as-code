@@ -449,6 +449,10 @@ const (
 	// RateBurstEnv names the environment variable to configure per-key burst capacity.
 	RateBurstEnv = "SIGNAL_INGEST_RATE_BURST"
 
+	// PrincipalBudgetEnv configures the enumeration budget: rows a principal (per acting
+	// user behind a gateway) may page through per BudgetWindow. Default 1000.
+	PrincipalBudgetEnv = "SIGNAL_INGEST_PRINCIPAL_BUDGET"
+
 	// IdleBucketEvictionAge is how long an unaccessed token bucket is retained before eviction.
 	IdleBucketEvictionAge = 10 * time.Minute
 )
@@ -807,7 +811,10 @@ func (p *ProtectedRouter) applyEnumeration(w http.ResponseWriter, r *http.Reques
 	}
 	p.mu.Lock()
 	now := time.Now()
-	e := p.budgets[principal.Subject]
+	// Same key as the token bucket: a gateway's budget is per user it acts
+	// for, so one dashboard user's browsing cannot exhaust every other's.
+	budgetKey := rateLimitKey(principal, r)
+	e := p.budgets[budgetKey]
 	if e.reset.IsZero() || !now.Before(e.reset) {
 		e = budgetEntry{reset: now.Add(p.options.BudgetWindow)}
 	}
@@ -817,7 +824,7 @@ func (p *ProtectedRouter) applyEnumeration(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	e.used += limit
-	p.budgets[principal.Subject] = e
+	p.budgets[budgetKey] = e
 	p.mu.Unlock()
 	return true
 }

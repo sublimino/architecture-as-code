@@ -494,3 +494,40 @@ func TestRateLimitGatewayBucketIsPerActingSubject(t *testing.T) {
 		t.Fatalf("two acting-subject values must not name a bucket: %q", got)
 	}
 }
+
+// The enumeration budget follows the same key as the token bucket: behind a
+// gateway it is per acting user, so one user's paging cannot exhaust another's.
+func TestEnumerationBudgetIsPerActingSubjectBehindAGateway(t *testing.T) {
+	delegate, _, _ := testJWTDelegate(t)
+	expires := time.Now().Add(24 * time.Hour)
+	gatewayToken := testGatewayToken
+	authn, err := NewStaticKeyAuthenticator([]StaticBearerConfig{
+		{Name: "gateway", Token: gatewayToken, Subject: "static-key/fe-signalloom-gateway", TenantID: "fe-signalloom",
+			Permissions: []Permission{PermissionActForTenant, PermissionObservationRead, PermissionActorList},
+			ActorIDs: []string{"*"}, ExpiresAt: expires},
+	}, delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := newRateLimitRouter(t, authn, audit.NewFakeWriter(), RouterOptions{
+		KeyRatePerSecond: 1000, KeyBurst: 1000, PrincipalBudget: 150, DefaultPageSize: 100, MaxPageSize: 1000,
+	}, nil)
+	list := func(user string) int {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/observations?limit=100", nil)
+		r.Header.Set("Authorization", "Bearer "+gatewayToken)
+		r.Header.Set(ActingTenantHeader, "kusari")
+		r.Header.Set(ActingSubjectHeader, user)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := list("alice"); code == http.StatusTooManyRequests {
+		t.Fatalf("alice's first page refused: %d", code)
+	}
+	if code := list("alice"); code != http.StatusTooManyRequests {
+		t.Fatalf("alice's second page (200 > 150 budget) should be refused, got %d", code)
+	}
+	if code := list("bob"); code == http.StatusTooManyRequests {
+		t.Fatalf("bob shares alice's budget behind the gateway key: %d", code)
+	}
+}

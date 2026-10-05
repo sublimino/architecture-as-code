@@ -62,6 +62,7 @@ const RiskExposurePage = lazy(() => import('./pages/RiskExposurePage'))
 const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
 const WeavePage = lazy(() => import('./pages/WeavePage'))
+const SignalsPage = lazy(() => import('./pages/SignalsPage'))
 const SignalFusionPage = lazy(() => import('./pages/SignalFusionPage'))
 const DistanceLatencyPage = lazy(() => import('./pages/DistanceLatencyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
@@ -425,6 +426,7 @@ export default function App() {
                 <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
                 <Route path="/activity" element={<Navigate to="/weave" replace />} />
                 <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
+                <Route path="/signals" element={<ProtectedRoute><SignalsPage /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/compliance/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />

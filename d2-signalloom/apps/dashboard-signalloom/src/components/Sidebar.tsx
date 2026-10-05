@@ -25,7 +25,7 @@ export interface NavItem {
 // One glyph per destination: never share a kind between two nav items. A
 // collapsed sidebar is icons only, so a duplicated glyph is an unreadable nav.
 export type IconKind =
-  | 'overview' | 'agents' | 'topology' | 'weave' | 'activity' | 'risk'
+  | 'overview' | 'agents' | 'topology' | 'weave' | 'activity' | 'signals' | 'risk'
   | 'policies' | 'containment' | 'approvals' | 'audit'
   | 'workspaces' | 'connectors' | 'fleet' | 'fleetAudience' | 'settings'
   | 'crypto' | 'credentials' | 'federation' | 'collusion'
@@ -47,6 +47,8 @@ function NavIcon({ kind }: { kind: IconKind }) {
     // Interlocking signal threads: live runtime activity and multi-layer weave
     weave: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
     activity: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
+    // Signal trace with a live marker: realtime ingest and the decisions on it
+    signals: <><path d="M2 13h3.5l2-6 3 11 2.5-7 1.8 2H22" /><circle cx="19.5" cy="5.5" r="2" /></>,
     // FAIR Risk exposure warning triangle
     risk: <><path d="M12 4 2.6 20h18.8L12 4Z" /><path d="M12 10v4" /><path d="M12 17.4h.01" /></>,
 
@@ -102,6 +104,7 @@ export const NAV: NavItem[] = [
   { to: '/agents', label: 'Agents', section: 'View', icon: 'agents' },
   { to: '/topology', label: 'Topology', section: 'View', icon: 'topology' },
   { to: '/weave', label: 'The Weave', section: 'View', icon: 'weave' },
+  { to: '/signals', label: 'Signals', section: 'View', icon: 'signals' },
   { to: '/risk', label: 'FAIR Risk', section: 'View', icon: 'risk' },
 
   // ─── Control Group ──────────────────────────────────────

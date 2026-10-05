@@ -196,7 +196,7 @@ export async function scanFleet(token: string): Promise<void> {
 // Recover does NOT go through /fleet-api/, unlike every other action here.
 //
 // fleet-manager grants `recover` (and `resume`) to its `operator` break-glass
-// key alone — /recover thaws every stunned agent at once and never consulted
+// key alone : /recover thaws every stunned agent at once and never consulted
 // the resume-token governance that guards /resume. The /fleet-api/ proxy swaps
 // in the `dashboard` key, which has `stun`, `deploy`, `scan` and `reset` and no
 // `recover`, so this button answered 403 for everybody including the

@@ -127,6 +127,52 @@ once the forwarding path works. The portal reads `signal-ingest` with the key
 An observation with `tenant_id: __unattributed__` is not shown to a tenant
 user. See [secondary-cluster](secondary-cluster.md#4-map-your-workloads-to-the-tenant).
 
+## /signals
+
+| | |
+| :--- | :--- |
+| Shows | Two tabs over one shared 5m / 10m / 30m / 90m window. **Live**: ingest rate per layer as a stacked bar, a per-source table with event count and last seen, the live observation feed, and the findings the window raised. **Decisions**: one card per aggregated policy decision, with the contributing findings expanded on demand and a review control |
+| Component | [`SignalsPage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/SignalsPage.tsx), with [`src/components/signals/`](../../d2-signalloom/apps/dashboard-signalloom/src/components/signals/) and the client [`policyApi.ts`](../../d2-signalloom/apps/dashboard-signalloom/src/api/policyApi.ts) |
+| Reads | `GET /api/signals/policy/findings?window=`, `GET /api/signals/policy/decisions?window=`, `GET /api/signals/policy/rates?window=&bucket=`, `GET /api/signals/observations?limit=`, stream `GET /api/signals/observations/stream`. Every read is re-issued on a 10 second poll and on any window change |
+| Actions | **Pause / Resume** closes and reopens the stream and halts the poll, so the picture holds still while it is read. **Show findings** expands the findings behind a decision. **Record review** posts `POST /api/signals/policy/decisions/{id}/review` with one of three verdicts (`true_positive`, `false_positive`, `needs_info`) and a mandatory note of at least 10 characters |
+| Who | Any signed-in user may read. Reads act for the user's tenant. **Record review** needs a key with review rights: a read-only key gets `403` and the card says so rather than offering a retry that cannot work |
+| Spec | [`SignalsPage.test.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/SignalsPage.test.tsx), [`policyApi.test.ts`](../../d2-signalloom/apps/dashboard-signalloom/src/api/policyApi.test.ts) |
+
+This is the page for the question "can a human look at what the engine
+decided and form an objective judgement about it". Three properties exist for
+that reason and not for presentation.
+
+**A verdict carries its reason, and the reason is the evidence.** The note is
+mandatory with a 10 character floor. A stored `false_positive` with no note
+cannot be audited six months later, defended to a regulator, or used to fix
+the rule that produced it, so the control will not submit without one. The
+stored record is the server's: verdict, note, `reviewer` and `reviewed_at` as
+the API assigned them, shown back on the card.
+
+**Every row names the bundle version that judged it.** Policy here is
+versioned code, and "the rule was wrong" is a different conclusion from "the
+rule changed". `bundle_id` and `bundle_version` are on each finding row and in
+each decision card header for that reason.
+
+**The page cannot render a payload.** The feed shows the projected one-line
+description, the layer, the source, the pseudonymous actor and metadata chips.
+It does not show `raw_evidence_ref`, which is a pointer into the evidence blob
+store and is only ever dereferenced server-side behind an audited read. Label
+chips are filtered by key: anything named like content (`raw`, `payload`,
+`body`, `content`, `secret`, `token`, `key`, `evidence`) is dropped before
+render, so a collector that regresses and starts forwarding a body shows up as
+a missing chip rather than as a payload on a projector. A test asserts a
+fixture carrying a `raw` field never reaches the DOM.
+
+Two responses are reported in place and take nothing else down: `409` means
+the identical review is already recorded, which is not a fault and does not
+read like one, and `403` means the key cannot review. A failed review rolls
+back its own optimistic badge and leaves the rest of the queue reviewable.
+
+With demo mode on, the findings, decisions and rates are module-local fixtures
+and no stream is opened; a review recorded there is kept in the browser only.
+The page says so in a banner rather than letting fixtures pass as live data.
+
 ## /audit
 
 | | |

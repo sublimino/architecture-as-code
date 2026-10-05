@@ -26,7 +26,7 @@ The architecture decisions that define this shape are ADR-11 to ADR-14 in
 | Audit trail of every action in the tenant | `/audit` | Works. |
 | Kernel-level containment of an agent that reads a sensitive file | The warden on each node of the Kusari cluster | Freeze works locally. The resume path does not reach a remote cluster. See [enforcement](enforcement.md). |
 | RBAC and collusion analysis of the Kusari cluster | `/rbac-analysis`, `/collusion-access` | Roadmap. The exporter CronJob and import route exist. No key or cluster id is set for a remote cluster. See [faq-and-limits](faq-and-limits.md). |
-| AWS CloudTrail ingest and a policy engine | Not in the dashboard yet | Roadmap. See the SLAWS proposal below. |
+| AWS CloudTrail ingest and a policy engine | Not in the dashboard yet | Pipeline and policy bundles work and are tested end to end offline; nothing surfaces in the dashboard. Both bundles are in `shadow`. See [kusari-e2e](kusari-e2e.md) and the SLAWS proposal below. |
 
 ## Reading order
 
@@ -35,6 +35,7 @@ The architecture decisions that define this shape are ADR-11 to ADR-14 in
 3. [secondary-cluster.md](secondary-cluster.md). What runs on the Kusari cluster, what the hub needs first, and how to check each step.
 4. [enforcement.md](enforcement.md). What the warden does when an agent misbehaves, how it is recorded, and what the forensic bundle holds.
 5. [faq-and-limits.md](faq-and-limits.md). Known limits and what to do when something is not there.
+6. [kusari-e2e.md](kusari-e2e.md). The AWS signal path: how to run its tests, read the per-rule table, add a signal or a rule, and replay a window. Two known defects are named there.
 
 ## Source records
 

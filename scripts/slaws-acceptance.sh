@@ -30,6 +30,10 @@ run docs-lint              make docs-lint
 # Beyond the six: pkg/obscel is its own module and is reached by none of the six commands.
 # Recorded alongside so the shared vocabulary is counted, not assumed.
 run obscel-extra           make test-obscel
+# Beyond the six: docs-lint checks links, paths and style, and none of the six
+# checks that what a doc CLAIMS about a test is true. Recorded alongside so a
+# renamed test or a moved suite is counted, not assumed.
+run alignment              make test-alignment
 echo "head_end=$(git rev-parse HEAD)" | tee -a "$out/head.txt"
 # Comparable key: everything except elapsed seconds.
 sed -E 's/ [0-9]+s$//' "$out/totals.txt" > "$out/totals.key"

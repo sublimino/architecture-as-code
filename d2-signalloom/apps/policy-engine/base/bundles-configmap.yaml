@@ -309,16 +309,20 @@ data:
         window: 5m
         threshold: 20
         severity: medium
-        # A KNOWN LIMIT of this window, from policy/windows.go Warm: a stored finding
-        # carries the CLOSED policy label set, not the source observation's labels, so
-        # source_ip is absent on warm-up and every warmed finding collapses into one
-        # counter. Warm logs a warning naming this window. The consequence is bounded
-        # and in the fail-safe direction for a restart within five minutes of a burst:
-        # the counter over-counts across source addresses and could fire early. It is
-        # declared on source_ip anyway because a window keyed on tenant alone cannot
-        # distinguish one host scanning from twenty hosts each retrying once, which is
-        # the entire question. Fixing it properly means carrying the keyed dimensions
-        # onto the stored finding, which is policy/convert.go -- not this card.
+        # This window keys on a SOURCE-OBSERVATION label, which used to be a known
+        # limit: a stored finding carried only the closed policy label set, so
+        # source_ip was absent at warm-up. The effect was worse than the
+        # "over-counts across addresses" originally recorded here -- every warmed
+        # finding landed in a counter keyed `source_ip=`, which no live finding can
+        # ever join, so warm-up contributed NOTHING and a restart MISSED the burst
+        # it was warmed to catch. policy/convert.go now carries each window's keyed
+        # label values onto the stored finding, and
+        # TestWindows_WarmCollapsesWithoutTheKeyedLabels pins the old behaviour as
+        # the mutation.
+        #
+        # It is keyed on source_ip because a window keyed on tenant alone cannot
+        # distinguish one host scanning from twenty hosts each retrying once, which
+        # is the entire question.
   kusari--iam-change.yaml: |
     # SLAWS first observation-policy bundle (proposal §4.2, §4.4, D6).
     #

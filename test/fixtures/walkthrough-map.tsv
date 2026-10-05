@@ -1,0 +1,19 @@
+# walkthrough-map.tsv — the explicit correspondence between the numbered steps
+# of docs/EAP/onboarding.md and the strings the acceptance specs assert.
+#
+# Three tab-separated fields: the heading text after "## ", the spec file, and a
+# literal string that spec asserts. scripts/docs-tests-alignment.sh checks both
+# sides: the heading must exist in the walkthrough, and the string must exist in
+# the spec. A step no spec covers carries "-" in the spec field and a gap id in
+# the third, and that id must be recorded in docs/signalloom/alignment-gaps.md.
+#
+# One heading may carry several rows. Every numbered step must carry at least one.
+1. Get an identity	-	GAP-ONB-1
+2. Log in	test/acceptance/signalloom-login.spec.ts	user logs in with user/pass and sees the Signal Loom dashboard
+3. What you see first	test/acceptance/smoke-onboarding-agents.spec.ts	Tenant & Workspace Identity
+3. What you see first	test/acceptance/onboarding.spec.ts	Set your scan preferences
+3. What you see first	test/acceptance/onboarding.spec.ts	Your API key
+3. What you see first	test/acceptance/onboarding.spec.ts	skip onboarding action records status and redirects to overview dashboard
+4. How your agents appear	test/acceptance/smoke-onboarding-agents.spec.ts	dual-agent fleet: inventory discovery and comparative workload status
+4. How your agents appear	test/acceptance/discovery-claim.spec.ts	executes namespace auto-claim modal workflow and asserts governed transition
+5. Where to go next	test/acceptance/navigation.spec.ts	renders every primary navigation link within its expected tier in order

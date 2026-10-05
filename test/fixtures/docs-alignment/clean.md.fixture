@@ -1,0 +1,13 @@
+# Clean page
+
+Positive control. Every claim below is true of this tree.
+
+The acceptance suite is `test/docs-lint.bats`. Run it with `make docs-lint-test`.
+The Go case is `TestAcceptanceHealthEndpoint`.
+The browser case is `test/acceptance/onboarding.spec.ts`.
+
+Verify a bundle:
+
+```bash
+scripts/verify-eap-evidence.sh bundle.tar.gz --require-live
+```

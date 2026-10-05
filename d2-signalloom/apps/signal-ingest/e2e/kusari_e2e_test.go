@@ -86,6 +86,28 @@ func rows(t *testing.T, h *Harness) []model.Observation {
 	return got
 }
 
+// replayLines runs policy.Replay over the harness store with the shipped
+// bundles and returns its canonical lines.
+//
+// It lives in the untagged file deliberately, so the MemoryStore tests, the
+// synth tests and the frostdb-tagged tests all compare live against replay
+// through ONE helper. Two copies of this is how the two store modes come to
+// disagree about what "replay" means.
+func replayLines(t *testing.T, h *Harness, c []model.Observation) []string {
+	t.Helper()
+	from, to := Bracket(c)
+	var buf bytes.Buffer
+	if _, _, err := policy.Replay(context.Background(), h.Store, policy.ReplayOptions{
+		BundlesDir: bundlesDir(t), From: from, To: to, Tenant: Tenant, Out: &buf, Log: testLogger(t),
+	}); err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if buf.Len() == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+}
+
 // ---------------------------------------------------------------------------
 // The table
 // ---------------------------------------------------------------------------

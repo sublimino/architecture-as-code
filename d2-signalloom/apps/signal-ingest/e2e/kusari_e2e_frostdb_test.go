@@ -6,14 +6,11 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"strings"
 	"testing"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/policy"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
@@ -250,19 +247,4 @@ func TestKusariE2E_FrostDBRestartDoesNotReAdmitTheCorpus(t *testing.T) {
 	if n := len(second.Recorder.Findings); n != 0 {
 		t.Errorf("the restarted process evaluated %d findings over an already-durable corpus, want 0", n)
 	}
-}
-
-func replayLines(t *testing.T, h *Harness, c []model.Observation) []string {
-	t.Helper()
-	from, to := Bracket(c)
-	var buf bytes.Buffer
-	if _, _, err := policy.Replay(context.Background(), h.Store, policy.ReplayOptions{
-		BundlesDir: bundlesDir(t), From: from, To: to, Tenant: Tenant, Out: &buf, Log: testLogger(t),
-	}); err != nil {
-		t.Fatalf("Replay: %v", err)
-	}
-	if buf.Len() == 0 {
-		return nil
-	}
-	return strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 }

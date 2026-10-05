@@ -174,6 +174,12 @@ Neither prints a key value.
 | `signal-ingest` key `signalloom-warden` | [`scripts/sldc-ingest-bearer.sh`](../../scripts/sldc-ingest-bearer.sh) | `make sldc-ingest-keys CONTEXT=<ctx>` | `fe-signalloom/signal-ingest-key-signalloom-warden`, keys `token` and `expires` | `fe-signalloom-agents/signalloom-warden-ingest-token`, key `token` |
 | `fleet-manager` caller key `warden` | [`scripts/fleet-manager-caller-keys.sh`](../../scripts/fleet-manager-caller-keys.sh) | `make fleet-manager-keys CONTEXT=<ctx>` | `fe-signalloom/fleet-manager-caller-keys`, key `warden` | `fe-signalloom-agents/signalloom-warden-fleet-key`, key `token` |
 
+The hub's `signal-ingest` also needs its segment pseudonymisation root key
+in Secret `fe-signalloom/signal-ingest-segment-pseudonym`, minted by
+[`scripts/signal-segment-key.sh`](../../scripts/signal-segment-key.sh) as
+`make signal-segment-key CONTEXT=<ctx>`. Without it the FrostDB store
+refuses to start.
+
 `demo-signalloom-up` runs both targets first, then `afm-importer-key`
 ([`Makefile`](../../Makefile), target `demo-signalloom-up`). The comment there
 records why the order matters: a pod that starts before its Secret stays

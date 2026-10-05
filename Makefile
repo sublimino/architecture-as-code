@@ -785,6 +785,7 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# from an optional configMapKeyRef at container start.
 	$(MAKE) fleet-operator-keys CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) afm-importer-key CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) signal-segment-key CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper
 	$(MAKE) netassert-runner-image
@@ -1059,7 +1060,7 @@ demo-signalloom-signalfusion-images: ## Build Signal Fusion images (signal-inges
 test-sltm-probe-apikey: ## SLTM Phase 1: the Kusari-cluster probe authenticates with its API key (offline: real binary; SLTM_LIVE=1: live cluster).
 	bats test/sltm-probe-apikey.bats
 
-.PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key
+.PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key signal-segment-key
 sldc-ingest-keys: ## Mint/converge every signal-ingest key and consumer Secret on CONTEXT (idempotent; cluster required).
 	./scripts/sldc-ingest-bearer.sh --context $(CONTEXT)
 fleet-manager-keys: ## Mint/converge fleet-manager caller keys on CONTEXT (idempotent; cluster required).
@@ -1068,6 +1069,8 @@ fleet-operator-keys: ## Mint the resume-governance operator keypairs and publish
 	./scripts/fleet-operator-keys.sh --context $(CONTEXT) </dev/null
 afm-importer-key: ## Mint the AFM importer static key on CONTEXT (idempotent; cluster required). Nothing called scripts/afm-importer-key.sh before 2026-10-04, so every fresh estate answered 401 on the AFM scan trigger.
 	./scripts/afm-importer-key.sh --context $(CONTEXT) </dev/null
+signal-segment-key: ## Mint the signal-ingest segment pseudonymisation key on CONTEXT (idempotent; cluster required). The FrostDB store refuses to start without it.
+	./scripts/signal-segment-key.sh --context $(CONTEXT) </dev/null
 
 .PHONY: demo-signalloom-supercred-runner-image
 demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.

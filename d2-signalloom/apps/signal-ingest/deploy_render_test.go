@@ -52,6 +52,12 @@ var bootstrapSecrets = map[string]map[string]string{
 		"DATABASE_URL":            "postgres://signal@postgres.inf-signalloom:5432/signal",
 		"IDENTITY_ENCRYPTION_KEY": strings.Repeat("ab", 32),
 	},
+	// Minted by scripts/signal-segment-key.sh (make signal-segment-key, run by
+	// demo-signalloom-up): the FrostDB store's pseudonymisation root key and epoch.
+	"signal-ingest-segment-pseudonym": {
+		"SIGNAL_SEGMENT_PSEUDONYM_KEY":   strings.Repeat("cd", 32),
+		"SIGNAL_SEGMENT_PSEUDONYM_EPOCH": "1",
+	},
 }
 
 // keySecretPrefix names every static key's Secret: signal-ingest-key-<name>, minted by

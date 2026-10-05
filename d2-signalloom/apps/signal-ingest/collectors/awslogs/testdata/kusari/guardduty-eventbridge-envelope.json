@@ -1,0 +1,46 @@
+{
+  "_fixture": [
+    "A GuardDuty finding in its REAL delivery shape: an EventBridge event, not a",
+    "CloudTrail record. There is no Records[] array, so",
+    "Projector.ProjectCloudTrail decodes it successfully and returns ZERO",
+    "observations with no error -- the worst available failure mode, because a",
+    "silent zero is indistinguishable from a quiet account.",
+    "This file exists to pin that, not to be ingested:",
+    "TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing asserts the zero and",
+    "names the follow-up. It is deliberately NOT in KusariFixtureFiles(), so it",
+    "never reaches a policy rule and never contributes a finding to the e2e",
+    "totals.",
+    "The follow-up: GuardDuty findings need either an EventBridge-shaped",
+    "projection path with its own §2.3 label rows, or a forwarder that re-shapes",
+    "them onto the CloudTrail envelope before they reach the bucket. Both are",
+    "projection work in a package this card does not extend."
+  ],
+  "version": "0",
+  "id": "4f1a2b3c-0000-4000-8000-0123456789ab",
+  "detail-type": "GuardDuty Finding",
+  "source": "aws.guardduty",
+  "account": "123456789012",
+  "time": "2026-10-03T12:05:00Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "schemaVersion": "2.0",
+    "accountId": "123456789012",
+    "region": "us-east-1",
+    "type": "UnauthorizedAccess:IAMUser/MaliciousIPCaller.Custom",
+    "severity": 8,
+    "title": "API GetBucketPolicy was invoked from a known malicious IP address.",
+    "service": {
+      "serviceName": "guardduty",
+      "detectorId": "d-kusari-prod",
+      "count": 3
+    },
+    "resource": {
+      "resourceType": "AccessKey",
+      "accessKeyDetails": {
+        "userName": "kusari-agent",
+        "userType": "IAMUser"
+      }
+    }
+  }
+}

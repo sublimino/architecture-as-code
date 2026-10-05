@@ -627,7 +627,7 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 # suite. The dashboard tests run vitest with jsdom against the Weave, Signal
 # Fusion, and weaveApi test files.
 
-.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render
+.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render test-kusari-e2e
 .PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
 .PHONY: test-signal-segment-verifier verify-signal-segments
 .PHONY: test-identity-rls-live
@@ -643,6 +643,16 @@ test-signal-ingest: test-signal-segment-verifier test-obscel ## Run Go signal-in
 
 test-signal-ingest-frostdb: test-signal-segment-verifier ## Run Go signal-ingest tests INCLUDING FrostDB store.
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./... -v -count=1
+
+# The Kusari pilot AWS signal end-to-end suite (offline: no cluster, no network, no AWS).
+# Fixtures and a deterministic synthetic stream through the production composition --
+# binder, dedupe, stage 1, stage 2 -- against the bundles Flux reconciles, in BOTH store
+# modes. The suite prints a per-rule and per-window summary table, so -v is not optional:
+# a bare pass tells an operator nothing about which signals were exercised.
+# Walkthrough: docs/EAP/kusari-e2e.md
+test-kusari-e2e: ## Run the Kusari AWS signal e2e suite, both store modes (offline).
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./e2e/... -v -count=1
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./e2e/... -v -count=1
 
 # SLDP-P2-2: tenant isolation is a SERVER behaviour, so the only evidence that counts comes from a
 # server. This target stands one up, runs the hostile-context suite against it, and tears it down.

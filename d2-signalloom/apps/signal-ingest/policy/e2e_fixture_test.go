@@ -212,9 +212,12 @@ func TestE2EFixture_StageOneResolvesBundlesFromTheStampedTenantLabel(t *testing.
 				t.Fatalf("IngestObservation: %v", err)
 			}
 
-			findings := storedBySource(t, st, obscel.SourceFinding)
+			// Narrowed to kusari-iam-change: see iamChangeBundleID. The
+			// claim is that a STAMPED tenant resolves this bundle and an
+			// absent one resolves nothing, which is per-bundle either way.
+			findings := storedByBundle(t, st, obscel.SourceFinding, iamChangeBundleID)
 			if len(findings) != tc.wantFindings {
-				t.Fatalf("got %d findings, want %d", len(findings), tc.wantFindings)
+				t.Fatalf("got %d findings from %s, want %d", len(findings), iamChangeBundleID, tc.wantFindings)
 			}
 			// Either way the observation itself landed: an unresolvable tenant
 			// degrades detection, never ingest.
@@ -222,8 +225,12 @@ func TestE2EFixture_StageOneResolvesBundlesFromTheStampedTenantLabel(t *testing.
 			if err != nil {
 				t.Fatalf("QueryRange: %v", err)
 			}
-			if len(rows) != 1+tc.wantFindings {
-				t.Errorf("store holds %d rows, want 1 observation + %d findings", len(rows), tc.wantFindings)
+			allFindings := len(storedBySource(t, st, obscel.SourceFinding))
+			if len(rows) != 1+allFindings {
+				t.Errorf("store holds %d rows, want 1 observation + %d findings", len(rows), allFindings)
+			}
+			if tc.wantFindings == 0 && allFindings != 0 {
+				t.Errorf("an observation with no tenant label produced %d findings across the loaded bundle set, want 0 from every bundle", allFindings)
 			}
 			if tc.wantFindings == 1 && findings[0].Labels[TenantLabel] != e2eTenant {
 				t.Errorf("finding tenant_id = %q, want %q", findings[0].Labels[TenantLabel], e2eTenant)
@@ -247,6 +254,41 @@ func storedBySource(t *testing.T, st store.SignalStore, source string) []model.O
 	return out
 }
 
+// iamChangeBundleID is the bundle THIS file is about.
+//
+// Every assertion below used to be written as though the tenant had exactly one
+// bundle, so "the shipped bundle fired" and "the store holds one finding" were
+// the same statement. They are not any more: policy/bundles/kusari/ now also
+// holds cloud-signals.yaml, which covers the EKS, console, STS, S3, GuardDuty
+// and VPC Flow surfaces and deliberately overlaps the IAM path (its header says
+// so, and the overlap is what lets the narrow IAM bundle be promoted to warn on
+// its own schedule). Findings are per bundle by construction -- Finding.ID
+// hashes the bundle version -- so the same event legitimately produces one
+// finding per bundle.
+//
+// So the counts here are narrowed to this bundle rather than relaxed. Narrowing
+// keeps every original claim exactly as strong: "the shipped kusari-iam-change
+// bundle produced three iam-priv-change findings and one decision over the
+// fixture corpus" is still asserted to the event. What is no longer asserted is
+// that NO OTHER bundle fired, which was never the invariant -- it was an
+// artefact of there being nothing else to fire. The cross-bundle totals, which
+// are the thing worth pinning now, are asserted in
+// d2-signalloom/apps/signal-ingest/e2e against the whole loaded set.
+const iamChangeBundleID = "kusari-iam-change"
+
+// storedByBundle is storedBySource narrowed to the findings or decisions one
+// bundle produced.
+func storedByBundle(t *testing.T, st store.SignalStore, source, bundleID string) []model.Observation {
+	t.Helper()
+	var out []model.Observation
+	for _, r := range storedBySource(t, st, source) {
+		if r.Labels[LabelBundleID] == bundleID {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // ISC-56: the fixture corpus produces findings and a decision
 // ---------------------------------------------------------------------------
@@ -254,19 +296,18 @@ func storedBySource(t *testing.T, st store.SignalStore, source string) []model.O
 func TestE2EFixture_ShippedKusariBundleProducesFindingsAndADecision(t *testing.T) {
 	st, metrics, alerter := runE2E(t, repoBundlesDir(t))
 
-	findings := storedBySource(t, st, obscel.SourceFinding)
+	// Narrowed to kusari-iam-change: see iamChangeBundleID.
+	findings := storedByBundle(t, st, obscel.SourceFinding, iamChangeBundleID)
 	if len(findings) == 0 {
 		t.Fatal("the shipped kusari bundle produced NO findings over the awslogs fixture corpus")
 	}
-	t.Logf("fixture corpus produced %d findings", len(findings))
+	t.Logf("fixture corpus produced %d findings from %s (%d across every loaded bundle)",
+		len(findings), iamChangeBundleID, len(storedBySource(t, st, obscel.SourceFinding)))
 
 	// Every rule the shipped bundle declares that the corpus can reach.
 	byRule := map[string]int{}
 	for _, f := range findings {
 		byRule[f.Labels[LabelRuleID]]++
-		if f.Labels[LabelBundleID] != "kusari-iam-change" {
-			t.Errorf("finding %s came from bundle %q, want kusari-iam-change", f.ID, f.Labels[LabelBundleID])
-		}
 		if f.Labels[LabelMode] != string(obscel.ModeShadow) {
 			t.Errorf("finding %s is mode %q, want shadow (the shipped bundle is not promoted)",
 				f.ID, f.Labels[LabelMode])
@@ -283,10 +324,11 @@ func TestE2EFixture_ShippedKusariBundleProducesFindingsAndADecision(t *testing.T
 		t.Errorf("iam-priv-change matched %d times, want 3", byRule["iam-priv-change"])
 	}
 
-	// ... and therefore exactly one decision.
-	decisions := storedBySource(t, st, obscel.SourceDecision)
+	// ... and therefore exactly one decision FROM THIS BUNDLE. Narrowed: see
+	// iamChangeBundleID.
+	decisions := storedByBundle(t, st, obscel.SourceDecision, iamChangeBundleID)
 	if len(decisions) != 1 {
-		t.Fatalf("three qualifying IAM events inside 10m produced %d decisions, want 1", len(decisions))
+		t.Fatalf("three qualifying IAM events inside 10m produced %d decisions from %s, want 1", len(decisions), iamChangeBundleID)
 	}
 	d := decisions[0]
 	if got := d.Labels[LabelWindowID]; got != "iam-change-burst" {
@@ -316,13 +358,17 @@ func TestE2EFixture_ShippedKusariBundleProducesFindingsAndADecision(t *testing.T
 		t.Errorf("the shipped bundle is in shadow mode and alerted %d times, want 0", len(alerter.got))
 	}
 
-	// Counters agree with the store.
+	// Counters agree with the store. The counters are per PROCESS, not per
+	// bundle, so these compare against every loaded bundle's output -- which is
+	// the right comparison for a counter and is why they are not narrowed.
 	snap := metrics.Snapshot()
-	if snap.Findings != uint64(len(findings)) {
-		t.Errorf("counted %d findings, stored %d", snap.Findings, len(findings))
+	allFindings := storedBySource(t, st, obscel.SourceFinding)
+	allDecisions := storedBySource(t, st, obscel.SourceDecision)
+	if snap.Findings != uint64(len(allFindings)) {
+		t.Errorf("counted %d findings, stored %d", snap.Findings, len(allFindings))
 	}
-	if snap.Decisions != 1 {
-		t.Errorf("counted %d decisions, want 1", snap.Decisions)
+	if snap.Decisions != uint64(len(allDecisions)) {
+		t.Errorf("counted %d decisions, stored %d", snap.Decisions, len(allDecisions))
 	}
 	if snap.EvaluatorErrors != 0 {
 		t.Errorf("the shipped bundle produced %d evaluator faults over the fixture corpus, want 0",
@@ -441,14 +487,28 @@ func TestE2EFixture_PromotingToWarnAlerts(t *testing.T) {
 		}
 	}
 
-	if len(alerter.got) != 1 {
-		t.Fatalf("a promoted bundle alerted %d times, want 1", len(alerter.got))
+	// Narrowed to this bundle's alert: see iamChangeBundleID. Every loaded
+	// bundle was promoted above (the loop sets Mode on all of them, exactly as a
+	// reviewed commit would in each file), so each one that fires a decision
+	// alerts. The claim here is about kusari-iam-change's decision.
+	var promoted []obscel.Decision
+	for _, d := range alerter.got {
+		if d.Mode != obscel.ModeWarn {
+			t.Errorf("alerted decision %s mode = %q, want warn", d.ID, d.Mode)
+		}
+		if d.BundleID == iamChangeBundleID {
+			promoted = append(promoted, d)
+		}
 	}
-	if alerter.got[0].Mode != obscel.ModeWarn {
-		t.Errorf("alerted decision mode = %q, want warn", alerter.got[0].Mode)
+	if len(promoted) != 1 {
+		t.Fatalf("a promoted %s alerted %d times, want 1 (%d alerts across every loaded bundle)",
+			iamChangeBundleID, len(promoted), len(alerter.got))
 	}
-	if alerter.got[0].Count != 3 {
-		t.Errorf("alerted decision count = %d, want 3", alerter.got[0].Count)
+	if promoted[0].Count != 3 {
+		t.Errorf("alerted decision count = %d, want 3", promoted[0].Count)
+	}
+	if promoted[0].WindowID != "iam-change-burst" {
+		t.Errorf("alerted decision window = %q, want iam-change-burst", promoted[0].WindowID)
 	}
 }
 
@@ -488,9 +548,10 @@ func TestE2EFixture_HTTPStoreWrapperMatchesTheSink(t *testing.T) {
 	if len(findings) == 0 {
 		t.Fatal("the HTTP store wrapper produced no findings; POST /api/v1/observations bypasses policy")
 	}
+	// Narrowed to this bundle: see iamChangeBundleID.
 	decisions := storedBySource(t, st, obscel.SourceDecision)
-	if len(decisions) != 1 {
-		t.Fatalf("the HTTP store wrapper produced %d decisions, want 1", len(decisions))
+	if n := len(storedByBundle(t, st, obscel.SourceDecision, iamChangeBundleID)); n != 1 {
+		t.Fatalf("the HTTP store wrapper produced %d decisions from %s, want 1", n, iamChangeBundleID)
 	}
 
 	// The whole corpus landed, and it landed in ONE batch: the atomicity the

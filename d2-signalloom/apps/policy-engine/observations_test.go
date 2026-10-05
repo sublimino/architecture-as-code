@@ -341,10 +341,28 @@ func TestEvaluateObservationAgainstShippedBundle(t *testing.T) {
 	if len(resp.Faults) != 0 {
 		t.Errorf("the shipped bundle must not fault: %v", resp.Faults)
 	}
-	if len(resp.Findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d (%+v)", len(resp.Findings), resp.Findings)
+	// The tenant's shipped tree holds more than one bundle (kusari-iam-change
+	// and kusari-cloud-signals), and they overlap on the IAM path by design --
+	// cloud-signals.yaml says so in its header, and the overlap is what lets the
+	// narrow IAM bundle be promoted to warn on its own schedule. A finding is
+	// per bundle by construction, because Finding.ID hashes the bundle version,
+	// so one AttachUserPolicy legitimately yields one finding per bundle.
+	//
+	// So this test asserts the kusari-iam-change finding specifically rather
+	// than asserting that nothing else fired. Every original claim about that
+	// finding -- rule, tenant, derived id, observation timestamp -- is unchanged.
+	var f obscel.Finding
+	byBundle := map[string]obscel.Finding{}
+	for _, got := range resp.Findings {
+		byBundle[got.BundleID] = got
 	}
-	f := resp.Findings[0]
+	f, ok := byBundle["kusari-iam-change"]
+	if !ok {
+		t.Fatalf("no finding from kusari-iam-change; got %d findings (%+v)", len(resp.Findings), resp.Findings)
+	}
+	if _, ok := byBundle["kusari-cloud-signals"]; !ok {
+		t.Errorf("no finding from kusari-cloud-signals over an AttachUserPolicy event; its iam-credential-or-policy-change rule has drifted (got %+v)", resp.Findings)
+	}
 	if f.RuleID != "iam-priv-change" {
 		t.Errorf("rule_id: got %q", f.RuleID)
 	}
@@ -357,11 +375,24 @@ func TestEvaluateObservationAgainstShippedBundle(t *testing.T) {
 	if got := f.Timestamp.UTC().Format("2006-01-02T15:04:05Z"); got != "2026-10-04T08:00:00Z" {
 		t.Errorf("finding timestamp must be the observation's, got %s", got)
 	}
-	if len(resp.Bundles) != 1 || resp.Bundles[0] != "kusari-iam-change@1.0.0" {
-		t.Errorf("bundles: got %v", resp.Bundles)
+	// Every bundle the tenant has shipped was evaluated, and each reports its
+	// mode. Asserting the SET rather than a single element is what keeps this
+	// honest: a bundle silently missing from the dry-run surface is the defect
+	// this line exists to catch, and a length-1 check could no longer see it.
+	wantBundles := map[string]bool{"kusari-iam-change@1.0.0": true, "kusari-cloud-signals@1.0.0": true}
+	for _, b := range resp.Bundles {
+		if !wantBundles[b] {
+			t.Errorf("unexpected bundle %q in the dry-run response", b)
+		}
+		delete(wantBundles, b)
 	}
-	if resp.Modes["kusari-iam-change"] != "shadow" {
-		t.Errorf("mode must be reported so the caller knows nothing was enforced, got %v", resp.Modes)
+	for b := range wantBundles {
+		t.Errorf("bundle %q was not evaluated by the dry-run surface; got %v", b, resp.Bundles)
+	}
+	for _, id := range []string{"kusari-iam-change", "kusari-cloud-signals"} {
+		if resp.Modes[id] != "shadow" {
+			t.Errorf("mode must be reported so the caller knows nothing was enforced; %s = %q, got %v", id, resp.Modes[id], resp.Modes)
+		}
 	}
 }
 

@@ -1,0 +1,3 @@
+# Page naming a test that does not exist
+
+The guard is `TestNoSuchAlignmentProbeExists`, in the correlation package.

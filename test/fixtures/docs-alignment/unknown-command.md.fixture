@@ -1,0 +1,5 @@
+# Page running an executable that does not exist
+
+```bash
+no-such-alignment-binary --help | grep ok
+```

@@ -17,7 +17,7 @@ import (
 // the collector's tenant. This is the only assertion that catches the two being
 // composed the other way round, where an unstamped record would match no bundle.
 func TestBinderOutsideThePolicySinkStampsBeforeStageOne(t *testing.T) {
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}

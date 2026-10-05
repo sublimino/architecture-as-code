@@ -74,7 +74,15 @@ func Replay(ctx context.Context, st store.SignalStore, opts ReplayOptions) (find
 		return 0, 0, errors.New("policy: replay needs an output writer")
 	}
 
-	bundles, err := LoadBundles(opts.BundlesDir, log)
+	// Resolved before the bundles are loaded, because the bundles' actor
+	// allowlists must be rewritten into the same pseudonym space obs.actor is
+	// evaluated in, by the same instance.
+	pseudo := opts.ActorPseudonymiser
+	if pseudo == nil {
+		pseudo = StorePseudonymiser(st)
+	}
+
+	bundles, err := LoadBundles(opts.BundlesDir, log, pseudo)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -120,11 +128,6 @@ func Replay(ctx context.Context, st store.SignalStore, opts ReplayOptions) (find
 	// Defaulting from the store rather than from the environment is deliberate:
 	// a second instance built from a drifted key would produce a replay that
 	// disagrees with live for a reason nothing logs.
-	pseudo := opts.ActorPseudonymiser
-	if pseudo == nil {
-		pseudo = StorePseudonymiser(st)
-	}
-
 	rec := &canonicalRecorder{}
 	sink := NewSink(discardSink{}, st, eval, StaticBundles(bundles), Options{
 		Windows:            NewWindowsWithLogger(bundles, log),

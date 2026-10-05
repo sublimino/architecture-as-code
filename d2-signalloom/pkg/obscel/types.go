@@ -65,6 +65,27 @@ type Bundle struct {
 	Version  string              `yaml:"version" json:"version"`
 	Mode     Mode                `yaml:"mode" json:"mode"`
 	Vars     map[string][]string `yaml:"vars" json:"vars"`
+
+	// ActorVars names the entries of Vars that hold ACTOR IDENTITIES, so they can
+	// be pseudonymised at load with the same key obs.actor is pseudonymised with
+	// (PseudonymiseActorVars). A list that is not named here is left verbatim.
+	//
+	// It is an explicit declaration rather than a naming convention (`*_actors`)
+	// because a name is a claim and this needs to be a fact: a var that holds
+	// actors but is not named here keeps its cleartext values, so
+	// `obs.actor in vars.X` can never be true, so the NEGATIVE form every shipped
+	// rule uses is always true and the allowlisted identity fires on every
+	// record. Counts stay equal between live and replay, so the replay oracle
+	// reports parity while the detection is inverted -- the one failure shape
+	// nothing downstream can see.
+	//
+	// What makes the declaration safe is that forgetting it is a LOAD-TIME
+	// REFUSAL, not a silent miss: Conform rejects any rule that compares
+	// obs.actor against a var absent from this list. The convention could not
+	// offer that, and it would additionally mangle a var that merely happened to
+	// be named `*_actors` without holding actors.
+	ActorVars []string `yaml:"actor_vars" json:"actor_vars"`
+
 	Rules    []Rule              `yaml:"rules" json:"rules"`
 	Windows  []Window            `yaml:"windows" json:"windows"`
 }

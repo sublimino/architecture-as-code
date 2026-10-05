@@ -56,8 +56,14 @@ func TestConformCatchesUndeclaredVarsReference(t *testing.T) {
 	mk := func(expr string) *Bundle {
 		return &Bundle{
 			ID: "b", TenantID: "kusari", Version: "1.0.0", Mode: ModeShadow,
-			Vars:  map[string][]string{"break_glass_actors": {"a"}},
-			Rules: []Rule{{ID: "r", Severity: "low", Expression: expr}},
+			Vars: map[string][]string{"break_glass_actors": {"a"}},
+			// Declared as an actor list, because every expression below compares
+			// obs.actor against it and Conform refuses that otherwise. The
+			// refusal is itself under test in actor_vars_test.go; here the
+			// subject is the undeclared-VAR check, so the actor_vars gate is
+			// satisfied to keep the two independent.
+			ActorVars: []string{"break_glass_actors"},
+			Rules:     []Rule{{ID: "r", Severity: "low", Expression: expr}},
 		}
 	}
 

@@ -27,6 +27,18 @@ tenant_id: kusari
 version: 1.0.0
 mode: shadow
 
+# The vars that hold ACTOR IDENTITIES. Each is rewritten at load through the
+# same keyed pseudonymiser obs.actor is rewritten with, because obs.actor is a
+# pseudonym by the time a rule evaluates and a cleartext list could never match
+# it. Omitting an entry here is a LOAD-TIME REFUSAL, not a silent miss: Conform
+# rejects any rule comparing obs.actor against a var absent from this list.
+# Without that gate the list would stay cleartext, `obs.actor in vars.X` would
+# never be true, and `!(obs.actor in vars.X)` would be always-true -- so the
+# break-glass identity would produce a finding on every record, identically on
+# the live and the replay path.
+actor_vars:
+  - break_glass_actors
+
 vars:
   # Identities permitted to make privilege changes. Anything outside this list
   # making an IAM policy change is a finding. An empty list is rejected at load:

@@ -5,7 +5,7 @@
  * customer evaluations, and CI rapid smoke gating.
  *
  * Scope:
- * 1. User Onboarding Wizard flow (3-step guided setup, IdP linkage test, consent, celebration, redirect).
+ * 1. User Onboarding Wizard flow (welcome, five-step guided setup, IdP linkage test, consent, celebration, redirect).
  * 2. User Onboarding Skip workflow (immediate status persistence and dashboard entry).
  * 3. Dual-Agent Discovery & Inventory (heterogeneous agent profiles, status badges, discovery labels).
  * 4. Dual-Agent Claim & Telemetry (operator claim flow, SPIFFE identity binding, active zero-trust controls, and activity timeline stream).
@@ -17,6 +17,14 @@ import { test, expect } from "./fixtures";
 import { login, config } from "./helpers";
 
 const BASE = config.base;
+
+/** The wizard opens on a welcome screen for a fresh tenant; dismiss it when it is there. */
+async function dismissWelcomeIfShown(page: import("@playwright/test").Page): Promise<void> {
+  const welcome = page.locator('[data-testid="onboarding-welcome"]');
+  if (await welcome.isVisible().catch(() => false) || await welcome.waitFor({ state: "visible", timeout: 5_000 }).then(() => true).catch(() => false)) {
+    await page.locator('[data-testid="welcome-continue-button"]').click();
+  }
+}
 
 test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
   test.afterAll(async () => {
@@ -77,6 +85,7 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
   }) => {
     await login(page, { demoMode: true });
     await page.goto(`${BASE}/onboarding`, { waitUntil: "domcontentloaded" });
+    await dismissWelcomeIfShown(page);
 
     const skipOrGoBtn = page
       .locator('[data-testid="skip-onboarding-button"], [data-testid="goto-dashboard-button"], button:has-text("Skip for now")')
@@ -88,12 +97,13 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
     await expect(page.locator("nav a[href='/agents'], nav a[href='/discovery']").first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test("user onboarding: complete 3-step wizard with validation, IdP test, consent, and celebration", async ({
+  test("user onboarding: complete five-step wizard with validation, IdP test, consent, and celebration", async ({
     page,
   }) => {
     await login(page, { demoMode: true });
     // Navigate directly to onboarding wizard route
     await page.goto(`${BASE}/onboarding`, { waitUntil: "domcontentloaded" });
+    await dismissWelcomeIfShown(page);
 
     // Verify wizard container or celebration is mounted
     const wizardContainer = page.locator('[data-testid="onboarding-wizard-container"], [data-testid="completion-celebration"]').first();
@@ -140,10 +150,18 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
       const connSuccess = page.locator('[data-testid="idp-connection-success"]');
       await expect(connSuccess).toBeVisible({ timeout: 10_000 });
 
-      // Advance to Step 3
+      // Advance to Step 3: scan preferences, kept at their defaults
+      await page.locator('[data-testid="next-step-button"]').click();
+      await expect(page.getByRole("heading", { level: 1, name: "Set your scan preferences" })).toBeVisible({ timeout: 10_000 });
+
+      // Advance to Step 4: the optional API key reveal, declined here
+      await page.locator('[data-testid="next-step-button"]').click();
+      await expect(page.getByRole("heading", { level: 1, name: "Your API key" })).toBeVisible({ timeout: 10_000 });
+
+      // Advance to Step 5
       await page.locator('[data-testid="next-step-button"]').click();
 
-      // Step 3: Containment Policy & Security Consent
+      // Step 5: Containment Policy & Security Consent
       await expect(
         page.getByRole("heading", { level: 1, name: /Containment Policy & (Security )?Consent/i }),
       ).toBeVisible({ timeout: 10_000 });

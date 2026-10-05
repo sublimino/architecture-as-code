@@ -142,7 +142,7 @@ This is the page for the question "can a human look at what the engine
 decided and form an objective judgement about it". Three properties exist for
 that reason and not for presentation.
 
-**A verdict carries its reason, and the reason is the evidence.** The note is
+**A verdict carries its reason, and the reason is the evidence.** The note is required because a stored verdict with no note cannot be audited later. The reviewer must state what they saw.
 mandatory with a 10 character floor. A stored `false_positive` with no note
 cannot be audited six months later, defended to a regulator, or used to fix
 the rule that produced it, so the control will not submit without one. The
@@ -154,7 +154,7 @@ versioned code, and "the rule was wrong" is a different conclusion from "the
 rule changed". `bundle_id` and `bundle_version` are on each finding row and in
 each decision card header for that reason.
 
-**The page cannot render a payload.** The feed shows the projected one-line
+Label chips are filtered by key. Anything named like content is never rendered: `raw`, `payload`, `body`, `content`, `data`, `secret`, `token`, `password`, `credential`, `key` and `evidence`. The page shows metadata only.
 description, the layer, the source, the pseudonymous actor and metadata chips.
 It does not show `raw_evidence_ref`, which is a pointer into the evidence blob
 store and is only ever dereferenced server-side behind an audited read. Label

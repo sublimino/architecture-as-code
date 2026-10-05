@@ -90,6 +90,28 @@ _free_port_probe() {
   return 1
 }
 
+# wait_for_listen PORT [timeout_seconds]
+# Poll until PORT appears in LISTEN state, WITHOUT connecting to it.
+#
+# Use this, not wait_for_port, for a one-shot listener. `nc -l` without -k
+# accepts exactly one connection and exits, so a readiness probe that dials the
+# port consumes the listener and the thing under test then finds nothing bound.
+# That cost one silently-vanished bats test in p2-dualcluster-preflight.
+wait_for_listen() {
+  local port="$1" budget="${2:-10}"
+  local scale="${TEST_TIMEOUT_SCALE:-1}"
+  local deadline=$(( $(date +%s) + budget * scale ))
+  command -v ss >/dev/null 2>&1 || { sleep 0.5; return 0; }
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ":${port}\$"; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "wait_for_listen: nothing listening on :${port} within $(( budget * scale ))s" >&2
+  return 1
+}
+
 # wait_for_port HOST PORT [timeout_seconds]
 # Poll until something accepts on HOST:PORT. Scaled by TEST_TIMEOUT_SCALE so a
 # loaded host gets proportionally longer, without changing what is asserted.

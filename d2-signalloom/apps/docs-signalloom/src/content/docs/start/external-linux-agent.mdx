@@ -244,34 +244,63 @@ Revocation takes effect immediately: subsequent audit upload attempts from the h
 
 ## 7. Running the Sensor on Your Local Machine
 
-Developers and security teams can run the workstation sensor directly on local Linux workstations to monitor autonomous coding sessions (such as Claude Code, Antigravity CLI, Cline, or Cursor):
+Developers and security teams can run the workstation sensor directly on local workstations (macOS or Linux) to monitor autonomous coding sessions (such as Claude Code, Antigravity CLI, Cline, or Cursor) and route telemetry back to Signal Loom over Tailscale:
 
-### Direct CLI Observation Mode
-Run a one-off telemetry collection against an active local process:
+### Network Topology & Tailscale Mesh (Option 4)
+When operating remotely (for example, on a developer laptop connected to the corporate Tailnet), the sensor communicates with the Kind cluster via Tailscale:
+- **Developer Laptop**: Connected to Tailscale (e.g. `andrews-macbook-pro` at `100.68.229.74`).
+- **Cluster Host**: Cluster node running Kind (e.g. `fortuna` at `100.92.129.16`).
+- **Ingress Gateway**: In-tailnet virtual proxy (`ts-ftna-signalloom` at `100.81.249.120`), resolving to:
+  ```
+  https://ftna-signalloom.taild4da3.ts.net
+  ```
+  This endpoint proxies inbound TLS traffic directly to the Signal Loom ingress gateway (`http://127.0.0.1:19080`).
 
-```bash
-cd d2-signalloom/apps/agentmaxxing-host-sensor
+### Authentication & Cryptographic Keys (No Passwords)
+Signal Loom rejects username/password credentials. The sensor authenticates using one of two cryptographic mechanisms:
+1. **Operator-Enrolled Host Credential (Audit-Scoped JWT)**:
+   - An operator generates a one-time enrollment token (`amxo_enroll_sec_<hex>`, valid for 24h) via `POST /api/v1/external-agents/register`.
+   - The workstation redeems this token via `./scripts/sensor/run-workstation-sensor.sh enroll <TOKEN>` (calling `POST /api/v1/external-agents/enroll`).
+   - The platform mints an Ed25519-signed JWT with `scope: "audit-upload-only"`. Under platform middleware, this token can **only** submit evidence and rotate keys; all control-plane APIs return `403 Forbidden`.
+2. **SLTM Static API Key (Spireless Token Migration)**:
+   - For headless probes and ingestion daemons, `signal-ingest` accepts a pre-shared API key matching `SIGNAL_AUTH_STATIC_KEYS` via `Authorization: Bearer <API_KEY>`.
+3. **Forensic Hash-Chains & TOCTOU Verification**:
+   - Telemetry events and session records are linked in an append-only SHA-256 hash chain.
+   - Modified workspace files are hashed using descriptor-relative `openat2` (`RESOLVE_BENEATH` on Linux) to prevent time-of-check to time-of-use tampering.
 
-# Collect process, socket, and cgroup telemetry for a running agent PID
-python3 cli.py collect --pid <AGENT_PID> --extended --pretty
-```
+### Quick Start: Running the Workstation Sensor
 
-### Background Host Monitoring
-To monitor local developer sessions continuously, configure the sensor as a systemd service:
+1. **Verify Connectivity and Host Prerequisites**:
+   ```bash
+   make local-sensor-status
+   # Or directly:
+   ./scripts/sensor/run-workstation-sensor.sh status
+   ```
 
-```bash
-# 1. Install the hardened systemd unit
-sudo cp agentmaxxing-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
+2. **Scan for Active Coding Agents**:
+   ```bash
+   make local-sensor-scan
+   # Or directly:
+   ./scripts/sensor/run-workstation-sensor.sh scan
+   ```
+   This safely identifies running agent processes (Claude Code, Antigravity CLI, Cline, Cursor, Aider) in sub-second time without risky `pgrep` commands.
 
-# 2. Start the background sensor daemon
-sudo systemctl enable --now agentmaxxing-agent.service
+3. **Sample an Agent Process**:
+   ```bash
+   ./scripts/sensor/run-workstation-sensor.sh collect <AGENT_PID>
+   ```
 
-# 3. Verify telemetry output in the system journal
-journalctl -u agentmaxxing-agent -f
-```
+4. **Continuous Background Observation**:
+   ```bash
+   make local-sensor-watch
+   # Or directly:
+   ./scripts/sensor/run-workstation-sensor.sh watch
+   ```
 
-The sensor automatically classifies coding agent processes, correlates git worktree modifications with local Kanban tasks, and streams privacy-preserving `codingagent.v1` telemetry to the central Signal Loom platform.
+### Operating System Notes: macOS vs. Linux
+- **Linux Workstations**: Full capabilities enabled, including Landlock LSM confinement, cgroups v2 resource metering, and `/proc` process inspection. Can run as a systemd service (`agentmaxxing-agent.service`).
+- **macOS (Darwin)**: Runs in userland observation mode (process hierarchy, port listening, and git worktree correlation). For Landlock LSM sandbox testing on macOS, run the governed agent inside Docker/OrbStack or a Linux VM.
+- **Privacy & Lawful Basis**: In compliance with EU Works Council regulations (`lawful_basis.py`), external network transmission of employee telemetry is disabled by default unless explicitly enrolled by the operator.
 
 ## Related Documentation
 
@@ -280,3 +309,4 @@ The sensor automatically classifies coding agent processes, correlates git workt
 - [External Agent Wire Contracts](../../reference/external-agent-wire-contracts/): Complete OpenAPI schemas and TypeScript definitions.
 - [Attributable Operator Lifecycle](../../reference/operator-identity-lifecycle/): Operator identity management, session authorization, and negative shared-identity rejection.
 - [Nono Optionality & Landlock Confinement](../../security/nono-optionality/): Deep dive into Linux Landlock LSM sandboxing.
+

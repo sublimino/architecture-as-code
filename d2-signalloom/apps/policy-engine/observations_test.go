@@ -26,6 +26,7 @@ mode: shadow
 vars:
   break_glass_actors:
     - "arn:aws:iam::1:user/bg"
+actor_vars: [break_glass_actors]
 rules:
   - id: iam-change
     name: iam change

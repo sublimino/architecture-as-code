@@ -36,7 +36,10 @@ set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-OUT="${1:-${root}/.parallel-acceptance}"
+# The output root defaults OUTSIDE the repository: an in-tree directory dirties the
+# checkout, places TMPDIR inside a git repository (which breaks "fails closed outside a
+# git repository" tests) and produces unix-socket paths longer than sun_path allows.
+OUT="${1:-${PARALLEL_ACCEPTANCE_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/parallel-acceptance.XXXXXX")}}"
 CMD="${PARALLEL_ACCEPTANCE_CMD:-scripts/slaws-acceptance.sh}"
 export TEST_TIMEOUT_SCALE="${TEST_TIMEOUT_SCALE:-2}"
 

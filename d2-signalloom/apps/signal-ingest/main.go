@@ -913,6 +913,16 @@ func main() {
 		rateBurst = val
 	}
 
+	principalBudget := 0 // 0 lets NewProtectedRouter apply its default
+	if raw := os.Getenv(api.PrincipalBudgetEnv); raw != "" {
+		val, err := strconv.Atoi(raw)
+		if err != nil || val <= 0 {
+			slog.Error("SIGNAL_INGEST_PRINCIPAL_BUDGET invalid; refusing startup", "error", err, "value", raw)
+			os.Exit(1)
+		}
+		principalBudget = val
+	}
+
 	reloadInterval := api.DefaultStaticKeysReloadInterval
 	if raw := os.Getenv(api.StaticKeysReloadIntervalEnv); raw != "" {
 		dur, err := time.ParseDuration(raw)
@@ -938,6 +948,7 @@ func main() {
 	protectedRouter, err := api.NewProtectedRouter(handlers, gateway, auditWriter, metricsHandler, api.RouterOptions{
 		KeyRatePerSecond: ratePerKey,
 		KeyBurst:         rateBurst,
+		PrincipalBudget:  principalBudget,
 	})
 	if err != nil {
 		slog.Error("protected HTTP router initialization failed", "error", err)

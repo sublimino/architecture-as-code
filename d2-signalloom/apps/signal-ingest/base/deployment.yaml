@@ -91,6 +91,12 @@ spec:
               value: "200"
             - name: SIGNAL_INGEST_RATE_BURST
               value: "600"
+            # Enumeration budget (rows paged per minute), per acting user
+            # behind the gateway since this change. The 1000-row default is
+            # sized to slow a stolen agent key; a dashboard user opening
+            # twenty routes at 100 rows each is legitimate and was 429'd.
+            - name: SIGNAL_INGEST_PRINCIPAL_BUDGET
+              value: "20000"
             # Selects the Parquet-backed FrostDB store (store/factory_frostdb.go).
             # This is load-bearing and silent if wrong: NewStoreFromEnv returns an
             # in-memory store for ANY other value, including unset, so the claim

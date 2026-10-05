@@ -144,8 +144,8 @@ that reason and not for presentation.
 
 **A verdict carries its reason, and the reason is the evidence.** The note is
 mandatory with a 10 character floor. A stored `false_positive` with no note
-cannot be audited six months later, defended to a regulator, or used to fix
-the rule that produced it, so the control will not submit without one. The
+cannot be audited later or defended to a regulator. It also cannot be used to
+fix the rule that produced it, so the control will not submit without one. The
 stored record is the server's: verdict, note, `reviewer` and `reviewed_at` as
 the API assigned them, shown back on the card.
 
@@ -158,19 +158,19 @@ each decision card header for that reason.
 description, the layer, the source, the pseudonymous actor and metadata chips.
 It does not show `raw_evidence_ref`, which is a pointer into the evidence blob
 store and is only ever dereferenced server-side behind an audited read. Label
-chips are filtered by key: anything named like content (`raw`, `payload`,
-`body`, `content`, `secret`, `token`, `key`, `evidence`) is dropped before
-render, so a collector that regresses and starts forwarding a body shows up as
-a missing chip rather than as a payload on a projector. A test asserts a
-fixture carrying a `raw` field never reaches the DOM.
+chips are filtered by key. Anything named like content is dropped before
+render: `raw`, `payload`, `body`, `content`, `secret`, `token`, `key` and
+`evidence`. A collector that regresses and starts forwarding a body therefore
+shows up as a missing chip rather than as a payload on a projector. A test
+asserts a fixture carrying a `raw` field never reaches the DOM.
 
- Two responses are reported in place and take nothing else down. A `409` means the same review was already recorded. A `403` means the signed-in key cannot review.
+Two responses are reported in place and take nothing else down. A `409` means
 the identical review is already recorded, which is not a fault and does not
-read like one, and `403` means the key cannot review. A failed review rolls
+read like one. A `403` means the key cannot review. A failed review rolls
 back its own optimistic badge and leaves the rest of the queue reviewable.
 
- With demo mode on, the findings, decisions and rates come from module-local fixtures. A review then survives the ten-second refetch because the fixture keeps the state.
-and no stream is opened; a review recorded there is kept in the browser only.
+With demo mode on, the findings, decisions and rates are module-local fixtures
+and no stream is opened. A review recorded there is kept in the browser only.
 The page says so in a banner rather than letting fixtures pass as live data.
 
 ## /audit

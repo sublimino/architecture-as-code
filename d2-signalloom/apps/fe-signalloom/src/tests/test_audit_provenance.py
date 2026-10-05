@@ -782,6 +782,17 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "Seeds fixture observations for the demo estate. Demo-only endpoint "
         "that writes synthetic data; the observations themselves are the record."
     ),
+    ("signal_policy.py", "review_policy_decision"): (
+        "Recording a human's verdict on a policy decision. The review itself is the audit "
+        "record: signal-ingest stores it as an append-only policy_review observation carrying "
+        "the reviewer, the verdict, the note and a server timestamp, with a sha256-derived id, "
+        "inside the same signed segments and retention sweep as every other observation "
+        "(policy/review.go). Writing an audit_events row in fe-signalloom for the act of "
+        "recording an attributable judgement is the same redundancy as auditing the ingest of "
+        "an audit log, and the gateway row would be the weaker of the two copies: it carries no "
+        "verdict, no note, and no link to the decision judged. The authorization decision on "
+        "the route is separately audited upstream by api.ProtectedRouter."
+    ),
     ("api_compat.py", "release_agent_claim"): (
         "Releases an in-memory claim record for the tenant without mutating durable state."
     ),

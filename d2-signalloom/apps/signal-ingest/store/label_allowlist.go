@@ -110,6 +110,22 @@ var defaultLabelAllowList = map[string]struct{}{
 	"window_id":             {},
 	"count":                 {},
 	"finding_ids":           {},
+	// SLAWS review API: a human's verdict on a decision is a policy_review observation
+	// (policy/review.go). decision_id is the sha256-derived decision identifier; verdict is a
+	// three-value closed vocabulary; reviewer is the authenticated reviewing principal.
+	//
+	// `note` is the one key here whose value is free text a person types, so it is the one entry
+	// that needs the limit on this control stated against it rather than against the list as a
+	// whole: Append checks the KEY and never the VALUE, so a reviewer can put anything in a note
+	// and it reaches a signed segment verbatim. Three things bound that and none of them is this
+	// allow-list — policy.MaxReviewNoteLen caps it at 500 runes, only a principal holding
+	// policy:review can write one at all, and the note is attributed to the reviewer who typed
+	// it. Refusing the key instead would have cost the only field that says WHY a decision was
+	// judged the way it was, which is the whole evidentiary point of recording the judgement.
+	"decision_id": {},
+	"verdict":     {},
+	"reviewer":    {},
+	"note":        {},
 	"severity":              {},
 	"category":              {},
 	"outcome":               {},

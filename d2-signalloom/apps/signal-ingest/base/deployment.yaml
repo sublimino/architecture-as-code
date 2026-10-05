@@ -103,6 +103,23 @@ spec:
               value: frostdb
             - name: SIGNAL_STORE_DIR
               value: /data/signals
+            # The FrostDB store refuses to start without the segment
+            # pseudonymisation root key and its epoch
+            # (store/segment_pseudonymiser.go). Both come from the Secret
+            # scripts/signal-segment-key.sh mints (make signal-segment-key, in
+            # demo-signalloom-up). Required, not optional: a store that cannot
+            # pseudonymise must not start, and a hand-patched Deployment is
+            # how the 2026-10-04 hub ran until Flux reconciled it back.
+            - name: SIGNAL_SEGMENT_PSEUDONYM_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: signal-ingest-segment-pseudonym
+                  key: SIGNAL_SEGMENT_PSEUDONYM_KEY
+            - name: SIGNAL_SEGMENT_PSEUDONYM_EPOCH
+              valueFrom:
+                secretKeyRef:
+                  name: signal-ingest-segment-pseudonym
+                  key: SIGNAL_SEGMENT_PSEUDONYM_EPOCH
             # SLAWS v2 D6, ISC-51: observation-policy bundles are Flux-reconciled
             # FILES, loaded once at boot, never registered over the API. This is
             # the SAME ConfigMap policy-engine mounts (declared once in
@@ -193,9 +210,12 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 32Mi
-            limits:
               memory: 128Mi
+            limits:
+              # FrostDB (SLAWS durable store) holds segments in memory before
+              # the Parquet flush; the 128Mi single-agent limit OOM-killed the
+              # pod six times in an hour on the 2026-10-04 hub.
+              memory: 512Mi
       volumes:
         # The FrostDB Parquet segments and their attestation evidence. The ephemeral
         # volume this replaces was deleted with the pod, so every reschedule or

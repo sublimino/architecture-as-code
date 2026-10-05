@@ -1500,6 +1500,13 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/tenant\/settings$/), data: () => tenantSettings() },
   { method: 'PATCH', test: re(/^\/tenant\/settings\/frameworks$/), data: (_p, body) =>
       tenantSettings((body as { selected_frameworks?: string[] })?.selected_frameworks ?? ['eu-ai-act']) },
+  // The onboarding wizard's scan-preferences step saves through this route;
+  // without a fixture the wizard stays on step 3 under the demo toggle.
+  { method: 'PATCH', test: re(/^\/tenant\/settings\/preferences$/), data: (_p, body) => {
+      const base = tenantSettings() as Record<string, unknown>
+      const patch = (body ?? {}) as Record<string, unknown>
+      return { ...base, ...patch }
+    } },
   { method: 'POST', test: re(/^\/support$/), data: () => support },
   // api keys
   { method: 'POST', test: re(/^\/tenants\/[^/]+\/api-keys\/initial$/), data: () => initialApiKey },

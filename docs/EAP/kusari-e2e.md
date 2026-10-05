@@ -1,8 +1,8 @@
 # Kusari pilot: testing the AWS signal path end to end
 
 This page is the walkthrough for the Kusari AWS telemetry tests. The reader is a
-Kusari or ControlPlane engineer who wants to run them, read the result, add a
-signal, add a rule, or replay a window.
+Kusari or ControlPlane engineer. The reader wants to run the tests, read the
+result, add a signal, add a rule, or replay a window.
 
 It derives from the [SLAWS proposal](../Proposal%20—%20Signal%20Loom%20AWS%20Telemetry%20Ingest%20%26%20Multilayer%20Policy%20Engine%20Beta%20%282026-Q3%29.md)
 §2.3 (the label contract), §3 and §4 (the two policy stages), and D3/D6/D7.
@@ -36,9 +36,9 @@ The bundles are files, Flux-reconciled into a ConfigMap and loaded at boot:
 | `policy/bundles/kusari/cloud-signals.yaml` | `kusari-cloud-signals` | EKS, console sign-in, STS, S3, GuardDuty, VPC Flow, and IAM more broadly |
 
 They overlap on the IAM path deliberately. A finding's id hashes the bundle
-version, so one `AttachUserPolicy` produces one finding per bundle with distinct
-ids and distinct rule ids — which is what lets the narrow bundle be promoted to
-`warn` on its own schedule while the broad one stays in `shadow`.
+version. So one `AttachUserPolicy` produces one finding per bundle, with
+distinct ids and distinct rule ids. This is what lets the narrow bundle be
+promoted to `warn` on its own schedule while the broad one stays in `shadow`.
 
 ## Running it
 
@@ -80,17 +80,17 @@ KUSARI_LIVE=1 KUBECONFIG=~/.kube/config bats test/kusari-e2e-live.bats
 ```
 
 Without `KUSARI_LIVE=1` and a real `KUBECONFIG` all seven tests skip, naming
-both conditions. The live tier only observes; it never writes an observation and
-never edits a cluster object, and its last test proves that by POSTing with the
-read key and requiring `403`.
+both conditions. The live tier only observes. It never writes an observation
+and never edits a cluster object. Its last test proves that by POSTing with
+the read key and requiring `403`.
 
-It answers what the offline suite structurally cannot: that the bundles Flux
-reconciled are the files in this tree (diffed per ConfigMap key), that the
-running pod loaded both at boot, that tenant `kusari` has findings, that every
-rule id which fired is declared in this tree, that `cloud-signals` is detecting
-rather than merely loaded, that every policy row is still `shadow`, and that
-each decision's `count` equals the number of finding ids it cites and every
-cited id exists.
+It answers what the offline suite structurally cannot. The bundles Flux
+reconciled are the files in this tree, diffed per ConfigMap key. The running
+pod loaded both at boot. Tenant `kusari` has findings, and every rule id
+which fired is declared in this tree. `cloud-signals` is detecting rather
+than merely loaded, and every policy row is still `shadow`. Each decision's
+`count` equals the number of finding ids it cites, and every cited id
+exists.
 
 Override `WL_CONTEXT` (default `kind-osramp`), `INGEST_NS` (default
 `fe-signalloom`), `KUSARI_LIVE_PORT` (default `28094`) and `KUSARI_LIVE_LIMIT`
@@ -128,14 +128,14 @@ Kusari AWS signal e2e — stage 2
 ```
 
 The `want` column is the table in `d2-signalloom/apps/signal-ingest/e2e/expectations.go`.
-Counts are asserted **exactly**, not as a lower bound: an over-triggering rule
-is how a detection control becomes noise nobody reads, and a lower bound cannot
-see it. Nothing may fire that the table does not name.
+Counts are asserted **exactly**, not as a lower bound. An over-triggering
+rule is how a detection control becomes noise nobody reads, and a lower
+bound cannot see it. Nothing may fire that the table does not name.
 
 `iam-change / iam-change-burst` expecting `0` is not an omission. The Kusari
-corpus reaches that rule once and its threshold is three, so zero is the
-correct answer — and stating it explicitly is the only way to catch a window
-that would fire on a single finding.
+corpus reaches that rule once, and its threshold is three. So zero is the
+correct answer. Stating it explicitly is the only way to catch a window that
+would fire on a single finding.
 
 ## What each test claims
 
@@ -192,24 +192,24 @@ the error is the dangerous one.** Pinned by
 Segment schema v2 is the privacy contract. `FrostDBStore.Append` pseudonymises
 the actor into `hmac_actor_hint` and digests the evidence reference, and writes
 no cleartext `actor_hint` column at all. So every observation read back out
-carries an **empty** `ActorHint`, and `policy.Replay` — which reads raw
-observations out of the store and re-evaluates them — hands every rule
+carries an **empty** `ActorHint`. `policy.Replay` reads raw observations out
+of the store and re-evaluates them, and so it hands every rule
 `obs.actor == ""`.
 
 Every allowlist in both bundles is a negative test on the actor
 (`!(obs.actor in vars.break_glass_actors)` and its siblings). An empty actor
 satisfies it. On replay, therefore:
 
-- break-glass records that live correctly ignored **fire**;
+- break-glass records that live correctly ignored **fire**.
 - `kusari-operator`'s allowlisted console sign-in, which exists in the corpus
-  precisely as that rule's negative fixture, **fires**;
+  precisely as that rule's negative fixture, **fires**.
 - `cross-account-assume-role` stops firing entirely, because its
-  `obs.actor != ""` guard is now false — two true positives and their burst
-  decision **disappear**;
+  `obs.actor != ""` guard is now false. Two true positives and their burst
+  decision **disappear**.
 - every window keyed on `actor` collapses into one counter.
 
-Measured over the Kusari corpus: live 62 findings and 3 decisions; FrostDB
-replay 64 and 2.
+Measured over the Kusari corpus: live is 62 findings and 3 decisions. FrostDB
+replay is 64 and 2.
 
 Reproduce it:
 
@@ -224,10 +224,10 @@ Two consequences for an operator today:
    matched", not to audit a past decision. The stored findings and decisions
    are the record of what happened.
 2. `docs/signalloom/runbooks/slaws-policy-replay.md` is wrong on this in two
-   places. It states that replay is unaffected by the lossy finding projection
-   "because it starts from raw observations", and its troubleshooting table
-   routes "Replay differs from live" to "investigate as a determinism defect".
-   Neither holds over a v2 segment. Flagged for that page's owner.
+   places. It states that replay is unaffected by the lossy finding
+   projection "because it starts from raw observations". Its troubleshooting
+   table routes "Replay differs from live" to "investigate as a determinism
+   defect". Neither holds over a v2 segment. Flagged for that page's owner.
 
 Fixing it is a design decision between two live contracts — the replay-oracle
 claim and the segment privacy contract — and it is cross-package. The candidate
@@ -238,30 +238,30 @@ The in-memory path is unaffected, and
 
 ## GuardDuty findings: a known gap
 
-The `guardduty-detection-tampered` rule covers GuardDuty **management** calls —
+The `guardduty-detection-tampered` rule covers GuardDuty **management** calls:
 `DeleteDetector`, `UpdateDetector`, `CreateFilter`, `ArchiveFindings` and the
-rest — which is what GuardDuty actually writes to CloudTrail, and which is the
+rest. This is what GuardDuty actually writes to CloudTrail, and it is the
 detection-evasion signal worth the `critical` severity.
 
 A GuardDuty **finding** is a different thing. It is delivered over EventBridge
 in a `{detail-type, detail{...}}` envelope with no `Records[]` array. That
-envelope is valid JSON, so `ProjectCloudTrail` decodes it successfully and
-returns **zero observations with no error** — a silent zero that reads exactly
+envelope is valid JSON, so `ProjectCloudTrail` decodes it successfully. It
+returns **zero observations with no error**: a silent zero that reads exactly
 like a quiet account.
 
 `collectors/awslogs/testdata/kusari/guardduty-eventbridge-envelope.json` holds
-one, deliberately **outside** `KusariFixtureFiles()` so it never reaches a rule,
-and `TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing` pins the zero.
-Closing the gap needs either an EventBridge-shaped projection path with its own
-§2.3 label rows, or a forwarder that re-shapes findings onto the CloudTrail
-envelope before they reach the bucket.
+one, deliberately **outside** `KusariFixtureFiles()` so it never reaches a
+rule. `TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing` pins the
+zero. Closing the gap needs an EventBridge-shaped projection path with its
+own §2.3 label rows. The alternative is a forwarder that re-shapes findings
+onto the CloudTrail envelope before they reach the bucket.
 
 ## Three fields the rules cannot read
 
 The projection is an allowlist of named scalars, and extending it is **not** a
-projection-only change: `store/label_allowlist.go` is a closed key set and
+projection-only change. `store/label_allowlist.go` is a closed key set, and
 `FrostDBStore.Append` refuses an entire batch containing a key outside it. So
-each of these is a coordinated change across two packages, and each is named in
+each of these is a coordinated change across two packages. Each is named in
 the rule that carries it rather than papered over.
 
 | Field | Where it lives | What the rule does instead |
@@ -279,10 +279,10 @@ A signal is a fixture object plus a row in the expectation table.
 
 1. **Write the fixture.** Put it under
    `collectors/awslogs/testdata/kusari/`. CloudTrail objects are a
-   `{"Records":[...]}` envelope; VPC Flow objects are version 2 default-format
-   text with the header line. Include **both** the records that should fire and
-   the records that should not — a `_fixture` key at the top of the JSON
-   documents which is which, and the projector ignores it.
+   `{"Records":[...]}` envelope. VPC Flow objects are version 2
+   default-format text with the header line. Include **both** the records
+   that should fire and the records that should not. A `_fixture` key at the
+   top of the JSON documents which is which, and the projector ignores it.
 2. **Register it.** Add a constant and a `KusariFixtureFiles()` entry in
    `collectors/awslogs/fixtures_kusari.go`. Do **not** add it to
    `FixtureFiles()`: that is the default replay set whose totals the projection
@@ -291,9 +291,9 @@ A signal is a fixture object plus a row in the expectation table.
    `go test -run TestKusariFixtures -v ./collectors/awslogs/` — this is where a
    missing label or a leaked secret shows up.
 4. **Keep the baseline honest.** If the new signal is a mutating API, add its
-   event name to the banned list in
-   `collectors/awslogs/synth/synth_test.go` so the false-positive gate stays
-   meaningful, and make sure `benignEvents` in `synth.go` does not draw it.
+   event name to the banned list in `collectors/awslogs/synth/synth_test.go`.
+   This keeps the false-positive gate meaningful. Make sure `benignEvents`
+   in `synth.go` does not draw it.
 
 Adding records to an existing fixture shifts the counts in the table. That is
 expected: update the table, and read the diff.
@@ -302,17 +302,17 @@ expected: update the table, and read the diff.
 
 1. **Write it** in `policy/bundles/kusari/cloud-signals.yaml`. Guard every
    label read with `has(...)`: a bare `obs.labels.k` on an absent key is an
-   evaluation fault that degrades the whole bundle for that observation. Give it
-   its own `id` and `severity` — one event should produce one finding per
+   evaluation fault that degrades the whole bundle for that observation. Give
+   it its own `id` and `severity`. One event should produce one finding per
    concern, which is why the EKS rules are split by what they grant.
 2. **Give it both fixtures.** A positive that fires it and a negative that does
    not. `TestKusariE2E_EveryRuleHasANegative` fails a rule with no negative,
    because a rule that fires on everything passes a positive-only suite.
 3. **Add the table row** in `e2e/expectations.go`, with the exact finding count
    and a one-line description of each fixture. Update `wantKusariFindings` and
-   `wantKusariDecisions`; the suite cross-checks the tables against the totals.
+   `wantKusariDecisions`. The suite cross-checks the tables against the totals.
 4. **Add a window** if a burst matters. `key` may use `tenant_id`, `actor`,
-   `rule_id`, or `labels.<key>`; see the caveat on `vpc-reject-burst-5m` in the
+   `rule_id`, or `labels.<key>`. See the caveat on `vpc-reject-burst-5m` in the
    bundle for what a label-keyed dimension costs at warm-up.
 5. **Re-render and run.**
 
@@ -323,7 +323,7 @@ cd d2-signalloom/apps/policy-engine && go test -run TestRenderedBundlesConfigMap
 ```
 
 A rule that does not compile, references an undeclared `vars` key, or yields a
-non-boolean is rejected at **load**, not at evaluation — `obscel.Conform` is the
+non-boolean is rejected at **load**, not at evaluation. `obscel.Conform` is the
 gate, and `LoadBundles` is fail-closed on a malformed bundle.
 
 ## Replaying a window
@@ -333,7 +333,7 @@ code the live sink runs, with the clock replaced by observation timestamps. It
 writes a canonical projection and never writes back to the store.
 
 ```bash
-signal-ingest replay \
+cd d2-signalloom/apps/signal-ingest && go run . replay \
   --bundles /etc/policy-engine/bundles \
   --from 2026-10-03T00:00:00Z \
   --to   2026-10-04T00:00:00Z \
@@ -341,7 +341,7 @@ signal-ingest replay \
   --out /tmp/kusari-replay.txt
 ```
 
-`--from` and `--to` are RFC3339 and both required; `--out` is required. Point
+`--from` and `--to` are RFC3339 and both required. `--out` is required. Point
 `--bundles` at a working tree to ask what a **candidate** bundle would have
 matched, which is the question replay is best at.
 
@@ -349,9 +349,10 @@ The full runbook is
 [`docs/signalloom/runbooks/slaws-policy-replay.md`](../signalloom/runbooks/slaws-policy-replay.md).
 Read the defect section above before trusting a replay over a durable segment.
 
-An empty output file with exit 0 means zero bundles loaded, no observations in
-the range, or a `--tenant` that does not match the `tenant_id` label — in that
-order of likelihood.
+An empty output file with exit 0 means one of three things. The bundle count
+is zero, or there are no observations in the range, or the `--tenant` value
+does not match the `tenant_id` label. Those are listed by order of
+likelihood.
 
 ## Related
 

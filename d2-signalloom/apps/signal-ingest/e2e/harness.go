@@ -178,11 +178,21 @@ func NewHarness(st store.SignalStore, bundlesDir string, deduper *collectors.Ded
 	metrics := policy.NewMetrics()
 	storeSink := collectors.NewStoreSink(st)
 
+	// obs.actor is the keyed pseudonym on both the live and the replay path, and
+	// it must be the STORE'S OWN pseudonymiser, not a second one over the same
+	// environment: the live observation and the segment row it becomes have to
+	// project onto one identity. Under FrostDB this is the instance the store
+	// writes hmac_actor_hint with; under MemoryStore it is nil and the cleartext
+	// hint passes through, which is consistent because a MemoryStore returns no
+	// pseudonymised row for replay to read.
+	pseudo := policy.StorePseudonymiser(st)
+
 	sink := policy.NewSink(storeSink, st, evaluator, policy.StaticBundles(bundles), policy.Options{
-		Windows:  policy.NewWindowsWithLogger(bundles, log),
-		Metrics:  metrics,
-		Observer: rec,
-		Logger:   log,
+		Windows:            policy.NewWindowsWithLogger(bundles, log),
+		Metrics:            metrics,
+		Observer:           rec,
+		Logger:             log,
+		ActorPseudonymiser: pseudo,
 		// Derived records go through the dedupe seam; the source observation
 		// does not, because it was claimed upstream and would otherwise be
 		// refused as a duplicate of its own claim.

@@ -71,7 +71,7 @@ func TestFrostDBExplicitRotationsAttestRealParquetBytes(t *testing.T) {
 	// self-consistent writer digest. Only this disposable test fixture is mutated.
 	cfg := evidenceverify.Config{
 		EvidenceDir: evidence, SegmentRoot: dir,
-		HighWaterPath: filepath.Join(dir, "protected", "highwater.json"),
+		HighWaterPath:  filepath.Join(dir, "protected", "highwater.json"),
 		PublicKeyPaths: []string{writeTestPublicKey(t, privateKey)},
 	}
 	started := time.Now()

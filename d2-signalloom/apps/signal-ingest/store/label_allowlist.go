@@ -88,6 +88,21 @@ var defaultLabelAllowList = map[string]struct{}{
 	// closed policy metadata or sha256-derived identifiers; none names a person.
 	// Collector operational records (buffer_eviction, projection_failure) are typed by this key.
 	"type": {},
+	// actor_pseudonym is the keyed pseudonym of the actor on a stored finding or
+	// decision (policy.LabelActor). It is admitted because the v2 schema removed
+	// the cleartext actor_hint column and with it the only way warm-up could tell
+	// one actor-keyed counter from another after a restart: every window keyed on
+	// `actor` collapsed into a single counter.
+	//
+	// The key is deliberately NOT `actor`, which stays on the forbidden list in
+	// segment_schema_v2_test.go. This allow-list bounds KEYS and never VALUES, so
+	// admitting `actor` would let any collector ship a cleartext identity under a
+	// key that reads as legitimate. `actor_pseudonym` names its own value class:
+	// a cleartext value under it is self-evidently wrong rather than plausibly
+	// right, and policy is its only writer -- see
+	// TestFindingObservation_ActorPseudonymLabelIsAPseudonym, which pins the
+	// value shape at the writer, which is the only place a value CAN be checked.
+	"actor_pseudonym": {},
 	// SLAWS v2 §2.3: the awslogs projection (CloudTrail, IAM, VPC Flow). Keys only; values are
 	// AWS-shaped scalars (account id, region, event names, resource type and name, addresses,
 	// ports, byte counts). Found missing on kind-osramp: the first fixture observation was refused.
@@ -99,8 +114,8 @@ var defaultLabelAllowList = map[string]struct{}{
 	// time a policy rule sees it, so "did this call cross an account boundary"
 	// cannot be answered by dissecting the actor any more. This label is how that
 	// question survives into a v2 segment and therefore into a replay.
-	"actor_account_id": {},
-	"aws_region":       {},
+	"actor_account_id":      {},
+	"aws_region":            {},
 	"event_source":          {},
 	"event_name":            {},
 	"error_code":            {},
@@ -130,28 +145,28 @@ var defaultLabelAllowList = map[string]struct{}{
 	// policy:review can write one at all, and the note is attributed to the reviewer who typed
 	// it. Refusing the key instead would have cost the only field that says WHY a decision was
 	// judged the way it was, which is the whole evidentiary point of recording the judgement.
-	"decision_id": {},
-	"verdict":     {},
-	"reviewer":    {},
-	"note":        {},
-	"severity":              {},
-	"category":              {},
-	"outcome":               {},
-	"direction":             {},
-	"port":                  {},
-	"region":                {},
-	"zone":                  {},
-	"environment":           {},
-	"provider":              {},
-	"engine":                {},
-	"policy":                {},
-	"policy_version":        {},
-	"quarantine":            {},
-	"correlation_id":        {},
-	"trust_domain":          {},
-	"attestation":           {},
-	"signature_algo":        {},
-	"schema":                {},
+	"decision_id":    {},
+	"verdict":        {},
+	"reviewer":       {},
+	"note":           {},
+	"severity":       {},
+	"category":       {},
+	"outcome":        {},
+	"direction":      {},
+	"port":           {},
+	"region":         {},
+	"zone":           {},
+	"environment":    {},
+	"provider":       {},
+	"engine":         {},
+	"policy":         {},
+	"policy_version": {},
+	"quarantine":     {},
+	"correlation_id": {},
+	"trust_domain":   {},
+	"attestation":    {},
+	"signature_algo": {},
+	"schema":         {},
 
 	// stun-sentinel kernel observations (review M4). These are the correlator's wire keys
 	// (apps/stun-sentinel/pkg/correlator/ingest.go toIngest); `namespace` and `severity` were

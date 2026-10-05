@@ -49,8 +49,8 @@ describe('demo mode', () => {
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound: it guards against
   // routes disappearing in a merge.
-  it('covers the full 81-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(81)
+  it('covers the full 82-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(82)
   })
 
 

@@ -91,8 +91,16 @@ var defaultLabelAllowList = map[string]struct{}{
 	// SLAWS v2 §2.3: the awslogs projection (CloudTrail, IAM, VPC Flow). Keys only; values are
 	// AWS-shaped scalars (account id, region, event names, resource type and name, addresses,
 	// ports, byte counts). Found missing on kind-osramp: the first fixture observation was refused.
-	"aws_account_id":        {},
-	"aws_region":            {},
+	"aws_account_id": {},
+	// actor_account_id is the ACTING principal's AWS account, parsed from
+	// userIdentity.arn. It is the same class of value as aws_account_id above --
+	// a 12-digit account number, chosen by nobody, naming no natural person -- and
+	// it is admitted for a specific reason: obs.actor is a keyed pseudonym by the
+	// time a policy rule sees it, so "did this call cross an account boundary"
+	// cannot be answered by dissecting the actor any more. This label is how that
+	// question survives into a v2 segment and therefore into a replay.
+	"actor_account_id": {},
+	"aws_region":       {},
 	"event_source":          {},
 	"event_name":            {},
 	"error_code":            {},

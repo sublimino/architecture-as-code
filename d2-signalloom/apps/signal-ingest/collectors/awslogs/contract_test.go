@@ -74,12 +74,16 @@ func TestProjectCloudTrail_FirstRecordCarriesEveryDocumentedKey(t *testing.T) {
 		LabelTenantID:     "kusari",
 		LabelProvider:     "aws",
 		LabelAWSAccountID: "123456789012",
-		LabelAWSRegion:    "us-east-1",
-		LabelEventSource:  "iam.amazonaws.com",
-		LabelEventName:    "CreatePolicyVersion",
-		LabelResourceType: "AWS::IAM::Policy",
-		LabelResourceName: "arn:aws:iam::123456789012:policy/kusari-agent-policy",
-		LabelSourceIP:     "203.0.113.10",
+		// Same account here: this fixture record is an in-account IAM change, so
+		// the acting and receiving accounts agree. The cross-account fixture is
+		// where the two diverge (actor_account_test.go).
+		LabelActorAccountID: "123456789012",
+		LabelAWSRegion:      "us-east-1",
+		LabelEventSource:    "iam.amazonaws.com",
+		LabelEventName:      "CreatePolicyVersion",
+		LabelResourceType:   "AWS::IAM::Policy",
+		LabelResourceName:   "arn:aws:iam::123456789012:policy/kusari-agent-policy",
+		LabelSourceIP:       "203.0.113.10",
 	}
 	if !reflect.DeepEqual(got.Labels, want) {
 		t.Errorf("Labels mismatch\n got: %v\nwant: %v", got.Labels, want)

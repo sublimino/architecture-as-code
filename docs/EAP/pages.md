@@ -164,12 +164,12 @@ render, so a collector that regresses and starts forwarding a body shows up as
 a missing chip rather than as a payload on a projector. A test asserts a
 fixture carrying a `raw` field never reaches the DOM.
 
-Two responses are reported in place and take nothing else down: `409` means
+ Two responses are reported in place and take nothing else down. A `409` means the same review was already recorded. A `403` means the signed-in key cannot review.
 the identical review is already recorded, which is not a fault and does not
 read like one, and `403` means the key cannot review. A failed review rolls
 back its own optimistic badge and leaves the rest of the queue reviewable.
 
-With demo mode on, the findings, decisions and rates are module-local fixtures
+ With demo mode on, the findings, decisions and rates come from module-local fixtures. A review then survives the ten-second refetch because the fixture keeps the state.
 and no stream is opened; a review recorded there is kept in the browser only.
 The page says so in a banner rather than letting fixtures pass as live data.
 

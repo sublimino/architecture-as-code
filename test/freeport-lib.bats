@@ -81,3 +81,26 @@ time.sleep(30)' >"${BATS_TEST_TMPDIR}/live" &
   [ "$status" -ne 0 ]
   [[ "$output" == *"never accepted"* ]]
 }
+
+@test "freeport: wait_for_listen observes a one-shot listener without consuming it" {
+  command -v nc >/dev/null || skip "nc unavailable"
+  port="$(free_port)"
+  # `nc -l` without -k accepts exactly one connection and exits. A readiness
+  # probe that DIALS would eat it; wait_for_listen must not.
+  nc -l 127.0.0.1 "$port" </dev/null >/dev/null 2>&1 &
+  pid=$!
+  run wait_for_listen "$port" 5
+  [ "$status" -eq 0 ]
+  # still listening after the probe -- this is the whole point
+  run bash -c "ss -tlnH | awk '{print \$4}' | grep -qE ':${port}\$'"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ "$status" -eq 0 ]
+}
+
+@test "freeport: wait_for_listen fails on a port nothing is bound to" {
+  port="$(free_port)"
+  run wait_for_listen "$port" 1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"nothing listening"* ]]
+}

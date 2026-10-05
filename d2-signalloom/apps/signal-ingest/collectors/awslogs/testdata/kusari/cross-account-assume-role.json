@@ -1,0 +1,115 @@
+{
+  "_fixture": [
+    "sts:AssumeRole into the Kusari account.",
+    "Records 0-1 FIRE cross-account-assume-role: the assuming principal lives in",
+    "account 999988887777, which is not the account receiving the call. Two of",
+    "them inside 30 minutes, which is the threshold of the",
+    "cross-account-assume-role-burst-30m window.",
+    "Record 2 is the NEGATIVE pair half: a SAME-account AssumeRole. It must not",
+    "fire, and it is the reason the rule tests the actor ARN against",
+    "obs.labels.aws_account_id rather than against a list -- a same-account role",
+    "chain is the normal shape of every CI job in the account.",
+    "Record 3 is the second NEGATIVE: cross-account, but by a principal in",
+    "vars.cross_account_assume_role_actors."
+  ],
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T10:00:00Z",
+      "eventSource": "sts.amazonaws.com",
+      "eventName": "AssumeRole",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.200",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::999988887777:user/partner-integration",
+        "accountId": "999988887777",
+        "userName": "partner-integration"
+      },
+      "requestParameters": {
+        "roleArn": "arn:aws:iam::123456789012:role/kusari-agent-exec",
+        "roleSessionName": "partner-1"
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::Role",
+          "ARN": "arn:aws:iam::123456789012:role/kusari-agent-exec"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T10:12:00Z",
+      "eventSource": "sts.amazonaws.com",
+      "eventName": "AssumeRole",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.200",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::999988887777:user/partner-integration",
+        "accountId": "999988887777",
+        "userName": "partner-integration"
+      },
+      "requestParameters": {
+        "roleArn": "arn:aws:iam::123456789012:role/kusari-agent-exec",
+        "roleSessionName": "partner-2"
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::Role",
+          "ARN": "arn:aws:iam::123456789012:role/kusari-agent-exec"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T10:20:00Z",
+      "eventSource": "sts.amazonaws.com",
+      "eventName": "AssumeRole",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "10.0.1.5",
+      "userIdentity": {
+        "type": "AssumedRole",
+        "arn": "arn:aws:sts::123456789012:assumed-role/kusari-ci/build-10001",
+        "accountId": "123456789012"
+      },
+      "requestParameters": {
+        "roleArn": "arn:aws:iam::123456789012:role/kusari-deploy",
+        "roleSessionName": "build-10001"
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::Role",
+          "ARN": "arn:aws:iam::123456789012:role/kusari-deploy"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T10:25:00Z",
+      "eventSource": "sts.amazonaws.com",
+      "eventName": "AssumeRole",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "198.51.100.44",
+      "userIdentity": {
+        "type": "IAMRole",
+        "arn": "arn:aws:iam::555544443333:role/kusari-ci-deploy",
+        "accountId": "555544443333"
+      },
+      "requestParameters": {
+        "roleArn": "arn:aws:iam::123456789012:role/kusari-deploy",
+        "roleSessionName": "trusted-ci"
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::Role",
+          "ARN": "arn:aws:iam::123456789012:role/kusari-deploy"
+        }
+      ]
+    }
+  ]
+}

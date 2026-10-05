@@ -1,0 +1,118 @@
+{
+  "_fixture": [
+    "GuardDuty as it ACTUALLY appears in CloudTrail: management API calls",
+    "against the detector, not findings.",
+    "Records 0-2 FIRE guardduty-detection-tampered -- a suppression filter, a",
+    "detector disable, and an archive of live findings. Each is a step in",
+    "blinding the account's own detection, which is why the rule severity is",
+    "critical while the S3 and EKS rules are high.",
+    "Record 3 is the NEGATIVE: a read of the detector.",
+    "WHERE THE FINDINGS THEMSELVES ARE, stated so nobody reads this fixture as",
+    "covering them: a GuardDuty FINDING is delivered over EventBridge, not",
+    "CloudTrail, and its envelope is {detail-type, detail{...}}, which this",
+    "projection does not parse. See guardduty-eventbridge-envelope.json and",
+    "TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing, which pins that",
+    "gap as a silent zero rather than leaving it to be discovered on the pilot."
+  ],
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T12:00:00Z",
+      "eventSource": "guardduty.amazonaws.com",
+      "eventName": "CreateFilter",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "detectorId": "d-kusari-prod",
+        "name": "suppress-everything",
+        "action": "ARCHIVE"
+      },
+      "resources": [
+        {
+          "type": "AWS::GuardDuty::Detector",
+          "ARN": "arn:aws:guardduty:us-east-1:123456789012:detector/d-kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T12:00:30Z",
+      "eventSource": "guardduty.amazonaws.com",
+      "eventName": "ArchiveFindings",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "detectorId": "d-kusari-prod"
+      },
+      "resources": [
+        {
+          "type": "AWS::GuardDuty::Detector",
+          "ARN": "arn:aws:guardduty:us-east-1:123456789012:detector/d-kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T12:01:10Z",
+      "eventSource": "guardduty.amazonaws.com",
+      "eventName": "UpdateDetector",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "detectorId": "d-kusari-prod",
+        "enable": false
+      },
+      "resources": [
+        {
+          "type": "AWS::GuardDuty::Detector",
+          "ARN": "arn:aws:guardduty:us-east-1:123456789012:detector/d-kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T12:02:00Z",
+      "eventSource": "guardduty.amazonaws.com",
+      "eventName": "GetDetector",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-operator",
+        "accountId": "123456789012",
+        "userName": "kusari-operator"
+      },
+      "requestParameters": {
+        "detectorId": "d-kusari-prod"
+      },
+      "resources": [
+        {
+          "type": "AWS::GuardDuty::Detector",
+          "ARN": "arn:aws:guardduty:us-east-1:123456789012:detector/d-kusari-prod"
+        }
+      ]
+    }
+  ]
+}

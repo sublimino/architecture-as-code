@@ -1,0 +1,144 @@
+# Test-isolation allowlist — scripts/test-isolation-audit.sh
+#
+# Format:  <file>:<kind>:<literal>  # <reason>
+# An entry with no reason is an error, not a pass: an allowlisted literal whose
+# justification was never written down is indistinguishable from an oversight.
+#
+# The bar for an entry is ONE of:
+#   inert       the literal is test DATA — a packet tuple, a /proc fixture, a
+#               manifest string, a config default being asserted, a path handed
+#               to a classifier. Nothing binds it and nothing creates it.
+#   overridable the literal is an env-var default (`${FOO:-/tmp/bar}`), so the
+#               harness can and does point concurrent runs elsewhere.
+#   unique      the literal is a prefix completed at run time by $$, %d or a
+#               nonce, so two runs cannot produce the same name.
+#   in-container the address or path is resolved inside a container, not on the
+#               host, so host-level concurrency does not reach it.
+#
+# "It happens to work today" is NOT a reason. If a test binds a port or creates
+# a fixed path, fix it: free_port() from test/lib/freeport.bash, bind
+# 127.0.0.1:0 and read the port back, $BATS_TEST_TMPDIR, or t.TempDir().
+#
+# Audit the list:  scripts/test-isolation-audit.sh --list-allowlisted
+
+# --- bats ------------------------------------------------------------------
+
+# The httpd command and its ports live inside a Pod spec in a heredoc manifest.
+# Both the bind and the file are in the container's namespace, never the host's.
+test/dual-cluster-networking.bats:PORT:8080  # in-container: busybox httpd inside a Pod spec, not a host bind
+test/dual-cluster-networking.bats:PORT:30081  # inert: nodePort field in a Service manifest string
+test/dual-cluster-networking.bats:TMP:/tmp/index.html  # in-container: written inside the echo Pod, not on the host
+
+# ss/docker-ps output fixtures that drive the preflight gates into pass and fail.
+# These are strings compared against, never sockets.
+test/p2-dualcluster-preflight.bats:PORT:22  # inert: fixture line of fake `ss -tlnH` output
+test/p2-dualcluster-preflight.bats:PORT:8081  # inert: fixture line of fake `docker ps` output
+test/p2-dualcluster-preflight.bats:PORT:8082  # inert: fixture line of fake `ss -tlnH` output
+test/p2-dualcluster-preflight.bats:PORT:34777  # inert: fixture collision the gate must detect; written to a fake ss file
+test/p2-dualcluster-preflight.bats:PORT:34788  # inert: remaining use is the test NAME; the live binder now uses free_port()
+
+# Docker-lab suite: the address is resolved by `docker exec ... bao`, i.e. inside
+# the container. The host-side URL is taken from `docker port` instead.
+test/spire-federation-openbao-jwt.bats:PORT:8200  # in-container: BAO_ADDR for `docker exec`, host port comes from `docker port`
+
+# Expected stderr text from a fake kubectl, asserted as a string.
+test/sldc-ingest-bearer.bats:PORT:6443  # inert: fake kubectl's connection-refused message, compared as text
+
+# Go cache/module/path defaults. Every one is `${VAR:-/tmp/...}`, and
+# scripts/parallel-acceptance.sh sets GOCACHE/GOMODCACHE/GOPATH per run so the
+# two runs never share. Go's build cache is lock-protected in any case.
+test/sltm-probe-apikey.bats:TMP:/tmp/go  # overridable: ${GOPATH:-/tmp/go}
+test/sltm-probe-apikey.bats:TMP:/tmp/go-cache  # overridable: ${GOCACHE:-/tmp/go-cache}
+test/sltm-probe-apikey.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/signal-ingest-image-tag.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
+test/signal-ingest-image-tag.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/signal-ingest-image-tag.bats:TMP:/tmp/gopath  # overridable: ${GOPATH:-/tmp/gopath}
+test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/go  # overridable: ${GOPATH:-/tmp/go}
+test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/go-cache  # overridable: ${GOCACHE:-/tmp/go-cache}
+test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/sltm-ingest-chain.bats:TMP:/tmp/go  # overridable: ${GOPATH:-/tmp/go}
+test/sltm-ingest-chain.bats:TMP:/tmp/go-cache  # overridable: ${GOCACHE:-/tmp/go-cache}
+test/sltm-ingest-chain.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+
+# --- Go: fleet-manager -----------------------------------------------------
+
+# Address-parsing and URL-shape table tests. The gRPC/mTLS suites that really
+# listen already use net.Listen("tcp","127.0.0.1:0") (spire_mtls_test.go:107,
+# spire_client_test.go:145).
+d2-signalloom/apps/fleet-manager/openbao_client_test.go:PORT:59999  # inert: Address field of a client config that is never dialled
+d2-signalloom/apps/fleet-manager/spire_client_test.go:PORT:8081  # inert: want/got pair in an address-normalisation table
+d2-signalloom/apps/fleet-manager/spire_client_test.go:TMP:/tmp/spire.sock  # inert: want/got pair in a socket-URL-normalisation table
+
+# --- Go: kusari-agent ------------------------------------------------------
+
+# configFromEnv table test. These assert the PRODUCTION DEFAULTS
+# (defaultHostilePath, listenAddr ":8080"), so changing them would change what
+# the product does, not how the test isolates. Every test that actually WRITES
+# the hostile file already uses t.TempDir() (main_test.go:38, :256).
+d2-signalloom/apps/kusari-agent/main_test.go:PORT:8080  # inert: asserts the default listenAddr and a rejected PORT value
+d2-signalloom/apps/kusari-agent/main_test.go:TMP:/tmp/hostile-test.txt  # inert: asserts defaultHostilePath; writers use t.TempDir()
+d2-signalloom/apps/kusari-agent/main_test.go:TMP:/tmp/elsewhere.txt  # inert: HOSTILE_PATH override value in a config table
+
+# --- Go: signal-ingest -----------------------------------------------------
+
+# DSN strings. sql.Open is lazy, so no connection is attempted; the blackhole
+# test dials a closed ephemeral port it obtained itself.
+d2-signalloom/apps/signal-ingest/audit/postgres_timeout_test.go:PORT:5432  # inert: keyword-form DSN against a blackholed host
+d2-signalloom/apps/signal-ingest/identity/pool_sharing_test.go:PORT:5432  # inert: dummy DSN; sql.Open never connects
+
+# Doc comments showing the operator how to run the live suites.
+d2-signalloom/apps/signal-ingest/identity/alias_pg_live_test.go:PORT:55435  # inert: example DSN in a how-to-run comment
+d2-signalloom/apps/signal-ingest/identity/tenant_live_test.go:PORT:55432  # inert: example DSN in a how-to-run comment
+d2-signalloom/apps/signal-ingest/subjectkey/postgres_live_test.go:PORT:55439  # inert: example DSN in a how-to-run comment
+d2-signalloom/apps/signal-ingest/store/duckdb_fixture_test.go:TMP:/tmp/signal-store-fixture  # inert: example path in a how-to-run comment
+
+# Socket paths handed to a collector that is off, or deliberately absent, to
+# prove it does not dial. Nothing is created.
+d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/a.sock  # inert: config value; collector never connects
+d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/custom.sock  # inert: env value asserted back out of config
+d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/definitely-not-a-tetragon-socket-9f8e7d.sock  # inert: deliberately absent path
+d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/nonexistent.sock  # inert: deliberately absent path, ModeOff
+d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/nope.sock  # inert: deliberately absent path, ModeOff
+d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/unused.sock  # inert: config value, client never started
+
+# Packet-tuple fields and CLI-argument strings.
+d2-signalloom/apps/signal-ingest/collectors/netebpf/collector_test.go:PORT:40123  # inert: SrcPort field of a synthetic flow record
+d2-signalloom/apps/signal-ingest/collectors/netebpf/collector_test.go:PORT:8080  # inert: DstPort field of a synthetic flow record
+d2-signalloom/apps/signal-ingest/policy/replay_test.go:TMP:/tmp/bundles  # inert: env value asserted back out by BundlesDirFromEnv
+d2-signalloom/apps/signal-ingest/policy/replay_test.go:TMP:/tmp/x  # inert: argv element in an IsReplayInvocation table
+
+# --- Go: stun-sentinel / signalloom-stun-sentinel --------------------------
+
+# Paths fed to IsSensitivePath / the prefilter to classify. Pure string inputs.
+d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator_test.go:TMP:/tmp/test.log  # inert: benign-path input to IsSensitivePath
+d2-signalloom/apps/stun-sentinel/pkg/correlator/pipeline_test.go:TMP:/tmp/..  # inert: traversal string the path normaliser must reject
+d2-signalloom/apps/stun-sentinel/pkg/correlator/pipeline_test.go:TMP:/tmp/work  # inert: fake /proc/<pid>/cwd fixture value
+d2-signalloom/apps/stun-sentinel/pkg/correlator/prefilter_agreement_test.go:TMP:/tmp/..  # inert: traversal string for prefilter agreement
+d2-signalloom/apps/stun-sentinel/pkg/correlator/prefilter_agreement_test.go:TMP:/tmp/.X11-unix  # inert: benign-path input to the prefilter
+d2-signalloom/apps/stun-sentinel/pkg/correlator/stats_test.go:TMP:/tmp/harmless  # inert: non-sensitive path in a synthetic ebpf record
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/event_test.go:TMP:/tmp/a  # inert: byte-slice payload decoded by DecodeSyscallEvent
+
+# Nonce-completed prefixes.
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader_test.go:TMP:/tmp/sentinel-probe-noise-  # unique: completed by a per-run nonce
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader_test.go:TMP:/tmp/sentinel-probe-self-  # unique: completed by a per-run nonce
+
+# /proc/net/tcp and conntrack fixtures, container-port manifest fields, and
+# classifier inputs. pkg/quarantine's helper process already passes port 0
+# (capturer_test.go:106); loader_test.go already binds 127.0.0.1:0.
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/probe_test.go:PORT:45678  # inert: SrcPort field of a synthetic event
+d2-signalloom/apps/stun-sentinel/pkg/probe/probe_test.go:PORT:8080  # inert: ContainerPort field in a Pod spec literal
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/procfs_test.go:PORT:8080  # inert: expected LocalAddr parsed from a /proc/net/tcp fixture
+d2-signalloom/apps/stun-sentinel/pkg/quarantine/procfs_test.go:PORT:57953  # inert: expected LocalAddr parsed from a /proc/net/tcp fixture
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go:PORT:1234  # inert: ConntrackTuple field
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go:PORT:5000  # inert: ConntrackTuple field
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go:PORT:5678  # inert: ConntrackTuple field
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go:PORT:8080  # inert: ConntrackTuple field
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go:PORT:40000  # inert: ConntrackTuple field
+d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack_test.go:PORT:54321  # inert: ConntrackTuple field
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/classifier_test.go:PORT:9001  # inert: dstPort input to the egress classifier
+d2-signalloom/apps/stun-sentinel/pkg/telemetry/classifier_test.go:PORT:11434  # inert: dstPort input (Ollama) to the egress classifier
+d2-signalloom/apps/signalloom-stun-sentinel/probe_test.go:PORT:8080  # inert: ContainerPort field in a Pod spec literal
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/attribution_test.go:PORT:49152  # inert: SrcPort field of a synthetic flow
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go:PORT:8443  # inert: dstPort input to the egress classifier
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go:PORT:9000  # inert: dstPort input to the egress classifier
+d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go:PORT:11434  # inert: dstPort input (Ollama) to the egress classifier

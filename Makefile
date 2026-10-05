@@ -1210,6 +1210,19 @@ test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytes
 	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status
 
+# Test isolation. Two concurrent runs of the acceptance set must not interfere:
+# a test that hardcodes a port or a /tmp path owns a machine-global name, and
+# the failure is often silent (a skip, or a server that answers the wrong run).
+.PHONY: test-isolation-audit test-isolation-audit-test test-parallel-acceptance
+test-isolation-audit: ## Fail on any fixed port or fixed /tmp path in the acceptance test set that is not allowlisted with a reason.
+	bash scripts/test-isolation-audit.sh
+
+test-isolation-audit-test: ## Run the audit's own suites (detector behaviour, free_port library).
+	KUBECONFIG=/dev/null bats test/test-isolation-audit.bats test/freeport-lib.bats
+
+test-parallel-acceptance: ## Run two full acceptance passes concurrently; passes only if both do (~10-15 min).
+	bash scripts/parallel-acceptance.sh
+
 test-sldc-mutation-proof: ## Break the real SLDC production lines each suite guards and require red (clean tree required; mutates then restores).
 	KUBECONFIG=/dev/null bash test/eap-tenant-routing-mutation-proof.sh
 	KUBECONFIG=/dev/null bash test/eap-evidence-mutation-proof.sh

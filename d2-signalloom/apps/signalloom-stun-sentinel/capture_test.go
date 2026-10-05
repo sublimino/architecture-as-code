@@ -64,7 +64,7 @@ func (c *captureHarness) wait(t *testing.T) {
 	t.Helper()
 	select {
 	case <-c.done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(scaledDuration(5 * time.Second)):
 		t.Fatal("capture did not run")
 	}
 }

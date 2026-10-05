@@ -21,7 +21,16 @@ type cgroupFreezer struct {
 	resumeToken string
 }
 
-func newCgroupFreezer(root string, dryRun bool, freezeToken, resumeToken string) *cgroupFreezer {
+// newCgroupFreezer builds the freezer the reconciler and the correlator share.
+//
+// extra is appended AFTER the defaults, so a caller can override one of them
+// without restating the rest and without changing any default. Production
+// (main.go) passes none. The only current use is the test harness raising
+// cgroup.WithDeadline: its fake kernel mirrors cgroup.freeze into cgroup.events
+// from a polling goroutine, and on a loaded host that goroutine is not
+// scheduled inside the 50ms DefaultFreezeDeadline, so the freeze is reported as
+// ErrFreezeDeadline for a scheduling reason rather than a product one.
+func newCgroupFreezer(root string, dryRun bool, freezeToken, resumeToken string, extra ...cgroup.Option) *cgroupFreezer {
 	if freezeToken == "" {
 		freezeToken = defaultInternalToken
 	}
@@ -35,11 +44,13 @@ func newCgroupFreezer(root string, dryRun bool, freezeToken, resumeToken string)
 		}
 	}
 
-	engine := cgroup.New(root,
+	opts := []cgroup.Option{
 		cgroup.WithDryRun(dryRun),
 		cgroup.WithFreezeCredentialValidator(validator(freezeToken)),
 		cgroup.WithResumeCredentialValidator(validator(resumeToken)),
-	)
+	}
+	opts = append(opts, extra...)
+	engine := cgroup.New(root, opts...)
 
 	return &cgroupFreezer{
 		engine:      engine,

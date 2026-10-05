@@ -57,6 +57,24 @@ def get_jev_api_key() -> Optional[str]:
     return None
 
 
+def normalise_path(raw: str) -> str:
+    """Reduce any URL or path to the canonical route key used for coverage.
+
+    Coverage accounting is only honest if one route has one name. Without
+    this, `/agents`, `/agents/` and `/agents?tenant=demo` are three entries,
+    which inflates "routes visited" while simultaneously leaving the route the
+    loop actually asked for looking unvisited. Query and fragment are dropped
+    (they are not a distinct page in this route table), the trailing slash is
+    dropped (react-router treats them alike), and root stays `/`.
+    """
+    if raw.startswith("http://") or raw.startswith("https://"):
+        raw = urllib.parse.urlparse(raw).path
+    raw = raw.split("#")[0].split("?")[0]
+    if not raw.startswith("/"):
+        raw = "/" + raw
+    return raw.rstrip("/") or "/"
+
+
 class BugOracle:
     """Collects and reports application defects, HTTP failures, and console errors."""
 
@@ -277,11 +295,32 @@ class JevExploratoryTestBot:
         self.request_timeout = request_timeout
         self.oracle = BugOracle()
         self.visited_urls = set()
+        # Ordered, normalised record of which ROUTES this run actually touched,
+        # and the status each returned. `visited_urls` is a set of mixed full
+        # URLs and bare paths — enough for the bot's own revisit check, not
+        # enough to answer "what did this run cover?".
+        self.visited_paths: List[str] = []
+        self.path_status: Dict[str, int] = {}
         self.history: List[Dict[str, Any]] = []
 
         # Initialize API key and client
         self.api_key = get_jev_api_key()
         self.client = JevClient(api_key=self.api_key, mock=mock)
+
+    def record_visit(self, raw_path: str, status_code: int) -> str:
+        """Note that a route was fetched, and with what result.
+
+        The status kept per path is the WORST seen, not the last: a route that
+        500s once and 200s on a later turn is not a healthy route, and a report
+        that says otherwise is the kind of thing this bot exists to catch.
+        """
+        key = normalise_path(raw_path)
+        if key not in self.path_status:
+            self.visited_paths.append(key)
+            self.path_status[key] = status_code
+        else:
+            self.path_status[key] = max(self.path_status[key], status_code)
+        return key
 
     def fetch_page(self, path: str) -> PageSnapshot:
         """Fetch URL and parse into structured snapshot."""
@@ -520,6 +559,7 @@ class JevExploratoryTestBot:
             snapshot = self.fetch_page(current_path)
             self.visited_urls.add(snapshot.url)
             self.visited_urls.add(current_path.split("?")[0].rstrip("/") or "/")
+            self.record_visit(current_path, snapshot.status_code)
 
             print(f"  \033[90mObservation:\033[0m {snapshot.title} (HTTP {snapshot.status_code}, {len(snapshot.elements)} controls)")
 
@@ -583,6 +623,8 @@ class JevExploratoryTestBot:
             "turns_executed": turn,
             "duration_seconds": round(duration, 2),
             "visited_urls": list(self.visited_urls),
+            "visited_paths": list(self.visited_paths),
+            "path_status": dict(self.path_status),
             "defects_count": len(self.oracle.errors),
             "defects": self.oracle.errors,
             "passed": passed,

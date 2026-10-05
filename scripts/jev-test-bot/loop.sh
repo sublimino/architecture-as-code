@@ -45,6 +45,17 @@ usage() {
 Usage: loop.sh [options]
 
   --url URL            Explore an existing dashboard; start nothing locally.
+  --mode MODE          fetch | browser (default: fetch).
+                         fetch   — bot.py over urllib. No JS execution, so
+                                   every route "answers" and no console,
+                                   runtime-error, error-boundary or dead-control
+                                   oracle can fire. The offline default.
+                         browser — browser_driver.mjs in a real Chromium, with
+                                   the render-time oracles. Needs the
+                                   Playwright runtime test/acceptance installs
+                                   and the dashboard's node_modules; run
+                                   `scripts/jev-test-bot/browser-runtime.sh
+                                   --check` to find out which is missing.
   --iterations N       Iterations over the full surface (default: 1).
   --turns N            Max bot turns per route (default: 4).
   --timeout SEC        Max bot seconds per route (default: 10).
@@ -59,11 +70,12 @@ Usage: loop.sh [options]
   --print-routes       Print the derived route surface and exit.
   -h, --help           This text.
 
-Environment equivalents, for the make wrapper: URL, N, MOCK, TURNS, TIMEOUT,
-DEEP, DASHBOARD_MODE, JEV_REPORTS_DIR.
+Environment equivalents, for the make wrapper: URL, N, MODE, MOCK, TURNS,
+TIMEOUT, DEEP, DASHBOARD_MODE, JEV_REPORTS_DIR.
 
 Exit codes: 0 pass · 1 defects found · 2 usage/setup · 3 dashboard would not
-start · 4 the explored route list does not cover the derived surface.
+start, or the browser runtime is unavailable in --mode browser · 4 the
+explored route list does not cover the derived surface.
 USAGE
 }
 
@@ -268,6 +280,11 @@ route_slug() {
 
 main() {
   local target_url="${URL:-}"
+  # fetch stays the default on purpose. The offline bats suite, and every
+  # existing caller, means "bot.py over urllib" by `loop.sh` with no flags;
+  # silently promoting them to a browser walk would change what their green
+  # result asserts without anybody asking for it.
+  local mode="${MODE:-fetch}"
   local iterations="${N:-1}"
   local turns="${TURNS:-4}"
   local timeout="${TIMEOUT:-10}"
@@ -285,6 +302,7 @@ main() {
   while (( $# > 0 )); do
     case "$1" in
       --url) target_url="$2"; shift 2 ;;
+      --mode) mode="$2"; shift 2 ;;
       --iterations) iterations="$2"; shift 2 ;;
       --turns) turns="$2"; shift 2 ;;
       --timeout) timeout="$2"; shift 2 ;;
@@ -301,6 +319,14 @@ main() {
       *) fail "unknown option '$1'"; usage >&2; return 2 ;;
     esac
   done
+
+  # Validated before anything else runs, including --print-routes: a typo in
+  # the one flag that decides whether the oracles can fire must not fall back
+  # to the mode that cannot see them.
+  case "${mode}" in
+    fetch|browser) ;;
+    *) fail "unknown --mode '${mode}' (expected 'fetch' or 'browser')"; return 2 ;;
+  esac
 
   if [[ "${print_port}" == "true" ]]; then
     find_free_port
@@ -329,6 +355,15 @@ main() {
   # current HTTP-level bot does not use a browser, so that a future
   # browser-driven oracle inherits the isolation instead of reaching into
   # ~/.config.
+  # Captured BEFORE XDG_CACHE_HOME is redirected into the run's scratch. The
+  # browser PROFILE is per-run state and belongs in scratch; the browser
+  # BINARY is a ~150MB shared read-only install that lives in the user's
+  # cache. Without this, Playwright resolves its browsers path from the
+  # redirected XDG_CACHE_HOME, finds nothing, and browser mode reports
+  # "no Chromium build" on a machine that has one.
+  local shared_cache="${XDG_CACHE_HOME:-${HOME}/.cache}"
+  export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${shared_cache}/ms-playwright}"
+
   export TMPDIR="${TMP_DIR}"
   export XDG_CACHE_HOME="${TMP_DIR}/cache"
   export XDG_CONFIG_HOME="${TMP_DIR}/config"
@@ -353,12 +388,35 @@ main() {
   log "${route_count} route(s) to explore, ${iterations} iteration(s)"
 
   # Target: either one that already exists, or one this run owns.
+  # In browser mode, prove the runtime BEFORE a dashboard is started: a
+  # missing Chromium should cost a second and name itself, not produce a run
+  # that reports zero rendered routes as though that were a finding about the
+  # application.
+  if [[ "${mode}" == "browser" ]]; then
+    local runtime_detail
+    if ! runtime_detail="$("${SCRIPT_DIR}/browser-runtime.sh" --check)"; then
+      fail "browser mode is unavailable here: ${runtime_detail}"
+      return 3
+    fi
+    log "browser runtime: ${runtime_detail}"
+  fi
+
   local base_url port="" started_locally="false" resolved_mode="external"
   if [[ -n "${target_url}" ]]; then
     base_url="${target_url%/}"
     log "targeting the supplied dashboard ${base_url}; starting nothing locally"
   else
     resolved_mode="$(resolve_dashboard_mode "${dashboard_mode}")" || return 2
+    # The static shell serves index.html pointing at /src/main.tsx. urllib
+    # cannot tell that apart from a real bundle; a browser can, and gets a
+    # blank page. Refusing here names the cause, rather than reporting 44
+    # unrendered routes.
+    if [[ "${mode}" == "browser" && "${resolved_mode}" == "static" ]]; then
+      fail "browser mode needs the vite bundle; the static SPA shell serves an unexecutable index.html."
+      fail "install the dashboard dependencies (cd d2-signalloom/apps/dashboard-signalloom && bun install),"
+      fail "or point --url at a dashboard that is already serving a build."
+      return 3
+    fi
     port="$(find_free_port)" || return 3
     base_url="http://127.0.0.1:${port}"
     started_locally="true"
@@ -377,30 +435,57 @@ main() {
     started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     log "── iteration ${iteration}/${iterations} ──"
 
-    local index=0 route
-    while IFS= read -r route; do
-      [[ -z "${route}" ]] && continue
-      index=$((index + 1))
-      local out
-      out="$(printf '%s/%03d-%s.json' "${areas_dir}" "${index}" "$(route_slug "${route}")")"
-      # The bot exits 1 on any defect. That is a finding, not a reason to stop
-      # exploring the rest of the surface, so the status is recorded and the
-      # walk continues.
+    if [[ "${mode}" == "browser" ]]; then
+      # One driver process per iteration, which is also one Chromium context
+      # per iteration: the browser launch is the expensive part, and a context
+      # shared across the walk is what lets a seeded session and a cookie jar
+      # persist across routes the way a user's would.
+      local driver_flags=(--base "${base_url}" --routes "${routes_file}" \
+        --out-dir "${areas_dir}" --turns "${turns}" --timeout "${timeout}" \
+        --profile-dir "${PROFILE_DIR}")
+      [[ "${mock}" == "true" ]] && driver_flags+=(--mock)
+      # A locally started vite proxies /api at a backend that is not running.
+      # Those 5xx are the harness's, not the app's, and are reported as
+      # BACKEND_ABSENT rather than counted as defects. Against a supplied
+      # --url the flag is absent and every same-origin 4xx/5xx counts.
+      [[ "${started_locally}" == "true" ]] && driver_flags+=(--no-backend)
+
+      local js_runtime
+      js_runtime="$("${SCRIPT_DIR}/browser-runtime.sh" --runtime)" || return 3
       set +e
-      python3 "${SCRIPT_DIR}/bot.py" \
-        --url "${base_url}" \
-        --area "${route}" \
-        --max-turns "${turns}" \
-        --timeout "${timeout}" \
-        --output "${out}" \
-        "${bot_flags[@]}" \
+      "${js_runtime}" "${SCRIPT_DIR}/browser_driver.mjs" "${driver_flags[@]}" \
         >>"${run_dir}/iteration-${iteration}.log" 2>&1
       local rc=$?
       set -e
       if (( rc > 1 )); then
-        warn "bot exited ${rc} on ${route} (see iteration-${iteration}.log)"
+        warn "browser driver exited ${rc} (see iteration-${iteration}.log)"
       fi
-    done <"${routes_file}"
+    else
+      local index=0 route
+      while IFS= read -r route; do
+        [[ -z "${route}" ]] && continue
+        index=$((index + 1))
+        local out
+        out="$(printf '%s/%03d-%s.json' "${areas_dir}" "${index}" "$(route_slug "${route}")")"
+        # The bot exits 1 on any defect. That is a finding, not a reason to stop
+        # exploring the rest of the surface, so the status is recorded and the
+        # walk continues.
+        set +e
+        python3 "${SCRIPT_DIR}/bot.py" \
+          --url "${base_url}" \
+          --area "${route}" \
+          --max-turns "${turns}" \
+          --timeout "${timeout}" \
+          --output "${out}" \
+          "${bot_flags[@]}" \
+          >>"${run_dir}/iteration-${iteration}.log" 2>&1
+        local rc=$?
+        set -e
+        if (( rc > 1 )); then
+          warn "bot exited ${rc} on ${route} (see iteration-${iteration}.log)"
+        fi
+      done <"${routes_file}"
+    fi
 
     local iteration_report="${run_dir}/iteration-${iteration}.json"
     set +e
@@ -411,6 +496,7 @@ main() {
       --run-id "${run_id}" \
       --iteration "${iteration}" \
       --base-url "${base_url}" \
+      --walk-mode "${mode}" \
       --dashboard-mode "${resolved_mode}" \
       --port "${port}" \
       --started-at "${started_at}" \

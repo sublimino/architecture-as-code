@@ -948,12 +948,15 @@ docs-render-check: ## Build the docs portal, serve it locally, and render-check 
 	# target therefore serves the tree's own build.
 	./scripts/docs-render-check.sh docs.spec.ts
 
-.PHONY: docs-lint docs-lint-test docs-rewrite-guard
+.PHONY: docs-lint docs-lint-test docs-rewrite-guard test-alignment
 docs-lint: ## Check every tracked doc by tier: links, anchors, paths, make targets, diagrams, index, and STE rules. No cluster.
 	./scripts/docs-lint.sh
 
-docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, and the rewrite guard. No cluster.
-	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats
+test-alignment: ## Check that what the docs CLAIM about the tests is true: Go test names, bats and spec files, make targets, walkthrough shell commands and flags, and the walkthrough-to-spec map. No cluster.
+	./scripts/docs-tests-alignment.sh
+
+docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrite guard, and the docs-to-tests alignment gate. No cluster.
+	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats test/docs-tests-alignment.bats
 
 docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.
 	./scripts/docs-rewrite-guard.sh $(FILES)

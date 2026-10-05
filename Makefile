@@ -1769,6 +1769,29 @@ test-bot: ## Run the Jev-powered exploratory test bot. Pass URL=<url>, AREA=<pat
 		$$( [ -n "$${TIMEOUT:-}" ] && echo "--timeout $${TIMEOUT}" )
 demo-jev-test-bot: test-bot ## Alias for test-bot.
 
+# test-bot explores one area against whatever URL it is given, defaulting to
+# the shared Tailscale deployment. test-bot-loop explores the WHOLE route
+# surface derived from App.tsx, for N iterations, against a dashboard it starts
+# and tears down itself on a free non-reserved port — so it can run alongside
+# the other suites without sharing a target with them.
+#
+# Pass URL= to point it at an existing dashboard instead; then nothing local is
+# started. Reports land in reports/jev/<run-id>/ (gitignored).
+.PHONY: test-bot-loop
+test-bot-loop: ## Loop the Jev bot over every derived route. URL=<url>, N=<iterations>, MOCK=true, TURNS=<n>, TIMEOUT=<sec>, DEEP=true.
+	@URL="$${URL:-}" \
+	N="$${N:-1}" \
+	MOCK="$${MOCK:-}" \
+	TURNS="$${TURNS:-4}" \
+	TIMEOUT="$${TIMEOUT:-10}" \
+	DEEP="$${DEEP:-}" \
+	DASHBOARD_MODE="$${DASHBOARD_MODE:-auto}" \
+	./scripts/jev-test-bot/loop.sh $(ARGS)
+
+.PHONY: test-bot-routes
+test-bot-routes: ## Print the dashboard route surface the loop derives from App.tsx.
+	@python3 scripts/jev-test-bot/routes.py $(ARGS)
+
 ##@ Remote & Public access (Tailscale)
 # SignalLoom uses a contract-first Dex single-issuer lease mechanism.
 # Only one origin (Funnel, Serve, or IAP) can publish at a time.

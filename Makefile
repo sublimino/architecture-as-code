@@ -1803,10 +1803,19 @@ demo-jev-test-bot: test-bot ## Alias for test-bot.
 #
 # Pass URL= to point it at an existing dashboard instead; then nothing local is
 # started. Reports land in reports/jev/<run-id>/ (gitignored).
+#
+# MODE=fetch (the default) walks with bot.py over urllib: no JavaScript, so
+# every route "answers" and the console, runtime-error, error-boundary and
+# dead-control oracles cannot fire. MODE=browser walks the same surface in a
+# real Chromium and reports rendered-vs-answered plus those oracles; it needs
+# the Playwright runtime test/acceptance installs and the dashboard's own
+# node_modules. `scripts/jev-test-bot/browser-runtime.sh --check` says which
+# of those is missing.
 .PHONY: test-bot-loop
-test-bot-loop: ## Loop the Jev bot over every derived route. URL=<url>, N=<iterations>, MOCK=true, TURNS=<n>, TIMEOUT=<sec>, DEEP=true.
+test-bot-loop: ## Loop the Jev bot over every derived route. MODE=fetch|browser, URL=<url>, N=<iterations>, MOCK=true, TURNS=<n>, TIMEOUT=<sec>, DEEP=true.
 	@URL="$${URL:-}" \
 	N="$${N:-1}" \
+	MODE="$${MODE:-fetch}" \
 	MOCK="$${MOCK:-}" \
 	TURNS="$${TURNS:-4}" \
 	TIMEOUT="$${TIMEOUT:-10}" \

@@ -162,7 +162,7 @@ Under `-tags frostdb`:
 | :--- | :--- |
 | `TestKusariE2E_FrostDBMatchesTheExpectationTable` | the same table holds over Parquet, so every projected label key is inside the segment allow-list |
 | `TestKusariE2E_FrostDBRestartDoesNotReAdmitTheCorpus` | the original idempotency defect, in its original store |
-| `TestKusariE2E_FrostDBReplayReproducesLive` | **pins a known defect** — see below |
+| `TestKusariE2E_FrostDBReplayReproducesLive` | asserts replay over FrostDB equals live, byte for byte |
 
 In `collectors/awslogs`:
 

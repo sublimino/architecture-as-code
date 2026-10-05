@@ -744,7 +744,10 @@ func main() {
 	// policy set that chose not to detect anything.
 	policyMetrics := policy.NewMetrics()
 	policyBundlesDir := policy.BundlesDirFromEnv()
-	policyBundles, policyLoadErr := policy.LoadBundles(policyBundlesDir, slog.Default())
+	// The store's own pseudonymiser, so the bundles' actor allowlists are
+	// rewritten into exactly the pseudonym space obs.actor is evaluated in.
+	policyBundles, policyLoadErr := policy.LoadBundles(
+		policyBundlesDir, slog.Default(), policy.StorePseudonymiser(signalStore))
 	if policyLoadErr != nil {
 		slog.Error("observation-policy bundles are present and broken; refusing startup",
 			"dir", policyBundlesDir, "error", policyLoadErr)

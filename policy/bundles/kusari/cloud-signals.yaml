@@ -15,7 +15,9 @@
 #
 # Only the §2.3 label contract (collectors/awslogs/contract_doc.go) and
 # obs.actor. That is the whole of the vocabulary, and it is a tighter constraint
-# than it looks:
+# than it looks -- note in particular that obs.actor is a keyed pseudonym, so it
+# supports EQUALITY and membership only. Never startsWith, never a substring,
+# never any other read of its internal structure: there is none.
 #
 #   * additionalEventData is NOT projected, so MFA state is unavailable. The
 #     console rule therefore discriminates on the PRINCIPAL, not on MFA. See
@@ -23,8 +25,11 @@
 #   * requestParameters is NOT projected beyond the ResourceNameKeys scalar
 #     allowlist, so "did this policy actually make the bucket public" is
 #     unavailable. See s3-bucket-exposure-changed.
-#   * userIdentity.accountId is NOT projected. The cross-account rule recovers it
-#     from the actor ARN, which IS projected. See cross-account-assume-role.
+#   * userIdentity.accountId is NOT projected under that name, and obs.actor is a
+#     keyed PSEUDONYM, so neither the acting account nor any other ARN component
+#     can be recovered from it. The §2.3 projection therefore carries
+#     actor_account_id, parsed from userIdentity.arn before pseudonymisation.
+#     See cross-account-assume-role.
 #
 # Extending the projection is not a projection-only change: store/label_allowlist.go
 # is a CLOSED key set and FrostDBStore.Append refuses an entire batch containing a
@@ -55,6 +60,21 @@ id: kusari-cloud-signals
 tenant_id: kusari
 version: 1.0.0
 mode: shadow
+
+# The vars that hold ACTOR IDENTITIES, rewritten at load through the same keyed
+# pseudonymiser obs.actor is rewritten with. See kusari-iam-change.yaml for the
+# full reasoning; the short version is that obs.actor is a pseudonym by the time
+# a rule evaluates, so a cleartext allowlist can never match it and every
+# NEGATIVE allowlist test below would become always-true.
+#
+# tenant_accounts is deliberately ABSENT: it holds AWS account numbers and is
+# compared against a label (obs.labels.aws_account_id), not against obs.actor.
+# Pseudonymising it would break that comparison in the opposite direction.
+actor_vars:
+  - break_glass_actors
+  - console_login_actors
+  - cross_account_assume_role_actors
+  - eks_cluster_admin_actors
 
 vars:
   # The AWS accounts that belong to this tenant. Used to decide whether a role
@@ -142,18 +162,24 @@ rules:
     name: Role assumed in a tenant account by a principal from another account
     severity: medium
     # obs.labels.aws_account_id is recipientAccountId: the account that RECEIVED
-    # the call. The assuming principal's account is not projected as a label, but
-    # it is the fifth colon-delimited field of the actor ARN, so the test is
-    # whether the actor ARN is rooted in the receiving account. startsWith is a
-    # CEL standard string function, so this needs no extension to the env.
+    # the call. obs.labels.actor_account_id is the account of the ACTING
+    # principal, parsed from userIdentity.arn at projection time. Cross-account
+    # is simply the two disagreeing.
     #
-    # Two prefixes because an assumption can be made by an IAM principal
-    # (arn:aws:iam::<acct>:...) or by an already-assumed session
-    # (arn:aws:sts::<acct>:assumed-role/...).
+    # This rule used to recover the acting account inside CEL with
+    # obs.actor.startsWith("arn:aws:iam::" + obs.labels.aws_account_id + ":"),
+    # which read obs.actor as STRUCTURE. obs.actor is now a keyed pseudonym on
+    # both the live and the replay path, so that structure is gone: both
+    # startsWith calls evaluate false, both negations evaluate true, and the
+    # same-account role chain in the fixture reads as cross-account. The account
+    # is a label instead, which round-trips through a segment and therefore
+    # through a replay. It also needs one comparison where the ARN needed two,
+    # because an IAM principal and an already-assumed STS session differ only in
+    # the prefix the label does not carry.
     #
-    # An empty actor is excluded: VPC Flow records name no principal, and an
-    # empty ARN starts with neither prefix, so without the guard every flow
-    # record would read as cross-account.
+    # has() guards both: a record with no userIdentity.arn (an AWS service
+    # principal) carries no actor_account_id key at all, and must not read as
+    # cross-account.
     expression: |-
       obs.layer == "cloud_control_plane" &&
       has(obs.labels.event_source) &&
@@ -162,9 +188,8 @@ rules:
       obs.labels.event_name == "AssumeRole" &&
       has(obs.labels.aws_account_id) &&
       obs.labels.aws_account_id in vars.tenant_accounts &&
-      obs.actor != "" &&
-      !obs.actor.startsWith("arn:aws:iam::" + obs.labels.aws_account_id + ":") &&
-      !obs.actor.startsWith("arn:aws:sts::" + obs.labels.aws_account_id + ":") &&
+      has(obs.labels.actor_account_id) &&
+      obs.labels.actor_account_id != obs.labels.aws_account_id &&
       !(obs.actor in vars.cross_account_assume_role_actors)
 
   # --- S3 exposure ---------------------------------------------------------

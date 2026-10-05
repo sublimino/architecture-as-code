@@ -59,6 +59,17 @@ func ValidateBundle(b *Bundle) []RuleError {
 			add("vars", fmt.Sprintf("vars.%s is empty: an empty allowlist silently changes every rule that reads it", name))
 		}
 	}
+	for _, name := range b.ActorVars {
+		if strings.TrimSpace(name) == "" {
+			add("actor_vars", "actor_vars entry must not be empty")
+			continue
+		}
+		if _, ok := b.Vars[name]; !ok {
+			add("actor_vars", fmt.Sprintf(
+				"actor_vars names %q, which the bundle does not declare under vars; "+
+					"a typo here leaves the real list unpseudonymised and its allowlist silently unmatchable", name))
+		}
+	}
 	for _, r := range SortedRules(b) {
 		if strings.TrimSpace(r.Severity) == "" {
 			errs = append(errs, RuleError{RuleID: r.ID, Kind: "rule", Field: "severity", Message: "severity is required"})
@@ -66,6 +77,63 @@ func ValidateBundle(b *Bundle) []RuleError {
 	}
 
 	return errs
+}
+
+// PseudonymiseActorVars rewrites every list named in b.ActorVars through fn, in
+// place.
+//
+// It exists because obs.actor is a keyed pseudonym by the time a rule evaluates
+// (see the determinism contract in doc.go), so an allowlist still holding
+// cleartext ARNs can never match it. The consequence is not a missed match, it
+// is an INVERTED one: every shipped rule writes its allowlist as
+// `!(obs.actor in vars.break_glass_actors)`, and a list that can never match
+// makes that negation always true, so the identities an operator deliberately
+// exempted produce findings on every record. Live and replay agree on the wrong
+// answer, which is why this cannot be left to the replay oracle to catch.
+//
+// fn is supplied by the caller rather than built here because this module
+// depends on neither app and must not know about the store's key ring. It is
+// the SAME function the live path pseudonymises obs.actor with, or the two sides
+// of every `in` test are computed with different keys.
+//
+// A nil fn is a no-op, not an error: a development binary with no key material
+// runs cleartext end to end, and the vars must stay cleartext with it.
+//
+// A fault aborts the WHOLE bundle and leaves it as it was. A half-rewritten
+// allowlist matches some identities and not others, which is indistinguishable
+// at runtime from a deliberately shorter list.
+//
+// Call it exactly once, immediately after load: it is not idempotent, and
+// applying it twice would pseudonymise the pseudonyms.
+func PseudonymiseActorVars(b *Bundle, fn func(string) (string, error)) error {
+	if b == nil || fn == nil || len(b.ActorVars) == 0 {
+		return nil
+	}
+	// Build every replacement before writing any, so a fault cannot leave the
+	// bundle partially rewritten.
+	staged := make(map[string][]string, len(b.ActorVars))
+	for _, name := range b.ActorVars {
+		values, ok := b.Vars[name]
+		if !ok {
+			// ValidateBundle has already refused this; a loaded bundle cannot
+			// reach here. Skipping rather than erroring keeps this function safe
+			// to call on a hand-built bundle in a test.
+			continue
+		}
+		out := make([]string, len(values))
+		for i, v := range values {
+			p, err := fn(v)
+			if err != nil {
+				return fmt.Errorf("obscel: pseudonymising vars.%s[%d] of bundle %s: %w", name, i, b.ID, err)
+			}
+			out[i] = p
+		}
+		staged[name] = out
+	}
+	for name, values := range staged {
+		b.Vars[name] = values
+	}
+	return nil
 }
 
 // LoadBundleFile reads one bundle document from disk, validates its structure

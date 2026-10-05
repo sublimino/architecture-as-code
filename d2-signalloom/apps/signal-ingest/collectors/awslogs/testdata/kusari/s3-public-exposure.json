@@ -1,0 +1,96 @@
+{
+  "_fixture": [
+    "S3 bucket exposure changes.",
+    "Records 0-1 FIRE s3-bucket-exposure-changed. Record 2 is the NEGATIVE: a",
+    "read of the same bucket policy.",
+    "A LIMIT, stated plainly: whether the new policy actually makes the bucket",
+    "PUBLIC is in requestParameters.policy, which the §2.3 negative contract",
+    "forbids this projection from reading (contract_doc.go: the",
+    "ResourceNameKeys allowlist is the only requestParameters access, and it",
+    "takes named scalars only). So the rule fires on the exposure-changing API",
+    "SURFACE, not on a decided verdict of public-ness. That is a deliberate",
+    "over-trigger in shadow mode: in a regulated account these calls are rare",
+    "and each one is worth a look, and the alternative -- parsing a policy",
+    "document in the ingest hot path -- would put an attacker-controlled JSON",
+    "blob through a parser on the collector's critical path."
+  ],
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T11:00:00Z",
+      "eventSource": "s3.amazonaws.com",
+      "eventName": "PutBucketPolicy",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "bucketName": "kusari-sbom-archive",
+        "policy": "{\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\"}]}"
+      },
+      "resources": [
+        {
+          "type": "AWS::S3::Bucket",
+          "ARN": "arn:aws:s3:::kusari-sbom-archive"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T11:00:45Z",
+      "eventSource": "s3.amazonaws.com",
+      "eventName": "PutBucketPublicAccessBlock",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "bucketName": "kusari-sbom-archive",
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicPolicy": false,
+          "RestrictPublicBuckets": false
+        }
+      },
+      "resources": [
+        {
+          "type": "AWS::S3::Bucket",
+          "ARN": "arn:aws:s3:::kusari-sbom-archive"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T11:02:00Z",
+      "eventSource": "s3.amazonaws.com",
+      "eventName": "GetBucketPolicy",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "bucketName": "kusari-sbom-archive"
+      },
+      "resources": [
+        {
+          "type": "AWS::S3::Bucket",
+          "ARN": "arn:aws:s3:::kusari-sbom-archive"
+        }
+      ]
+    }
+  ]
+}

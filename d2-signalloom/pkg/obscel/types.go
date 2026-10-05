@@ -86,8 +86,8 @@ type Bundle struct {
 	// be named `*_actors` without holding actors.
 	ActorVars []string `yaml:"actor_vars" json:"actor_vars"`
 
-	Rules    []Rule              `yaml:"rules" json:"rules"`
-	Windows  []Window            `yaml:"windows" json:"windows"`
+	Rules   []Rule   `yaml:"rules" json:"rules"`
+	Windows []Window `yaml:"windows" json:"windows"`
 }
 
 // Finding is stage-1 output. Its ID and Timestamp are derived (see package doc).

@@ -165,7 +165,13 @@ func NewHarness(st store.SignalStore, bundlesDir string, deduper *collectors.Ded
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	bundles, err := policy.LoadBundles(bundlesDir, log)
+	// Resolved before load: the bundles' actor allowlists are rewritten into the
+	// same pseudonym space obs.actor is evaluated in, by the same instance the
+	// store writes hmac_actor_hint with. Under MemoryStore it is nil and
+	// everything stays cleartext, which is equally consistent.
+	pseudo := policy.StorePseudonymiser(st)
+
+	bundles, err := policy.LoadBundles(bundlesDir, log, pseudo)
 	if err != nil {
 		return nil, fmt.Errorf("e2e: loading bundles from %s: %w", bundlesDir, err)
 	}
@@ -179,10 +185,11 @@ func NewHarness(st store.SignalStore, bundlesDir string, deduper *collectors.Ded
 	storeSink := collectors.NewStoreSink(st)
 
 	sink := policy.NewSink(storeSink, st, evaluator, policy.StaticBundles(bundles), policy.Options{
-		Windows:  policy.NewWindowsWithLogger(bundles, log),
-		Metrics:  metrics,
-		Observer: rec,
-		Logger:   log,
+		Windows:            policy.NewWindowsWithLogger(bundles, log),
+		Metrics:            metrics,
+		Observer:           rec,
+		Logger:             log,
+		ActorPseudonymiser: pseudo,
 		// Derived records go through the dedupe seam; the source observation
 		// does not, because it was claimed upstream and would otherwise be
 		// refused as a duplicate of its own claim.

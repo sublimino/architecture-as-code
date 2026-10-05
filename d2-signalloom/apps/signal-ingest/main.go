@@ -534,6 +534,12 @@ func buildPolicyPipeline(
 		Windows: windows,
 		Metrics: metrics,
 		Logger:  slog.Default(),
+		// obs.actor is the keyed PSEUDONYM, on the live path and on replay alike
+		// (policy.ActorIdentity). It must be the store's OWN pseudonymiser: a
+		// second instance over different key material would make a live
+		// observation and the segment row it becomes project onto two different
+		// identities, which is the divergence this is here to close.
+		ActorPseudonymiser: policy.StorePseudonymiser(signalStore),
 	}
 	if webhook := policy.NewWebhookFromEnv(metrics, slog.Default()); webhook != nil {
 		// Wrapped async so a slow or dead webhook cannot extend a collector's
@@ -738,7 +744,10 @@ func main() {
 	// policy set that chose not to detect anything.
 	policyMetrics := policy.NewMetrics()
 	policyBundlesDir := policy.BundlesDirFromEnv()
-	policyBundles, policyLoadErr := policy.LoadBundles(policyBundlesDir, slog.Default())
+	// The store's own pseudonymiser, so the bundles' actor allowlists are
+	// rewritten into exactly the pseudonym space obs.actor is evaluated in.
+	policyBundles, policyLoadErr := policy.LoadBundles(
+		policyBundlesDir, slog.Default(), policy.StorePseudonymiser(signalStore))
 	if policyLoadErr != nil {
 		slog.Error("observation-policy bundles are present and broken; refusing startup",
 			"dir", policyBundlesDir, "error", policyLoadErr)

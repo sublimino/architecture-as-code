@@ -17,6 +17,8 @@
 //	tenant_id         collector config              collector config         collector config
 //	provider          "aws"                         "aws"                    "aws"
 //	aws_account_id    recipientAccountId            recipientAccountId       account-id (field 2)
+//	actor_account_id  userIdentity.arn field 4,     same                     —
+//	                  only when an account is named
 //	aws_region        awsRegion (per record)        awsRegion                collector config
 //	event_source      eventSource                   "iam.amazonaws.com"      "vpcflow"
 //	event_name        eventName                     eventName                action: ACCEPT | REJECT
@@ -88,7 +90,32 @@ const (
 	LabelTenantID     = "tenant_id"
 	LabelProvider     = "provider"
 	LabelAWSAccountID = "aws_account_id"
-	LabelAWSRegion    = "aws_region"
+
+	// LabelActorAccountID is the account of the ACTING principal, parsed from
+	// userIdentity.arn. It is the counterpart of LabelAWSAccountID, which is the
+	// account that RECEIVED the call, and the pair is what makes "did this cross
+	// an account boundary" answerable.
+	//
+	// It exists because the answer must survive the segment. The cross-account
+	// rule used to recover this account inside CEL with
+	// obs.actor.startsWith("arn:aws:iam::" + aws_account_id + ":"), which read
+	// the actor as STRUCTURE. obs.actor is now a keyed pseudonym on both the live
+	// and the replay path (the SLAWS replay-parity contract), so that structure is
+	// gone: both startsWith calls evaluate false, both negations evaluate true,
+	// and a same-account role chain reads as cross-account. Parsing the account
+	// here puts it in a label, labels round-trip through a v2 segment, and the
+	// rule compares two labels instead of dissecting an identity.
+	//
+	// An account number is not personal data, which is the same reasoning that
+	// already projects recipientAccountId in cleartext.
+	//
+	// OPTIONAL, and absent rather than empty when no account is named: an AWS
+	// service principal carries no userIdentity.arn, and an empty value would
+	// satisfy has() and then compare unequal to every recipient account, turning
+	// the rule into a detector for the absence of an actor.
+	LabelActorAccountID = "actor_account_id"
+
+	LabelAWSRegion = "aws_region"
 	LabelEventSource  = "event_source"
 	LabelEventName    = "event_name"
 	LabelErrorCode    = "error_code"
@@ -177,6 +204,9 @@ var (
 		LabelErrorCode,
 		LabelResourceType,
 		LabelResourceName,
+		// Optional because an AWS service principal names no account. See the
+		// constant for why absent beats empty.
+		LabelActorAccountID,
 	}
 	vpcFlowRequiredKeys = []string{
 		LabelTenantID,

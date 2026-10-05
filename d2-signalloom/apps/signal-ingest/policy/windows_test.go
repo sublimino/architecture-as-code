@@ -156,6 +156,10 @@ func TestWindows_DecisionObservationShape(t *testing.T) {
 		LabelCount:         "3",
 		TenantLabel:        testTenant,
 		LabelFindingIDs:    joinIDs(findingIDs),
+		// The pseudonymous actor, carried for the same reason the finding carries
+		// it. Cleartext here because this Windows has no pseudonymiser in the
+		// path; see the finding-shape test.
+		LabelActor: "arn:aws:iam::1:user/agent",
 	}
 	if len(d.Labels) != len(wantLabels) {
 		t.Errorf("decision carries %d labels (%v), want exactly %d",
@@ -351,7 +355,9 @@ func TestWindows_WarmupIgnoresUnloadedBundleVersions(t *testing.T) {
 		BundleVersion: "0.9.0", // not the loaded 1.0.0
 		Severity:      "high",
 		SourceObsID:   "obs-stale",
-	}, iamObs("obs-stale", baseTime, "arn:aws:iam::1:user/agent", "AttachUserPolicy"), obscel.ModeWarn)
+		// No keyed label dimensions: this bundle's window keys on [tenant_id,
+		// actor], both of which the closed policy label set already carries.
+	}, iamObs("obs-stale", baseTime, "arn:aws:iam::1:user/agent", "AttachUserPolicy"), obscel.ModeWarn, nil)
 	if err := st.Append(context.Background(), []model.Observation{stale}); err != nil {
 		t.Fatalf("Append: %v", err)
 	}

@@ -87,7 +87,7 @@ func e2eCorpus(t *testing.T) []model.Observation {
 func runE2E(t *testing.T, bundlesDir string) (*store.MemoryStore, *Metrics, *recordingAlerter) {
 	t.Helper()
 
-	bundles, err := LoadBundles(bundlesDir, testLogger(t))
+	bundles, err := LoadBundles(bundlesDir, testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles(%s): %v", bundlesDir, err)
 	}
@@ -154,7 +154,7 @@ func runE2E(t *testing.T, bundlesDir string) (*store.MemoryStore, *Metrics, *rec
 // so that assertion cannot pass yet and is deliberately not written as a test
 // that would be red on merge-base. See the report for the follow-up.
 func TestE2EFixture_StageOneResolvesBundlesFromTheStampedTenantLabel(t *testing.T) {
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestE2EFixture_EmptyBundleDirIsTheMutationGate(t *testing.T) {
 // Promoting the shipped bundle to warn alerts; the fixture corpus is the proof
 // that promotion is a one-line bundle change and nothing else.
 func TestE2EFixture_PromotingToWarnAlerts(t *testing.T) {
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -520,7 +520,7 @@ func TestE2EFixture_PromotingToWarnAlerts(t *testing.T) {
 // through the store wrapper must produce the same findings and the same
 // decision as through the sink, because it is the same deciding code.
 func TestE2EFixture_HTTPStoreWrapperMatchesTheSink(t *testing.T) {
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -571,7 +571,7 @@ func TestE2EFixture_HTTPStoreWrapperMatchesTheSink(t *testing.T) {
 
 // A findings/decisions batch arriving over HTTP is stored and not re-evaluated.
 func TestE2EFixture_HTTPStoreWrapperDoesNotReEvaluatePolicyOutput(t *testing.T) {
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}

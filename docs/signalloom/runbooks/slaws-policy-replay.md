@@ -135,13 +135,18 @@ Two different readers of the store, and they are not interchangeable:
 Warm-up exists so a restart mid-burst does not lose a counter. It deliberately
 does **not** re-alert history: the edge-trigger latch is set, not fired.
 
-Warm-up has one documented blind spot. A stored finding carries the closed
-policy label set, not the source observation's labels, so a window keyed on a
-`labels.<key>` dimension cannot be rebuilt faithfully — warm-up logs a warning
-naming each such window rather than mis-counting silently. The shipped
-`kusari-iam-change` bundle keys on `[tenant_id, actor]`, both of which survive
-the projection. Replay is unaffected, because it starts from raw observations
-and holds complete findings in memory.
+A stored finding carries the closed policy label set plus the label values every
+window over its rule keys on. So a window keyed on a `labels.<key>` dimension
+rebuilds faithfully.
+
+This was not always true, and the old failure was worse than it looked. Every
+warmed finding read an empty value for that dimension. They then landed in a
+counter keyed on the empty string, which no live finding can ever join. Warm-up
+contributed nothing and a restart **missed** the burst it was warmed to catch.
+
+One row-level case remains. A finding written by an older binary, or read from a
+v1 segment, carries no such label. Warm-up counts those rows and names the count
+in its completion log rather than passing over them.
 
 ## Troubleshooting
 
@@ -151,7 +156,31 @@ and holds complete findings in memory.
 | `non-conformant bundle` | A rule does not compile. Fail-closed by design: a half-loaded policy set is indistinguishable from one that chose not to detect. Fix the rule named in the error. |
 | `--from ... is not RFC3339` | Use `2026-10-02T00:00:00Z`, not `2026-10-02`. |
 | Findings but no decisions | Expected unless the corpus crosses a declared threshold inside a declared window. Check the window's `threshold` and `window` against the data. |
-| Replay differs from live | Investigate as a determinism defect before assuming the data moved. See "prove the pipeline is deterministic". |
+| Replay differs from live | Check the actor first, then investigate as a determinism defect. See "the actor is a pseudonym". |
+| Allowlisted identity produces findings on every record | A bundle var holding actor identities is missing from `actor_vars`. The list stayed cleartext and can never match the pseudonym. Live and replay agree, so replay will not catch this. |
+
+## The actor is a pseudonym
+
+`obs.actor` is the keyed pseudonym of the actor, on the live path and on replay
+alike. A segment-schema-v2 segment stores no cleartext actor column, so a replay
+has nothing else to read.
+
+This matters when a replay disagrees with live, because the actor is the first
+thing to check and it used to be the cause. Replay read those rows, saw an empty
+actor, and every allowlist inverted. Allowlists are written as negative tests, so
+an empty actor satisfies them. Exempted identities fired and true positives were
+lost. On the Kusari corpus live produced 62 findings and 3 decisions, replay
+produced 64 and 2.
+
+Two rules follow for anyone writing a bundle.
+
+1. Name every var holding actor identities under `actor_vars`. Those lists are
+   rewritten into the pseudonym space at load. Omitting one leaves it cleartext,
+   so a negative allowlist test becomes always true. `Conform` refuses a rule
+   comparing `obs.actor` against an undeclared var, so this fails at load.
+2. Compare `obs.actor` with equality or membership only. It has no internal
+   structure. A rule needing part of an identifier reads a projected label, as
+   `cross-account-assume-role` reads `actor_account_id`.
 
 ## Related
 

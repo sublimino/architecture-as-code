@@ -60,7 +60,7 @@ type idempotentHarness struct {
 func newIdempotentHarness(t *testing.T, st *store.MemoryStore, deduper *collectors.Deduper) *idempotentHarness {
 	t.Helper()
 
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestIdempotentIngest_HTTPBatchPathSharesTheSameSet(t *testing.T) {
 	deduper := collectors.NewDeduper(4096)
 	h := newIdempotentHarness(t, st, deduper)
 
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}

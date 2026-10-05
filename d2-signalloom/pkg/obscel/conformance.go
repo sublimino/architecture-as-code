@@ -83,6 +83,11 @@ func Conform(b *Bundle) []RuleError {
 
 	var errs []RuleError
 
+	actorVars := make(map[string]bool, len(b.ActorVars))
+	for _, name := range b.ActorVars {
+		actorVars[name] = true
+	}
+
 	ruleIDs := make(map[string]bool, len(b.Rules))
 	for _, r := range SortedRules(b) {
 		if strings.TrimSpace(r.ID) == "" {
@@ -107,6 +112,30 @@ func Conform(b *Bundle) []RuleError {
 					Kind:    "rule",
 					Field:   "expression",
 					Message: fmt.Sprintf("references vars.%s, which the bundle does not declare", name),
+				})
+			}
+		}
+		// Every var this rule compares obs.actor against must be declared as an
+		// actor list, so it is pseudonymised at load with the key obs.actor is
+		// pseudonymised with.
+		//
+		// This is the gate that turns the worst available failure into a refusal.
+		// Undeclared, the list keeps its cleartext values; obs.actor is a
+		// pseudonym; `obs.actor in vars.X` is never true; and the negative form
+		// every shipped rule is written in is therefore ALWAYS true, so the
+		// allowlisted identity fires on every record. Live and replay agree on
+		// that wrong answer, so the replay oracle reports parity and nothing
+		// downstream can see it. Load time is the only place it is visible.
+		for _, name := range ActorComparedVars(ast.NativeRep().Expr()) {
+			if !actorVars[name] {
+				errs = append(errs, RuleError{
+					RuleID: r.ID,
+					Kind:   "rule",
+					Field:  "expression",
+					Message: fmt.Sprintf(
+						"compares obs.actor against vars.%s, which is not listed in the bundle's actor_vars; "+
+							"obs.actor is a keyed pseudonym, so an unpseudonymised list can never match it and "+
+							"a negative allowlist test becomes always-true. Add %q to actor_vars", name, name),
 				})
 			}
 		}
@@ -225,6 +254,92 @@ func VarsReferences(expr celast.Expr) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// ActorComparedVars returns the sorted, de-duplicated set of bundle var names
+// an expression compares obs.actor against, in any of the four spellings the
+// vocabulary accepts:
+//
+//	obs.actor in vars.name          obs.actor in bundle.vars.name
+//	obs.actor in vars["name"]       obs.actor in bundle.vars["name"]
+//
+// Membership (`in`) is the only form recognised, and that is a deliberate
+// bound rather than an oversight. It is the form every shipped rule uses and the
+// only one an allowlist can be written in: `vars.X` is a list, so the other
+// comparisons CEL would permit against it are not identity tests. A rule that
+// found some other way to compare an actor to a var would not be caught here --
+// which is why PseudonymiseActorVars is driven by the explicit declaration and
+// this walk only enforces that the declaration was not forgotten.
+func ActorComparedVars(expr celast.Expr) []string {
+	seen := map[string]bool{}
+
+	celast.PostOrderVisit(expr, celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.CallKind {
+			return
+		}
+		call := e.AsCall()
+		if call.FunctionName() != operators.In {
+			return
+		}
+		args := call.Args()
+		if len(args) != 2 || !isObsActor(args[0]) {
+			return
+		}
+		if name, ok := varsListName(args[1]); ok {
+			seen[name] = true
+		}
+	}))
+
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// isObsActor reports whether e is the `obs.actor` selection.
+func isObsActor(e celast.Expr) bool {
+	if e == nil || e.Kind() != celast.SelectKind {
+		return false
+	}
+	sel := e.AsSelect()
+	if sel.IsTestOnly() || sel.FieldName() != actorFieldName {
+		return false
+	}
+	op := sel.Operand()
+	return op != nil && op.Kind() == celast.IdentKind && op.AsIdent() == ObsVar
+}
+
+// actorFieldName is the json tag of Observation.Actor, which is the field name
+// the native-type provider exposes to CEL.
+const actorFieldName = "actor"
+
+// varsListName returns the bundle var name e denotes, for either spelling.
+func varsListName(e celast.Expr) (string, bool) {
+	if e == nil {
+		return "", false
+	}
+	switch e.Kind() {
+	case celast.SelectKind:
+		sel := e.AsSelect()
+		if sel.IsTestOnly() || !isVarsRoot(sel.Operand()) {
+			return "", false
+		}
+		return sel.FieldName(), true
+	case celast.CallKind:
+		call := e.AsCall()
+		if call.FunctionName() != operators.Index {
+			return "", false
+		}
+		args := call.Args()
+		if len(args) != 2 || !isVarsRoot(args[0]) || args[1].Kind() != celast.LiteralKind {
+			return "", false
+		}
+		name, ok := args[1].AsLiteral().Value().(string)
+		return name, ok
+	}
+	return "", false
 }
 
 // isVarsRoot reports whether e is the map that holds the bundle vars, i.e.

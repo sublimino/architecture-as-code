@@ -31,6 +31,14 @@ type ReplayOptions struct {
 	Tenant string
 	// Out receives the canonical lines.
 	Out io.Writer
+	// ActorPseudonymiser pseudonymises a CLEARTEXT actor hint, for rows that
+	// still carry one: a v1 segment, or a MemoryStore. A row from a v2 segment
+	// already holds the store's pseudonym and needs nothing.
+	//
+	// Leave it nil and Replay takes the store's own, which is what a caller
+	// wants in every case except a test that is deliberately supplying a
+	// different key.
+	ActorPseudonymiser store.ActorPseudonymiser
 	// Log is optional.
 	Log *slog.Logger
 }
@@ -66,7 +74,15 @@ func Replay(ctx context.Context, st store.SignalStore, opts ReplayOptions) (find
 		return 0, 0, errors.New("policy: replay needs an output writer")
 	}
 
-	bundles, err := LoadBundles(opts.BundlesDir, log)
+	// Resolved before the bundles are loaded, because the bundles' actor
+	// allowlists must be rewritten into the same pseudonym space obs.actor is
+	// evaluated in, by the same instance.
+	pseudo := opts.ActorPseudonymiser
+	if pseudo == nil {
+		pseudo = StorePseudonymiser(st)
+	}
+
+	bundles, err := LoadBundles(opts.BundlesDir, log, pseudo)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -105,11 +121,19 @@ func Replay(ctx context.Context, st store.SignalStore, opts ReplayOptions) (find
 	}
 	SortObservations(input)
 
+	// The actor must mean the same thing here as it did live, which is the whole
+	// of ISC-55. A v2 row carries the store's pseudonym and is used verbatim; a
+	// v1 or MemoryStore row carries cleartext and is pseudonymised with the
+	// STORE'S OWN instance, so it lands on the value a v2 row would have held.
+	// Defaulting from the store rather than from the environment is deliberate:
+	// a second instance built from a drifted key would produce a replay that
+	// disagrees with live for a reason nothing logs.
 	rec := &canonicalRecorder{}
 	sink := NewSink(discardSink{}, st, eval, StaticBundles(bundles), Options{
-		Windows:  NewWindowsWithLogger(bundles, log),
-		Observer: rec,
-		Logger:   log,
+		Windows:            NewWindowsWithLogger(bundles, log),
+		Observer:           rec,
+		Logger:             log,
+		ActorPseudonymiser: pseudo,
 	})
 
 	for i := range input {

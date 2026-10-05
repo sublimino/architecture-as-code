@@ -17,10 +17,17 @@ run() {
   local pass fail
   pass=$(grep -cE '^(ok [0-9]+|--- PASS|=== RUN)' "$out/$name.log" 2>/dev/null || true)
   fail=$(grep -cE '^(not ok [0-9]+|--- FAIL|FAIL\s)' "$out/$name.log" 2>/dev/null || true)
+  # Legs that report a scan rather than test cases: count what they checked, so a
+  # rc=0 with nothing scanned cannot read as a pass (Cato, wave two).
+  if [ "${pass:-0}" = "0" ]; then
+    checked=$(grep -oE '(SCANNED CLEAN: [0-9]+ files|[0-9]+ file\(s\) clean)' "$out/$name.log" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    [ -n "$checked" ] && pass="checked=$checked"
+  fi
   printf '%-24s rc=%d pass=%s fail=%s %ss\n' "$name" "$rc" "${pass:-0}" "${fail:-0}" "$(( $(date +%s) - s ))" | tee -a "$out/totals.txt"
 }
 : > "$out/totals.txt"
-echo "head_start=$(git rev-parse HEAD) dirty=$(git status --porcelain | wc -l | tr -d ' ')" | tee "$out/head.txt"
+echo "head_start=$(git rev-parse HEAD) dirty=$(git status --porcelain | wc -l | tr -d ' ') timeout_scale=${TEST_TIMEOUT_SCALE:-1}" | tee "$out/head.txt"
+echo "timeout_scale=${TEST_TIMEOUT_SCALE:-1}" >> "$out/totals.txt"
 run signal-ingest          make test-signal-ingest
 run signal-ingest-frostdb  make test-signal-ingest-frostdb
 run policy-engine          bash -c 'cd d2-signalloom/apps/policy-engine && env GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} go test -count=1 -v ./...'

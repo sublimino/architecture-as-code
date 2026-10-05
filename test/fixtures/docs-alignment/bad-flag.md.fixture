@@ -1,0 +1,5 @@
+# Page passing a flag the script does not take
+
+```bash
+scripts/verify-eap-evidence.sh bundle.tar.gz --no-such-alignment-flag
+```

@@ -1,0 +1,3 @@
+# Page naming a make target that does not exist
+
+Run `make no-such-alignment-target` to reproduce.

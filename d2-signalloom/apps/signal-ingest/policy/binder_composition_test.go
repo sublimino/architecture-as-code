@@ -47,9 +47,13 @@ func TestBinderOutsideThePolicySinkStampsBeforeStageOne(t *testing.T) {
 	if err := bound.IngestObservation(context.Background(), unstamped); err != nil {
 		t.Fatalf("IngestObservation: %v", err)
 	}
-	findings := storedBySource(t, st, obscel.SourceFinding)
+	// Narrowed to kusari-iam-change: see iamChangeBundleID in
+	// e2e_fixture_test.go. The invariant is unchanged -- an UNSTAMPED
+	// observation became a finding, which it can only do if the binder stamped
+	// the tenant before stage 1 resolved bundles.
+	findings := storedByBundle(t, st, obscel.SourceFinding, iamChangeBundleID)
 	if len(findings) != 1 {
-		t.Fatalf("got %d findings, want 1: the binder must stamp before stage 1 resolves the tenant", len(findings))
+		t.Fatalf("got %d findings from %s, want 1: the binder must stamp before stage 1 resolves the tenant", len(findings), iamChangeBundleID)
 	}
 	if findings[0].Labels[TenantLabel] != e2eTenant {
 		t.Fatalf("finding tenant_id = %q, want %q", findings[0].Labels[TenantLabel], e2eTenant)

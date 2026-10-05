@@ -28,7 +28,7 @@ func TestLookupPodByPID(t *testing.T) {
 	tempProcDir := t.TempDir()
 
 	informer := NewMockSharedIndexInformer()
-	mgr := NewSentinelProbeManager(informer, "http://localhost:8082", nil, WithProcRoot(tempProcDir))
+	mgr := NewSentinelProbeManager(informer, unreachableIngestURL, nil, WithProcRoot(tempProcDir))
 
 	podUID := "771fb437-10ec-47dc-89a0-538e1fc16d3f"
 	testPod := CreateTestPod("tenant-kusari", "agent-builder-1", podUID, "agent-builder-1", "kusari")
@@ -84,7 +84,7 @@ func TestNormalizeTelemetryObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil, WithTenantMap(tenants))
+	mgr := NewSentinelProbeManager(nil, unreachableIngestURL, nil, WithTenantMap(tenants))
 
 	var comm [16]byte
 	copy(comm[:], "cat\x00")
@@ -155,7 +155,7 @@ func TestNormalizeTelemetryObservation(t *testing.T) {
 
 // TestSensitivePrefixFilter asserts that sensitive paths trigger alerts while benign paths are ignored.
 func TestSensitivePrefixFilter(t *testing.T) {
-	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil)
+	mgr := NewSentinelProbeManager(nil, unreachableIngestURL, nil)
 
 	sensitivePaths := []string{
 		"/etc/passwd",
@@ -282,7 +282,7 @@ func TestKusariAgentIsAttributedToKusariByItsServiceAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr := NewSentinelProbeManager(nil, "http://localhost:8082", nil, WithTenantMap(tenants))
+	mgr := NewSentinelProbeManager(nil, unreachableIngestURL, nil, WithTenantMap(tenants))
 
 	pod := CreateTestPod("fe-signalloom-agents", "kusari-agent-5d8c", "33333333-4444-5555-6666-777777777777", "kusari-agent", "")
 	delete(pod.Labels, "tenant")

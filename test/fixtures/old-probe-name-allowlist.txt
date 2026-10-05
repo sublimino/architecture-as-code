@@ -33,3 +33,4 @@ docs/EAP/secondary-cluster.md # EAP pilot docs link to source directories and Se
 d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth (the resume-token signer)
 d2-signalloom/apps/fleet-manager/cmd/resume-token/main_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 d2-signalloom/apps/fleet-manager/resume_token_cli_compat_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
+test/fixtures/test-isolation-allowlist.txt # SLAWS isolation audit allow-list records per-file reasons and so carries the R3 module paths apps/stun-sentinel and apps/signalloom-stun-sentinel

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -58,7 +60,12 @@ func newHoldHarness(t *testing.T) *holdHarness {
 	tc.peerIndex = func(int, string) (int, error) { return 42, nil }
 	tc.interfaces = func() ([]net.Interface, error) { return []net.Interface{{Name: "veth42", Index: 42}}, nil }
 
-	freezer := newCgroupFreezer(root, false, "token", "token")
+	// The deadline is raised for the FAKE kernel's benefit, not the product's:
+	// simulateKernel() below mirrors cgroup.freeze into cgroup.events from a
+	// goroutine on a 1ms poll, and under host load that goroutine is not
+	// scheduled inside the 50ms production default. Freeze latency itself is
+	// tested in pkg/cgroup/freezer_test.go with explicit deadlines.
+	freezer := newCgroupFreezer(root, false, "token", "token", cgroup.WithDeadline(harnessFreezeDeadline()))
 	h.r = newStunReconciler(freezer, tc, newProbePreserver())
 	h.holds = newStunHolds(freezer)
 	h.holds.getPod = func(string, string) (*corev1.Pod, error) { return h.live.DeepCopy(), nil }

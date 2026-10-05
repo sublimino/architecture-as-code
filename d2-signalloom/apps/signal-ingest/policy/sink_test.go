@@ -271,6 +271,13 @@ func TestSink_FindingObservationShape(t *testing.T) {
 		"tenant_id":             testTenant,
 		"source_observation_id": "obs-1",
 		"mode":                  string(obscel.ModeWarn),
+		// The pseudonymous actor. This sink has no pseudonymiser configured, so
+		// ActorIdentity passes the cleartext hint through -- the documented
+		// development fallback, loudly warned about at NewSink. On any path with
+		// a pseudonymiser this is a 64-hex digest; either way the label is
+		// present, and its presence is what lets warm-up rebuild an actor-keyed
+		// window over a v2 segment that carries no cleartext actor column.
+		"actor_pseudonym": "arn:aws:iam::1:user/agent",
 	}
 	if len(f.Labels) != len(wantLabels) {
 		t.Errorf("finding carries %d labels (%v), want exactly %d (%v)",

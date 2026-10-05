@@ -487,16 +487,16 @@ func TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns(t *testing.T) {
 			DelegationDepth:  1,
 		},
 		{
-			ID:               "eq-add-2",
-			Timestamp:        base.Add(time.Minute),
-			Layer:            model.LayerNetworkEgress,
-			Fidelity:         model.FidelityStrong,
-			Source:           "sentinel",
-			ActorHint:        "actor-2",
-			PrincipalID:      "princ-2",
-			ActorID:          "act-2",
-			SessionID:        "sess-2",
-			DelegationDepth:  0,
+			ID:              "eq-add-2",
+			Timestamp:       base.Add(time.Minute),
+			Layer:           model.LayerNetworkEgress,
+			Fidelity:        model.FidelityStrong,
+			Source:          "sentinel",
+			ActorHint:       "actor-2",
+			PrincipalID:     "princ-2",
+			ActorID:         "act-2",
+			SessionID:       "sess-2",
+			DelegationDepth: 0,
 		},
 	}
 
@@ -1529,11 +1529,11 @@ func TestFrostDBStore_K8sAudit_VolumeBenchmark_RegressionGuard(t *testing.T) {
 	baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
 	const (
-		numHours          = 24
-		recordsPerHour    = 500
-		totalRecords      = numHours * recordsPerHour // N = 12,000 observations
-		benchIters        = 50
-		seed              = int64(42)
+		numHours       = 24
+		recordsPerHour = 500
+		totalRecords   = numHours * recordsPerHour // N = 12,000 observations
+		benchIters     = 50
+		seed           = int64(42)
 		// P95GuardCeiling is the strict regression threshold. Measured pushdown p95 is ~1.0 - 2.5ms;
 		// any regression losing pushdown will jump to >10-25ms.
 		P95GuardCeiling   = 10 * time.Millisecond
@@ -1729,5 +1729,3 @@ func BenchmarkFrostDBStore_K8sAudit_PushdownVsFullScan(b *testing.B) {
 		}
 	})
 }
-
-

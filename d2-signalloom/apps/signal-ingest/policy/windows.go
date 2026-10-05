@@ -123,6 +123,47 @@ func (ws *Windows) LongestWindow() time.Duration {
 	return longest
 }
 
+// KeyedLabelKeys returns the source-observation label keys that any window over
+// ruleID in bundle b declares as a key dimension, sorted and de-duplicated.
+//
+// It exists so findingObservation can carry exactly those values onto the stored
+// finding. The stored finding's label set is deliberately CLOSED -- it must not
+// re-expose a projected cloud label under a policy source -- so the set cannot
+// simply be the source observation's labels. This makes it the set a window
+// actually needs, which keeps the closed-set property while making warm-up
+// faithful. A nil receiver returns nil, which is the stage-2-disabled case.
+func (ws *Windows) KeyedLabelKeys(ruleID string, b *obscel.Bundle) []string {
+	if ws == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for _, spec := range ws.specs {
+		if spec.window.OverRule != ruleID {
+			continue
+		}
+		// Same bundle-identity scoping Offer applies: a window belongs to its own
+		// bundle version, so a promoted bundle does not pull its predecessor's
+		// key dimensions onto this finding.
+		if b != nil && bundleIdentity(spec.bundle) != bundleIdentity(b) {
+			continue
+		}
+		for _, k := range spec.window.Key {
+			if strings.HasPrefix(k, obscel.KeyLabelPrefix) {
+				seen[strings.TrimPrefix(k, obscel.KeyLabelPrefix)] = struct{}{}
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Offer feeds one finding to every window declared over its rule by its bundle,
 // returning the decisions that fired, in window order.
 func (ws *Windows) Offer(f obscel.Finding, b *obscel.Bundle) []obscel.Decision {

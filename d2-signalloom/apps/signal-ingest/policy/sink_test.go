@@ -115,6 +115,12 @@ func testBundle(t *testing.T, mode obscel.Mode) *obscel.Bundle {
 		TenantID: testTenant,
 		Version:  "1.0.0",
 		Mode:     mode,
+		// Declared, because the rule below compares obs.actor against it and
+		// Conform refuses an actor comparison against an undeclared list. These
+		// tests run with a nil pseudonymiser, so the list stays cleartext and
+		// matches the cleartext actor the sink passes through — consistent on
+		// both sides, which is the property that matters.
+		ActorVars: []string{"break_glass_actors"},
 		Vars: map[string][]string{
 			"break_glass_actors": {"arn:aws:iam::1:user/break-glass"},
 		},
@@ -271,6 +277,13 @@ func TestSink_FindingObservationShape(t *testing.T) {
 		"tenant_id":             testTenant,
 		"source_observation_id": "obs-1",
 		"mode":                  string(obscel.ModeWarn),
+		// The pseudonymous actor. This sink has no pseudonymiser configured, so
+		// ActorIdentity passes the cleartext hint through -- the documented
+		// development fallback, loudly warned about at NewSink. On any path with
+		// a pseudonymiser this is a 64-hex digest; either way the label is
+		// present, and its presence is what lets warm-up rebuild an actor-keyed
+		// window over a v2 segment that carries no cleartext actor column.
+		"actor_pseudonym": "arn:aws:iam::1:user/agent",
 	}
 	if len(f.Labels) != len(wantLabels) {
 		t.Errorf("finding carries %d labels (%v), want exactly %d (%v)",

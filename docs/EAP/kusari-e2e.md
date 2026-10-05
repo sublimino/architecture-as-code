@@ -183,58 +183,50 @@ In `collectors/awslogs/synth`: `TestGenerate_SameSeedIsByteIdentical`,
 `TestGenerate_BaselineIsHarmlessByConstruction`,
 `TestGenerate_RejectsBadArguments`.
 
-## Replay over a durable segment: a known defect
+## Replay over a durable segment
 
-**Replay over a FrostDB segment does not reproduce live, and the direction of
-the error is the dangerous one.** Pinned by
-`TestKusariE2E_FrostDBReplayCannotReproduceLive_PseudonymisedActor`.
+**Replay over a FrostDB segment reproduces live, byte for byte on the canonical
+projection.** Asserted by `TestKusariE2E_FrostDBReplayReproducesLive`, with the
+mechanism asserted separately by
+`TestKusariE2E_FrostDBReplayMechanism_PseudonymisedActorAndAllowlists`.
+
+This was a known defect until the SLAWS replay-parity change, and the shape is
+worth keeping because it explains the design.
 
 Segment schema v2 is the privacy contract. `FrostDBStore.Append` pseudonymises
-the actor into `hmac_actor_hint` and digests the evidence reference, and writes
-no cleartext `actor_hint` column at all. So every observation read back out
-carries an **empty** `ActorHint`. `policy.Replay` reads raw observations out
-of the store and re-evaluates them, and so it hands every rule
-`obs.actor == ""`.
+the actor into `hmac_actor_hint` and writes no cleartext `actor_hint` column.
+So every observation read back carried an **empty** `ActorHint`, and
+`policy.Replay` handed every rule `obs.actor == ""`.
 
-Every allowlist in both bundles is a negative test on the actor
-(`!(obs.actor in vars.break_glass_actors)` and its siblings). An empty actor
-satisfies it. On replay, therefore:
+Every allowlist in both bundles is a negative test on the actor. An empty actor
+satisfies it, so replay fired against exempted identities and lost true
+positives. Measured over the Kusari corpus, live produced 62 findings and 3
+decisions. Replay produced 64 and 2.
 
-- break-glass records that live correctly ignored **fire**.
-- `kusari-operator`'s allowlisted console sign-in, which exists in the corpus
-  precisely as that rule's negative fixture, **fires**.
-- `cross-account-assume-role` stops firing entirely, because its
-  `obs.actor != ""` guard is now false. Two true positives and their burst
-  decision **disappear**.
-- every window keyed on `actor` collapses into one counter.
+The resolution is that the pseudonym **is** the actor identity, everywhere in
+policy, on both paths. Three parts.
 
-Measured over the Kusari corpus: live is 62 findings and 3 decisions. FrostDB
-replay is 64 and 2.
+1. A stored row's `hmac_actor_hint` is used verbatim. A live observation's
+   cleartext hint goes through the store's own pseudonymiser. Both land on the
+   same value.
+2. Bundle vars holding actor identities are named under `actor_vars` and
+   rewritten into that same space at load. `Conform` refuses a rule comparing
+   `obs.actor` against an undeclared var.
+3. `cross-account-assume-role` no longer dissects the actor ARN. It compares
+   the projected `actor_account_id` label against `aws_account_id`.
 
-Reproduce it:
+Verify it:
 
 ```bash
-make test-kusari-e2e   # the frostdb pass logs "PINNED DEFECT: ..."
+make test-kusari-e2e   # the frostdb pass logs the canonical line count
 ```
 
-Two consequences for an operator today:
+`docs/signalloom/runbooks/slaws-policy-replay.md` is corrected to match. It now
+carries a section on the actor being a pseudonym, and its troubleshooting table
+routes an allowlisted identity firing everywhere to the `actor_vars` omission.
 
-1. **A replay over a durable segment is not evidence about what the live
-   pipeline decided.** Use it to ask "what would this candidate bundle have
-   matched", not to audit a past decision. The stored findings and decisions
-   are the record of what happened.
-2. `docs/signalloom/runbooks/slaws-policy-replay.md` is wrong on this in two
-   places. It states that replay is unaffected by the lossy finding
-   projection "because it starts from raw observations". Its troubleshooting
-   table routes "Replay differs from live" to "investigate as a determinism
-   defect". Neither holds over a v2 segment. Flagged for that page's owner.
-
-Fixing it is a design decision between two live contracts — the replay-oracle
-claim and the segment privacy contract — and it is cross-package. The candidate
-shapes are in the comment on the pinning test.
-
-The in-memory path is unaffected, and
-`TestKusariE2E_ReplayReproducesLive` is the positive claim.
+The in-memory path was never affected, and `TestKusariE2E_ReplayReproducesLive`
+remains its positive claim.
 
 ## GuardDuty findings: a known gap
 

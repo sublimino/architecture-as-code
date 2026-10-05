@@ -1,8 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
-//go:build frostdb
-
+// This file carries NO build tag, unlike every other segment-schema-v2 file in
+// this package, and the reason is the SLAWS replay-parity contract rather than
+// anything to do with columnar storage.
+//
+// Policy evaluates obs.actor as the PSEUDONYM, on the live path and the replay
+// path alike, because a v2 segment returns no cleartext actor and a replay that
+// re-evaluated an empty actor inverted every allowlist in both shipped bundles.
+// That makes pseudonymisation a policy-layer concern, and the policy layer is
+// compiled into every binary -- including one built without -tags frostdb, which
+// runs MemoryStore. If this type were frostdb-only, the MemoryStore build could
+// not pseudonymise, the two stores would disagree about what obs.actor IS, and
+// the parity claim would hold only for the configuration nobody tests.
+//
+// Nothing here ever touched Arrow or Parquet: the dependencies are this repo's
+// pseudonym key ring and the standard library. Untagging it adds a type to the
+// non-frostdb build and changes no behaviour in the tagged one.
 package store
 
 import (
@@ -47,6 +61,24 @@ var (
 	ErrSegmentPseudonymTenantRequired = errors.New(
 		"store: segment pseudonymisation tenant scope is required; an empty scope would merge tenant correlation domains")
 )
+
+// ActorPseudonymiser is the one-method contract the policy layer holds, so policy
+// depends on the ABILITY to pseudonymise an actor and not on the columnar store.
+//
+// It exists because the alternative is policy importing *SegmentPseudonymiser
+// directly, which would put the store's construction, its key material and its
+// epoch semantics inside the policy package's test surface. A caller that cannot
+// supply one is a deliberate decision the caller documents; see
+// policy.Options.ActorPseudonymiser.
+//
+// *SegmentPseudonymiser satisfies it.
+type ActorPseudonymiser interface {
+	// Pseudonym returns the keyed pseudonym of an identifier. An empty input
+	// returns an empty output and a nil error: an observation with no actor has
+	// no actor pseudonym, and hashing "" would write one constant join key across
+	// every identity-free record.
+	Pseudonym(value string) (string, error)
+}
 
 // SegmentPseudonymiser converts direct identifiers into keyed pseudonyms for the columnar store.
 //

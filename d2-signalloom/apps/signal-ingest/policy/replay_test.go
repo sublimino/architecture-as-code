@@ -49,6 +49,12 @@ id: test-iam
 tenant_id: kusari
 version: 1.0.0
 mode: warn
+# Declared because the rule compares obs.actor against it; Conform refuses an
+# actor comparison against an undeclared list. These tests load with a nil
+# pseudonymiser, so the list and the actor are both cleartext — consistent on
+# both sides, which is the property replay equality actually depends on.
+actor_vars:
+  - break_glass_actors
 vars:
   break_glass_actors:
     - "arn:aws:iam::1:user/break-glass"
@@ -94,7 +100,7 @@ func liveRun(t *testing.T, st store.SignalStore, bundles []*obscel.Bundle, obs [
 func TestReplay_EqualsLiveOnTheAWSFixtureCorpus(t *testing.T) {
 	bundlesDir := repoBundlesDir(t)
 	log := testLogger(t)
-	bundles, err := LoadBundles(bundlesDir, log)
+	bundles, err := LoadBundles(bundlesDir, log, nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -142,7 +148,7 @@ func TestReplay_EqualsLiveOnTheAWSFixtureCorpus(t *testing.T) {
 // that crosses a threshold.
 func TestReplay_EqualsLiveIncludingDecisions(t *testing.T) {
 	bundlesDir := writeBundle(t, burstBundleYAML)
-	bundles, err := LoadBundles(bundlesDir, testLogger(t))
+	bundles, err := LoadBundles(bundlesDir, testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -187,7 +193,7 @@ func timeID(i int) string {
 // already in the store are input it skips.
 func TestReplay_SkipsStoredFindingsAndDecisionsAsInput(t *testing.T) {
 	bundlesDir := writeBundle(t, burstBundleYAML)
-	bundles, err := LoadBundles(bundlesDir, testLogger(t))
+	bundles, err := LoadBundles(bundlesDir, testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -293,7 +299,7 @@ func TestReplay_TenantFilter(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadBundles_MissingDirIsZeroBundlesNotAnError(t *testing.T) {
-	bundles, err := LoadBundles(filepath.Join(t.TempDir(), "nope"), testLogger(t))
+	bundles, err := LoadBundles(filepath.Join(t.TempDir(), "nope"), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("a missing bundle dir must not refuse to boot, got %v", err)
 	}
@@ -317,13 +323,13 @@ rules:
     severity: high
     expression: 'obs.evemt_name == "x"'
 `)
-	if _, err := LoadBundles(dir, testLogger(t)); err == nil {
+	if _, err := LoadBundles(dir, testLogger(t), nil); err == nil {
 		t.Fatal("a non-conformant bundle must refuse to load")
 	}
 }
 
 func TestLoadBundles_LoadsTheShippedKusariBundle(t *testing.T) {
-	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t))
+	bundles, err := LoadBundles(repoBundlesDir(t), testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}
@@ -421,7 +427,7 @@ func TestRunReplayCommand_WritesTheOutFile(t *testing.T) {
 // threshold.
 func TestReplay_ImposesArrivalOrderOnAnUnorderedStore(t *testing.T) {
 	bundlesDir := writeBundle(t, burstBundleYAML)
-	bundles, err := LoadBundles(bundlesDir, testLogger(t))
+	bundles, err := LoadBundles(bundlesDir, testLogger(t), nil)
 	if err != nil {
 		t.Fatalf("LoadBundles: %v", err)
 	}

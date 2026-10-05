@@ -79,138 +79,175 @@ func TestKusariE2E_FrostDBMatchesTheExpectationTable(t *testing.T) {
 	}
 }
 
-// FINDING. Replay over a segment-schema-v2 FrostDB store does NOT reproduce
-// live, and it cannot, and the direction of the error is the dangerous one.
+// Replay over a segment-schema-v2 FrostDB store reproduces live, byte for byte
+// on the canonical projection -- the same claim its MemoryStore sibling
+// (TestKusariE2E_ReplayReproducesLive) makes, now true over the store the pod
+// actually runs.
 //
-// # The mechanism
+// # What this replaced, and why it was true
 //
-// Segment schema v2 is the privacy contract: FrostDBStore.Append pseudonymises
-// the actor into `hmac_actor_hint` and digests the evidence reference into
-// `evidence_ref_digest`, and it writes NO cleartext `actor_hint` or
-// `raw_evidence_ref` column at all (store/frostdb.go: the v2 schema simply has
-// no such field, and the read path's `if idx, ok := colIdx["actor_hint"]` finds
-// nothing). So every observation read back carries an EMPTY ActorHint.
+// This test used to PIN a divergence rather than assert equality. Segment schema
+// v2 is the privacy contract: FrostDBStore.Append writes hmac_actor_hint and the
+// v2 layout has no actor_hint column at all, so every observation read back
+// carried an EMPTY ActorHint. policy.Replay re-evaluated those rows and toObscel
+// mapped the empty hint onto obs.actor, so every rule and every window saw
+// obs.actor == "".
 //
-// policy.Replay reads raw observations out of the store and re-evaluates them.
-// toObscel maps ActorHint onto obs.actor. Therefore on replay every rule and
-// every window sees obs.actor == "".
+// That was worse than a blank column, because every allowlist in both shipped
+// bundles is a NEGATIVE test on the actor. An empty actor SATISFIES the
+// negation, so on replay the break-glass records live correctly ignored fired,
+// kusari-operator's allowlisted console sign-in fired, cross-account-assume-role
+// stopped firing entirely because its obs.actor != "" guard went false, and
+// every actor-keyed window collapsed into one counter. Live 62 findings / 3
+// decisions; replay 64 / 2. Wrong in both directions at once, and the runbook
+// sent the operator after a clock that was not the problem.
 //
-// # Why that is worse than "the actor column is blank"
+// # Why it is now true
 //
-// Every allowlist in both shipped bundles is written as a NEGATIVE test on the
-// actor -- `!(obs.actor in vars.break_glass_actors)` and its siblings. With an
-// empty actor the negative is satisfied, so on replay:
+// The pseudonym IS the actor identity, on both paths (policy.ActorIdentity). A
+// v2 row's hmac_actor_hint is used verbatim; a live observation's cleartext hint
+// goes through the store's OWN pseudonymiser, so it lands on the identical
+// value. The bundles' actor allowlists are rewritten into the same space at load
+// (actor_vars + obscel.PseudonymiseActorVars), and Conform refuses any rule that
+// compares obs.actor against a var not declared there. cross-account-assume-role
+// no longer dissects the actor ARN: it compares actor_account_id against
+// aws_account_id, both projected labels that round-trip through a segment.
 //
-//   - the break-glass records that live correctly ignored FIRE;
-//   - kusari-operator's allowlisted console sign-in, which exists in the corpus
-//     precisely as the rule's negative fixture, FIRES;
-//   - cross-account-assume-role stops firing entirely, because its `obs.actor
-//     != ""` guard is now false, so two true positives DISAPPEAR;
-//   - every window keyed on `actor` collapses into one counter, so the
-//     cross-account burst decision vanishes and the IAM burst decision is
-//     reached by a mixture of two identities' events.
-//
-// A replay therefore produces findings against the identities an operator
-// deliberately exempted, and loses the ones it was looking for. An operator
-// reading the runbook's "Replay differs from live -> investigate as a
-// determinism defect" would be sent after a clock that is not the problem.
-//
-// # Status
-//
-// Not fixable from this card: store/ is out of scope, and the fix is a design
-// decision between two live contracts -- the SLAWS replay-oracle claim (ISC-55)
-// and the SLDP segment-schema-v2 privacy contract. The plausible shapes are (a)
-// replay evaluates against `hmac_actor_hint` with the bundle's allowlists
-// pseudonymised through the same key, or (b) the canonical projection and every
-// actor-reading rule move to the pseudonym as their actor identity. Both are
-// cross-package.
-//
-// This test PINS the divergence rather than asserting an equality that is false.
-// When the defect is fixed this test goes red, which is the moment to replace it
-// with the equality assertion its MemoryStore sibling already makes.
-//
-// See docs/EAP/kusari-e2e.md, "Replay over a durable segment".
-func TestKusariE2E_FrostDBReplayCannotReproduceLive_PseudonymisedActor(t *testing.T) {
+// The mechanism is asserted separately below. This test asserts only the
+// OUTCOME, so a mechanism change that preserved the outcome would not fail here.
+func TestKusariE2E_FrostDBReplayReproducesLive(t *testing.T) {
 	h := newHarness(t, newFrostDB(t), bundlesDir(t), collectors.NewDeduper(8192))
 	c := corpus(t)
 	ingest(t, h, c)
 
-	// The mechanism, asserted directly: the stored observation has no actor.
+	live := h.Recorder.CanonicalLines()
+	if len(live) == 0 {
+		t.Fatal("the live run recorded nothing; the equality claim would be vacuous")
+	}
+	replayed := replayLines(t, h, c)
+
+	if len(live) != len(replayed) {
+		t.Fatalf("live produced %d canonical lines over FrostDB, replay %d", len(live), len(replayed))
+	}
+	for i := range live {
+		if live[i] != replayed[i] {
+			t.Fatalf("canonical line %d differs over FrostDB\n  live: %s\nreplay: %s", i, live[i], replayed[i])
+		}
+	}
+	t.Logf("FrostDB replay reproduced live exactly: %d canonical lines", len(live))
+}
+
+// The MECHANISM behind the equality above, asserted so a regression names its
+// own cause instead of surfacing as an opaque line-count mismatch.
+//
+// Four claims, every one of which was false before this change:
+//
+//  1. the stored source observation still carries NO cleartext actor, so parity
+//     was not bought by weakening the privacy contract;
+//  2. what policy evaluates is the PSEUDONYM -- not the empty string the old
+//     replay saw, and not the cleartext the old live path saw;
+//  3. the bundle allowlists live in that same pseudonym space, so a negative
+//     allowlist test can actually exclude somebody;
+//  4. therefore the two records that prove the DIRECTION behave correctly on
+//     both sides: the allowlisted console sign-in stays silent, and the two
+//     genuine cross-account assumptions plus their burst decision survive.
+func TestKusariE2E_FrostDBReplayMechanism_PseudonymisedActorAndAllowlists(t *testing.T) {
+	h := newHarness(t, newFrostDB(t), bundlesDir(t), collectors.NewDeduper(8192))
+	c := corpus(t)
+	ingest(t, h, c)
+
+	// (1) The privacy contract still holds: no cleartext actor comes back.
 	stored, err := h.Store.QueryRange(context.Background(), store.Query{})
 	if err != nil {
 		t.Fatalf("QueryRange: %v", err)
 	}
-	sources := 0
+	sources, pseudonymised := 0, 0
 	for _, o := range stored {
 		if o.Source == obscel.SourceFinding || o.Source == obscel.SourceDecision {
 			continue
 		}
 		sources++
 		if o.ActorHint != "" {
-			t.Fatalf("a v2 segment returned a cleartext actor %q for %s; the schema has changed and this test's premise is gone -- re-assert replay equality instead",
+			t.Errorf("a v2 segment returned a cleartext actor %q for %s; replay parity must not be bought by weakening the schema",
 				o.ActorHint, o.ID)
+		}
+		if o.HMACActorHint != "" {
+			pseudonymised++
 		}
 	}
 	if sources == 0 {
-		t.Fatal("no source observations were read back; the premise cannot be established")
+		t.Fatal("no source observations were read back; nothing below can be established")
+	}
+	if pseudonymised == 0 {
+		t.Fatal("no stored observation carries hmac_actor_hint; replay would have no actor to read")
 	}
 
-	live := h.Recorder.CanonicalLines()
-	replayed := replayLines(t, h, c)
-	if len(live) == len(replayed) {
-		t.Fatalf("FrostDB replay produced the same %d canonical lines as live; the actor divergence this test pins has been fixed -- replace it with the equality assertion", len(live))
-	}
-
-	// The DIRECTION, which is the part worth pinning. Both halves must hold:
-	// records that live ignored now fire, and records that live caught are lost.
-	liveSet := map[string]bool{}
-	for _, l := range live {
-		liveSet[l] = true
-	}
-	replaySet := map[string]bool{}
-	for _, l := range replayed {
-		replaySet[l] = true
-	}
-
-	// kusari-operator's console sign-in is the negative fixture for
-	// console-login-outside-allowlist. It must fire on replay and not live.
-	operatorFired := false
-	for l := range replaySet {
-		if strings.Contains(l, "console-login-outside-allowlist") && strings.Contains(l, "source_ip=198.51.100.3") {
-			operatorFired = !liveSet[l]
+	// (2) What policy evaluates is that pseudonym. Every finding for an
+	// actor-bearing record carries a 64-hex actor, never an ARN and never empty.
+	actors := 0
+	for _, f := range h.Recorder.Findings {
+		if f.Actor == "" {
+			continue // VPC Flow names no principal, which is correct and tested elsewhere.
+		}
+		actors++
+		if len(f.Actor) != 64 {
+			t.Errorf("finding %s carries actor %q, want a 64-character pseudonym", f.ID, f.Actor)
+		}
+		if strings.HasPrefix(f.Actor, "arn:") {
+			t.Errorf("finding %s carries a cleartext ARN actor %q", f.ID, f.Actor)
 		}
 	}
-	if !operatorFired {
-		t.Error("the allowlisted console sign-in did not fire on replay; the inverted-allowlist half of this finding no longer reproduces")
+	if actors == 0 {
+		t.Fatal("no finding carries an actor; the pseudonymisation claim would be vacuous")
 	}
 
-	// The two genuine cross-account assumptions, and the burst decision over
-	// them, are lost on replay. The substring matches the rule field of a
-	// finding line AND the rule field of a decision line, so the count is
-	// "canonical lines that mention the rule", which is three: two findings and
-	// one decision. All three must go to zero.
-	liveCrossAccount, replayCrossAccount := 0, 0
-	for l := range liveSet {
-		if strings.Contains(l, "|cross-account-assume-role|") {
-			liveCrossAccount++
+	// (3) The allowlists were rewritten into the same space at load. A cleartext
+	// ARN surviving here IS the silent-inversion defect: the list could never
+	// match a pseudonym, so every negative allowlist test becomes always-true and
+	// the exempted identity fires on every record -- identically on both sides,
+	// so the equality assertion above would still pass.
+	declared := 0
+	for _, b := range h.Bundles {
+		for _, name := range b.ActorVars {
+			declared++
+			for _, v := range b.Vars[name] {
+				if len(v) != 64 || strings.HasPrefix(v, "arn:") {
+					t.Errorf("bundle %s vars.%s holds %q, which is not a pseudonym; "+
+						"obs.actor can never match it and !(obs.actor in vars.%s) becomes always-true",
+						b.ID, name, v, name)
+				}
+			}
 		}
 	}
-	for l := range replaySet {
-		if strings.Contains(l, "|cross-account-assume-role|") {
-			replayCrossAccount++
-		}
-	}
-	if liveCrossAccount == 0 {
-		t.Fatal("live produced no cross-account findings; the lost-detection half cannot be shown")
-	}
-	if replayCrossAccount != 0 {
-		t.Errorf("replay produced %d cross-account findings, want 0: the lost-detection half of this finding no longer reproduces", replayCrossAccount)
+	if declared == 0 {
+		t.Fatal("no bundle declares actor_vars; the shipped bundles' allowlists are unprotected")
 	}
 
-	t.Logf("PINNED DEFECT: FrostDB v2 replay produced %d canonical lines against live's %d; "+
-		"%d canonical lines naming cross-account-assume-role (2 findings + 1 decision) lost, "+
-		"allowlisted identities fired. See the comment on this test.",
-		len(replayed), len(live), liveCrossAccount)
+	// (4) The direction, on BOTH sides. These are the two records the pinned
+	// defect used to show going the wrong way.
+	for label, lines := range map[string][]string{
+		"live":   h.Recorder.CanonicalLines(),
+		"replay": replayLines(t, h, c),
+	} {
+		operator, crossAccount := 0, 0
+		for _, l := range lines {
+			if strings.Contains(l, "console-login-outside-allowlist") && strings.Contains(l, "source_ip=198.51.100.3") {
+				operator++
+			}
+			if strings.Contains(l, "|cross-account-assume-role|") {
+				crossAccount++
+			}
+		}
+		if operator != 0 {
+			t.Errorf("%s: kusari-operator's allowlisted console sign-in produced %d findings, want 0; "+
+				"the allowlist is not excluding it", label, operator)
+		}
+		// Two findings and the one burst decision over them.
+		if crossAccount != 3 {
+			t.Errorf("%s: %d canonical lines name cross-account-assume-role, want 3 (2 findings + 1 decision)",
+				label, crossAccount)
+		}
+	}
 }
 
 // A restart over a FrostDB segment does not re-admit the corpus. This is the

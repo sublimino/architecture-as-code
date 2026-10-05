@@ -46,6 +46,8 @@ type Windows struct {
 	specs    []windowSpec
 	counters map[string]*counter
 	log      *slog.Logger
+	// warmedMissingKeyed is set by Warm; see WarmedMissingKeyedLabels.
+	warmedMissingKeyed int
 }
 
 // windowSpec pairs a declared window with the bundle that declared it, so a
@@ -121,6 +123,47 @@ func (ws *Windows) LongestWindow() time.Duration {
 		}
 	}
 	return longest
+}
+
+// KeyedLabelKeys returns the source-observation label keys that any window over
+// ruleID in bundle b declares as a key dimension, sorted and de-duplicated.
+//
+// It exists so findingObservation can carry exactly those values onto the stored
+// finding. The stored finding's label set is deliberately CLOSED -- it must not
+// re-expose a projected cloud label under a policy source -- so the set cannot
+// simply be the source observation's labels. This makes it the set a window
+// actually needs, which keeps the closed-set property while making warm-up
+// faithful. A nil receiver returns nil, which is the stage-2-disabled case.
+func (ws *Windows) KeyedLabelKeys(ruleID string, b *obscel.Bundle) []string {
+	if ws == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for _, spec := range ws.specs {
+		if spec.window.OverRule != ruleID {
+			continue
+		}
+		// Same bundle-identity scoping Offer applies: a window belongs to its own
+		// bundle version, so a promoted bundle does not pull its predecessor's
+		// key dimensions onto this finding.
+		if b != nil && bundleIdentity(spec.bundle) != bundleIdentity(b) {
+			continue
+		}
+		for _, k := range spec.window.Key {
+			if strings.HasPrefix(k, obscel.KeyLabelPrefix) {
+				seen[strings.TrimPrefix(k, obscel.KeyLabelPrefix)] = struct{}{}
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Offer feeds one finding to every window declared over its rule by its bundle,
@@ -257,15 +300,25 @@ func windowKey(w obscel.Window, f obscel.Finding) string {
 // but must leave the counter in the state that process had, so the next arriving
 // finding crosses the threshold at the same point.
 //
-// # The one lossy dimension, stated plainly
+// # Label-keyed dimensions
 //
-// A stored finding carries the closed policy label set, not the source
-// observation's labels (see findingObservation). So a window keyed on a
-// `labels.<key>` dimension CANNOT be rebuilt faithfully — every warmed finding
-// reads an empty value for that dimension and collapses into one counter.
-// Warm logs a warning naming each such window rather than silently
-// mis-counting. The first shipped bundle keys on [tenant_id, actor], both of
-// which survive the projection.
+// A stored finding carries the closed policy label set PLUS the label values
+// every window over its rule keys on, which findingObservation copies onto it
+// (see Windows.KeyedLabelKeys). So a window keyed on `labels.<key>` rebuilds
+// faithfully.
+//
+// It did not used to. The closed set was all a finding carried, so every warmed
+// finding read an empty value for that dimension and collapsed into ONE
+// counter: twenty hosts each retrying once warmed as one host scanning twenty
+// times, and a pod could come up already over threshold on evidence that is
+// nothing of the kind. cloud-signals.yaml's vpc-reject-burst-5m documented that
+// limit and named policy/convert.go as the fix.
+//
+// What remains is a ROW-LEVEL possibility rather than a structural one: a
+// finding written by an older binary, or one from a v1 segment, carries no such
+// label. Those are counted and reported at the end of warm-up
+// (WarmedMissingKeyedLabels) rather than warned about up front, because an
+// up-front warning now fires on every boot of a window that works perfectly.
 func (ws *Windows) Warm(ctx context.Context, st store.SignalStore, now time.Time) error {
 	if ws == nil || len(ws.specs) == 0 || st == nil {
 		return nil
@@ -275,15 +328,6 @@ func (ws *Windows) Warm(ctx context.Context, st store.SignalStore, now time.Time
 	if horizon <= 0 {
 		return nil
 	}
-	for _, s := range ws.specs {
-		for _, k := range s.window.Key {
-			if strings.HasPrefix(k, obscel.KeyLabelPrefix) {
-				ws.log.Warn("stage-2 window keys on a source-observation label, which a stored finding does not carry; warm-up will under-key this window",
-					"window", s.window.ID, "bundle", s.bundle.ID, "key", k)
-			}
-		}
-	}
-
 	// Before is left zero: MemoryStore and FrostDB both treat a zero Before as
 	// "no upper bound", and bounding it at `now` would drop a finding whose
 	// timestamp is the same instant.
@@ -315,7 +359,7 @@ func (ws *Windows) Warm(ctx context.Context, st store.SignalStore, now time.Time
 		byIdentity[bundleIdentity(s.bundle)] = s.bundle
 	}
 
-	warmed := 0
+	warmed, missingKeyed := 0, 0
 	for _, f := range findings {
 		b := byIdentity[f.TenantID+"/"+f.BundleID+"@"+f.BundleVersion]
 		if b == nil {
@@ -323,13 +367,44 @@ func (ws *Windows) Warm(ctx context.Context, st store.SignalStore, now time.Time
 			// would attribute old evidence to a new policy.
 			continue
 		}
+		// A row that predates keyed-label carriage reads an empty value for the
+		// dimension and merges into the empty-valued counter. That is the old
+		// behaviour for that row only, and it is counted rather than silent.
+		for _, k := range ws.KeyedLabelKeys(f.RuleID, b) {
+			if f.Labels[k] == "" {
+				missingKeyed++
+				break
+			}
+		}
 		ws.offer(f, b, false)
 		warmed++
 	}
+	ws.mu.Lock()
+	ws.warmedMissingKeyed = missingKeyed
+	ws.mu.Unlock()
 
+	if missingKeyed > 0 {
+		ws.log.Warn("some warmed findings carry no value for a window's label-keyed dimension; those rows merge into one counter",
+			"findings", missingKeyed, "of", warmed,
+			"cause", "written before findings carried their windows' keyed label values, or read from a v1 segment",
+			"consequence", "the affected counter over-counts across key values and may fire early until the window slides past them")
+	}
 	ws.log.Info("stage-2 warm-up complete",
-		"horizon", horizon.String(), "findings_replayed", warmed, "windows", len(ws.specs))
+		"horizon", horizon.String(), "findings_replayed", warmed, "windows", len(ws.specs),
+		"missing_keyed_labels", missingKeyed)
 	return nil
+}
+
+// WarmedMissingKeyedLabels reports how many findings the last Warm folded in
+// that carried no value for a label-keyed dimension of a window over their rule.
+// Non-zero means those rows merged into one counter. Test- and diagnostics-facing.
+func (ws *Windows) WarmedMissingKeyedLabels() int {
+	if ws == nil {
+		return 0
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	return ws.warmedMissingKeyed
 }
 
 // WarmedCount reports how many findings a Warm call folded in. Test-facing.

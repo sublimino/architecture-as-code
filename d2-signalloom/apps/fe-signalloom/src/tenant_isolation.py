@@ -557,7 +557,7 @@ async def api_provision_tenant(req: TenantProvisionRequest, tenant: Tenant) -> T
         customer_hash=customer_hash,
     )
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=getattr(tenant, "principal", None),
         action="tenant.provision",
         target=res.customer_hash,
@@ -599,7 +599,7 @@ async def api_teardown_tenant(customer_hash: CustomerHash, tenant: Tenant) -> Di
         )
     receipt = GLOBAL_TENANT_ISOLATION_MANAGER.get_shred_receipt(customer_hash)
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=getattr(tenant, "principal", None),
         action="tenant.teardown",
         target=customer_hash.lower(),
@@ -648,7 +648,7 @@ async def api_tenant_encrypt(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no active transit key: {exc}") from exc
     key_path = get_tenant_transit_key_path(customer_hash)
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=getattr(tenant, "principal", None),
         action="tenant.encrypt",
         target=customer_hash.lower(),
@@ -674,7 +674,7 @@ async def api_tenant_decrypt(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     key_path = get_tenant_transit_key_path(customer_hash)
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=getattr(tenant, "principal", None),
         action="tenant.decrypt",
         target=customer_hash.lower(),

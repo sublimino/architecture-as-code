@@ -2398,12 +2398,12 @@ define gcp_tf_require_env
 	@if [ -z "$(ENV)" ]; then \
 		echo "ERROR: ENV is required for '$@'."; \
 		echo "       Usage: make $@ ENV=demo-1"; \
-		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$ — demo-1, demo-2, ci-1."; \
+		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$ or pilot-kusari — demo-1, demo-2, ci-1, pilot-kusari."; \
 		exit 2; \
 	fi
-	@grep -Eq '^(demo|ci)-[1-9][0-9]*$$' <<<'$(ENV)' || { \
+	@grep -Eq '^((demo|ci)-[1-9][0-9]*|pilot-kusari)$$' <<<'$(ENV)' || { \
 		echo "ERROR: ENV='$(ENV)' is not a valid environment key."; \
-		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$."; \
+		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$ or pilot-kusari."; \
 		echo "       'prod-1' is rejected on purpose: this platform builds demo and"; \
 		echo "       CI estates only, and a prod-shaped key here would put production"; \
 		echo "       naming on infrastructure with a demo's guard rails."; \

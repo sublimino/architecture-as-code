@@ -749,11 +749,12 @@ func main() {
 		remoteStuns:       remoteStuns,
 		identityMap:       identityMap,
 	}
-	// The real client's own resolvePod (k8sclient.go) needs the same map, for
-	// the identical reason: its label-selector fallback must not let a
-	// spoofed decoy win resolution either.
+	// The real client's own resolvePod (k8sclient.go) and its mesh client's
+	// resolveTargetIP (mesh_client.go) need the same map, for the identical
+	// reason: neither label-selector fallback may let a spoofed decoy win
+	// resolution.
 	if real, ok := selection.Client.(*k8sFleetClient); ok {
-		real.identityMap = identityMap
+		real.SetIdentityMap(identityMap)
 	}
 
 	// A key defect does not crash the process (break-glass must stay

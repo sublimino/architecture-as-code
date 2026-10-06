@@ -507,3 +507,79 @@ func BenchmarkMeshIsolation_TerminationLatency(b *testing.B) {
 		}
 	}
 }
+
+// ── Identity-map spoof rejection in resolveTargetIP's label-selector
+// fallback (sldc/sa-identity) ────────────────────────────────────────────────
+//
+// resolveTargetIP falls back to the signalloom.ai/agent-name selector for any
+// agent whose pod name diverges from its DAG id -- kusari-agent's does.
+// hosted-daytona-coder holds pod-create RBAC in this namespace, so a decoy
+// pod carrying that label is exactly what it could create, and mesh
+// isolation applied to the decoy's IP would both miss the real agent and
+// isolate an unrelated workload.
+
+func TestCiliumMeshClient_ResolveTargetIP_LabelSelectorSpoofWithWrongServiceAccountIsRejected(t *testing.T) {
+	decoy := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "decoy-daytona-pod",
+			Namespace: "fe-signalloom-agents",
+			Labels:    map[string]string{AgentLabel: "true", AgentNameLabel: "kusari-agent"},
+		},
+		Spec:   corev1.PodSpec{ServiceAccountName: "hosted-daytona-coder"},
+		Status: corev1.PodStatus{PodIP: "10.244.9.9"},
+	}
+	client := NewCiliumMeshClient(fake.NewSimpleClientset(decoy))
+	client.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+
+	ip, err := client.resolveTargetIP(context.Background(), "fe-signalloom-agents", "agent-kusari-agent")
+	if err == nil {
+		t.Fatalf("resolved IP = %q, err = nil; want an error: a decoy running as hosted-daytona-coder must not resolve as agent-kusari-agent's IP", ip)
+	}
+	if ip == "10.244.9.9" {
+		t.Fatal("must never return the decoy's IP for the real agent")
+	}
+}
+
+func TestCiliumMeshClient_ResolveTargetIP_LabelSelectorWithMatchingServiceAccountStillResolves(t *testing.T) {
+	legit := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "agent-kusari-74f9b6-abcde",
+			Namespace: "fe-signalloom-agents",
+			Labels:    map[string]string{AgentLabel: "true", AgentNameLabel: "kusari-agent"},
+		},
+		Spec:   corev1.PodSpec{ServiceAccountName: "kusari-agent"},
+		Status: corev1.PodStatus{PodIP: "10.244.9.10"},
+	}
+	client := NewCiliumMeshClient(fake.NewSimpleClientset(legit))
+	client.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+
+	ip, err := client.resolveTargetIP(context.Background(), "fe-signalloom-agents", "agent-kusari-agent")
+	if err != nil {
+		t.Fatalf("resolveTargetIP: %v", err)
+	}
+	if ip != "10.244.9.10" {
+		t.Fatalf("ip = %q, want 10.244.9.10", ip)
+	}
+}
+
+func TestCiliumMeshClient_ResolveTargetIP_UnregisteredAgentNameIsUnaffectedByIdentityMap(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "agent-cardvault-bb57657-jlf8w",
+			Namespace: "fe-signalloom-agents",
+			Labels:    map[string]string{AgentLabel: "true", AgentNameLabel: "cardvault"},
+		},
+		Spec:   corev1.PodSpec{ServiceAccountName: "anything-at-all"},
+		Status: corev1.PodStatus{PodIP: "10.244.9.11"},
+	}
+	client := NewCiliumMeshClient(fake.NewSimpleClientset(pod))
+	client.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+
+	ip, err := client.resolveTargetIP(context.Background(), "fe-signalloom-agents", "agent-cardvault")
+	if err != nil {
+		t.Fatalf("resolveTargetIP: %v", err)
+	}
+	if ip != "10.244.9.11" {
+		t.Fatalf("ip = %q, want 10.244.9.11 (unregistered agent name must still resolve)", ip)
+	}
+}

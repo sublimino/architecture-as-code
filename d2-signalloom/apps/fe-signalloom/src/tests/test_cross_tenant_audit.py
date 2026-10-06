@@ -317,3 +317,77 @@ class TestPolicyRoutesIntegration:
         assert resp.status_code == 503, resp.text
         assert resp.json()["error"]["code"] == "database_unavailable"
         assert _memory_events(SUPERADMIN_TENANT) == []
+
+
+# ---------------------------------------------------------------------------
+# 3. GET /api/v1/invites -- a local DB read, not a signal-ingest proxy
+# ---------------------------------------------------------------------------
+
+
+import json as _json
+import uuid as _uuid
+from datetime import datetime, timedelta, timezone
+
+from tests.test_agent_discovery import bearer as _invites_bearer, client_for as _invites_client_for
+from tests.test_invites import SUPERADMIN as INVITES_SUPERADMIN, _TablePool, _configure as _configure_invites_pool, token_with_email
+
+
+def _invite_row(tenant: str, created: datetime) -> dict[str, Any]:
+    return {
+        "id": _uuid.uuid4(), "email": f"{tenant}@example.test", "tenant": tenant,
+        "created_by": INVITES_SUPERADMIN, "created_at": created,
+        "expires_at": created + timedelta(days=7), "redeemed_by": None, "redeemed_at": None,
+    }
+
+
+class TestInvitesRouteIntegration:
+    """invites.list_invites lists every invite, unscoped, superadmin only."""
+
+    def test_cross_tenant_listing_emits_one_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        table = _TablePool()
+
+        async def get_pool() -> _TablePool:
+            return table
+
+        get_pool.table = table
+
+        now = datetime.now(timezone.utc)
+        table.invites.append(_invite_row("tenant-demo", now))
+        table.invites.append(_invite_row("tenant-b", now))
+
+        with _invites_client_for(monkeypatch) as client:
+            _configure_invites_pool(monkeypatch, get_pool)
+            resp = client.get(
+                "/api/v1/invites", headers=_invites_bearer(token_with_email(INVITES_SUPERADMIN, None)),
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert len(resp.json()["invites"]) == 2
+        audit_events = [a for a in table.audit if a[1] == "audit.cross_tenant_read"]
+        assert len(audit_events) == 1, table.audit
+        tenant_id, _event_type, _agent_id, _agent_name, actor, detail_json = audit_events[0]
+        assert tenant_id == "tenant-demo"  # the superadmin's own tenant
+        assert actor == INVITES_SUPERADMIN
+        detail = _json.loads(detail_json)
+        assert detail["action"] == "cross_tenant_read"
+        assert detail["tenant_ids"] == ["tenant-b", "tenant-demo"]
+
+    def test_single_tenant_listing_emits_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        table = _TablePool()
+
+        async def get_pool() -> _TablePool:
+            return table
+
+        get_pool.table = table
+
+        now = datetime.now(timezone.utc)
+        table.invites.append(_invite_row("tenant-demo", now))
+
+        with _invites_client_for(monkeypatch) as client:
+            _configure_invites_pool(monkeypatch, get_pool)
+            resp = client.get(
+                "/api/v1/invites", headers=_invites_bearer(token_with_email(INVITES_SUPERADMIN, None)),
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert [a for a in table.audit if a[1] == "audit.cross_tenant_read"] == []

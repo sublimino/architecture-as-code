@@ -242,6 +242,59 @@ class TestObservationsRouteIntegration:
         assert resp.status_code == 200, resp.text
         assert _memory_events(SUPERADMIN_TENANT) == []
 
+
+class TestPolicyRoutesIntegration:
+    """GET /api/signals/policy/{findings,decisions} share signal_policy._proxy."""
+
+    @pytest.fixture()
+    def ingest(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+        state: dict[str, Any] = {"body": []}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=state["body"])
+
+        real = httpx.AsyncClient
+
+        class Stub(real):  # type: ignore[misc, valid-type]
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                kwargs["transport"] = httpx.MockTransport(handler)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", Stub)
+        return state
+
+    @pytest.mark.parametrize("path", ["/api/signals/policy/findings", "/api/signals/policy/decisions"])
+    def test_cross_tenant_finding_or_decision_emits_one_event(
+        self, client: TestClient, ingest: dict[str, Any], path: str,
+    ) -> None:
+        ingest["body"] = [
+            {"id": "row-1", "tenant_id": SUPERADMIN_TENANT},
+            {"id": "row-2", "tenant_id": OTHER_TENANT},
+        ]
+        app.dependency_overrides[authenticated_principal] = lambda: SUPERADMIN
+        try:
+            resp = client.get(path)
+        finally:
+            app.dependency_overrides.pop(authenticated_principal, None)
+        assert resp.status_code == 200, resp.text
+        events = _memory_events(SUPERADMIN_TENANT)
+        assert len(events) == 1, events
+        assert events[0]["detail"]["route"] == f"GET /api/v1/policy/{path.rsplit('/', 1)[-1]}"
+        assert events[0]["detail"]["tenant_ids"] == sorted({SUPERADMIN_TENANT, OTHER_TENANT})
+
+    def test_rates_never_emits_since_it_carries_no_tenant_field(
+        self, client: TestClient, ingest: dict[str, Any],
+    ) -> None:
+        # rateBucketView (api/policy_routes.go) has BucketStart/Layer/Source/Count only.
+        ingest["body"] = [{"bucket_start": "2026-10-06T00:00:00Z", "layer": "network", "source": "x", "count": 3}]
+        app.dependency_overrides[authenticated_principal] = lambda: SUPERADMIN
+        try:
+            resp = client.get("/api/signals/policy/rates")
+        finally:
+            app.dependency_overrides.pop(authenticated_principal, None)
+        assert resp.status_code == 200, resp.text
+        assert _memory_events(SUPERADMIN_TENANT) == []
+
     def test_audit_failure_fails_the_request_closed(
         self, client: TestClient, ingest: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
     ) -> None:

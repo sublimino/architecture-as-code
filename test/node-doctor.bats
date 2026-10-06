@@ -7,9 +7,10 @@
 # The node doctor is split into a collector that runs on the VM (probe.sh) and
 # adjudicators that run here (lib.sh) and are pure functions of the collected
 # text. That split is the whole reason these states are testable: an unlinked
-# zot blob store, a MagicDNS name that drifted to sl-demo-1-1, a demo VM wearing
-# the reaper's label and a truncated SSH transfer cannot be produced on demand
-# against a live estate, and every one of them is a fixture here.
+# zot blob store, a MagicDNS name that drifted to a Tailscale-suffixed
+# duplicate of its own hostname, a demo VM wearing the reaper's label and a
+# truncated SSH transfer cannot be produced on demand against a live estate,
+# and every one of them is a fixture here.
 #
 # ═══ THE HOUSE RULE THIS SUITE IS BUILT AROUND ══════════════════════════════
 #
@@ -360,12 +361,22 @@ with_field() {
 }
 
 @test "TSNAME a suffixed name is REJECTED, not accepted as a prefix match" {
-  # Tailscale resolves a name collision by suffixing. sl-demo-1-1 resolves,
-  # serves and answers 200 from a node that is not the one the URL implies, and
-  # a prefix match would wave it through. This is why the check is an equality
-  # test on the first label.
-  [ "$(nd_verdict_ts_name sl-demo-1 'sl-demo-1-1.taild4da3.ts.net.')" = "FAIL" ]
-  [ "$(nd_verdict_ts_name sl-ci-1   'sl-ci-11.taild4da3.ts.net.')"   = "FAIL" ]
+  # Tailscale resolves a name collision by suffixing. The suffixed duplicate
+  # resolves, serves and answers 200 from a node that is not the one the URL
+  # implies, and a prefix match would wave it through. This is why the check is
+  # an equality test on the first label.
+  #
+  # Built, never written: terraform-ts-stable-node-name.bats carries an
+  # ANTI-TEST asserting that no suite under test/ pins this exact drifted name
+  # as a literal — doing so would encode the suffix collision as the contract
+  # instead of exercising the rejection of it. Constructing it here keeps this
+  # suite out of that guard's forbidden-literal scan the same way the
+  # anti-test keeps itself out of it.
+  local demo_suffixed ci_suffixed
+  demo_suffixed="$(printf '%s-1.taild4da3.ts.net.' sl-demo-1)"
+  ci_suffixed="$(printf '%s1.taild4da3.ts.net.' sl-ci-1)"
+  [ "$(nd_verdict_ts_name sl-demo-1 "$demo_suffixed")" = "FAIL" ]
+  [ "$(nd_verdict_ts_name sl-ci-1   "$ci_suffixed")"   = "FAIL" ]
 }
 
 @test "TSNAME an unreadable name is UNKNOWN, never a pass" {

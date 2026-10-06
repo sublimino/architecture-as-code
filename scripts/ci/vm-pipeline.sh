@@ -246,6 +246,20 @@ kubectl -n flux-system wait kustomization/tenants --for=condition=ready --timeou
 # ── Build and push containers ────────────────────────────────────────
 PIPELINE_PHASE="build-images"
 echo "==> [4/7] Building containers → local Zot..."
+# Static keys FIRST, mirrored from demo-signalloom-up (Makefile, same comment):
+# Flux deploys fleet-manager and the warden from the fleet push-local-fleet
+# publishes below, and both read their keys from optional secretKeyRef /
+# configMapKeyRef env at container start. A pod that starts before its Secret
+# exists stays keyless (401 on every post, stun refused) until restarted. These
+# two used to sit AFTER demo-signalloom-afm-up in stage [5/7]; stage 1d
+# (check-ci-build-parity.sh) reported them TOO LATE and the three newer mints
+# MISSING. Namespaces exist once the tenants kustomization above is Ready;
+# retry covers the tail of that wait. Idempotent: a re-run keeps existing keys.
+retry 3 make sldc-ingest-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+retry 3 make fleet-manager-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+retry 3 make fleet-operator-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+retry 3 make afm-importer-key CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+retry 3 make signal-segment-key CONTEXT="kind-${CLUSTER_NAME:-osramp}"
 retry 3 make push-local-signalloom
 retry 3 make signalloom-spire-helper
 retry 3 make signalloom-images
@@ -266,6 +280,17 @@ retry 3 make signalloom-images
 # comparison so the next copy cannot drift silently.
 retry 3 make demo-signalloom-supercred-images
 retry 3 make demo-signalloom-signalfusion-images
+# Immutable src-<digest> tags (SLTM Phase 1): signal-ingest and the warden are
+# pinned to tags in zot, and the Kusari stub, nono probe and the two Knative
+# functions use imagePullPolicy: Never. A zero-state VM has none of them, so a
+# bring-up that skips these leaves ImagePullBackOff / ErrImageNeverPull where
+# demo-signalloom-up would have built. The two sub-makes are invisible to stage
+# 1d (it skips `$(MAKE) -C` by design), which is why they are listed here next
+# to the two root targets it does see.
+retry 3 make -C d2-signalloom signal-ingest-image-publish
+retry 3 make -C d2-signalloom sentinel-image-publish CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
+retry 3 make demo-signalloom-security-images
+retry 3 make demo-signalloom-function-images
 # Same shape as the paragraph above, one slice over: fleet-manager/base is now
 # an unconditional member of apps/fe-signalloom/base/kustomization.yaml, so
 # every bring-up deploys it, and its Deployment pulls a bare
@@ -385,12 +410,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 echo "==> Deploying the KubeSec-AFM slice..."
 make demo-signalloom-afm-up
 
-# Static caller keys (SLTM ADR-03/ADR-05), mirrored from demo-signalloom-up:
-# signal-ingest's named keys and fleet-manager's caller keys, minted in the
-# cluster once its namespaces exist. Idempotent: a re-run keeps existing keys.
-echo "==> Minting signal-ingest and fleet-manager caller keys..."
-make sldc-ingest-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
-make fleet-manager-keys CONTEXT="kind-${CLUSTER_NAME:-osramp}"
+# The caller-key mints that used to run here moved to the top of stage [4/7];
+# see the comment there. A key minted after the pod starts is a key it never reads.
 
 # ── Assert the deployed estate is WHOLE ───────────────────────────────
 #

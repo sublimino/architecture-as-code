@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import cadvisor_poller
+import declared_workloads
 from cadvisor_poller import (
     AgentTelemetry,
     CadvisorPoller,
@@ -394,7 +395,11 @@ async def test_unknown_pod_is_404_not_a_fabricated_freeze(poller, client):
 
 
 @pytest.mark.anyio
-async def test_known_pod_returns_its_telemetry(poller, client):
+async def test_known_pod_returns_its_telemetry(poller, client, monkeypatch):
+    # The superadmin client's read is cross-tenant-capable, so the route now also attempts a
+    # tenant-attribution lookup through claim_tenancy for the audit event; an empty discovery
+    # stub is a successful (if uninformative) answer, distinct from discovery being down.
+    declared_workloads.install(monkeypatch)
     await poll(poller, scrape("12.345", T0_MS))
     await poll(poller, scrape("12.545", T0_MS + 2000))
     resp = client.get(f"/api/v1/telemetry/agents/{POD}")
@@ -411,14 +416,16 @@ async def test_known_pod_returns_its_telemetry(poller, client):
 
 
 @pytest.mark.anyio
-async def test_pending_pod_reports_null_millicores(poller, client):
+async def test_pending_pod_reports_null_millicores(poller, client, monkeypatch):
+    declared_workloads.install(monkeypatch)
     await poll(poller, scrape())
     body = client.get(f"/api/telemetry/agents/{POD}").json()
     assert (body["millicores"], body["status"]) == (None, "PENDING")
 
 
 @pytest.mark.anyio
-async def test_ambiguous_pod_name_is_409_and_namespace_disambiguates(poller, client):
+async def test_ambiguous_pod_name_is_409_and_namespace_disambiguates(poller, client, monkeypatch):
+    declared_workloads.install(monkeypatch)
     await poll(poller, scrape(ns="tenant-a", pod="kusari-agent-0") + scrape(ns="tenant-b", pod="kusari-agent-0"))
     resp = client.get("/api/telemetry/agents/kusari-agent-0")
     assert resp.status_code == 409
@@ -429,10 +436,55 @@ async def test_ambiguous_pod_name_is_409_and_namespace_disambiguates(poller, cli
 
 
 @pytest.mark.anyio
-async def test_list_is_keyed_by_namespace_and_pod(poller, client):
+async def test_list_is_keyed_by_namespace_and_pod(poller, client, monkeypatch):
+    declared_workloads.install(monkeypatch)
     await poll(poller, scrape(ns="tenant-a", pod="kusari-agent-0") + scrape(ns="tenant-b", pod="kusari-agent-0"))
     body = client.get("/api/telemetry/agents").json()
     assert sorted(body) == ["tenant-a/kusari-agent-0", "tenant-b/kusari-agent-0"]
+
+
+def _cross_tenant_read_events(tenant: str) -> list[dict]:
+    import api_compat
+
+    with api_compat._STORE_LOCK:
+        return [
+            e for e in api_compat._AUDIT_EVENTS.get(tenant, [])
+            if e["event_type"] == "audit.cross_tenant_read"
+        ]
+
+
+@pytest.mark.anyio
+async def test_discovery_failure_still_emits_an_unresolved_event(poller, client, monkeypatch):
+    """A cross-tenant-capable read must never go unrecorded, even when attribution fails.
+
+    The route still answers 200 -- the superadmin's visibility never depended on discovery --
+    but unlike the fail-open defect this guards against, the read is not served silently:
+    one audit.cross_tenant_read event is written naming the "unresolved" sentinel tenant and a
+    reason, through the same fail-closed audit write every other cross-tenant read uses.
+    """
+    import api_compat
+
+    async def _broken():
+        raise api_compat.APIError(
+            503, "discovery_unavailable", "Workload discovery is unavailable; claims fail closed",
+        )
+
+    monkeypatch.setattr(cadvisor_poller.claim_tenancy, "workload_source", _broken)
+    api_compat.reset_tenant_state(EAP_TENANT_A)
+
+    await poll(poller, scrape("12.345", T0_MS))
+    await poll(poller, scrape("12.545", T0_MS + 2000))
+    resp = client.get(f"/api/v1/telemetry/agents/{POD}")
+    assert resp.status_code == 200, resp.text
+
+    events = _cross_tenant_read_events(EAP_TENANT_A)
+    assert len(events) == 1, events
+    detail = events[0]["detail"]
+    assert detail["tenant_ids"] == ["unresolved"]
+    assert "discovery" in detail["reason"].lower()
+    assert detail["result_count"] == 1
+
+    api_compat.reset_tenant_state(EAP_TENANT_A)
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "DELETE"])

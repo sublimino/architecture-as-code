@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api_compat import APIError, Principal, _audit_outbound_request, authenticated_principal
+from cross_tenant_audit import audit_cross_tenant_read
 from ingest_client import ingest_headers
 from superadmin import require_superadmin
 
@@ -40,7 +41,7 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
         ) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
-            return JSONResponse(status_code=resp.status_code, content=resp.json())
+            content = resp.json()
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
         raise APIError(
@@ -62,6 +63,17 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
         raise APIError(
             502, "upstream_unavailable", "signal-ingest proxy error"
         ) from exc
+
+    if not write and 200 <= resp.status_code < 300:
+        # Gated on `write`, not just the response: a write always acts for the caller's own
+        # tenant (ingest_client.acting_tenant), so this is a no-op for one, but gating it
+        # explicitly keeps the intent legible rather than relying on that always being true.
+        # Raises 503 database_unavailable (fail closed) if a superadmin's read just surfaced
+        # another tenant's data and the audit database is unreachable -- see cross_tenant_audit.py.
+        await audit_cross_tenant_read(
+            principal, f"{method} {path}", content, what=f"Reading {path} cross-tenant",
+        )
+    return JSONResponse(status_code=resp.status_code, content=content)
 
 
 @router.get("/observations")
@@ -99,6 +111,19 @@ async def stream_observations(
         params["actor_id"] = actor_id
 
     headers = ingest_headers(principal)
+
+    # One event per stream open, not per item: the stream has no end and no complete body to
+    # scan the way every other proxied route's response does, so there is nothing to extract a
+    # real tenant_id from -- but a superadmin opening a cross-tenant-capable stream must still
+    # never go unrecorded (Andy's review, 2026-10-06). The sentinel "stream" tenant and the
+    # filter parameters the caller asked for stand in for the (unbounded, future) set of
+    # tenants the stream may yield. Raises 503 database_unavailable (fail closed) before the
+    # stream opens if the audit write itself cannot be recorded.
+    await audit_cross_tenant_read(
+        principal, "GET /api/v1/observations/stream", [{"tenant_id": "stream"}],
+        what="Opening observations stream cross-tenant",
+        extra={"filters": {"after": after, "before": before, "layers": layers, "actor_id": actor_id, "limit": limit}},
+    )
 
     async def event_generator() -> AsyncIterator[bytes]:
         try:

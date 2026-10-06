@@ -68,8 +68,8 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # did not repoint this line; 051 touches signal_audit_trail, not audit_events.
 # 054 recreated it with 052's list plus invite.created and invite.redeemed (053 adds
 # the invites and subject_tenants tables and touches no constraint). 055 adds
-# actor.promote_requested on top of 054.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "055_actor_promote_event_type.sql"
+# actor.promote_requested on top of 054. 056 adds audit.cross_tenant_read on top of 055.
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "056_cross_tenant_read_event_type.sql"
 
 
 EVENT_TYPE_POSITION = 2

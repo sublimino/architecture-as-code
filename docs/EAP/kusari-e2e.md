@@ -96,6 +96,22 @@ Override `WL_CONTEXT` (default `kind-osramp`), `INGEST_NS` (default
 `fe-signalloom`), `KUSARI_LIVE_PORT` (default `28094`) and `KUSARI_LIVE_LIMIT`
 (default `5000`) as needed.
 
+### Seeding a live cluster and reviewing a decision
+
+A cluster that is not yet pulling from a real queue has nothing for the review page to show. `make kusari-synth-seed` posts a recent synthetic stream (`cmd/kusari-synth`, deterministic for a seed) with the stun-sentinel key, which writes for tenant kusari. The default is thirty minutes of events at four a minute, which on the shipped bundles yields findings and a handful of windowed decisions inside the 90 m review window.
+
+```bash
+export KUBECONFIG=/path/to/kubeconfig
+make kusari-synth-seed                    # SEED=7 MINUTES=30 RATE=4 by default
+make kusari-synth-seed SEED=11            # a different corpus, same shape
+```
+
+`test/acceptance/signals-review.spec.ts` then proves the human loop end to end on that cluster: a superadmin logs in, opens `/signals`, records a verdict with a note on the first unreviewed decision, and the verdict is still there after a reload. The dashboard keeps no review state of its own, so a verdict that survives a reload was stored by signal-ingest through the gateway proxy. The spec skips, rather than fails, when the window holds no unreviewed decision.
+
+```bash
+scripts/acceptance-test.sh signals-review.spec.ts
+```
+
 ## Reading the result
 
 `make test-kusari-e2e -v` prints:

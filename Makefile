@@ -650,6 +650,10 @@ test-signal-ingest-frostdb: test-signal-segment-verifier ## Run Go signal-ingest
 # modes. The suite prints a per-rule and per-window summary table, so -v is not optional:
 # a bare pass tells an operator nothing about which signals were exercised.
 # Walkthrough: docs/EAP/kusari-e2e.md
+.PHONY: kusari-synth-seed
+kusari-synth-seed: ## Seed a live signal-ingest (KUBECONFIG) with a recent synthetic Kusari stream for the /signals review page.
+	./scripts/kusari-synth-seed.sh $(SEED) $(MINUTES) $(RATE)
+
 test-kusari-e2e: ## Run the Kusari AWS signal e2e suite, both store modes (offline).
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./e2e/... -v -count=1
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./e2e/... -v -count=1

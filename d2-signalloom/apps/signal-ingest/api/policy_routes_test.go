@@ -32,7 +32,12 @@ const (
 	evidenceReaderToken = "policyEvidenceReaderObsReadOnlyKey000000000"
 )
 
-const policyReviewFixedNow = "2026-10-05T11:22:33Z"
+// policyReviewFixedNow is the injected server clock. It sits one minute before the real clock
+// rather than at a literal date: the fixture seeds its decisions two minutes before now, and a
+// review stamped before the decision it settles is a state production cannot reach (a review is
+// recorded after the decision it is about). The windowed decisions read relies on that order to
+// bound its review lookup, so a clock in the past would be testing an impossible timeline.
+var policyReviewFixedNow = time.Now().UTC().Add(-time.Minute).Truncate(time.Second).Format(time.RFC3339)
 
 // policyAPIFixture is the review API under the production authentication chain.
 //
@@ -938,6 +943,50 @@ func TestPolicyRoutesAreRegisteredWithTheContractedPermissions(t *testing.T) {
 	for _, p := range []Permission{PermissionPolicyRead, PermissionPolicyReview} {
 		if !KnownPermissions[p] {
 			t.Errorf("KnownPermissions does not list %q", p)
+		}
+	}
+}
+
+// recordingStore captures every Query the handlers issue so a test can assert that a windowed
+// read never degenerates into a whole-store scan.
+type recordingStore struct {
+	store.SignalStore
+	queries []store.Query
+}
+
+func (r *recordingStore) QueryRange(ctx context.Context, q store.Query) ([]model.Observation, error) {
+	r.queries = append(r.queries, q)
+	return r.SignalStore.QueryRange(ctx, q)
+}
+
+// TestPolicyReads_NeverScanTheWholeStore pins the fix for the 2026-10-06 OOM kill on
+// kind-osramp: the decisions listing used to load every row in the store to find the latest
+// review per decision, on every dashboard poll. Each windowed policy read must carry the
+// window's lower bound on every query it issues.
+func TestPolicyReads_NeverScanTheWholeStore(t *testing.T) {
+	srv, h := policyAPIFixture(t)
+	rec := &recordingStore{SignalStore: h.Store}
+	h.Store = rec
+	for _, path := range []string{
+		"/api/v1/policy/findings?window=5m",
+		"/api/v1/policy/decisions?window=5m",
+		"/api/v1/policy/rates?window=5m&bucket=1m",
+	} {
+		rec.queries = nil
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+policyReaderToken)
+		rr := httptest.NewRecorder()
+		srv.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: status %d body %s", path, rr.Code, rr.Body.String())
+		}
+		if len(rec.queries) == 0 {
+			t.Fatalf("%s: handler issued no store query", path)
+		}
+		for i, q := range rec.queries {
+			if q.After.IsZero() {
+				t.Fatalf("%s: query %d has no lower bound: whole-store scan on a windowed read", path, i)
+			}
 		}
 	}
 }

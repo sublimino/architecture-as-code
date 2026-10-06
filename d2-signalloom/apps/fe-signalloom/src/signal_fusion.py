@@ -112,6 +112,19 @@ async def stream_observations(
 
     headers = ingest_headers(principal)
 
+    # One event per stream open, not per item: the stream has no end and no complete body to
+    # scan the way every other proxied route's response does, so there is nothing to extract a
+    # real tenant_id from -- but a superadmin opening a cross-tenant-capable stream must still
+    # never go unrecorded (Andy's review, 2026-10-06). The sentinel "stream" tenant and the
+    # filter parameters the caller asked for stand in for the (unbounded, future) set of
+    # tenants the stream may yield. Raises 503 database_unavailable (fail closed) before the
+    # stream opens if the audit write itself cannot be recorded.
+    await audit_cross_tenant_read(
+        principal, "GET /api/v1/observations/stream", [{"tenant_id": "stream"}],
+        what="Opening observations stream cross-tenant",
+        extra={"filters": {"after": after, "before": before, "layers": layers, "actor_id": actor_id, "limit": limit}},
+    )
+
     async def event_generator() -> AsyncIterator[bytes]:
         try:
             async with httpx.AsyncClient(

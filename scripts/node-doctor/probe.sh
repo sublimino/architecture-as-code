@@ -47,6 +47,16 @@ ZOT_CACHE_NODE="${ND_ZOT_CACHE_NODE:-/var/local/osramp-zot-cache}"
 TS_SERVE_UNIT="${ND_TS_SERVE_UNIT:-signalloom-tailscale-serve.service}"
 AFM_NS="${ND_AFM_NS:-fe-k8s-afm}"
 ZOT_NS="${ND_ZOT_NS:-registry}"
+# The unit that carries the ONLY path from the tailnet to the dashboard. See the
+# publish-path section below for why its systemd state is not evidence.
+PF_UNIT="${ND_PF_UNIT:-signalloom-dashboard-pf.service}"
+# SPIRE and OpenBao both live here on this estate (measured on sl-demo-1-vm
+# 2026-08-24: deployments spire-server and openbao, namespace inf-bao).
+BAO_NS="${ND_BAO_NS:-inf-bao}"
+# The demo estate's well-known root token. It is a fixture value, not a secret —
+# scripts/supercred-demo.sh, scripts/supercred-state.sh and demo-lifecycle.sh all
+# carry the same literal. Overridable for a lane that ever stops using it.
+BAO_TOKEN="${ND_BAO_TOKEN:-signalloom-demo-root-token}"
 # 0 disables the write probe. On by default because a 200 on /v2/ is the exact
 # reading the known blob-store defect leaves intact — see the block above
 # probe_zot_push.
@@ -125,6 +135,55 @@ probe_http() {
 }
 emit http.root       "$(probe_http /)"
 emit http.afm_health "$(probe_http /afm/health)"
+
+# ─── The publish path, as THREE facts that can disagree ─────────────────────
+#
+# signalloom-dashboard-pf.service runs `kubectl port-forward` and is the ONLY
+# route from the tailnet to the dashboard: `tailscale serve` proxies to
+# 127.0.0.1:<app_port>, and this unit is what listens there.
+#
+# THE FAILURE THIS EXISTS FOR, measured and not theorised: rolling the dashboard
+# Deployment kills the forwarded pod. kubectl port-forward does NOT exit when
+# that happens — the process survives, systemd keeps reporting `active`, and the
+# last journal line is still the reassuring "Forwarding from 0.0.0.0:30754".
+# What it stops doing is holding the LISTENING SOCKET. So:
+#
+#   systemctl is-active   ->  active     (the process is alive)
+#   ss -ltn on the port   ->  no listener
+#   the public origin     ->  502
+#
+# Any ONE of those readings alone is either wrong or unexplained. The
+# DISAGREEMENT between the first two is the diagnosis, which is why all three
+# are collected separately and none is folded into an "is it up" boolean.
+# scripts/gcp-tf/demo-up.sh's forward_unit_state/remote_is_publishing pair makes
+# the same split for the same reason; this is that reasoning brought into the
+# doctor, where an operator will actually run it.
+emit pf.unit_active  "$(systemctl is-active  "$PF_UNIT" 2>&1)"
+emit pf.unit_enabled "$(systemctl is-enabled "$PF_UNIT" 2>&1)"
+
+# The listening socket, counted rather than grepped.
+#
+# NOT `ss -ltn | grep -q ":${APP_PORT} "`. Under `set -o pipefail` a `grep -q`
+# that matches early can close the pipe and surface 141, so the answer inverts;
+# the repo's VAC008 guard rejects that shape in verdict positions on exactly
+# those grounds. awk counts to completion and prints a number, and `n+0` makes
+# "no matches" emit a literal 0 rather than an empty string that emit() would
+# turn into UNKNOWN — a real zero and an unreadable `ss` must not collapse.
+emit pf.listeners "$(ss -ltn 2>/dev/null | awk -v p=":${APP_PORT}" 'NR>1 && $4 ~ (p"$") {n++} END{print n+0}')"
+
+# The PID, and whether it is still there. A unit whose MainPID is 0 has no
+# process at all, which is a different fault from one whose process is alive and
+# no longer listening — the first needs a restart, the second needs the forward
+# re-established after whatever rolled the backend.
+PF_PID="$(systemctl show "$PF_UNIT" -p MainPID --value 2>/dev/null)"
+emit pf.main_pid "$PF_PID"
+if [ -n "$PF_PID" ] && [ "$PF_PID" != "0" ] && [ -d "/proc/${PF_PID}" ]; then
+  emit pf.pid_alive yes
+elif [ -n "$PF_PID" ]; then
+  emit pf.pid_alive no
+else
+  emit pf.pid_alive UNKNOWN
+fi
 
 # ─── docker + containerd ────────────────────────────────────────────────────
 if have docker; then
@@ -319,6 +378,128 @@ probe_afm_clusters() {
   wait "$pf" 2>/dev/null
 }
 probe_afm_clusters
+
+# ─── SPIRE -> OpenBao JWT trust ─────────────────────────────────────────────
+#
+# THE check for the SuperCred outage, and the reason it is here rather than in
+# the user-surface gate.
+#
+# SuperCred step 2 died on `OpenBao login returned 400: no known key
+# successfully validated the token signature`. Nothing was misconfigured: the
+# SPIRE entries carried the right selectors, the roles were bound to the right
+# subject and audience, the workload fetched a valid SVID, and the runner
+# reported script_available=true throughout. OpenBao's `jwt_validation_pubkeys`
+# is a STATIC SNAPSHOT of SPIRE's JWT-SVID signing keys, taken once at bring-up,
+# and SPIRE rotates those keys on its own CA schedule. When SPIRE activates a key
+# the snapshot does not hold, every SPIFFE login fails and stays failed.
+#
+# WHY THIS BEATS RUNNING THE DEMO. Driving SuperCred to completion detects the
+# outage only once it has happened, costs minutes, and MUTATES the cluster —
+# step 1 deploys workloads, seeds OpenBao and registers a SPIRE entry, so it can
+# never run against a lane somebody is presenting from. Comparing the two key
+# sets is read-only, takes seconds, and sees the break BEFORE it lands: SPIRE
+# publishes the next authority as `prepared` hours ahead of activating it.
+#
+# Measured on sl-demo-1 2026-08-24T09:15Z, which is what this check was built
+# against: SPIRE published FOUR jwt-svid keys and OpenBao held THREE. The absent
+# one was the PREPARED authority (NDpwg3CG…), with the active authority
+# (nnsfgifD…) due to expire at 17:41:45Z the same day — a lane that worked
+# perfectly and was going to stop, unattended, about eight hours later. Neither
+# node-doctor nor the user-surface gate could see it: the doctor scored 24 pass
+# and the gate reported both demos READY.
+#
+# Both sides are normalised to base64(DER SubjectPublicKeyInfo) so a key derived
+# from SPIRE's JWK and the same key read back from OpenBao's PEM are comparable.
+# That derivation is copied from scripts/lib/spire-trust-anchor.sh deliberately
+# rather than sourced: this file is shipped to the VM as standalone text through
+# `gcloud compute ssh --command` and can source nothing from the repo.
+_jwk_to_der_b64() {
+  local x="$1" y="$2" der out coordinate value
+  der="$(mktemp)" || { printf ''; return 1; }
+  {
+    # SubjectPublicKeyInfo header for an uncompressed P-256 public key.
+    printf '\x30\x59\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\x03\x42\x00\x04'
+    for coordinate in "$x" "$y"; do
+      # base64url -> base64, then re-pad. SPIRE emits unpadded base64url.
+      value="${coordinate//-/+}"
+      value="${value//_/\/}"
+      case $((${#value} % 4)) in
+        2) value="${value}==" ;;
+        3) value="${value}=" ;;
+      esac
+      printf '%s' "$value" | base64 -d 2>/dev/null
+    done
+  } >"$der" 2>/dev/null
+  # Round-tripped through openssl for the same reason the repo's version is:
+  # OpenBao returns PEM, and only a shared canonicaliser makes the two sides
+  # agree on what "the same key" means.
+  out="$(openssl pkey -pubin -inform DER -in "$der" -outform DER 2>/dev/null | base64 -w0)"
+  rm -f "$der"
+  printf '%s' "$out"
+}
+
+# The single jq selector both SPIRE lists are built from. See the pinning note
+# at its use site — the kid list and the key list MUST filter identically or the
+# positional lookup in lib.sh reads the wrong key's bytes.
+JWT_SVID_SELECT='.keys[]|select(.use=="jwt-svid" and .kty=="EC" and .crv=="P-256")'
+
+probe_jwt_trust() {
+  local bundle shown cfg x y enc pem der
+  local spire_keys='' bao_keys=''
+  have kubectl || { emit spire.jwt_active_kid UNKNOWN; emit spire.jwt_keys UNKNOWN
+                    emit bao.jwt_keys UNKNOWN; emit spire.jwt_prepared_kid UNKNOWN
+                    emit spire.jwt_active_expiry UNKNOWN; return; }
+  kubectl -n "$BAO_NS" get deploy spire-server >/dev/null 2>&1 || {
+    # NOT an empty key set. A lane with no SPIRE has not drifted, it has nothing
+    # to drift — and reporting "0 keys" would send the reader to a sync command
+    # for a component that is not deployed.
+    emit spire.jwt_active_kid NOT_DEPLOYED; emit spire.jwt_prepared_kid NOT_DEPLOYED
+    emit spire.jwt_active_expiry NOT_DEPLOYED
+    emit spire.jwt_keys NOT_DEPLOYED; emit bao.jwt_keys NOT_DEPLOYED; return
+  }
+
+  shown="$(kubectl -n "$BAO_NS" exec deployment/spire-server -- \
+    /opt/spire/bin/spire-server localauthority jwt show 2>/dev/null)"
+  emit spire.jwt_active_kid    "$(awk '/^Active JWT authority:/{f=1} f&&/Authority ID:/{print $3; exit}' <<<"$shown")"
+  emit spire.jwt_active_expiry "$(awk '/^Active JWT authority:/{f=1} f&&/Expires at:/{$1="";$2="";print; exit}' <<<"$shown")"
+  emit spire.jwt_prepared_kid  "$(awk '/^Prepared JWT authority:/{f=1} f&&/Authority ID:/{print $3; exit}' <<<"$shown")"
+
+  bundle="$(kubectl -n "$BAO_NS" exec deployment/spire-server -- \
+    /opt/spire/bin/spire-server bundle show -format spiffe 2>/dev/null)"
+  emit spire.bundle_bytes "$(printf '%s' "$bundle" | wc -c)"
+  # ONE selector, used for BOTH lists, so `spire.jwt_kids[i]` and
+  # `spire.jwt_keys[i]` are the same key. The obvious spelling gives the kid list
+  # a looser filter (`use=="jwt-svid"`) than the key list (which must also be EC
+  # P-256 to be convertible), and the two silently desync the first time a bundle
+  # carries a jwt-svid key of another type — after which lib.sh looks up the
+  # active kid's position and reads a DIFFERENT key's bytes. That is a wrong
+  # answer with no error anywhere, so the filters are pinned equal here and
+  # test/node-doctor.bats asserts they stay equal.
+  emit spire.jwt_kids "$(printf '%s' "$bundle" | jq -r "[${JWT_SVID_SELECT}|.kid]|join(\",\")" 2>/dev/null)"
+  while IFS="$(printf '\t')" read -r x y; do
+    [ -n "$x" ] || continue
+    der="$(_jwk_to_der_b64 "$x" "$y")"
+    [ -n "$der" ] && spire_keys="${spire_keys}${der},"
+  done < <(printf '%s' "$bundle" | jq -r "${JWT_SVID_SELECT}|[.x,.y]|@tsv" 2>/dev/null)
+  emit spire.jwt_keys "${spire_keys%,}"
+
+  cfg="$(kubectl -n "$BAO_NS" exec deployment/openbao -- \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_TOKEN" \
+    bao read -format=json auth/jwt/config 2>/dev/null)"
+  # Emitted so lib.sh can tell "OpenBao holds no keys" from "OpenBao could not be
+  # read". Both produce an empty key list and they are opposite findings.
+  emit bao.jwt_config_bytes "$(printf '%s' "$cfg" | wc -c)"
+  # @base64 per element: a PEM spans several lines, so a bare [] would split one
+  # key across several entries and compare nothing meaningful.
+  while IFS= read -r enc; do
+    [ -n "$enc" ] || continue
+    pem="$(printf '%s' "$enc" | base64 -d 2>/dev/null)"
+    der="$(printf '%s' "$pem" | openssl pkey -pubin -outform DER 2>/dev/null | base64 -w0)"
+    [ -n "$der" ] && bao_keys="${bao_keys}${der},"
+  done < <(printf '%s' "$cfg" | jq -r '(.data.jwt_validation_pubkeys // [])[]|@base64' 2>/dev/null)
+  emit bao.jwt_keys "${bao_keys%,}"
+}
+probe_jwt_trust
 
 # ─── The completion marker ──────────────────────────────────────────────────
 # Last line, unconditionally. Its ABSENCE is the signal — see the header.

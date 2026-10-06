@@ -261,7 +261,23 @@ func TestTombstonePopulationCheck(t *testing.T) {
 	}
 }
 
+// withoutEntropy blanks the four fields Mint derives from crypto/rand (the id, the receipt
+// nonce, and the two commitments that hash a nonce or key). Everything that remains is a pure
+// function of the request, so a test can compare two documents or search one for a value
+// without a 1-in-300 chance that random hex happens to spell the digits it is looking for.
+// (That substring search over the whole document was the 0.3% flake recorded at the W2 merge.)
+func withoutEntropy(ts Tombstone) Tombstone {
+	ts.TombstoneID = ""
+	ts.ReceiptNonce = ""
+	ts.ReceiptCommitment = ""
+	ts.ConfirmationCommitment = ""
+	return ts
+}
+
 // TestTombstonePublishesThresholdNotMeasurement guards the distinction that makes the field safe.
+// It is deterministic: the document minted for a distinctive population must be field-for-field
+// the document minted for the baseline population once the entropy fields are set aside, and the
+// deterministic remainder must not spell the population anywhere.
 func TestTombstonePublishesThresholdNotMeasurement(t *testing.T) {
 	req := goodRequest()
 	req.BucketPopulation = 8123 // deliberately distinctive
@@ -269,7 +285,12 @@ func TestTombstonePublishesThresholdNotMeasurement(t *testing.T) {
 	if ts.AnonymitySetMin != MinAnonymitySet {
 		t.Fatalf("AnonymitySetMin = %d, want the constant %d", ts.AnonymitySetMin, MinAnonymitySet)
 	}
-	raw, _ := json.Marshal(ts)
+	baseline, _ := mustMint(t, goodRequest())
+	got, want := withoutEntropy(ts), withoutEntropy(baseline)
+	if got != want {
+		t.Fatalf("the bucket population changed the deterministic part of the document:\n got  %+v\n want %+v", got, want)
+	}
+	raw, _ := json.Marshal(got)
 	if strings.Contains(string(raw), "8123") {
 		t.Fatalf("the observed bucket population leaked into the document: %s", raw)
 	}

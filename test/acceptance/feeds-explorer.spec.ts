@@ -10,7 +10,7 @@
  *   6. Slide-out Arrow evidence inspection drawer renders 3 tabs (evidence, arrow, proof).
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, guards } from "./helpers";
 
 const BASE = config.base;
 
@@ -105,5 +105,51 @@ test.describe("Feeds & FrostDB Explorer Console", () => {
       await closeBtn.click();
       await expect(page.locator("text=Observation Evidence")).not.toBeVisible();
     }
+  });
+});
+
+/**
+ * Live: /feeds loads without a 5xx from its own API calls, and Seed Fixtures succeeds.
+ *
+ * 2026-10-06 on kind-osramp: /feeds showed "Request failed with status code 502" (signal-ingest
+ * OOM-killed by full-store reads), and Seed Fixtures always failed 500 because the fixtures
+ * carried label keys the FrostDB allow-list refuses. Skips only when the signal-ingest slice is
+ * not deployed; with ACCEPTANCE_COUNTED=1 that skip is a failure, so a counted run cannot pass
+ * on it. Seeding appends fixture observations to the shared store.
+ */
+test.describe("Feeds live: API health and Seed Fixtures", () => {
+  test.beforeEach(async ({ page }) => {
+    if (!guards.exists("deployment", "signal-ingest", "fe-signalloom")) {
+      const reason = "signal-ingest is not deployed in fe-signalloom; run make demo-signalloom-up";
+      if (process.env.ACCEPTANCE_COUNTED === "1") throw new Error(`counted run: ${reason}`);
+      test.skip(true, reason);
+    }
+    await login(page, { demoMode: false });
+  });
+
+  test("/feeds API calls return no 5xx and Seed Fixtures returns 201", async ({ page }) => {
+    const failures: string[] = [];
+    page.on("response", (r) => {
+      if (r.url().includes("/api/signals/") && r.status() >= 500) failures.push(`${r.status()} ${r.url()}`);
+    });
+    const stats = page.waitForResponse((r) => r.url().includes("/api/signals/store/stats"));
+    await page.goto(`${BASE}/feeds`);
+    await expect(page.locator("h1").filter({ hasText: "Feeds & Collectors" })).toBeVisible();
+    expect((await stats).status()).toBe(200);
+    await expect(page.getByText(/status code 50\d/)).toHaveCount(0);
+
+    const dialog = page.waitForEvent("dialog");
+    const seed = page.waitForResponse(
+      (r) => r.url().includes("/api/signals/collectors/seed") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Seed Fixtures" }).click();
+    const seeded = await seed;
+    const d = await dialog;
+    const msg = d.message();
+    await d.accept();
+    expect(seeded.status(), await seeded.text()).toBe(201);
+    expect((await seeded.json()).seeded).toBeGreaterThan(0);
+    expect(msg).toMatch(/seeded/i);
+    expect(failures).toEqual([]);
   });
 });

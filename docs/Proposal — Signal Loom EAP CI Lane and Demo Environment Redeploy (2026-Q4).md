@@ -242,4 +242,148 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P0","status":"pass","commit":"044fd718aeaa76c0b03f0a57cb5be58edfcdaef3"} -->
 
+#### Errata — EAPCI-P1-PRE
 
+- **Logical ID:** P1-PRE
+- **Created:** 2026-10-06 22:13:00+01:00
+- **Last Updated:** 2026-10-06 22:13:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0` (`80c858bd891bc7896ebd93db398196cb99cb2cc2`)
+- **Coordinate Cut SHA:** `44e140c07175b1928e8bcb45bf2887e75df03050`
+- **Merge Base Check:** `git merge-base --is-ancestor integration/eapci-v0.1.0 HEAD` -> `0` (`IS_ANCESTOR_OK`)
+
+##### 1. Tailnet Hostname vs Public Edge Hostname Finding
+
+The pilot profile for lane `demo-2` requires endpoint hostname `sl-eap-4b53ab6b` on the Tailscale tailnet. In the repository today, the tailnet hostname is strictly key-derived as `sl-${var.environment_key}` (`terraform/modules/compute/main.tf:175`). The existing `hostname` attribute on the `environments` map (`terraform/environments/variables.tf:66`) designates the **public edge hostname**, which controls public TLS certificates and GCP HTTP(S) Load Balancer provisioning (`terraform/modules/edge/main.tf:34` sets `tls_enabled = var.hostname != ""`). Setting `hostname` to `sl-eap-4b53ab6b` would improperly expose the demo lane to the public internet.
+
+Therefore, an optional lane attribute `tailscale_hostname` must be added to the `environments` schema (`variables.tf` and `modules/env-contract/variables.tf`), carried through `modules/env-contract/main.tf` into `local.resolved`, forwarded by `environments/main.tf` to `modules/compute`, and emitted into the hand-off JSON by `Makefile` (`gcp-tf-handoff`). Note that `scripts/gcp-tf/demo-up.sh:3384` already implements the resolution order (`GCP_TF_DEMO_TS_HOSTNAME` -> `.tailscale_hostname` from hand-off -> `sl-${ENV_KEY}`), but the Makefile hand-off writer previously omitted this field.
+
+##### 2. Authoritative File:Line Map & Shared Hunk Ownership Table
+
+Every line range below was measured with `rg -n` inside a detached worktree at cut commit `44e140c07175b1928e8bcb45bf2887e75df03050`.
+
+| Card | Target File | Measured Lines (at Cut 44e140c0) | Proposed / Exact Edit | Citation Verdict & Rationale | Owning Card of Shared Hunk |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **P1-1** | `terraform/environments/variables.tf` | 58–72 | Add `tailscale_hostname = optional(string, "")` to `environments` map object type | MATCH (:58-72). Strict type definition. | Exclusive to P1-1 |
+| **P1-1** | `terraform/modules/env-contract/variables.tf` | 25–40 | Add `tailscale_hostname = optional(string, "")` to twin `environments` contract type | MATCH (:25-40). Strict type definition. | Exclusive to P1-1 |
+| **P1-1** | `terraform/modules/env-contract/main.tf` | 16, 29–44 | Forward `tailscale_hostname = v.tailscale_hostname` into `local.resolved` map | MATCH (covers :16, :31). Required for root `each.value` projection. | Exclusive to P1-1 |
+| **P1-1** | `terraform/modules/compute/variables.tf` | 278–316 | Declare `variable "tailscale_hostname" { type = string, default = "" }` | MATCH. Module input declaration. | Exclusive to P1-1 |
+| **P1-1** | `terraform/modules/compute/main.tf` | 175, 209–216 | `tailscale_hostname = var.tailscale_hostname != "" ? var.tailscale_hostname : "sl-${var.environment_key}"` | MATCH (:175, :213). Publishes to `signalloom-tailscale-hostname` metadata. | Exclusive to P1-1 |
+| **P1-1** | `terraform/environments/main.tf` | 242–275 | Forward `tailscale_hostname = each.value.tailscale_hostname` in `module "compute"` call | MATCH (:242-265). Connects contract to compute. | Exclusive to P1-1 |
+| **P1-1** | `Makefile` | 2897–2915 | Add `--arg tailscale_hostname "$$tailscale_hostname"` to hand-off `jq -n` writer | DRIFT (spans 2897-2915, not 2896-2914). | **OWNED by P1-1** |
+| **P1-1** | `deploy/gcp/sl-port-over-sandbox.example.tfvars` | 267–290 | Add `demo-2` pilot profile map entry (`tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`, `hostname = ""`) | MATCH (:267). Example tfvars documentation. | Exclusive to P1-1 |
+| **P1-1** | `terraform/modules/compute/tests/compute.tftest.hcl` | 741–761 | Extend `the_tailscale_hostname_derives_from_the_environment_key` to assert override behavior | MATCH (:751-758). Prevents test failure under explicit override. | Exclusive to P1-1 |
+| **P1-1** | `scripts/gcp-tf/demo-up.sh` | 734–795 | In `load_handoff`, parse `.tailscale_hostname` from hand-off file | MATCH (:734-790). | **OWNED by P1-1** |
+| **P1-1** | `scripts/gcp-tf/demo-up.sh` | 1845–1848 | Append `DEMO_TS_HOSTNAME` to remote environment variable export printf | MATCH (:1845-1848). | **OWNED by P1-1** |
+| **P1-2** | `scripts/gcp-tf/demo-up.sh` | 1092–1118, 1120–1145 | Enforce `GCP_TF_DEMO_REF=<ref>` worktree payload build in `require_clean_tree` & `build_payload`; reject implicit HEAD | DRIFT (spans 1092-1145, not 1068-1130). Packaging logic. | **OWNED by P1-2** |
+| **P1-2** | `scripts/gcp-tf/demo-up.sh` | 2048–2052 | Set `RUN_COMMIT` and `RUN_BRANCH` from pinned ref short SHA in `capture_source_identity` | MATCH (:2048-2052). Source provenance capture. | **OWNED by P1-2** |
+| **P1-2** | `Makefile` | 2944 | Forward `GCP_TF_DEMO_REF` and `GCP_TF_DEMO_ALLOW_DIRTY` in `GCP_TF_DEMO_ENVIRONMENT` | MATCH (:2943). Make target variable propagation. | Exclusive to P1-2 |
+| **P1-2** | `Makefile` | 2897–2915 | Add `source_ref` and `source_sha` to `gcp-tf-handoff` jq writer | DRIFT (spans 2897-2915). Rebased onto P1-1 merge. | **OWNED by P1-1** (P1-2 appends fields) |
+| **P1-2** | `test/terraform-demo-driver.bats` | 730–758 | Update and extend `ALLOW_DIRTY` and ref verification test cases | DRIFT (spans 730-758, not 739-752). | Exclusive to P1-2 |
+| **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 583, 633, 843–863 | Add CI-lane execution of 6 EAP stages (`dual-cluster-up`, `remote-tenant-lab`, `test-kusari-e2e`, `kusari-e2e-live`, `slaws-acceptance`, `test-eap-offline`) | DRIFT (stage 1s is 843-863, not 838-851). | **OWNED by P1-3** |
+| **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 820 | Remove `test/tetragon-telemetry-stream.bats \` from Stage 1g guard list | MATCH (:820). Single atomic commit with vm-pipeline.sh. | **OWNED by P1-3** |
+| **P1-3** | `scripts/ci/vm-pipeline.sh` | 780 | Remove `test/tetragon-telemetry-stream.bats \` from Stage 1g guard list | MATCH (:780). Single atomic commit with demo-pipeline.sh. | **OWNED by P1-3** |
+| **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 1062–1074 | In estate bring-up, gate cluster-dependent EAP stages on `ci` lane kind | MATCH (:1062-1074). Stage convergence. | **OWNED by P1-3** |
+| **P1-3** | `scripts/ci/openreports-convert.sh` | 117–250 | Update `stageMap` to register EAP pipeline TAP reports and parsers | MATCH. OpenReports TAP registration. | Exclusive to P1-3 |
+| **P1-3** | `test/terraform-dual-lane-registration.bats` | 64 | Maintain cross-pipeline stage sync (`SINGLE_LANE_ALLOWED`) | MATCH. Pipeline parity assertion. | Exclusive to P1-3 |
+| **P1-4** | `.github/workflows/signalloom-ci.yaml` | 30–32 | Remove `schedule` cron trigger; retain manual `workflow_dispatch` only | MATCH (:30-32). | Exclusive to P1-4 |
+| **P1-4** | `.github/workflows/signalloom-eap-pr.yaml` | 29–36 | Remove `pull_request` path triggers; retain manual `workflow_dispatch` only | MATCH (:29-36). | Exclusive to P1-4 |
+| **P1-4** | `.github/workflows/security-scan.yaml` | 17–24 | Remove `pull_request`, `push`, and `schedule` triggers; retain manual `workflow_dispatch` only | MATCH (:17-24). | Exclusive to P1-4 |
+| **P1-4** | `.github/workflows/terraform-validate.yaml` | 29–39 | Remove `pull_request` trigger; retain manual `workflow_dispatch` only | MATCH (:29-39). | Exclusive to P1-4 |
+| **P1-4** | `test/eap-pr-workflow.bats` | 64–88 | Update trigger assertions to verify manual-only contract | MATCH (:64-88). Test contract suite. | Exclusive to P1-4 |
+| **P1-4** | `test/terraform-suite-registration.bats` | 84–86 | Update trigger path assertions to match manual-only workflow contract | MATCH (:84-86). Test registration suite. | Exclusive to P1-4 |
+| **P1-4** | `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` | 1–3 | Record pre-existing TFID digest failure for `vm-pipeline.sh` / `ci-lock.sh` (b9177c3f) | MATCH. Documents pre-existing ledger defect without modifying scripts. | Exclusive to P1-4 |
+| **P1-5** | `infra/kind/cluster-osramp.yaml` | 43–54 | Add `extraMounts` for Postgres (`.cache/postgres`), local-path (`.cache/local-path`), Zot (`.cache/zot`) | MATCH (:43-53). Durable storage configuration. | Exclusive to P1-5 |
+| **P1-5** | `infra/kind/cluster-signalloom-hub.yaml` | 39–40 | Add matching host `extraMounts` to control plane hub cluster config | MATCH. Dual-cluster persistence. | Exclusive to P1-5 |
+| **P1-5** | `scripts/dual-cluster-up.sh` | 123 | Render shared kind configuration template before cluster creation | MATCH (:123). Cluster provisioner. | Exclusive to P1-5 |
+| **P1-5** | `scripts/create-kind-cluster.sh` | 8–9, 132–136 | Unify host directory mounts and template generation with `dual-cluster-up.sh` | MATCH (:8-9, :132-136). Cluster provisioner. | Exclusive to P1-5 |
+| **P1-5** | `Makefile` | 66–67 | Declare `LOCAL_PATH_DATA_DIR ?= .cache/local-path` alongside `ZOT_CACHE_DIR` / `POSTGRES_DATA_DIR` | MATCH (:66-67). Cache variable exports. | Exclusive to P1-5 |
+| **P1-5** | `scripts/kind-data-backup.sh` | 1–120 (new) | Implement `backup` and `restore` subcommands for kind node persistent volumes | MATCH. Backup/restore utility. | Exclusive to P1-5 |
+| **P1-6** | `d2-signalloom/apps/signal-ingest/api/handlers.go` | 535–578 | Stable sort `(timestamp DESC, id DESC)` before limit in `handleQueryObservations`; parse opaque cursor; emit paging headers | MATCH (:535-575). Deterministic observations API. | Exclusive to P1-6 |
+| **P1-6** | `d2-signalloom/apps/signal-ingest/api/tenancy_grants.go` | 75–89 | Update `scopeObservations` to preserve total ordering across tenancy filters | MATCH (:75-89). Tenancy scope truncation. | Exclusive to P1-6 |
+| **P1-6** | `d2-signalloom/apps/fe-signalloom/src/signal_fusion.py` | 67–78 | Forward `cursor` parameter in `get_observations` and relay pagination response headers | DRIFT (lines 67-78, not 61-71). Proxy route handler. | Exclusive to P1-6 |
+| **P1-6** | `test/kusari-e2e-live.bats` | 333–345 | Update `observations_store` helper to use cursor paging | MATCH (:333-345). E2E live test harness. | Exclusive to P1-6 |
+| **P1-6** | `d2-signalloom/apps/signal-ingest/base/deployment.yaml` | 45 | Re-pin signal-ingest image tag (`src-...`) after Go handler changes | DRIFT (path is `apps/signal-ingest/base`, not `deploy/signal-ingest/base`). | Exclusive to P1-6 |
+| **P1-7** | `d2-signalloom/apps/stun-sentinel/bpf/sentinel_probe.c` | 1–250 | eBPF tracepoint probes for `openat`, `openat2`, `execve`, `connect` | MATCH. In-sentinel eBPF probe. | Exclusive to P1-7 |
+| **P1-7** | `d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader.go` | 35–38 | Attach tracepoints scoped to agent cgroups; export ring-buffer drop metrics | MATCH (:35-38). eBPF loader. | Exclusive to P1-7 |
+| **P1-7** | `d2-signalloom/apps/stun-sentinel/cmd/stun-sentinel/main.go` | 614 | Log attached tracepoints and drop counters at startup | DRIFT (path is `cmd/stun-sentinel/main.go`, not `main.go`). | Exclusive to P1-7 |
+| **P1-7** | `d2-signalloom/apps/stun-sentinel/pkg/correlator/ebpf_correlator.go` | 993 | Post normalised observations to signal-ingest `/api/v1/observations` | DRIFT (path is `pkg/correlator/ebpf_correlator.go`). | Exclusive to P1-7 |
+| **P1-8** | `d2-signalloom/apps/signal-ingest/collectors/ebpf` | 1–300 | Delete Tetragon gRPC client directory | MATCH. Collector removal. | Exclusive to P1-8 |
+| **P1-8** | `d2-signalloom/apps/signal-ingest/main.go` | 796–805 | Remove Tetragon collector initialization and registration | MATCH (:796-805). Ingest startup. | Exclusive to P1-8 |
+| **P1-8** | `d2-signalloom/apps/signal-ingest/go.mod` | 14 | Remove `github.com/cilium/tetragon/api` dependency; `go mod tidy` | MATCH (:14). Dependency cleanup. | Exclusive to P1-8 |
+| **P1-8** | `d2-signalloom/apps/signal-ingest/collectors/ebpf/normalize.go` | 172 | Remove/rename `Provider: "tetragon"` to `sentinel-ebpf` | DRIFT (full path is `collectors/ebpf/normalize.go`). | Exclusive to P1-8 |
+| **P1-9** | `d2-signalloom/deploy/tetragon-agent-telemetry.yaml` | 1–50 | Delete file | MATCH. Manifest deletion. | Exclusive to P1-9 |
+| **P1-9** | `d2-signalloom/deploy/tetragon-helm-values.yaml` | 1–50 | Delete file | MATCH. Helm values deletion. | Exclusive to P1-9 |
+| **P1-9** | `scripts/test-tetragon-stream.sh` | 1–80 | Delete file | MATCH. Script deletion. | Exclusive to P1-9 |
+| **P1-9** | `test/tetragon-telemetry-stream.bats` | 1–120 | Delete file | MATCH. Test suite deletion. | Exclusive to P1-9 |
+| **P1-9** | `test/mocks/tetragon_grpc_mock.go` | 1–100 | Delete mock server and tests; remove from `test/mocks/go.mod` | MATCH. Mock deletion. | Exclusive to P1-9 |
+| **P1-9** | `Makefile` | 557–558, 611, 707–719 | Delete `test-tetragon*` targets; add new target `test-sentinel-ebpf` | MATCH (:557-558, :611, :707-719). Make targets. | Exclusive to P1-9 |
+| **P1-9** | `test/acceptance/agent-claim.spec.ts` | 100–120 | Replace Tetragon badge test assertions with Sentinel eBPF | MATCH. Acceptance test update. | Exclusive to P1-9 |
+| **P1-9** | `test/crkc-phase1-unified-stun.bats` | 40–60 | Remove obsolete Tetragon telemetry assertions | MATCH. Stun containment test. | Exclusive to P1-9 |
+| **P1-10** | `d2-signalloom/apps/dashboard-signalloom/src/components/AgentActivityTab.tsx` | 590, 606, 624–630 | Rename Tetragon flow badges and labels to Sentinel eBPF | MATCH. UI component update. | Exclusive to P1-10 |
+| **P1-10** | `d2-signalloom/apps/dashboard-signalloom/src/components/agents/ClaimModal.tsx` | 33 | Rename Tetragon description to Sentinel eBPF | DRIFT (path is `components/agents/ClaimModal.tsx`). | Exclusive to P1-10 |
+| **P1-10** | `d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/ContainmentPolicyConsentStep.tsx` | 101 | Rename Tetragon description to Sentinel eBPF | DRIFT (path is `components/onboarding/ContainmentPolicyConsentStep.tsx`). | Exclusive to P1-10 |
+| **P1-10** | `d2-signalloom/apps/dashboard-signalloom/src/pages/FeedsExplorerPage.tsx` | 9 | Update L1 Host/eBPF telemetry description | MATCH (:9). UI page update. | Exclusive to P1-10 |
+| **P1-10** | `d2-signalloom/apps/dashboard-signalloom/src/api/policyApi.ts` | 184 | Update mock telemetry source to `sentinel-ebpf` | MATCH (:184). Mock API update. | Exclusive to P1-10 |
+| **P1-10** | `d2-signalloom/apps/dashboard-signalloom/src/pages/SignalsPage.test.tsx` | 100, 182 | Update telemetry source assertions to `sentinel-ebpf` | MATCH. Vitest suite update. | Exclusive to P1-10 |
+| **P1-10** | `d2-signalloom/apps/fe-signalloom/src/api_compat.py` | 6018 | Update mock observation source to `sentinel-ebpf` | MATCH (:6018). Gateway mock compatibility. | Exclusive to P1-10 |
+
+##### 3. Immutable Invariants & DO-NOT-EDIT Lane Regex Inventory
+
+The lane key validation regex `^(demo|ci)-[1-9][0-9]*$` is immutable across the platform and must NOT be edited by any P1 card:
+
+| Location | Line Number(s) at Cut | Verbatim Pattern / Expression | Status |
+| :--- | :--- | :--- | :--- |
+| `Makefile` | 2402, 2405, 2407 | `grep -Eq '^(demo|ci)-[1-9][0-9]*$$' <<<'$(ENV)'` | DO-NOT-EDIT |
+| `scripts/node-doctor.sh` | 408 | `grep -Eq '^(demo|ci)-[1-9][0-9]*$' <<<"$1"` | DO-NOT-EDIT |
+| `scripts/where.sh` | 143–144 | `grep -rhoE '"(demo|ci)-[1-9][0-9]*"' ...` | DO-NOT-EDIT |
+| `terraform/modules/env-contract/variables.tf` | 45 | `can(regex("^(demo|ci)-[1-9][0-9]*$", k))` | DO-NOT-EDIT |
+| `terraform/modules/identity/variables.tf` | 34 | `can(regex("^(demo|ci)-[1-9][0-9]*$", k))` | DO-NOT-EDIT |
+| `terraform/modules/edge/variables.tf` | 16 | `can(regex("^(demo|ci)-[1-9][0-9]*$", var.environment_key))` | DO-NOT-EDIT |
+| `scripts/gcp-tf/demo-up.sh` | 724 | `*) die "ENV='${ENV_KEY}' is not a valid environment key (^(demo|ci)-[1-9][0-9]*$)" ;;` | DO-NOT-EDIT |
+| `test/fixtures/terraform/make/key-regex.sed` | 4 | `s#(demo|ci)-#(demo|ci|prod)-#` (mutation test fixture) | DO-NOT-EDIT |
+
+##### 4. Workflow Trigger Inventory (.github/workflows/)
+
+Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | keys'`:
+
+| Workflow File | Current Triggers (at Cut) | Target Contract (P1-4) | Status / Action |
+| :--- | :--- | :--- | :--- |
+| `e2e-local.yaml` | `[workflow_dispatch]` | `[workflow_dispatch]` | Already manual-only; keep. |
+| `push-artifacts.yaml` | `[workflow_dispatch]` | `[workflow_dispatch]` | Already manual-only; keep. |
+| `push-images.yaml` | `[workflow_dispatch]` | `[workflow_dispatch]` | Already manual-only; keep. |
+| `release-artifacts.yaml` | `[workflow_dispatch]` | `[workflow_dispatch]` | Already manual-only; keep. |
+| `reusable-witness-step.yaml` | `[workflow_call]` | `[workflow_call]` | Reusable step; keep. |
+| `security-scan.yaml` | `[pull_request, push, workflow_dispatch, schedule]` | `[workflow_dispatch]` | P1-4 removes `pull_request`, `push`, and `schedule`. |
+| `signalloom-ci.yaml` | `[workflow_dispatch, schedule]` | `[workflow_dispatch]` | P1-4 removes `schedule`. |
+| `signalloom-eap-pr.yaml` | `[pull_request, workflow_dispatch]` | `[workflow_dispatch]` | P1-4 removes `pull_request`. |
+| `terraform-validate.yaml` | `[pull_request, workflow_dispatch]` | `[workflow_dispatch]` | P1-4 removes `pull_request`. |
+
+##### 5. Guard Suites & Runner Inventory
+
+| Test Suite File | Runner Command | Owning Card | Triggering Edit in P1 |
+| :--- | :--- | :--- | :--- |
+| `test/eap-pr-workflow.bats` | `bats test/eap-pr-workflow.bats` | P1-4 | Workflow trigger removal in `signalloom-eap-pr.yaml`, `signalloom-ci.yaml`, `security-scan.yaml` |
+| `test/terraform-suite-registration.bats` | `bats test/terraform-suite-registration.bats` | P1-4 | Trigger path removals in `terraform-validate.yaml` |
+| `test/terraform-env-contract.bats` | `bats test/terraform-env-contract.bats` | P1-1 | Schema addition of `tailscale_hostname` in `env-contract/variables.tf` |
+| `test/terraform-demo-driver.bats` | `bats test/terraform-demo-driver.bats` | P1-2 | Named ref payload enforcement (`GCP_TF_DEMO_REF`) and dirty tree refusal |
+| `test/terraform-dual-lane-registration.bats` | `bats test/terraform-dual-lane-registration.bats` | P1-3 / P1-9 | Removal of `tetragon-telemetry-stream.bats` across `demo-pipeline.sh` and `vm-pipeline.sh` |
+| `d2-signalloom/test/bats-registry-coverage.bats` | `bats d2-signalloom/test/bats-registry-coverage.bats` | P1-9 (P1-3 pipeline line) | Pipeline suite additions / deletions (`test-sentinel-ebpf` added, `tetragon` deleted) |
+| `terraform/modules/compute/tests/compute.tftest.hcl` | `terraform test` (in `terraform/modules/compute`) | P1-1 | Tailnet hostname derivation test asserting `sl-demo-7` vs explicit override |
+
+##### 6. Collision Check & Cross-Session Coordination
+
+- **Broadcast Message:** Posted to `/tmp/chat.jsonl` at `2026-10-06 22:10:26 +0100`:
+  ```json
+  {"ts": "2026-10-06 22:10:26 +0100", "from": "antigravity-eapci-p1pre", "to": "*", "topic": "eapci-collision-check", "msg": "EAPCI-P1-PRE: Planned lane allocation: ci-1 rebuilt (EAP CI), demo-2 repurposed as Kusari pilot (sl-eap-4b53ab6b), demo-1 redeployed, ci-2 untouched. Verifying collision clearance with SLEA / sensai-eap / sensai-sltm."}
+  ```
+- **Reply Transcript:** No collision objection or competing reservation logged in `/tmp/chat.jsonl` as of 22:13 BST.
+- **Coordination Boundary:** Zero files edited in `scripts/slaws-acceptance.sh` (sensai-sltm) or SLEA on-demand environment routing (sensai-eap).
+
+##### 7. Pre-Existing Red Ledger (Carried Forward from P0)
+
+- `sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256`: Pre-existing TFID digest mismatch on `scripts/ci/vm-pipeline.sh` and `scripts/ci/ci-lock.sh` (attributed to commit `b9177c3f`). Carried forward; not fixed in P1.
+- `gcloud --version`: Fails with `PermissionError: [Errno 13] Permission denied: '/home/andy/.config/gcloud/active_config'` inside agent sandbox. Pre-existing constraint documented in §3.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-PRE","status":"pass","commit":"44e140c07175b1928e8bcb45bf2887e75df03050"} -->

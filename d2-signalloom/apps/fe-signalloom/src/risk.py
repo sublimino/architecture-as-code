@@ -5,6 +5,7 @@ the canonical OpenFAIR risk engine (pkg/fair).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import urllib.parse
@@ -15,6 +16,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
+from cross_tenant_audit import audit_cross_tenant_read
 from ingest_client import ingest_headers
 
 logger = logging.getLogger(__name__)
@@ -149,7 +151,16 @@ async def get_agent_risk(
     seed: int | None = Query(default=None),
     model: str | None = Query(default=None),
 ) -> JSONResponse:
-    """Get quantitative OpenFAIR risk assessment for a specific agent."""
+    """Get quantitative OpenFAIR risk assessment for a specific agent.
+
+    signal-ingest's own ``requireCrossTenantRead`` (api/handlers.go handleGetAgentRisk) means
+    every caller that is not acting "*" gets 403 before this ever sees a 2xx, so a successful
+    call here is a cross-tenant read by construction -- audited unconditionally, not only when
+    the response happens to name another tenant. The response names only an ``agentId``, never
+    a tenant (agent-to-tenant ownership lives in fe-signalloom's own EAP registry, a different
+    system from signal-ingest's FAIR engine), so the tenant is recorded as the sentinel
+    ``"unattributed"`` rather than guessed at, with the agent id folded into the event itself.
+    """
     params: dict[str, Any] = {}
     if trials is not None:
         params["trials"] = trials
@@ -158,7 +169,13 @@ async def get_agent_risk(
     if model is not None:
         params["model"] = model
     quoted = urllib.parse.quote(agent_id, safe="")
-    return await _proxy("GET", f"/api/v1/risk/agents/{quoted}", principal, params=params)
+    resp = await _proxy("GET", f"/api/v1/risk/agents/{quoted}", principal, params=params)
+    if 200 <= resp.status_code < 300:
+        await audit_cross_tenant_read(
+            principal, f"GET /api/v1/risk/agents/{agent_id}", [{"tenant_id": "unattributed"}],
+            what="Reading agent risk cross-tenant", extra={"agent_ids": [agent_id]},
+        )
+    return resp
 
 
 @router.get("/api/v1/risk/fleet")
@@ -167,8 +184,29 @@ async def get_fleet_risk(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     request: Request,
 ) -> JSONResponse:
-    """Get quantitative OpenFAIR risk rollup across the agent fleet."""
-    return await _proxy("GET", "/api/v1/risk/fleet", principal)
+    """Get quantitative OpenFAIR risk rollup across the agent fleet.
+
+    Same construction as ``get_agent_risk``: gated cross-tenant-only by signal-ingest, so always
+    audited on success, always "unattributed" since the fleet rollup carries no tenant either.
+    The agent ids named in the event are whichever ones the response itself names (``topAgents``)
+    -- the rollup does not enumerate the whole fleet, so this is honest about what the response
+    actually disclosed, not a claim about the full agent catalogue.
+    """
+    resp = await _proxy("GET", "/api/v1/risk/fleet", principal)
+    if 200 <= resp.status_code < 300:
+        try:
+            content = json.loads(resp.body)
+        except (ValueError, TypeError):
+            content = {}
+        agent_ids = sorted({
+            item["agentId"] for item in content.get("topAgents", [])
+            if isinstance(item, dict) and isinstance(item.get("agentId"), str)
+        })
+        await audit_cross_tenant_read(
+            principal, "GET /api/v1/risk/fleet", [{"tenant_id": "unattributed"}],
+            what="Reading fleet risk cross-tenant", extra={"agent_ids": agent_ids},
+        )
+    return resp
 
 
 def install_risk_api(app: Any) -> None:

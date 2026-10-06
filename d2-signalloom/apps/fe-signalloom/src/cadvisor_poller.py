@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api_compat import APIError, Principal, authenticated_principal
+from cross_tenant_audit import audit_cross_tenant_read
 import claim_tenancy
 
 logger = logging.getLogger("signalloom.cadvisor")
@@ -433,6 +434,64 @@ async def _visible_pods(principal: Principal) -> set[tuple[str, str]] | None:
     return visible
 
 
+async def _pod_tenant_map() -> dict[tuple[str, str], str]:
+    """``(namespace, pod_name) -> tenant``, from the same discovery source ``_visible_pods``
+    scopes against -- kept separate from it (rather than refactored to share) because
+    ``_visible_pods`` is the verified access-control path and this is only an audit lookup; a
+    bug here must not be able to widen or narrow what a caller is allowed to read.
+    """
+    workloads = await claim_tenancy.list_workloads()
+    mapping: dict[tuple[str, str], str] = {}
+    for workload in workloads:
+        tenant = workload.get("tenant")
+        if not isinstance(tenant, str) or not tenant.strip():
+            continue
+        namespace = workload.get("namespace")
+        if not isinstance(namespace, str) or not namespace:
+            continue
+        for key in ("name", "id", "agent_name", "pod"):
+            value = workload.get(key)
+            if isinstance(value, str) and value:
+                mapping[(namespace, value)] = tenant.strip()
+    return mapping
+
+
+async def _audit_cross_tenant_telemetry(
+    principal: Principal, route: str, items: list[dict[str, Any]],
+) -> None:
+    """Telemetry items carry no tenant of their own; annotate each with one looked up by
+    (namespace, pod_name) before handing it to the generic extractor in cross_tenant_audit.
+
+    A superadmin's telemetry read is reached only when ``_visible_pods`` returned ``None``,
+    which already means it is cross-tenant-capable -- so this must never go unrecorded, even
+    when the *attribution* lookup itself fails. Andy's review (2026-10-06): a cross-tenant read
+    is never silent. When discovery is unreachable the event is still written, naming the
+    sentinel tenant ``"unresolved"`` and a ``reason``, rather than skipped -- and the write
+    itself still fails closed (api_compat._require_pool, inside audit_cross_tenant_read, still
+    raises 503 if the audit database is configured but unreachable). Earlier version of this
+    function caught the discovery failure and returned, silently serving an unaudited
+    cross-tenant read; fixed per review, with test_discovery_failure_still_emits_an_unresolved_
+    event pinning it.
+    """
+    try:
+        tenant_map = await _pod_tenant_map()
+    except APIError as exc:
+        await audit_cross_tenant_read(
+            principal, route, [{"tenant_id": "unresolved"}],
+            what=f"Reading {route} cross-tenant",
+            reason=f"tenant attribution lookup failed, discovery unavailable: {exc}",
+            result_count=len(items),
+        )
+        return
+    annotated = [
+        {"tenant_id": tenant_map.get((item.get("namespace"), item.get("pod_name")))}
+        for item in items
+    ]
+    await audit_cross_tenant_read(
+        principal, route, annotated, what=f"Reading {route} cross-tenant",
+    )
+
+
 @router.get("/api/v1/telemetry/agents/{pod_name}")
 @router.get("/api/telemetry/agents/{pod_name}")
 async def get_agent_telemetry(
@@ -490,7 +549,14 @@ async def get_agent_telemetry(
         raise APIError(
             409, "telemetry_ambiguous_pod", "Pod name exists in several namespaces; pass ?namespace="
         )
-    return JSONResponse(matches[0].to_dict())
+    result = matches[0].to_dict()
+    if visible is None:
+        # Only reached by a superadmin (see _visible_pods); every other caller's matches were
+        # already filtered to its own tenant above, so this would always be a no-op for them.
+        await _audit_cross_tenant_telemetry(
+            principal, f"GET /api/v1/telemetry/agents/{pod_name}", [result],
+        )
+    return JSONResponse(result)
 
 
 @router.get("/api/v1/telemetry/agents")
@@ -502,6 +568,9 @@ async def list_agent_telemetry(
     visible = await _visible_pods(principal)
     everything = poller.get_all_telemetry()
     if visible is None:
+        await _audit_cross_tenant_telemetry(
+            principal, "GET /api/v1/telemetry/agents", list(everything.values()),
+        )
         return JSONResponse(everything)
     return JSONResponse({
         key: value for key, value in everything.items()

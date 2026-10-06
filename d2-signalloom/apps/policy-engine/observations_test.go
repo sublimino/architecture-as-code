@@ -380,7 +380,7 @@ func TestEvaluateObservationAgainstShippedBundle(t *testing.T) {
 	// mode. Asserting the SET rather than a single element is what keeps this
 	// honest: a bundle silently missing from the dry-run surface is the defect
 	// this line exists to catch, and a length-1 check could no longer see it.
-	wantBundles := map[string]bool{"kusari-iam-change@1.0.0": true, "kusari-cloud-signals@1.0.0": true}
+	wantBundles := map[string]bool{"kusari-iam-change@1.0.0": true, "kusari-cloud-signals@1.1.0": true}
 	for _, b := range resp.Bundles {
 		if !wantBundles[b] {
 			t.Errorf("unexpected bundle %q in the dry-run response", b)

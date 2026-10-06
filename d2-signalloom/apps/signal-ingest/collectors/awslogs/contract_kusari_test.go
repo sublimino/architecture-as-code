@@ -185,25 +185,24 @@ func TestKusariFixtures_VPCFlowIndexSkipsHeaderAndComments(t *testing.T) {
 	}
 }
 
-// A GuardDuty finding in its real EventBridge envelope projects to NOTHING, with
-// no error.
+// A GuardDuty finding in its real EventBridge envelope projects to exactly one
+// aws:guardduty observation.
 //
-// This is the failure mode worth pinning rather than fixing here: the envelope
-// is valid JSON with no Records[] array, so ProjectCloudTrail decodes it
-// successfully and returns an empty slice. A collector pointed at a bucket of
-// EventBridge events would therefore report success and ingest zero rows, which
-// reads exactly like an account in which nothing happened.
-//
-// The envelope is deliberately absent from KusariFixtureFiles, so it never
-// reaches a rule and never contributes to the e2e totals. The follow-up is named
-// in the fixture header: GuardDuty findings need an EventBridge-shaped
-// projection path with its own §2.3 rows, or a forwarder that re-shapes them
-// before they reach the bucket.
-func TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing(t *testing.T) {
+// This test used to pin the opposite: the envelope carries no Records[] array, so
+// the CloudTrail path decoded it successfully and returned an empty slice -- a
+// silent zero that read exactly like a quiet account. Project now probes the
+// envelope shape first and routes "detail-type: GuardDuty Finding" to
+// ProjectGuardDuty, so the envelope is in the replay set and feeds the
+// guardduty-high-severity rule.
+func TestKusariFixtures_EventBridgeEnvelopeProjectsToAGuardDutyObservation(t *testing.T) {
+	inReplaySet := false
 	for _, name := range KusariFixtureFiles() {
 		if name == KusariFixtureEventBridgeEnvelope {
-			t.Fatalf("%s is in the replay set; it projects to nothing and would silently contribute no findings", name)
+			inReplaySet = true
 		}
+	}
+	if !inReplaySet {
+		t.Fatalf("%s is not in KusariFixtureFiles(); a projectable finding outside the replay set never reaches a rule", KusariFixtureEventBridgeEnvelope)
 	}
 
 	p := Projector{TenantID: kusariTenant, Region: kusariRegion}
@@ -213,14 +212,15 @@ func TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing(t *testing.T) {
 	}
 	obs, err := p.Project(body, FixtureOrigin(KusariFixtureEventBridgeEnvelope))
 	if err != nil {
-		t.Fatalf("the EventBridge envelope errored rather than projecting empty: %v; if the projection learned to reject it, that is an improvement -- update this test to assert the error", err)
+		t.Fatalf("projecting the EventBridge envelope: %v", err)
 	}
-	if len(obs) != 0 {
-		t.Fatalf("the EventBridge envelope projected %d observations; if a projection path was added, move the fixture into KusariFixtureFiles and give it a rule", len(obs))
+	if len(obs) != 1 {
+		t.Fatalf("the EventBridge envelope projected %d observations, want exactly 1", len(obs))
 	}
-	// And the gap is real rather than a typo in the fixture: the finding the
-	// envelope describes is in the bytes, and none of it reaches an observation.
-	if !strings.Contains(string(body), "GuardDuty Finding") {
-		t.Error("the EventBridge fixture no longer describes a GuardDuty finding; the gap this test documents has moved")
+	if obs[0].Source != SourceGuardDuty {
+		t.Errorf("Source = %q, want %q", obs[0].Source, SourceGuardDuty)
+	}
+	if got := obs[0].Labels[LabelSeverity]; got != "8" {
+		t.Errorf("severity = %q, want \"8\" (detail.severity, floored to an integer string)", got)
 	}
 }

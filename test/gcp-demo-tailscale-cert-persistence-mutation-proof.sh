@@ -11,22 +11,6 @@
 # that property to go red. A mutation that leaves the suite green names a guard
 # that was never testing what its name claims.
 #
-# ─── Safety ─────────────────────────────────────────────────────────────────
-#
-# Files are backed up by COPY and restored from that copy. Deliberately NOT
-# `git checkout` / `git stash`: this repo is worked in worktrees with
-# uncommitted changes in flight, and a proof harness that reverts tracked files
-# destroys the very work it was invoked to check — which reads exactly like a
-# real finding and has cost this repo a session before.
-#
-# The restore runs from a trap on EXIT, INT, TERM and HUP. It cannot cover
-# SIGKILL; if this script is `kill -9`d the repo is left mutated, and
-# `git diff` is the recovery.
-#
-# No `set -e`. An errexit shell combined with an EXIT trap lets a failing last
-# command in the trap replace the script's real verdict, which has previously
-# turned an 8/8 pass into a reported failure here.
-
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,60 +24,38 @@ readonly COMPUTE_MAIN="${REPO_ROOT}/terraform/modules/compute/main.tf"
 
 readonly FILES=("${STARTUP}" "${BOOTSTRAP_MAIN}" "${ENV_MAIN}" "${COMPUTE_MAIN}")
 
-BACKUP="$(mktemp -d)"
-readonly BACKUP
-
 PASS=0
 FAIL=0
 
-# Backup key derived from the FULL path, not the basename.
+# ── The shared safety rail ──────────────────────────────────────────────────
 #
-# This harness previously keyed on `basename`, and three of the four files it
-# manages are called main.tf — terraform/platform, terraform/environments and
-# terraform/modules/compute. They collided in the backup directory, the last
-# copy won, and `restore_all` then wrote the compute module's content over the
-# platform and environments roots. The tree was left silently corrupted with
-# three identical main.tf files, and the mutation results that followed were
-# nonsense: nine mutations reported "changed nothing" because they were being
-# applied to the wrong file's content.
+# An EXIT trap was the whole protection here, and it does not survive SIGKILL —
+# which is what a tool timeout escalates to. The helper leaves a marker that
+# outlives the kill, REFUSES to start on top of one rather than repairing it,
+# and verifies the restore on content AND mode.
 #
-# Slashes are replaced rather than the path being nested, so the backup
-# directory stays flat and the mapping is total and obviously injective.
-backup_key() {
-  printf '%s' "${1#"${REPO_ROOT}/"}" | tr '/' '_'
-}
+# This harness used to key its own hand-rolled backup on `basename`, and three
+# of the four files it manages are called main.tf — terraform/platform,
+# terraform/environments and terraform/modules/compute. They collided in the
+# backup directory, the last copy won, and the hand-rolled restore then wrote
+# the compute module's content over the platform and environments roots. The
+# tree was left silently corrupted with three identical main.tf files, and the
+# mutation results that followed were nonsense: nine mutations reported
+# "changed nothing" because they were being applied to the wrong file's
+# content. The rail mirrors each file under its FULL repo-relative path inside
+# the backup directory, so the mapping is injective by construction and there
+# is nothing left for a collision check to catch.
+#
+# ms_guard_on_exit also keeps the property the old `cleanup` was written for:
+# NOTHING that can fail runs after the restore, because the status is captured
+# first and re-raised. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-restore_all() {
-  local f key
-  for f in "${FILES[@]}"; do
-    key="$(backup_key "$f")"
-    if [[ -f "${BACKUP}/${key}" ]]; then
-      cp -p "${BACKUP}/${key}" "$f"
-    fi
-  done
-}
+ms_guard_init gcp-demo-tailscale-cert-persistence "${FILES[@]}"
+trap ms_guard_on_exit EXIT INT TERM HUP
 
-cleanup() {
-  restore_all
-  rm -rf "${BACKUP}"
-  # NOTHING after this that can fail — see the errexit note in the header.
-}
-trap cleanup EXIT INT TERM HUP
-
-for f in "${FILES[@]}"; do
-  cp -p "$f" "${BACKUP}/$(backup_key "$f")" || {
-    echo "FATAL: could not back up $f" >&2
-    exit 1
-  }
-done
-
-# The backup must hold one entry per managed file. A collision here is the
-# corruption described above, and it is cheap to refuse rather than discover.
-if [[ "$(find "${BACKUP}" -maxdepth 1 -type f | wc -l)" -ne "${#FILES[@]}" ]]; then
-  echo "FATAL: backup key collision — ${#FILES[@]} files produced fewer backups." >&2
-  echo "Restoring would write one file's content over another." >&2
-  exit 1
-fi
+restore_all() { ms_guard_restore; }
 
 # Runs ONE test by name and reports whether it failed.
 #
@@ -124,6 +86,12 @@ mutate() {
   local label="$1" pattern="$2" file="$3" expr="$4"
   local before after
 
+  # Armed by hand, and BEFORE the write. This deliberately does NOT use ms_sed:
+  # ms_sed ABORTS on a no-op, and this harness records a no-op as [BROKEN] and
+  # carries on, so one dead pattern cannot hide the verdict on every mutation
+  # after it. The sentinel is what ms_sed would have provided; the no-op policy
+  # below is this harness's own and is left exactly as it was.
+  ms_guard_arm "${label} — ${file}"
   before="$(md5sum "$file" | cut -d' ' -f1)"
   sed -i -e "$expr" "$file"
   after="$(md5sum "$file" | cut -d' ' -f1)"

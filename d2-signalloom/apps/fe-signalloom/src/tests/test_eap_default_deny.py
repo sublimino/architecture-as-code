@@ -116,9 +116,23 @@ def _concrete_path(route: Any) -> str:
     return route.path_format.format(**params) if params else route.path_format
 
 
+def _flat_routes(routes: list[Any]) -> list[Any]:
+    out = []
+    for r in routes:
+        inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
+        if inner and not isinstance(r, APIRoute):
+            out.extend(_flat_routes(inner))
+        else:
+            out.append(r)
+    return out
+
+
+FLAT_ROUTES = _flat_routes(app.routes)
+
+
 def _http_operations() -> list[tuple[str, str, APIRoute]]:
     ops = []
-    for route in app.routes:
+    for route in FLAT_ROUTES:
         # /afm is in the sweep since 2026-10-03: GET /afm/clusters/{id}/jobs
         # answered anyone with cluster-wide job data.
         if isinstance(route, APIRoute) and route.path.startswith(("/api", "/afm")):
@@ -129,10 +143,10 @@ def _http_operations() -> list[tuple[str, str, APIRoute]]:
 
 
 HTTP_OPERATIONS = _http_operations()
-WEBSOCKET_ROUTES = [r for r in app.routes if isinstance(r, APIWebSocketRoute)]
+WEBSOCKET_ROUTES = [r for r in FLAT_ROUTES if isinstance(r, APIWebSocketRoute)]
 CUSTOMER_HASH_ROUTES = [
     (method, route.path, route)
-    for route in app.routes
+    for route in FLAT_ROUTES
     if isinstance(route, APIRoute) and _module_of(route) in EAP_MODULES and "{customer_hash}" in route.path
     for method in sorted(route.methods or ())
 ]
@@ -213,7 +227,7 @@ def test_guard_sweep_covers_the_eap_routers() -> None:
 def test_guard_every_anonymous_entry_still_exists() -> None:
     live = {
         (method, route.path)
-        for route in app.routes
+        for route in FLAT_ROUTES
         if isinstance(route, (APIRoute, Route))
         for method in (route.methods or ())
     }
@@ -232,19 +246,9 @@ def test_guard_no_eap_path_is_anonymous() -> None:
 def test_guard_no_route_delegates_its_principal_check() -> None:
     """Nothing is forwarded for an unidentified caller any more; the telemetry proxy is swept."""
     assert DELEGATED_AUTH_ROUTES == {}
-    # Flattened here (newer FastAPI wraps included routers), so this guard does not depend on the
-    # shared HTTP_OPERATIONS helper seeing every route.
-    def flat(routes):
-        for r in routes:
-            inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
-            if inner and not isinstance(r, APIRoute):
-                yield from flat(inner)
-            else:
-                yield r
-
     swept = {
         (method, r.path)
-        for r in flat(app.routes)
+        for r in FLAT_ROUTES
         if isinstance(r, APIRoute)
         for method in (r.methods or ())
         if (method, r.path) not in ANONYMOUS_ROUTES and (method, r.path) not in DELEGATED_AUTH_ROUTES
@@ -418,7 +422,7 @@ def test_guard_operator_only_routes_carry_the_superadmin_gate_structurally() -> 
     def declares_gate(route: APIRoute) -> bool:
         return any(d.call is require_superadmin for d in route.dependant.dependencies)
 
-    by_key = {(m, r.path): r for r in app.routes if isinstance(r, APIRoute) for m in (r.methods or ())}
+    by_key = {(m, r.path): r for r in FLAT_ROUTES if isinstance(r, APIRoute) for m in (r.methods or ())}
     ungated = sorted(key for key in OPERATOR_ONLY_ROUTES if not declares_gate(by_key[key]))
     assert ungated == [], f"operator-only routes without require_superadmin: {ungated}"
     gated_elsewhere = sorted(
@@ -429,17 +433,17 @@ def test_guard_operator_only_routes_carry_the_superadmin_gate_structurally() -> 
 
 def test_guard_no_route_escapes_the_inventory() -> None:
     """Nothing is mounted where the sweep cannot see it, and every non-API route is a listed exemption."""
-    mounts = [r.path for r in app.routes if isinstance(r, Mount)]
+    mounts = [r.path for r in FLAT_ROUTES if isinstance(r, Mount)]
     assert mounts == [], f"sub-applications are invisible to the sweep and must not exist: {mounts}"
     unknown = sorted(
         (method, route.path)
-        for route in app.routes
+        for route in FLAT_ROUTES
         if isinstance(route, Route) and not isinstance(route, APIRoute)
         for method in (route.methods or ())
         if method != "HEAD" and (method, route.path) not in ANONYMOUS_ROUTES
     )
     assert unknown == [], f"plain Starlette routes outside ANONYMOUS_ROUTES: {unknown}"
-    kinds = {type(r).__name__ for r in app.routes}
+    kinds = {type(r).__name__ for r in FLAT_ROUTES}
     assert kinds <= {"Route", "APIRoute", "APIWebSocketRoute"}, f"unexpected route kinds: {kinds}"
 
 
@@ -463,7 +467,7 @@ def test_anonymous_head_and_options_on_eap_routes_never_reach_a_handler(method: 
 
 
 def test_no_oidc_callback_route_is_mounted() -> None:
-    callbacks = [r.path for r in app.routes if re.search(r"callback|oidc", r.path, re.IGNORECASE)]
+    callbacks = [r.path for r in FLAT_ROUTES if re.search(r"callback|oidc", r.path, re.IGNORECASE)]
     assert callbacks == [], f"an OIDC callback is now mounted and needs an ANONYMOUS_ROUTES decision: {callbacks}"
 
 

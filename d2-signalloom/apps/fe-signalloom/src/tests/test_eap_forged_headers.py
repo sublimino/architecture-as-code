@@ -146,9 +146,20 @@ def test_forged_header_without_a_bearer_is_401(eap_jwt_env, fresh_tenant_ownersh
 # 3. Every EAP GET, forged as the other tenant
 # ---------------------------------------------------------------------------
 
+def _flat_routes(routes):
+    out = []
+    for r in routes:
+        inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
+        if inner and not isinstance(r, APIRoute):
+            out.extend(_flat_routes(inner))
+        else:
+            out.append(r)
+    return out
+
+
 EAP_GET_ROUTES = [
     route
-    for route in app.routes
+    for route in _flat_routes(app.routes)
     if isinstance(route, APIRoute) and "GET" in (route.methods or ()) and route.endpoint.__module__ in EAP_MODULES
 ]
 

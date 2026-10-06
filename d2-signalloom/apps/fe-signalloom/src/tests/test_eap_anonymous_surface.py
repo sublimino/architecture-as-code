@@ -170,7 +170,17 @@ def test_enumerate_eap_anonymous_surface(probe_client: TestClient) -> None:
 
     probe_results: List[Tuple[str, str, int, str, str]] = []
 
-    for r in app.routes:
+    def _flat_routes(routes):
+        out = []
+        for r in routes:
+            inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
+            if inner and not isinstance(r, APIRoute):
+                out.extend(_flat_routes(inner))
+            else:
+                out.append(r)
+        return out
+
+    for r in _flat_routes(app.routes):
         if isinstance(r, APIRoute):
             for prefix in EAP_PREFIXES:
                 if r.path.startswith(prefix):

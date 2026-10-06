@@ -137,9 +137,30 @@ teardown() {
   # gitignored, but an untracked artefact that appears whenever the tests run is
   # still noise a reviewer has to explain away.
   rm -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan"
+  # Mirror image of the above, for the file created by bootstrap_var_file_fixture
+  # below. *.tfvars is globally gitignored (never committed) but still has to be
+  # cleaned up or it is an artefact this suite deposited in the real tree.
+  rm -f "${REPO_ROOT}/${GCP_TF_BOOTSTRAP_VAR_FILE_DEFAULT}"
 }
 
 TF_ROOT_BOOTSTRAP_DEFAULT='terraform/bootstrap'
+
+# gcp-tf-bootstrap guards on this file's existence at the Makefile level
+# (gcp_tf_require_bootstrap_var_file) before ever invoking terraform, unlike
+# gcp-tf-plan/apply, which hand an unchecked -var-file straight to the
+# (stubbed) terraform binary. *.tfvars is deliberately gitignored — it is real
+# per-deployer input, see terraform/bootstrap/terraform.tfvars.example — so a
+# fresh checkout never has one, and the two tests that actually execute
+# gcp-tf-bootstrap (rather than dry-running or grepping for it) must supply it
+# themselves. The DEFAULT path is used, and not a fixture override, because the
+# assertions in "gcp-tf-bootstrap plans using the explicit bootstrap input"
+# check the literal default -var-file= argument.
+GCP_TF_BOOTSTRAP_VAR_FILE_DEFAULT='deploy/gcp/bootstrap.tfvars'
+bootstrap_var_file_fixture() {
+  mkdir -p "${REPO_ROOT}/deploy/gcp"
+  cp "${REPO_ROOT}/terraform/bootstrap/terraform.tfvars.example" \
+    "${REPO_ROOT}/${GCP_TF_BOOTSTRAP_VAR_FILE_DEFAULT}"
+}
 
 # Run make from the repo root with the stubs in front of the real binaries.
 run_make() {
@@ -388,6 +409,7 @@ JSON
 # ---------------------------------------------------------------------------
 
 @test "gcp-tf-bootstrap plans using the explicit bootstrap input" {
+  bootstrap_var_file_fixture
   run_make gcp-tf-bootstrap
   [ "$status" -eq 0 ]
 
@@ -1266,6 +1288,7 @@ JSON
   # The stub writes whatever `-out=` names, and gcp-tf-bootstrap plans against
   # the real default root. Without the teardown this suite would deposit a plan
   # file in terraform/bootstrap/ on every run.
+  bootstrap_var_file_fixture
   run_make gcp-tf-bootstrap
   [ "$status" -eq 0 ]
   [ -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan" ]

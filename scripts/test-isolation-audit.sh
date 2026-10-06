@@ -52,7 +52,26 @@ PY
 }
 
 mapfile -t bats_files < <(makefile_list SLDC_OFFLINE_BATS)
-mapfile -t go_dirs < <(makefile_list SLDC_GO_DIRS)
+# `mapfile -t arr < <(cmd)` discards cmd's own exit status -- mapfile succeeds
+# having read zero lines from a command that crashed outright, so a
+# python3/Makefile failure here would silently drop every SLDC_GO_DIRS entry
+# from the audit while still running (the three go_dirs+= below keep the loop
+# at line 68 non-empty either way, so it is a real but invisible coverage
+# loss, not literally a zero-iteration loop).
+#
+# Captured into a variable first instead, specifically so a legitimately
+# EMPTY SLDC_GO_DIRS (test/test-isolation-audit.bats's own fixtures set
+# `SLDC_GO_DIRS =` on purpose) is not confused with makefile_list having
+# failed -- `||` below only fires on the command's actual exit status, never
+# on empty output.
+go_dirs_raw="$(makefile_list SLDC_GO_DIRS)" || {
+  echo "ERROR: makefile_list SLDC_GO_DIRS failed — check python3 and the Makefile" >&2
+  exit 1
+}
+go_dirs=()
+if [ -n "$go_dirs_raw" ]; then
+  mapfile -t go_dirs <<<"$go_dirs_raw"
+fi
 # The acceptance set also runs these Go module roots directly (policy-engine via
 # scripts/slaws-acceptance.sh, obscel and signal-ingest via make targets).
 go_dirs+=(

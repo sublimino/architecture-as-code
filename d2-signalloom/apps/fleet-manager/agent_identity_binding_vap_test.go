@@ -282,16 +282,62 @@ func TestIdentityBindingVAP_NoAgentNameLabelIsAdmitted(t *testing.T) {
 	}
 }
 
-func TestIdentityBindingVAP_NilParamsAdmitsEverything(t *testing.T) {
-	// parameterNotFoundAction: Allow -- if the ConfigMap is ever missing,
-	// this policy must fail open on the identity check (fleet-manager's own
-	// in-process guard, nil-safe by the same design, is the other layer),
-	// never fail closed and brick every agent pod creation in the namespace.
+// TestIdentityBindingVAP_BindingDeniesOnMissingParams is a structural
+// assertion, not a CEL evaluation: parameterNotFoundAction is enforced by
+// the API server's param-resolution step, BEFORE matchConditions or this
+// policy's CEL ever run (loadIdentityBindingPolicy's admit()/matches()
+// harnesses have no way to simulate that step -- feeding params: nil into
+// CEL directly, as an earlier version of this test did, proves nothing
+// about the real "ConfigMap not found" path, which never reaches CEL at
+// all when this field is Deny). The field must be Deny: fleet-config
+// missing must not silently admit every spoof.
+func TestIdentityBindingVAP_BindingDeniesOnMissingParams(t *testing.T) {
+	raw, err := os.ReadFile(identityBindingPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, doc := range strings.Split(string(raw), "\n---\n") {
+		var obj admissionv1.ValidatingAdmissionPolicyBinding
+		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
+			t.Fatal(err)
+		}
+		if obj.Kind != "ValidatingAdmissionPolicyBinding" || obj.Name != "sl-agent-identity-binding-binding" {
+			continue
+		}
+		found = true
+		if obj.Spec.ParamRef == nil {
+			t.Fatal("binding declares no paramRef")
+		}
+		action := obj.Spec.ParamRef.ParameterNotFoundAction
+		if action == nil || *action != admissionv1.DenyAction {
+			got := "<nil>"
+			if action != nil {
+				got = string(*action)
+			}
+			t.Fatalf("paramRef.parameterNotFoundAction = %s, want %q: a missing fleet-config ConfigMap must deny, not silently admit every spoof",
+				got, admissionv1.DenyAction)
+		}
+	}
+	if !found {
+		t.Fatalf("sl-agent-identity-binding-binding not found in %s", identityBindingPolicyPath)
+	}
+}
+
+// TestIdentityBindingVAP_CELItselfStillAdmitsOnNilParams documents the one
+// remaining CEL-level fact, now academic in production because
+// parameterNotFoundAction: Deny means the API server never lets CEL see a
+// nil params in the first place: `registered` requires params != null, so
+// if CEL ever DID run with nil params -- it cannot, under Deny -- it would
+// treat every identity as unregistered and admit. This is not a gap: it is
+// why parameterNotFoundAction, not CEL, is the correct place to enforce
+// fail-closed-on-missing-ConfigMap.
+func TestIdentityBindingVAP_CELItselfStillAdmitsOnNilParams(t *testing.T) {
 	p := loadIdentityBindingPolicy(t)
 	decoy := identityPod("fe-signalloom-agents", "kusari-agent", "hosted-daytona-coder")
 
 	if msg := p.admit(t, decoy, nil); msg != "" {
-		t.Fatalf("missing params must admit (parameterNotFoundAction: Allow), got denial: %s", msg)
+		t.Fatalf("CEL with a nil params denied unexpectedly: %s", msg)
 	}
 }
 

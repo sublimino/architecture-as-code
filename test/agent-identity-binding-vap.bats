@@ -52,6 +52,14 @@ setup() {
 	[ "$status" -eq 0 ]
 	[ "$output" = "fe-signalloom" ]
 
+	# A missing fleet-config ConfigMap must deny, not silently admit every
+	# spoof -- enforced by the API server before this policy's CEL ever
+	# runs, so this is the one guarantee no CEL expression in this file
+	# could provide on its own.
+	run yq -N 'select(.kind == "ValidatingAdmissionPolicyBinding") | .spec.paramRef.parameterNotFoundAction' "$VAP"
+	[ "$status" -eq 0 ]
+	[ "$output" = "Deny" ]
+
 	# The params object this binding names must actually carry identity.*
 	# (ServiceAccount) keys, in the SAME file fleet-manager/identity_map.go
 	# reads -- one authored list, proven by structure rather than by a

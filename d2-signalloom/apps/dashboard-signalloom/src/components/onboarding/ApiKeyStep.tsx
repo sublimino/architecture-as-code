@@ -93,10 +93,10 @@ export default function ApiKeyStep({ revealed, revealing, error, onReveal, onCon
       )}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-        <button type="button" className="btn btn-secondary" onClick={onBack}>
+        <button type="button" className="btn btn-secondary" data-testid="back-step-button" onClick={onBack}>
           Back
         </button>
-        <button type="button" className="btn btn-primary" onClick={onContinue}>
+        <button type="button" className="btn btn-primary" data-testid="next-step-button" onClick={onContinue}>
           {revealed ? 'Continue' : "I'll do this later"}
         </button>
       </div>

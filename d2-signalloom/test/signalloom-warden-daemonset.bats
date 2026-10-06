@@ -40,7 +40,14 @@ setup() {
 # ── RBAC subjects: one owner per object, every subject a declared SA ─────────
 
 swarm_yaml() {
-  fd -e yaml -e yml . "$repo_root/d2-signalloom/infra/agent-swarm" | rg -v '/kustomization\.ya?ml$'
+  # The remote-tenant overlay carries a deliberate second copy of Role
+  # signalloom-warden (its role.yaml explains why a cluster with no agent-swarm
+  # base needs it). test/signalloom-warden-manifests.bats asserts that copy is
+  # byte-identical to ebpf-sentinel-rbac.yaml, so it is excluded here rather
+  # than counted as an accidental double declaration.
+  fd -e yaml -e yml . "$repo_root/d2-signalloom/infra/agent-swarm" \
+    | rg -v '/kustomization\.ya?ml$' \
+    | rg -v '/signalloom-warden-overlays/remote-tenant/role\.yaml$'
 }
 
 @test "no RBAC object is declared by more than one agent-swarm manifest" {

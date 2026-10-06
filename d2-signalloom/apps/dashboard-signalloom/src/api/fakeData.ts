@@ -1500,6 +1500,13 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/tenant\/settings$/), data: () => tenantSettings() },
   { method: 'PATCH', test: re(/^\/tenant\/settings\/frameworks$/), data: (_p, body) =>
       tenantSettings((body as { selected_frameworks?: string[] })?.selected_frameworks ?? ['eu-ai-act']) },
+  // The onboarding wizard's scan-preferences step saves through this route;
+  // without a fixture the wizard stays on step 3 under the demo toggle.
+  { method: 'PATCH', test: re(/^\/tenant\/settings\/preferences$/), data: (_p, body) => {
+      const base = tenantSettings() as Record<string, unknown>
+      const patch = (body ?? {}) as Record<string, unknown>
+      return { ...base, ...patch }
+    } },
   { method: 'POST', test: re(/^\/support$/), data: () => support },
   // api keys
   { method: 'POST', test: re(/^\/tenants\/[^/]+\/api-keys\/initial$/), data: () => initialApiKey },
@@ -1540,6 +1547,10 @@ const ROUTES: Match[] = [
     explanation: 'Resolved via monotonic execution anchor and bounded clock skew',
   }) },
   { method: 'POST', test: re(/^\/v1\/telemetry\/coding-agents$/), data: () => ({ status: 'ingested', session_id: 'demo-session', duplicate: false }) },
+  // The session route the onboarding wizard's Test Connection calls. With
+  // the demo toggle on, req() short-circuits here, so without this entry the
+  // wizard reports "HTTP 501" for a perfectly good session.
+  { method: 'GET', test: re(/^\/v1\/me$/), data: () => ({ subject: 'demo-user', tenant: 'tenant-demo', email: 'demo-user@signalloom.local', superadmin: true }) },
   // fleet manager routes (Surface 12: Fleet Demo offline fallback)
   ...FLEET_ROUTES,
   // federated services routes (Surface 11 / SLMS-P4-1)

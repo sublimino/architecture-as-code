@@ -84,25 +84,89 @@ var defaultLabelAllowList = map[string]struct{}{
 	"connector":        {},
 	"rule_id":          {},
 	"rule_version":     {},
-	"severity":         {},
-	"category":         {},
-	"outcome":          {},
-	"protocol":         {},
-	"direction":        {},
-	"port":             {},
-	"region":           {},
-	"zone":             {},
-	"environment":      {},
-	"provider":         {},
-	"engine":           {},
-	"policy":           {},
-	"policy_version":   {},
-	"quarantine":       {},
-	"correlation_id":   {},
-	"trust_domain":     {},
-	"attestation":      {},
-	"signature_algo":   {},
-	"schema":           {},
+	// SLAWS v2 D3: findings and decisions are observations in this store. These keys are
+	// closed policy metadata or sha256-derived identifiers; none names a person.
+	// Collector operational records (buffer_eviction, projection_failure) are typed by this key.
+	"type": {},
+	// actor_pseudonym is the keyed pseudonym of the actor on a stored finding or
+	// decision (policy.LabelActor). It is admitted because the v2 schema removed
+	// the cleartext actor_hint column and with it the only way warm-up could tell
+	// one actor-keyed counter from another after a restart: every window keyed on
+	// `actor` collapsed into a single counter.
+	//
+	// The key is deliberately NOT `actor`, which stays on the forbidden list in
+	// segment_schema_v2_test.go. This allow-list bounds KEYS and never VALUES, so
+	// admitting `actor` would let any collector ship a cleartext identity under a
+	// key that reads as legitimate. `actor_pseudonym` names its own value class:
+	// a cleartext value under it is self-evidently wrong rather than plausibly
+	// right, and policy is its only writer -- see
+	// TestFindingObservation_ActorPseudonymLabelIsAPseudonym, which pins the
+	// value shape at the writer, which is the only place a value CAN be checked.
+	"actor_pseudonym": {},
+	// SLAWS v2 §2.3: the awslogs projection (CloudTrail, IAM, VPC Flow). Keys only; values are
+	// AWS-shaped scalars (account id, region, event names, resource type and name, addresses,
+	// ports, byte counts). Found missing on kind-osramp: the first fixture observation was refused.
+	"aws_account_id": {},
+	// actor_account_id is the ACTING principal's AWS account, parsed from
+	// userIdentity.arn. It is the same class of value as aws_account_id above --
+	// a 12-digit account number, chosen by nobody, naming no natural person -- and
+	// it is admitted for a specific reason: obs.actor is a keyed pseudonym by the
+	// time a policy rule sees it, so "did this call cross an account boundary"
+	// cannot be answered by dissecting the actor any more. This label is how that
+	// question survives into a v2 segment and therefore into a replay.
+	"actor_account_id":      {},
+	"aws_region":            {},
+	"event_source":          {},
+	"event_name":            {},
+	"error_code":            {},
+	"resource_type":         {},
+	"resource_name":         {},
+	"source_ip":             {},
+	"dst_ip":                {},
+	"dst_port":              {},
+	"protocol":              {},
+	"bytes":                 {},
+	"bundle_id":             {},
+	"bundle_version":        {},
+	"source_observation_id": {},
+	"mode":                  {},
+	"window_id":             {},
+	"count":                 {},
+	"finding_ids":           {},
+	// SLAWS review API: a human's verdict on a decision is a policy_review observation
+	// (policy/review.go). decision_id is the sha256-derived decision identifier; verdict is a
+	// three-value closed vocabulary; reviewer is the authenticated reviewing principal.
+	//
+	// `note` is the one key here whose value is free text a person types, so it is the one entry
+	// that needs the limit on this control stated against it rather than against the list as a
+	// whole: Append checks the KEY and never the VALUE, so a reviewer can put anything in a note
+	// and it reaches a signed segment verbatim. Three things bound that and none of them is this
+	// allow-list — policy.MaxReviewNoteLen caps it at 500 runes, only a principal holding
+	// policy:review can write one at all, and the note is attributed to the reviewer who typed
+	// it. Refusing the key instead would have cost the only field that says WHY a decision was
+	// judged the way it was, which is the whole evidentiary point of recording the judgement.
+	"decision_id":    {},
+	"verdict":        {},
+	"reviewer":       {},
+	"note":           {},
+	"severity":       {},
+	"category":       {},
+	"outcome":        {},
+	"direction":      {},
+	"port":           {},
+	"region":         {},
+	"zone":           {},
+	"environment":    {},
+	"provider":       {},
+	"engine":         {},
+	"policy":         {},
+	"policy_version": {},
+	"quarantine":     {},
+	"correlation_id": {},
+	"trust_domain":   {},
+	"attestation":    {},
+	"signature_algo": {},
+	"schema":         {},
 
 	// stun-sentinel kernel observations (review M4). These are the correlator's wire keys
 	// (apps/stun-sentinel/pkg/correlator/ingest.go toIngest); `namespace` and `severity` were

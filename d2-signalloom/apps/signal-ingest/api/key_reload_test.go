@@ -489,7 +489,10 @@ func TestKeyReloadWatchReloadDetectsSymlinkSwap(t *testing.T) {
 		"stun-sentinel" + StaticKeyExpirySuffix: expiry,
 	})
 
-	deadline := time.Now().Add(3 * time.Second)
+	// 10 s, not 3: fsnotify delivery on a loaded host (parallel image builds during
+	// the 2026-10-03 cold rebuild) missed 3 s in 3 of 5 runs; the reload itself is
+	// sub-millisecond, the wait is for the kernel event.
+	deadline := time.Now().Add(10 * time.Second)
 	var swapped bool
 	for time.Now().Before(deadline) {
 		if _, err := authn.Authenticate(bearerRequest(http.MethodPost, "/api/v1/observations", tokenB)); err == nil {

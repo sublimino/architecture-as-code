@@ -8,6 +8,18 @@ const DEX_DEMO_PASSWORD = process.env.DEX_DEMO_PASSWORD ?? "demo-user";
 const ONBOARDING_SKIP_WAIT_MS = 15_000;
 const DASHBOARD_SETTLE_TIMEOUT_MS = 15_000;
 
+// The agents dashboard keeps a long-lived fetch open on GET /api/telemetry/agents
+// (text/event-stream, api/agentTelemetry.ts), so "networkidle" never fires once
+// telemetry works (it did fire while that route was 503, 2026-10-03). Settle on
+// the document load plus a bounded best-effort idle; callers assert a rendered
+// marker right after.
+async function settleAfterNavigation(page: Page): Promise<void> {
+  await page.waitForLoadState("load", { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
+  // Best-effort idle: reached on pages without the stream, harmless otherwise.
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+}
+
+
 async function dismissOnboardingIfPresent(page: Page): Promise<void> {
   const skipOnboarding = page.locator('[data-testid="skip-onboarding-button"], button:has-text("Skip for now")').first();
 
@@ -42,7 +54,7 @@ async function dismissOnboardingIfPresent(page: Page): Promise<void> {
   await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({
     timeout: DASHBOARD_SETTLE_TIMEOUT_MS,
   });
-  await page.waitForLoadState("networkidle", { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
+  await settleAfterNavigation(page);
 }
 
 setup("authenticate via Dex", async ({ page }) => {
@@ -86,7 +98,7 @@ setup("authenticate via Dex", async ({ page }) => {
   await page.locator('input[name="password"]').fill(DEX_DEMO_PASSWORD);
   await page.getByRole("button", { name: /sign in|login/i }).click();
   await page.waitForURL(/\/(agents|onboarding)/, { timeout: 15_000 });
-  await page.waitForLoadState("networkidle", { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
+  await settleAfterNavigation(page);
 
   // Onboarding is another deterministic precondition, alongside the
   // superadmin visibility seed below. Clicking "Skip for now" is not just a

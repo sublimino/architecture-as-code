@@ -32,6 +32,13 @@ POSTGRES_DATA_DIR="$(cd "$(dirname "$POSTGRES_DATA_DIR")" && pwd -P)/$(basename 
 prepare_zot_cache() {
   # Correct existing cache content too: it may have been created by an earlier
   # image UID or a previously interrupted local run.
+  # A node created from infra/kind/cluster-osramp.yaml (dual-cluster-up.sh,
+  # Cilium) carries no host bind mount for this path, so create it node-local
+  # first, as prepare_postgres_cache does; the Zot manifest declares the
+  # hostPath DirectoryOrCreate. The cache then lives inside the node until the
+  # cluster is deleted (2026-10-03 zero-state rebuild).
+  "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
+    mkdir -p /var/local/osramp-zot-cache
   "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
     chown -R 65532:65532 /var/local/osramp-zot-cache
   "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \

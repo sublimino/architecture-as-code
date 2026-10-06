@@ -1,0 +1,110 @@
+{
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T09:14:31Z",
+      "eventSource": "iam.amazonaws.com",
+      "eventName": "CreatePolicyVersion",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userAgent": "aws-cli/2.15.0",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "policyArn": "arn:aws:iam::123456789012:policy/kusari-agent-policy",
+        "policyDocument": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"}]}",
+        "setAsDefault": true
+      },
+      "responseElements": {
+        "policyVersion": {
+          "versionId": "v4",
+          "isDefaultVersion": true
+        }
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::Policy",
+          "ARN": "arn:aws:iam::123456789012:policy/kusari-agent-policy"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T09:15:02Z",
+      "eventSource": "iam.amazonaws.com",
+      "eventName": "AttachUserPolicy",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "userName": "kusari-build-runner",
+        "policyArn": "arn:aws:iam::aws:policy/AdministratorAccess"
+      },
+      "responseElements": null,
+      "resources": [
+        {
+          "type": "AWS::IAM::User",
+          "ARN": "arn:aws:iam::123456789012:user/kusari-build-runner"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T09:16:48Z",
+      "eventSource": "iam.amazonaws.com",
+      "eventName": "CreateAccessKey",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "198.51.100.77",
+      "errorCode": "AccessDenied",
+      "errorMessage": "User is not authorized to perform iam:CreateAccessKey",
+      "userIdentity": {
+        "type": "AssumedRole",
+        "arn": "arn:aws:sts::123456789012:assumed-role/kusari-ci/build-9981",
+        "accountId": "123456789012"
+      },
+      "requestParameters": {
+        "userName": "kusari-build-runner"
+      },
+      "responseElements": null,
+      "resources": []
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T09:18:05Z",
+      "eventSource": "s3.amazonaws.com",
+      "eventName": "PutBucketPolicy",
+      "awsRegion": "eu-west-2",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "bucketName": "kusari-evidence",
+        "policy": "{\"Statement\":[{\"Principal\":\"*\"}]}"
+      },
+      "responseElements": null,
+      "resources": [
+        {
+          "type": "AWS::S3::Bucket",
+          "ARN": "arn:aws:s3:::kusari-evidence"
+        }
+      ]
+    }
+  ]
+}

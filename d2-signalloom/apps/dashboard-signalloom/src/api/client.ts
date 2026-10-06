@@ -285,6 +285,13 @@ function joinInflight<T>(url: string, entry: InflightGet, signal?: AbortSignal):
   })
 }
 
+export interface MeResponse {
+  subject: string
+  tenant: string
+  email: string | null
+  superadmin: boolean
+}
+
 export async function req<T>(
   path: string,
   token: string,
@@ -704,6 +711,12 @@ export const api = {
     scan: (token: string) =>
       req<NetworkTestScanResponse>('/network-tests/scan', token, { method: 'POST' }),
   },
+
+  // Who the server says the caller is: verified subject, tenant decision,
+  // superadmin verdict. Cheap enough to be a session probe (the onboarding
+  // wizard's Test Connection uses it); see fe-signalloom/src/me.py.
+  me: (token: string) =>
+    req<MeResponse>('/v1/me', token),
 
   settings: (token: string) =>
     req<TenantSettingsResponse>('/tenant/settings', token),

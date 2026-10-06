@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# remote-tenant: the overlay for a SECONDARY cluster (a pilot tenant's own
+# cluster, e.g. Kusari). Decision 2026-10-03: such a cluster runs only
+#
+#   * the signalloom-warden DaemonSet (this overlay),
+#   * three Secrets in fe-signalloom-agents, two of them required:
+#     signalloom-warden-ingest-token (the signal-ingest named key
+#     `signalloom-warden`) and signalloom-warden-fleet-key (the fleet-manager
+#     caller key `warden`, scope report), both minted on the CENTRAL cluster by
+#     `scripts/fleet-manager-caller-keys.sh --emit-remote-secrets DIR` and
+#     `scripts/sldc-ingest-bearer.sh --emit-remote-secrets DIR` and never
+#     issued here, plus the optional signalloom-hub-ca,
+#   * the tenant's own workloads.
+#
+# No SPIRE, no OpenBao, no signal-ingest, no fe-signalloom run here. Every
+# observation is forwarded to the central cluster's signal-ingest and every
+# stun record to its fleet-manager, through the central gateway's
+# /warden-ingest and /warden-fleet routes
+# (apps/fe-signalloom/base/gateway-route.yaml), each authenticated by the
+# warden's named key. Enforcement (cgroup freeze, veth drop,
+# hold-until-authorised-resume) stays local to the node and needs no central
+# round trip to take effect, and only its record travels.
+#
+# The image is the public ghcr reference from the base, since this cluster has
+# no zot, and the version is inherited from the base DaemonSet.
+#
+# ── `kubectl apply -k` on this directory is COMPLETE ─────────────────────────
+#
+# It renders the Role as well, from role.yaml. The base ships the RoleBinding
+# but not the Role: on the central cluster the Role comes from the agent-swarm
+# base Kustomization, which a remote cluster does not run, so an overlay that
+# omitted it left a RoleBinding pointing at nothing and a warden with no pod
+# access. ADR-14 keeps the Role out of the warden base, and this is the overlay
+# that has to put it back. role.yaml records why it is a copy rather than a
+# reference, and a test pins it to the central definition. The RBAC exporter
+# CronJob cannot
+# work here (its AFM endpoint is an in-cluster Service of the hub), so it is
+# suspended rather than left to fail every thirty minutes.
+#
+# ── EVERY PARAMETER, and where to change it ──────────────────────────────────
+#
+# | Parameter                        | Where                         | Value here |
+# | :------------------------------- | :---------------------------- | :--------- |
+# | SIGNAL_INGEST_URL                | ConfigMap patch below         | https://dashboard.osramp.acme.local/warden-ingest |
+# | FLEET_MANAGER_URL                | ConfigMap patch below         | https://dashboard.osramp.acme.local/warden-fleet |
+# | SENTINEL_TENANT_MAP              | ConfigMap patch below         | the PILOT tenant only |
+# | SIGNAL_CLUSTER_ID                | daemonset-remote.yaml         | kusari-prod |
+# | FLEET_REPORT_INTERVAL            | daemonset-remote.yaml         | 60s |
+# | FLEET_POLL_INTERVAL              | daemonset-remote.yaml         | 10s |
+# | SIGNAL_TLS_CA_FILE               | daemonset-remote.yaml         | /etc/signalloom/hub-ca/ca.pem |
+# | Secret signalloom-hub-ca         | daemonset-remote.yaml, volume | optional |
+# | SIGNAL_TLS_INSECURE_SKIP_VERIFY  | ../remote-tenant-dev          | unset here |
+# | SIGNAL_DEV_MODE                  | ../remote-tenant-dev          | unset here |
+# | WATCH_NAMESPACE                  | the base DaemonSet            | fe-signalloom-agents |
+#
+# The four URL and tenancy parameters are ConfigMap keys, so an operator can
+# patch them on a live cluster and restart the DaemonSet. The cluster id, the
+# intervals and the CA path are literals on the pod template, because changing
+# one is a change to what this cluster IS, and it should arrive as a commit.
+#
+# A lab that cannot present a trusted certificate uses the sibling overlay
+# ../remote-tenant-dev, which adds the two development variables and nothing
+# else.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../signalloom-warden
+  # Role signalloom-warden. See the note above: without it the base's
+  # RoleBinding resolves to nothing on a cluster that runs no agent-swarm base.
+  - role.yaml
+
+patches:
+  # The two hub URLs. Both are gateway prefixes on the central cluster, and
+  # both are stripped before the request reaches the backend, so the warden
+  # appends its own path (/api/v1/observations, /api/v1/fleet/...) to them.
+  #
+  # PARAMETER. Substitute the hub's own hostname. The host must resolve from
+  # every node, and port 443 on it must be reachable from every node.
+  - target:
+      kind: ConfigMap
+      name: signalloom-warden-config
+    patch: |
+      - op: replace
+        path: /data/SIGNAL_INGEST_URL
+        value: https://dashboard.osramp.acme.local/warden-ingest
+      - op: replace
+        path: /data/FLEET_MANAGER_URL
+        value: https://dashboard.osramp.acme.local/warden-fleet
+      # SENTINEL_TENANT_MAP is the ONLY source of an observation's tenant, and
+      # the base map names the CENTRAL cluster's twenty service accounts. Left
+      # inherited, every pod on this cluster is reported __unattributed__
+      # (still detected, still frozen, but attributed to nobody and therefore
+      # invisible to the pilot's own non-superadmin users).
+      #
+      # PARAMETER, and the one most likely to be wrong. One entry per line,
+      # `namespace/serviceAccount=tenant` or `namespace=tenant`. The namespace
+      # form is right for a pilot cluster whose whole watched namespace belongs
+      # to one tenant. One malformed entry rejects the WHOLE map and logs
+      # tenant_map_invalid, so check the log after a change.
+      - op: replace
+        path: /data/SENTINEL_TENANT_MAP
+        value: |
+          fe-signalloom-agents=kusari
+  # The pod template: key refs, cluster id, intervals and TLS trust.
+  - path: daemonset-remote.yaml
+  # The RBAC exporter posts to an in-cluster hub Service that does not exist
+  # here, and its key is bound to the hub's cluster id, so every run fails.
+  # Suspended, exactly as the kind-signalloom-hub overlay does.
+  - target:
+      kind: CronJob
+      name: signalloom-rbac-exporter
+    patch: |
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: signalloom-rbac-exporter
+      spec:
+        suspend: true

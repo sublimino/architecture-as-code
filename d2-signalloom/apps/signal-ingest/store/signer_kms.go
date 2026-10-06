@@ -17,12 +17,12 @@ import (
 )
 
 var (
-	ErrKMSKeyDisabled    = errors.New("kms: key version is disabled")
-	ErrKMSKeyDestroyed   = errors.New("kms: key version is destroyed")
-	ErrKMSRateLimited    = errors.New("kms: rate limit / quota exceeded (429)")
-	ErrKMSUnavailable    = errors.New("kms: service temporarily unavailable (503)")
-	ErrKMSKeyNotFound    = errors.New("kms: key version not found")
-	ErrKMSNotConfigured  = errors.New("kms: client or key reference not configured")
+	ErrKMSKeyDisabled   = errors.New("kms: key version is disabled")
+	ErrKMSKeyDestroyed  = errors.New("kms: key version is destroyed")
+	ErrKMSRateLimited   = errors.New("kms: rate limit / quota exceeded (429)")
+	ErrKMSUnavailable   = errors.New("kms: service temporarily unavailable (503)")
+	ErrKMSKeyNotFound   = errors.New("kms: key version not found")
+	ErrKMSNotConfigured = errors.New("kms: client or key reference not configured")
 )
 
 // KMSClient defines the interface required to interact with an asymmetric Cloud KMS service.

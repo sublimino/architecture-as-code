@@ -471,16 +471,22 @@ export function parseAnalysisStatus(value: unknown): AnalysisStatusInfo {
 }
 
 /** Most recent runs for one cluster: the source list for the run-selector dropdown. */
-/** POST a cluster import payload to AFM. Throws on non-2xx or network error. */
-export async function postClusterImport(payload: unknown): Promise<void> {
-  const url = `${AFM}/clusters/import`
+/** The authenticated import gateway (fe-signalloom). AFM's own `/clusters/import`
+ *  is closed at nginx since SLTM-P1-1; this route takes a superadmin's Dex
+ *  bearer (or the exporter's importer key) and forwards to AFM itself. */
+export const AFM_IMPORT_GATEWAY = '/api/v1/afm/clusters/import'
+
+/** POST a cluster import payload through the gateway as the signed-in
+ *  superadmin. Throws on non-2xx or network error. */
+export async function postClusterImport(payload: unknown, token: string): Promise<void> {
+  const url = AFM_IMPORT_GATEWAY
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
       signal: controller.signal,
     })

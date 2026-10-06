@@ -12,11 +12,14 @@ from fastapi.responses import JSONResponse
 from adapters import load_adapter_selections
 from api_compat import install_compatibility_api
 from audit_ingest import install_audit_ingest_api
-from cadvisor_poller import install_cadvisor_telemetry_api
+from cadvisor_poller import GLOBAL_CADVISOR_POLLER, install_cadvisor_telemetry_api
 from coding_agent_telemetry import install_coding_agent_telemetry_api
 from demo_runner import install_demo_runner_api
 from environment_lifecycle import GLOBAL_REAPER_DAEMON, install_environment_lifecycle_api
 from environment_routing import install_environment_routing_api
+from fleet_operator import install_fleet_operator_api
+from invites import install_invites_api
+from me import install_me_api
 from onboarding import install_onboarding_api
 from rbac_correlation import install_rbac_api
 from afm_import import install_afm_import_api
@@ -28,6 +31,7 @@ from auth_check import install_auth_check_api
 from routers.policy_engine import install_policy_engine_api
 from scenario_seeding import install_scenario_seeding_api
 from signal_fusion import install_signal_fusion_api
+from signal_policy import install_signal_policy_api
 from tenant_isolation import install_tenant_isolation_api
 from db.connection import close_db_pool, get_pool, init_db_pool
 
@@ -37,9 +41,13 @@ async def lifespan(app: FastAPI):
     await init_db_pool()
     app.state.adapters = load_adapter_selections()
     GLOBAL_REAPER_DAEMON.start()
+    # The cAdvisor poller was installed as routes but never started, so every
+    # telemetry route answered 503 "no successful cAdvisor scrape yet" (2026-10-03).
+    await GLOBAL_CADVISOR_POLLER.start()
     try:
         yield
     finally:
+        await GLOBAL_CADVISOR_POLLER.stop()
         await GLOBAL_REAPER_DAEMON.stop()
         await close_db_pool()
 
@@ -86,6 +94,7 @@ install_rbac_api(app)
 install_afm_import_api(app)
 install_demo_runner_api(app)
 install_signal_fusion_api(app)
+install_signal_policy_api(app)
 install_coding_agent_telemetry_api(app)
 install_risk_api(app)
 install_policy_engine_api(app)
@@ -98,6 +107,9 @@ install_tenant_isolation_api(app)
 install_environment_lifecycle_api(app)
 install_scenario_seeding_api(app)
 install_auth_check_api(app)
+install_me_api(app)
+install_fleet_operator_api(app)
+install_invites_api(app)
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,
 # dependency or handler can read them, for http and websocket scopes alike.

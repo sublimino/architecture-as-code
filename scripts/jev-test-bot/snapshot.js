@@ -1,8 +1,26 @@
 /**
  * snapshot.js — In-page DOM snapshot for Jev / Qavo action space.
  * Extracts indexed interactive elements, visible text, and page metadata.
+ *
+ * The index it returns is ACTIONABLE, not decorative: every element it
+ * indexes is stamped with `data-jev-idx="<index>"`, so a caller that wants to
+ * act on `[7]` can address it as `[data-jev-idx="7"]` instead of
+ * reconstructing the selector list and hoping the two agree. The alternative
+ * — the driver re-deriving the same query — gives two copies of the element
+ * ordering that drift apart on any edit here, and a drifted index means the
+ * bot clicks something other than what it decided to click, which no oracle
+ * can catch.
+ *
+ * Stamps from the previous snapshot are cleared first, so an index always
+ * refers to the current document and a stale one resolves to nothing rather
+ * than to the wrong node. The attribute is inert: it is not a class, not a
+ * style hook, and nothing in the application reads it.
  */
 (() => {
+  for (const stale of document.querySelectorAll('[data-jev-idx]')) {
+    stale.removeAttribute('data-jev-idx');
+  }
+
   const isVisible = (el) => {
     if (!el || el.nodeType !== 1) return false;
     const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
@@ -89,8 +107,11 @@
       ops.push('SELECT');
     }
 
+    const stampedIndex = index++;
+    node.setAttribute('data-jev-idx', String(stampedIndex));
+
     elements.push({
-      index: index++,
+      index: stampedIndex,
       role,
       name: name.slice(0, 80),
       href,

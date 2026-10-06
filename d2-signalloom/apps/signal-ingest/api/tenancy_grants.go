@@ -1,7 +1,7 @@
 package api
 
 import (
-	"errors"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/tenancy"
 	"net/http"
 	"regexp"
 
@@ -168,39 +168,22 @@ func (h *Handlers) scopedActor(r *http.Request, id string) (*model.ProvisionalAc
 	return nil, nil
 }
 
-// errTenantMismatch is a write naming a tenant other than the writer's.
-var errTenantMismatch = errors.New("tenant_mismatch")
+// errTenantMismatch is a write naming a tenant other than the writer's. It is the shared
+// tenancy.ErrTenantMismatch so the HTTP path and the collector sink fail identically (SLAWS D7).
+var errTenantMismatch = tenancy.ErrTenantMismatch
 
 // bindWriteTenancy enforces write tenancy on a batch in place. A principal holding
 // PermissionCrossTenantWrite keeps every observation's tenant as sent. Any other principal writes
 // only its own tenant: an untagged observation is stamped with it, and one naming any other tenant
 // (including the quarantine tenant, or a look-alike) refuses the whole batch. A request with no
-// principal or no tenant writes nothing.
+// principal or no tenant writes nothing. The rule itself lives in package tenancy and is the same
+// function collectors.BindTenant applies to in-process collectors.
 func bindWriteTenancy(r *http.Request, observations []model.Observation) error {
 	p, ok := PrincipalFromContext(r.Context())
 	if !ok {
 		return errTenantMismatch
 	}
-	if p.Permissions[PermissionCrossTenantWrite] {
-		return nil
-	}
-	if p.TenantID == "" {
-		return errTenantMismatch
-	}
-	for i := range observations {
-		if t, set := observations[i].Labels[ObservationTenantLabel]; set && t != p.TenantID {
-			return errTenantMismatch
-		}
-	}
-	for i := range observations {
-		labels := make(map[string]string, len(observations[i].Labels)+1)
-		for k, v := range observations[i].Labels {
-			labels[k] = v
-		}
-		labels[ObservationTenantLabel] = p.TenantID
-		observations[i].Labels = labels
-	}
-	return nil
+	return tenancy.BindObservations(p.TenantID, p.Permissions[PermissionCrossTenantWrite], observations)
 }
 
 // requireCrossTenantRead refuses a request over data that carries no tenant at all (the risk

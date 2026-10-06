@@ -167,6 +167,13 @@ func TestCanonicalHostMounts(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, m := range c.VolumeMounts {
+		// This test pins the HOST mounts (hostPath volumes), the measured
+		// capability profile. Secret and ConfigMap mounts (the optional
+		// captures-token bearer, the hub CA bundle) carry no host filesystem
+		// and are covered by the manifest suites, so they are not counted.
+		if _, isHost := hostPaths[m.Name]; !isHost {
+			continue
+		}
 		w, ok := wants[m.MountPath]
 		if !ok {
 			t.Errorf("unexpected host mount %s (hostPath %q): the measured profile needs only %v",

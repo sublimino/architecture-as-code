@@ -39,13 +39,16 @@ container_query() {
 }
 
 # mountPath=hostPath:readOnly, one per line, sorted — for the directory given.
+# Host mounts only (hostPath volumes): the measured capability profile.
+# Secret and ConfigMap mounts (captures-token, hub-ca) carry no host
+# filesystem and are asserted by test/signalloom-warden-manifests.bats.
 mount_triples() {
   kubectl kustomize "${1:-$BASE_DIR}" | yq -r '
     select(.kind == "DaemonSet") | .spec.template.spec as $s
     | $s.containers[0].volumeMounts[]
     | . as $m
-    | ($s.volumes[] | select(.name == $m.name) | .hostPath.path) as $hp
-    | $m.mountPath + "=" + $hp + ":" + (($m.readOnly // false) | tostring)' | sort
+    | select(($s.volumes[] | select(.name == $m.name) | .hostPath) != null)
+    | $m.mountPath + "=" + ($s.volumes[] | select(.name == $m.name) | .hostPath.path) + ":" + (($m.readOnly // false) | tostring)' | sort
 }
 
 @test "sentinel-capabilities: kustomize renders exactly one DaemonSet named signalloom-warden" {

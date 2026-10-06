@@ -1,0 +1,146 @@
+{
+  "_fixture": [
+    "EKS control-plane events as CloudTrail records, under the SLAWS v2 §2.3",
+    "projection. Kusari runs Kubernetes workloads in AWS, so the EKS control",
+    "plane is the seam between the cloud account and the cluster: an access",
+    "entry is a grant of Kubernetes RBAC made from IAM, and a cluster config",
+    "change can turn the public endpoint on.",
+    "Records 0-2 FIRE: eks-cluster-config-changed (0), eks-access-entry-created",
+    "(1, 2). Records 3-4 are the NEGATIVES: a read-only DescribeCluster, and a",
+    "mutation by an actor in vars.eks_cluster_admin_actors.",
+    "This key is not part of the CloudTrail envelope and the projector ignores",
+    "it: only Records[] is decoded (collectors/awslogs/project.go)."
+  ],
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T08:10:00Z",
+      "eventSource": "eks.amazonaws.com",
+      "eventName": "UpdateClusterConfig",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "name": "kusari-prod",
+        "resourcesVpcConfig": {
+          "endpointPublicAccess": true,
+          "publicAccessCidrs": ["0.0.0.0/0"]
+        }
+      },
+      "resources": [
+        {
+          "type": "AWS::EKS::Cluster",
+          "ARN": "arn:aws:eks:us-east-1:123456789012:cluster/kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T08:11:30Z",
+      "eventSource": "eks.amazonaws.com",
+      "eventName": "CreateAccessEntry",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "clusterName": "kusari-prod",
+        "principalArn": "arn:aws:iam::123456789012:role/kusari-agent-exec",
+        "type": "STANDARD"
+      },
+      "resources": [
+        {
+          "type": "AWS::EKS::Cluster",
+          "ARN": "arn:aws:eks:us-east-1:123456789012:cluster/kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T08:12:05Z",
+      "eventSource": "eks.amazonaws.com",
+      "eventName": "AssociateAccessPolicy",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "clusterName": "kusari-prod",
+        "policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+      },
+      "resources": [
+        {
+          "type": "AWS::EKS::Cluster",
+          "ARN": "arn:aws:eks:us-east-1:123456789012:cluster/kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T08:13:00Z",
+      "eventSource": "eks.amazonaws.com",
+      "eventName": "DescribeCluster",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "203.0.113.10",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/kusari-agent",
+        "accountId": "123456789012",
+        "userName": "kusari-agent"
+      },
+      "requestParameters": {
+        "name": "kusari-prod"
+      },
+      "resources": [
+        {
+          "type": "AWS::EKS::Cluster",
+          "ARN": "arn:aws:eks:us-east-1:123456789012:cluster/kusari-prod"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-03T08:14:00Z",
+      "eventSource": "eks.amazonaws.com",
+      "eventName": "UpdateClusterConfig",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "123456789012",
+      "sourceIPAddress": "198.51.100.3",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::123456789012:user/break-glass",
+        "accountId": "123456789012",
+        "userName": "break-glass"
+      },
+      "requestParameters": {
+        "name": "kusari-prod",
+        "logging": {
+          "clusterLogging": [{"types": ["audit"], "enabled": true}]
+        }
+      },
+      "resources": [
+        {
+          "type": "AWS::EKS::Cluster",
+          "ARN": "arn:aws:eks:us-east-1:123456789012:cluster/kusari-prod"
+        }
+      ]
+    }
+  ]
+}

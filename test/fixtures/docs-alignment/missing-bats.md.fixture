@@ -1,0 +1,3 @@
+# Page naming a bats suite that does not exist
+
+Proven by `test/no-such-alignment-probe.bats` and by nothing else.

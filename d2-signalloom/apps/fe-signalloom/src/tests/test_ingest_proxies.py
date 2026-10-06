@@ -27,7 +27,6 @@ SIGNAL_ROUTES = [
     ("GET", "/api/signals/actors/actor-1", "/api/v1/actors/actor-1", False),
     ("GET", "/api/signals/actors/actor-1/authorization", "/api/v1/actors/actor-1/authorization", False),
     ("GET", "/api/signals/authorization", "/api/v1/authorization", False),
-    ("POST", "/api/signals/actors/actor-1/promote", "/api/v1/actors/actor-1/promote", False),
     ("GET", "/api/signals/coverage", "/api/v1/coverage", False),
     ("POST", "/api/signals/correlate", "/api/v1/correlate", False),
     ("GET", "/api/signals/store/stats", "/api/v1/store/stats", False),
@@ -109,6 +108,30 @@ def test_a_superadmin_reads_across_tenants_but_writes_as_its_own(outbound, metho
     assert only(outbound, upstream).headers["x-signalloom-acting-tenant"] == expected
 
 
+# Promote is the one signals proxy that is superadmin-only (signal_fusion.promote_actor):
+# it is audited, and as a write it acts for the superadmin's own tenant, never '*'.
+PROMOTE = ("POST", "/api/signals/actors/actor-1/promote", "/api/v1/actors/actor-1/promote")
+
+
+def test_promote_is_a_superadmin_write_for_their_own_tenant(outbound):
+    method, path, upstream = PROMOTE
+    forged = {"X-SignalLoom-Acting-Tenant": "*", "X-SignalLoom-Acting-Subject": "alice"}
+    assert call(ADMIN, method, path, headers=forged).status_code == 200
+    req = only(outbound, upstream)
+    assert req.headers["authorization"] == f"Bearer {GATEWAY_KEY}"
+    assert req.headers["x-signalloom-acting-tenant"] == "tenant-demo"
+    assert req.headers["x-signalloom-acting-subject"] == "root"
+    assert "user-dex-token" not in str(req.headers)
+
+
+def test_promote_refuses_an_ordinary_tenant_user_and_sends_nothing(outbound):
+    method, path, upstream = PROMOTE
+    resp = call(USER, method, path)
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["error"]["code"] == "superadmin_required"
+    assert [r for r in outbound if r.url.path == upstream] == []
+
+
 @pytest.mark.parametrize("method,path,upstream,own_tenant", SIGNAL_ROUTES)
 def test_client_written_tenant_headers_change_nothing(outbound, method, path, upstream, own_tenant):
     forged = {"X-SignalLoom-Acting-Tenant": "*", "X-SignalLoom-Acting-Subject": "root", "X-Tenant-ID": "tenant-b"}
@@ -142,11 +165,14 @@ def test_an_unauthenticated_caller_is_401_and_nothing_is_sent(outbound):
 
 
 def test_the_federation_proxy_never_forwards_a_client_written_acting_tenant(outbound):
+    # The federation proxy presents the gateway key like every other signal-ingest proxy, so the
+    # acting headers are always the validated principal's: a client-written "*"/root never survives.
     forged = {"X-SignalLoom-Acting-Tenant": "*", "X-SignalLoom-Acting-Subject": "root"}
     call(USER, "GET", "/api/v1/federation/peers", headers=forged)
     req = only(outbound, "/api/v1/federation/peers")
-    assert "x-signalloom-acting-tenant" not in req.headers
-    assert "x-signalloom-acting-subject" not in req.headers
+    assert req.headers["authorization"] == f"Bearer {GATEWAY_KEY}"
+    assert req.headers["x-signalloom-acting-tenant"] == "kusari"
+    assert req.headers["x-signalloom-acting-subject"] == "alice"
 
 
 # The claim flows sync delegation edges into signal-ingest outside any request handler, so they name

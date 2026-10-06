@@ -8,7 +8,7 @@ import httpx
 
 from main import app
 from config import settings
-from conftest import eap_bearer, EAP_ALICE, EAP_TENANT_A, EAP_BOB, EAP_TENANT_B
+from conftest import eap_bearer, EAP_ALICE, EAP_TENANT_A, EAP_BOB, EAP_TENANT_B, EAP_OPERATOR
 
 EAP_AUTHENTICATED = True
 
@@ -97,7 +97,10 @@ async def test_federation_proxy_zones_and_services():
 
 @pytest.mark.asyncio
 async def test_federation_proxy_authorization_header_preservation():
-    """Test Authorization credential header is preserved and forwarded during proxying."""
+    """The proxy presents fe-signalloom's gateway key and never the caller's Dex token.
+
+    signal-ingest authenticates with named static keys; a forwarded browser token is a 401 there.
+    """
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
@@ -114,7 +117,11 @@ async def test_federation_proxy_authorization_header_preservation():
             assert resp.status_code == 200
             assert route.called
             last_req = route.calls.last.request
-            assert last_req.headers.get("authorization") == auth_token
+            assert last_req.headers.get("authorization") != auth_token
+            gateway_key = open(os.environ["SIGNAL_INGEST_KEY_FILE"], encoding="utf-8").read().rstrip("\n")
+            assert last_req.headers.get("authorization") == f"Bearer {gateway_key}"
+            assert last_req.headers.get("x-signalloom-acting-subject")
+            assert last_req.headers.get("x-signalloom-acting-tenant") == EAP_TENANT_A
             assert last_req.headers.get("x-tenant-id") == EAP_TENANT_A
 
 
@@ -244,6 +251,82 @@ async def test_federation_proxy_upstream_404_fallback():
             assert "zones" in data
             assert "federations" in data
             assert len(data["zones"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_federation_superadmin_read_acts_for_every_tenant_and_names_none():
+    """A superadmin GET acts as "*" upstream and sends no tenant query parameter alongside it."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.get(f"{signal_ingest_url}/api/v1/federation/identities").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/federation/identities", headers=eap_bearer(EAP_OPERATOR))
+            assert resp.status_code == 200
+            req = route.calls.last.request
+            assert req.headers["x-signalloom-acting-tenant"] == "*"
+            assert req.headers["x-signalloom-acting-subject"] == EAP_OPERATOR
+            assert "tenant" not in dict(req.url.params)
+
+
+@pytest.mark.asyncio
+async def test_federation_superadmin_write_acts_for_its_own_tenant_only():
+    """A superadmin mutation never acts as "*": it is scoped to the operator's own tenant."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{signal_ingest_url}/api/v1/federation/policies").mock(
+            return_value=httpx.Response(201, json={"ok": True})
+        )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/federation/policies",
+                headers={**eap_bearer(EAP_OPERATOR), "Content-Type": "application/json"},
+                content=json.dumps({"tenant": EAP_TENANT_A, "name": "p"}),
+            )
+            assert resp.status_code == 201
+            req = route.calls.last.request
+            assert req.headers["x-signalloom-acting-tenant"] == EAP_TENANT_A
+            assert dict(req.url.params).get("tenant") == EAP_TENANT_A
+
+
+@pytest.mark.asyncio
+async def test_federation_proxy_upstream_unregistered_route_fallback():
+    """signal-ingest's registry denial (403 unregistered_route) of a path it does not serve is
+    the same fact as a 404: the canonical fallback is served. Seen live on the 2026-10-03 estate."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/summary").mock(
+            return_value=httpx.Response(403, json={"error": "unregistered_route"})
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
+            assert resp.status_code == 200
+            assert "zones" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_federation_proxy_upstream_real_403_passes_through():
+    """Any other 403 from signal-ingest is a real denial and is not laundered into fallback data."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/summary").mock(
+            return_value=httpx.Response(403, json={"error": "tenant_forbidden"})
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
+            assert resp.status_code == 403
+            assert "zones" not in resp.text
 
 
 @pytest.mark.asyncio

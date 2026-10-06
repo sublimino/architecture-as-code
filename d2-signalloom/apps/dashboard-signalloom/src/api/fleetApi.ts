@@ -193,11 +193,49 @@ export async function scanFleet(token: string): Promise<void> {
   })
 }
 
+// Recover does NOT go through /fleet-api/, unlike every other action here.
+//
+// fleet-manager grants `recover` (and `resume`) to its `operator` break-glass
+// key alone : /recover thaws every stunned agent at once and never consulted
+// the resume-token governance that guards /resume. The /fleet-api/ proxy swaps
+// in the `dashboard` key, which has `stun`, `deploy`, `scan` and `reset` and no
+// `recover`, so this button answered 403 for everybody including the
+// superadmin.
+//
+// Widening the `dashboard` key would be wrong twice: it would put break-glass
+// within the browser's reach, and nginx presents that key on every
+// /fleet-api/ call, so the grant could not be narrowed to this one button.
+// Instead fe-signalloom proxies the capability behind its own superadmin gate
+// and presents the operator key server-side (src/fleet_operator.py), so the
+// browser sends only its Dex token and never holds the key.
 export async function recoverFleet(token: string): Promise<void> {
-  await fleetFetch<void>('/recover', {
+  const res = await fetch('/api/v1/fleet/recover', {
     method: 'POST',
     headers: authHeaders(token),
   })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Fleet API ${res.status}: ${body || res.statusText}`)
+  }
+}
+
+// One agent, local or remote. Same key and same gate as recoverFleet; this is
+// the single-agent form the remote contract's resume path needs, since nothing
+// else can present the operator key.
+export async function resumeFleetAgent(
+  agentId: string,
+  token: string,
+  reason?: string,
+): Promise<void> {
+  const res = await fetch(`/api/v1/fleet/resume/${encodeURIComponent(agentId)}`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(reason ? { reason } : {}),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Fleet API ${res.status}: ${body || res.statusText}`)
+  }
 }
 
 export async function resetFleet(token: string): Promise<void> {

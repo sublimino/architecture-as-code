@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	bpfebpf "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/correlator"
+	bpfebpf "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/hubclient"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/quarantine"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -365,7 +369,7 @@ func correlatorOptions(cfg *Config) ([]correlator.Option, []stunEvent) {
 
 	if cfg.IngestToken == "" {
 		events = append(events, stunEvent{Timestamp: now(), Event: "ingest_token_missing",
-			Error: "SIGNAL_INGEST_TOKEN is empty (Secret stun-sentinel-ingest-token, key token): detections are logged and frozen but NOT posted to signal-ingest"})
+			Error: "SIGNAL_INGEST_TOKEN is empty (Secret signalloom-warden-ingest-token, key token): detections are logged, frozen and SPOOLED until the key arrives (keys.go), not posted"})
 	} else {
 		opts = append(opts, correlator.WithBearerToken(cfg.IngestToken))
 	}
@@ -399,11 +403,43 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Hub TLS policy first: a refused policy must not start a warden that
+	// would then post keyless or trust nothing (remote-contract.md "TLS").
+	hub, tlsEvent, err := newHubClients(hubclient.FromEnv())
+	if err != nil {
+		logEvent(stunEvent{Timestamp: now(), Event: "startup_failed", Error: err.Error(), DryRun: cfg.DryRun})
+		os.Exit(1)
+	}
+	logEvent(tlsEvent)
+
 	reconcileCount := &atomic.Int64{}
 	healthSrv := newHealthServer(cfg.HealthAddr, cfg.DryRun, cfg.CgroupRoot, reconcileCount)
 	// Set once the clientset exists; read concurrently by /metrics.
 	var kernelRef atomic.Pointer[kernelPublisher]
 	healthSrv.frozenUnlabelled = func() int { return kernelRef.Load().frozenUnlabelledCount() }
+	// /captures: bearer from CAPTURES_TOKEN or the mounted Secret, read per
+	// request; source allow-list from CAPTURES_ALLOW_CIDRS (default loopback).
+	healthSrv.capturesToken = func() string {
+		if v := strings.TrimSpace(os.Getenv("CAPTURES_TOKEN")); v != "" {
+			return v
+		}
+		body, err := os.ReadFile(cfg.CapturesTokenFile)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(body))
+	}
+	if cfg.CapturesAllowCIDRs != "" {
+		allow, err := parseCIDRList(cfg.CapturesAllowCIDRs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "CAPTURES_ALLOW_CIDRS: %v\n", err)
+			os.Exit(1)
+		}
+		healthSrv.capturesAllow = allow
+	}
+	logEvent(stunEvent{Timestamp: now(), Event: "captures_policy", Decision: "configured",
+		Details: map[string]interface{}{"allow_cidrs": cfg.CapturesAllowCIDRs, "token_file": cfg.CapturesTokenFile,
+			"token_present": healthSrv.capturesToken() != ""}})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -431,9 +467,41 @@ func main() {
 
 	reconciler := newStunReconciler(freezer, tc, probes)
 	reconciler.holds = newStunHolds(freezer)
+	// Remote holds persist across a restart (remotestore.go). Restore them
+	// before the controller runs so the first resync finds a hold, not drift.
+	reconciler.holds.remote = newRemoteStunStore(cfg.SpoolDir)
+	restoreRemoteHolds(reconciler.holds)
+	// Capture on every new hold (capture.go), except in dry-run, where the
+	// engine freezes nothing and reports pid 1: there is no frozen process
+	// to snapshot and /proc/1 is the node's init.
+	if !cfg.DryRun {
+		captures := newCaptureWriter(cfg.SpoolDir, cfg.ClusterID, cfg.NodeName, quarantine.DefaultProcRoot)
+		captureTenants, _ := correlator.ParseTenantMap(cfg.TenantMap)
+		captures.tenantFor = func(pod *corev1.Pod) string {
+			return captureTenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName)
+		}
+		reconciler.holds.onFreeze = func(pod *corev1.Pod, res *cgroup.FreezeResult, trig captureTrigger) {
+			captures.capture(context.Background(), pod, res, trig)
+		}
+		healthSrv.captures = captures
+	}
+	// The two hub keys (keys.go). Neither gates enforcement: a missing fleet
+	// key holds stun deliveries and defers the report and poll; a missing
+	// ingest key spools observations. Both are waited for, with a WARN a
+	// minute, instead of running keyless.
+	ingestKey := newKeySource("signal_ingest_token", "SIGNAL_INGEST_TOKEN", "SIGNAL_INGEST_TOKEN_FILE")
+	fleetKey := newKeySource("fleet_caller_key", "FLEET_MANAGER_STUN_KEY", "FLEET_MANAGER_STUN_KEY_FILE")
+	go ingestKey.await(ctx)
+	fleetKeyReady := make(chan struct{})
+	go func() {
+		if fleetKey.await(ctx) {
+			close(fleetKeyReady)
+		}
+	}()
+
 	// A new correlator freeze is recorded by fleet-manager's stun cascade, the
 	// one writer of the Flux pin. The key comes from a Secret via env.
-	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), os.Getenv("FLEET_MANAGER_STUN_KEY"))
+	stunner := newFleetStunner(os.Getenv("FLEET_MANAGER_URL"), fleetKey.get, hub.fleet)
 	stunner.stillHeld = reconciler.holds.awaitingRecord
 	reconciler.holds.recordStun = stunner.stun
 	healthSrv.fleetStunFailures = stunner.failures.Load
@@ -492,6 +560,42 @@ func main() {
 	}
 
 	factory.Start(ctx.Done())
+
+	// Remote-cluster contract: the workload report. Observation only, on its
+	// own goroutine; a failed report is retried at the next interval and
+	// never gates a freeze.
+	tenants, _ := correlator.ParseTenantMap(cfg.TenantMap)
+	reporter := newFleetReporter(os.Getenv("FLEET_MANAGER_URL"), fleetKey.get, hub.fleet,
+		cfg.ClusterID, cfg.NodeName, cfg.FleetReportInterval)
+	reporter.listPods = func() []*corev1.Pod { return podsFromIndexer(informer.GetIndexer()) }
+	reporter.tenantFor = func(pod *corev1.Pod) string { return tenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName) }
+	reporter.frozen = func(pod *corev1.Pod) bool { return reconciler.holds.isHeld(pod.UID) || kernelFrozenFor(freezer, pod) }
+
+	// Remote-cluster contract: the stun-state poll. Freezes and releases
+	// through the hold table, so the reconciler and the correlator see one
+	// truth; acks only what the kernel confirmed.
+	poller := newFleetPoller(os.Getenv("FLEET_MANAGER_URL"), fleetKey.get, hub.fleet,
+		cfg.ClusterID, cfg.NodeName, cfg.FleetPollInterval, reconciler.holds)
+	poller.findPod = func(namespace, name string) *corev1.Pod {
+		obj, ok, err := informer.GetIndexer().GetByKey(namespace + "/" + name)
+		if err != nil || !ok {
+			return nil
+		}
+		pod, _ := obj.(*corev1.Pod)
+		return pod
+	}
+	// Both start once the fleet key is there: a report or poll without a
+	// key is a 401 every tick, and the first report should be a real one.
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-fleetKeyReady:
+		}
+		go reporter.run(ctx)
+		go poller.run(ctx)
+	}()
+
 	// Initialize and start in-sentinel pure-Go eBPF probe loader & correlator (SLDC-P1-1, SLDC-P1-2)
 	go func() {
 		loader, err := bpfebpf.NewLoader(bpfebpf.LoaderOptions{
@@ -517,8 +621,13 @@ func main() {
 		for _, ev := range events {
 			logEvent(ev)
 		}
+		if cfg.IngestToken == "" {
+			// No token in the environment: the sender asks the key source at
+			// every post and spools until it answers.
+			opts = append(opts, correlator.WithBearerTokenSource(ingestKey.get))
+		}
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr,
-			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot))...)
+			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot), correlator.WithHTTPClient(hub.ingest))...)
 		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, loader.Prefiltered, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})
@@ -526,6 +635,44 @@ func main() {
 	}()
 
 	controller.run(ctx.Done())
+}
+
+// restoreRemoteHolds re-establishes every persisted remote hold. Errors are
+// logged per record; a bad store never stops the warden.
+func restoreRemoteHolds(h *stunHolds) {
+	if h == nil || h.remote == nil {
+		return
+	}
+	recs, err := h.remote.load()
+	if err != nil {
+		logEvent(stunEvent{Timestamp: now(), Event: "remote_stun_store_unreadable", Error: err.Error()})
+	}
+	for _, rec := range recs {
+		_ = h.restoreRemote(rec)
+	}
+}
+
+// podsFromIndexer returns the informer's current pods.
+func podsFromIndexer(indexer cache.Indexer) []*corev1.Pod {
+	items := indexer.List()
+	pods := make([]*corev1.Pod, 0, len(items))
+	for _, item := range items {
+		if pod, ok := item.(*corev1.Pod); ok {
+			pods = append(pods, pod)
+		}
+	}
+	return pods
+}
+
+// kernelFrozenFor reads the pod's cgroup.events. Unknown (no cgroup, unreadable)
+// is reported as not frozen: the report says what the kernel confirms.
+func kernelFrozenFor(freezer *cgroupFreezer, pod *corev1.Pod) bool {
+	cg, err := freezer.resolvePodCgroup(string(pod.UID))
+	if err != nil {
+		return false
+	}
+	frozen, err := readKernelFrozen(cg)
+	return err == nil && frozen
 }
 
 // reportCorrelatorStats logs the correlator's pipeline counters whenever they

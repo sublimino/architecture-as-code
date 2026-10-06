@@ -289,3 +289,19 @@ proxy_segments() {
 	[[ "$output" == *"dashboard-signalloom"* ]]
 }
 
+# The Envoy gateway sits in front of nginx, so an HTTPRoute PathPrefix shadows a
+# client-side route just as an nginx location does: `/fleet` for the remote
+# warden intercepted the dashboard's own /fleet page (2026-10-04).
+@test "no HTTPRoute PathPrefix shadows a client-side route in App.tsx" {
+	local segments; segments="$(spa_segments)"
+	local route_yaml="$repo_root/d2-signalloom/apps/fe-signalloom/base/gateway-route.yaml"
+	local prefix segment
+	while IFS= read -r prefix; do
+		[ -n "$prefix" ] && [ "$prefix" != "/" ] || continue
+		segment="${prefix#/}"; segment="${segment%%/*}"
+		if printf '%s\n' "$segments" | grep -qx "$segment"; then
+			echo "HTTPRoute prefix ${prefix} shadows the client route segment /${segment}" >&2
+			return 1
+		fi
+	done < <(grep -E '^[[:space:]]+value: /' "$route_yaml" | awk '{print $2}' | sort -u)
+}

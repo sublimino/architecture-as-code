@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import WeavePage from './WeavePage'
+import WeavePage, { promoteErrorMessage } from './WeavePage'
 
 // fakeWeaveData is imported AFTER the vi.mock calls (which are hoisted), so
 // we cannot reference it inside a vi.mock factory. Instead we use vi.hoisted
@@ -135,6 +135,54 @@ describe('WeavePage', () => {
     })
     await userEvent.click(screen.getAllByTestId('view-evidence-btn')[0])
     expect(screen.getByTestId('evidence-drawer')).toBeInTheDocument()
+  })
+
+  it('Promote asks for confirmation, then calls the proxy and refreshes the actors', async () => {
+    mockWeaveApi.promoteActor.mockResolvedValue({ status: 'promoted' })
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('promote-actor-btn').length).toBeGreaterThan(0))
+    const actionable = fakeWeaveData.actors.find((a) => a.status === 'actionable')!
+
+    await userEvent.click(screen.getAllByTestId('promote-actor-btn')[0])
+    expect(mockWeaveApi.promoteActor).not.toHaveBeenCalled()
+    expect(screen.getByTestId('promote-confirm-note')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('promote-confirm-btn'))
+
+    await waitFor(() => expect(mockWeaveApi.promoteActor).toHaveBeenCalledWith('test-token', actionable.id))
+    // The list is re-read from the server rather than patched locally.
+    await waitFor(() => expect(mockWeaveApi.getActors).toHaveBeenCalledTimes(2))
+    expect(screen.queryByTestId('promote-error')).not.toBeInTheDocument()
+  })
+
+  it('Cancel on the confirmation sends nothing', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('promote-actor-btn').length).toBeGreaterThan(0))
+    await userEvent.click(screen.getAllByTestId('promote-actor-btn')[0])
+    await userEvent.click(screen.getByTestId('promote-cancel-btn'))
+    expect(mockWeaveApi.promoteActor).not.toHaveBeenCalled()
+    expect(screen.getAllByTestId('promote-actor-btn').length).toBeGreaterThan(0)
+  })
+
+  it('shows the server refusal on the card when promote fails', async () => {
+    mockWeaveApi.promoteActor.mockRejectedValue({ response: { status: 403, data: { error: { code: 'superadmin_required' } } } })
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('promote-actor-btn').length).toBeGreaterThan(0))
+    await userEvent.click(screen.getAllByTestId('promote-actor-btn')[0])
+    await userEvent.click(screen.getByTestId('promote-confirm-btn'))
+
+    expect(await screen.findByTestId('promote-error')).toHaveTextContent(/superadmin action/i)
+    expect(mockWeaveApi.getActors).toHaveBeenCalledTimes(1)
+    // The button is back, so the operator can retry once the allow-list changes.
+    expect(screen.getAllByTestId('promote-actor-btn').length).toBeGreaterThan(0)
+  })
+
+  it('maps the proxy verdicts to plain messages', () => {
+    expect(promoteErrorMessage({ response: { status: 404 } })).toMatch(/does not know this actor/)
+    expect(promoteErrorMessage({ response: { status: 409 } })).toMatch(/already been promoted/)
+    expect(promoteErrorMessage({ response: { status: 502 } })).toMatch(/unreachable/)
+    expect(promoteErrorMessage({ response: { status: 500, data: { error: 'store failed' } } })).toBe('store failed')
+    expect(promoteErrorMessage(new Error('Network Error'))).toBe('Network Error')
   })
 
   it('shows promote button only for actionable actors', async () => {

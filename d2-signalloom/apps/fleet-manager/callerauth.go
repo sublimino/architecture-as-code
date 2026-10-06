@@ -1,6 +1,6 @@
 package main
 
-// Caller authentication for the mutating fleet routes.
+// Caller authentication for the privileged fleet routes.
 //
 // Every route that changes the fleet (stun, resume, recover, deploy, scan,
 // reset) used to answer anyone the NetworkPolicy let through. /recover thaws
@@ -18,9 +18,9 @@ package main
 //	401 no key, a malformed or duplicate header, or a key nobody holds
 //	403 a valid key whose caller lacks the route's scope
 //
-// No keys configured means every mutating route answers 401: there is no
-// anonymous mode. Read-only routes (health, topology, consistency, metrics)
-// are unchanged.
+// No keys configured means every authenticated route answers 401: there is no
+// anonymous mode. Public read-only routes (health, topology, consistency,
+// metrics) are unchanged.
 
 import (
 	"crypto/hmac"
@@ -33,7 +33,7 @@ import (
 	"strings"
 )
 
-// callerScope is one mutating capability a key can be granted.
+// callerScope is one authenticated fleet capability a key can be granted.
 type callerScope string
 
 const (
@@ -43,11 +43,41 @@ const (
 	scopeDeploy  callerScope = "deploy"
 	scopeScan    callerScope = "scan"
 	scopeReset   callerScope = "reset"
+	scopeReport  callerScope = "report"
+	scopeRead    callerScope = "read"
 )
 
+// The remote reporting path also requires coordinated manifest and bootstrap
+// work that deliberately does not belong in this unit. base/deployment.yaml
+// must declare a caller named warden whose FLEET_MANAGER_KEY_WARDEN comes from
+// Secret key "warden" and whose FLEET_MANAGER_KEY_WARDEN_SCOPES is exactly
+// "report". scripts/fleet-manager-caller-keys.sh must provision that named
+// Secret key. The warden DaemonSet receives it from the remote-tenant overlay
+// in a REMOTE cluster, and the key must carry ONLY report: it must never grant
+// stun, resume, recover, deploy, scan, or reset authority over the hub. A
+// remote cluster's key is the furthest-out credential in the system, so
+// widening it would turn compromise at the least trusted edge into control of
+// the central containment plane.
+//
+// base/deployment.yaml must also append read to the dashboard's currently exact
+// FLEET_MANAGER_KEY_DASHBOARD_SCOPES value "stun,deploy,scan,reset", allowing
+// the dashboard to list remote workloads. test/fleet-manager-caller-auth-manifest.bats
+// pins that value with an exact grep -qx, so the manifest and BATS edits must
+// land together rather than leaving a test that blesses the old authority.
+//
+// Until both the warden and dashboard wiring land, the gap is visibly
+// fail-closed: GET /api/v1/fleet/workloads answers the dashboard with 403 and
+// the warden cannot report at all. Neither failure silently weakens caller
+// authentication.
 var knownCallerScopes = map[callerScope]bool{
-	scopeStun: true, scopeResume: true, scopeRecover: true,
-	scopeDeploy: true, scopeScan: true, scopeReset: true,
+	scopeStun:    true,
+	scopeResume:  true,
+	scopeRecover: true,
+	scopeDeploy:  true,
+	scopeScan:    true,
+	scopeReset:   true,
+	scopeReport:  true,
+	scopeRead:    true,
 }
 
 // callerKeyEnvPrefix names a key: FLEET_MANAGER_KEY_STUN_SENTINEL holds the
@@ -160,23 +190,67 @@ func (c *callerKeys) authenticate(r *http.Request) (*callerKey, error) {
 // callerHeader names the authenticated caller for audit on the response.
 const callerHeader = "X-Fleet-Caller"
 
-// require wraps a mutating handler: 401 without a held key, 403 without scope.
+// require wraps an authenticated handler: 401 without a held key, 403 without
+// the required scope.
 func (c *callerKeys) require(scope callerScope, next http.HandlerFunc) http.HandlerFunc {
+	return c.requireAny([]callerScope{scope}, next)
+}
+
+// requireAny is require for a route that more than one scope legitimately
+// opens. The caller needs ANY ONE of them, not all.
+//
+// It exists for GET /api/v1/fleet/workloads, which has two rightful readers
+// that share no other capability. The dashboard reads the registry to merge
+// remote workloads into its fleet view and holds `read`; the remote warden
+// reads it back to confirm what the hub believes about its own cluster and
+// holds `report` and nothing else. Gating that route on `read` alone would
+// make the warden's key insufficient for a route the remote contract gives it,
+// and widening the warden key to `read` as well would hand the furthest-out
+// credential in the system a second capability purely to satisfy a routing
+// detail. Accepting either scope is the narrower of the two options.
+//
+// This is deliberately NOT available to any mutating route: every one of those
+// is reachable by exactly one scope, and a disjunction there would be a way to
+// grow a caller's authority without changing its key.
+func (c *callerKeys) requireAny(scopes []callerScope, next http.HandlerFunc) http.HandlerFunc {
+	// Formatted once at mount time rather than per request, and sorted so the
+	// log attribute and the 403 body are stable across process restarts.
+	names := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		names = append(names, string(s))
+	}
+	sort.Strings(names)
+	scopeAttr := strings.Join(names, "|")
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller, err := c.authenticate(r)
 		if err != nil {
-			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scope, "reason", err.Error())
+			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scopeAttr, "reason", err.Error())
 			w.Header().Set("WWW-Authenticate", `Bearer realm="fleet-manager"`)
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
-		if !caller.scopes[scope] {
-			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scope, "caller", caller.name, "reason", "scope not granted")
-			writeError(w, http.StatusForbidden, fmt.Sprintf("caller %q is not granted %q", caller.name, scope))
+		granted := false
+		for _, s := range scopes {
+			if caller.scopes[s] {
+				granted = true
+				break
+			}
+		}
+		if !granted {
+			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scopeAttr, "caller", caller.name, "reason", "scope not granted")
+			// The single-scope wording is preserved exactly: it is the message
+			// every existing denial test and the denial matrix assert on, and a
+			// route that admits one scope should not describe itself as a choice.
+			if len(scopes) == 1 {
+				writeError(w, http.StatusForbidden, fmt.Sprintf("caller %q is not granted %q", caller.name, scopes[0]))
+			} else {
+				writeError(w, http.StatusForbidden, fmt.Sprintf("caller %q is granted none of %q", caller.name, scopeAttr))
+			}
 			return
 		}
 		w.Header().Set(callerHeader, caller.name)
-		slog.Info("fleet route authorised", "path", r.URL.Path, "scope", scope, "caller", caller.name)
+		slog.Info("fleet route authorised", "path", r.URL.Path, "scope", scopeAttr, "caller", caller.name)
 		next(w, r)
 	}
 }

@@ -627,16 +627,32 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 # suite. The dashboard tests run vitest with jsdom against the Weave, Signal
 # Fusion, and weaveApi test files.
 
-.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
+.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render test-kusari-e2e
 .PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
 .PHONY: test-signal-segment-verifier verify-signal-segments
 .PHONY: test-identity-rls-live
 
-test-signal-ingest: test-signal-segment-verifier ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
+policy-bundles-render: ## Render policy/bundles/ into the policy-engine bundles ConfigMap manifest (SLAWS D6).
+	bash scripts/render-policy-bundles.sh
+
+test-obscel: ## Run the shared observation-policy vocabulary and evaluator tests (SLAWS, pkg/obscel).
+	cd d2-signalloom/pkg/obscel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
+
+test-signal-ingest: test-signal-segment-verifier test-obscel ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
 
 test-signal-ingest-frostdb: test-signal-segment-verifier ## Run Go signal-ingest tests INCLUDING FrostDB store.
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./... -v -count=1
+
+# The Kusari pilot AWS signal end-to-end suite (offline: no cluster, no network, no AWS).
+# Fixtures and a deterministic synthetic stream through the production composition --
+# binder, dedupe, stage 1, stage 2 -- against the bundles Flux reconciles, in BOTH store
+# modes. The suite prints a per-rule and per-window summary table, so -v is not optional:
+# a bare pass tells an operator nothing about which signals were exercised.
+# Walkthrough: docs/EAP/kusari-e2e.md
+test-kusari-e2e: ## Run the Kusari AWS signal e2e suite, both store modes (offline).
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./e2e/... -v -count=1
+	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./e2e/... -v -count=1
 
 # SLDP-P2-2: tenant isolation is a SERVER behaviour, so the only evidence that counts comes from a
 # server. This target stands one up, runs the hostile-context suite against it, and tears it down.
@@ -763,6 +779,23 @@ deploy: demo-signalloom-up ## Deploy Signal Loom and configure Dex OIDC to work 
 	echo "==> Signal Loom deployed successfully and Dex configured for Tailscale at $$origin"
 
 demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.
+	# Mint the ingest and fleet-manager caller keys FIRST. Flux deploys fleet-manager
+	# and the warden from the fleet that `make up` already published; both read
+	# their keys from optional secretKeyRef env at container start, so a pod that
+	# starts before its Secret exists stays keyless (401 on every post, stun calls
+	# refused) until restarted. On the 2026-10-03 unattended rebuild fleet-manager
+	# started 2 min before fleet-manager-caller-keys existed even with the mint
+	# placed before signalloom-local.sh, because its image load (further down)
+	# is what lets the already-applied Deployment start. The scripts only write
+	# Secrets into namespaces that exist after `make up`.
+	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
+	# The operator PUBLIC keys fleet-manager verifies resume tokens against,
+	# same timing rule as the caller keys above: the Deployment reads them
+	# from an optional configMapKeyRef at container start.
+	$(MAKE) fleet-operator-keys CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) afm-importer-key CONTEXT=kind-$(CLUSTER_NAME)
+	$(MAKE) signal-segment-key CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper
 	$(MAKE) netassert-runner-image
@@ -782,6 +815,14 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# signal-ingest is deployed under its immutable src-<digest> tag from zot
 	# (SLTM Phase 1); signal-ingest:local is no longer referenced by the manifest.
 	$(MAKE) -C d2-signalloom signal-ingest-image-publish
+	# The warden DaemonSet is pinned to its src-<fingerprint> tag in zot and the
+	# Kusari stub and nono probe use imagePullPolicy: Never. On a long-lived
+	# cluster all three images were already present; a zero-state rebuild
+	# (2026-10-03) left the warden in ImagePullBackOff and both agents in
+	# ErrImageNeverPull. Same rule as above: always-deployed means always-built.
+	$(MAKE) -C d2-signalloom sentinel-image-publish CLUSTER_NAME=$(CLUSTER_NAME)
+	$(MAKE) demo-signalloom-security-images
+	$(MAKE) demo-signalloom-function-images
 	# The dashboard renders the Agent Trust Topology panel unconditionally, but
 	# the ResourceSet backing it ships with `inputs: []` and only materialises
 	# when scripts/agent-trust-local.sh patches concrete values in. Nothing here
@@ -816,8 +857,6 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	$(MAKE) demo-signalloom-afm-up
 	# Static caller keys (SLTM ADR-03): signal-ingest's named keys and
 	# fleet-manager's caller keys, minted in-cluster once the namespaces exist.
-	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
-	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	# ─── The whole-estate assertion, last because it needs everything up ──────
 	#
 	# check-backends reads nginx.conf's proxy_pass set — which IS the set of
@@ -919,12 +958,15 @@ docs-render-check: ## Build the docs portal, serve it locally, and render-check 
 	# target therefore serves the tree's own build.
 	./scripts/docs-render-check.sh docs.spec.ts
 
-.PHONY: docs-lint docs-lint-test docs-rewrite-guard
+.PHONY: docs-lint docs-lint-test docs-rewrite-guard test-alignment
 docs-lint: ## Check every tracked doc by tier: links, anchors, paths, make targets, diagrams, index, and STE rules. No cluster.
 	./scripts/docs-lint.sh
 
-docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, and the rewrite guard. No cluster.
-	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats
+test-alignment: ## Check that what the docs CLAIM about the tests is true: Go test names, bats and spec files, make targets, walkthrough shell commands and flags, and the walkthrough-to-spec map. No cluster.
+	./scripts/docs-tests-alignment.sh
+
+docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrite guard, and the docs-to-tests alignment gate. No cluster.
+	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats test/docs-tests-alignment.bats
 
 docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.
 	./scripts/docs-rewrite-guard.sh $(FILES)
@@ -1031,11 +1073,17 @@ demo-signalloom-signalfusion-images: ## Build Signal Fusion images (signal-inges
 test-sltm-probe-apikey: ## SLTM Phase 1: the Kusari-cluster probe authenticates with its API key (offline: real binary; SLTM_LIVE=1: live cluster).
 	bats test/sltm-probe-apikey.bats
 
-.PHONY: sldc-ingest-keys fleet-manager-keys
+.PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key signal-segment-key
 sldc-ingest-keys: ## Mint/converge every signal-ingest key and consumer Secret on CONTEXT (idempotent; cluster required).
 	./scripts/sldc-ingest-bearer.sh --context $(CONTEXT)
 fleet-manager-keys: ## Mint/converge fleet-manager caller keys on CONTEXT (idempotent; cluster required).
 	./scripts/fleet-manager-caller-keys.sh --context $(CONTEXT)
+fleet-operator-keys: ## Mint the resume-governance operator keypairs and publish their PUBLIC halves as ConfigMap fe-signalloom/fleet-manager-operator-keys on CONTEXT (idempotent; cluster required). Private keys stay under $(KEYS_DIR)/fleet-operators/. Without this no governed resume can succeed.
+	./scripts/fleet-operator-keys.sh --context $(CONTEXT) </dev/null
+afm-importer-key: ## Mint the AFM importer static key on CONTEXT (idempotent; cluster required). Nothing called scripts/afm-importer-key.sh before 2026-10-04, so every fresh estate answered 401 on the AFM scan trigger.
+	./scripts/afm-importer-key.sh --context $(CONTEXT) </dev/null
+signal-segment-key: ## Mint the signal-ingest segment pseudonymisation key on CONTEXT (idempotent; cluster required). The FrostDB store refuses to start without it.
+	./scripts/signal-segment-key.sh --context $(CONTEXT) </dev/null
 
 .PHONY: demo-signalloom-supercred-runner-image
 demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.
@@ -1147,7 +1195,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/afm-rbac-exporter-push.bats \
 	test/sltm-ingest-reload-ratelimit.bats \
 	test/sltm-ingest-chain.bats \
-	test/old-probe-name-guard.bats
+	test/old-probe-name-guard.bats \
+	test/dockerfile-copy-sources.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \
@@ -1170,6 +1219,19 @@ test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytes
 		tests/test_afm_import_gateway.py) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status
+
+# Test isolation. Two concurrent runs of the acceptance set must not interfere:
+# a test that hardcodes a port or a /tmp path owns a machine-global name, and
+# the failure is often silent (a skip, or a server that answers the wrong run).
+.PHONY: test-isolation-audit test-isolation-audit-test test-parallel-acceptance
+test-isolation-audit: ## Fail on any fixed port or fixed /tmp path in the acceptance test set that is not allowlisted with a reason.
+	bash scripts/test-isolation-audit.sh
+
+test-isolation-audit-test: ## Run the audit's own suites (detector behaviour, free_port library).
+	KUBECONFIG=/dev/null bats test/test-isolation-audit.bats test/freeport-lib.bats
+
+test-parallel-acceptance: ## Run two full acceptance passes concurrently; passes only if both do (~10-15 min).
+	bash scripts/parallel-acceptance.sh
 
 test-sldc-mutation-proof: ## Break the real SLDC production lines each suite guards and require red (clean tree required; mutates then restores).
 	KUBECONFIG=/dev/null bash test/eap-tenant-routing-mutation-proof.sh
@@ -1384,6 +1446,44 @@ swarm-kagent-up: ## Install the upstream Kagent 0.9.9 charts (controller, tools,
 	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/kagent-infra.sh up
 swarm-kagent-down: ## Uninstall the Kagent release and namespace. CRDs are left in place (removing them cascades to every Agent CR).
 	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/kagent-infra.sh down
+
+.PHONY: swarm-knative-up
+swarm-knative-up: ## Install Knative Serving (+ Kourier) and Eventing $(KNATIVE_VERSION) so the ksvc-backed swarm agents (prompt-commit-summarizer, triage-ci-worker) can reconcile. Idempotent; needs GitHub + gcr.io reachability.
+	# agent-prompt-commit-summarizer and agent-triage-ci-worker declare
+	# serving.knative.dev/v1 Services, and nothing in the bring-up installed the
+	# CRDs or the control plane (2026-10-03 zero-state rebuild: both
+	# Kustomizations stuck at "no matches for kind Service"). A ksvc only turns
+	# Ready with a networking layer, so Kourier is installed and selected.
+	# swarm-infra-up (below) is the older, broader target; this one installs
+	# only what Flux cannot, and leaves the swarm manifests to Flux.
+	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-crds.yaml"
+	kubectl wait --for=condition=Established crd/services.serving.knative.dev --timeout=120s
+	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-core.yaml"
+	# The swarm ksvcs mount the SPIFFE Workload API as a csi volume. Knative gates
+	# that behind kubernetes.podspec-volumes-csi (webhook) AND its CRD schema does
+	# not declare .csi, which Flux's server-side dry-run rejects before the webhook
+	# is ever reached ("field not declared in schema", 2026-10-03). Declare it AFTER
+	# serving-core.yaml, which re-applies the CRDs and would undo an earlier patch.
+	for crd in services configurations revisions; do \
+	  kubectl patch crd $$crd.serving.knative.dev --type=json -p '[{"op": "add", "path": "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/template/properties/spec/properties/volumes/items/properties/csi", "value": {"type": "object", "x-kubernetes-preserve-unknown-fields": true}}]' 2>/dev/null \
+	    || kubectl patch crd $$crd.serving.knative.dev --type=json -p '[{"op": "add", "path": "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/volumes/items/properties/csi", "value": {"type": "object", "x-kubernetes-preserve-unknown-fields": true}}]' 2>/dev/null || true; \
+	done
+	kubectl patch configmap/config-features -n knative-serving --type merge -p '{"data":{"kubernetes.podspec-volumes-csi":"enabled","kubernetes.podspec-securitycontext":"enabled"}}'
+	# The swarm functions run kind-loaded images under bare names (prompt-commit-
+	# summarizer:latest, triage-ci-worker:latest, signalloom-spire-helper:local).
+	# Knative resolves every tag to a digest against the registry first, and a bare
+	# name means index.docker.io, where those images do not exist. Skip resolution
+	# for that registry; the kubelet still finds the loaded image (IfNotPresent).
+	kubectl patch configmap/config-deployment -n knative-serving --type merge -p '{"data":{"registries-skipping-tag-resolving":"kind.local,ko.local,dev.local,index.docker.io,docker.io"}}'
+	kubectl apply -f "https://github.com/knative/net-kourier/releases/download/knative-$(KNATIVE_VERSION)/kourier.yaml"
+	kubectl patch configmap/config-network -n knative-serving --type merge -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+	kubectl apply -f "https://github.com/knative/eventing/releases/download/knative-$(KNATIVE_VERSION)/eventing-crds.yaml"
+	kubectl wait --for=condition=Established crd/brokers.eventing.knative.dev --timeout=120s
+	kubectl apply -f "https://github.com/knative/eventing/releases/download/knative-$(KNATIVE_VERSION)/eventing-core.yaml"
+	kubectl -n knative-serving rollout status deploy/controller deploy/webhook deploy/activator deploy/autoscaler --timeout=300s
+	kubectl -n kourier-system rollout status deploy/3scale-kourier-gateway --timeout=300s
+	kubectl -n knative-serving rollout status deploy/net-kourier-controller --timeout=300s
+	kubectl -n knative-eventing rollout status deploy/eventing-controller deploy/eventing-webhook --timeout=300s
 demo-kagent-test-config: ## Statically validate the Kagent namespace overlay, the upstream chart render, and the agent overlays without a cluster.
 	@kubectl kustomize d2-signalloom/infra/kagent/local >/dev/null
 	# The chart render is the half `kubectl kustomize` no longer covers. Once the
@@ -1409,7 +1509,10 @@ demo-kagent-test: ## Run Kagent agent and infrastructure test suite.
 demo-kagent-demo: ## Run the interactive Kagent D5 walkthrough demo.
 	./scripts/kagent-demo.sh
 
-.PHONY: demo-kagent-credentials demo-kagent-credentials-verify demo-kagent-invoke
+.PHONY: demo-kagent-credentials demo-kagent-credentials-verify demo-kagent-invoke demo-kagent-key
+
+demo-kagent-key: ## Prompt (hidden) for ANTHROPIC_API_KEY, write it to .env (gitignored, 600), then project it into the kagent Secret.
+	./scripts/anthropic-key-prompt.sh --apply
 
 # Reads ANTHROPIC_API_KEY from .env at the MAIN checkout root (gitignored), or
 # from the environment, which takes precedence. Resolved via git rather than
@@ -1695,6 +1798,38 @@ test-bot: ## Run the Jev-powered exploratory test bot. Pass URL=<url>, AREA=<pat
 		$$( [ -n "$${TIMEOUT:-}" ] && echo "--timeout $${TIMEOUT}" )
 demo-jev-test-bot: test-bot ## Alias for test-bot.
 
+# test-bot explores one area against whatever URL it is given, defaulting to
+# the shared Tailscale deployment. test-bot-loop explores the WHOLE route
+# surface derived from App.tsx, for N iterations, against a dashboard it starts
+# and tears down itself on a free non-reserved port — so it can run alongside
+# the other suites without sharing a target with them.
+#
+# Pass URL= to point it at an existing dashboard instead; then nothing local is
+# started. Reports land in reports/jev/<run-id>/ (gitignored).
+#
+# MODE=fetch (the default) walks with bot.py over urllib: no JavaScript, so
+# every route "answers" and the console, runtime-error, error-boundary and
+# dead-control oracles cannot fire. MODE=browser walks the same surface in a
+# real Chromium and reports rendered-vs-answered plus those oracles; it needs
+# the Playwright runtime test/acceptance installs and the dashboard's own
+# node_modules. `scripts/jev-test-bot/browser-runtime.sh --check` says which
+# of those is missing.
+.PHONY: test-bot-loop
+test-bot-loop: ## Loop the Jev bot over every derived route. MODE=fetch|browser, URL=<url>, N=<iterations>, MOCK=true, TURNS=<n>, TIMEOUT=<sec>, DEEP=true.
+	@URL="$${URL:-}" \
+	N="$${N:-1}" \
+	MODE="$${MODE:-fetch}" \
+	MOCK="$${MOCK:-}" \
+	TURNS="$${TURNS:-4}" \
+	TIMEOUT="$${TIMEOUT:-10}" \
+	DEEP="$${DEEP:-}" \
+	DASHBOARD_MODE="$${DASHBOARD_MODE:-auto}" \
+	./scripts/jev-test-bot/loop.sh $(ARGS)
+
+.PHONY: test-bot-routes
+test-bot-routes: ## Print the dashboard route surface the loop derives from App.tsx.
+	@python3 scripts/jev-test-bot/routes.py $(ARGS)
+
 ##@ Remote & Public access (Tailscale)
 # SignalLoom uses a contract-first Dex single-issuer lease mechanism.
 # Only one origin (Funnel, Serve, or IAP) can publish at a time.
@@ -1972,6 +2107,17 @@ test-ci-state: ## Verify ci-state names its source, dates its claim, and cannot 
 .PHONY: test-ci-path-anchoring
 test-ci-path-anchoring: ## Verify no CI path variable is relative, in the Makefile source AND in what make expands.
 	bats test/ci-path-anchoring.bats
+
+.PHONY: demo-signalloom-function-images
+demo-signalloom-function-images: ## Build and kind-load the two Knative-backed swarm functions (prompt-commit-summarizer, triage-ci-worker); nothing else built them (2026-10-03).
+	$(MAKE) swarm-prompt-summarizer-image
+	$(MAKE) swarm-triage-worker-image
+
+.PHONY: demo-signalloom-security-images
+demo-signalloom-security-images: ## Build and kind-load the Kusari stub and nono containment probe images (imagePullPolicy: Never).
+	$(MAKE) -C d2-signalloom swarm-kusari-image swarm-nono-probe-image
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh kusari-agent:latest
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh nono-containment-probe:latest
 
 .PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down
 demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.
@@ -3095,7 +3241,9 @@ where-probe: ## Same as 'where', but also curls each address and reports the sta
 # Agent Swarm infrastructure
 # ===========================================================================
 
-KNATIVE_VERSION ?= v1.16.0
+# v1.18.0 is the first Knative release with kubernetes.podspec-volumes-csi; the swarm
+# ksvcs mount the SPIFFE Workload API as a csi volume (2026-10-03).
+KNATIVE_VERSION ?= v1.18.0
 
 .PHONY: swarm-infra-up
 swarm-infra-up: ## Apply Knative + agent namespace + RBAC for the agent swarm.

@@ -11,6 +11,7 @@ import {
 import { convertRbacToAfmImport, emitYaml, generateImportId, generateImportName } from '../api/afmYaml'
 import type { AfmClusterImport } from '../api/afmYaml'
 import { isDemoMode } from '../api/demoMode'
+import { useAuth0 } from '../auth/oidc'
 import ButtonWait from './ButtonWait'
 import PixelLoader from './PixelLoader'
 
@@ -78,6 +79,9 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
   const [isLoadingClusters, setIsLoadingClusters] = useState(true)
   const [isLoadingRbac, setIsLoadingRbac] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  // The import gateway authenticates the signed-in superadmin, so the send
+  // carries the same Dex bearer the rest of the dashboard uses.
+  const { getAccessTokenSilently } = useAuth0()
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const requestSequenceRef = useRef(0)
@@ -285,6 +289,11 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
       const afmImport = convertRbacToAfmImport(rbac, selectedCluster, effectiveNamespace)
       afmImport.id = generateImportId(now)
       afmImport.name = generateImportName(effectiveNamespace, now)
+      // The cluster the RBAC came from, which is what the gateway's importer
+      // key binding is checked against. Without it a key bound to a cluster
+      // was compared against the generated import id and could never match, so
+      // Send to AFM worked only for a superadmin.
+      afmImport.source_cluster = selectedCluster.id
 
       lastImportPayloadRef.current = afmImport
       setYamlText(emitYaml(afmImport))
@@ -344,7 +353,7 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
     setIsSending(true)
 
     try {
-      await postClusterImport(payload)
+      await postClusterImport(payload, await getAccessTokenSilently())
       setSendFeedback({ tone: 'success', message: `Sent ${payload.id} to AFM: showing it below` })
       // Tell the page which cluster to show. Without this the import lands in
       // AFM correctly and stays invisible, which is indistinguishable from a
@@ -375,7 +384,7 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>RBAC importer</div>
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Generate AFM import YAML here, then paste it into KubeSec-AFM cluster upload to start the graph walk.
+          Generate the AFM import for a cluster, then Send to AFM to start the graph walk. Copy keeps the YAML for a manual upload.
         </div>
       </div>
 

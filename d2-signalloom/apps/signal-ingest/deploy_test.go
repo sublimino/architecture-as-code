@@ -31,13 +31,25 @@ func TestDeploymentManifest_ValidYAML(t *testing.T) {
 	if !strings.Contains(raw, "/data/signals") {
 		t.Error("missing mount path '/data/signals'")
 	}
-	if !strings.Contains(raw, "emptyDir") {
-		t.Error("missing emptyDir volume definition")
+	// The signal store is durable (P1-1): a claim, never an emptyDir, which the
+	// kubelet deletes with the pod. TestReconciledManifestStoresSignalsDurably
+	// asserts the claim's own shape against the rendered manifest; this is the
+	// text-level guard that nobody reintroduces the ephemeral volume here.
+	if strings.Contains(raw, "emptyDir") {
+		t.Error("signal store is on an emptyDir; it is erased on every reschedule")
+	}
+	if !strings.Contains(raw, "persistentVolumeClaim") {
+		t.Error("missing persistentVolumeClaim volume definition")
 	}
 
 	// Env vars.
 	if !strings.Contains(raw, "SIGNAL_STORE_DIR") {
 		t.Error("missing SIGNAL_STORE_DIR env var")
+	}
+	// Without this the binary quietly selects the in-memory store and the claim
+	// is mounted but never written to.
+	if !strings.Contains(raw, "SIGNAL_STORE: frostdb") && !strings.Contains(raw, "value: frostdb") {
+		t.Error("missing SIGNAL_STORE=frostdb env var")
 	}
 	if !strings.Contains(raw, "DATABASE_URL") {
 		t.Error("missing DATABASE_URL env var")

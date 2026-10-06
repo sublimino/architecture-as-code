@@ -10,6 +10,13 @@ export interface IdpConfigData {
   clientSecret?: string
   scopes: string
   connectionTested?: boolean
+  //: What the last successful test reported, so a resumed step can show it.
+  connectionMessage?: string
+}
+
+export interface ConnectionTestResult {
+  ok: boolean
+  message: string
 }
 
 interface IdpLinkageStepProps {
@@ -17,6 +24,9 @@ interface IdpLinkageStepProps {
   onNext: (data: IdpConfigData) => void
   onBack: () => void
   onSkip: () => void
+  //: Runs the real check. The wizard passes a verifier that calls GET /api/v1/me
+  //: with the session bearer; the step itself never fabricates a result.
+  onTestConnection?: (issuerUrl: string) => Promise<ConnectionTestResult>
 }
 
 interface IdpOption {
@@ -76,6 +86,7 @@ export default function IdpLinkageStep({
   onNext,
   onBack,
   onSkip,
+  onTestConnection,
 }: IdpLinkageStepProps) {
   const [selectedIdpId, setSelectedIdpId] = useState<string>(
     initialValues?.providerId ?? 'dex',
@@ -101,7 +112,7 @@ export default function IdpLinkageStep({
     initialValues?.connectionTested ? 'success' : 'idle',
   )
   const [connectionMessage, setConnectionMessage] = useState<string | null>(
-    initialValues?.connectionTested ? 'OIDC discovery endpoint verified (200 OK)' : null,
+    initialValues?.connectionTested ? (initialValues.connectionMessage ?? 'Portal session verified') : null,
   )
   const [errors, setErrors] = useState<string[]>([])
 
@@ -119,9 +130,6 @@ export default function IdpLinkageStep({
     setConnectionStatus('idle')
     setConnectionMessage(null)
 
-    // Simulate / verify connection check
-    await new Promise((resolve) => setTimeout(resolve, 350))
-
     if (!issuerUrl.trim().startsWith('http://') && !issuerUrl.trim().startsWith('https://')) {
       setConnectionStatus('error')
       setConnectionMessage('Invalid OIDC Issuer URL. Must start with https:// or http://')
@@ -129,9 +137,25 @@ export default function IdpLinkageStep({
       return
     }
 
-    setConnectionStatus('success')
-    setConnectionMessage(`OIDC discovery document verified at ${issuerUrl.split('/')[2] || issuerUrl} (200 OK, 12ms latency)`)
-    setTestingConnection(false)
+    // The verifier is the wizard's: it calls a real portal route with the
+    // session's bearer and reports what the server said. No verifier means no
+    // claim, never a green tick.
+    if (!onTestConnection) {
+      setConnectionStatus('error')
+      setConnectionMessage('No connection verifier is wired to this step, so nothing was checked.')
+      setTestingConnection(false)
+      return
+    }
+    try {
+      const result = await onTestConnection(issuerUrl.trim())
+      setConnectionStatus(result.ok ? 'success' : 'error')
+      setConnectionMessage(result.message)
+    } catch (err) {
+      setConnectionStatus('error')
+      setConnectionMessage(err instanceof Error ? err.message : 'Connection test failed.')
+    } finally {
+      setTestingConnection(false)
+    }
   }
 
   const validate = (): boolean => {
@@ -165,6 +189,7 @@ export default function IdpLinkageStep({
         clientSecret: clientSecret.trim(),
         scopes: scopes.trim(),
         connectionTested: connectionStatus === 'success',
+        connectionMessage: connectionStatus === 'success' ? (connectionMessage ?? undefined) : undefined,
       })
     }
   }

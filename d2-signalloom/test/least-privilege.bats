@@ -14,10 +14,14 @@ setup() {
   # cluster-scoped binding, which is the exact thing this test exists to catch,
   # so the names are pinned too: two flux-ns-patch bindings (one per cluster
   # slice), the SPIRE agent's kubelet grant, and supercred-demo-runner, whose
-  # ClusterRole is bounded to namespaces get/create/patch and nodes get.
+  # ClusterRole is bounded to namespaces get/create/patch and nodes get, and
+  # fe-signalloom-cadvisor (nodes/proxy get, for the kubelet cAdvisor scrape).
   run grep -c 'kind: ClusterRoleBinding' "$canonical"
   [ "$status" -eq 0 ]
-  [ "$output" -eq 4 ]
+  [ "$output" -eq 5 ]
+
+  run grep -c 'name: fe-signalloom-cadvisor$' "$canonical"
+  [ "$status" -eq 0 ]
 
   run grep -c 'name: supercred-demo-runner$' "$canonical"
   [ "$status" -eq 0 ]

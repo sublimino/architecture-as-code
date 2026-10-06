@@ -25,7 +25,7 @@ from cadvisor_poller import (
     parse_cadvisor_metrics,
 )
 from main import app
-from conftest import EAPClient
+from conftest import EAPClient, EAP_OPERATOR, EAP_TENANT_A
 
 EAP_AUTHENTICATED = True
 
@@ -292,11 +292,32 @@ def poller(monkeypatch) -> CadvisorPoller:
 
 @pytest.fixture
 def client() -> EAPClient:
-    return EAPClient(app)
+    # The operator, which conftest puts on the superadmin subject allow-list.
+    # These tests assert the poller's cluster-wide pod index -- the ambiguous
+    # name across two namespaces, the keying by namespace/pod -- which is
+    # exactly the view a superadmin gets. Since the remote-cluster work the
+    # four telemetry routes are tenant-scoped from the pod's own
+    # signalloom.ai/tenant label, so a plain tenant caller here would be
+    # asserting the tenant gate rather than the poller, and would need a
+    # discovery stub to say anything at all. The gate itself is proved in
+    # test_cadvisor_telemetry_tenancy.py.
+    return EAPClient(app, subject=EAP_OPERATOR)
 
 
 def error_code(resp) -> str:
     return resp.json()["error"]["code"]
+
+
+def _operator_principal():
+    """The superadmin identity, for the two tests that call the handler directly.
+
+    A direct call bypasses FastAPI's dependency resolution, so the principal has
+    to be supplied. The operator is used for the same reason the ``client``
+    fixture uses it: these are poller assertions, not tenant-gate assertions.
+    """
+    import api_compat
+
+    return api_compat.Principal(tenant=EAP_TENANT_A, subject=EAP_OPERATOR, email=None)
 
 
 @pytest.mark.parametrize(
@@ -396,7 +417,9 @@ def test_sse_frame_is_strict_json():
 @pytest.mark.anyio
 async def test_sse_stream_sends_current_state_and_unsubscribes_on_disconnect(poller):
     await poll(poller, scrape())
-    resp = await cadvisor_poller.get_agent_telemetry(POD, stream=True, namespace=None, request=None)
+    resp = await cadvisor_poller.get_agent_telemetry(
+        POD, principal=_operator_principal(), stream=True, namespace=None, request=None
+    )
     assert resp.media_type == "text/event-stream"
     assert resp.headers["cache-control"] == "no-cache"
     first = await asyncio.wait_for(resp.body_iterator.__anext__(), timeout=1)
@@ -409,7 +432,9 @@ async def test_sse_stream_sends_current_state_and_unsubscribes_on_disconnect(pol
 @pytest.mark.anyio
 async def test_sse_namespace_filter_drops_other_tenants_frames(poller):
     await poll(poller, scrape(ns="tenant-a", pod="kusari-agent-0") + scrape(ns="tenant-b", pod="kusari-agent-0"))
-    resp = await cadvisor_poller.get_agent_telemetry("kusari-agent-0", stream=True, namespace="tenant-b", request=None)
+    resp = await cadvisor_poller.get_agent_telemetry(
+        "kusari-agent-0", principal=_operator_principal(), stream=True, namespace="tenant-b", request=None
+    )
     first = await asyncio.wait_for(resp.body_iterator.__anext__(), timeout=1)
     await resp.body_iterator.aclose()
     assert json.loads(first[len("data: "):])["namespace"] == "tenant-b"

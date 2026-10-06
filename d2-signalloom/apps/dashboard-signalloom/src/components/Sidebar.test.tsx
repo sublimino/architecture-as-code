@@ -365,12 +365,16 @@ describe('Sidebar keyboard shortcuts', () => {
     )
   })
 
-  it('navigates to Policies (nav item 6) when "6" is pressed', async () => {
+  // Position 7, not 6: the digit is an index into the visible nav, so adding
+  // Signals to the View group between The Weave and FAIR Risk moves every
+  // item below it down one. The shortcut contract is "the nth visible link",
+  // which is what this still asserts.
+  it('navigates to Policies (nav item 7) when "7" is pressed', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
     await screen.findByRole('link', { name: /Agents/ })
 
-    fireEvent.keyDown(window, { key: '6' })
+    fireEvent.keyDown(window, { key: '7' })
 
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /^Policies$/ })).toHaveAttribute('aria-current', 'page')

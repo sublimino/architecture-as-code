@@ -1,10 +1,25 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
 
-COPY signal-ingest/ ./signal-ingest/
-COPY policy-engine/ ./policy-engine/
-WORKDIR /src/signal-ingest
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/signal-ingest .
+# The build context is d2-signalloom/, not d2-signalloom/apps/ (see DEMO_IMAGES in
+# scripts/signalfusion-images.sh). It has to be: signal-ingest/go.mod carries
+# `replace ... /pkg/obscel => ../../pkg/obscel`, which resolves outside apps/, and
+# docker refuses a COPY whose source lies outside the context. The layout under
+# /src mirrors the repo so the ../ hops in both replace directives still resolve.
+#
+# All three local modules are copied even though obscel has no importer yet: the
+# first commit that imports it would otherwise break the image build, and nothing
+# in the offline suite would catch it. TestBuildScriptAndDockerfileAgreeOnTheContext
+# resolves every COPY source against the context the script passes.
+COPY apps/signal-ingest/ ./apps/signal-ingest/
+COPY apps/policy-engine/ ./apps/policy-engine/
+COPY pkg/obscel/ ./pkg/obscel/
+WORKDIR /src/apps/signal-ingest
+# -tags frostdb selects store/factory_frostdb.go. Without it the !frostdb factory
+# is compiled in, SIGNAL_STORE=frostdb in the Deployment is ignored, and the pod
+# runs an in-memory store over a PersistentVolumeClaim it never writes to.
+# internal/imagetag lists with the same tag, so the tag covers what this compiles.
+RUN CGO_ENABLED=0 go build -tags frostdb -trimpath -ldflags="-s -w" -o /out/signal-ingest .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/signal-ingest /signal-ingest

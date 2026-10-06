@@ -1,0 +1,2 @@
+# go build ./ in this directory emits a binary named after the module; never commit it.
+/signalloom-stun-sentinel

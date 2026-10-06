@@ -79,6 +79,12 @@ var KnownPermissions = map[Permission]bool{
 	PermissionCrossTenantRead:  true,
 	PermissionCrossTenantWrite: true,
 	PermissionActForTenant:     true,
+	// SLAWS review API. Without these two entries StaticBearerConfig.validate refuses a
+	// legitimate grant for the review routes and TestKnownPermissionsCoversEveryRoute fails: an
+	// unknown permission grants nothing, so a key configured for policy:read would silently get
+	// no access at all.
+	PermissionPolicyRead:   true,
+	PermissionPolicyReview: true,
 }
 
 // StaticBearerConfig is one named static key: its value, the single principal it maps to, and
@@ -117,6 +123,11 @@ type StaticBearerAuthenticator struct {
 	dir      string
 	keys     atomic.Pointer[[]staticKey]
 	onRevoke func(subject string)
+	// loadedFp is the directory fingerprint Reload last read the keys from. WatchReload
+	// compares each tick against it, so a swap that lands between the constructor's load
+	// and the watcher's first tick is still seen; a baseline taken when the watcher starts
+	// would silently adopt that swap as current and never reload.
+	loadedFp atomic.Pointer[dirFingerprint]
 }
 
 // SetRevokeCallback registers a hook called when a key is revoked during Reload.

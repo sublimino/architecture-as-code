@@ -19,7 +19,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
@@ -74,6 +74,13 @@ class ExecuteScenarioRequest(BaseModel):
     scenario_type: ScenarioType = Field(default=ScenarioType.BASELINE_AGENT_FLOW)
     company_name: str = Field(default="kusari", min_length=1, max_length=64)
     customer_hash: Optional[str] = Field(default=None, pattern=_TENANT_KEY_PATTERN)
+
+    @field_validator("customer_hash", mode="before")
+    @classmethod
+    def _validate_raw_hash(cls, v: Any) -> Any:
+        if isinstance(v, str) and ("\n" in v or "\r" in v or "\t" in v or v != v.strip()):
+            raise ValueError("customer_hash must not contain whitespace or newlines")
+        return v
 
 
 class ScenarioExecutionResult(BaseModel):

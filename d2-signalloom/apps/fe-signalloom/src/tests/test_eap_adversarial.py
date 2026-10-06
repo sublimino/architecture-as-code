@@ -565,11 +565,6 @@ def test_probe_threat_4_non_hex_keys(eap_jwt_env, fresh_tenant_ownership) -> Non
     assert valid_resp.status_code == 201, f"Expected 201 for valid hex '{valid_hex}', got {valid_resp.status_code}: {valid_resp.text}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="EAPR-P2-1: ExecuteScenarioRequest str_strip_whitespace=True strips trailing newline on customer_hash turning 'a0314bec\\n' into 'a0314bec' (201 instead of 422)",
-)
 def test_probe_threat_4_newline_injection_in_customer_hash(eap_jwt_env, fresh_tenant_ownership) -> None:
     """Finding probe: Trailing newline in customer_hash should be rejected with 422 rather than stripped."""
     client = TestClient(app, raise_server_exceptions=False)

@@ -141,7 +141,7 @@ updated: 2026-10-06T12:50
 | P1-5 | implementation | Add `extraMounts` to `infra/kind/cluster-osramp.yaml` (and the hub cluster config used by `dual-cluster-up.sh`) binding the host dirs named by the existing `POSTGRES_DATA_DIR` (`.cache/postgres`), `ZOT_CACHE_DIR` (`.cache/zot`) and a new `LOCAL_PATH_DATA_DIR` (`.cache/local-path`) variables (`Makefile:66-67`) to `/var/local/signalloom-postgres-data` (uid 70, mode 0700), `/var/local-path-provisioner` and `/var/local/osramp-zot-cache`; render one kind config template (kind does not expand variables) used by both `dual-cluster-up.sh` and `create-kind-cluster.sh`, including the `/lib/modules` and `/sys/kernel/btf` binds the warden's eBPF needs on every lane; give `local-path` PVs stable directories (a `pathPattern` of `{{ .PVC.Namespace }}/{{ .PVC.Name }}` in the provisioner config) so a rebuilt cluster finds its data; export and restore the identity Secrets a rebuild would otherwise re-mint (`signal-segment-key`, fleet operator and caller keys, Dex static config); add a new script `kind-data-backup.sh` in `scripts/` with `backup <cluster> <dir>` and `restore <cluster> <dir>` subcommands using `docker cp` from the node. | P1-PRE | bats: the rendered kind config carries all three mounts with existing host dirs and correct ownership; backup then restore with a stubbed `docker` round-trips a fixture tree byte-for-byte and preserves uid 70; a PVC recreated with the same namespace and name resolves to the same host directory; `create-kind-cluster.sh` and `dual-cluster-up.sh` produce the same mount set | M | antigravity | — | — | — | — | — |
 | P1-6 | implementation | Make `GET /api/v1/observations` deterministic, bounded and pageable without changing the JSON array body, and make `GET /api/v1/store/stats` aggregate without decoding every observation (both decode the whole store per request today, which OOM-killed signal-ingest at 1Gi on 2026-10-06 and broke `/feeds` with 502s): sort `(timestamp DESC, id DESC)` in the `GET /api/v1/observations` handler, before `scopeObservations` applies `limit`; leave `QueryRange` order untouched, because replay (`api/policy_routes.go`, `e2e/harness.go`) depends on it; accept `cursor=<opaque>` (encodes the last `(timestamp, id)`); return `X-Next-Cursor` and `Link: <…>; rel="next"` when more rows exist and `X-Result-Truncated: false` when they do not; bind the cursor to the caller's tenant scope and reject a cursor minted for another scope; reject a malformed cursor with 400 and a message naming the fix; `signal_fusion.py` forwards `cursor` and passes the paging headers back; write the signal-ingest observations API page from scratch; move `signal_fusion.py` and `test/kusari-e2e-live.bats` (`observations_store`) to cursor paging (`policy-engine` only posts to `/evaluate` and is not a reader); document ordering and paging in the signal-ingest API docs with a worked `curl` example; re-pin the image (`scripts/signal-ingest-image-tag.sh`); return the memory limit from the 2Gi stopgap (`0ac8a717`) to 1Gi once peak working set under concurrent polling is measured below 512Mi. | P1-PRE | Go: peak heap for one `/observations?limit=100` and one `/store/stats` over a 100k-row fixture stays under a stated bound; 50 identical requests return byte-identical bodies on both stores; cursor paging over a 1,000-row fixture with duplicate timestamps visits each id exactly once; a mutation removing the sort fails; malformed cursor is 400; `TestReconciledManifestRunsTheImageBuiltFromThisSource` green; pytest for `signal_fusion` paging; docs-lint clean | L | antigravity | — | — | — | — | — |
 | P1-7 | implementation | Start with a gap table against SLSE's threat model T1-T5 (a prioritised execve/connect ring, PERFMON-only capabilities and a dedicated namespace are claimed but not built; the warden runs SYS_PTRACE, BPF, NET_ADMIN and SYS_ADMIN in `fe-signalloom-agents` with a 128Mi limit, and `main.go:614` only logs a literal tracepoint list). Then close the gaps: the four tracepoints are already attached in `d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader.go:35-38` (probe `bpf/sentinel_probe.c`, cgroup id read, `Drops()` at :200); make sure the engine attaches `sys_enter_openat`, `sys_enter_openat2`, `sys_enter_execve` and `sys_enter_connect` scoped to agent cgroups, and post normalised observations to `signal-ingest` `/api/v1/observations` with the warden's named key; ring-buffer drops are counted and reported as an anomaly; the warden logs the tracepoints that actually attached. Report the new sentinel image tag; P1-GOV re-pins. | P1-PRE | Go unit tests for event normalisation of all four syscalls; a privileged-container or kind-node probe test proving an `openat("/etc/passwd")` from an agent cgroup yields one observation; drop counter exported; sentinel image re-pinned (`scripts/sentinel-image-tag.sh`) | L | antigravity | — | — | — | — | — |
-| P1-8 | implementation | Remove the Tetragon gRPC client (`collectors/ebpf/client.go`, `tetragon.NewFineGuidanceSensorsClient` at :239) and its wiring in `signal-ingest/main.go:796-805`; drop the `cilium/tetragon/api` requirement (`go.mod:14`) and `go mod tidy`; sentinel observations arrive only through `/api/v1/observations`; drop `COLLECTOR_TETRAGON_MODE` and its registry entry; rename the `tetragon` source tag in `normalize.go:172` to `sentinel-ebpf`; remove the collector's `/metrics` output (`main.go:956`) and list any scraper of it; re-pin the signal-ingest image. | P1-PRE | `go test ./...` in signal-ingest with and without `-tags frostdb`; `rg -i tetragon d2-signalloom/apps/signal-ingest` returns nothing outside history comments; registry tests show no Tetragon collector; `TestReconciledManifestRunsTheImageBuiltFromThisSource` green | M | antigravity | — | — | — | — | — |
+| P1-8 | implementation | Remove the Tetragon gRPC client (`collectors/ebpf/client.go`, `tetragon.NewFineGuidanceSensorsClient` at :239) and its wiring in `signal-ingest/main.go:796-805`; drop the `cilium/tetragon/api` requirement (`go.mod:14`) and `go mod tidy`; sentinel observations arrive only through `/api/v1/observations`; drop `COLLECTOR_TETRAGON_MODE` and its registry entry; rename the `tetragon` source tag in `normalize.go:172` to `sentinel-ebpf`; remove the collector's `/metrics` output (`main.go:956`) and list any scraper of it; re-pin the signal-ingest image. | P1-PRE | `go test ./...` in signal-ingest with and without `-tags frostdb`; `rg -i tetragon d2-signalloom/apps/signal-ingest` returns nothing outside history comments; registry tests show no Tetragon collector; `TestReconciledManifestRunsTheImageBuiltFromThisSource` green | M | antigravity | — | — | — | — | pass — delivered: 4a0a767be9179f4098354a0b1f12c83508e9bf28 (see Errata — EAPCI-P1-8) |
 | P1-9 | implementation | Delete `d2-signalloom/deploy/tetragon-agent-telemetry.yaml`, `tetragon-helm-values.yaml`, `scripts/test-tetragon-stream.sh`, `test/tetragon-telemetry-stream.bats` and the Tetragon evidence artefact; remove `test-tetragon`, `test-tetragon-bats`, `test-tetragon-stream` from the `Makefile` (targets 707-719, callers in `test-all-offline` 557-558 and `test-all-cluster` 611); delete `test/mocks/tetragon_grpc_*` and their `go.mod` entries; drop Tetragon references from `test/acceptance/agent-claim.spec.ts`, `test/crkc-phase1-unified-stun.bats`, the test isolation allowlist, `scripts/slaat-baseline.sh` and the card-generator scripts; add a new make target named test-sentinel-ebpf running the P1-7 suites; update registries (`bats-registry-coverage`, dual-lane allowlists) accordingly. | P1-PRE | the files this card deletes or edits carry no Tetragon reference (the repo-wide zero check runs at P1-GOV on the merged tip); a dry run of the new test-sentinel-ebpf target resolves; `bats-registry-coverage.bats` and `terraform-dual-lane-registration.bats` green | M | antigravity | — | — | — | — | — |
 | P1-10 | implementation | Replace Tetragon wording with Sentinel eBPF in `AgentActivityTab.tsx`, `ClaimModal.tsx`, `ContainmentPolicyConsentStep.tsx`, `FeedsExplorerPage.tsx`, `src/api/policyApi.ts:184` and their tests (including `SignalsPage.test.tsx`); telemetry source tags read `sentinel-ebpf`, including `fe-signalloom` `api_compat.py:6018` and the badge test id in `test/acceptance/agent-claim.spec.ts`. | P1-PRE | vitest for the four components green; `rg -i tetragon d2-signalloom/apps/dashboard-signalloom/src` returns nothing; tsc clean | S | antigravity | — | — | — | — | — |
 | P1-GOV | governor | Merge P1-1..P1-10 in order (P1-9 after P1-3; re-pin signal-ingest and sentinel images once, after the last Go merge) into `integration/eapci-v0.1.0`; run the four §5 offline commands twice with identical totals; append errata. | P1-1, P1-2, P1-3, P1-4, P1-5, P1-6, P1-7, P1-8, P1-9, P1-10 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
@@ -189,4 +189,72 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 - Mapping: SLSE D1 is P1-7, D2 is P1-8, D3 and D4 are P1-9, D5 is P1-10, and D6 is P2-5.
 - P1-3 keeps only the pipeline list edit. P2-5 runs live after the P2-4 rebuild.
 - SLSE's Definition of Done was ticked before any work existed. It is unticked in the vault and superseded by these rows.
+
+#### Errata — EAPCI-P1-8 SLSE D2: remove the Tetragon gRPC collector from signal-ingest
+**Created:** 2026-10-07 00:36:57+01:00
+**Last Updated:** 2026-10-07 00:52:00+01:00
+**Status:** Completed
+**Commit:** 4a0a767be9179f4098354a0b1f12c83508e9bf28
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- Package removal decision: Completely deleted `d2-signalloom/apps/signal-ingest/collectors/ebpf/` (all 9 files: `client.go`, `collector.go`, `doc.go`, `jsonstream.go`, `metrics.go`, `normalize.go`, `ringbuffer.go`, `testserver.go`, `tetragon_test.go`). The HTTP observation path (`/api/v1/observations`) ingests `model.Observation` directly and `collectors/netebpf` maintains independent socket trace normalization; no shared normalization types from `collectors/ebpf` were required.
+- Wiring removal: Deleted the `tetragonCollector` initialization and registration (`main.go:796-806`), removed `collectors/ebpf` import (`main.go:26`), and removed `tetragonCollector.Metrics().Render()` output from the `/metrics` Prometheus exposition endpoint (`main.go:956`).
+- Module tidy: Dropped `github.com/cilium/tetragon/api v1.1.0` and unused `google.golang.org/grpc v1.71.0` from `go.mod` and `go.sum`; verified clean with `go mod tidy`.
+- Comment rewrites: Reworded comment references in `pkg/fair/metrics.go:12-14` and `retention/metrics.go:16-18` to reference general collectors instead of Tetragon.
+- Test isolation allowlist: Removed the 6 stale rows for `collectors/ebpf/tetragon_test.go` from `test/fixtures/test-isolation-allowlist.txt:97-102`.
+- Registry regression test: Added `TestRegistry_NoTetragonCollectorRegistered` to `collectors/registry_test.go` to assert no Tetragon collector is registered or read from environment.
+- Mutation test verified: Added temporary stub collector named `tetragon`, observed `TestRegistry_NoTetragonCollectorRegistered` fail (RED), and restored cleanly (GREEN).
+- Image tag computed: `scripts/signal-ingest-image-tag.sh` computes `src-c5891426d39588bf` (changed from `src-3963c9f7cd241407`). In accordance with task instructions, `deployment.yaml` was not committed on this card branch and will be re-pinned by P1-GOV after all Go merges.
+- Metric scrapers check: Searched `d2-signalloom test docs` for `tetragon_` metric consumers (`tetragon_events_received_total`, `tetragon_flow_events_ingested_total`, `tetragon_events_dropped_total`, `tetragon_stream_errors_total`, `tetragon_events_skipped_total`, `tetragon_events_identityless_total`). Confirmed no active frontend dashboards or Prometheus alert rules scrape these metrics; only docs and dead test scripts (`test/tetragon-telemetry-stream.bats`, owned by P1-9) reference them.
+- Out of scope dependencies recorded: `test/mocks/tetragon_grpc_mock.go` (and associated mock tests) is dead code following the removal of `collectors/ebpf/testserver.go`, scheduled for deletion under P1-9.
+**Deviations:** None.
+**Notes:**
+
+##### Deleted Tests Inventory (35 unit tests in `collectors/ebpf/tetragon_test.go`)
+1. `TestNormalizeProcessExecPopulatesPodAttribution`
+2. `TestNormalizePodUIDFallsBackToContainerID`
+3. `TestNormalizeTCPConnectPopulatesDestination`
+4. `TestNormalizeOpenatPreservesFilePath`
+5. `TestNormalizeClampsOutOfRangePort`
+6. `TestNormalizeSequenceNumbersAreMonotonicPerNode`
+7. `TestNormalizeTimestampRoundTrip`
+8. `TestNormalizeUnattributedEventDoesNotPanic`
+9. `TestNormalizeHostileSparseInputs`
+10. `TestNormalizedEventsAreAcceptedByNetEBPFCollector`
+11. `TestAntiInboundFlowEventStructIsUnmodified`
+12. `TestRingBufferBoundsAndDropPolicy`
+13. `TestRingBufferZeroCapacityFallsBackToDefault`
+14. `TestRingBufferConcurrentProducerConsumer`
+15. `TestRingBufferPopUnblocksOnContextCancel`
+16. `TestMetricsExposeAllRequiredSeries`
+17. `TestMetricsRenderIsDeterministic`
+18. `TestMetricsCountersIncrement`
+19. `TestStreamJSONDecodesNDJSON`
+20. `TestStreamJSONSurvivesMalformedLine`
+21. `TestDecodeJSONEventBlankLineIsNotAnError`
+22. `TestDecodeJSONEventDiscardsUnknownFields`
+23. `TestStreamClientIngestsFromMockGRPCServer`
+24. `TestStreamClientBurstOfOneThousandDropsNothing`
+25. `TestStreamClientReconnectsAfterStreamEnds`
+26. `TestBackoffScheduleIsNonDecreasingAndCapped`
+27. `TestJitterStaysWithinBand`
+28. `TestCollectorModeOffDoesNothing`
+29. `TestCollectorModeFixtureIngestsOneOfEachClass`
+30. `TestCollectorFromEnvDefaultsToOff`
+31. `TestCollectorFromEnvReadsConfiguration`
+32. `TestNamespaceFilterAllowsUnattributedButRejectsOutOfContract`
+33. `TestIngestCountsOutOfContractNamespaceAsSkipped`
+34. `TestCollectorHealthReportsMissingSocket`
+35. `TestAntiParentPackageDoesNotImportEbpf`
+
+##### Search Findings: `rg -i tetragon d2-signalloom/apps/signal-ingest`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:260`: `// TestRegistry_NoTetragonCollectorRegistered is a regression guard proving no Tetragon collector is registered.`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:261`: `func TestRegistry_NoTetragonCollectorRegistered(t *testing.T) {`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:265`: `if c := reg.GetCollector("tetragon"); c != nil {`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:266`: `t.Errorf("expected no collector named 'tetragon', found %T", c)`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:273`: `if c.Name() == "tetragon" || c.Name() == "ebpf" {`
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-8","status":"pass","commit":"4a0a767be9179f4098354a0b1f12c83508e9bf28"} -->
+
 

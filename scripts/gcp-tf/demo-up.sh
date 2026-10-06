@@ -2119,16 +2119,17 @@ record_source_in_handoff() {
   local tmp="${HANDOFF_FILE}.$$.tmp"
   local rec_at
   rec_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  jq \
+  if jq \
     --arg ref "$SOURCE_REF" \
     --arg sha "$SOURCE_SHA" \
     --arg rec "$rec_at" \
     '. + {source_ref: $ref, source_sha: $sha, source_recorded_at: $rec}' \
-    "$HANDOFF_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$HANDOFF_FILE" || {
+    "$HANDOFF_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$HANDOFF_FILE"; then
+    return 0
+  else
     rm -f "$tmp"
     return 1
-  }
-  return 0
+  fi
 }
 
 # stage is "full" (build the estate, then test it) or "test" (tests only).

@@ -561,8 +561,13 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 #### Errata — SLAWS-P5-2 (multi-account fan-out & DLQ redrive, 2026-10-06, `6f859ec8`, `be33f9cb`)
 
 - **Created:** `2026-10-06 10:35:00+01:00`
-- **Last Updated:** `2026-10-06 10:35:00+01:00`
-- **Status:** Complete (code: `6f859ec8`, pin: `be33f9cb`, tag: `src-d95b29a282d1c082`)
+- **Last Updated:** `2026-10-06 11:01:00+01:00`
+- **Status:** Completed
+- **Commit:** `be33f9cb`
+- **Governor merge:** [pending Governor reconciliation]
+- **Decisions:** Multi-account fan-out parsed from `COLLECTOR_AWSLOGS_ACCOUNTS`, DLQ redrive through identical projection/dedupe pipeline.
+- **Deviations:** None.
+- **Notes:** Code commit is `6f859ec8`, pin commit is `be33f9cb` (`be33f9cbed2c14e8e6bf80218de1fce699358e38`, tag `src-d95b29a282d1c082`).
 - **Delivered:**
   1. Multi-account fan-out (`COLLECTOR_AWSLOGS_ACCOUNTS`): Parsed JSON list of `{account_id, role_arn, external_id, queue_url, tenant_id, region?}` into distinct `awslogs` collectors (`awslogs` for first entry, `awslogs/<account_id>` for subsequent), with per-account WAL directory (`filepath.Join(base, account_id)`), tenant bindings, and fail-closed boot validation naming offending index (e.g., `COLLECTOR_AWSLOGS_ACCOUNTS[1]: queue_url is required`, or duplicate account_id/queue_url naming both indices).
   2. Single-account backward compatibility: Single-account `AWSLOGS_*` environment variables remain supported as the 1-entry form when `COLLECTOR_AWSLOGS_ACCOUNTS` is unset/empty.
@@ -576,3 +581,4 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
   - `bats test/signal-ingest-image-tag.bats`: PASS (5/5 tests clean)
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

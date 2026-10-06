@@ -36,8 +36,13 @@ setup_file() {
     export WL_CONTEXT="${WL_CONTEXT:-kind-osramp}"
     export INGEST_NS="${INGEST_NS:-fe-signalloom}"
     export READER_SECRET="${READER_SECRET:-signal-ingest-key-sldc-evidence-reader}"
-    export LIVE_PORT="${KUSARI_LIVE_PORT:-28094}"
-    export LIVE_LIMIT="${KUSARI_LIVE_LIMIT:-5000}"
+    # Empty LIVE_PORT lets kubectl pick a free local port. A fixed default
+    # collided with a port-forward another session had left bound, so the test
+    # silently curled someone else's tunnel.
+    export LIVE_PORT="${KUSARI_LIVE_PORT:-}"
+    # The observations route caps a page at MaxPageSize (100 by default; it
+    # answers 400 above that) and has no cursor, so one page is all a read gets.
+    export LIVE_LIMIT="${KUSARI_LIVE_LIMIT:-100}"
 }
 
 # live_or_skip gates every test in this file. KUBECONFIG=/dev/null is the value
@@ -80,31 +85,51 @@ reader_hdr() {
     hdr "$1" "$k"
 }
 
-# observations fetches the observation list through a port-forward and writes it
-# to $1. 3>&- keeps the port-forward off bats' fd 3, which otherwise makes bats
-# wait for it.
-observations() {
-    local out="$1" pf code
-    local h="${BATS_TEST_TMPDIR}/reader.hdr"
-    reader_hdr "$h" || return 1
-
+# pf_start opens a port-forward to svc/signal-ingest:8082 and sets PF_PID and
+# PF_URL. Readiness is kubectl's own "Forwarding from" line, not a GET /readyz:
+# on 8082 every route is behind the API-key router, so /readyz answers 401/403
+# to the reader key (the kubelet probes it on the separate probe port 8083),
+# and each denied poll is an audit row in the shared cluster. A port-forward
+# that exits (bind failure, no endpoints) fails here with kubectl's own words.
+# 3>&- keeps the port-forward off bats' fd 3, which otherwise makes bats wait.
+pf_start() {
+    local log="${BATS_TEST_TMPDIR}/port-forward.log" port
+    : >"$log"
     kubectl --context "${WL_CONTEXT}" -n "${INGEST_NS}" port-forward svc/signal-ingest "${LIVE_PORT}:8082" \
-        >/dev/null 2>&1 3>&- &
-    pf=$!
-    local ready=
+        >"$log" 2>&1 3>&- &
+    PF_PID=$!
     for _ in $(seq 1 40); do
-        if curl -sf -o /dev/null "http://127.0.0.1:${LIVE_PORT}/readyz"; then ready=1; break; fi
+        port="$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) -> 8082$/\1/p' "$log" | head -n1)"
+        [ -n "$port" ] && break
+        kill -0 "$PF_PID" 2>/dev/null || break
         sleep 0.25
     done
-    if [ -z "$ready" ]; then
-        kill "$pf" 2>/dev/null; wait "$pf" 2>/dev/null
-        echo "signal-ingest did not become ready through the port-forward" >&2
+    if [ -z "$port" ]; then
+        pf_stop
+        echo "port-forward to ${INGEST_NS}/svc/signal-ingest:8082 did not come up: $(cat "$log")" >&2
         return 1
     fi
+    PF_URL="http://127.0.0.1:${port}"
+}
+
+# pf_stop ends the port-forward. A killed kubectl exits 143, which is the
+# expected outcome here and must not trip bats' errexit.
+pf_stop() {
+    kill "$PF_PID" 2>/dev/null || true
+    wait "$PF_PID" 2>/dev/null || true
+}
+
+# observations fetches the observation list through a port-forward and writes it
+# to $1.
+observations() {
+    local out="$1" code
+    local h="${BATS_TEST_TMPDIR}/reader.hdr"
+    reader_hdr "$h" || return 1
+    pf_start || return 1
 
     code="$(curl -s -o "$out" -w '%{http_code}' -H @"$h" \
-        "http://127.0.0.1:${LIVE_PORT}/api/v1/observations?limit=${LIVE_LIMIT}")"
-    kill "$pf" 2>/dev/null; wait "$pf" 2>/dev/null
+        "${PF_URL}/api/v1/observations?limit=${LIVE_LIMIT}")"
+    pf_stop
 
     [ "$code" = 200 ] || {
         echo "GET /api/v1/observations returned ${code}: $(head -c 400 "$out")" >&2
@@ -116,18 +141,23 @@ observations() {
         echo "the observations route did not return a JSON array" >&2
         return 1
     }
+    # A full page means the store may hold rows this read could not see.
+    if [ "$(jq length "$out")" -ge "${LIVE_LIMIT}" ]; then
+        echo "# observations page is full (${LIVE_LIMIT} rows); rows beyond it are not inspected" >&3
+    fi
 }
 
 # repo_rule_ids lists every rule id the repo's kusari bundles declare. Derived,
 # never hardcoded: a rule added to a bundle must not silently drop out of the
-# "no unknown rule is firing" assertion below.
+# "no unknown rule is firing" assertion below. -N: given several files, yq
+# prints a `---` separator between documents, which would read as an id.
 repo_rule_ids() {
-    yq -r '.rules[].id' "${BUNDLE_DIR}"/*.yaml | sort -u
+    yq -N -r '.rules[].id' "${BUNDLE_DIR}"/*.yaml | sort -u
 }
 
 # repo_bundle_identities lists "<id>@<version>" per repo bundle.
 repo_bundle_identities() {
-    yq -r '.id + "@" + .version' "${BUNDLE_DIR}"/*.yaml | sort -u
+    yq -N -r '.id + "@" + .version' "${BUNDLE_DIR}"/*.yaml | sort -u
 }
 
 @test "live: the kusari bundles Flux reconciled are the bundles in this tree" {
@@ -145,7 +175,9 @@ repo_bundle_identities() {
         key="kusari--$(basename "$f")"
         jq -e --arg k "$key" '.data | has($k)' "${BATS_TEST_TMPDIR}/cm.json" >/dev/null \
             || { echo "ConfigMap has no key ${key}; run 'make policy-bundles-render' and let Flux reconcile"; return 1; }
-        jq -r --arg k "$key" '.data[$k]' "${BATS_TEST_TMPDIR}/cm.json" >"${BATS_TEST_TMPDIR}/${key}"
+        # -j, not -r: -r appends a newline to a value that already ends in one,
+        # which reads as a trailing blank line the ConfigMap does not contain.
+        jq -j --arg k "$key" '.data[$k]' "${BATS_TEST_TMPDIR}/cm.json" >"${BATS_TEST_TMPDIR}/${key}"
         diff -u "$f" "${BATS_TEST_TMPDIR}/${key}" \
             || { echo "the reconciled ${key} differs from the tree"; return 1; }
     done
@@ -157,9 +189,13 @@ repo_bundle_identities() {
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     printf '%s' "$output" >"${BATS_TEST_TMPDIR}/ingest.log"
 
+    # signal-ingest logs JSON (slog.NewJSONHandler in main.go), so the loaded
+    # line is matched on its fields: message, bundle id AND version.
     local id
     while read -r id; do
-        grep -qF "bundle=${id%@*}" "${BATS_TEST_TMPDIR}/ingest.log" \
+        jq -R -e --arg b "${id%@*}" --arg v "${id#*@}" \
+            'fromjson? | select(.msg == "observation-policy bundle loaded" and .bundle == $b and .version == $v)' \
+            "${BATS_TEST_TMPDIR}/ingest.log" >/dev/null \
             || { echo "no 'observation-policy bundle loaded' line for ${id}; the pod may predate the bundle or POLICY_BUNDLES_DIR is unset"; return 1; }
     done < <(repo_bundle_identities)
 
@@ -287,7 +323,7 @@ repo_bundle_identities() {
     [ -z "$missing" ] || {
         echo "decisions cite finding ids that are not in the store (within the last ${LIVE_LIMIT} rows):"
         echo "$missing"
-        echo "If the store has rolled past them this is expected -- raise KUSARI_LIVE_LIMIT and re-run."
+        echo "If the page was full (see the note above) the cited findings may lie beyond it."
         return 1
     }
 }
@@ -296,17 +332,14 @@ repo_bundle_identities() {
     live_or_skip
     # The read this suite performs must not be usable to inject an observation,
     # or the suite itself becomes a write path into the tenant's evidence.
-    local h="${BATS_TEST_TMPDIR}/reader.hdr" pf code
+    local h="${BATS_TEST_TMPDIR}/reader.hdr" code
     reader_hdr "$h"
+    pf_start
 
-    kubectl --context "${WL_CONTEXT}" -n "${INGEST_NS}" port-forward svc/signal-ingest "${LIVE_PORT}:8082" \
-        >/dev/null 2>&1 3>&- &
-    pf=$!
-    for _ in $(seq 1 40); do curl -sf -o /dev/null "http://127.0.0.1:${LIVE_PORT}/readyz" && break; sleep 0.25; done
     code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H @"$h" \
         -H 'Content-Type: application/json' --data-binary '{"observations":[]}' \
-        "http://127.0.0.1:${LIVE_PORT}/api/v1/observations")"
-    kill "$pf" 2>/dev/null; wait "$pf" 2>/dev/null
+        "${PF_URL}/api/v1/observations")"
+    pf_stop
 
     [ "$code" = 403 ] || {
         echo "POST with the evidence-reader key returned ${code}, want 403"

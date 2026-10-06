@@ -40,18 +40,24 @@ L3="$(stat_line 2026-10-03T13:07:22.744Z 0 2)"
 
 @test "no stats line at all is not a baseline of 0" {
   run spool_replayed_latest <<<""
-  [ "$status" -ne 0 ]
+  # Exact status, not "any failure": spool_replayed_latest's only failure path
+  # is `[ -n "$v" ] || return 1`, so -eq 1 distinguishes that from the shell
+  # reporting the function missing (127) or non-executable (126).
+  [ "$status" -eq 1 ]
 }
 
 @test "the run's stale pre-partition line is NOT a replay (the flake)" {
   # Partition lifted at ~13:06:30; baseline from the 13:06:22 line.
+  # Exact status: spool_replayed_since's only failure path is the trailing
+  # `[ ... ] && [ ... ]` evaluating false, or the read failing, both of which
+  # return 1 -- -eq 1 rejects a 127/126 masquerading as "correctly rejected".
   run spool_replayed_since 2026-10-03T13:06:30Z 1 <<<"${L1}"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
 }
 
 @test "spooled but not yet replayed is not a replay" {
   run spool_replayed_since 2026-10-03T13:06:30Z 1 <<<"$(printf '%s\n%s\n' "$L1" "$L2")"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
 }
 
 @test "replayed past the baseline, after the lift, with the spool empty, is a replay" {
@@ -81,7 +87,7 @@ L3="$(stat_line 2026-10-03T13:07:22.744Z 0 2)"
 
 @test "unparseable or non-stats lines are ignored, never read as a replay" {
   run spool_replayed_since 2026-10-03T13:06:30Z 1 <<<"$(printf 'not json\n{"event":"unstun","timestamp":"2026-10-03T13:07:00Z"}\n%s\n' "$L1")"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
 }
 
 @test "the store check finds the provoker's own observation and nothing else" {

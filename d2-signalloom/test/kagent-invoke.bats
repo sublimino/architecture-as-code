@@ -123,6 +123,7 @@ STUB
 @test "kagent-invoke: sends an A2A message/send JSON-RPC envelope" {
   export CURL_STUB_REPLY="$OK_REPLY"
   run "$SCRIPT" --agent kagent-k8s-reader --prompt "list namespaces"
+  [ "$status" -eq 0 ]
   [ -f "$CURL_BODY_LOG" ]
   jsonrpc="$(grep -F '"jsonrpc"' "$CURL_BODY_LOG" || true)"
   method="$(grep -F '"message/send"' "$CURL_BODY_LOG" || true)"
@@ -133,6 +134,7 @@ STUB
 @test "kagent-invoke: carries the operator's prompt through to the request body" {
   export CURL_STUB_REPLY="$OK_REPLY"
   run "$SCRIPT" --agent kagent-k8s-reader --prompt "how many namespaces exist"
+  [ "$status" -eq 0 ]
   carried="$(grep -F 'how many namespaces exist' "$CURL_BODY_LOG" || true)"
   [ -n "$carried" ]
 }
@@ -143,6 +145,7 @@ STUB
   # single-argument kernel cap makes argv the wrong transport regardless.
   export CURL_STUB_REPLY="$OK_REPLY"
   run "$SCRIPT" --agent kagent-k8s-reader --prompt "how many namespaces exist"
+  [ "$status" -eq 0 ]
   leaked="$(grep -F 'how many namespaces exist' "$CURL_ARGV_LOG" || true)"
   [ -z "$leaked" ]
 }

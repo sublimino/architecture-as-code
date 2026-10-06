@@ -260,9 +260,30 @@ otherwise each claim to own:
 - the Workload Identity pool and provider
 - the CI plan/apply service accounts
 - the runtime service accounts
-- the operator identity
+- the operator identity and its instance-lifecycle custom role
 - the DNS managed zone
 - the notification channels
+
+**This apply needs more privilege than every other apply in this runbook, once.**
+`modules/operator-identity` creates a custom role, which needs
+`iam.roles.create`. That permission is in `roles/iam.roleAdmin` and **not** in
+`roles/resourcemanager.projectIamAdmin`, which is what `sl-tf-deploy` holds — so
+the deploy identity cannot create it, and is deliberately not being granted the
+ability to (`roleAdmin` on an identity that already holds `compute.admin` and
+`projectIamAdmin` would let it mint any role and bind that role to itself).
+
+Two ways through, and you must pick one before planning:
+
+- **Apply this root once as an identity holding `roleAdmin` or owner.** The role
+  is a singleton; subsequent applies as the deploy identity are a no-op on it.
+- **Set `manage_operator_lifecycle_role = false`.** Everything else applies
+  cleanly and the role becomes a documented manual follow-up. The operator keeps
+  the IAP tunnel and OS Login and cannot suspend a VM, which means teardown needs
+  project owner. The `lifecycle_role_is_managed` output reports which case you
+  are in, so it is never silently absent.
+
+The flag exists so this root applies **cleanly** either way rather than dying
+part-way with an error naming an IAM API.
 
 The audit log sink, the log bucket, and the budget belong to `modules/observability`. That module is dormant. `terraform/platform/main.tf` keeps its call commented out, so this apply does not create them.
 
@@ -291,6 +312,11 @@ terraform -chdir=terraform/platform output
   waiting that could have overlapped with the rest of the work.
 - `runtime_service_account_emails`, `workload_identity_provider_name`,
   `notification_channel_ids`, `log_bucket_name`.
+- `operator_service_account_email` → the value every `--impersonate-service-account`
+  in this runbook and in `demo-up.sh` uses. `operator_ssh_command` prints the
+  whole invocation.
+- `operator_can_suspend` → **check this one.** `false` means the custom role was
+  not created and teardown still needs project owner.
 
 **Rollback:** `terraform -chdir=terraform/platform destroy`. Know what that
 takes with it: the audit sink and the audit bucket. The audit bucket has
@@ -438,6 +464,20 @@ outright against the `platform` and `bootstrap` roots by path.
 refuse to be deleted until you flip it to `false` and re-apply. That is
 deliberate: destroying a demo the day before it is demoed is a cheaper mistake
 to make than to recover from.
+
+Before the `terraform destroy` runs, the target releases the VM's Tailscale
+device record by calling `demo-up.sh ts-logout --force`. Nothing in
+`terraform destroy` removes a tailnet device, and a destroyed VM that keeps
+owning `sl-demo-1` makes the next build come up as `sl-demo-1-1` — the demo URL
+drifts further on every rebuild. The call is best-effort so a cleanup can never
+block a destroy, which means you should read its output.
+
+**A replacement-apply does not go through this target and does not run that
+hook.** `metadata_startup_script` is create-time, so an edit to
+`terraform/modules/compute/startup/demo-vm.sh` plans as destroy-and-recreate. If
+a plan says `must be replaced` on `google_compute_instance`, run
+`make gcp-tf-ts-logout ENV=<key> FORCE=1` by hand before applying it. Full
+detail in `docs/gcp-demo/RUNBOOK.md` § "The demo URL drifted".
 
 ---
 

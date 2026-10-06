@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/tc"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -87,6 +88,13 @@ type CiliumMeshClient struct {
 
 	mu       sync.Mutex
 	isolated map[string]bool // key: namespace/agentID
+
+	// identityMap binds a signalloom.ai/agent-name label value to the
+	// ServiceAccount the real agent runs as (identity_map.go). Nil is
+	// tolerated: resolveTargetIP's label-selector fallback then trusts every
+	// label match, which is today's behaviour for callers that construct a
+	// client directly.
+	identityMap *AgentIdentityMap
 }
 
 var _ MeshClient = (*CiliumMeshClient)(nil)
@@ -137,16 +145,36 @@ func (c *CiliumMeshClient) resolveTargetIP(ctx context.Context, namespace, agent
 	pod, err := c.clientset.CoreV1().Pods(namespace).Get(ctx, agentID, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			// Try label selector fallback
+			// Try label selector fallback. The selector matches on
+			// signalloom.ai/agent-name, which is written by whoever creates
+			// the pod -- including hosted-daytona-coder, which holds
+			// pod-create RBAC in this namespace -- so a decoy pod carrying a
+			// registered agent's label must not win this fallback and have
+			// mesh isolation applied to (or lifted from) the wrong IP.
 			selector := fmt.Sprintf("%s=%s", AgentNameLabel, agentNameFromID(agentID))
 			list, listErr := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 			if listErr != nil {
 				return "", classifyAPIError("list pods for ip", target, listErr)
 			}
-			if len(list.Items) == 0 {
+			items := list.Items
+			if c.identityMap != nil {
+				name := agentNameFromID(agentID)
+				identified := make([]corev1.Pod, 0, len(items))
+				for _, p := range items {
+					// Namespace is checked alongside ServiceAccount: a
+					// ServiceAccount name is only unique within its
+					// namespace, and `namespace` here can itself be
+					// caller-supplied.
+					if c.identityMap.Matches(name, namespace, p.Spec.ServiceAccountName) {
+						identified = append(identified, p)
+					}
+				}
+				items = identified
+			}
+			if len(items) == 0 {
 				return "", classifyAPIError("get pod for ip", target, err)
 			}
-			return list.Items[0].Status.PodIP, nil
+			return items[0].Status.PodIP, nil
 		}
 		return "", classifyAPIError("get pod for ip", target, err)
 	}

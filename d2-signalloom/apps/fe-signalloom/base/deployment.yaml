@@ -248,6 +248,17 @@ spec:
             - name: afm-importer-key
               mountPath: /etc/fe-signalloom/afm-importer-key
               readOnly: true
+            # Same ConfigMap fleet-manager mounts at /etc/fleet
+            # (../fleet-manager/base/configmap.yaml) -- the single source of
+            # truth for the signalloom.ai/agent-name -> (namespace,
+            # ServiceAccount) identity map, read here by claim_tenancy.py's
+            # authorize() so autoclaim cannot be spoofed into claiming a
+            # decoy pod as a KNOWN agent identity. See identity.cardvault /
+            # identity-ns.cardvault etc. in that ConfigMap's data for the
+            # full doc comment.
+            - name: agent-identity-map
+              mountPath: /etc/fe-signalloom/identity-map
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -323,3 +334,16 @@ spec:
             secretName: fe-signalloom-afm-importer-key
             optional: true
             defaultMode: 0440
+        # fleet-config is the ConfigMap fleet-manager/base/configmap.yaml
+        # declares; this Kustomization pulls that directory in as a resource
+        # (../../fleet-manager/base below) and its targetNamespace puts both
+        # Deployments' pods in fe-signalloom, so this is an in-namespace
+        # reference, not a cross-namespace one. `optional: true` so a
+        # deployment that has not yet rolled out fleet-manager's manifests
+        # degrades to "no registered mapping" (every name resolves,
+        # unchanged from before this map existed) rather than CrashLooping.
+        - name: agent-identity-map
+          configMap:
+            name: fleet-config
+            optional: true
+            defaultMode: 0444

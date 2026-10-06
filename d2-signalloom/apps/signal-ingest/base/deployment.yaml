@@ -10,6 +10,11 @@ metadata:
     app.kubernetes.io/part-of: signalloom
 spec:
   replicas: 1
+  # FrostDB is a single writer on an RWO PVC. RollingUpdate keeps the old pod
+  # holding the store while the new one fails its startup probe forever, so a
+  # roll never completes. Recreate releases the store first (brief outage).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: signal-ingest

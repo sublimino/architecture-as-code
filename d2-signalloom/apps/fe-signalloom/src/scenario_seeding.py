@@ -520,7 +520,7 @@ async def api_execute_scenario(req: ExecuteScenarioRequest, tenant: Tenant) -> S
         customer_hash=customer_hash,
     )
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=getattr(tenant, "principal", None),
         action="scenario.execute",
         target=res.customer_hash,

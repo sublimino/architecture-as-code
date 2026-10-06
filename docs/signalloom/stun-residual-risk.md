@@ -115,6 +115,66 @@ derived set with this delimited publication.
 
 <!-- STUN-PUBLISHED-BYPASS-REGISTER:v1 END -->
 
+## Retest 2026-10-06: proposed fixes
+
+Proposed fixes only, for every ID this retest did not mark CLOSED — OPEN,
+PARTIALLY, and UNVERIFIED alike, since all three still carry residual risk.
+None of these are implemented by this card.
+
+**STUN-BYPASS-002 (OpenBao restart recreates state; UNVERIFIED).** Give
+OpenBao a persistent backend (file or raft storage on the existing-shape PVC
+pattern already used for `spire-server-data` in the same manifest) instead of
+`-dev`, so a pod restart does not require the bootstrap Jobs to rerun at all.
+Short of that, add a startup probe on the bootstrap Jobs' completion that
+fleet-manager's `/health` reflects as degraded until bootstrap finishes, so a
+restart window is at least observable rather than silent.
+
+**STUN-BYPASS-004 (remote mutation precedes local audit commit; PARTIALLY).**
+Add a local pre-commit intent record — a row written *before* the call to
+fleet-manager, in the same transaction style already used, carrying
+`stun_attempt_id` and status `requested`— then update it to its observed
+outcome after `_perform_cluster_stun` returns. A crash in the gap then leaves
+a `requested` row an operator can reconcile against fleet-manager's own
+idempotency-keyed audit log, instead of leaving no local record at all.
+
+**STUN-BYPASS-020 (node reboot; UNVERIFIED, needs live lab).** No code fix
+proposed until the live lab (procedure given at STUN-BYPASS-020 above)
+establishes what actually happens; fixing a mechanism before measuring it
+risks solving the wrong problem. If the lab shows the owner-chain mechanism
+is not fast enough, the fix is almost certainly a short "pod observed running
+but not yet reconciled" quarantine state on the sentinel's own readiness, so
+nothing can reach the agent before its first post-restart reconcile.
+
+**STUN-BYPASS-021 (kubelet-triggered restart; PARTIALLY UNVERIFIED).** Add an
+integration test that forces a real container restart inside a real cgroup
+v2 hierarchy (no kind/live cluster needed — a local cgroup v2 namespace is
+sufficient) and asserts the child cgroup created after the restart reads
+`frozen 1` without the sentinel acting again. That converts the kernel-manual
+reasoning in this retest into a repeatable, offline-safe proof.
+
+**STUN-BYPASS-022 (node-root bypass; PARTIALLY, bounded by 30s resync).**
+Shorten `informerResync` for this specific signal, or add a dedicated
+drift-detection loop that polls `cgroup.events`/qdisc state on a tighter
+interval than the general resync, specifically for pods the owner chain or
+labels say are stunned. Also alert (not just self-heal) on any detected
+drift — a silent correction hides that tampering happened at all.
+
+**STUN-BYPASS-023 (host-network / non-`eth0` targets; OPEN).** Add an
+explicit `pod.Spec.HostNetwork` check in `reconcile()`: for a host-network
+target, cgroup freeze is still correct (it is pod-scoped, not network-scoped)
+but the TC-drop step should fail *loudly and distinctly* — a dedicated event
+type such as `network_severance_unsupported_hostnetwork` — rather than
+retrying the generic "find veth" error indefinitely and indistinguishably
+from a transient fault. The same guard generalises to any interface name
+other than `eth0` once a real multi-NIC CNI estate is in scope.
+
+**STUN-BYPASS-024 (conntrack dead code; PARTIALLY).** Either wire
+`pkg/tc/conntrack.go` into the production reconcile path if it is meant to be
+load-bearing, or delete it along with `cmd/stun-tcctl` if the TC-drop-only
+design superseded it — and in either case, refresh this document's own
+"Process-tier bypass" evidence section, whose `grep -n conntrack network.go`
+citation is stale against `f3bed75a`.
+
 ## Fail-open CNI case
 
 `policy.networking.k8s.io` is not served here. No `AdminNetworkPolicy` or

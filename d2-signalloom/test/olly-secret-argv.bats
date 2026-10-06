@@ -54,6 +54,7 @@ EOF
 
 @test "olly-secret-argv: the LLM API key never reaches a command line" {
   run "${REPO_ROOT}/scripts/olly-llm-secret.sh"
+  [ "$status" -eq 0 ]
   [ -f "$KUBECTL_ARGV_LOG" ]
   leaked="$(grep -F "$LLM_CANARY" "$KUBECTL_ARGV_LOG" || true)"
   [ -z "$leaked" ] || {
@@ -67,6 +68,7 @@ EOF
   # Without this, the assertion above would pass just as happily if the script
   # had stopped transmitting the key at all, or never ran.
   run "${REPO_ROOT}/scripts/olly-llm-secret.sh"
+  [ "$status" -eq 0 ]
   delivered="$(grep -F -- '--from-file=LLM_API_KEY=' "$KUBECTL_ARGV_LOG" || true)"
   [ -n "$delivered" ] || {
     echo "no --from-file=LLM_API_KEY= in argv; the secret is not being delivered"
@@ -78,6 +80,7 @@ EOF
 @test "olly-secret-argv: no --from-literal carries the key" {
   # Named explicitly, because the regression is a one-word edit back.
   run "${REPO_ROOT}/scripts/olly-llm-secret.sh"
+  [ "$status" -eq 0 ]
   literal="$(grep -F -- '--from-literal=LLM_API_KEY' "$KUBECTL_ARGV_LOG" || true)"
   [ -z "$literal" ]
 }
@@ -87,12 +90,14 @@ EOF
   # credentials; moving them to files would be churn without benefit, and a
   # future reader should be able to tell that was a decision rather than a miss.
   run "${REPO_ROOT}/scripts/olly-llm-secret.sh"
+  [ "$status" -eq 0 ]
   provider="$(grep -F -- '--from-literal=LLM_PROVIDER=' "$KUBECTL_ARGV_LOG" || true)"
   [ -n "$provider" ]
 }
 
 @test "olly-secret-argv: the staged LLM key does not outlive the run" {
   run "${REPO_ROOT}/scripts/olly-llm-secret.sh"
+  [ "$status" -eq 0 ]
   residue="$(grep -rlF "$LLM_CANARY" "$BATS_TEST_TMPDIR" 2>/dev/null \
                | grep -v 'fixture.env' || true)"
   [ -z "$residue" ] || {
@@ -105,6 +110,7 @@ EOF
 
 @test "olly-secret-argv: the ServiceNow password never reaches a command line" {
   run "${REPO_ROOT}/scripts/olly-pdi-secret.sh"
+  [ "$status" -eq 0 ]
   leaked="$(grep -F "$PDI_CANARY" "$KUBECTL_ARGV_LOG" || true)"
   [ -z "$leaked" ] || {
     echo "the password appeared in argv:"
@@ -115,12 +121,14 @@ EOF
 
 @test "olly-secret-argv: the password is still delivered, by file" {
   run "${REPO_ROOT}/scripts/olly-pdi-secret.sh"
+  [ "$status" -eq 0 ]
   delivered="$(grep -F -- '--from-file=SERVICENOW_PASSWORD=' "$KUBECTL_ARGV_LOG" || true)"
   [ -n "$delivered" ]
 }
 
 @test "olly-secret-argv: the ServiceNow username may stay literal, the password may not" {
   run "${REPO_ROOT}/scripts/olly-pdi-secret.sh"
+  [ "$status" -eq 0 ]
   user="$(grep -F -- '--from-literal=SERVICENOW_USER=' "$KUBECTL_ARGV_LOG" || true)"
   pw="$(grep -F -- '--from-literal=SERVICENOW_PASSWORD' "$KUBECTL_ARGV_LOG" || true)"
   [ -n "$user" ]
@@ -129,6 +137,7 @@ EOF
 
 @test "olly-secret-argv: the staged password does not outlive the run" {
   run "${REPO_ROOT}/scripts/olly-pdi-secret.sh"
+  [ "$status" -eq 0 ]
   residue="$(grep -rlF "$PDI_CANARY" "$BATS_TEST_TMPDIR" 2>/dev/null \
                | grep -v 'fixture.env' || true)"
   [ -z "$residue" ]

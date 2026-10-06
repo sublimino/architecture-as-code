@@ -54,3 +54,23 @@
 
 VAC007 | scripts/lib/spire-trust-anchor.sh | mapfile -t encoded_pems | producer: openbao_jwt_validation_keys emits OpenBao's validation keys, and holding none is a real cluster state rather than a discarded error. Its only non-test caller, assert_openbao_accepts_spire_jwt_keys, refuses loudly on empty at the `[[ -n "$bao_out" ]]` guard ("OpenBao holds NO JWT validation keys at all") before comparing anything. Guarding here as well would turn a reportable state into a library-level abort.
 VAC007 | test/helpers/toolchain-contract.bash | mapfile -t names | producer: contract_remote_path_vars emits name/variable pairs for callers to assert over. Both callers in test/terraform-env-contract.bats already refuse on empty — `[ -n "$output" ]` at line 426 and `[ -n "$pairs" ] || { echo "no exported name/variable pairs found"; return 1; }` at line 483 — so the emptiness check exists, one frame up, in the tests that would otherwise go vacuous.
+
+# VAC008's own comment states it ships with no allowlist entries because every
+# prior finding was a true positive. These four are the first exception, and
+# they are a detector limitation rather than a defect: scan_pipefail_early_exit_grep
+# tracks quote state per LINE (`U[i] = unquote(L[i])`), not across lines, so it
+# cannot see that build.sh:79-105 is one multi-line single-quoted string handed
+# to `bash -c` inside a docker container — exactly false-positive class 1 named
+# in the rule's own comment ("a pipeline quoted as data"), just spanning more
+# lines than the per-line tracker follows. The outer script's `set -euo pipefail`
+# (build.sh:22) is attributed to these four `grep -q` lines because the scanner
+# reads them as the outer script's own text, but they never run under it: the
+# embedded script opens its own `bash -c` process with only `set -e` (no
+# pipefail) at its own top, confirmed by reading the full quoted body — there is
+# no `pipefail` anywhere inside the single-quoted span. Without pipefail, grep's
+# own exit status (0 match / 1 no-match) is the pipeline's status regardless of
+# the producer's SIGPIPE, so the SIGPIPE-inverts-the-verdict mechanism this rule
+# exists to catch cannot occur in the context where these lines actually execute.
+VAC008 | d2-signalloom/apps/stun-sentinel/bpf/build.sh | grep -q "EM_BPF" | inside the docker-run bash -c string (build.sh:79-105), which sets only `set -e`, no pipefail — confirmed by reading the whole single-quoted body. The scanner attributes the outer script's `set -euo pipefail` to this line because its quote-state tracking is per-line and cannot see a multi-line single-quoted span; see the note above this block.
+VAC008 | d2-signalloom/apps/stun-sentinel/bpf/build.sh | \.BTF | same nested bash -c as the EM_BPF entry above, no pipefail in effect where either of these two lines actually runs. One short anchor covers both the ".BTF" and ".BTF.ext" findings: apply_allowlist's `awk -v A=` unescapes `\.` to a plain `.` (with a warning), so what it matches against is the bare substring ".BTF" -- present in both lines' own text, verified directly against both. A longer anchor including the surrounding `grep -q "` text does NOT work here: grep -qF (the file-presence half of this check) reads the anchor unescaped straight from this line, so the literal backslash it needs to find the real file's `"\.BTF"` sits at a DIFFERENT character offset than the awk-mangled version needs for the index() match, and no single anchor string satisfies both checks when it spans across the backslash. Anchoring on the backslash-dot fragment alone sidesteps the conflict entirely.
+VAC008 | d2-signalloom/apps/stun-sentinel/bpf/build.sh | grep -q "classifier/drop" | same nested bash -c as the EM_BPF entry above, no pipefail in effect where this line actually runs.

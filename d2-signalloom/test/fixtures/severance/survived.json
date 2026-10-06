@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "1.0.0",
+  "capturedAt": "2026-08-31T12:00:12Z",
+  "cni": "fixture-cni",
+  "cniVersion": "1.0.0-test",
+  "targetPod": "fe-signalloom-agents/stun-severance-target-sender",
+  "targetUID": "00000000-0000-4000-8000-000000000042",
+  "targetIP": "10.244.0.42",
+  "vethIfindex": 42,
+  "cgroupPath": "/sys/fs/cgroup/kubepods.slice/pod00000000-0000-4000-8000-000000000042",
+  "frozen": true,
+  "witnessStream": {
+    "senderPod": "fe-signalloom-agents/stun-severance-witness-sender",
+    "receiverPod": "fe-signalloom-agents/stun-severance-receiver",
+    "expectedCount": 12,
+    "arrivals": [
+      {"sequence": 1, "receivedAt": "2026-08-31T12:00:01Z"},
+      {"sequence": 2, "receivedAt": "2026-08-31T12:00:02Z"},
+      {"sequence": 3, "receivedAt": "2026-08-31T12:00:03Z"},
+      {"sequence": 4, "receivedAt": "2026-08-31T12:00:04Z"},
+      {"sequence": 5, "receivedAt": "2026-08-31T12:00:05Z"},
+      {"sequence": 6, "receivedAt": "2026-08-31T12:00:06Z"},
+      {"sequence": 7, "receivedAt": "2026-08-31T12:00:07Z"},
+      {"sequence": 8, "receivedAt": "2026-08-31T12:00:08Z"},
+      {"sequence": 9, "receivedAt": "2026-08-31T12:00:09Z"},
+      {"sequence": 10, "receivedAt": "2026-08-31T12:00:10Z"},
+      {"sequence": 11, "receivedAt": "2026-08-31T12:00:11Z"},
+      {"sequence": 12, "receivedAt": "2026-08-31T12:00:12Z"}
+    ]
+  },
+  "targetStream": {
+    "senderPod": "fe-signalloom-agents/stun-severance-target-sender",
+    "receiverPod": "fe-signalloom-agents/stun-severance-receiver",
+    "expectedCount": 12,
+    "arrivals": [
+      {"sequence": 1, "receivedAt": "2026-08-31T12:00:01Z"},
+      {"sequence": 2, "receivedAt": "2026-08-31T12:00:02Z"},
+      {"sequence": 3, "receivedAt": "2026-08-31T12:00:03Z"},
+      {"sequence": 4, "receivedAt": "2026-08-31T12:00:04Z"},
+      {"sequence": 5, "receivedAt": "2026-08-31T12:00:05Z"},
+      {"sequence": 6, "receivedAt": "2026-08-31T12:00:06Z"},
+      {"sequence": 7, "receivedAt": "2026-08-31T12:00:07Z"},
+      {"sequence": 8, "receivedAt": "2026-08-31T12:00:08Z"},
+      {"sequence": 9, "receivedAt": "2026-08-31T12:00:09Z"},
+      {"sequence": 10, "receivedAt": "2026-08-31T12:00:10Z"},
+      {"sequence": 11, "receivedAt": "2026-08-31T12:00:11Z"},
+      {"sequence": 12, "receivedAt": "2026-08-31T12:00:12Z"}
+    ]
+  },
+  "conntrackBefore": {"present": true, "observedAt": "2026-08-31T11:59:59Z"},
+  "conntrackAfter": {"present": true, "observedAt": "2026-08-31T12:00:12Z"},
+  "tcDropCounters": {"beforePackets": 100, "afterPackets": 100},
+  "verdict": "SURVIVED",
+  "verdictReason": "witness-healthy-target-arrivals-observed",
+  "clockId": "receiver-uid-0001:boot-fixture-0001",
+  "restartCount": {"before": 0, "after": 0}
+}

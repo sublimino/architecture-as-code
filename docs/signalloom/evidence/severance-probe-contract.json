@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.local/contracts/severance-probe/1.0.0",
+  "title": "Signal Loom severance probe record",
+  "description": "Closed evidence contract for phase 4 and phase 5 severance probes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "cni",
+    "cniVersion",
+    "targetPod",
+    "targetUID",
+    "targetIP",
+    "vethIfindex",
+    "cgroupPath",
+    "frozen",
+    "witnessStream",
+    "targetStream",
+    "conntrackBefore",
+    "conntrackAfter",
+    "tcDropCounters",
+    "verdict",
+    "verdictReason",
+    "clockId",
+    "restartCount"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "cni": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cniVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "targetPod": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    },
+    "targetUID": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "targetIP": {
+      "type": "string",
+      "oneOf": [
+        { "format": "ipv4" },
+        { "format": "ipv6" }
+      ]
+    },
+    "vethIfindex": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "cgroupPath": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "frozen": {
+      "type": "boolean",
+      "description": "True only after node-side cgroup.events reports frozen 1 for cgroupPath."
+    },
+    "witnessStream": {
+      "$ref": "#/$defs/stream",
+      "description": "Receiver-stamped arrivals from the independent unfrozen witness sender."
+    },
+    "targetStream": {
+      "$ref": "#/$defs/stream",
+      "description": "Receiver-stamped arrivals from the target sender."
+    },
+    "conntrackBefore": {
+      "$ref": "#/$defs/conntrackObservation",
+      "description": "Node-side observation of the target flow before the silent window."
+    },
+    "conntrackAfter": {
+      "$ref": "#/$defs/conntrackObservation",
+      "description": "Node-side observation of the target flow after the silent window."
+    },
+    "tcDropCounters": {
+      "$ref": "#/$defs/tcDropCounters",
+      "description": "Packets reported by the target veth ingress filter before and after observation."
+    },
+    "verdict": {
+      "enum": ["SEVERED", "SURVIVED", "UNVERIFIED"]
+    },
+    "verdictReason": {
+      "enum": [
+        "witness-healthy-target-silent-kernel-severed",
+        "witness-healthy-target-arrivals-observed",
+        "insufficient-or-conflicting-evidence"
+      ]
+    },
+    "clockId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable receiver clock identity shared by both receiver-stamped streams."
+    },
+    "restartCount": {
+      "$ref": "#/$defs/restartCount",
+      "description": "Target container restartCount sampled immediately before and after observation."
+    }
+  },
+  "$defs": {
+    "arrival": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "receivedAt"],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "receivedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["senderPod", "receiverPod", "expectedCount", "arrivals"],
+      "properties": {
+        "senderPod": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receiverPod": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "arrivals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/arrival"
+          }
+        }
+      }
+    },
+    "conntrackObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "observedAt"],
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "tcDropCounters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beforePackets", "afterPackets"],
+      "properties": {
+        "beforePackets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "afterPackets": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "restartCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after"],
+      "properties": {
+        "before": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

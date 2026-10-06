@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "capturedAt": "2026-08-31T12:00:12Z",
+  "cni": "fixture-cni",
+  "cniVersion": "1.0.0-test",
+  "targetPod": "fe-signalloom-agents/stun-severance-target-sender",
+  "targetUID": "00000000-0000-4000-8000-000000000042",
+  "targetIP": "10.244.0.42",
+  "vethIfindex": 42,
+  "cgroupPath": "/sys/fs/cgroup/kubepods.slice/pod00000000-0000-4000-8000-000000000042",
+  "frozen": true,
+  "witnessStream": {
+    "senderPod": "fe-signalloom-agents/stun-severance-witness-sender",
+    "receiverPod": "fe-signalloom-agents/stun-severance-receiver",
+    "expectedCount": 12,
+    "arrivals": []
+  },
+  "targetStream": {
+    "senderPod": "fe-signalloom-agents/stun-severance-target-sender",
+    "receiverPod": "fe-signalloom-agents/stun-severance-receiver",
+    "expectedCount": 12,
+    "arrivals": []
+  },
+  "conntrackBefore": {"present": true, "observedAt": "2026-08-31T11:59:59Z"},
+  "conntrackAfter": {"present": false, "observedAt": "2026-08-31T12:00:12Z"},
+  "tcDropCounters": {"beforePackets": 100, "afterPackets": 112},
+  "verdict": "UNVERIFIED",
+  "verdictReason": "insufficient-or-conflicting-evidence",
+  "clockId": "receiver-uid-0001:boot-fixture-0001",
+  "restartCount": {"before": 0, "after": 0}
+}

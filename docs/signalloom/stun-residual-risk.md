@@ -23,17 +23,28 @@
 >   pod recreation erased `public.audit_events`) was fixed by
 >   `d396b8ee` "feat(signalloom): add host-backed postgres persistence and
 >   lifecycle targets" (2026-10-01), after this record was written.
-> - **Open, unretested against current code — owner to re-verify.**
+> - **Retested 2026-10-06 against `f3bed75a` on `sldc/bypass-retest` — see
+>   `## Retest 2026-10-06` below and the updated register entries.**
 >   BYPASS-001/002/004/005 (credential TTL/lease non-revoke, audit
->   non-atomicity) predate the current `fleet-manager`
->   `RotateAgentCredentials` / `RevokeCredentials` cascade and the
->   `attestation_event_contract.go` Witness-attested pipeline
->   (`d2-signalloom/apps/fleet-manager/openbao_client.go:707-760`), which look
->   like they address the same concerns but were never checked against this
->   register. BYPASS-017/019-025 (cgroup/veth/sentinel-state loss on pod
->   reschedule, node reboot, or sentinel restart) are about the freeze
->   mechanism itself and are architecture-independent; nothing in this repo's
->   current tests exercises them.
+>   non-atomicity): 001 and 005 are now **CLOSED** (token-accessor revoke by
+>   subject in `k8sclient.go:740-826`, and the append-only `audit_events`
+>   trigger in migration 030, respectively); 004 is **PARTIALLY** closed
+>   (registry+audit are now one local transaction, but the remote-mutation/
+>   local-commit gap is architectural and documented, not accidental); 002
+>   stays **UNVERIFIED (needs live lab)** — a real OpenBao pod restart is a
+>   live-cluster action out of scope for this retest, though the premise it
+>   depends on (deleting a role/KV path) no longer describes how containment
+>   revokes credentials. BYPASS-017/019-025 (cgroup/veth/sentinel-state loss on
+>   pod reschedule, node reboot, or sentinel restart): 017, 019 and 025 are now
+>   **CLOSED** by the Deployment/ReplicaSet-level `signalloom.io/stunned`
+>   owner-chain record (`kernel.go`, `main.go`), which the reconciler reads
+>   independently of any pod label or in-memory state and re-applies on every
+>   observed pod, including replacements and a freshly-restarted sentinel's
+>   initial sync. 020 stays **UNVERIFIED (needs live lab)** (node reboot is a
+>   live/destructive action, explicitly out of scope). 021 is refined but still
+>   **PARTIALLY UNVERIFIED**; 022 and 024 are **PARTIALLY** (self-healing
+>   resync bounds 022; the specific config-off vector in 024 no longer exists,
+>   but a new, narrower dead-code question is raised); 023 remains **OPEN**.
 > - The companion input census this statement cites below,
 >   `stun-residual-risk-frame.md` (P7-PRE, 2026-09-01), was not recovered: it
 >   is superseded working notes feeding this already-published matrix, and the
@@ -73,11 +84,11 @@ derived set with this delimited publication.
 
 <!-- STUN-PUBLISHED-BYPASS-REGISTER:v1 BEGIN -->
 
-1. `STUN-BYPASS-001` — **OPEN; repository premise verified.** A token issued before role and KV deletion can remain usable to its TTL because `stun-agent.sh` performs no token or lease revoke.
-2. `STUN-BYPASS-002` — **OPEN; not executed.** Restarting in-memory OpenBao followed by bootstrap can recreate the deleted role or KV path without changing the stunned target.
-3. `STUN-BYPASS-003` — **SOURCE-CONFIRMED.** The fake proxy patches `state=stunned`, emits an Event, and reports “credentials revoked” without calling OpenBao; it also omits the sentinel's `stun-request`, so the ordinary proxy path does not invoke T3.
-4. `STUN-BYPASS-004` — **OPEN; repository premise verified.** The proxy side effect precedes the application audit transaction, so cluster mutation and audit persistence are not atomic.
-5. `STUN-BYPASS-005` — **OPEN; not executed.** Deleting the caller-owned freeze-first JSONL removes its record without restoring deleted OpenBao state.
+1. `STUN-BYPASS-001` — **CLOSED by `d2-signalloom/apps/fleet-manager/k8sclient.go:740-826` (`revokeBaoPlaneFor`) + `openbao_client.go:483-500` (`RevokeTokensBySubject`).** `stun-agent.sh` no longer exists in this repository (grep-confirmed absent; the name survives only in prose/doc references). The real cascade now revokes every live OpenBao token whose SPIFFE subject matches the stunned agent, by accessor, via `LIST auth/token/accessors` + `revoke-accessor` — independent of when the token was issued, which closes the specific TTL-survival window the bypass described. Proven by `TestBaoPlane_RevokesTheAgentsTokens` (`bao_plane_tokens_test.go:30-51`), which asserts both a pre-issued `acc-1` and a `sub`-tagged `acc-2` token are revoked and the plane only reports `Contained` when both the lease AND the token revoke succeed (`TestBaoPlane_TokenRevocationFailureIsNotContained`, same file, line 53).
+2. `STUN-BYPASS-002` — **UNVERIFIED (needs live lab).** Premise re-verified current: OpenBao still runs `-dev` (in-memory, no PVC, single replica) at `d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml:26`, so a pod restart wipes all mounts/roles/tokens and the bootstrap Jobs (`openbao-fleet-bootstrap.yaml`, `openbao-fleet-manager-bootstrap.yaml`) would recreate them from scratch. But current containment (see 001) never deletes a role or KV path — it revokes leases and token accessors — so the bypass's own mechanism ("recreate the deleted role or KV path") does not describe how this code revokes credentials; what would need verifying instead is whether a restart+rebootstrap lets the agent mint a *fresh* credential while k8s state still says stunned. That requires an actual OpenBao pod restart, which is explicitly out of scope for this card. **Procedure for the live lab:** `kubectl -n inf-bao delete pod -l app.kubernetes.io/name=openbao`; wait for `openbao-fleet-bootstrap` and `openbao-fleet-manager-bootstrap` Jobs to complete; attempt a fresh JWT login as the stunned agent's SPIFFE identity against the new OpenBao; separately confirm whether the pod's still-active node-local TC drop (unaffected by OpenBao restart) prevents the agent process from ever reaching the new OpenBao to present that credential.
+3. `STUN-BYPASS-003` — **SOURCE-CONFIRMED.** The fake proxy patches `state=stunned`, emits an Event, and reports “credentials revoked” without calling OpenBao; it also omits the sentinel's `stun-request`, so the ordinary proxy path does not invoke T3. *(Re-verified 2026-10-06: this path is no longer load-bearing — `d2-signalloom/apps/fe-signalloom/src/api_compat.py:5663-5668` now calls fleet-manager's real cascade instead; the fake proxy's own behavior is unchanged where it still exists, so the verdict stands as stated.)*
+4. `STUN-BYPASS-004` — **PARTIALLY closed.** The fake-proxy half of this concern is gone: `api_compat.py:5666-5668` replaced the call that "relabelled the pod with a canned reason and claimed a credential revocation it never performed." The registry `UPDATE` and the `audit_events` `INSERT` are now one local `_write` transaction (`api_compat.py:5692-5695`), so a rejected audit row can no longer silently diverge from registry state, and even a failed cascade is recorded as `agent.stun_failed` rather than dropped. What remains open, by design and now explicitly documented rather than accidental: "fleet-manager is called first, because an outcome cannot be recorded before it is observed... that gap is irreducible in any observe-then-record design" (`api_compat.py:5690-5695`). A crash between the remote cluster mutation succeeding and the local transaction committing still loses the audit row while the mutation already happened; no outbox/idempotent-replay pattern bridges that gap.
+5. `STUN-BYPASS-005` — **CLOSED by `d2-signalloom/apps/fe-signalloom/src/db/migrations/030_audit_events_append_only.sql`.** The caller-owned JSONL file this bypass described no longer exists; the audit trail is `public.audit_events`, written exclusively via `INSERT` by `_audit_log()` in `api_compat.py`. Migration 030 installs a `BEFORE UPDATE OR DELETE OR TRUNCATE ... FOR EACH STATEMENT` trigger, `ENABLE ALWAYS` (not skipped by `session_replication_role=replica`), that unconditionally raises `42501` — measured on the live cluster to refuse the same statements that succeeded before the trigger existed, even though the app role is a Postgres superuser (migration file lines 26-54). The caller can no longer delete its own record over the ordinary application DB connection; only a superuser explicitly disabling the trigger (a deliberate, greppable DDL act, not a silent delete) can rewrite history.
 6. `STUN-BYPASS-006` — **PRECONDITION MEASURED.** `policy.networking.k8s.io` is unserved and neither administrative CRD exists, so a control depending on that group is fail-open here.
 7. `STUN-BYPASS-007` — **STATE MEASURED.** The Cilium cluster-wide policy CRD exists while `stun-quarantine-admin-deny` is absent.
 8. `STUN-BYPASS-008` — **STATE MEASURED by P7-PRE.** `ResourceSet/agent-swarm` and its generated Kustomization are absent, so their intended controls are not stored.

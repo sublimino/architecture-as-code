@@ -104,6 +104,20 @@ describe('NetworkTestsPage', () => {
     expect(listMock).toHaveBeenCalledWith('fake-token')
   })
 
+  it('renders every assertion returned by the canonical 26-test suite', async () => {
+    listMock.mockResolvedValue({
+      tests: Array.from({ length: 26 }, (_, index) =>
+        test_({ name: `canonical-network-test-${index + 1}` }),
+      ),
+      scanStatus: 'complete',
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('canonical-network-test-26')).toBeTruthy()
+    expect(screen.getByTestId('netassert-count').textContent).toBe('26 of 26 shown')
+  })
+
   it('renders the CI Pipeline Results section', () => {
     renderPage()
     expect(screen.getByText('CI Pipeline Results')).toBeTruthy()

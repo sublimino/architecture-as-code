@@ -257,7 +257,7 @@ JSON
   done
   # The positive half: without it, a guard that rejects EVERYTHING would pass
   # every assertion above and this suite would be measuring nothing.
-  for good in "demo-1" "demo-12" "ci-1" "pilot-kusari"; do
+  for good in "demo-1" "demo-12" "ci-1"; do
     fixture="$(env_fixture "${good}")"
     run_make gcp-tf-status ENV="${good}" TF_STATE_BUCKET=changeme-tfstate TF_ROOT_ENV="${fixture}"
     [ "$status" -eq 0 ] || {

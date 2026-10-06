@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -162,5 +163,37 @@ func TestHealthReportsFleetStunFailures(t *testing.T) {
 	}
 	if resp.FleetStunFailures != 3 {
 		t.Fatalf("fleet_stun_failures = %d, want 3 (body %s)", resp.FleetStunFailures, w.Body.String())
+	}
+}
+
+func TestHealthReportsRingbufStatsAndMetrics(t *testing.T) {
+	srv := &HealthServer{
+		tcReady:     func() bool { return true },
+		drops:       func() (uint64, error) { return 12, nil },
+		prefiltered: func() (uint64, error) { return 345, nil },
+	}
+	// Test /healthz JSON
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	var resp HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.RingbufDrops != 12 {
+		t.Fatalf("ringbuf_drops = %d, want 12", resp.RingbufDrops)
+	}
+	if resp.RingbufPrefiltered != 345 {
+		t.Fatalf("ringbuf_prefiltered = %d, want 345", resp.RingbufPrefiltered)
+	}
+
+	// Test /metrics exposition
+	mw := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(mw, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	metricsText := mw.Body.String()
+	if !strings.Contains(metricsText, "sentinel_ringbuf_drops_total 12") {
+		t.Fatalf("metrics missing sentinel_ringbuf_drops_total 12: %s", metricsText)
+	}
+	if !strings.Contains(metricsText, "sentinel_ringbuf_prefiltered_total 345") {
+		t.Fatalf("metrics missing sentinel_ringbuf_prefiltered_total 345: %s", metricsText)
 	}
 }

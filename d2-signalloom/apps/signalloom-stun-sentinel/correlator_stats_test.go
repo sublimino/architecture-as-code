@@ -30,6 +30,7 @@ func TestCorrelatorStatsReportKernelRingBufferDrops(t *testing.T) {
 		func() correlator.Stats { return correlator.Stats{} }, // user space unchanged
 		func() (uint64, error) { return 42, nil },             // only the kernel dropped
 		func() (uint64, error) { return 0, nil },
+		nil,
 		10*time.Millisecond)
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -67,6 +68,7 @@ func TestCorrelatorStatsReportThePrefilteredCountAndItsChanges(t *testing.T) {
 		func() correlator.Stats { return correlator.Stats{} },
 		func() (uint64, error) { return 0, nil },
 		func() (uint64, error) { return n.Load(), nil },
+		nil,
 		10*time.Millisecond)
 
 	waitFor := func(want string) {
@@ -86,4 +88,37 @@ func TestCorrelatorStatsReportThePrefilteredCountAndItsChanges(t *testing.T) {
 	waitFor(`"ringbuf_prefiltered":7`)
 	n.Store(9) // nothing else changes
 	waitFor(`"ringbuf_prefiltered":9`)
+}
+
+func TestCorrelatorStatsTriggersDropAnomalyCallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var dropsNotified atomic.Uint64
+	var dropsVal atomic.Uint64
+	dropsVal.Store(0)
+
+	go reportCorrelatorStats(ctx,
+		func() correlator.Stats { return correlator.Stats{} },
+		func() (uint64, error) { return dropsVal.Load(), nil },
+		func() (uint64, error) { return 0, nil },
+		func(newDrops uint64) {
+			dropsNotified.Add(newDrops)
+		},
+		10*time.Millisecond)
+
+	time.Sleep(25 * time.Millisecond)
+	if got := dropsNotified.Load(); got != 0 {
+		t.Fatalf("expected 0 drops notified initially, got %d", got)
+	}
+
+	dropsVal.Store(15)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := dropsNotified.Load(); got == 15 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("drop anomaly callback not triggered; got %d notified, want 15", dropsNotified.Load())
 }

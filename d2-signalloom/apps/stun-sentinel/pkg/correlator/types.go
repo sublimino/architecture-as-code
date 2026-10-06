@@ -13,11 +13,14 @@ const (
 	SyscallTypeOpenat  uint8 = 1
 	SyscallTypeExecve  uint8 = 2
 	SyscallTypeConnect uint8 = 3
+	SyscallTypeOpenat2 uint8 = 4
 
 	// Normalized syscall names
-	SyscallNameOpenat  = "sys_enter_openat"
-	SyscallNameExecve  = "sys_enter_execve"
-	SyscallNameConnect = "tcp_connect"
+	SyscallNameOpenat       = "sys_enter_openat"
+	SyscallNameOpenat2      = "sys_enter_openat2"
+	SyscallNameExecve       = "sys_enter_execve"
+	SyscallNameConnect      = "tcp_connect"
+	SyscallNameRingbufDrops = "ringbuf_drops_anomaly"
 
 	// SyscallNameEvasiveBurst names a behavioural detection (SLAAT-P2-4): a
 	// rapid run of execve events from one cgroup within a short window, as

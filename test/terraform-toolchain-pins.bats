@@ -717,12 +717,28 @@ FIXTURE
   # ".toolchain-mutation-in-progress"), so the harness never saw the planted
   # sentinel, ran a full ~20-minute mutation pass instead of refusing, and this
   # test failed for a reason unrelated to the refusal it means to prove.
+  #
+  # Anchored to the START of the line. An earlier, unanchored version of this
+  # pattern also matched "ms_guard_init" inside this proof's OWN comment —
+  # `backup_all() { :; } # ms_guard_init already took the out-of-repo backup`
+  # — giving grep two hits and `proof_name` the two-line value
+  # "toolchain\nalready". That built a sentinel path with a literal embedded
+  # newline in its filename (confirmed on disk: `./.toolchain<NL>already-
+  # mutation-in-progress`), which the real script never checks for, so the
+  # refusal silently never fired and the harness ran for real again. The real
+  # call is always the one line that begins with ms_guard_init; nothing else
+  # in this file may start a line that way.
   local proof_name
-  proof_name="$(grep -oE 'ms_guard_init[[:space:]]+[a-z0-9-]+' "$proof" | awk '{print $2}')"
-  [ -n "$proof_name" ] || {
-    echo "could not find the proof name ms_guard_init is called with in ${proof}" >&2
+  proof_name="$(grep -oE '^ms_guard_init[[:space:]]+[a-z0-9-]+' "$proof" | awk '{print $2}')"
+  # Defensive: a second genuine call added later would silently repeat this
+  # same defect in a new shape. Multi-line (or otherwise non-bare-word) output
+  # here is a harness fault, not a value to build a path from.
+  case "$proof_name" in
+  '' | *[!a-z0-9-]*)
+    echo "could not find a single bare proof-name argument to ms_guard_init in ${proof}: got '${proof_name}'" >&2
     return 1
-  }
+    ;;
+  esac
 
   local sentinel="${REPO_ROOT}/.${proof_name}-mutation-in-progress"
   [ ! -e "$sentinel" ] || skip "a real mutation run is in progress"

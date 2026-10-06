@@ -34,3 +34,4 @@ d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go:stun-sentinel # Go imp
 d2-signalloom/apps/fleet-manager/cmd/resume-token/main_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 d2-signalloom/apps/fleet-manager/resume_token_cli_compat_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 test/fixtures/test-isolation-allowlist.txt # SLAWS isolation audit allow-list records per-file reasons and so carries the R3 module paths apps/stun-sentinel and apps/signalloom-stun-sentinel
+scripts/vacuous-assertions.allow:stun-sentinel # vacuous-assertions allow-list records three VAC008 exceptions anchored on d2-signalloom/apps/stun-sentinel/bpf/build.sh, the R3 go-module directory

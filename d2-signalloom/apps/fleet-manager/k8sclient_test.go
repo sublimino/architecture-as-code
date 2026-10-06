@@ -169,6 +169,63 @@ func TestK8sGetPodStateNoLabelIsUnknownNotAnError(t *testing.T) {
 	}
 }
 
+// ── Identity-map spoof rejection in resolvePod's label-selector fallback ────
+//
+// resolvePod tries an exact-name Get first, then falls back to the
+// signalloom.ai/agent-name selector for any agent whose pod name diverges
+// from its DAG id (kusari-agent's does). hosted-daytona-coder holds
+// pod-create RBAC in this namespace, so a decoy pod carrying that label is
+// exactly what it could create. Every resolvePod caller -- GetPodState here,
+// but also SetPodState, the credential planes and the mesh client -- must
+// never let that decoy win the selector fallback.
+
+func TestK8sGetPodState_LabelSelectorSpoofWithWrongServiceAccountIsRejected(t *testing.T) {
+	decoy := spoofedPod("decoy-daytona-pod", "kusari-agent", "hosted-daytona-coder")
+	decoy.Labels[PodStateLabel] = "running"
+	c, _ := newTestK8sClient(decoy)
+	c.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+
+	state, err := c.GetPodState(context.Background(), testNamespace, "agent-kusari-agent")
+	if err == nil {
+		t.Fatalf("state = %q, err = nil; want an error: a pod running as hosted-daytona-coder must never answer for agent-kusari-agent merely by carrying its label", state)
+	}
+	if state == "running" {
+		t.Fatal("must never read the decoy's state as the real agent's")
+	}
+}
+
+func TestK8sGetPodState_LabelSelectorWithMatchingServiceAccountStillResolves(t *testing.T) {
+	legit := spoofedPod("agent-kusari-74f9b6-abcde", "kusari-agent", "kusari-agent")
+	legit.Labels[PodStateLabel] = "running"
+	c, _ := newTestK8sClient(legit)
+	c.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+
+	state, err := c.GetPodState(context.Background(), testNamespace, "agent-kusari-agent")
+	if err != nil {
+		t.Fatalf("GetPodState: %v", err)
+	}
+	if state != "running" {
+		t.Fatalf("state = %q, want running", state)
+	}
+}
+
+func TestK8sGetPodState_UnregisteredAgentNameIsUnaffectedByIdentityMap(t *testing.T) {
+	// cardvault is not in the identity map here; the map must not become a
+	// second allow-list that starts denying names it was never told about.
+	pod := spoofedPod("agent-cardvault-bb57657-jlf8w", "cardvault", "anything-at-all")
+	pod.Labels[PodStateLabel] = "active"
+	c, _ := newTestK8sClient(pod)
+	c.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+
+	state, err := c.GetPodState(context.Background(), testNamespace, "agent-cardvault")
+	if err != nil {
+		t.Fatalf("GetPodState: %v", err)
+	}
+	if state != "active" {
+		t.Fatalf("state = %q, want active (unregistered agent name must still resolve)", state)
+	}
+}
+
 func TestK8sSetPodStateWritesBothLabels(t *testing.T) {
 	c, cs := newTestK8sClient(agentPod("agent-cardvault", "active", map[string]string{StunnedLabel: "false"}))
 

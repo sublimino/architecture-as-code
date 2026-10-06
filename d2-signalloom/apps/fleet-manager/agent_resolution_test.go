@@ -265,3 +265,75 @@ func TestResolveAgentID_PrefixedBareName(t *testing.T) {
 		t.Fatalf("a prefixed DAG id must not touch the API server, saw %d actions", n)
 	}
 }
+
+// ── Identity-map spoof rejection (sldc/sa-identity) ──────────────────────────
+//
+// hosted-daytona-coder holds pod-create RBAC in fe-signalloom-agents
+// (infra/agent-swarm/hosted-daytona-coder/rolebinding.yaml). Without the
+// identity map, a pod it creates carrying signalloom.ai/agent-name=kusari-agent
+// would resolve via the label branch exactly as the real agent does. These
+// tests pin that a registered identity map closes that gap: the label branch
+// must also require the pod's ServiceAccount to match the one registered for
+// that agent name.
+
+// resolutionServerWithIdentity is resolutionServer plus a wired identity map,
+// so the label branch's ServiceAccount check actually runs.
+func resolutionServerWithIdentity(t *testing.T, identity map[string]string, objects ...runtime.Object) (*server, *fake.Clientset) {
+	t.Helper()
+	real, cs := newTestK8sClient(objects...)
+	im := NewAgentIdentityMap(identity)
+	real.identityMap = im
+	client := credOKClient{k8sFleetClient: real}
+	dag := resolutionDAG(t)
+	return &server{dag: dag, orchestrator: NewCascadeOrchestrator(dag, client, 0), identityMap: im}, cs
+}
+
+// spoofedPod carries the real kusari-agent's discovery labels but runs as a
+// different ServiceAccount, as a pod hosted-daytona-coder created would.
+func spoofedPod(name, agentNameLabel, serviceAccount string) *corev1.Pod {
+	p := livePod(name, agentNameLabel)
+	p.Spec.ServiceAccountName = serviceAccount
+	return p
+}
+
+func TestResolveAgentID_LabelSpoofWithWrongServiceAccountIsRejected(t *testing.T) {
+	decoy := spoofedPod(livePodKusari, "kusari-agent", "hosted-daytona-coder")
+	s, _ := resolutionServerWithIdentity(t, map[string]string{"kusari-agent": "kusari-agent"}, decoy)
+
+	got, err := s.resolveAgentID(context.Background(), livePodKusari)
+	if !errors.Is(err, errUnknownAgent) {
+		t.Fatalf("resolve = %+v, %v; want errUnknownAgent: a pod running as hosted-daytona-coder must never resolve as kusari-agent merely by carrying its label", got, err)
+	}
+	found := false
+	for _, step := range got.Tried {
+		if strings.Contains(step, "rejected") && strings.Contains(step, "hosted-daytona-coder") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("tried = %q, want an entry recording the rejected ServiceAccount mismatch", got.Tried)
+	}
+}
+
+func TestResolveAgentID_LabelWithMatchingServiceAccountStillResolves(t *testing.T) {
+	legit := spoofedPod(livePodKusari, "kusari-agent", "kusari-agent")
+	s, _ := resolutionServerWithIdentity(t, map[string]string{"kusari-agent": "kusari-agent"}, legit)
+
+	got, err := s.resolveAgentID(context.Background(), livePodKusari)
+	if err != nil || got.ID != kusariAgentID || got.By != resolvedByLabel {
+		t.Fatalf("resolve = %+v, %v; want %s via the agent-name label when the ServiceAccount matches the registered identity", got, err, kusariAgentID)
+	}
+}
+
+func TestResolveAgentID_UnregisteredAgentNameLabelIsUnaffectedByIdentityMap(t *testing.T) {
+	// The identity map only registers kusari-agent; cardvault's label is
+	// unregistered here, so the map must not turn into a second allow-list
+	// that starts denying names it was never told about.
+	pod := spoofedPod("agent-cardvault-bb57657-jlf8w", "cardvault", "anything-at-all")
+	s, _ := resolutionServerWithIdentity(t, map[string]string{"kusari-agent": "kusari-agent"}, pod)
+
+	got, err := s.resolveAgentID(context.Background(), "agent-cardvault-bb57657-jlf8w")
+	if err != nil || got.ID != "agent-cardvault" {
+		t.Fatalf("resolve = %+v, %v; want agent-cardvault (unregistered agent name must still resolve)", got, err)
+	}
+}

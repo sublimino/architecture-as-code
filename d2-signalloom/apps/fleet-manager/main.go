@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -144,6 +145,12 @@ type server struct {
 	remoteStuns *RemoteStunStore
 	// callerKeys gates every mutating route; nil answers them all 401.
 	callerKeys *callerKeys
+	// identityMap binds a signalloom.ai/agent-name label value to the
+	// ServiceAccount the real agent is registered to run as (identity_map.go).
+	// Nil is tolerated: resolveAgentID's label branch treats every name as
+	// unregistered, which is exactly today's behaviour for callers (mostly
+	// tests) that construct a server without wiring one.
+	identityMap *AgentIdentityMap
 }
 
 // degradedReporter is implemented by the clients that keep a fail-closed
@@ -598,6 +605,17 @@ func main() {
 		fmt.Sscanf(v, "%d", &stepDelayMs)
 	}
 
+	// The identity map lives in the same ConfigMap as fleet.yaml (base/
+	// configmap.yaml), materialised as sibling `identity.<agent-name>` files by
+	// the same volume mount -- so it loads from fleet.yaml's own directory,
+	// never a second path a future edit could let drift from it.
+	identityMap, err := LoadAgentIdentityMap(filepath.Dir(fleetPath))
+	if err != nil {
+		slog.Error("failed to load agent identity map; agent-name label resolution is DEGRADED", "path", fleetPath, "error", err)
+		identityMap = NewAgentIdentityMap(nil)
+	}
+	slog.Info("agent identity map loaded", "registered_agents", identityMap.Len())
+
 	dag, err := LoadFleet(fleetPath)
 	if err != nil {
 		slog.Error("failed to load fleet config", "path", fleetPath, "error", err)
@@ -729,6 +747,13 @@ func main() {
 		attestationEngine: attEngine,
 		workloads:         workloads,
 		remoteStuns:       remoteStuns,
+		identityMap:       identityMap,
+	}
+	// The real client's own resolvePod (k8sclient.go) needs the same map, for
+	// the identical reason: its label-selector fallback must not let a
+	// spoofed decoy win resolution either.
+	if real, ok := selection.Client.(*k8sFleetClient); ok {
+		real.identityMap = identityMap
 	}
 
 	// A key defect does not crash the process (break-glass must stay

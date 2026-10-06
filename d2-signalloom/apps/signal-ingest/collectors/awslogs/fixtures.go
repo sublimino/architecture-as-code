@@ -53,10 +53,46 @@ func FixtureBytes(name string) ([]byte, error) {
 // whole of fixture mode and the source of the expected count in the mode matrix, so a
 // fixture added to testdata/ flows into both without a second edit.
 func FixtureObservations(tenantID, region string) ([]model.Observation, error) {
+	return projectFixtures(FixtureFiles(), tenantID, region)
+}
+
+// The fixture sets fixture mode can replay, selected by AWSLOGS_FIXTURE_SET.
+const (
+	// FixtureSetDefault replays FixtureFiles() and nothing else.
+	FixtureSetDefault = "default"
+	// FixtureSetKusari replays FixtureFiles() followed by KusariFixtureFiles(),
+	// burst records included, so stage 2 has thresholds to cross on a cluster.
+	FixtureSetKusari = "kusari"
+)
+
+// FixtureSetFiles returns the objects a fixture set replays, in order. An empty
+// set is the default. An unknown set is an error, never a fallback.
+func FixtureSetFiles(set string) ([]string, error) {
+	switch set {
+	case "", FixtureSetDefault:
+		return FixtureFiles(), nil
+	case FixtureSetKusari:
+		return append(FixtureFiles(), KusariFixtureFiles()...), nil
+	default:
+		return nil, fmt.Errorf("awslogs: unknown fixture set %q (%s=%s|%s)", set, EnvFixtureSet, FixtureSetDefault, FixtureSetKusari)
+	}
+}
+
+// FixtureSetObservations projects every object in a fixture set, in order. It is
+// what fixture mode replays.
+func FixtureSetObservations(set, tenantID, region string) ([]model.Observation, error) {
+	files, err := FixtureSetFiles(set)
+	if err != nil {
+		return nil, err
+	}
+	return projectFixtures(files, tenantID, region)
+}
+
+func projectFixtures(files []string, tenantID, region string) ([]model.Observation, error) {
 	p := Projector{TenantID: tenantID, Region: region}
 
 	var out []model.Observation
-	for _, name := range FixtureFiles() {
+	for _, name := range files {
 		body, err := FixtureBytes(name)
 		if err != nil {
 			return nil, err

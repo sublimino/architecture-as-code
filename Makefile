@@ -1204,7 +1204,9 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/dockerfile-copy-sources.bats \
 	test/osramp-up-lifecycle.bats \
 	d2-signalloom/test/netassert-gitops.bats \
-	d2-signalloom/test/netassert-policy-contract.bats
+	d2-signalloom/test/netassert-policy-contract.bats \
+	d2-signalloom/test/severance-probe-contract.bats \
+	test/stun-evidence-ownership-generator.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \

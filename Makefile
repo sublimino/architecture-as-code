@@ -929,7 +929,7 @@ demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom 
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
 	bats d2-signalloom/test/runtime.bats
-	@if command -v netassert >/dev/null 2>&1; then $(MAKE) -C d2-signalloom test-netassert; else echo "netassert not installed — skipping NetworkPolicy tests"; fi
+	$(MAKE) -C d2-signalloom test-netassert
 demo-signalloom-test-1: ## Run the complete TEST-1 Playwright, BATS, and pytest integration gate.
 	DEX_DEMO_PASSWORD="$${DEX_DEMO_PASSWORD:-demo-user}" ./scripts/signalloom-test-1.sh
 demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
@@ -1201,7 +1201,10 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/sltm-ingest-reload-ratelimit.bats \
 	test/sltm-ingest-chain.bats \
 	test/old-probe-name-guard.bats \
-	test/dockerfile-copy-sources.bats
+	test/dockerfile-copy-sources.bats \
+	test/osramp-up-lifecycle.bats \
+	d2-signalloom/test/netassert-gitops.bats \
+	d2-signalloom/test/netassert-policy-contract.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \

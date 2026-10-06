@@ -718,7 +718,7 @@ export default function NetworkTestsPage() {
             },
           ]}
           data={displayed}
-          pageSize={25}
+          pageSize={50}
           testIdPrefix="netserts"
           toolbar={
             <FilterToolbar

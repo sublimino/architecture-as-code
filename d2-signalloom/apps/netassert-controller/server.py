@@ -38,8 +38,17 @@ NETASSERT_JOB_NAME = "netassert-run"
 NETASSERT_JOB_NAMESPACE = "fe-signalloom"
 NETASSERT_RUNNER_SERVICE_ACCOUNT = "netassert-runner"
 NETASSERT_RUNNER_IMAGE = os.environ.get("NETASSERT_RUNNER_IMAGE", "netassert-runner:local")
+NETASSERT_ACTIVE_DEADLINE_SECONDS = 300
 NETASSERT_CONFIGMAP_NAME = "netassert-signalloom-config"
 NETASSERT_TAP_MARKER = "----NETASSERT-TAP-RESULTS----"
+NETASSERT_SCANNER_IMAGE = (
+    "docker.io/controlplane/netassertv2-l4-client"
+    "@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff"
+)
+NETASSERT_SNIFFER_IMAGE = (
+    "docker.io/controlplane/netassertv2-packet-sniffer"
+    "@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04"
+)
 
 SERVICE_ACCOUNT_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SERVICE_ACCOUNT_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -53,12 +62,27 @@ def _netassert_job_manifest() -> dict[str, object]:
     produce a netassert-run Job body. Every field here is a constant; no
     caller input reaches it (see the module docstring).
     """
-    shell = (
-        "/usr/local/bin/resolve-agent-pod.sh && "
-        "/usr/local/bin/netassert run -f /work/netassert-run.yaml -t /work/results.tap -P 3 || true; "
-        f"echo '{NETASSERT_TAP_MARKER}'; "
-        "cat /work/results.tap || echo 'no tap output produced'"
-    )
+    shell = "\n".join((
+        "status=0",
+        "if /usr/local/bin/resolve-agent-pod.sh; then",
+        "  /usr/local/bin/netassert run -f /work/netassert-run.yaml "
+        "-t /work/results.tap -P 3 "
+        f"-c '{NETASSERT_SCANNER_IMAGE}' -i '{NETASSERT_SNIFFER_IMAGE}' || status=$?",
+        "else",
+        "  status=2",
+        "fi",
+        f"echo '{NETASSERT_TAP_MARKER}'",
+        "if [ -f /work/results.tap ]; then",
+        "  cat /work/results.tap",
+        "  if ! /usr/local/bin/validate-tap.sh /work/results.tap; then",
+        "    status=2",
+        "  fi",
+        "else",
+        "  echo 'Bail out! netassert produced no TAP output'",
+        "  status=2",
+        "fi",
+        "exit ${status}",
+    ))
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -72,6 +96,8 @@ def _netassert_job_manifest() -> dict[str, object]:
         },
         "spec": {
             "backoffLimit": 0,
+            # Bounds injector/startup plus 26 assertions at concurrency P3.
+            "activeDeadlineSeconds": NETASSERT_ACTIVE_DEADLINE_SECONDS,
             "ttlSecondsAfterFinished": 600,
             "template": {
                 "metadata": {"labels": {"signalloom.ai/purpose": "network-test-run"}},
@@ -220,7 +246,13 @@ class ControllerHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
             return
 
-        existing = _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
+        try:
+            existing = _get_kubernetes_job(
+                base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME
+            )
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": f"failed to inspect scan: {exc}"})
+            return
         if existing is not None:
             status = existing.get("status")
             if isinstance(status, dict) and _job_status_count(status, "active") >= 1:
@@ -236,7 +268,17 @@ class ControllerHandler(BaseHTTPRequestHandler):
             # name is fixed by design, so a short bounded wait is simpler and
             # safer here than minting per-scan unique names.
             for _ in range(10):
-                if _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME) is None:
+                try:
+                    deleting = _get_kubernetes_job(
+                        base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME
+                    )
+                except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+                    self._json(
+                        HTTPStatus.BAD_GATEWAY,
+                        {"error": f"could not confirm previous scan deletion: {exc}"},
+                    )
+                    return
+                if deleting is None:
                     break
                 time.sleep(0.3)
 

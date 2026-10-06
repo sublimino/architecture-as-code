@@ -131,6 +131,87 @@ class TestProxyErrorHandling:
         finally:
             app.dependency_overrides.pop(authenticated_principal, None)
 
+    def test_ingest_disconnect_returns_502_saying_so(self, client, monkeypatch, tmp_path):
+        """signal-ingest dying mid-request (OOM-killed under /feeds polling, 2026-10-06) is a 502
+        whose body says the service dropped the connection, not an opaque "proxy error"."""
+        import httpx as _httpx
+
+        from api_compat import Principal, authenticated_principal
+
+        key = tmp_path / "token"
+        key.write_text("k" * 43)
+        monkeypatch.setenv("SIGNAL_INGEST_KEY_FILE", str(key))
+
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            raise _httpx.RemoteProtocolError("Server disconnected without sending a response.", request=request)
+
+        real = _httpx.AsyncClient
+
+        class Dropping(real):  # type: ignore[misc, valid-type]
+            def __init__(self, *args, **kwargs):
+                kwargs["transport"] = _httpx.MockTransport(handler)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(_httpx, "AsyncClient", Dropping)
+        app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-demo", subject="test-user", email=None)
+        try:
+            for path in ("/api/signals/store/stats", "/api/signals/observations"):
+                resp = client.get(path)
+                assert resp.status_code == 502, path
+                err = resp.json()["error"]
+                assert err["code"] == "upstream_unavailable", path
+                assert "closed the connection" in err["message"], err
+        finally:
+            app.dependency_overrides.pop(authenticated_principal, None)
+
+
+class TestSeedProxy:
+    """POST /api/signals/collectors/seed passes signal-ingest's answer through unchanged."""
+
+    @pytest.fixture()
+    def ingest(self, monkeypatch, tmp_path):
+        import httpx as _httpx
+
+        key = tmp_path / "token"
+        key.write_text("k" * 43)
+        monkeypatch.setenv("SIGNAL_INGEST_KEY_FILE", str(key))
+        state: dict = {"status": 201, "body": {"seeded": 42}, "sent": []}
+
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            state["sent"].append(request)
+            return _httpx.Response(state["status"], json=state["body"])
+
+        real = _httpx.AsyncClient
+
+        class Capturing(real):  # type: ignore[misc, valid-type]
+            def __init__(self, *args, **kwargs):
+                kwargs["transport"] = _httpx.MockTransport(handler)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(_httpx, "AsyncClient", Capturing)
+        from api_compat import Principal, authenticated_principal
+
+        app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-demo", subject="test-user", email=None)
+        yield state
+        app.dependency_overrides.pop(authenticated_principal, None)
+
+    def test_seed_forwards_post_and_returns_created(self, client, ingest):
+        resp = client.post("/api/signals/collectors/seed")
+        assert resp.status_code == 201
+        assert resp.json() == {"seeded": 42}
+        assert len(ingest["sent"]) == 1
+        sent = ingest["sent"][0]
+        assert sent.method == "POST"
+        assert sent.url.path == "/api/v1/collectors/seed"
+
+    def test_seed_failure_status_and_body_pass_through(self, client, ingest):
+        """The live defect (ingest 500 "failed to seed fixtures") reaches the browser as itself."""
+        ingest["status"] = 500
+        ingest["body"] = {"error": "failed to seed fixtures"}
+        resp = client.post("/api/signals/collectors/seed")
+        assert resp.status_code == 500
+        assert resp.json() == {"error": "failed to seed fixtures"}
+
 
 # ---------------------------------------------------------------------------
 # 3. Migration SQL structural checks

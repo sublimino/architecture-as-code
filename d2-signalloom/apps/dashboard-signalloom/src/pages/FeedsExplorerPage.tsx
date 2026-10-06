@@ -157,6 +157,23 @@ func executePushedDownQuery(ctx context.Context, engine QueryEngine) ([]arrow.Re
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
+/**
+ * Turn an axios rejection from /api/signals/* into something an operator can act on. A
+ * 502/503/504 means fe-signalloom could not get an answer from signal-ingest (on 2026-10-06 it
+ * was being OOM-killed under this page's reads), which the raw "Request failed with status code
+ * 502" does not say. Other errors keep the server's own reason when it sent one.
+ */
+export function describeIngestError(err: any, fallback: string): string {
+  const status: number | undefined = err?.response?.status
+  if (status === 502 || status === 503 || status === 504 || err?.message === 'Network Error') {
+    return 'The signal ingest service is unavailable (it may be restarting). Try again in a moment.'
+  }
+  const data = err?.response?.data
+  const reason = typeof data?.error === 'string' ? data.error : data?.error?.message
+  if (reason) return status ? `${reason} (HTTP ${status})` : reason
+  return err?.message || fallback
+}
+
 export function FeedsExplorerPage() {
   const { getAccessTokenSilently } = useAuth0()
   const [stats, setStats] = useState<StoreStats | null>(null)
@@ -196,7 +213,7 @@ export function FeedsExplorerPage() {
       const data = await weaveApi.getStoreStats(token)
       setStats(data)
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch store statistics')
+      setError(describeIngestError(err, 'Failed to fetch store statistics'))
     } finally {
       setLoading(false)
     }
@@ -293,7 +310,7 @@ export function FeedsExplorerPage() {
       fetchStats()
       loadInitialObservations()
     } catch (err: any) {
-      alert('Failed to seed fixtures: ' + err.message)
+      alert('Failed to seed fixtures: ' + describeIngestError(err, 'unknown error'))
     } finally {
       setActionLoading(false)
     }

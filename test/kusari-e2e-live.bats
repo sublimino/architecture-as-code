@@ -119,16 +119,22 @@ pf_stop() {
     wait "$PF_PID" 2>/dev/null || true
 }
 
-# observations fetches the observation list through a port-forward and writes it
-# to $1.
-observations() {
-    local out="$1" code
+# observations_window fetches one page of the observation list through a
+# port-forward and writes it to $1. $2/$3, if non-empty, are RFC3339
+# after/before filters appended to the query string -- there is no cursor,
+# only the after/before time filters handled by
+# d2-signalloom/apps/signal-ingest/api/handlers.go:544-560.
+observations_window() {
+    local out="$1" after="${2:-}" before="${3:-}" code url
     local h="${BATS_TEST_TMPDIR}/reader.hdr"
     reader_hdr "$h" || return 1
     pf_start || return 1
 
-    code="$(curl -s -o "$out" -w '%{http_code}' -H @"$h" \
-        "${PF_URL}/api/v1/observations?limit=${LIVE_LIMIT}")"
+    url="${PF_URL}/api/v1/observations?limit=${LIVE_LIMIT}"
+    [ -n "$after" ] && url="${url}&after=${after}"
+    [ -n "$before" ] && url="${url}&before=${before}"
+
+    code="$(curl -s -o "$out" -w '%{http_code}' -H @"$h" "$url")"
     pf_stop
 
     [ "$code" = 200 ] || {
@@ -141,10 +147,127 @@ observations() {
         echo "the observations route did not return a JSON array" >&2
         return 1
     }
-    # A full page means the store may hold rows this read could not see.
-    if [ "$(jq length "$out")" -ge "${LIVE_LIMIT}" ]; then
-        echo "# observations page is full (${LIVE_LIMIT} rows); rows beyond it are not inspected" >&3
+}
+
+# _obs_fetch_width fetches the window [max(0,hi-w), hi) into $1 and echoes its
+# row count. hi and w are epoch seconds; lo<=0 means "from the beginning" (no
+# 'after' sent) -- the server itself folds an absent 'after' down to its own
+# retention floor (FrostDBStore.QueryRange, store/frostdb.go), so this never
+# under-shoots the true start of the store.
+_obs_fetch_width() {
+    local out="$1" hi="$2" w="$3" lo lo_ts hi_ts
+    lo=$((hi - w))
+    if [ "$lo" -le 0 ]; then
+        lo_ts=""
+    else
+        lo_ts="$(date -u -d "@${lo}" +%Y-%m-%dT%H:%M:%SZ)"
     fi
+    hi_ts="$(date -u -d "@${hi}" +%Y-%m-%dT%H:%M:%SZ)"
+    observations_window "$out" "$lo_ts" "$hi_ts" || return 1
+    jq length "$out"
+}
+
+# observations_all pages through the WHOLE store and writes the de-duplicated
+# union of every window to $1.
+#
+# Neither store implementation sorts (store/memory.go iterates Append order;
+# store/frostdb.go's QueryRange has no ORDER BY, only pushed-down filters --
+# store/frostdb.go:479-519), and FrostDB's scan order is not even STABLE:
+# two identical, back-to-back, unfiltered requests for the same 100-row page
+# returned 18 different ids each way on a live cluster. So a full page's
+# membership cannot be trusted at all -- "take the max timestamp on a full
+# page and page forward from there" can silently and non-reproducibly drop
+# rows that just happened not to make that particular full page.
+#
+# The only read that is provably complete is one whose result is SHORT: a
+# window with fewer than LIVE_LIMIT rows was never truncated (the handler
+# only slices when more than `limit` rows matched -- scopeObservations in
+# api/tenancy_grants.go), so every row in it, in any order, is present. This
+# resolves one such window at a time, working backward from "now":
+#   1. Widen w (doubling from 60s) until [hi-w, hi) comes back full, or until
+#      w has swallowed everything back to the beginning and is STILL short.
+#   2. If it went full, bisect w between the last short value and the first
+#      full value to find the maximal short width.
+#   3. Re-fetch at that resolved width (the last probe during bisection may
+#      itself have been the full one) to get a guaranteed-short page, merge
+#      it (de-duplicated by id -- abutting windows can share a boundary row),
+#      then continue the sweep with hi set to this window's lower bound.
+# A window that is still full even at a resolved width of zero seconds means
+# more than LIVE_LIMIT rows share that single second, which time-bisection
+# cannot resolve -- that fails loudly, naming it, as does a hard cap of 200
+# requests if neither stop condition is ever met.
+observations_all() {
+    local out="$1"
+    local merged="${BATS_TEST_TMPDIR}/obs-merged.json" page="${BATS_TEST_TMPDIR}/obs-page.json"
+    local now_epoch hi requests=0
+    echo '[]' >"$merged"
+    now_epoch="$(date -u +%s)"
+    hi=$((now_epoch + 60)) # +60s covers rows created while this very loop runs
+
+    while :; do
+        local w=60 w_short=0 w_full=0 page_len lo
+
+        while :; do
+            requests=$((requests + 1))
+            [ "$requests" -le 200 ] || {
+                echo "observations_all: hit the hard cap of 200 requests widening the window; stopping rather than looping forever" >&2
+                return 1
+            }
+            page_len="$(_obs_fetch_width "$page" "$hi" "$w")" || return 1
+            if [ "$page_len" -lt "${LIVE_LIMIT}" ]; then
+                w_short=$w
+                [ "$((hi - w))" -le 0 ] && { w_full=0; break; }
+                w=$((w * 2))
+                continue
+            fi
+            w_full=$w
+            break
+        done
+
+        while [ "$((w_full - w_short))" -gt 1 ]; do
+            requests=$((requests + 1))
+            [ "$requests" -le 200 ] || {
+                echo "observations_all: hit the hard cap of 200 requests bisecting the window; stopping rather than looping forever" >&2
+                return 1
+            }
+            local w_mid=$(((w_short + w_full) / 2))
+            page_len="$(_obs_fetch_width "$page" "$hi" "$w_mid")" || return 1
+            if [ "$page_len" -lt "${LIVE_LIMIT}" ]; then
+                w_short=$w_mid
+            else
+                w_full=$w_mid
+            fi
+        done
+
+        if [ "$w_short" -eq 0 ] && [ "$w_full" -gt 0 ]; then
+            echo "observations_all: even a window of ~1 second ending at $(date -u -d "@${hi}" +%Y-%m-%dT%H:%M:%SZ) is full (${LIVE_LIMIT}+ rows); more than ${LIVE_LIMIT} observations share that second, so paging by time cannot resolve it" >&2
+            return 1
+        fi
+
+        # The last probe above may have been a FULL one (w_full), so re-fetch at
+        # the resolved short width to guarantee $page holds the trustworthy page.
+        requests=$((requests + 1))
+        [ "$requests" -le 200 ] || {
+            echo "observations_all: hit the hard cap of 200 requests re-fetching the resolved window; stopping rather than looping forever" >&2
+            return 1
+        }
+        page_len="$(_obs_fetch_width "$page" "$hi" "$w_short")" || return 1
+        [ "$page_len" -lt "${LIVE_LIMIT}" ] || {
+            echo "observations_all: the resolved window of width ${w_short}s is still full (${LIVE_LIMIT}+ rows) on re-fetch; the store is not stable enough to page this way" >&2
+            return 1
+        }
+
+        jq -s '.[0] + .[1] | unique_by(.id)' "$merged" "$page" >"${merged}.tmp" && mv "${merged}.tmp" "$merged"
+
+        lo=$((hi - w_short))
+        if [ "$lo" -le 0 ]; then
+            break # this window reached all the way back to the beginning: done
+        fi
+        hi=$lo
+    done
+
+    cp "$merged" "$out"
+    echo "# observations_all: fetched $(jq length "$out") observation(s) over ${requests} request(s)" >&3
 }
 
 # repo_rule_ids lists every rule id the repo's kusari bundles declare. Derived,
@@ -207,9 +330,22 @@ repo_bundle_identities() {
     fi
 }
 
+# observations_store writes the whole de-duplicated store to $1, paging it once
+# per file run (observations_all is ~100 requests) and copying the cached result
+# for later tests. The route's single page is a non-deterministic sample of the
+# store, so no assertion may rely on it.
+observations_store() {
+    local cache="${BATS_FILE_TMPDIR}/observations-all.json"
+    if [ ! -s "$cache" ]; then
+        observations_all "${cache}.tmp" || return 1
+        mv "${cache}.tmp" "$cache"
+    fi
+    cp "$cache" "$1"
+}
+
 @test "live: tenant kusari has findings, and every rule that fired is declared in this tree" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     jq '[.[] | select(.source == "policy_finding") | select(.labels.tenant_id == "kusari")]' \
         "${BATS_TEST_TMPDIR}/obs.json" >"${BATS_TEST_TMPDIR}/findings.json"
@@ -242,7 +378,7 @@ repo_bundle_identities() {
 
 @test "live: the cloud-signals bundle is detecting, not merely loaded" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     # A bundle that loads and never fires is indistinguishable from a bundle
     # that was never shipped, so being loaded is not the claim worth making.
@@ -275,7 +411,7 @@ repo_bundle_identities() {
 
 @test "live: every stored finding and decision is shadow mode" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     # Both shipped bundles are shadow. A warn or enforce row means a promotion
     # reached the cluster without reaching the tree, which is the one thing the
@@ -294,7 +430,7 @@ repo_bundle_identities() {
 
 @test "live: a decision cites the findings it counted, and cites them by id" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     jq '[.[] | select(.source == "policy_decision") | select(.labels.tenant_id == "kusari")]' \
         "${BATS_TEST_TMPDIR}/obs.json" >"${BATS_TEST_TMPDIR}/decisions.json"
@@ -321,9 +457,9 @@ repo_bundle_identities() {
     local missing
     missing="$(comm -23 "${BATS_TEST_TMPDIR}/cited-ids" "${BATS_TEST_TMPDIR}/finding-ids")"
     [ -z "$missing" ] || {
-        echo "decisions cite finding ids that are not in the store (within the last ${LIVE_LIMIT} rows):"
+        echo "decisions cite finding ids that are not in the store (observations_all paged to the end, or to the 200-page cap):"
         echo "$missing"
-        echo "If the page was full (see the note above) the cited findings may lie beyond it."
+        echo "Either the citing decision is wrong, or the finding aged out past the retention floor."
         return 1
     }
 }

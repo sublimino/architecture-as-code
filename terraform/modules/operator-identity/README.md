@@ -234,8 +234,8 @@ builds and runs, and the fix is one tfvars line rather than a re-bootstrap.
 | Output | What it is |
 |---|---|
 | `operator_service_account_email` | The email to pass to `--impersonate-service-account`. |
-| `granted_roles` | All four roles, at any scope, sorted. For diffing intent against reality. |
-| `project_roles` | The project-scoped subset — the three with a blast radius beyond one VM. |
+| `granted_roles` | The role **budget** at any scope, sorted: all four this identity is entitled to hold. Intent, not reality — it is built from `operator_project_roles`, which is constant by design, so with `manage_lifecycle_custom_role = false` it still lists the custom role that was never created. Pair it with `lifecycle_role_is_managed`. |
+| `project_roles` | The project-scoped subset of that budget — the three with a blast radius beyond one VM. Constant for the same reason. |
 | `lifecycle_role_permissions` | The custom role's four permissions, sorted. A role name alone does not tell a reviewer what it grants, which is the whole reason a custom role beat `instanceAdmin.v1`. |
 | `lifecycle_role_is_managed` | Whether Terraform created the custom role. False means suspending a demo VM still needs project owner. Reported, because a silently-absent grant is indistinguishable from a working one until the estate needs turning off. |
 | `act_as_service_account_names` | The service account **resources** the operator may act as. Every entry contains `/serviceAccounts/`, which is how a caller proves the grant never became project-wide. |

@@ -693,8 +693,38 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// projectSeedLabels drops fixture label keys the backing store's segment allow-list would refuse.
+//
+// The fixtures predate the FrostDB allow-list and carry keys it deliberately excludes (src_ip,
+// principal_email, destination, ...); FrostDBStore.Append refuses a whole batch on the first one,
+// which made the /feeds "Seed Fixtures" button a guaranteed 500 on every durable-store pod. The
+// allow-list is a privacy control, so the fixtures bend to it rather than the reverse. A store
+// without an allow-list (the in-memory store) keeps every label.
+func projectSeedLabels(s store.SignalStore, obs []model.Observation) {
+	type labelPolicy interface{ AllowsLabelKey(string) bool }
+	type unwrapper interface{ Unwrap() store.SignalStore }
+	for {
+		if p, ok := s.(labelPolicy); ok {
+			for i := range obs {
+				for k := range obs[i].Labels {
+					if !p.AllowsLabelKey(k) {
+						delete(obs[i].Labels, k)
+					}
+				}
+			}
+			return
+		}
+		u, ok := s.(unwrapper)
+		if !ok {
+			return
+		}
+		s = u.Unwrap()
+	}
+}
+
 func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 	obs := collectors.SeedAll(time.Now().UTC())
+	projectSeedLabels(h.Store, obs)
 	if err := bindWriteTenancy(r, obs); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return

@@ -51,6 +51,12 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
         raise APIError(
             504, "upstream_timeout", "signal-ingest request timed out"
         ) from exc
+    except httpx.RemoteProtocolError as exc:
+        # The pod died mid-request (OOM-killed, restarting); not a proxy bug.
+        logger.warning("signal-ingest closed the connection: %s %s", method, path)
+        raise APIError(
+            502, "upstream_unavailable", "signal-ingest closed the connection without a response (restarting?)"
+        ) from exc
     except Exception as exc:
         logger.exception("signal-ingest proxy error: %s %s", method, path)
         raise APIError(

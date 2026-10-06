@@ -350,13 +350,13 @@ func TestSubjectKeyPG_SagaJournalIsIdempotentAndCompareAndSwapped(t *testing.T) 
 	}
 
 	// Compare-and-swap: advancing from the wrong state must be refused, not silently applied.
-	if _, err := store.AdvanceSaga(ctx, opID, StateCachesCleared, nil); err == nil {
+	if _, err := store.AdvanceSaga(ctx, tenant, opID, StateCachesCleared, nil); err == nil {
 		t.Fatal("advancing from a state the row is not in was accepted")
 	}
-	if _, err := store.AdvanceSaga(ctx, opID, StatePending, nil); err != nil {
+	if _, err := store.AdvanceSaga(ctx, tenant, opID, StatePending, nil); err != nil {
 		t.Fatalf("legal advance refused: %v", err)
 	}
-	after, err := store.LoadSaga(ctx, opID)
+	after, err := store.LoadSaga(ctx, tenant, opID)
 	if err != nil {
 		t.Fatalf("LoadSaga: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestSubjectKeyPG_SagaJournalIsIdempotentAndCompareAndSwapped(t *testing.T) 
 		t.Fatalf("state is %q after one advance from pending", after.State)
 	}
 	// The same advance repeated must now fail, because the row has moved on.
-	if _, err := store.AdvanceSaga(ctx, opID, StatePending, nil); err == nil {
+	if _, err := store.AdvanceSaga(ctx, tenant, opID, StatePending, nil); err == nil {
 		t.Fatal("the same advance applied twice; an irreversible step could double-apply")
 	}
 }
@@ -437,7 +437,7 @@ func TestSubjectKeyPG_NanosecondClockDoesNotDivergeTheReceiptDigest(t *testing.T
 
 	// The persisted digest must already agree — Erase's own consistency check compares the rebuilt
 	// digest against the one recorded at receipt_recorded, so a divergence here fails inside Erase.
-	journal, err := store.LoadSaga(ctx, first.OperationID)
+	journal, err := store.LoadSaga(ctx, tenant, first.OperationID)
 	if err != nil {
 		t.Fatalf("LoadSaga: %v", err)
 	}
@@ -472,5 +472,144 @@ func TestSubjectKeyPG_NanosecondClockDoesNotDivergeTheReceiptDigest(t *testing.T
 	}
 	if !strings.Contains(p, "") { // keep p used; the pseudonym is the store scope under test
 		t.Fatal("unreachable")
+	}
+}
+
+// appDSNEnv names a connection as the NON-SUPERUSER, NON-BYPASSRLS application role.
+//
+// This is separate from SLDP_PG_DSN because the two connections do different jobs: migrations are an
+// owner operation and the app role correctly cannot run them, while every row-level-security
+// assertion is meaningless unless made by a role RLS actually binds.
+const appDSNEnv = "SLDP_PG_APP_DSN"
+
+// TestSubjectKeyPG_RLSGateIsHonest reports, and where possible FAILS, when the configured role
+// cannot demonstrate row-level security.
+//
+// It exists because of a CRITICAL defect this suite shipped past. Every live test ran as the
+// container's POSTGRES_USER, which is a SUPERUSER with rolbypassrls, so row-level security was
+// switched off for the whole suite. Under that role LoadSaga's claim-less SELECT worked; under the
+// non-owner, non-superuser app role migration 008's comment explicitly requires, it returns ZERO
+// ROWS, so the saga wrote its journal row and could NEVER advance past `pending` -- no key
+// destroyed, every Article 17 request failing, and a green suite throughout.
+//
+// A suite that silently runs with the control under test disabled is the purest form of the failure
+// this package keeps finding: the check did not run, and nothing distinguished that from it passing.
+func TestSubjectKeyPG_RLSGateIsHonest(t *testing.T) {
+	if os.Getenv(pgDSNEnv) == "" {
+		t.Logf("COVERAGE GAP: %s unset; nothing in this file ran.", pgDSNEnv)
+		return
+	}
+	db := livePG(t)
+	var super, bypass bool
+	if err := db.QueryRow(`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`).
+		Scan(&super, &bypass); err != nil {
+		t.Fatalf("read role attributes: %v", err)
+	}
+	if super || bypass {
+		t.Logf("COVERAGE GAP: %s connects as a role with rolsuper=%v rolbypassrls=%v, which BYPASSES "+
+			"row-level security entirely. Every RLS assertion in this file is vacuous under this role, "+
+			"and a claim-less query that should return zero rows will return them all. Set %s to a "+
+			"NOSUPERUSER NOBYPASSRLS role to make the RLS assertions real.",
+			pgDSNEnv, super, bypass, appDSNEnv)
+	}
+	if os.Getenv(appDSNEnv) == "" {
+		t.Logf("COVERAGE GAP: %s is unset, so TestSubjectKeyPG_SagaCompletesUnderRowLevelSecurity was "+
+			"SKIPPED. Whether the saga can advance at all on a correctly-configured deployment is NOT "+
+			"covered by this run.", appDSNEnv)
+		return
+	}
+	t.Logf("app role configured via %s; the row-level-security assertions will execute", appDSNEnv)
+}
+
+// The regression test for the CRITICAL defect: the saga must complete as an RLS-bound role.
+func TestSubjectKeyPG_SagaCompletesUnderRowLevelSecurity(t *testing.T) {
+	ownerDSN, appDSN := os.Getenv(pgDSNEnv), os.Getenv(appDSNEnv)
+	if ownerDSN == "" || appDSN == "" {
+		t.Skipf("%s and %s must both be set; see TestSubjectKeyPG_RLSGateIsHonest", pgDSNEnv, appDSNEnv)
+	}
+	// Schema as the owner; the exercise as the app role. That split is the deployment shape.
+	owner := livePG(t)
+	_ = owner
+
+	app, err := sql.Open("postgres", appDSN)
+	if err != nil {
+		t.Fatalf("sql.Open app: %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+	var super, bypass bool
+	if err := app.QueryRow(`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`).
+		Scan(&super, &bypass); err != nil {
+		t.Fatalf("read app role attributes: %v", err)
+	}
+	// Refuse to run rather than pass vacuously. A "passing" RLS test under a bypassing role asserts
+	// nothing at all, and would have hidden exactly the defect this test exists for.
+	if super || bypass {
+		t.Fatalf("%s connects as rolsuper=%v rolbypassrls=%v; this test cannot demonstrate anything "+
+			"about row-level security under a role that bypasses it", appDSNEnv, super, bypass)
+	}
+
+	store, err := NewPostgresStore(app)
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+	h := testHierarchy(t)
+	cache := NewPlaintextDEKCache()
+	saga, err := NewSaga(SagaConfig{
+		Hierarchy: h, Store: store, Cache: cache,
+		Pseudonymiser: fakePseudonymiser{}, StorageResidual: StorageResidualMVCCAndBackup,
+		Now: fixedClock(),
+	})
+	if err != nil {
+		t.Fatalf("NewSaga: %v", err)
+	}
+
+	ctx := context.Background()
+	tenant := testTenantFor(t)
+	resetTestTenant(t, owner, tenant)
+	p := pgProvision(t, store, h, cache, tenant, "alice", 2)
+
+	receipt, err := saga.Erase(ctx, tenant, "alice")
+	if err != nil {
+		t.Fatalf("Erase as an RLS-bound app role: %v\n"+
+			"  This is the defect: under FORCE ROW LEVEL SECURITY a claim-less read returns zero rows, "+
+			"so the saga writes its journal row and can never advance past pending. No key is "+
+			"destroyed and every Article 17 request fails, while a suite running as a superuser stays "+
+			"green throughout.", err)
+	}
+	if len(receipt.Versions) != 2 {
+		t.Fatalf("receipt covers %d versions, expected 2", len(receipt.Versions))
+	}
+
+	// It genuinely completed, in durable state, read back through the same RLS-bound connection.
+	journal, err := store.LoadSaga(ctx, tenant, receipt.OperationID)
+	if err != nil {
+		t.Fatalf("LoadSaga as the app role: %v", err)
+	}
+	if journal.State != StateCompleted {
+		t.Fatalf("saga state is %q, expected %q", journal.State, StateCompleted)
+	}
+
+	// And the isolation the bypassing role could never demonstrate: the SAME row is invisible under
+	// a different tenant claim. This is the positive control that proves RLS is actually on.
+	if _, err := store.LoadSaga(ctx, tenant+"-other", receipt.OperationID); err == nil {
+		t.Fatal("the saga journal row was readable under a DIFFERENT tenant claim; row-level security " +
+			"is not enforcing, so nothing else in this test means anything")
+	}
+
+	// The keys are really gone, verified through the app role's own connection.
+	recs, err := store.ListVersions(ctx, tenant, p)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("%d key rows visible to the app role, expected 2", len(recs))
+	}
+	for _, r := range recs {
+		if !r.Destroyed() {
+			t.Errorf("version %d survived", r.KeyVersion)
+		}
+		if _, err := h.UnwrapDEK(r.Scope(), r.WrappedDEK); err == nil {
+			t.Errorf("version %d still unwraps", r.KeyVersion)
+		}
 	}
 }

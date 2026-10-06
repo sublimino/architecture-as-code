@@ -114,8 +114,14 @@ CREATE TABLE IF NOT EXISTS subject_keys (
     CONSTRAINT subject_keys_digest_shape
         CHECK (prior_wrapped_digest = '' OR prior_wrapped_digest ~ '^[0-9a-f]{64}$'),
 
-    CONSTRAINT subject_keys_destroyed_after_created
-        CHECK (destroyed_at IS NULL OR destroyed_at >= created_at)
+    -- There is deliberately NO `destroyed_at >= created_at` constraint. created_at defaults from the
+    -- DATABASE clock while destroyed_at is supplied by the APPLICATION clock, so for a key destroyed
+    -- shortly after provisioning, ordinary NTP skew on the app host would make the UPDATE violate it.
+    -- That surfaces mid-saga as a constraint error reading like a data-integrity fault when it is
+    -- clock drift, and it would refuse a legitimate Article 17 destruction. A tidiness check is not
+    -- worth blocking an erasure.
+    CONSTRAINT subject_keys_created_at_present
+        CHECK (created_at IS NOT NULL)
 );
 
 -- The erasure sweep's access path: every version for one subject, in order.
@@ -168,6 +174,13 @@ CREATE TABLE IF NOT EXISTS subject_key_erasures (
     -- guessable field set can be ground out from a candidate subject identifier, which would defeat
     -- the non-linkability requirement in SLDP-P4-PRE §6.1.
     nonce             TEXT        NOT NULL,
+    -- The cache names this operation purged, persisted for the same reason as the nonce: the
+    -- receipt digest covers them. Deriving them at receipt-build time from a package-level registry
+    -- would make the digest a property of the DEPLOYED BINARY rather than of the operation, so
+    -- adding one cache to the registry would silently change the digest of every already-completed
+    -- saga -- and a tombstone SLDP-P4-2 had already published would stop verifying with nothing
+    -- naming the cause.
+    caches_purged     TEXT[]      NOT NULL DEFAULT '{}',
     receipt_digest    TEXT        NOT NULL DEFAULT '',
     started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -669,7 +669,12 @@ EOF
 }
 
 @test "the mutation proof for this suite is discovered by the proof glob" {
-  run grep -c 'GCP_TF_PROOFS = \$(wildcard test/\*-mutation-proof.sh)' "${MAKEFILE}"
+  # Anchored to column 1 so this matches only the real assignment, not the
+  # prose comment near test-e2e-containment-mutation-proof that quotes the
+  # same text (prefixed with "# ") to explain why that proof needs no Make
+  # target of its own. An unanchored grep counts both and this test wants
+  # exactly the one line that actually defines GCP_TF_PROOFS.
+  run grep -c '^GCP_TF_PROOFS = \$(wildcard test/\*-mutation-proof.sh)' "${MAKEFILE}"
   [ "$output" -eq 1 ]
   [ -f "${REPO_ROOT}/test/four-lane-loop-mutation-proof.sh" ]
   case "four-lane-loop-mutation-proof.sh" in

@@ -64,10 +64,12 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
             502, "upstream_unavailable", "signal-ingest proxy error"
         ) from exc
 
-    if 200 <= resp.status_code < 300:
-        # Raises 503 database_unavailable (fail closed) if a superadmin's read
-        # just surfaced another tenant's data and the audit database is
-        # configured but unreachable -- see cross_tenant_audit.py.
+    if not write and 200 <= resp.status_code < 300:
+        # Gated on `write`, not just the response: a write always acts for the caller's own
+        # tenant (ingest_client.acting_tenant), so this is a no-op for one, but gating it
+        # explicitly keeps the intent legible rather than relying on that always being true.
+        # Raises 503 database_unavailable (fail closed) if a superadmin's read just surfaced
+        # another tenant's data and the audit database is unreachable -- see cross_tenant_audit.py.
         await audit_cross_tenant_read(
             principal, f"{method} {path}", content, what=f"Reading {path} cross-tenant",
         )

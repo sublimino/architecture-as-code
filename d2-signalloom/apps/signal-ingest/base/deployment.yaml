@@ -234,7 +234,12 @@ spec:
               # FrostDB's default active block is itself 512 MiB. The block is
               # now bounded by SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB and the limit
               # leaves room for concurrent reads over the Parquet backlog.
-              memory: 1Gi
+              # 2Gi (2026-10-06): GET /observations and /store/stats each decode
+              # the whole store (handlers.go, q.Limit = 0) before truncating, so
+              # two concurrent dashboard polls over a 130 MiB Parquet store were
+              # OOM-killed at 1Gi (7 restarts, /feeds 502). Stopgap until EAPCI
+              # P1-6 bounds the read; remove this headroom when it lands.
+              memory: 2Gi
       volumes:
         # The FrostDB Parquet segments and their attestation evidence. The ephemeral
         # volume this replaces was deleted with the pod, so every reschedule or

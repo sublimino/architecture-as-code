@@ -450,7 +450,14 @@ def test_scan_reports_the_runner_is_unreachable_rather_than_accepting_the_job(
     ``POST /network-tests/scan`` forwards the proxy's status code, so the danger
     is the inverse of the read paths: an unreachable runner must not present as
     an accepted job the caller will then wait forever for.
+
+    The route is gated on ``is_superadmin_subject`` (network scan is a
+    privileged, cluster-mutating action); this test's subject is granted that
+    allowlist explicitly so the fault under test -- the proxy being
+    unreachable -- is what actually fires, rather than the unrelated 403 the
+    gate would otherwise produce first.
     """
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {SUBJECT})
     requested = _stub_proxy(monkeypatch, raises=_connect_error())
 
     response = client.post("/api/network-tests/scan", headers=_bearer())
@@ -470,7 +477,11 @@ def test_scan_forwards_the_runners_own_status_when_it_is_reachable(
     The proxy owns "already running" (409). Blanket-mapping proxy errors to 502
     here would break the double-submit guard, so the fault path above must not
     be widened into one.
+
+    Same superadmin grant as the test above, for the same reason: this test
+    exercises status forwarding, not the authorization gate in front of it.
     """
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {SUBJECT})
     _stub_proxy(monkeypatch, status=409, payload={"status": "already_running"})
 
     response = client.post("/api/network-tests/scan", headers=_bearer())

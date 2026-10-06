@@ -36,10 +36,10 @@ class Settings(BaseSettings):
     api_jwt_audience: str = "signalloom-api"
     api_jwt_authorized_party: str = "signalloom-dashboard"
     api_jwks_url: str = "http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys"
-    api_subject_tenants: dict[str, str] = {"demo-user": "tenant-demo", "CglkZW1vLXVzZXISBWxvY2Fs": "tenant-demo"}
+    api_subject_tenants: dict[str, str] = {"demo-user": "tenant-demo"}
     api_attributable_operator_tenants: set[str] = {"tenant-agentmaxxing"}
     api_superadmin_emails: set[str] = {"demo-user@signalloom.local"}
-    api_superadmin_subjects: set[str] = {"demo-user", "CglkZW1vLXVzZXISBWxvY2Fs"}
+    api_superadmin_subjects: set[str] = {"demo-user"}
     policy_engine_url: str = "http://policy-engine:8081"
 
 

@@ -437,6 +437,8 @@ sequenceDiagram
 
 ### Spec: Errata
 
+No card has run. This ledger starts empty.
+
 #### Errata — SLTM-P0
 
 - **Logical ID:** P0

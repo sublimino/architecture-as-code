@@ -541,7 +541,7 @@ class TestCrossTenantReview:
         assert first["headers"][ingest_client.ACTING_TENANT_HEADER] == "tenant-demo"
         assert lookup["path"] == "/api/v1/policy/decisions"
         assert lookup["headers"][ingest_client.ACTING_TENANT_HEADER] == ingest_client.ALL_TENANTS
-        assert lookup["params"]["limit"] == 500 and "since" in lookup["params"]
+        assert lookup["params"]["limit"] == 100 and "since" in lookup["params"]
         assert retry["headers"][ingest_client.ACTING_TENANT_HEADER] == "kusari"
         assert retry["headers"][ingest_client.ACTING_SUBJECT_HEADER] == REVIEWER_SUBJECT
         assert retry["json"] == {"verdict": "true_positive", "note": "seen on /signals"}

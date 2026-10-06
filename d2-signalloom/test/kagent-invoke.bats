@@ -222,7 +222,8 @@ STUB
   # shape a half-wired controller produces.
   export CURL_STUB_REPLY='{"jsonrpc":"2.0","id":"1","result":{"status":{"state":"completed"}}}'
   run "$SCRIPT" --agent kagent-k8s-reader --prompt "list namespaces"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"carrying no text"* ]]
 }
 
 # ─── Operator affordance ──────────────────────────────────────────────────────

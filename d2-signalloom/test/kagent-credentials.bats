@@ -109,7 +109,8 @@ setup() {
 @test "kagent-credentials: seed refuses an implausibly short key rather than writing a partial one" {
   export ANTHROPIC_API_KEY="sk-ant-x"
   run "$SCRIPT" seed
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"shorter than the"*"-character minimum"* ]]
 }
 
 # ─── The leak contract ────────────────────────────────────────────────────────

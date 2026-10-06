@@ -815,41 +815,64 @@ This is measured, not theoretical.
 halves of one thing. The interface, so neither can drift silently:
 
 **Invocation** — `bash scripts/gcp-tf/demo-pipeline.sh`, with the working
-directory set to `SL_DEMO_WORK_DIR`, under `bash -l`. It runs as the **OS Login
+directory set to `DEMO_WORK_DIR`, under `bash -l`. It runs as the **OS Login
 user** unless `GCP_TF_DEMO_REMOTE_USER` names a service account to drop to.
 `sudo -u` naming an account that does not exist fails with a message about sudo.
 That reads as a privilege problem rather than a wrong assumption.
 
 **What the driver has already done before the pipeline starts** — so chunk C
-does not repeat it. The checkout is unpacked at `SL_DEMO_WORK_DIR`, owned by the
+does not repeat it. The checkout is unpacked at `DEMO_WORK_DIR`, owned by the
 invoking user. A throwaway `git init` + snapshot commit exists there for
 Kustomize's path-traversal boundary. The pipeline does **not** need to create
 one. It **does** need to mint its own signing material: `.keys/` is gitignored
 and therefore not in the payload, by construction.
 
-**Configuration** — environment only, no arguments:
+**The prefix is `DEMO_`, and this table used to say `SL_DEMO_`.** The driver
+exported ten `SL_DEMO_*` names and the pipeline read `DEMO_*`; nothing in the
+repository consumed a single `SL_DEMO_` name, so all ten silently fell back to
+their defaults. `test/terraform-env-contract.bats` now asserts every name the
+driver exports is read by the pipeline, so the two cannot drift apart quietly
+again.
+
+**Configuration** — environment only, no arguments. These are the eleven names
+`demo-up.sh` actually exports today (`DEMO_KEYS_DIR` and `DEMO_ZOT_CACHE_DIR`
+were added after the rename below landed):
 
 | Variable | Meaning |
 | :--- | :--- |
-| `SL_DEMO_ENV` | environment key, e.g. `demo-1` |
-| `SL_DEMO_STAGE` | `full` (build the estate, then test) or `test` (tests only) |
-| `SL_DEMO_WORK_DIR` | absolute path of the delivered checkout |
-| `SL_DEMO_REPORT_DIR` | absolute directory to write reports into |
-| `SL_DEMO_SUMMARY_FILE` | absolute path of the JSON verdict file |
-| `SL_DEMO_APP_PORT` | port the VM publishes the dashboard on (8080) |
-| `SL_DEMO_HOSTNAME` | Gateway SNI name for the VM-side pipeline's own acceptance run (`dashboard.osramp.acme.local`) — not on the access path |
-| `SL_DEMO_LOG` | absolute path of the pipeline log on the VM |
-| `SL_DEMO_SOURCE_COMMIT` | short SHA of the **local** checkout |
-| `SL_DEMO_SOURCE_BRANCH` | branch of the local checkout |
+| `DEMO_ENV` | environment key, e.g. `demo-1` |
+| `DEMO_STAGE` | `full`, and **only** `full` — see the note below |
+| `DEMO_WORK_DIR` | absolute path of the delivered checkout |
+| `DEMO_REPORT_DIR` | absolute directory to write reports into |
+| `DEMO_SUMMARY_FILE` | absolute path of the JSON verdict file |
+| `DEMO_DASHBOARD_HOSTNAME` | Gateway SNI name for the VM-side pipeline's own acceptance run (`dashboard.osramp.acme.local`) — not on the access path |
+| `DEMO_PIPELINE_LOG` | absolute path of the pipeline log on the VM |
+| `DEMO_SOURCE_COMMIT` | short SHA of the **local** checkout |
+| `DEMO_SOURCE_BRANCH` | branch of the local checkout |
+| `DEMO_KEYS_DIR` | absolute path of the delivered signing-key directory |
+| `DEMO_ZOT_CACHE_DIR` | absolute path of the delivered zot blob cache |
 
-**Output** — `SL_DEMO_SUMMARY_FILE`, a JSON object carrying at least:
+There is no `DEMO_APP_PORT`. The old table listed `SL_DEMO_APP_PORT`; it was
+never read, and the port the VM publishes on is the pipeline's own
+`DEMO_DASHBOARD_LOCAL_PORT` default of 8080, which the driver does not set.
+
+**`DEMO_STAGE` is sent and is not honoured.** `demo-pipeline.sh` implements one
+fixed sequence and has no stage selection — the `STAGE:` banners label steps
+within that sequence and select nothing. Rather than accept `test` and silently
+perform a full bring-up including a cluster rebuild, it **refuses**: any stage
+but `full` exits 2 at second zero. That makes `make gcp-tf-demo-test` a target
+that cannot currently succeed, which its `make help` line now says. This is a
+stated gap, not an oversight; implementing real stage selection is a separate
+change against a script whose steps are not currently separable.
+
+**Output** — `DEMO_SUMMARY_FILE`, a JSON object carrying at least:
 
 ```json
-{ "outcome": "PASS", "commit": "<SL_DEMO_SOURCE_COMMIT>" }
+{ "outcome": "PASS", "commit": "<DEMO_SOURCE_COMMIT>" }
 ```
 
 `outcome` is one of `PASS`, `FAIL`, `ABORTED`. `commit` **must** be the
-`SL_DEMO_SOURCE_COMMIT` it was handed. The VM's own git SHA belongs to a
+`DEMO_SOURCE_COMMIT` it was handed. The VM's own git SHA belongs to a
 throwaway snapshot repo, and stamping that instead makes every run read as
 `STALE`.
 

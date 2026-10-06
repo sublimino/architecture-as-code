@@ -274,7 +274,11 @@ async def review_policy_decision(
 # offers 90 minutes; a `since` view can go further, and 30 days is the longest a decision is
 # meant to wait for a verdict.
 _DECISION_LOOKUP_SPAN = timedelta(days=30)
-_DECISION_LOOKUP_LIMIT = 500  # signal-ingest's MaxPolicyLimit
+# signal-ingest's ProtectedRouter applies its enumeration budget (MaxPageSize, 100) to every
+# enumerating route before the policy handler's own MaxPolicyLimit (500) is consulted, so 100
+# is the largest page a lookup can ask for. The listing is newest first, so this reaches the
+# 100 most recent decisions in the span.
+_DECISION_LOOKUP_LIMIT = 100
 
 
 async def _decision_tenant(decision_id: str, principal: Principal) -> str | None:

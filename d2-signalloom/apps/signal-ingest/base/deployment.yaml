@@ -10,6 +10,11 @@ metadata:
     app.kubernetes.io/part-of: signalloom
 spec:
   replicas: 1
+  # FrostDB is a single writer on an RWO PVC. RollingUpdate keeps the old pod
+  # holding the store while the new one fails its startup probe forever, so a
+  # roll never completes. Recreate releases the store first (brief outage).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: signal-ingest
@@ -37,7 +42,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-3cc64df241345868
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-ee01e56307469f07
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -44,6 +44,7 @@ const (
 	EnvBufferDir    = "AWSLOGS_BUFFER_DIR"
 	EnvMaxRecords   = "AWSLOGS_MAX_RECORDS"
 	EnvRingCapacity = "AWSLOGS_RING_CAPACITY"
+	EnvFixtureSet   = "AWSLOGS_FIXTURE_SET"
 )
 
 // AWSCollectorConfig is one customer account's worth of configuration.
@@ -65,6 +66,10 @@ type AWSCollectorConfig struct {
 	PollInterval          time.Duration `json:"poll_interval"`
 	RingCapacity          int           `json:"ring_capacity"`
 	CompactThresholdBytes int64         `json:"compact_threshold_bytes"`
+
+	// FixtureSet selects what fixture mode replays: FixtureSetDefault or
+	// FixtureSetKusari. Ignored outside fixture mode.
+	FixtureSet string `json:"fixture_set"`
 }
 
 // WithDefaults returns cfg with unset fields filled in. Tenant defaults to
@@ -92,6 +97,9 @@ func (c AWSCollectorConfig) WithDefaults() AWSCollectorConfig {
 	if c.CompactThresholdBytes <= 0 {
 		c.CompactThresholdBytes = DefaultCompactThresholdBytes
 	}
+	if c.FixtureSet == "" {
+		c.FixtureSet = FixtureSetDefault
+	}
 	return c
 }
 
@@ -108,6 +116,13 @@ var ErrMissingExternalID = errors.New("awslogs: AWSLOGS_EXTERNAL_ID is required 
 func (c AWSCollectorConfig) Validate(mode Mode) error {
 	if c.TenantID == "" {
 		return errors.New("awslogs: tenant_id is required")
+	}
+	if mode == ModeFixture {
+		// An unknown set refuses to boot rather than replaying the default: a
+		// cluster asked for the Kusari corpus that quietly got the default one
+		// would show no decisions and nothing would say why.
+		_, err := FixtureSetFiles(c.FixtureSet)
+		return err
 	}
 	if mode != ModeLive {
 		return nil
@@ -145,6 +160,7 @@ func ConfigFromEnv() AWSCollectorConfig {
 		QueueURL:   os.Getenv(EnvQueueURL),
 		Region:     os.Getenv(EnvRegion),
 		BufferDir:  os.Getenv(EnvBufferDir),
+		FixtureSet: os.Getenv(EnvFixtureSet),
 	}
 	if v := os.Getenv(EnvMaxRecords); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

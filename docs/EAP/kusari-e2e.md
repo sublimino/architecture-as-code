@@ -112,6 +112,14 @@ make kusari-synth-seed SEED=11            # a different corpus, same shape
 scripts/acceptance-test.sh signals-review.spec.ts
 ```
 
+The decision test needs a burst in the store. On `kind-osramp` the awslogs
+collector runs in fixture mode with `AWSLOGS_FIXTURE_SET=kusari`, set in
+`d2-signalloom/apps/fe-signalloom/local/signal-ingest-awslogs-fixture.yaml`.
+That set replays `FixtureFiles()` and then `KusariFixtureFiles()`, burst
+records included, so stage 2 has thresholds to cross. The default set
+(`default`, or the variable unset) replays `FixtureFiles()` only. An unknown
+value refuses to boot rather than falling back.
+
 ## Reading the result
 
 `make test-kusari-e2e -v` prints:

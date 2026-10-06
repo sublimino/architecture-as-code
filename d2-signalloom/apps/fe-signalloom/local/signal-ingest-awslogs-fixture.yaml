@@ -16,3 +16,7 @@ spec:
               value: fixture
             - name: AWSLOGS_TENANT_ID
               value: kusari
+            # Replay the Kusari pilot corpus after the default one, burst
+            # records included, so stage 2 produces decisions on this cluster.
+            - name: AWSLOGS_FIXTURE_SET
+              value: kusari

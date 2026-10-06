@@ -1226,7 +1226,7 @@ test-sldc-offline: ## SLDC dual-cluster EAP pilot: every offline bats, Go, pytes
 	(cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run -q --python 3.12 --with pytest --with pytest-asyncio --with respx --with-requirements requirements.txt python -m pytest -q -p no:cacheprovider \
 		tests/test_ingest_client.py tests/test_ingest_proxies.py tests/test_external_agent_spine_sync.py tests/test_demo_runner_child_env.py \
 		tests/test_claim_tenancy.py tests/test_auth_check.py tests/test_claim_registry_integration.py \
-		tests/test_afm_import_gateway.py) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
+		tests/test_afm_import_gateway.py tests/test_eap_audit_connection_wiring.py tests/test_environment_teardown_openbao_spire_wiring.py tests/test_environment_lifecycle.py) || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	bun test test/unit/tenant-hash.test.ts || { s=$$?; [ $$status -ne 0 ] || status=$$s; }; \
 	exit $$status
 

@@ -624,7 +624,7 @@ async def provision_environment(
         response.status_code = status.HTTP_200_OK
 
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=None,
         action="environment.provision",
         target=rec.customer_hash,
@@ -736,7 +736,7 @@ async def extend_environment_ttl(environment_id: str, req: ExtendTtlRequest, ten
     _owned_environment_or_404(environment_id, tenant)
     rec = GLOBAL_ENVIRONMENT_REGISTRY.extend_ttl(environment_id, req.additional_minutes)
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=None,
         action="environment.extend",
         target=rec.customer_hash,
@@ -761,7 +761,7 @@ async def teardown_environment(
     force = req.force if req else False
     rec = GLOBAL_ENVIRONMENT_REGISTRY.teardown(environment_id, reason=reason, force=force)
     await _audit_eap_decision(
-        conn=None,
+        conn=await api_compat._get_pool(),
         principal=None,
         action="environment.teardown",
         target=rec.customer_hash,

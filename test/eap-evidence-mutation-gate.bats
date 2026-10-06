@@ -55,6 +55,11 @@ echo "disk full" >&2; exit 1'
 @test "the gate never writes into the repository" {
 	before="$(git -C "$root" status --porcelain)"
 	run bash "$gate" --check-all
+	# Same default environment as "control passes and 4/4 mutations are proven"
+	# above, so the same exit code is expected. Without this, a gate that
+	# crashed on its first line would also leave the repo untouched, and the
+	# porcelain comparison below would pass having exercised nothing.
+	[ "$status" -eq 0 ]
 	[ "$(git -C "$root" status --porcelain)" = "$before" ]
 }
 

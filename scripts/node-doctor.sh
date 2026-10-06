@@ -577,8 +577,8 @@ run_one() {
             dbody="$(curl -sk -H "Authorization: Bearer ${token}" --max-time 20 \
                       -w '\n%{http_code}' "${origin}${dpfx}/status" 2>/dev/null)"
             dcode="$(printf '%s' "$dbody" | tail -n1)"
-            davail="$(printf '%s' "$dbody" | sed '$d' \
-                      | sed -n 's/.*"script_available"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -1)"
+            # pipefail-safe: the JSON body carries one script_available key, so sed emits at most one matching line; head -1 never truncates it.
+            davail="$(printf '%s' "$dbody" | sed '$d' | sed -n 's/.*"script_available"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -1)"
             dsteps="$(curl -sk -H "Authorization: Bearer ${token}" --max-time 20 \
                        "${origin}${dpfx}/steps" 2>/dev/null \
                        | grep -o '"step_id"' | wc -l | tr -d ' ')"

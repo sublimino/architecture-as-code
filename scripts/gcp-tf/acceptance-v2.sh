@@ -486,6 +486,7 @@ expects_an_instance() {
 
 # One field out of the handoff, empty when absent under every accepted spelling.
 hv() {
+  # pipefail-safe: ($1) // empty resolves one scalar JSON value; jq -r never writes more than one line, so head -1 truncates nothing live.
   printf '%s' "$HANDOFF_JSON" | "$JQ_BIN" -r "($1) // empty" 2>/dev/null | head -1
 }
 
@@ -613,6 +614,7 @@ check_instance() {
   elif [ -z "$sa" ]; then
     report FAIL "runtime service account" "${instance} runs with no service account"
     note "expected a per-environment runtime identity"
+  # pipefail-safe: printf writes $sa (one short email, <200 bytes) in a single syscall, so grep -q's early exit never races the producer.
   elif printf '%s' "$sa" | grep -q -- '-compute@developer\.gserviceaccount\.com$'; then
     report FAIL "runtime service account" "${instance} runs the DEFAULT COMPUTE SA: ${sa}"
     note "project-wide, shared, and Editor on a default project"
@@ -883,6 +885,7 @@ iap_probe() {
   while [ "$waited" -lt "$IAP_PROBE_TIMEOUT" ]; do
     if grep -qE 'Listening on port \[[0-9]+\]' "$log" 2>/dev/null; then
       IAP_VERDICT="listening"
+      # pipefail-safe: gcloud prints this banner once per tunnel; grep reads a closed file, not a live process, so head -1 truncates nothing live.
       IAP_LOCAL_PORT="$(grep -oE 'Listening on port \[[0-9]+\]' "$log" | head -1 | grep -oE '[0-9]+' | head -1)"
       break
     fi
@@ -904,6 +907,7 @@ iap_probe() {
       # guaranteed-stable log before giving up.
       if grep -qE 'Listening on port \[[0-9]+\]' "$log" 2>/dev/null; then
         IAP_VERDICT="listening"
+        # pipefail-safe: same single banner, same closed-file read as above.
         IAP_LOCAL_PORT="$(grep -oE 'Listening on port \[[0-9]+\]' "$log" | head -1 | grep -oE '[0-9]+' | head -1)"
       elif grep -qiE '4033|not authoriz|not authoris|permission denied|PERMISSION_DENIED|Error while connecting.*[Ff]orbidden' "$log" 2>/dev/null; then
         IAP_VERDICT="denied"

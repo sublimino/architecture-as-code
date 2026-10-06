@@ -157,19 +157,28 @@ variable "manage_project_iam" {
 # }
 
 # ===========================================================================
-# WIRING BLOCK — uncomment at integration. See terraform/platform/WIRING.md.
+# WIRING BLOCK — INTEGRATED. Nothing below is commented out any more.
 # ===========================================================================
 #
-# terraform/modules/identity is built by chunk F5 on branch
-# feat/gcp-tf-identity-ci and does not exist in this worktree. A `module` block
-# pointing at a missing directory fails `terraform init`, so the call below is
-# commented out and this root validates cleanly as it stands. The input names
-# are copied verbatim from CONTRACT.md section 4 and must not be renamed when
-# uncommenting — if they no longer match F5's module, that is a contract
-# violation to reconcile, not a rename to make locally.
+# The markers are kept because they delimit the identity wiring as a unit and
+# terraform/platform/WIRING.md's ordering notes still refer to them. They are
+# NOT an instruction: everything between here and END WIRING BLOCK is live.
 #
-# Uncomment the variables AND the module block AND the outputs together, in the
-# order given in WIRING.md.
+# History, because the shape of this block only makes sense with it:
+# terraform/modules/identity was built by chunk F5 on branch
+# feat/gcp-tf-identity-ci and did not exist in this worktree. A `module` block
+# pointing at a missing directory fails `terraform init` — not plan, not a
+# warning — so the call shipped commented and this root validated cleanly as it
+# stood. That module now exists and the call is live.
+#
+# The input names are copied verbatim from CONTRACT.md section 4 and must not be
+# renamed locally; if they stop matching modules/identity, that is a contract
+# violation to reconcile.
+#
+# KNOWN GAP, stated rather than left to be discovered: the matching WIRING BLOCK
+# in tests/platform_wiring.tftest.hcl was never uncommented, so
+# `wif_provider_carries_a_non_empty_attribute_condition` is still inert. The
+# module it covers is live; the assertion for it is not running.
 #
 # ---------------------------------------------------------------------------
 variable "project_number" {

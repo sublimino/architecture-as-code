@@ -10,7 +10,7 @@ output "operator_service_account_email" {
 }
 
 output "granted_roles" {
-  description = "Every role granted to the operator identity at any scope, so a reviewer can diff intent against reality. Four: two predefined project-scoped roles, one project-scoped custom role holding four permissions, and one scoped to the runtime service account resources."
+  description = "The role BUDGET at any scope — what this identity is entitled to hold, not what the current configuration bound. Four: two predefined project-scoped roles, one project-scoped custom role holding four permissions, and one scoped to the runtime service account resources. Built from operator_project_roles, which is deliberately constant, so when manage_lifecycle_custom_role is false this still lists the custom role and nothing was bound to it. Read lifecycle_role_is_managed alongside it; that output, not this one, is the one that tells you what exists."
   value       = sort(local.operator_all_roles)
 }
 
@@ -25,7 +25,7 @@ output "lifecycle_role_is_managed" {
 }
 
 output "project_roles" {
-  description = "The project-scoped subset of granted_roles. Exposed separately because the project-scoped set is the one with a blast radius beyond a single VM, and a caller asserting on it should not have to filter the combined list."
+  description = "The project-scoped subset of the granted_roles BUDGET — three, constant. Exposed separately because the project-scoped set is the one with a blast radius beyond a single VM, and a caller asserting on it should not have to filter the combined list. Like granted_roles this states entitlement rather than bindings: a budget that shrank when a feature flag was flipped would let a future role be added under cover of \"we are back to three\"."
   value       = sort(local.operator_project_roles)
 }
 

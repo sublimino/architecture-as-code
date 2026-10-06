@@ -312,8 +312,20 @@ N environments would otherwise each claim to own:
 - the Cloud DNS managed zone (if Terraform manages it at all)
 - the billing budget and the notification channels
 - the CI plan/apply service accounts
+- the per-environment runtime service accounts (`modules/identity` owns the set;
+  it is one module call for all of them, not one per environment)
+- the **operator identity** and its instance-lifecycle custom role
+  (`modules/operator-identity`) — one account for the whole project
 
 Anything scoped to one environment belongs in `environments`, never here.
+
+The operator identity is the clearest case for why this section is a rule and
+not a filing preference. It is a project-level singleton; declared in
+`terraform/environments` it would be stored in **an environment's** state, and
+`make gcp-tf-destroy ENV=demo-1` destroys everything in that state. Tearing down
+`demo-1` would silently take away the only way to log into `demo-2`. The destroy
+guard refuses the `platform` and `bootstrap` roots **by path**, so it would have
+permitted exactly this.
 
 ### 5c. State-bucket protection is IAM, not config
 

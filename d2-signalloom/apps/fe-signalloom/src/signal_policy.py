@@ -305,9 +305,19 @@ async def _decision_tenant(decision_id: str, principal: Principal) -> str | None
     return None
 
 
+def _has_endpoint(routes: list[Any], target_endpoint: Any) -> bool:
+    for route in routes:
+        if getattr(route, "endpoint", None) is target_endpoint:
+            return True
+        inner = getattr(getattr(route, "original_router", None), "routes", None) or getattr(route, "routes", None)
+        if inner and _has_endpoint(inner, target_endpoint):
+            return True
+    return False
+
+
 def install_signal_policy_api(app: Any) -> None:
     """Mount the policy review router once."""
-    for route in app.routes:
-        if getattr(route, "endpoint", None) is review_policy_decision:
-            return
+    if _has_endpoint(getattr(app, "routes", []), review_policy_decision):
+        return
     app.include_router(router)
+

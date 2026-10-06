@@ -231,15 +231,23 @@ class CadvisorPoller:
                 return await res
             return str(res)
 
+        # Streamed, not ``client.get(...).text``: a buffered Response caches the
+        # ~12 MB body twice (bytes + decoded str) and httpx ties Response and
+        # stream into a reference cycle, so every poll's body waited for a full
+        # cyclic GC that an idle portal rarely runs -- bodies stacked up every
+        # poll until the pod was OOM-killed at 384Mi (2026-10-06).  Reading the
+        # chunks ourselves leaves the only copy refcounted and freed per poll.
         async with httpx.AsyncClient(timeout=10.0, transport=self.transport) as client:
-            resp = await client.get(self.kubelet_url)
-            if resp.status_code >= 400:
-                raise httpx.HTTPStatusError(
-                    f"cAdvisor returned {resp.status_code}",
-                    request=resp.request,
-                    response=resp,
-                )
-            return resp.text
+            async with client.stream("GET", self.kubelet_url) as resp:
+                if resp.status_code >= 400:
+                    raise httpx.HTTPStatusError(
+                        f"cAdvisor returned {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                body = b"".join([chunk async for chunk in resp.aiter_bytes()])
+                encoding = resp.encoding or "utf-8"
+        return body.decode(encoding, errors="replace")
 
     async def poll_once(self) -> dict[str, AgentTelemetry]:
         try:

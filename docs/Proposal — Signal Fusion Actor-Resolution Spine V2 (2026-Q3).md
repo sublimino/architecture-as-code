@@ -39,7 +39,7 @@ tags:
   - osramp
 aliases:
   - "#proposal-2026-q3-signal-fusion-actor-resolution-spine-v2"
-updated: 2026-09-10T20:15
+updated: 2026-10-06T16:14
 status: draft
 ---
 # Proposal — Signal Fusion Actor-Resolution Spine V2 (2026-Q3)
@@ -49,6 +49,10 @@ status: draft
 | Proposer & Date: | AJM (2026-09-10) |
 | Reviewer & Date: |  |
 | Approver & Date: |  |
+
+> **Revision 2026-10-06 (Landlock Telemetry & Kernel Truth Alignment):** Landlock LSM provides unprivileged filesystem and network access prevention in the Linux kernel by returning `-EACCES`, but contains no native kernel audit logging subsystem. The telemetry ingested by the spine from `agent-nono-evidenced` is the userspace startup and session manifest emitted by the `nono` CLI wrapper. Runtime access denial observations originate from eBPF tracepoint detection of `-EACCES` returns, not an in-kernel Landlock audit stream.
+
+---
 
 ## Press Release
 

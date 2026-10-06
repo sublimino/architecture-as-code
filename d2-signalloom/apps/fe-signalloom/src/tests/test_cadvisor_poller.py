@@ -248,6 +248,41 @@ async def test_malformed_scrape_fails_the_poll_and_marks_unhealthy():
 
 
 @pytest.mark.anyio
+async def test_a_finished_scrape_leaves_no_body_behind_for_the_cycle_collector():
+    """fe-signalloom OOM at 384Mi on kind-osramp (2026-10-06).
+
+    The node scrape is ~12 MB.  ``resp.text`` cached the decoded body on the
+    Response, and httpx binds Response <-> stream in a reference cycle, so each
+    poll's ~25 MB (bytes + str) outlived the poll until a full cyclic GC.  An
+    idle portal allocates too few objects to trigger one, so bodies stacked up
+    every 5 s until the kernel killed the pod.  With the cycle collector off,
+    the memory still held after several polls must not scale with the polls.
+    """
+    import gc
+    import tracemalloc
+
+    padding = ("# " + "x" * 1022 + "\n") * 2048  # ~2 MiB of comment lines, skipped by the parser
+    body = (padding + scrape()).encode()
+    poller = kubelet(lambda req: httpx.Response(200, content=body))
+
+    gc.collect()
+    gc.disable()
+    tracemalloc.start()
+    try:
+        baseline, _ = tracemalloc.get_traced_memory()
+        for _ in range(4):
+            await poller.poll_once()
+        held, _ = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+        gc.enable()
+        gc.collect()
+
+    assert pod_telemetry(poller).status == "PENDING"
+    assert held - baseline < len(body), f"{(held - baseline) / 2**20:.1f} MiB still held after 4 polls"
+
+
+@pytest.mark.anyio
 async def test_successful_scrape_is_healthy_until_it_goes_stale():
     clock = Clock()
     poller = CadvisorPoller(clock=clock, stale_after=15.0)

@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "sbom",
-  "documentNamespace": "https://anchore.com/syft/dir/sbom-3fc24a1d-c48e-44a4-b3cb-525330b2be2a",
+  "documentNamespace": "https://anchore.com/syft/dir/sbom-84ff712e-df0e-4beb-a801-3c529c395542",
   "creationInfo": {
     "licenseListVersion": "3.28",
     "creators": [
@@ -11,7 +11,7 @@
       "Tool: syft-v1.51.0",
       "Tool: buildkit-v0.32.2"
     ],
-    "created": "2026-10-05T00:15:59Z"
+    "created": "2026-10-06T15:50:29Z"
   },
   "packages": [
     {
@@ -5364,7 +5364,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:39cdac97a7a672f550b03a6ba0029e708668ae66dabd4e2de4f759d0a787847b"
+      "comment": "layerID: sha256:42a5b4797a66055ef93ba3325958137b2f87af5791cc09035e42dd86588e31b5"
     },
     {
       "fileName": "usr/bin/cat",
@@ -5384,7 +5384,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:2d14c48b5a0f34a9337115744d7e374fc006f4f8cb510a86c152828c9558607b"
+      "comment": "layerID: sha256:bdc0134f65a1231242e40ea7ff1de19db4c8455fde4735cace1599fc9881df29"
     },
     {
       "fileName": "usr/bin/ldconfig",
@@ -5444,7 +5444,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:b1800da970733245b8c50899b35f4aacdb4b9fc64f5011c5d8a7ed65f6c44a0e"
+      "comment": "layerID: sha256:ad8025e9286689fb8b13da81649454b18d8fbfc02e93584489a21aceb99dd1e4"
     },
     {
       "fileName": "usr/lib/apk/db/installed",

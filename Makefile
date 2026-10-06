@@ -1509,7 +1509,10 @@ demo-kagent-test: ## Run Kagent agent and infrastructure test suite.
 demo-kagent-demo: ## Run the interactive Kagent D5 walkthrough demo.
 	./scripts/kagent-demo.sh
 
-.PHONY: demo-kagent-credentials demo-kagent-credentials-verify demo-kagent-invoke
+.PHONY: demo-kagent-credentials demo-kagent-credentials-verify demo-kagent-invoke demo-kagent-key
+
+demo-kagent-key: ## Prompt (hidden) for ANTHROPIC_API_KEY, write it to .env (gitignored, 600), then project it into the kagent Secret.
+	./scripts/anthropic-key-prompt.sh --apply
 
 # Reads ANTHROPIC_API_KEY from .env at the MAIN checkout root (gitignored), or
 # from the environment, which takes precedence. Resolved via git rather than

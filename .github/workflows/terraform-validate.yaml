@@ -26,17 +26,7 @@
 name: terraform-validate
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "terraform/**"
-      - "scripts/gcp-tf/**"
-      - "Makefile"
-      - "test/terraform-*.bats"
-      - "test/fixtures/terraform/**"
-      - "test/fixtures/gcp-tf-*/**"
-      - ".github/workflows/terraform-validate.yaml"
+  # PR-time trigger removed for this branch; manual workflow_dispatch only (Proposal — Signal Loom EAP CI Lane §2 / EAPCI-P1-4).
   workflow_dispatch:
 
 # Read-only. This workflow writes nothing, anywhere.

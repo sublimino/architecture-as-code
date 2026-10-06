@@ -379,6 +379,15 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
 - Every file must complete in under 30 seconds.
 - Include at least one *mutation check*: a test that proves the suite fails when the guarded
   condition is violated.
+- Standalone mutation proofs are named `test/<topic>-mutation-proof.sh`. **The filename is the
+  registration.** `gcp-tf-validate` collects them with `$(wildcard test/*-mutation-proof.sh)`,
+  so a proof that lands is executed the day it lands rather than the day somebody remembers to
+  list it. Do **not** add a hand-registered variable for one: it then runs twice, once via the
+  glob and once via the extra invocation, on a gate that already takes ~13 minutes — and a
+  duplicate run is green, just slower, so the gate will never tell you.
+  `test/guard-falsification-proof.sh` is deliberately *not* matched by that glob: it needs a VM,
+  it is invoked by `demo-pipeline.sh` and `vm-pipeline.sh`, and widening the wildcard to
+  `test/*-proof.sh` would drag it into the offline gate and break it.
 
 ### 7b. Mutate the REAL file. A fixture mutation proves only that the fixture is wired up.
 

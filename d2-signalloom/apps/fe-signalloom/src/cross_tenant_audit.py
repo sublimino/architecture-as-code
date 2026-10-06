@@ -92,6 +92,9 @@ async def audit_cross_tenant_read(
     content: Any,
     *,
     what: str,
+    reason: str | None = None,
+    result_count: int | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Audit one read if, and only if, it actually surfaced another tenant's data.
 
@@ -104,8 +107,24 @@ async def audit_cross_tenant_read(
     ``content`` may be pre-shaped by the caller into a minimal
     tenant-attribution structure (see ``cadvisor_poller``'s telemetry routes,
     which have no ``tenant_id`` of their own and build one via a namespace/pod
-    lookup) rather than the literal response body; either way this function
-    only cares which tenant ids the structure contains.
+    lookup, or ``risk.py``'s routes, which carry none at all) rather than the
+    literal response body; either way this function only cares which tenant
+    ids the structure contains. The sentinel values ``"unresolved"``
+    (``cadvisor_poller``: the lookup itself failed) and ``"unattributed"``
+    (``risk.py``: there is nothing to look up) are deliberately never equal to
+    a real ``principal.tenant``, so passing one here always counts as "another
+    tenant's data" and always emits -- a cross-tenant-capable read must never
+    go unrecorded just because its tenant could not be named (Andy's review,
+    2026-10-06).
+
+    ``reason`` is folded into ``detail`` when given, for exactly that case:
+    recording *why* attribution was impossible, not just that it was.
+    ``result_count`` overrides the count derived from ``content`` for a
+    caller whose ``content`` is a synthetic placeholder rather than the real
+    result set (e.g. the single-element ``["unresolved"]`` placeholder
+    standing in for an arbitrarily large telemetry response). ``extra`` folds
+    additional caller-specific fields into ``detail`` (e.g. the agent id(s) a
+    risk read named).
     """
     if not is_superadmin(principal):
         return
@@ -113,12 +132,16 @@ async def audit_cross_tenant_read(
     others = {t for t in tenant_ids if t != principal.tenant}
     if not others:
         return
-    detail = {
+    detail: dict[str, Any] = {
         "action": "cross_tenant_read",
         "route": route,
         "tenant_ids": sorted(tenant_ids),
-        "result_count": _result_count(content),
+        "result_count": result_count if result_count is not None else _result_count(content),
     }
+    if reason is not None:
+        detail["reason"] = reason
+    if extra:
+        detail.update(extra)
     # The literal sits at the call site, not behind the EVENT_TYPE constant
     # above, so that test_audit_event_types.py's AST extractor (which resolves
     # a bare name only through a one-hop caller, never through an imported
@@ -152,11 +175,14 @@ AUDITED_ROUTES: frozenset[str] = frozenset(
         "signal_fusion.py:query_authorization",
         "signal_fusion.py:get_coverage",
         "signal_fusion.py:get_store_stats",
+        "signal_fusion.py:stream_observations",
         "signal_policy.py:get_policy_findings",
         "signal_policy.py:get_policy_decisions",
         "invites.py:list_invites",
         "cadvisor_poller.py:get_agent_telemetry",
         "cadvisor_poller.py:list_agent_telemetry",
+        "risk.py:get_agent_risk",
+        "risk.py:get_fleet_risk",
     }
 )
 
@@ -164,27 +190,24 @@ AUDITED_ROUTES: frozenset[str] = frozenset(
 #: response carries no tenant attribution fe-signalloom can extract, with why.
 #: Each reason names where the gap actually is, not just "not implemented" --
 #: see the module docstring for the audit obligation this documents against.
+#:
+#: Andy's review (2026-10-06) narrowed this considerably: "no tenant in the
+#: response" is not by itself a reason to stay silent -- stream_observations
+#: and both risk.py routes moved to AUDITED_ROUTES, recording a sentinel
+#: tenant ("stream"/"unattributed") rather than excusing the gap. Only
+#: get_policy_rates and the federation proxy remain here, because their gap
+#: is different in kind: rates truly carries no per-request disclosure to
+#: name at all (a bucketed count has no identity), and federation's data is
+#: either universally-identical demo fixture or an upstream registry that
+#: names no tenant anywhere in its vocabulary -- not merely one this gateway
+#: declines to attribute.
 TENANT_AGNOSTIC_ROUTES: dict[str, str] = {
-    "signal_fusion.py:stream_observations": (
-        "SSE stream of indefinite length; there is no complete JSON body to scan per request. "
-        "Per-event auditing needs its own design and is tracked as follow-up, not silently "
-        "covered here."
-    ),
     "signal_policy.py:get_policy_rates": (
         "Bucketed observation counts per layer/source (api/policy_routes.go rateBucketView) "
         "carry no tenant_id field by design -- confirmed against the Go struct, which has only "
-        "BucketStart/Layer/Source/Count."
-    ),
-    "risk.py:get_agent_risk": (
-        "Gated cross-tenant-only by signal-ingest's own requireCrossTenantRead, so every "
-        "successful call IS a cross-tenant read by construction -- but the FAIR assessment "
-        "response (api/handlers.go handleGetAgentRisk) names only agentId, never a tenant; "
-        "agent-to-tenant ownership lives in fe-signalloom's own EAP agent registry, a different "
-        "system from signal-ingest's FAIR engine, and joining them is out of scope here."
-    ),
-    "risk.py:get_fleet_risk": (
-        "Same gap as risk.py:get_agent_risk: a fleet-wide rollup with no tenant attribution in "
-        "the response."
+        "BucketStart/Layer/Source/Count. There is no per-request disclosure to name, unlike "
+        "stream_observations or the risk.py routes, which do name something (observations, "
+        "agent ids) even without a tenant."
     ),
     "federation.py:proxy_federation_route": (
         "Generic reverse proxy; the federation demo dataset is either a hardcoded fallback "

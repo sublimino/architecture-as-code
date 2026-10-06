@@ -462,23 +462,25 @@ async def _audit_cross_tenant_telemetry(
     """Telemetry items carry no tenant of their own; annotate each with one looked up by
     (namespace, pod_name) before handing it to the generic extractor in cross_tenant_audit.
 
-    A superadmin's telemetry read has never depended on discovery being reachable -- that is
-    exactly why ``_visible_pods`` short-circuits to ``None`` before ever calling
-    ``claim_tenancy.list_workloads()`` for one, and test_cadvisor_poller.py's ``client`` fixture
-    (the operator/superadmin subject) asserts the cluster-wide pod index with no discovery stub
-    at all. Losing that guarantee to add auditing would be a regression bigger than the feature,
-    so a discovery failure here is caught and logged, not raised: the read is served and nothing
-    is audited for it, rather than a secondary (attribution) failure blocking an already-authorized
-    read. This is the one deliberate exception to "an audit failure fails closed" in this change --
-    that rule covers the audit *write* (api_compat._require_pool, below, which does still raise),
-    not the ability to name which tenant a disclosed pod belongs to.
+    A superadmin's telemetry read is reached only when ``_visible_pods`` returned ``None``,
+    which already means it is cross-tenant-capable -- so this must never go unrecorded, even
+    when the *attribution* lookup itself fails. Andy's review (2026-10-06): a cross-tenant read
+    is never silent. When discovery is unreachable the event is still written, naming the
+    sentinel tenant ``"unresolved"`` and a ``reason``, rather than skipped -- and the write
+    itself still fails closed (api_compat._require_pool, inside audit_cross_tenant_read, still
+    raises 503 if the audit database is configured but unreachable). Earlier version of this
+    function caught the discovery failure and returned, silently serving an unaudited
+    cross-tenant read; fixed per review, with test_discovery_failure_still_emits_an_unresolved_
+    event pinning it.
     """
     try:
         tenant_map = await _pod_tenant_map()
     except APIError as exc:
-        logger.warning(
-            "cross-tenant telemetry audit for %s: discovery unavailable, serving unaudited: %s",
-            route, exc,
+        await audit_cross_tenant_read(
+            principal, route, [{"tenant_id": "unresolved"}],
+            what=f"Reading {route} cross-tenant",
+            reason=f"tenant attribution lookup failed, discovery unavailable: {exc}",
+            result_count=len(items),
         )
         return
     annotated = [

@@ -302,6 +302,120 @@ drain_routes = sever_ingress_routes
 
 
 # ------------------------------------------------------------------------------
+# Optional real OpenBao/SPIRE providers for stages 2 and 3, recovered from the
+# stranded SLRC-P1 mission (environment_teardown_adapters.py / f5c140aa
+# "harden teardown adapters fail-closed security"). That module's
+# OpenBaoHTTPClient and SpireCLIClient had zero importers outside its own
+# tests on the base: nothing ever constructed them. Wiring them in here is
+# opt-in, gated by the same SIGNALLOOM_TEARDOWN_* env vars
+# environment_teardown_adapters.build_teardown_executor() already reads, so
+# every existing caller that has never configured a provider (which is every
+# test fixture and the demo deployment today) keeps the exact behaviour it
+# has always had: shred_openbao()/revoke_svid() with client=None report
+# completion without verification. An operator who sets
+# SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire gets real, verified
+# shredding and revocation instead.
+# ------------------------------------------------------------------------------
+
+class _ConfiguredOpenBaoShredClient:
+    """Shreds via a real OpenBaoClient provider and verifies postconditions.
+
+    Mirrors the OpenBao half of environment_teardown_adapters.KeySpireAdapter:
+    delete_tenant_material() is followed by key_exists(), secret_exists() and
+    decrypt_fails(), and a provider that cannot prove all three raises rather
+    than letting the caller report success unverified.
+    """
+
+    def __init__(self, provider: Any, timeout: float = STAGE_TIMEOUT_SECONDS) -> None:
+        self._provider = provider
+        self._timeout = timeout
+
+    def shred(self, customer_hash: str) -> None:
+        self._provider.delete_tenant_material(customer_hash, self._timeout)
+        key_absent = not self._provider.key_exists(customer_hash, self._timeout)
+        secret_absent = not self._provider.secret_exists(customer_hash, self._timeout)
+        decrypt_failed = self._provider.decrypt_fails(customer_hash, self._timeout)
+        if not (key_absent and secret_absent and decrypt_failed):
+            raise RuntimeError(
+                f"OpenBao postconditions unverified: key_absent={key_absent} "
+                f"secret_absent={secret_absent} decrypt_failed={decrypt_failed}"
+            )
+
+
+class _ConfiguredSpireRevokeClient:
+    """Revokes via a real SpireClient provider and verifies no tenant entries remain."""
+
+    def __init__(self, provider: Any, timeout: float = STAGE_TIMEOUT_SECONDS) -> None:
+        self._provider = provider
+        self._timeout = timeout
+
+    def revoke(self, customer_hash: str) -> None:
+        from environment_teardown_adapters import KeySpireAdapter
+
+        matched = KeySpireAdapter._tenant_entries(self._provider.list_entries(self._timeout), customer_hash)
+        for entry in matched:
+            entry_id = entry.get("id", entry.get("entry_id"))
+            if not isinstance(entry_id, str) or not entry_id:
+                raise RuntimeError("tenant SPIRE entry has no id")
+            self._provider.delete_entry(entry_id, self._timeout)
+
+        remaining = KeySpireAdapter._tenant_entries(self._provider.list_entries(self._timeout), customer_hash)
+        if remaining:
+            ids = [str(e.get("id", e.get("entry_id", "<missing>"))) for e in remaining]
+            raise RuntimeError(f"tenant SPIRE entries remain: {ids}")
+
+
+def build_default_openbao_shred_client(timeout: float = STAGE_TIMEOUT_SECONDS) -> Optional[Any]:
+    """Opt-in real OpenBao client for shred_openbao(), or None (today's default).
+
+    None means "no provider configured"; shred_openbao() then keeps its
+    long-standing unverified-success behaviour. Set
+    SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire plus
+    SIGNALLOOM_TEARDOWN_OPENBAO_{URL,TOKEN,TEST_CIPHERTEXT} (same names
+    environment_teardown_adapters.build_teardown_executor() reads) to turn on
+    real, verified shredding.
+    """
+    if os.getenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER") != "openbao-spire":
+        return None
+    bao_url = os.getenv("SIGNALLOOM_TEARDOWN_OPENBAO_URL")
+    bao_token = os.getenv("SIGNALLOOM_TEARDOWN_OPENBAO_TOKEN")
+    ciphertext = os.getenv("SIGNALLOOM_TEARDOWN_OPENBAO_TEST_CIPHERTEXT")
+    if not (bao_url and bao_token and ciphertext):
+        logger.warning(
+            "SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire is set but the "
+            "OpenBao env vars are incomplete; shred_openbao() falls back to "
+            "unverified completion"
+        )
+        return None
+    from environment_teardown_adapters import OpenBaoHTTPClient
+
+    return _ConfiguredOpenBaoShredClient(OpenBaoHTTPClient(bao_url, bao_token, ciphertext), timeout)
+
+
+def build_default_spire_revoke_client(timeout: float = STAGE_TIMEOUT_SECONDS) -> Optional[Any]:
+    """Opt-in real SPIRE client for revoke_svid(), or None (today's default).
+
+    Same opt-in contract as build_default_openbao_shred_client(): None unless
+    SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire and the SPIRE env
+    vars are set.
+    """
+    if os.getenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER") != "openbao-spire":
+        return None
+    spire_binary = os.getenv("SIGNALLOOM_TEARDOWN_SPIRE_BINARY")
+    spire_socket = os.getenv("SIGNALLOOM_TEARDOWN_SPIRE_SOCKET")
+    if not (spire_binary and spire_socket):
+        logger.warning(
+            "SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire is set but the "
+            "SPIRE env vars are incomplete; revoke_svid() falls back to "
+            "unverified completion"
+        )
+        return None
+    from environment_teardown_adapters import SpireCLIClient
+
+    return _ConfiguredSpireRevokeClient(SpireCLIClient(spire_binary, spire_socket), timeout)
+
+
+# ------------------------------------------------------------------------------
 # Stage 2 — OpenBao Key Shredding
 # ------------------------------------------------------------------------------
 
@@ -319,14 +433,15 @@ def shred_openbao(
         return StageResult(TeardownStage.SHRED_OPENBAO, h, outcome, detail,
                            int((time.monotonic() - start) * 1000), removed or [])
 
+    resolved_client = client if client is not None else build_default_openbao_shred_client(timeout)
     try:
-        if client is not None:
-            if hasattr(client, "shred"):
-                client.shred(h)
-            elif hasattr(client, "shred_keys"):
-                client.shred_keys(h)
-            elif callable(client):
-                client(h)
+        if resolved_client is not None:
+            if hasattr(resolved_client, "shred"):
+                resolved_client.shred(h)
+            elif hasattr(resolved_client, "shred_keys"):
+                resolved_client.shred_keys(h)
+            elif callable(resolved_client):
+                resolved_client(h)
         removed_keys = [f"transit/keys/eap-{h}", f"secret/data/eap-{h}"]
         return result(StageOutcome.COMPLETED, f"Shredded OpenBao keys and secrets for eap-{h}", removed_keys)
     except Exception as exc:
@@ -352,14 +467,15 @@ def revoke_svid(
         return StageResult(TeardownStage.REVOKE_SVID, h, outcome, detail,
                            int((time.monotonic() - start) * 1000), removed or [])
 
+    resolved_client = client if client is not None else build_default_spire_revoke_client(timeout)
     try:
-        if client is not None:
-            if hasattr(client, "revoke"):
-                client.revoke(h)
-            elif hasattr(client, "revoke_svid"):
-                client.revoke_svid(h)
-            elif callable(client):
-                client(h)
+        if resolved_client is not None:
+            if hasattr(resolved_client, "revoke"):
+                resolved_client.revoke(h)
+            elif hasattr(resolved_client, "revoke_svid"):
+                resolved_client.revoke_svid(h)
+            elif callable(resolved_client):
+                resolved_client(h)
         revoked_svids = [f"spiffe://signalloom.demo/ns/eap-{h}/sa/tenant-app"]
         return result(StageOutcome.COMPLETED, f"Revoked SPIRE SVIDs and enrollment tokens for eap-{h}", revoked_svids)
     except Exception as exc:

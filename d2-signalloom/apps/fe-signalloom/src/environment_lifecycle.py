@@ -1107,13 +1107,26 @@ class ReaperDaemon:
                 self._active_pass_in_progress = False
 
     async def _loop(self) -> None:
-        """Continuous background reconciliation loop with adaptive interval scheduling."""
+        """Continuous background reconciliation loop with adaptive interval scheduling.
+
+        Recovered from the stranded SLRC-P1 mission (0a9bde8a "defer initial
+        lifecycle reconciliation"): the loop used to run a pass immediately on
+        start, before the first interval elapsed, which fires a reconciliation
+        pass against every active environment the instant the daemon starts
+        (e.g. right after `.start()` is called in a request handler or in a
+        test's setup) rather than after the configured interval has actually
+        passed. Sleeping first makes `.start()` followed promptly by `.stop()`
+        a true no-op pass-wise, matching the documented adaptive-interval
+        contract.
+        """
         while self._is_running:
             try:
-                if not self._is_paused:
-                    await self.run_reconciliation_pass()
                 interval = self._scheduler.get_interval()
                 await asyncio.sleep(interval)
+                if not self._is_running:
+                    break
+                if not self._is_paused:
+                    await self.run_reconciliation_pass()
             except asyncio.CancelledError:
                 break
             except Exception as ex:
@@ -1163,7 +1176,7 @@ async def api_register_lifecycle(req: RegisterEnvironmentRequest, tenant: Tenant
         ttl_minutes=req.ttl_minutes or DEFAULT_LEASE_MINUTES,
     )
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(tenant, "principal", None),
         "environment_lifecycle.register",
         rec.customer_hash,
@@ -1182,7 +1195,7 @@ async def api_heartbeat(customer_hash: CustomerHash, req: HeartbeatRequest, tena
         extend_minutes=req.extend_minutes,
     )
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(tenant, "principal", None),
         "environment_lifecycle.heartbeat",
         customer_hash,
@@ -1198,7 +1211,7 @@ async def api_record_activity(customer_hash: CustomerHash, tenant: Tenant) -> Li
     require_owned_or_404(customer_hash, tenant)
     rec = GLOBAL_LIFECYCLE_MANAGER.record_activity(customer_hash, source="api_touch")
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(tenant, "principal", None),
         "environment_lifecycle.activity",
         customer_hash,
@@ -1230,7 +1243,7 @@ async def api_trigger_reaping_pass(_operator: Operator) -> ReaperSummary:
     """Manually trigger an authoritative reaping evaluation pass (operator only: acts on every tenant)."""
     summary = await GLOBAL_REAPER_DAEMON.run_reconciliation_pass()
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(_operator, "principal", getattr(_operator, "user_id", "operator")),
         "environment_lifecycle.reap_now",
         "all",
@@ -1245,7 +1258,7 @@ async def api_pause_reaper(_operator: Operator) -> Dict[str, Any]:
     """Administratively pause background reaping operations (operator only: pauses every tenant's cleanup)."""
     GLOBAL_REAPER_DAEMON.pause()
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(_operator, "principal", getattr(_operator, "user_id", "operator")),
         "environment_lifecycle.pause_reaper",
         "system",
@@ -1260,7 +1273,7 @@ async def api_resume_reaper(_operator: Operator) -> Dict[str, Any]:
     """Administratively resume background reaping operations (operator only)."""
     GLOBAL_REAPER_DAEMON.resume()
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(_operator, "principal", getattr(_operator, "user_id", "operator")),
         "environment_lifecycle.resume_reaper",
         "system",
@@ -1295,7 +1308,7 @@ async def api_clear_dlq(
     else:
         cleared = sum(GLOBAL_LIFECYCLE_MANAGER.dlq.clear(h) for h in owned_hashes(tenant))
     await _audit_eap_decision(
-        None,
+        await api_compat._get_pool(),
         getattr(tenant, "principal", None),
         "environment_lifecycle.clear_dlq",
         customer_hash or "all",

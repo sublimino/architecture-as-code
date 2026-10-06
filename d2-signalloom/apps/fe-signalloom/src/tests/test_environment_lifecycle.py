@@ -358,6 +358,32 @@ async def test_reaper_daemon_start_stop_graceful_cancellation():
     assert daemon._task.done()
 
 
+@pytest.mark.anyio
+async def test_reaper_daemon_defers_first_reconciliation_pass():
+    """Recovered from the stranded SLRC-P1 mission (0a9bde8a "defer initial
+    lifecycle reconciliation"): the daemon must wait a full interval before
+    its first reconciliation pass, not fire one the instant .start() runs.
+
+    A long base_interval combined with a near-immediate stop proves the
+    ordering: if the loop ran a pass before sleeping (the pre-fix behaviour),
+    cycle_count would already be >= 1 by the time stop() returns.
+    """
+    mgr = LifecycleManager()
+    daemon = ReaperDaemon(lifecycle_manager=mgr, base_interval=10.0, min_interval=5.0, max_interval=20.0)
+
+    started = daemon.start()
+    assert started is True
+
+    # Stop well inside the 10s interval; a pre-fix daemon would already have
+    # recorded one cycle by this point because it ran before its first sleep.
+    await asyncio.sleep(0.05)
+    await daemon.stop(timeout=1.0)
+
+    assert daemon.cycle_count == 0, (
+        f"expected zero reconciliation passes before the first interval elapsed, got {daemon.cycle_count}"
+    )
+
+
 def test_concurrent_api_requests_and_reaping_pass():
     """Verify thread-safe concurrent heartbeats, registrations, and reaping passes without lock contention."""
     mgr = LifecycleManager()

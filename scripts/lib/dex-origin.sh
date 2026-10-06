@@ -61,6 +61,25 @@
 # ngrok https://x.ngrok-free.app). Every external dependency below is
 # env-overridable so the whole mechanism is testable with no cluster at all —
 # see test/terraform-dex-origin.bats.
+#
+# ── DO NOT `sudo` THIS SCRIPT ────────────────────────────────────────────────
+#
+# On the demo VM the working invocation is:
+#
+#     cd /opt/signalloom/repo && ./scripts/lib/dex-origin.sh apply tailscale https://<node>.<tailnet>.ts.net
+#
+# UNSUDOED. `sudo` resets the environment and the HOME that KUBECONFIG is
+# resolved against, so kubectl falls back to its built-in default and every
+# call in this file fails with
+#
+#     The connection to the server localhost:8080 was refused
+#
+# which reads as a DEAD CLUSTER rather than as a wrong invocation — so the
+# natural next step is to go and investigate a control plane that is perfectly
+# healthy. Noted here because the mistake is easy, the error is actively
+# misleading, and this file is what an operator reaches for mid-outage. Nothing
+# here needs root: it patches ConfigMaps and restarts a Deployment, both of
+# which are ordinary authenticated kubectl calls.
 
 # ── Injectable boundaries ────────────────────────────────────────────
 #

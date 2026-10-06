@@ -1736,6 +1736,18 @@ final_exit_code() {
 run_exit_trap() {
   local rc=$?
   trap - EXIT INT TERM
+
+  # FIRST, and `|| true` like every other cleanup here.
+  #
+  # Before the summary bookkeeping because this is the only cleanup with a
+  # consequence outside this process: a released origin is a login that is
+  # broken for real users until somebody notices. rc was captured on the line
+  # above and this cannot touch it — the trap's last statement is still an
+  # explicit `exit "$rc"`, which is what stops a failing cleanup from replacing
+  # the status the script asked for. This repo has already lost a run with 8/8
+  # green stages to exactly that shape.
+  reclaim_tailnet_origin_on_abort || true
+
   local outcome=""
   if [ -f "${REPORT_DIR}/${SUMMARY_NAME}" ]; then
     outcome="$(jq -r '.outcome // ""' "${REPORT_DIR}/${SUMMARY_NAME}" 2>/dev/null || echo "")"
@@ -2962,9 +2974,71 @@ ensure_tailnet_origin_claimed() {
   # indistinguishable from the one ts-up takes — otherwise `make gcp-tf-ts-up`
   # on a lane that just deployed would refuse itself, naming a holder no
   # documented teardown mentions.
+  # DISARMED before the apply, not after, and deliberately so.
+  #
+  # This is the normal end of the release window however the apply goes. If the
+  # apply succeeds the window is closed; if it FAILS, the EXIT-trap re-claim
+  # would only repeat the same call and produce a second identical warning
+  # naming the same repair. Leaving it armed would turn one accurate warning
+  # into two, and a duplicated warning teaches its reader that the second one is
+  # noise.
+  TAILNET_ORIGIN_RELEASED=0
+
   dex_origin apply tailscale "$base" ||
     warn "the estate is up and the Dex origin could NOT be repointed at ${base}. The dashboard will load there and the LOGIN WILL BOUNCE. Most often another access method holds the issuer — 'make gcp-tf-demo-status ENV=${ENV_KEY}' names the holder, and ${DEX_ORIGIN_REL} restore releases it."
 
+  # ─── PROVE the login works, rather than assuming the apply did it ────────
+  #
+  # Every check this lane owned was green through both outages, because none of
+  # them drove the authorisation-code path. `dex_origin apply` returning 0 means
+  # a ConfigMap was patched and a rollout was waited on; it does NOT mean a
+  # browser can sign in. assert_tailnet_login_works closes that gap at the one
+  # moment the information is cheapest — right after the claim, on the machine
+  # that just made it.
+  assert_tailnet_login_works "$base"
+
+  return 0
+}
+
+# ─── Did the claim actually produce a working login? ────────────────────────
+#
+# Non-fatal, like everything else after the verdict, and for the same reason:
+# the run's result is already decided, printed and filed, so a lane that tested
+# green is not turned red here. But it is LOUD, because the entire history of
+# this file is steps that failed quietly and were discovered by the principal.
+#
+# The gate is read-only — GETs only, no credentials — so this is safe against
+# the origin someone may be presenting from at this moment.
+# `fatal=1` is for the paths whose whole contract is "proven before you clicked"
+# — cmd_ts_up and cmd_funnel_up print a URL and tell the operator it was
+# verified, so they must not print one whose login they could not verify. The
+# post-deploy call passes 0 because the run's verdict is already filed by then
+# and bookkeeping must not override a lane's own result.
+assert_tailnet_login_works() {
+  local base="$1" fatal="${2:-0}"
+  local gate="${REPO_ROOT}/scripts/ci/login-surface-gate.sh"
+
+  if [ ! -x "$gate" ]; then
+    # WARN even when fatal, and never die here. An absent gate is this
+    # checkout's problem, not the lane's: refusing to publish a working demo
+    # because a verification script is missing would make an older checkout
+    # unable to run at all. The honest report is that nothing was verified.
+    warn "the tailnet origin was claimed for ${base} but scripts/ci/login-surface-gate.sh is not present in this checkout, so NOTHING verified that a human can actually sign in. Verify by hand by opening ${base} and signing in."
+    return 0
+  fi
+
+  if "$gate" --base-url "$base"; then
+    return 0
+  fi
+
+  if [ "$fatal" = "1" ]; then
+    die "the dashboard answers at ${base} but a human CANNOT SIGN IN there. The verdict and its repair command are printed directly above. No URL is printed for this run: publishing a link whose login bounces is the failure this command exists to prevent."
+  fi
+
+  # The verdict lattice above this has already printed which of
+  # TAILNET_UNREACHABLE / DEX_DOWN / ORIGIN_NOT_CLAIMED / AUTH_REFUSED applies
+  # and what to do about it, so this does not restate it and does not guess.
+  warn "the tailnet origin was claimed for ${base} but the LOGIN-SURFACE GATE FAILED — a human cannot sign in at that URL right now. The verdict and its repair command are printed directly above this line."
   return 0
 }
 
@@ -3007,8 +3081,92 @@ release_own_tailnet_origin() {
   [ "$method" = "tailscale" ] || return 0
 
   log "releasing this lane's own tailnet Dex origin so the pipeline runs at the resting origin"
-  dex_origin restore ||
+  if dex_origin restore; then
+    # ARMED HERE, and this assignment is the whole durability fix.
+    #
+    # From this line until ensure_tailnet_origin_claimed disarms it, this lane
+    # is holding the demo's login OPEN AT THE RESTING ORIGIN — deliberately,
+    # so the browser stage can run — and the tailnet URL a human may already
+    # have bookmarked is BROKEN for the duration. That window is the whole
+    # pipeline: tens of minutes, sometimes an hour.
+    #
+    # See reclaim_tailnet_origin_on_abort for what closes it and why nothing
+    # did before.
+    TAILNET_ORIGIN_RELEASED=1
+  else
     warn "could not release this lane's tailnet Dex origin. The browser stage drives the resting origin and the SPA checks the token issuer against the origin it was served from, so that stage may fail on an issuer mismatch rather than on anything it is testing. Release it by hand with: ${DEX_ORIGIN_REL} restore"
+  fi
+}
+
+# ─── Close the release window on an ABNORMAL exit ───────────────────────────
+#
+# THE DEFECT THIS EXISTS FOR, stated plainly.
+#
+# release_own_tailnet_origin runs BEFORE run_pipeline; ensure_tailnet_origin_
+# claimed runs AFTER the verdict is filed. Between those two calls sit
+# run_pipeline, collect_reports, classify_run_outcome and report_verdict — tens
+# of minutes — and for every second of it the lane's tailnet login is broken by
+# design. That is fine when the run finishes.
+#
+# It is not fine when the run does not. `ensure_vm_ready || exit 2`, a
+# `set -e` death inside the pipeline, Ctrl-C (on_int -> exit 130), a SIGTERM
+# from a lane's own idle-suspend timer (on_term -> exit 143) — every one of
+# these jumps straight past the re-claim to run_exit_trap, which files ABORTED
+# and exits. The origin stays released. Nothing re-claims it, nothing warns
+# about it, and the first symptom is a human hitting
+#
+#     Unregistered redirect_uri ("https://<node>.<tailnet>.ts.net/callback")
+#
+# which is exactly how this was found. Twice, by the principal.
+#
+# ─── Why this and not a reconciler ─────────────────────────────────────────
+#
+# The obvious alternative is something in-cluster that watches Dex and re-
+# asserts the claim. It cannot work here, and the reason is not cost: it cannot
+# tell a DELIBERATE release from a lost one. The release above is on purpose and
+# must last for the whole pipeline. A reconciler would re-claim within its poll
+# interval and break the browser stage — the exact stage the release exists to
+# protect. It would also need ConfigMap-patch rights in flux-system and
+# deployment-restart rights in inf-signalloom, granted to a pod, in a cluster
+# whose entire subject is least privilege.
+#
+# This runs in the ONE process that knows the difference, because it is the
+# process that took the release out.
+#
+# ─── Why it cannot restart-loop ────────────────────────────────────────────
+#
+# dex_origin_apply restarts Dex unconditionally on any call that reaches its
+# tail, and Dex runs `storage: type: memory`, so a caller that re-applies on a
+# timer logs every user out on every tick. That hazard is real and measured:
+# apply's "unchanged — nothing to do" early return only fires when the origin is
+# ALREADY the one being claimed, so a poller pointed at a RELEASED lane falls
+# straight through to the restart every single pass.
+#
+# This is not a poller. It runs once, from the EXIT trap, after that trap has
+# already done `trap - EXIT INT TERM`, in a process that is on its way out.
+# There is no second iteration for it to have.
+reclaim_tailnet_origin_on_abort() {
+  [ "${TAILNET_ORIGIN_RELEASED:-0}" = "1" ] || return 0
+  TAILNET_ORIGIN_RELEASED=0
+
+  [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" = "1" ] && return 0
+  dex_origin_available || return 0
+
+  local fqdn
+  if ! fqdn="$(ts_fqdn_from_vm)"; then
+    # The honest failure. The VM is unreachable — which is a very likely reason
+    # this run aborted in the first place — so its tailnet name cannot be asked
+    # for and the origin CANNOT be re-claimed from here. Say so, name the
+    # repair, and do not pretend.
+    warn "this run released the tailnet Dex origin and then ABORTED before re-claiming it, and ${INSTANCE_NAME} cannot report its tailnet name, so it could not be re-claimed automatically. THIS LANE'S TAILNET LOGIN IS BROKEN RIGHT NOW: the dashboard will load and sign-in will fail with 'Unregistered redirect_uri'. Repair it with: make gcp-tf-ts-up ENV=${ENV_KEY}"
+    return 0
+  fi
+
+  warn "this run released the tailnet Dex origin and aborted before re-claiming it — re-claiming https://${fqdn} now so the login is not left broken"
+  dex_origin apply tailscale "https://${fqdn}" ||
+    warn "could NOT re-claim the tailnet Dex origin for https://${fqdn}. THIS LANE'S TAILNET LOGIN IS BROKEN RIGHT NOW and will stay broken until somebody repairs it: make gcp-tf-ts-up ENV=${ENV_KEY}"
+
+  return 0
 }
 
 # ─── Determine and RECORD this lane's TLS certificate state ─────────────────
@@ -4398,9 +4556,30 @@ cmd_ts_up() {
     exit 3
   fi
 
+  # ─── The health probe proved the DASHBOARD answers, not that anyone can
+  #     sign in ─────────────────────────────────────────────────────────────
+  #
+  # wait_for_ts_dashboard above fetches TS_HEALTH_PATH and takes a 200 as
+  # success. That 200 was true throughout BOTH login outages: nginx serves the
+  # SPA, Dex is a different pod behind the same origin, and the issuer Dex
+  # publishes is not something any HTTP status on the dashboard can reveal.
+  #
+  # This command's promise is "verified before you clicked", printed two lines
+  # below. Verifying reachability and calling that verification is how the
+  # promise has been kept until now.
+  #
+  # FATAL, unlike the post-deploy call. There the run's verdict is already
+  # filed and a lane that tested green must not be turned red by bookkeeping.
+  # Here nothing has been reported yet and the only output is a URL for a human
+  # to click — so refusing to print it is exactly the right failure.
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ]; then
+    assert_tailnet_login_works "$base" 1
+  fi
+
   print_ts_instructions "$base"
   printf '\n  HEALTH: %s%s returned %s — verified before you clicked.\n' \
     "$TS_FQDN" "$TS_HEALTH_PATH" "$code"
+  printf '  LOGIN:  the Dex issuer matches this origin and its callback is registered.\n'
   printf '  SCOPE:  reachable from this TAILNET only. Not from the public internet.\n'
   printf '          Making it public is a separate, deliberate act:\n'
   printf '            make gcp-tf-funnel-up ENV=%s\n\n' "$ENV_KEY"
@@ -4469,9 +4648,20 @@ EOF
     exit 3
   fi
 
+  # Same reasoning as cmd_ts_up, and STRONGER here. This file already states it:
+  # "a bouncing login on a tailnet-only URL is an inconvenience; a bouncing
+  # login on a URL the whole internet can reach is a broken thing published
+  # under this estate's name." The health probe cannot tell those apart, so
+  # until now that sentence was a statement of intent rather than a check.
+  #
+  # No skip flag is honoured here, matching require_dex_origin_mechanism above,
+  # which is likewise not skippable on the funnel path.
+  assert_tailnet_login_works "$base" 1
+
   print_ts_instructions "$base"
   printf '\n  HEALTH: %s%s returned %s — verified before you clicked.\n' \
     "$TS_FQDN" "$TS_HEALTH_PATH" "$code"
+  printf '  LOGIN:  the Dex issuer matches this origin and its callback is registered.\n'
   printf '  SCOPE:  PUBLIC. This URL is reachable from the entire internet.\n'
   printf '          make gcp-tf-funnel-down ENV=%s\n\n' "$ENV_KEY"
 }

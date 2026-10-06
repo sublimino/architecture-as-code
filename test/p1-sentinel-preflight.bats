@@ -70,6 +70,13 @@ manifest_with() {
 
 @test "p1 preflight: kernel config that could not be read is reported as unknown" {
   run env KERNEL_CONFIG=/nonexistent/config bash "$SCRIPT"
+  # An unreadable CONFIG_FILE falls back to inferring CONFIG_DEBUG_INFO_BTF from
+  # /sys/kernel/btf/vmlinux, which proves only that one option -- config_bpf and
+  # config_bpf_syscall go unknown (null) rather than false, and the overall
+  # audit still passes. Without this, a run that crashed before ever reaching
+  # the kernel-config check would also report both fields as absent (null via
+  # jq's `-r` on a missing key), and the checks below would pass regardless.
+  [ "$status" -eq 0 ]
   [ "$(report .kernel.config_bpf)" = null ]
   [ "$(report .kernel.config_bpf_syscall)" = null ]
 }

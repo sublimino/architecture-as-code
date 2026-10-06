@@ -136,5 +136,10 @@
 # explicitly refuses: a finding you cannot justify in a clause is a defect, not an
 # exception. NEEDS CI-OWNER REVIEW — the header above requires acceptance before a
 # re-record, and this one was authored with the reason stated but not yet accepted.
-4babac666e2462459fb3acb91f3e46cddc935277be97e81bf4638dbc4293354d  scripts/ci/vm-pipeline.sh
-a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh
+# vm-pipeline.sh and ci-lock.sh re-recorded at ce996f142ca1f2f191ea0f6760ba24ff50c5f4d8 with the CI owner's acceptance (Andy, 2026-10-06).
+# ci-lock.sh: ce849d31 read producer output in full before grep -q (pipefail early-exit sweep).
+# vm-pipeline.sh: suite registrations from the SLDC/SLTM run (a7bb26af live-gated lanes, sldc-ingest-keys and
+# fleet-manager-keys bring-up, flux-annotation-values, rendered-env-unique, the SLTM suites) and b9177c3f
+# (mint every bring-up key before the images). Each change registers or orders work; none removes a guard.
+787128c3099ab83556a60fa580cda71a50dc8fe9f825c1b114f3dd64f14533a7  scripts/ci/vm-pipeline.sh
+ab2e818c2d1f54da05aacdb42e27320f063eba2d50bb9428197ce7c0add39582  scripts/ci/ci-lock.sh

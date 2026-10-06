@@ -1062,7 +1062,7 @@ JSON
 {
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
-    "region": "europe-west2", "zone": "europe-west2-a",
+    "kind": "demo", "region": "europe-west2", "zone": "europe-west2-a",
     "app_port": 8080, "hostname": ""
   } },
   "access_mode": { "value": "iap_tunnel" },
@@ -1435,7 +1435,8 @@ JSON
     "kind": "ci", "region": "us-east4", "zone": "us-east4-a",
     "app_port": 8080, "hostname": ""
   } },
-  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } },
+  "operator_sa": { "value": "sl-operator@changeme-sandbox.iam.gserviceaccount.com" }
 }
 JSON
   run env "STUB_TF_OUTPUT_JSON=${outputs}" \

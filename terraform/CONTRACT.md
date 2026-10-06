@@ -312,8 +312,20 @@ N environments would otherwise each claim to own:
 - the Cloud DNS managed zone (if Terraform manages it at all)
 - the billing budget and the notification channels
 - the CI plan/apply service accounts
+- the per-environment runtime service accounts (`modules/identity` owns the set;
+  it is one module call for all of them, not one per environment)
+- the **operator identity** and its instance-lifecycle custom role
+  (`modules/operator-identity`) — one account for the whole project
 
 Anything scoped to one environment belongs in `environments`, never here.
+
+The operator identity is the clearest case for why this section is a rule and
+not a filing preference. It is a project-level singleton; declared in
+`terraform/environments` it would be stored in **an environment's** state, and
+`make gcp-tf-destroy ENV=demo-1` destroys everything in that state. Tearing down
+`demo-1` would silently take away the only way to log into `demo-2`. The destroy
+guard refuses the `platform` and `bootstrap` roots **by path**, so it would have
+permitted exactly this.
 
 ### 5c. State-bucket protection is IAM, not config
 
@@ -367,6 +379,15 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
 - Every file must complete in under 30 seconds.
 - Include at least one *mutation check*: a test that proves the suite fails when the guarded
   condition is violated.
+- Standalone mutation proofs are named `test/<topic>-mutation-proof.sh`. **The filename is the
+  registration.** `gcp-tf-validate` collects them with `$(wildcard test/*-mutation-proof.sh)`,
+  so a proof that lands is executed the day it lands rather than the day somebody remembers to
+  list it. Do **not** add a hand-registered variable for one: it then runs twice, once via the
+  glob and once via the extra invocation, on a gate that already takes ~13 minutes — and a
+  duplicate run is green, just slower, so the gate will never tell you.
+  `test/guard-falsification-proof.sh` is deliberately *not* matched by that glob: it needs a VM,
+  it is invoked by `demo-pipeline.sh` and `vm-pipeline.sh`, and widening the wildcard to
+  `test/*-proof.sh` would drag it into the offline gate and break it.
 
 ### 7b. Mutate the REAL file. A fixture mutation proves only that the fixture is wired up.
 

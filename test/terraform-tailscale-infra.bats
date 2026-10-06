@@ -498,7 +498,13 @@ variable_list_default() {
 	# now that the IAM binding is gone, so an unreferenced data source is one
 	# `tflint --fix` away from deletion — and its deletion is silent, because
 	# what it provides is a plan-time failure that simply stops happening.
-	run grep -qF 'signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id' "$COMPUTE_MAIN"
+	# Whitespace-insensitive around `=`. `terraform fmt` aligns the `=` column
+	# across a whole map, so ADDING any longer key to tailscale_metadata
+	# re-indents every existing line — and a fixed-string match on one space
+	# then fails for a formatting reason while the property it guards is
+	# untouched. That happened when the cert-persistence keys were added. The
+	# dependency edge is what matters here, not the column it sits in.
+	run grep -qE 'signalloom-tailscale-secret-id[[:space:]]*=[[:space:]]*data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id' "$COMPUTE_MAIN"
 	[ "$status" -eq 0 ] || {
 		echo "the secret name published to the VM no longer comes FROM the lookup."
 		echo "Taking it from var.tailscale_authkey_secret_id instead produces the"
@@ -912,9 +918,15 @@ COMMENTONLY
 	# notices — the only casualty is the dependency edge that stops the
 	# existence gate being deleted as unused. That is precisely the class of
 	# change a guard has to catch, because its symptom is nothing.
+	# `[[:space:]]*` around the `=` for the reason recorded on the assertion in
+	# "the compute module still reads the secret": terraform fmt aligns the `=`
+	# column across the whole map, so adding a longer key to tailscale_metadata
+	# re-indents this line. A sed pinned to exactly one space stops matching,
+	# leaves the file unchanged, and this mutation test then certifies a guard
+	# it never challenged.
 	local mutated
 	mutated="$(mutate "$COMPUTE_MAIN" \
-		's|signalloom-tailscale-secret-id = data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id|signalloom-tailscale-secret-id = var.tailscale_authkey_secret_id|')"
+		's|signalloom-tailscale-secret-id\([[:space:]]*\)= data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id|signalloom-tailscale-secret-id\1= var.tailscale_authkey_secret_id|')"
 	[ -n "$mutated" ]
 
 	# The mutation must have CHANGED something. A sed whose pattern stopped
@@ -923,10 +935,10 @@ COMMENTONLY
 	run cmp -s "$COMPUTE_MAIN" "$mutated"
 	[ "$status" -ne 0 ]
 
-	run grep -qF 'signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id' "$mutated"
+	run grep -qE 'signalloom-tailscale-secret-id[[:space:]]*=[[:space:]]*data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id' "$mutated"
 	[ "$status" -ne 0 ]
 
-	run grep -qF 'signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id' "$COMPUTE_MAIN"
+	run grep -qE 'signalloom-tailscale-secret-id[[:space:]]*=[[:space:]]*data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id' "$COMPUTE_MAIN"
 	[ "$status" -eq 0 ]
 }
 

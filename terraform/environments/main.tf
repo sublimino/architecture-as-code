@@ -63,6 +63,22 @@ locals {
   target_environments = {
     for k, v in module.env_contract.environments : k => v if k == var.target_env
   }
+
+  # The durable Tailscale certificate bucket, created by terraform/bootstrap.
+  #
+  # Carried as a plain variable rather than read from a remote state, exactly
+  # the way state_bucket_name already is. Bootstrap is the only root that may
+  # create a bucket (test/terraform-state-protection.bats enforces it), and this
+  # root has no remote-state data source pointing at bootstrap — adding one to
+  # fetch a single string would couple every environment plan to bootstrap's
+  # state file for no gain.
+  #
+  # Resolved ONCE here rather than at each use, because the two consumers below
+  # (the bucket name and the per-lane prefix) must agree about whether
+  # persistence is on. Computing the same expression twice is the shape where
+  # one gets updated and the other does not, and the resulting state — a prefix
+  # set while the bucket is empty — is not one the startup script can detect.
+  tailnet_cert_bucket_name = var.tailnet_cert_bucket_name
 }
 
 # ─── The single definition of "which lanes have an edge" ───────────────────
@@ -276,6 +292,22 @@ module "compute" {
   tailscale_authkey_secret_id = var.tailscale_authkey_secret_id
   tailscale_tag               = var.tailscale_tag
   tailscale_ssh_enabled       = var.tailscale_ssh_enabled
+
+  # The durable certificate store, CREATED BY terraform/bootstrap and merely
+  # named here. That direction is the whole point: a bucket declared in this
+  # root is deleted by `make gcp-tf-destroy ENV=<this environment>`, which is
+  # precisely the operation whose cost it exists to remove. See the long comment
+  # above google_storage_bucket.tailnet_certs in terraform/bootstrap/main.tf.
+  #
+  # The prefix is each.key — the environment key — and it must equal the map KEY
+  # bootstrap used in tailnet_cert_writers to build that lane's IAM condition.
+  # If the two disagree the condition denies every read and write from the VM,
+  # and the symptom is a restore that fails rather than an error naming the
+  # mismatch. test/terraform-tailscale-cert-persistence.bats asserts this side
+  # is each.key; the bootstrap side is an operator-supplied map, so the runbook
+  # is what keeps them aligned.
+  tailscale_cert_bucket_name = local.tailnet_cert_bucket_name
+  tailscale_cert_prefix      = local.tailnet_cert_bucket_name == "" ? "" : each.key
 }
 
 # # ── 4. edge ── HTTPS LB, managed cert, Cloud Armor. Demo lanes only; a CI

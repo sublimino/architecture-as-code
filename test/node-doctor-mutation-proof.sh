@@ -290,6 +290,91 @@ echo "M15 refute_match can no longer fail"
 mutate "$SUITE" 's|^    return 1$|    return 0 # MUTATED|'
 check "M15 dead refutation" "GUARD refute_match can actually fail, and refuses to judge an empty file"
 
+# ─── M16: the publish check stops caring whether anything is listening ──────
+#
+# THE zombie. kubectl port-forward does not exit when the pod it forwards to is
+# rolled: the process survives, systemd reports `active`, and the socket is
+# gone. Consulting the unit state alone is the natural "simplification" and it
+# reports a dead public origin as a healthy forward — which is exactly how a
+# dashboard rollout took the URL down with every in-VM check passing.
+echo "M16 the publish verdict trusts systemd and ignores the listening socket"
+mutate "$LIB" 's|^  if \[ "\$active" = "active" \] && \[ "\$listeners" -ge 1 \]; then printf .PASS.; return; fi$|  if [ "$active" = "active" ]; then printf "PASS"; return; fi|'
+check "M16 zombie forward" "PUBLISH the ZOMBIE forward — systemd active, NOTHING listening — is a FAIL"
+
+# ─── M17: the four publish states collapse to two ───────────────────────────
+#
+# The verdict survives; only the DIAGNOSIS is lost. A zombie and a healthy
+# forward then print the same sentence, and the operator restarts nothing
+# because nothing told them which of the four states they are in.
+echo "M17 the zombie state is reported as a healthy serving forward"
+mutate "$LIB" 's|^    if \[ "\$listeners" -ge 1 \]; then printf .SERVING.; else printf .ZOMBIE.; fi$|    printf "SERVING"|'
+check "M17 zombie diagnosis" "PUBLISH the entry point reports the zombie with its own diagnosis"
+
+# ─── M18: the JWT comparison goes vacuous ───────────────────────────────────
+#
+# The defect found in assert_openbao_accepts_spire_jwt_keys on 2026-08-23,
+# reintroduced here deliberately: with the emptiness guard gone, a failed read
+# leaves one side empty and the function answers confidently having compared
+# NOTHING. In the one check that exists to catch silent identity-plane failure.
+echo "M18 an unreadable OpenBao is compared instead of refused"
+mutate "$LIB" 's|^  case "\$bao_keys".*esac$|  : # MUTATED|'
+check "M18 vacuous jwt compare" "JWT an UNREADABLE side is UNKNOWN — the vacuous pass this refuses"
+
+# ─── M19: only the ACTIVE key is checked ────────────────────────────────────
+#
+# The plausible edit — "logins work, so the lane is fine" — and it removes the
+# entire predictive value. The prepared authority's absence becomes invisible,
+# and the lane breaks unattended hours later with nobody watching. This is the
+# state sl-demo-1 was measured in on 2026-08-24.
+echo "M19 the JWT check ignores every key except the one in use right now"
+mutate "$LIB" 's|^      \*) printf .WILL_BREAK.; return ;;$|      *) : ;;|'
+check "M19 prepared key ignored" "JWT the PREPARED authority missing is WILL_BREAK — the live sl-demo-1 state"
+
+# ─── M20: the positional key lookup drops its parallelism guard ─────────────
+#
+# Returns a DIFFERENT key's bytes with no error anywhere — a wrong answer that
+# looks exactly like a right one, in a comparison whose whole job is to decide
+# whether the estate is about to stop authenticating.
+echo "M20 the kid lookup answers from lists that are not parallel"
+mutate "$LIB" 's|^  \[ "\$(nd_csv_count "\$kids")".*$|  : # MUTATED|'
+check "M20 desynced key lookup" "JWT nd_der_for_kid refuses to answer from lists that are not parallel"
+
+# ─── M21: script_available stops being consulted ────────────────────────────
+#
+# The Signal Fusion outage becomes invisible. The surface answered 200 and
+# reported itself INCAPABLE; accepting `false` alongside `true` reduces this
+# check to the reachability test that already could not see it.
+echo "M21 a demo that reports itself incapable is accepted as ready"
+mutate "$LIB" 's|^    true) : ;;$|    true\|false) : ;;|'
+check "M21 incapable demo" "DEMO a 200 that reports script_available=false FAILS"
+
+# ─── M22: the Dex rejection flag stops outranking the status code ───────────
+#
+# Dex can return 200 on a page whose body carries the rejection. Dropping the
+# flag makes the verdict depend on a status code that is not the answer, which
+# is the same trap the first draft of the probe fell into.
+echo "M22 the Dex check believes the status code over the rejection in the body"
+mutate "$LIB" 's|^    yes) printf .FAIL.; return ;;$|    yes) : ;;|'
+check "M22 dex rejection ignored" "DEX a 302 with no rejection passes — the first hop is not the answer"
+
+# ─── M23: the listener count is grepped instead of counted ──────────────────
+#
+# Added rather than removed, because that is how it happens: someone adds a
+# convenience line. Under pipefail a `grep -q` that matches early can surface
+# 141 and invert the answer — in a verdict input.
+echo "M23 the probe grows an ss | grep -q listener check"
+append_mutation "$PROBE" 'ND_MUTANT="$(ss -ltn | grep -q :30754 && echo 1)"'
+check "M23 grep -q listener" "PROBE the listener count is counted, never piped into grep -q"
+
+# ─── M24: a second, looser jwt-svid selector appears ────────────────────────
+#
+# The exact desync nd_der_for_kid's positional lookup depends on not happening:
+# a kid list filtered more loosely than the key list, after which position i
+# means different keys on the two sides.
+echo "M24 the probe grows a second jwt-svid selector alongside the pinned one"
+append_mutation "$PROBE" "ND_MUTANT=\$(jq -r '.keys[]|select(.use==\"jwt-svid\")|.kid')"
+check "M24 second jwt selector" "PROBE both SPIRE key lists are built from ONE pinned jq selector"
+
 echo
 echo "=== restored; verifying every file is byte-identical to where we started ==="
 for f in "${TARGETS[@]}"; do

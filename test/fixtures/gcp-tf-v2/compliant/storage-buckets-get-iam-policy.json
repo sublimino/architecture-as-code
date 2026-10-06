@@ -1,0 +1,21 @@
+{
+  "bindings": [
+    {
+      "role": "roles/storage.objectAdmin",
+      "members": ["serviceAccount:sl-tf-deploy@example-sl-project.iam.gserviceaccount.com"]
+    },
+    {
+      "role": "roles/storage.admin",
+      "members": ["group:sl-platform-admins@example.com"]
+    },
+    {
+      "role": "roles/storage.legacyBucketOwner",
+      "members": ["projectOwner:example-sl-project", "projectEditor:example-sl-project"]
+    },
+    {
+      "role": "roles/storage.objectViewer",
+      "members": ["serviceAccount:sl-audit-reader@example-sl-project.iam.gserviceaccount.com"]
+    }
+  ],
+  "etag": "BwXexampleEtag="
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "signalloom.gcp.handoff/v1",
+  "env": "ci",
+  "project": "cp-dev-ajm",
+  "region": "europe-west2",
+  "zone": "europe-west2-a",
+  "instance": "signalloom-ci",
+  "internal_ip": "10.154.0.2",
+  "app_port": 8080,
+  "state_bucket": "cp-dev-ajm-tfstate",
+  "deploy_sa": "signalloom-ci@cp-dev-ajm.iam.gserviceaccount.com",
+  "access_mode": "iap",
+  "hostname": ""
+}

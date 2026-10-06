@@ -26,3 +26,8 @@ output "deploy_impersonation_command" {
   description = "The exact gcloud invocation that authenticates Terraform as the deploy identity."
   value       = try(module.deploy_identity[0].impersonation_command, "")
 }
+
+output "tailnet_cert_bucket_name" {
+  description = "Bucket holding each lane's Tailscale TLS certificate across rebuilds, or \"\" when certificate persistence is disabled. Copy into the environments root's tailnet_cert_bucket_name, the same way state_bucket_name is carried."
+  value       = var.tailnet_cert_bucket_name == "" ? "" : google_storage_bucket.tailnet_certs[0].name
+}

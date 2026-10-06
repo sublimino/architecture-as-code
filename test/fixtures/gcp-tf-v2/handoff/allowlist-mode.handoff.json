@@ -1,0 +1,15 @@
+{
+  "schema": "signalloom.gcp.handoff/v1",
+  "env": "demo-1",
+  "project": "example-sl-project",
+  "region": "example-region",
+  "zone": "example-region-a",
+  "instance": "sl-demo-1-vm",
+  "internal_ip": "10.20.0.5",
+  "app_port": 8080,
+  "state_bucket": "example-sl-tfstate",
+  "deploy_sa": "sl-tf-deploy@example-sl-project.iam.gserviceaccount.com",
+  "access_mode": "allowlist",
+  "hostname": "",
+  "kind": "demo"
+}

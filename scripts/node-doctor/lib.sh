@@ -199,6 +199,178 @@ nd_http_explain() {
   esac
 }
 
+# ─── Adjudicators — the publish path ────────────────────────────────────────
+#
+# Two facts, four quadrants, and the whole value is in the quadrant that a
+# single "is it up" boolean cannot express.
+#
+#   unit      listener   verdict   what it means
+#   ────────  ─────────  ────────  ──────────────────────────────────────────
+#   active    >= 1       PASS      the forward is carrying traffic
+#   active    0          FAIL      THE ZOMBIE. kubectl port-forward does not
+#                                  exit when the pod it forwards to is rolled;
+#                                  the process lives, systemd says `active`,
+#                                  the journal's last line still says
+#                                  "Forwarding from 0.0.0.0:<port>", and the
+#                                  socket is gone. The public origin 502s while
+#                                  every naive in-VM check passes.
+#   inactive  0          FAIL      the unit is simply down — different fix
+#   inactive  >= 1       FAIL      something ELSE holds the port, so restarting
+#                                  the unit will fail to bind. Never a pass:
+#                                  the traffic may be answering, but not from
+#                                  the supervised forward, and nothing will
+#                                  re-establish it after a reboot.
+#
+# The `active + 0` arm is the one this function exists for. It is why the unit
+# state is not consulted alone anywhere in this file.
+nd_verdict_publish() {
+  local active="$1" listeners="$2"
+  case "$active"    in ''|UNKNOWN) printf 'UNKNOWN'; return ;; esac
+  case "$listeners" in ''|UNKNOWN|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+  if [ "$active" = "active" ] && [ "$listeners" -ge 1 ]; then printf 'PASS'; return; fi
+  printf 'FAIL'
+}
+
+# Names the quadrant so the message does not have to re-derive it. Separate from
+# the verdict because the verdict gates and the sentence teaches, and a caller
+# asserting on a verdict must not be coupled to prose.
+nd_publish_state() {
+  local active="$1" listeners="$2"
+  case "$active"    in ''|UNKNOWN) printf 'UNMEASURED'; return ;; esac
+  case "$listeners" in ''|UNKNOWN|*[!0-9]*) printf 'UNMEASURED'; return ;; esac
+  if [ "$active" = "active" ]; then
+    if [ "$listeners" -ge 1 ]; then printf 'SERVING'; else printf 'ZOMBIE'; fi
+  else
+    if [ "$listeners" -ge 1 ]; then printf 'FOREIGN_LISTENER'; else printf 'DOWN'; fi
+  fi
+}
+
+# ─── Adjudicators — SPIRE -> OpenBao JWT trust ──────────────────────────────
+#
+# OpenBao must accept EVERY key SPIRE currently publishes, not merely the one it
+# is signing with today. That is the contract test/spire-openbao-trust-drift.bats
+# already asserts, and the reason for it is timing: SPIRE publishes the next
+# authority as `prepared` hours before it activates it, so the moment a published
+# key is missing from OpenBao the lane has a dated appointment with an outage.
+#
+# TWO distinct failures, because the operator's urgency differs by hours:
+#
+#   BROKEN_NOW      the ACTIVE authority is absent from OpenBao. Every SPIFFE
+#                   login is failing right now with "no known key successfully
+#                   validated the token signature". SuperCred step 2 is dead.
+#   WILL_BREAK      the active authority is present but some other published
+#                   key (in practice the `prepared` one) is not. Everything
+#                   works and will stop when SPIRE rotates, unattended, with
+#                   nobody watching.
+#
+# Both are FAIL. WILL_BREAK is deliberately NOT routed to DEGRADED even though
+# the lane is serving, and that is a considered call rather than an oversight:
+# DEGRADED carries rc=0 and exists for a condition we may be EXPECTING and
+# cannot fix for up to 168h (a Let's Encrypt 429). This is the opposite on both
+# counts — it is never expected, and the fix is one command that takes seconds
+# (sync_openbao_jwt_validation). A rc=0 verdict on a certain, imminent, trivially
+# fixable outage is how the principal ends up being the detector again.
+#
+# The EMPTINESS GUARDS are the point of the first four lines. `mapfile`-style
+# reads succeed having read nothing, so a failed kubectl produces an empty key
+# list on both sides, the membership loop never executes, and the function
+# returns PASS having compared NOTHING. That exact defect was found in
+# assert_openbao_accepts_spire_jwt_keys on 2026-08-23, where it passed against
+# no cluster at all — in the one assert that exists to catch silent identity-
+# plane failure. It is refused here rather than inherited.
+nd_verdict_jwt_trust() {
+  local active_kid="$1" spire_keys="$2" bao_keys="$3" active_der="$4"
+  case "$active_kid" in NOT_DEPLOYED) printf 'NOT_DEPLOYED'; return ;; esac
+  case "$spire_keys" in ''|UNKNOWN|NOT_DEPLOYED) printf 'UNKNOWN'; return ;; esac
+  case "$bao_keys"   in ''|UNKNOWN|NOT_DEPLOYED) printf 'UNKNOWN'; return ;; esac
+
+  # The active key first: if OpenBao does not hold it, the lane is broken NOW and
+  # that outranks anything the rest of the set says.
+  if [ -n "$active_der" ] && [ "$active_der" != "UNKNOWN" ]; then
+    case ",${bao_keys}," in
+      *",${active_der},"*) : ;;
+      *) printf 'BROKEN_NOW'; return ;;
+    esac
+  fi
+
+  local key
+  local IFS=,
+  for key in $spire_keys; do
+    [ -n "$key" ] || continue
+    case ",${bao_keys}," in
+      *",${key},"*) : ;;
+      *) printf 'WILL_BREAK'; return ;;
+    esac
+  done
+  printf 'PASS'
+}
+
+# ─── Adjudicators — Dex redirect_uri registration ───────────────────────────
+#
+# `Unregistered redirect_uri` broke sign-in over the tailnet while the dashboard
+# returned 200 the whole time: Dex was recreated, `storage: type: memory` lost
+# the origin claim, and the issuer reverted to a value that no longer matched
+# the URL a human was typing.
+#
+# THE VACUITY TRAP, found by measuring rather than by reasoning. The obvious
+# probe is `GET /dex/auth?...&redirect_uri=<origin>/callback` and a check on the
+# status code. Measured against sl-demo-1 on 2026-08-24, that probe returns 302
+# for a VALID redirect_uri AND for `https://evil.example/cb` — Dex 302s to its
+# connector first and only rejects at the next hop. A check written on the bare
+# first response would have passed identically against a completely broken
+# origin. curl must FOLLOW the redirect (-L) before anything it reports means
+# anything, and the separating control is what proved it:
+#
+#   valid  <origin>/callback   -> 200, body has no rejection   (accepted)
+#   bogus  evil.example/cb     -> 400, body says Unregistered  (rejected)
+#
+# So the adjudicator is fed the FINAL status and the rejection flag, and a probe
+# that did not follow redirects cannot satisfy it.
+nd_verdict_dex_redirect() {
+  local final_code="$1" unregistered="$2"
+  case "$final_code" in ''|UNKNOWN|000) printf 'UNKNOWN'; return ;; esac
+  case "$unregistered" in
+    yes) printf 'FAIL'; return ;;
+    no)  : ;;
+    *)   printf 'UNKNOWN'; return ;;
+  esac
+  case "$final_code" in
+    200|302) printf 'PASS' ;;
+    *)       printf 'FAIL' ;;
+  esac
+}
+
+# ─── Adjudicators — demo surfaces ───────────────────────────────────────────
+#
+# Signal Fusion answered 503 on all three acts while the page returned 200 and
+# the demo API was reachable. `script_available` is the runner's own statement
+# that it CAN run, and step enumeration is the statement that there is something
+# to run; a surface that is reachable and reports neither is a demo a human
+# opens and cannot use.
+#
+# NOT a completion proof, and the caller says so out loud. Completion needs
+# --execute, which mutates. What this catches is the Signal Fusion class, where
+# the runner reports itself incapable — which is what that outage actually
+# looked like from the client's own path.
+nd_verdict_demo_surface() {
+  local code="$1" available="$2" steps="$3"
+  case "$code" in
+    ''|UNKNOWN|000) printf 'UNKNOWN'; return ;;
+    200) : ;;
+    *)   printf 'FAIL'; return ;;
+  esac
+  case "$available" in
+    true) : ;;
+    ''|UNKNOWN) printf 'UNKNOWN'; return ;;
+    *)    printf 'FAIL'; return ;;
+  esac
+  case "$steps" in
+    ''|UNKNOWN|*[!0-9]*) printf 'UNKNOWN'; return ;;
+    0)                   printf 'FAIL'; return ;;
+  esac
+  printf 'PASS'
+}
+
 # ─── Adjudicators — docker / kind ───────────────────────────────────────────
 
 nd_verdict_docker() {
@@ -543,6 +715,33 @@ nd_checks_shared() {
   c="$(nd_field "$report" http.afm_health)"
   nd_report "$(nd_verdict_http "$c")" "/afm/health -> ${c} ($(nd_http_explain "$c"))"
 
+  nd_header "PUBLISH PATH (signalloom-dashboard-pf.service -> :${app_port})"
+  local pf_active pf_listeners pf_state
+  pf_active="$(nd_field "$report" pf.unit_active)"
+  pf_listeners="$(nd_field "$report" pf.listeners)"
+  pf_state="$(nd_publish_state "$pf_active" "$pf_listeners")"
+  v="$(nd_verdict_publish "$pf_active" "$pf_listeners")"
+  case "$pf_state" in
+    ZOMBIE)
+      nd_fail "the forward is a ZOMBIE: systemd reports the unit '${pf_active}' and its process is alive (pid $(nd_field "$report" pf.main_pid), alive=$(nd_field "$report" pf.pid_alive)), but NOTHING is listening on :${app_port}. kubectl port-forward does not exit when the pod it forwards to is rolled — it keeps running, keeps saying 'Forwarding from 0.0.0.0:${app_port}' in its journal, and stops holding the socket. The tailnet origin will be answering 502 while every naive in-VM check passes. Fix: systemctl restart signalloom-dashboard-pf.service" ;;
+    FOREIGN_LISTENER)
+      nd_fail "something OTHER than the supervised forward is listening on :${app_port} — the unit is '${pf_active}' and yet ${pf_listeners} listener(s) are bound. Traffic may be answering, but not from the unit that is supposed to carry it, and nothing will re-establish it after a reboot. Find the holder: ss -ltnp | grep :${app_port}" ;;
+    DOWN)
+      nd_fail "the publish path is DOWN: the unit is '${pf_active}' and nothing is listening on :${app_port}. This is the ONLY route from the tailnet to the dashboard — 'tailscale serve' proxies here. Fix: systemctl start signalloom-dashboard-pf.service" ;;
+    SERVING)
+      nd_report "$v" "forward: unit=${pf_active} enabled=$(nd_field "$report" pf.unit_enabled), ${pf_listeners} listener(s) on :${app_port} (pid $(nd_field "$report" pf.main_pid))" ;;
+    *)
+      nd_report UNKNOWN "the publish path could not be measured (unit='${pf_active}' listeners='${pf_listeners}'). NOT a pass — this is the only route from the tailnet to the dashboard." ;;
+  esac
+  # `enabled` is reported separately and only as a warning: a running-but-not-
+  # enabled forward serves today and is gone after the next reboot, which is a
+  # real fault but not the one that is breaking traffic right now.
+  case "$(nd_field "$report" pf.unit_enabled)" in
+    enabled|'') : ;;
+    UNKNOWN)    : ;;
+    *) nd_warn "the forward unit is not 'enabled' (is-enabled=$(nd_field "$report" pf.unit_enabled)) — it will not come back after a reboot, and every other line above will stay green until one happens." ;;
+  esac
+
   nd_header "DOCKER + CONTAINERD"
   v="$(nd_verdict_docker "$(nd_field "$report" docker.server)")"
   nd_report "$v" "docker daemon: server=$(nd_field "$report" docker.server) driver=$(nd_field "$report" docker.driver) images=$(nd_field "$report" docker.images) running=$(nd_field "$report" docker.running)"
@@ -618,4 +817,62 @@ nd_checks_shared() {
     *)
       nd_report "$v" "clusters imported: $(nd_field "$report" afm.cluster_count) [$(nd_field "$report" afm.cluster_ids)]" ;;
   esac
+
+  nd_header "SPIRE -> OPENBAO JWT TRUST (the SuperCred failure, seen early)"
+  local active_kid prepared_kid spire_keys bao_keys active_der jwt
+  active_kid="$(nd_field "$report" spire.jwt_active_kid)"
+  prepared_kid="$(nd_field "$report" spire.jwt_prepared_kid)"
+  spire_keys="$(nd_field "$report" spire.jwt_keys)"
+  bao_keys="$(nd_field "$report" bao.jwt_keys)"
+  active_der="$(nd_der_for_kid "$(nd_field "$report" spire.jwt_kids)" "$spire_keys" "$active_kid")"
+  jwt="$(nd_verdict_jwt_trust "$active_kid" "$spire_keys" "$bao_keys" "$active_der")"
+  printf '    SPIRE active=%s prepared=%s  |  SPIRE publishes %s key(s), OpenBao holds %s\n' \
+    "${active_kid:-UNKNOWN}" "${prepared_kid:-UNKNOWN}" \
+    "$(nd_csv_count "$spire_keys")" "$(nd_csv_count "$bao_keys")"
+  case "$jwt" in
+    PASS)
+      nd_pass "OpenBao accepts every JWT-SVID key SPIRE publishes ($(nd_csv_count "$spire_keys")/$(nd_csv_count "$spire_keys")), including the one it is signing with now. Active authority expires $(nd_field "$report" spire.jwt_active_expiry)." ;;
+    BROKEN_NOW)
+      nd_fail "SPIFFE LOGIN IS BROKEN NOW. The authority SPIRE is signing with (${active_kid}) is ABSENT from OpenBao's jwt_validation_pubkeys, so every SPIFFE->OpenBao login fails with 'no known key successfully validated the token signature'. SuperCred step 2 dies on exactly this, while the runner still reports script_available=true and every page answers 200. Fix: scripts/demo-lifecycle.sh's sync_openbao_jwt_validation, or bao write auth/jwt/config jwt_validation_pubkeys=<SPIRE's current keys>." ;;
+    WILL_BREAK)
+      nd_fail "SPIRE publishes $(nd_csv_count "$spire_keys") JWT-SVID key(s) and OpenBao holds $(nd_csv_count "$bao_keys"). The ACTIVE authority (${active_kid}) is present, so logins work RIGHT NOW — and the PREPARED authority (${prepared_kid}) is not, so they will stop the moment SPIRE rotates to it. The active authority expires $(nd_field "$report" spire.jwt_active_expiry). Nothing re-syncs this on its own; it will break unattended, and SuperCred step 2 will be the thing that shows it. Fix it now: sync_openbao_jwt_validation." ;;
+    NOT_DEPLOYED)
+      nd_unknown "spire-server is not deployed on this lane, so there is no JWT trust to check. That is NOT 'zero keys' — nothing has been asked. SuperCred's OpenBao step cannot run here at all." ;;
+    *)
+      nd_unknown "the SPIRE/OpenBao key sets could not be compared (SPIRE bundle $(nd_field "$report" spire.bundle_bytes) bytes, OpenBao config $(nd_field "$report" bao.jwt_config_bytes) bytes). NOT a pass — an empty read on either side and a genuine match both produce no mismatch, which is precisely how this check would lie." ;;
+  esac
+}
+
+# Counts comma-separated elements, reporting a non-value as such rather than as
+# a count. `0` and `UNKNOWN` must never print the same.
+nd_csv_count() {
+  local csv="$1" n=0 e
+  case "$csv" in ''|UNKNOWN|NOT_DEPLOYED) printf 'UNKNOWN'; return ;; esac
+  local IFS=,
+  for e in $csv; do [ -n "$e" ] && n=$((n + 1)); done
+  printf '%d' "$n"
+}
+
+# The DER for one kid, found by POSITION in the parallel kid/key lists.
+#
+# Safe only because probe.sh builds both lists from one pinned jq selector. If
+# that ever diverges this returns another key's bytes with no error, so the
+# length disagreement is checked here as a cheap standing guard: unequal lengths
+# mean the lists are not parallel and no positional answer is trustworthy.
+nd_der_for_kid() {
+  local kids="$1" keys="$2" want="$3" i=0 j=0 k
+  case "$want" in ''|UNKNOWN|NOT_DEPLOYED) printf 'UNKNOWN'; return ;; esac
+  case "$kids" in ''|UNKNOWN|NOT_DEPLOYED) printf 'UNKNOWN'; return ;; esac
+  case "$keys" in ''|UNKNOWN|NOT_DEPLOYED) printf 'UNKNOWN'; return ;; esac
+  [ "$(nd_csv_count "$kids")" = "$(nd_csv_count "$keys")" ] || { printf 'UNKNOWN'; return; }
+  local IFS=,
+  local -a karr=() varr=()
+  for k in $kids; do karr[i]="$k"; i=$((i + 1)); done
+  for k in $keys; do varr[j]="$k"; j=$((j + 1)); done
+  i=0
+  while [ "$i" -lt "${#karr[@]}" ]; do
+    if [ "${karr[$i]}" = "$want" ]; then printf '%s' "${varr[$i]}"; return; fi
+    i=$((i + 1))
+  done
+  printf 'UNKNOWN'
 }

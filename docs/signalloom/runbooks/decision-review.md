@@ -238,6 +238,10 @@ Upstream decodes closed-world and would refuse an extra field anyway, but a prox
 whatever arrived is how a `reviewer` or `reviewed_at` field eventually reaches a handler that trusts
 it.
 
+### Proving the loop on a live cluster
+
+`test/acceptance/signals-review.spec.ts` records a verdict through the dashboard and reads it back after a reload. Seed decisions first with `make kusari-synth-seed`. The first live run of that spec on 2026-10-06 found two defects the offline suites could not see: the dashboard's four concurrent reads per poll OOM-killed signal-ingest at its 512Mi limit, and the rows acknowledged before the kill were gone afterwards. Both are fixed in the store (write-ahead log, bounded active block) and the decisions listing (window-bounded review lookup); the memory limit is now 1Gi.
+
 ### Who may review, through the dashboard
 
 `signal_policy.require_policy_reviewer`, decided server-side from the validated token only. It

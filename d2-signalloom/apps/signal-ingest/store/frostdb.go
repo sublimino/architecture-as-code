@@ -44,12 +44,15 @@ type FrostDBStore struct {
 }
 
 type frostDBStoreConfig struct {
-	manualFlush   bool
-	attestation   *SegmentAttestorConfig
-	pseudonymiser *SegmentPseudonymiser
-	labelAllow    map[string]struct{}
-	labelAllowSet bool
-	labelAllowErr error
+	manualFlush bool
+	// activeMemoryBytes bounds the in-memory active block before FrostDB rotates it to
+	// Parquet. Zero means DefaultActiveMemoryBytes.
+	activeMemoryBytes int64
+	attestation       *SegmentAttestorConfig
+	pseudonymiser     *SegmentPseudonymiser
+	labelAllow        map[string]struct{}
+	labelAllowSet     bool
+	labelAllowErr     error
 }
 
 // FrostDBStoreOption configures persistence behavior without changing queries.
@@ -100,6 +103,22 @@ func WithManualFlush() FrostDBStoreOption {
 	return func(cfg *frostDBStoreConfig) { cfg.manualFlush = true }
 }
 
+// DefaultActiveMemoryBytes is the active-block ceiling when no option or environment sets one.
+//
+// FrostDB's own default is 512 MiB, which on 2026-10-06 was exactly the pod's memory limit on
+// kind-osramp: the active block was allowed to grow to the whole container before rotation, so
+// the dashboard's four concurrent reads tipped the pod into an OOM kill, and every row in that
+// block went with it. 64 MiB rotates often enough that a kill costs little and the WAL replays
+// the rest.
+const DefaultActiveMemoryBytes = 64 << 20
+
+// WithActiveMemoryBytes bounds the in-memory active block. Values below 1 MiB are refused at
+// construction rather than clamped, so a mis-set environment variable cannot quietly produce a
+// store that rotates on every row.
+func WithActiveMemoryBytes(n int64) FrostDBStoreOption {
+	return func(cfg *frostDBStoreConfig) { cfg.activeMemoryBytes = n }
+}
+
 // WithSegmentAttestation signs each successfully persisted immutable segment.
 func WithSegmentAttestation(cfg SegmentAttestorConfig) FrostDBStoreOption {
 	return func(storeCfg *frostDBStoreConfig) { storeCfg.attestation = &cfg }
@@ -142,7 +161,27 @@ func NewFrostDBStoreWithBucket(dir string, options ...FrostDBStoreOption) (*Fros
 		storageBucket = newAttestingBucket(bucket, attestor)
 	}
 	sink := frostdb.NewDefaultObjstoreBucket(storageBucket)
-	frostOptions := []frostdb.Option{frostdb.WithReadWriteStorage(sink)}
+	active := cfg.activeMemoryBytes
+	if active == 0 {
+		active = DefaultActiveMemoryBytes
+	}
+	if active < 1<<20 {
+		_ = bucket.Close()
+		return nil, fmt.Errorf("frostdb: active memory %d bytes is below the 1 MiB floor", active)
+	}
+	// The WAL under dir/databases/<db>/wal is what makes an acknowledged Append survive the
+	// process: without it every row in the un-rotated active block is lost on a crash or an OOM
+	// kill, which contradicts the "no loss for any source" decision (proposal D1). The WAL is
+	// truncated when a block persists to the bucket, so it never outgrows one active block.
+	// Residual, stated: FrostDB writes the WAL from a goroutine on a 50 ms tick and has no
+	// synchronous flush, so a kill inside that tick loses the rows acked in it. See
+	// TestFrostDB_UnrotatedRowsSurviveAbandonedProcess.
+	frostOptions := []frostdb.Option{
+		frostdb.WithReadWriteStorage(sink),
+		frostdb.WithStoragePath(dir),
+		frostdb.WithWAL(),
+		frostdb.WithActiveMemorySize(active),
+	}
 	if cfg.manualFlush {
 		frostOptions = append(frostOptions, frostdb.WithManualBlockRotation())
 	}

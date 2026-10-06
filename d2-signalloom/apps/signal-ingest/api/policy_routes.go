@@ -305,7 +305,7 @@ func (h *Handlers) handlePolicyDecisions(w http.ResponseWriter, r *http.Request)
 	// So the reviews are collected over the WHOLE store rather than the requested window: a
 	// decision inside a 5m window whose verdict was recorded an hour later must still show that
 	// verdict, or the reviewer would see their own judgement vanish and record it again.
-	latest, err := h.latestReviews(r)
+	latest, err := h.latestReviews(r, req.after)
 	if err != nil {
 		slog.Error("policy reviews query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
@@ -352,9 +352,13 @@ func (h *Handlers) handlePolicyDecisions(w http.ResponseWriter, r *http.Request)
 // changes their mind writes a SECOND review rather than overwriting the first. Both stay in the
 // evidence; the feed shows the current position. A tie on timestamp is broken by ID so the answer
 // is the same on every call rather than depending on store iteration order.
-func (h *Handlers) latestReviews(r *http.Request) (map[string]policy.Review, error) {
+func (h *Handlers) latestReviews(r *http.Request, after time.Time) (map[string]policy.Review, error) {
 	tenant, all := observationReadScope(r)
-	rows, err := h.Store.QueryRange(r.Context(), store.Query{})
+	// A review is timestamped when it is recorded, which is never before the decision it
+	// settles, so the listing's own lower bound is a safe lower bound here too. The unbounded
+	// scan this replaced read the whole store on every decisions poll; four of those in flight
+	// at once OOM-killed signal-ingest on kind-osramp (2026-10-06).
+	rows, err := h.Store.QueryRange(r.Context(), store.Query{After: after})
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 // NewStoreFromEnv returns a SignalStore based on environment configuration.
 // With the frostdb build tag, SIGNAL_STORE=frostdb activates FrostDB with
 // Parquet durability to SIGNAL_STORE_DIR (default /tmp/signal-store).
+// SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB bounds the active block (default 64).
 func NewStoreFromEnv(storeType, storeDir string) (SignalStore, error) {
 	if storeType != "frostdb" {
 		return NewMemoryStore(), nil
@@ -49,6 +50,13 @@ func NewStoreFromEnv(storeType, storeDir string) (SignalStore, error) {
 			SegmentRoot: storeDir, EvidenceDir: evidenceDir, PrivateKeyPath: keyPath, HighWaterPath: highWaterPath,
 			ArchivistaURL: os.Getenv("ARCHIVISTA_URL"), RequireArchivista: os.Getenv("AUDIT_ANCHOR_REQUIRE_LOG") == "1", QueueSize: queueSize,
 		}))
+	}
+	if raw := os.Getenv("SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB"); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed <= 0 {
+			return nil, fmt.Errorf("SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB must be a positive integer")
+		}
+		options = append(options, WithActiveMemoryBytes(int64(parsed)<<20))
 	}
 	s, err := NewFrostDBStoreWithBucket(storeDir, options...)
 	if err != nil {

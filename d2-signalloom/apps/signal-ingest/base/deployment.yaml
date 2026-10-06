@@ -107,6 +107,10 @@ spec:
             # TestReconciledManifestStoresSignalsDurably asserts both halves.
             - name: SIGNAL_STORE
               value: frostdb
+            # Active-block ceiling before rotation to Parquet; see the memory
+            # limit below for why this is explicit.
+            - name: SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB
+              value: "64"
             - name: SIGNAL_STORE_DIR
               value: /data/signals
             # The FrostDB store refuses to start without the segment
@@ -216,12 +220,16 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               # FrostDB (SLAWS durable store) holds segments in memory before
               # the Parquet flush; the 128Mi single-agent limit OOM-killed the
-              # pod six times in an hour on the 2026-10-04 hub.
-              memory: 512Mi
+              # pod six times in an hour on the 2026-10-04 hub. 512Mi was then
+              # OOM-killed on 2026-10-06 under the dashboard's polling, because
+              # FrostDB's default active block is itself 512 MiB. The block is
+              # now bounded by SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB and the limit
+              # leaves room for concurrent reads over the Parquet backlog.
+              memory: 1Gi
       volumes:
         # The FrostDB Parquet segments and their attestation evidence. The ephemeral
         # volume this replaces was deleted with the pod, so every reschedule or

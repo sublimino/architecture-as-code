@@ -423,7 +423,7 @@ func TestErasureSaga_ZeroVersionSubjectIsStillJournalled(t *testing.T) {
 	if len(receipt.Versions) != 0 {
 		t.Fatalf("receipt covers %d versions for a keyless subject", len(receipt.Versions))
 	}
-	saga, err := x.store.LoadSaga(ctx, receipt.OperationID)
+	saga, err := x.store.LoadSaga(ctx, "t1", receipt.OperationID)
 	if err != nil {
 		t.Fatalf("the erasure was not journalled: %v", err)
 	}
@@ -489,11 +489,11 @@ func TestErasureSaga_StateLadderRefusesSkips(t *testing.T) {
 		t.Fatalf("BeginSaga: %v", err)
 	}
 	// Advancing from a state the row is not in must be refused, not silently applied.
-	if _, err := store.AdvanceSaga(ctx, rec.OperationID, StateCachesCleared, nil); !errors.Is(err, ErrStateConflict) {
+	if _, err := store.AdvanceSaga(ctx, "t1", rec.OperationID, StateCachesCleared, nil); !errors.Is(err, ErrStateConflict) {
 		t.Fatalf("advancing from the wrong state returned %v, expected ErrStateConflict", err)
 	}
 	// Advancing from the terminal state has no successor.
-	if _, err := store.AdvanceSaga(ctx, rec.OperationID, StateCompleted, nil); !errors.Is(err, ErrIllegalTransition) {
+	if _, err := store.AdvanceSaga(ctx, "t1", rec.OperationID, StateCompleted, nil); !errors.Is(err, ErrIllegalTransition) {
 		t.Fatalf("advancing past the terminal state returned %v, expected ErrIllegalTransition", err)
 	}
 	// Every legal step must be exactly one forward.
@@ -544,7 +544,7 @@ func TestErasureSaga_VersionDriftIsNotSilentlyMissed(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("pre-seed saga: %v", err)
 	}
-	if _, err := y.store.AdvanceSaga(ctx, opID2, StatePending, nil); err != nil {
+	if _, err := y.store.AdvanceSaga(ctx, "t2", opID2, StatePending, nil); err != nil {
 		t.Fatalf("advance to keys_destroyed: %v", err)
 	}
 	y.provision("t2", "carol", 1)
@@ -830,7 +830,7 @@ func TestErasureSaga_CertifiesDestructionByReadBackNotByReturnValue(t *testing.T
 
 	// And the invariant holds through the failure: no receipt digest was recorded.
 	opID, _ := s.OperationID("t1", p)
-	saga, err := inner.LoadSaga(ctx, opID)
+	saga, err := inner.LoadSaga(ctx, "t1", opID)
 	if err != nil {
 		t.Fatalf("LoadSaga: %v", err)
 	}

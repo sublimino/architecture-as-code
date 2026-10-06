@@ -194,10 +194,16 @@ type KeyStore interface {
 	// BeginSaga inserts the journal row if absent. created reports whether this call inserted it.
 	BeginSaga(ctx context.Context, rec SagaRecord) (SagaRecord, bool, error)
 	// LoadSaga returns the journal row.
-	LoadSaga(ctx context.Context, operationID string) (SagaRecord, error)
+	//
+	// tenantID is REQUIRED and is not a convenience. Under FORCE ROW LEVEL SECURITY the row is
+	// invisible without a transaction-local tenant claim, and the tenant is only discoverable FROM
+	// the row -- so a signature that omitted it could only work by bypassing RLS. It did: every live
+	// test ran as a superuser with rolbypassrls, and on a correctly-configured app role the saga
+	// could never advance past `pending`.
+	LoadSaga(ctx context.Context, tenantID, operationID string) (SagaRecord, error)
 	// AdvanceSaga moves the row from `from` to the next state, applying mutate first. It refuses if
 	// the observed state is not `from` (ErrStateConflict) or the move is not one step (ErrIllegalTransition).
-	AdvanceSaga(ctx context.Context, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error)
+	AdvanceSaga(ctx context.Context, tenantID, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -396,12 +402,17 @@ func (m *MemoryStore) BeginSaga(_ context.Context, rec SagaRecord) (SagaRecord, 
 }
 
 // LoadSaga returns the journal row.
-func (m *MemoryStore) LoadSaga(_ context.Context, operationID string) (SagaRecord, error) {
+func (m *MemoryStore) LoadSaga(_ context.Context, tenantID, operationID string) (SagaRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.sagas[operationID]
 	if !ok {
 		return SagaRecord{}, fmt.Errorf("%w: %s", ErrSagaNotFound, operationID)
+	}
+	// Mirror the Postgres row-level-security scoping in memory, so a tenant mix-up fails the same
+	// way in both stores rather than only in production.
+	if tenantID != "" && r.TenantID != tenantID {
+		return SagaRecord{}, fmt.Errorf("%w: %s is not visible to tenant %q", ErrSagaNotFound, operationID, tenantID)
 	}
 	cp := *r
 	cp.TargetVersions = append([]int(nil), r.TargetVersions...)
@@ -414,7 +425,7 @@ func (m *MemoryStore) LoadSaga(_ context.Context, operationID string) (SagaRecor
 // The compare is the concurrency control. Two invocations racing on the same operation both read
 // StatePending; one advances and the other gets ErrStateConflict rather than both proceeding. That
 // is why the transition takes `from` rather than trusting the caller's cached copy.
-func (m *MemoryStore) AdvanceSaga(_ context.Context, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error) {
+func (m *MemoryStore) AdvanceSaga(_ context.Context, tenantID, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error) {
 	to, ok := NextState(from)
 	if !ok {
 		return SagaRecord{}, fmt.Errorf("%w: %q has no successor", ErrIllegalTransition, from)
@@ -424,6 +435,9 @@ func (m *MemoryStore) AdvanceSaga(_ context.Context, operationID string, from Sa
 	r, exists := m.sagas[operationID]
 	if !exists {
 		return SagaRecord{}, fmt.Errorf("%w: %s", ErrSagaNotFound, operationID)
+	}
+	if tenantID != "" && r.TenantID != tenantID {
+		return SagaRecord{}, fmt.Errorf("%w: %s is not visible to tenant %q", ErrSagaNotFound, operationID, tenantID)
 	}
 	if r.State != from {
 		return SagaRecord{}, fmt.Errorf("%w: expected %q, found %q", ErrStateConflict, from, r.State)

@@ -37,9 +37,16 @@ token=$(kubectl -n "$INGEST_NS" get secret signal-ingest-key-stun-sentinel -o js
 
 kubectl -n "$INGEST_NS" port-forward svc/signal-ingest "${SEED_PORT}:8082" >/dev/null 2>&1 3>&- &
 pf=$!
+# The API port authenticates /readyz (the unauthenticated probe lives on the pod's probe
+# port, which the Service does not expose), so this gate asks only whether the forward
+# answers HTTP at all: any status is a live listener, 000 is not.
 ready=0
-for _ in $(seq 1 40); do curl -sf -o /dev/null "http://127.0.0.1:${SEED_PORT}/readyz" && { ready=1; break; }; sleep 0.25; done
-[ "$ready" = 1 ] || { echo "kusari-synth-seed: signal-ingest not ready through the port-forward" >&2; exit 3; }
+for _ in $(seq 1 60); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SEED_PORT}/readyz")
+  [ "$code" != "000" ] && { ready=1; break; }
+  sleep 0.25
+done
+[ "$ready" = 1 ] || { echo "kusari-synth-seed: signal-ingest not reachable through the port-forward" >&2; exit 3; }
 
 code=$(curl -s -o "$body.out" -w '%{http_code}' -X POST -H @"$hdr" -H 'Content-Type: application/json' --data-binary @"$body" "http://127.0.0.1:${SEED_PORT}/api/v1/observations")
 rm -f "$body.out"

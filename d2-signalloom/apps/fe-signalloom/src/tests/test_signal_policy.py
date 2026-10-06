@@ -485,3 +485,89 @@ class TestUpstreamURL:
         monkeypatch.delenv("SIGNAL_INGEST_URL")
         assert signal_policy._signal_ingest_url() == "http://signal-ingest:8082"
         assert os.getenv("SIGNAL_INGEST_URL") is None
+
+
+# ---------------------------------------------------------------------------
+# 5. A superadmin reviewing another tenant's decision
+# ---------------------------------------------------------------------------
+
+
+class _SequencedUpstream:
+    """A stub signal-ingest that answers each call from a queue and records all of them."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.calls: list[dict] = []
+
+    def install(self):
+        stub = AsyncMock()
+        stub.__aenter__ = AsyncMock(return_value=stub)
+        stub.__aexit__ = AsyncMock(return_value=False)
+
+        async def request(method, path, **kwargs):
+            self.calls.append({"method": method, "path": path, **kwargs})
+            status, payload = self.answers.pop(0)
+            resp = AsyncMock()
+            resp.status_code = status
+            resp.json = lambda: payload
+            return resp
+
+        stub.request = request
+        return patch("signal_policy.httpx.AsyncClient", return_value=stub)
+
+
+class TestCrossTenantReview:
+    """The Kusari pilot shape: the reviewer is tenant-demo, the decision is kusari's.
+
+    Found on the first live review (2026-10-06): the write acted for the reviewer's own tenant,
+    signal-ingest answered 404 for a decision that tenant cannot see, and the verdict was lost.
+    """
+
+    def test_superadmin_review_of_another_tenants_decision_acts_for_the_owner(self, client):
+        _as(REVIEWER_SUBJECT, tenant="tenant-demo")
+        upstream = _SequencedUpstream([
+            (404, {"error": "decision not found"}),
+            (200, [{"id": "dec-other", "tenant_id": "tenant-x"}, {"id": "dec-k", "tenant_id": "kusari"}]),
+            (201, {"id": "r1", "decision_id": "dec-k"}),
+        ])
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-k/review",
+                json={"verdict": "true_positive", "note": "seen on /signals"},
+            )
+        assert resp.status_code == 201, resp.text
+        assert [c["method"] for c in upstream.calls] == ["POST", "GET", "POST"]
+        first, lookup, retry = upstream.calls
+        assert first["headers"][ingest_client.ACTING_TENANT_HEADER] == "tenant-demo"
+        assert lookup["path"] == "/api/v1/policy/decisions"
+        assert lookup["headers"][ingest_client.ACTING_TENANT_HEADER] == ingest_client.ALL_TENANTS
+        assert lookup["params"]["limit"] == 500 and "since" in lookup["params"]
+        assert retry["headers"][ingest_client.ACTING_TENANT_HEADER] == "kusari"
+        assert retry["headers"][ingest_client.ACTING_SUBJECT_HEADER] == REVIEWER_SUBJECT
+        assert retry["json"] == {"verdict": "true_positive", "note": "seen on /signals"}
+
+    def test_unknown_decision_stays_404_after_one_lookup(self, client):
+        _as(REVIEWER_SUBJECT, tenant="tenant-demo")
+        upstream = _SequencedUpstream([
+            (404, {"error": "decision not found"}),
+            (200, [{"id": "dec-other", "tenant_id": "tenant-x"}]),
+        ])
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-missing/review",
+                json={"verdict": "needs_info", "note": "where did this go"},
+            )
+        assert resp.status_code == 404
+        assert [c["method"] for c in upstream.calls] == ["POST", "GET"]
+
+    def test_own_tenant_decision_is_one_call(self, client):
+        """The common path stays a single upstream write."""
+        _as(REVIEWER_SUBJECT, tenant="tenant-demo")
+        upstream = _SequencedUpstream([(201, {"id": "r1"})])
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-mine/review",
+                json={"verdict": "false_positive", "note": "benign, known job"},
+            )
+        assert resp.status_code == 201
+        assert len(upstream.calls) == 1

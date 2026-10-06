@@ -242,6 +242,10 @@ it.
 
 `test/acceptance/signals-review.spec.ts` records a verdict through the dashboard and reads it back after a reload. Seed decisions first with `make kusari-synth-seed`. The first live run of that spec on 2026-10-06 found two defects the offline suites could not see: the dashboard's four concurrent reads per poll OOM-killed signal-ingest at its 512Mi limit, and the rows acknowledged before the kill were gone afterwards. Both are fixed in the store (write-ahead log, bounded active block) and the decisions listing (window-bounded review lookup); the memory limit is now 1Gi.
 
+### A superadmin reviewing another tenant's decision
+
+The gateway's write acts for the reviewer's own tenant, and signal-ingest answers 404 for a decision that tenant cannot see. A superadmin reads every tenant, so the decision on `/signals` may belong to another one. On that 404 the gateway resolves the owner once, through the same read scope the page used, and repeats the write acting for that tenant. The common path, a reviewer's own tenant, stays one upstream call. `TestCrossTenantReview` in `src/tests/test_signal_policy.py` pins both.
+
 ### Who may review, through the dashboard
 
 `signal_policy.require_policy_reviewer`, decided server-side from the validated token only. It

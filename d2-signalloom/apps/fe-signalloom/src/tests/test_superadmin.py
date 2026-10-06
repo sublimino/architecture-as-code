@@ -119,3 +119,13 @@ def test_require_superadmin_raises_typed_403_for_non_superadmin(
     assert exc_info.value.status_code == 403
     assert exc_info.value.code == "superadmin_required"
     assert exc_info.value.message == "Superadmin access is required"
+
+
+def test_is_superadmin_subject_matches_demo_user_and_dex_encoded_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(superadmin, "settings", SimpleNamespace())
+
+    assert superadmin.is_superadmin_subject(_principal(subject="demo-user", email=None)) is True
+    assert superadmin.is_superadmin_subject(_principal(subject="CglkZW1vLXVzZXISBWxvY2Fs", email=None)) is True
+    assert superadmin.is_superadmin_subject(_principal(subject="ordinary-user", email="demo-user@signalloom.local")) is False

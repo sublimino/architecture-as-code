@@ -299,6 +299,8 @@ case "${mode}" in
   agent-trust) push_agent_trust ;;
   foundation) push_foundation ;;
   signalloom) push_signalloom ;;
+  osramp) push_osramp ;;
+  olly) push_olly ;;
   all)
     push_foundation
     push_signalloom
@@ -307,7 +309,7 @@ case "${mode}" in
     push_olly
     ;;
   *)
-    echo "usage: $0 [all|foundation|fleet|signalloom|agent-trust]" >&2
+    echo "usage: $0 [all|foundation|fleet|signalloom|agent-trust|osramp|olly]" >&2
     exit 64
     ;;
 esac

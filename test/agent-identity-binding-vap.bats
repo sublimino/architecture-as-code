@@ -76,14 +76,29 @@ setup() {
 	[ "$sa_names" = "$ns_names" ]
 }
 
-@test "the binding targets fe-signalloom-agents and denies" {
+@test "the binding denies and is NOT restricted to a single namespace" {
 	run yq -N 'select(.kind == "ValidatingAdmissionPolicyBinding") | .spec.validationActions[0]' "$VAP"
 	[ "$status" -eq 0 ]
 	[ "$output" = "Deny" ]
 
-	run yq -N 'select(.kind == "ValidatingAdmissionPolicyBinding") | .spec.matchResources.namespaceSelector.matchExpressions[0].values[0]' "$VAP"
+	# The spoof this policy guards against is cross-namespace (a decoy in
+	# hosted-daytona-coder's own namespace naming a registered agent's
+	# ServiceAccount), so matchResources must carry no namespaceSelector --
+	# restricting to fe-signalloom-agents would let that exact spoof through
+	# in any other namespace.
+	run yq -N 'select(.kind == "ValidatingAdmissionPolicyBinding") | .spec.matchResources.namespaceSelector' "$VAP"
 	[ "$status" -eq 0 ]
-	[ "$output" = "fe-signalloom-agents" ]
+	[ "$output" = "null" ]
+}
+
+@test "the policy gates evaluation on matchConditions, not on namespace" {
+	# Cluster-wide matchResources with no matchConditions would run this
+	# policy's CEL on every pod create/update in the cluster. matchConditions
+	# must filter on the agent-name label so an ordinary unlabelled workload,
+	# anywhere, is never evaluated.
+	run yq -N '.spec.matchConditions[0].expression' "$VAP"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"signalloom.ai/agent-name"* ]]
 }
 
 @test "the policy's own CEL rejects a pod spoofing a registered agent's identity label" {

@@ -24,3 +24,5 @@ quay.io/prometheus-operator/prometheus-operator:v0.92.1
 quay.io/prometheus/prometheus:v3.13.0-distroless
 registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1
 registry.k8s.io/metrics-server/metrics-server:v0.8.1
+docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff
+docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04

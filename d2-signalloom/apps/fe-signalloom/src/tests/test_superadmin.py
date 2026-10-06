@@ -119,3 +119,32 @@ def test_require_superadmin_raises_typed_403_for_non_superadmin(
     assert exc_info.value.status_code == 403
     assert exc_info.value.code == "superadmin_required"
     assert exc_info.value.message == "Superadmin access is required"
+
+
+def test_is_superadmin_subject_fails_closed_when_settings_omit_the_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No deployment env configured: only the documented code default
+    # ("demo-user") is granted. The Dex-encoded form of that same identity is
+    # deliberately NOT a code default -- it belongs in the deployment's
+    # API_SUPERADMIN_SUBJECTS env (see base/deployment.yaml), so a caller
+    # presenting it is refused until that env is actually wired, proving the
+    # boundary fails closed rather than silently admitting it.
+    monkeypatch.setattr(superadmin, "settings", SimpleNamespace())
+
+    assert superadmin.is_superadmin_subject(_principal(subject="demo-user", email=None)) is True
+    assert superadmin.is_superadmin_subject(_principal(subject="CglkZW1vLXVzZXISBWxvY2Fs", email=None)) is False
+    assert superadmin.is_superadmin_subject(_principal(subject="ordinary-user", email="demo-user@signalloom.local")) is False
+
+
+def test_is_superadmin_subject_grants_exactly_the_configured_subject(
+    configured_settings: SimpleNamespace,
+) -> None:
+    # An explicit allowlist (as the deployment env sets) REPLACES the code
+    # default rather than extending it, so configuring only the Dex-encoded
+    # subject grants that subject and nothing else -- not even the
+    # documented default "demo-user" literal.
+    configured_settings.api_superadmin_subjects = {"CglkZW1vLXVzZXISBWxvY2Fs"}
+
+    assert superadmin.is_superadmin_subject(_principal(subject="CglkZW1vLXVzZXISBWxvY2Fs", email=None)) is True
+    assert superadmin.is_superadmin_subject(_principal(subject="demo-user", email=None)) is False

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api_compat import APIError, Principal, _audit_outbound_request, authenticated_principal
+from cross_tenant_audit import audit_cross_tenant_read
 from ingest_client import ingest_headers
 from superadmin import require_superadmin
 
@@ -40,7 +41,7 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
         ) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
-            return JSONResponse(status_code=resp.status_code, content=resp.json())
+            content = resp.json()
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
         raise APIError(
@@ -62,6 +63,15 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
         raise APIError(
             502, "upstream_unavailable", "signal-ingest proxy error"
         ) from exc
+
+    if 200 <= resp.status_code < 300:
+        # Raises 503 database_unavailable (fail closed) if a superadmin's read
+        # just surfaced another tenant's data and the audit database is
+        # configured but unreachable -- see cross_tenant_audit.py.
+        await audit_cross_tenant_read(
+            principal, f"{method} {path}", content, what=f"Reading {path} cross-tenant",
+        )
+    return JSONResponse(status_code=resp.status_code, content=content)
 
 
 @router.get("/observations")

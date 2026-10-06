@@ -252,6 +252,14 @@ func newFrostDBStore(cfg *frostDBStoreConfig, attestor *SegmentAttestor, opts ..
 // under. It never returns nil on a constructed store.
 func (f *FrostDBStore) Pseudonymiser() *SegmentPseudonymiser { return f.pseudonymiser }
 
+// AllowsLabelKey reports whether Append would admit label key k under this store's allow-list,
+// so a caller that owns a corpus (the fixture seed) can project onto it instead of having the
+// whole batch refused.
+func (f *FrostDBStore) AllowsLabelKey(k string) bool {
+	_, ok := f.labelAllow[k]
+	return ok
+}
+
 // schemaDef declares the v2 segment column layout (SegmentSchemaV2).
 //
 // SLDP-P3-1 removed the six cleartext identifier columns listed in v1RemovedColumns and replaced

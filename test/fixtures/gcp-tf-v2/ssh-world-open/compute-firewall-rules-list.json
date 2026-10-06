@@ -1,0 +1,18 @@
+[
+  {
+    "name": "sl-demo-1-allow-all-tcp-no-ports",
+    "network": "https://www.googleapis.com/compute/v1/projects/example-sl-project/global/networks/sl-demo-1-vpc",
+    "direction": "INGRESS",
+    "disabled": false,
+    "sourceRanges": ["198.51.100.0/24"],
+    "allowed": [{ "IPProtocol": "tcp" }]
+  },
+  {
+    "name": "sl-demo-1-deny-all-ingress",
+    "network": "https://www.googleapis.com/compute/v1/projects/example-sl-project/global/networks/sl-demo-1-vpc",
+    "direction": "INGRESS",
+    "disabled": false,
+    "sourceRanges": ["0.0.0.0/0"],
+    "denied": [{ "IPProtocol": "all" }]
+  }
+]

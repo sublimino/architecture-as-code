@@ -92,6 +92,7 @@ case "${stub_verb}" in
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
     "environment_key": "demo-1",
+    "kind": "demo",
     "name_prefix": "osramp-demo-1",
     "region": "us-east4",
     "zone": "us-east4-a",
@@ -999,6 +1000,7 @@ HANDOFF_REQUIRED='project_id environment_key region zone instance_name internal_
 {
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
+    "kind": "demo",
     "region": "europe-west2", "zone": "europe-west2-b",
     "app_port": 9443, "hostname": "elsewhere.changeme.invalid"
   } },
@@ -1060,7 +1062,7 @@ JSON
 {
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
-    "region": "europe-west2", "zone": "europe-west2-a",
+    "kind": "demo", "region": "europe-west2", "zone": "europe-west2-a",
     "app_port": 8080, "hostname": ""
   } },
   "access_mode": { "value": "iap_tunnel" },
@@ -1171,7 +1173,7 @@ JSON
 {
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
-    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+    "kind": "demo", "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
   } },
   "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } },
   "instance_name": { "value": "osramp-demo-1-vm" },
@@ -1200,7 +1202,7 @@ JSON
 {
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
-    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+    "kind": "demo", "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
   } },
   "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
 }
@@ -1389,7 +1391,7 @@ JSON
 {
   "target_env": { "value": "demo-1" },
   "target_environment": { "value": {
-    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+    "kind": "demo", "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
   } },
   "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
 }
@@ -1413,4 +1415,120 @@ JSON
   [ "$status" -eq 0 ]
   [ -f "${hdir_mut}/demo-1.handoff.json" ]
   [ "$(jq -r .instance_name "${hdir_mut}/demo-1.handoff.json")" = "" ]
+}
+
+# ---------------------------------------------------------------------------
+# CI lanes have no compute module, so they have no instance — by design
+# ---------------------------------------------------------------------------
+
+@test "a CI lane hand-off is written with empty instance fields and says why" {
+  # terraform/environments/main.tf filters the compute module on kind == "demo".
+  # A CI environment genuinely has no instance and no internal IP, so requiring
+  # them would make `gcp-tf-up ENV=ci-1` fail at its last step with nothing wrong.
+  fixture="$(env_fixture ci-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-ci"
+  outputs="${BATS_TEST_TMPDIR}/outputs-ci.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "ci-1" },
+  "target_environment": { "value": {
+    "kind": "ci", "region": "us-east4", "zone": "us-east4-a",
+    "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } },
+  "operator_sa": { "value": "sl-operator@changeme-sandbox.iam.gserviceaccount.com" }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=ci-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  h="${hdir}/ci-1.handoff.json"
+  [ -f "$h" ]
+  [ "$(jq -r .kind "$h")"          = "ci" ]
+  [ "$(jq -r .instance_name "$h")" = "" ]
+  [ "$(jq -r .internal_ip "$h")"   = "" ]
+  # The keys are present, so a consumer reads a field rather than discovering an
+  # absent one — and `kind` is what tells it "correctly empty" from "broken".
+  run jq -e 'has("instance_name") and has("internal_ip") and has("kind")' "$h"
+  [ "$status" -eq 0 ]
+}
+
+@test "a demo lane with the same missing outputs is still refused" {
+  # The paired negative for the relaxation above. Without it, the CI branch
+  # could have been written as a blanket "these two are optional" and the test
+  # above would not notice.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-demo-strict"
+  outputs="${BATS_TEST_TMPDIR}/outputs-demo-strict.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "kind": "demo", "region": "us-east4", "zone": "us-east4-a",
+    "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"instance_name"* ]]
+  [[ "${output}" == *"internal_ip"* ]]
+  [ ! -f "${hdir}/demo-1.handoff.json" ]
+}
+
+@test "an unrecognised kind is rejected, not treated as the permissive case" {
+  # Fail-closed. The dangerous shape is a demo environment classified as
+  # something the generator does not recognise and handed off with two blanks.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-badkind"
+  outputs="${BATS_TEST_TMPDIR}/outputs-badkind.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "kind": "staging", "region": "us-east4", "zone": "us-east4-a",
+    "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"staging"* ]]
+  [[ "${output}" == *"neither"* ]]
+  [ ! -f "${hdir}/demo-1.handoff.json" ]
+}
+
+@test "an unresolved kind takes the strict branch, not the lenient one" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-nokind"
+  outputs="${BATS_TEST_TMPDIR}/outputs-nokind.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } },
+  "instance_name": { "value": "osramp-demo-1-vm" },
+  "internal_ip": { "value": "10.20.0.7" }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"kind"* ]]
+  [ ! -f "${hdir}/demo-1.handoff.json" ]
 }

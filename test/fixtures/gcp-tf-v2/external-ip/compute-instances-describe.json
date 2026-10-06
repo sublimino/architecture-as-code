@@ -1,0 +1,28 @@
+{
+  "name": "sl-demo-1-vm",
+  "status": "RUNNING",
+  "networkInterfaces": [
+    {
+      "name": "nic0",
+      "network": "https://www.googleapis.com/compute/v1/projects/example-sl-project/global/networks/sl-demo-1-vpc",
+      "networkIP": "10.20.0.5",
+      "accessConfigs": [
+        { "type": "ONE_TO_ONE_NAT", "name": "External NAT", "natIP": "203.0.113.47" }
+      ]
+    }
+  ],
+  "shieldedInstanceConfig": {
+    "enableSecureBoot": true,
+    "enableVtpm": true,
+    "enableIntegrityMonitoring": true
+  },
+  "metadata": {
+    "items": [
+      { "key": "enable-oslogin", "value": "TRUE" },
+      { "key": "block-project-ssh-keys", "value": "TRUE" }
+    ]
+  },
+  "serviceAccounts": [
+    { "email": "sl-rt-demo-1@example-sl-project.iam.gserviceaccount.com" }
+  ]
+}

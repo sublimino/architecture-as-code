@@ -2808,6 +2808,22 @@ gcp-tf-up: ## Deploy one environment end to end: plan, summarise, apply that exa
 	@echo "==> gcp-tf-up [4/4] write the hand-off"
 	$(MAKE) --no-print-directory gcp-tf-handoff $(GCP_TF_FORWARD)
 
+# The one field whose absence is not an error, and why.
+#
+# A CI lane instantiates no compute module — terraform/environments/main.tf
+# filters that module on `kind == "demo"` — so a CI environment genuinely has no
+# instance and no internal IP. Requiring them there would make
+# `make gcp-tf-up ENV=ci-1` fail at its last step with nothing actually wrong.
+#
+# The relaxation is keyed on the RESOLVED kind and is fail-closed. Only the exact
+# string "ci" takes the lenient branch; "demo" and an unresolved kind both take
+# the strict one, and any other value is rejected outright rather than guessed
+# at. The way this would become dangerous is a demo environment silently
+# classified as something else and handed off with two blank fields, so the
+# unexpected case must not be the permissive case.
+#
+# `kind` is emitted into the hand-off so a consumer reading an empty
+# instance_name can tell "CI lane, correctly has none" from "demo lane, broken".
 .PHONY: gcp-tf-handoff
 .PHONY: gcp-tf-worktree-bootstrap
 gcp-tf-worktree-bootstrap: ## Copy this repo's untracked operational state (deploy-sa, tfvars, hand-offs, .keys) from the source checkout into this worktree.
@@ -2857,6 +2873,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	app_port="$$(v '.target_environment.value.app_port')"; \
 	hostname="$$(v '.target_environment.value.hostname')"; \
 	access_mode="$$(v '.access_mode.value // .integration_inputs.value.access_mode')"; \
+	kind="$$(v '.target_environment.value.kind')"; \
 	instance_name="$$(v '.instance_name.value // .instance_names.value[$$env] // .compute.value[$$env].instance_name')"; \
 	internal_ip="$$(v '.internal_ip.value // .internal_ips.value[$$env] // .compute.value[$$env].internal_ip')"; \
 	operator_sa="$$(v '.operator_sa.value')"; \
@@ -2868,8 +2885,19 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	[ -n "$$zone" ]            || missing="$$missing zone(.target_environment.value.zone)"; \
 	[ -n "$$app_port" ]        || missing="$$missing app_port(.target_environment.value.app_port)"; \
 	[ -n "$$access_mode" ]     || missing="$$missing access_mode(.integration_inputs.value.access_mode)"; \
-	[ -n "$$instance_name" ]   || missing="$$missing instance_name(.instance_name|.instance_names[<env>])"; \
-	[ -n "$$internal_ip" ]     || missing="$$missing internal_ip(.internal_ip|.internal_ips[<env>])"; \
+	[ -n "$$kind" ]            || missing="$$missing kind(.target_environment.value.kind)"; \
+	case "$$kind" in \
+		ci) ;; \
+		demo|'') \
+			[ -n "$$instance_name" ] || missing="$$missing instance_name(.instance_name|.instance_names[<env>])"; \
+			[ -n "$$internal_ip" ]   || missing="$$missing internal_ip(.internal_ip|.internal_ips[<env>])";; \
+		*) \
+			echo "ERROR: kind resolved to '$$kind', which is neither \"demo\" nor \"ci\"."; \
+			echo "       terraform/modules/env-contract validates that enum, so this means"; \
+			echo "       the outputs disagree with the contract. Refusing to guess whether"; \
+			echo "       this environment is supposed to have an instance."; \
+			exit 3;; \
+	esac; \
 	[ -n "$$operator_sa" ]     || missing="$$missing operator_sa(.operator_sa)"; \
 	[ -n '$(strip $(TF_STATE_BUCKET))' ] || missing="$$missing state_bucket(TF_STATE_BUCKET)"; \
 	[ -n "$$deploy_sa" ]       || missing="$$missing deploy_sa(GCP_TF_IMPERSONATE / $(GCP_TF_DEPLOY_SA_FILE))"; \
@@ -2910,6 +2938,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg environment_key "$$environment_key" \
 		--arg region "$$region" \
 		--arg zone "$$zone" \
+		--arg kind "$$kind" \
 		--arg instance_name "$$instance_name" \
 		--arg internal_ip "$$internal_ip" \
 		--argjson app_port "$$app_port" \
@@ -2920,7 +2949,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg access_mode "$$access_mode" \
 		--arg hostname "$$hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, kind: $$kind, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \
@@ -2932,7 +2961,8 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 # three targets are what turn that into something a human can look at:
 #
 #   gcp-tf-demo-up    deliver this checkout, stand the estate up, test it
-#   gcp-tf-demo-test  re-run the tests only, against a cluster already standing
+#   gcp-tf-demo-test  REFUSED TODAY: sends DEMO_STAGE=test, which demo-pipeline.sh
+#                     has no selection for and exits 2 on, before doing any work
 #   gcp-tf-connect    open the tunnel, claim the Dex origin, print the URL and
 #                     the login — the thing the operator actually wants
 #
@@ -2965,8 +2995,24 @@ gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, coll
 	@# being consumed by a conditional.
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' up
 
+# REFUSED END TO END, and the description says so rather than advertising it.
+#
+# This target sends `demo-up.sh test`, which sets DEMO_STAGE=test. Since
+# 2026-08-20 scripts/gcp-tf/demo-pipeline.sh REFUSES any stage but `full` and
+# exits 2 at second zero: it implements one fixed sequence, has no stage
+# selection, and running anyway would silently perform a full bring-up —
+# including a cluster rebuild — for a caller that asked not to.
+#
+# demo-pipeline.sh's own refusal comment quotes the string this line used to
+# carry ("re-run the demo tests against a cluster that is already standing") as
+# the exact promise it cannot keep. Leaving that promise in `make help` is how
+# an operator spends forty minutes discovering it.
+#
+# The target is deliberately NOT deleted. The refusal is a stated gap with a
+# named implementation path, and a target that fails loudly at second zero is
+# the honest shape of that gap; removing it would hide the gap instead.
 .PHONY: gcp-tf-demo-test
-gcp-tf-demo-test: ## Re-run the demo tests against a cluster that is already standing (ENV=<key>).
+gcp-tf-demo-test: ## REFUSED TODAY: asks for a tests-only run; demo-pipeline.sh has no stage selection and exits 2 (ENV=<key>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_impersonation)
 	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \

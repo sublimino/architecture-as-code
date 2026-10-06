@@ -180,16 +180,21 @@ func (c *k8sFleetClient) resolvePod(ctx context.Context, namespace, agentID stri
 	// The selector matches on signalloom.ai/agent-name, which is written by
 	// whoever creates the pod -- including hosted-daytona-coder, which holds
 	// pod-create RBAC in this namespace (d2-signalloom/infra/agent-swarm/
-	// hosted-daytona-coder). A pod whose ServiceAccount does not match the
-	// identity map's registered ServiceAccount for this agent name is excluded
-	// here, before the ambiguity check below, so a spoofed decoy can never win
-	// resolution either by being the sole match or by crowding out the real
-	// pod into "ambiguous". An unregistered agent name is unaffected.
+	// hosted-daytona-coder). A pod whose namespace/ServiceAccount does not
+	// match the identity map's registered pair for this agent name is
+	// excluded here, before the ambiguity check below, so a spoofed decoy can
+	// never win resolution either by being the sole match or by crowding out
+	// the real pod into "ambiguous". Namespace is checked alongside
+	// ServiceAccount because a ServiceAccount name is only unique within its
+	// namespace: this list is already scoped to `namespace` by the List call
+	// above, but that namespace can itself be caller-supplied (GetPodState et
+	// al. take it as a parameter), so it must be checked, not assumed.  An
+	// unregistered agent name is unaffected.
 	if c.identityMap != nil {
 		name := agentNameFromID(agentID)
 		identified := make([]corev1.Pod, 0, len(items))
 		for _, p := range items {
-			if c.identityMap.Matches(name, p.Spec.ServiceAccountName) {
+			if c.identityMap.Matches(name, namespace, p.Spec.ServiceAccountName) {
 				identified = append(identified, p)
 			}
 		}
@@ -1645,16 +1650,17 @@ func (c *k8sFleetClient) revokeSpireForIdentity(ctx context.Context, namespace, 
 // LookupAgentPod reads one pod by name from the agent namespace. A NotFound
 // is reported as found=false with a nil error; any other API failure is
 // returned so the caller can say the lookup failed rather than that the pod
-// is absent. The ServiceAccount is returned separately from the labels: it is
-// the one part of this answer resolveAgentID can trust a pod's creator not to
-// have forged (see agent_resolution.go).
-func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, string, bool, error) {
+// is absent. The namespace and ServiceAccount are returned separately from
+// the labels: together they are the one part of this answer resolveAgentID
+// can trust a pod's creator not to have forged (see agent_resolution.go) --
+// a ServiceAccount name alone is only unique within its namespace.
+func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, string, string, bool, error) {
 	pod, err := c.clientset.CoreV1().Pods(c.defaultNamespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil, "", false, nil
+		return nil, "", "", false, nil
 	}
 	if err != nil {
-		return nil, "", false, err
+		return nil, "", "", false, err
 	}
-	return pod.Labels, pod.Spec.ServiceAccountName, true, nil
+	return pod.Labels, pod.Namespace, pod.Spec.ServiceAccountName, true, nil
 }

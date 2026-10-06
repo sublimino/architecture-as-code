@@ -127,28 +127,38 @@ func (p identityBindingPolicy) admit(t *testing.T, pod *corev1.Pod, params *core
 }
 
 // identityMapConfigMap builds the real fleet-config ConfigMap's identity
-// entries as the admission-time params object would receive them.
-func identityMapConfigMap(entries map[string]string) *corev1.ConfigMap {
-	data := make(map[string]string, len(entries))
-	for name, sa := range entries {
-		data["identity."+name] = sa
+// entries as the admission-time params object would receive them: one
+// identity.<name> (ServiceAccount) and identity-ns.<name> (namespace) key
+// pair per registered agent, mirroring base/configmap.yaml exactly.
+func identityMapConfigMap(entries map[string]AgentIdentity) *corev1.ConfigMap {
+	data := make(map[string]string, len(entries)*2)
+	for name, id := range entries {
+		data["identity."+name] = id.ServiceAccount
+		data["identity-ns."+name] = id.Namespace
 	}
 	return &corev1.ConfigMap{Data: data}
 }
 
-func identityPod(agentNameLabel, serviceAccount string) *corev1.Pod {
+func identityPod(namespace, agentNameLabel, serviceAccount string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{"signalloom.ai/agent-name": agentNameLabel},
+			Namespace: namespace,
+			Labels:    map[string]string{"signalloom.ai/agent-name": agentNameLabel},
 		},
 		Spec: corev1.PodSpec{ServiceAccountName: serviceAccount},
 	}
 }
 
+func kusariIdentityParams() *corev1.ConfigMap {
+	return identityMapConfigMap(map[string]AgentIdentity{
+		"kusari-agent": {Namespace: "fe-signalloom-agents", ServiceAccount: "kusari-agent"},
+	})
+}
+
 func TestIdentityBindingVAP_SpoofedServiceAccountIsRejected(t *testing.T) {
 	p := loadIdentityBindingPolicy(t)
-	params := identityMapConfigMap(map[string]string{"kusari-agent": "kusari-agent"})
-	decoy := identityPod("kusari-agent", "hosted-daytona-coder")
+	params := kusariIdentityParams()
+	decoy := identityPod("fe-signalloom-agents", "kusari-agent", "hosted-daytona-coder")
 
 	msg := p.admit(t, decoy, params)
 	if msg == "" {
@@ -159,10 +169,30 @@ func TestIdentityBindingVAP_SpoofedServiceAccountIsRejected(t *testing.T) {
 	}
 }
 
-func TestIdentityBindingVAP_MatchingServiceAccountIsAdmitted(t *testing.T) {
+// TestIdentityBindingVAP_RightServiceAccountNameButWrongNamespaceIsRejected is
+// the direct case Andy's decision names: a ServiceAccount name is only
+// unique within its namespace, so a decoy in hosted-daytona-coder's own
+// namespace that names its own ServiceAccount literally "kusari-agent" --
+// the right name -- must still be rejected, because kusari-agent is
+// registered to run in fe-signalloom-agents, not there.
+func TestIdentityBindingVAP_RightServiceAccountNameButWrongNamespaceIsRejected(t *testing.T) {
 	p := loadIdentityBindingPolicy(t)
-	params := identityMapConfigMap(map[string]string{"kusari-agent": "kusari-agent"})
-	legit := identityPod("kusari-agent", "kusari-agent")
+	params := kusariIdentityParams()
+	decoy := identityPod("hosted-daytona-coder-workspace", "kusari-agent", "kusari-agent")
+
+	msg := p.admit(t, decoy, params)
+	if msg == "" {
+		t.Fatal("the right ServiceAccount name in the wrong namespace was admitted; want it rejected")
+	}
+	if !strings.Contains(msg, "fe-signalloom-agents") || !strings.Contains(msg, "hosted-daytona-coder-workspace") {
+		t.Fatalf("message = %q, want it to name both the registered and actual namespace", msg)
+	}
+}
+
+func TestIdentityBindingVAP_MatchingNamespaceAndServiceAccountIsAdmitted(t *testing.T) {
+	p := loadIdentityBindingPolicy(t)
+	params := kusariIdentityParams()
+	legit := identityPod("fe-signalloom-agents", "kusari-agent", "kusari-agent")
 
 	if msg := p.admit(t, legit, params); msg != "" {
 		t.Fatalf("the real kusari-agent pod was denied: %s", msg)
@@ -171,19 +201,33 @@ func TestIdentityBindingVAP_MatchingServiceAccountIsAdmitted(t *testing.T) {
 
 func TestIdentityBindingVAP_UnregisteredAgentNameIsAdmitted(t *testing.T) {
 	p := loadIdentityBindingPolicy(t)
-	params := identityMapConfigMap(map[string]string{"kusari-agent": "kusari-agent"})
+	params := kusariIdentityParams()
 	// cardvault is not registered in this params object: the policy must not
 	// become a second allow-list for which agents may exist.
-	pod := identityPod("cardvault", "literally-anything")
+	pod := identityPod("fe-signalloom-agents", "cardvault", "literally-anything")
 
 	if msg := p.admit(t, pod, params); msg != "" {
 		t.Fatalf("an unregistered agent-name label was denied: %s", msg)
 	}
 }
 
+func TestIdentityBindingVAP_HalfAuthoredEntryIsTreatedAsUnregistered(t *testing.T) {
+	// A params object carrying only the ServiceAccount half (no
+	// identity-ns.* key) must not be treated as "registered with an empty
+	// namespace": that would reject every real pod with no namespace label
+	// drift at all. Mirrors identity_map.go/agent_identity_map.py exactly.
+	p := loadIdentityBindingPolicy(t)
+	params := &corev1.ConfigMap{Data: map[string]string{"identity.kusari-agent": "kusari-agent"}}
+	pod := identityPod("fe-signalloom-agents", "kusari-agent", "kusari-agent")
+
+	if msg := p.admit(t, pod, params); msg != "" {
+		t.Fatalf("a half-authored identity entry denied a pod it should treat as unregistered: %s", msg)
+	}
+}
+
 func TestIdentityBindingVAP_NoAgentNameLabelIsAdmitted(t *testing.T) {
 	p := loadIdentityBindingPolicy(t)
-	params := identityMapConfigMap(map[string]string{"kusari-agent": "kusari-agent"})
+	params := kusariIdentityParams()
 	pod := &corev1.Pod{Spec: corev1.PodSpec{ServiceAccountName: "default"}}
 
 	if msg := p.admit(t, pod, params); msg != "" {
@@ -197,7 +241,7 @@ func TestIdentityBindingVAP_NilParamsAdmitsEverything(t *testing.T) {
 	// in-process guard, nil-safe by the same design, is the other layer),
 	// never fail closed and brick every agent pod creation in the namespace.
 	p := loadIdentityBindingPolicy(t)
-	decoy := identityPod("kusari-agent", "hosted-daytona-coder")
+	decoy := identityPod("fe-signalloom-agents", "kusari-agent", "hosted-daytona-coder")
 
 	if msg := p.admit(t, decoy, nil); msg != "" {
 		t.Fatalf("missing params must admit (parameterNotFoundAction: Allow), got denial: %s", msg)

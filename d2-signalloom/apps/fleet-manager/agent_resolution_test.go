@@ -277,8 +277,8 @@ func TestResolveAgentID_PrefixedBareName(t *testing.T) {
 // that agent name.
 
 // resolutionServerWithIdentity is resolutionServer plus a wired identity map,
-// so the label branch's ServiceAccount check actually runs.
-func resolutionServerWithIdentity(t *testing.T, identity map[string]string, objects ...runtime.Object) (*server, *fake.Clientset) {
+// so the label branch's namespace/ServiceAccount check actually runs.
+func resolutionServerWithIdentity(t *testing.T, identity map[string]AgentIdentity, objects ...runtime.Object) (*server, *fake.Clientset) {
 	t.Helper()
 	real, cs := newTestK8sClient(objects...)
 	im := NewAgentIdentityMap(identity)
@@ -296,9 +296,17 @@ func spoofedPod(name, agentNameLabel, serviceAccount string) *corev1.Pod {
 	return p
 }
 
+// kusariIdentity registers kusari-agent at testNamespace, matching every
+// livePod/spoofedPod fixture pod's actual namespace in this file.
+func kusariIdentity() map[string]AgentIdentity {
+	return map[string]AgentIdentity{
+		"kusari-agent": {Namespace: testNamespace, ServiceAccount: "kusari-agent"},
+	}
+}
+
 func TestResolveAgentID_LabelSpoofWithWrongServiceAccountIsRejected(t *testing.T) {
 	decoy := spoofedPod(livePodKusari, "kusari-agent", "hosted-daytona-coder")
-	s, _ := resolutionServerWithIdentity(t, map[string]string{"kusari-agent": "kusari-agent"}, decoy)
+	s, _ := resolutionServerWithIdentity(t, kusariIdentity(), decoy)
 
 	got, err := s.resolveAgentID(context.Background(), livePodKusari)
 	if !errors.Is(err, errUnknownAgent) {
@@ -315,13 +323,29 @@ func TestResolveAgentID_LabelSpoofWithWrongServiceAccountIsRejected(t *testing.T
 	}
 }
 
+func TestResolveAgentID_LabelSpoofWithRightServiceAccountNameButWrongNamespaceIsRejected(t *testing.T) {
+	// A ServiceAccount name is only unique within its namespace. This pod's
+	// ServiceAccountName is literally "kusari-agent" -- exactly the
+	// registered name -- but the identity map registers that name for a
+	// DIFFERENT namespace than where this pod actually runs (testNamespace).
+	decoy := spoofedPod(livePodKusari, "kusari-agent", "kusari-agent")
+	s, _ := resolutionServerWithIdentity(t, map[string]AgentIdentity{
+		"kusari-agent": {Namespace: "hosted-daytona-coder-workspace", ServiceAccount: "kusari-agent"},
+	}, decoy)
+
+	got, err := s.resolveAgentID(context.Background(), livePodKusari)
+	if !errors.Is(err, errUnknownAgent) {
+		t.Fatalf("resolve = %+v, %v; want errUnknownAgent: the right ServiceAccount name in the wrong namespace must not resolve as kusari-agent", got, err)
+	}
+}
+
 func TestResolveAgentID_LabelWithMatchingServiceAccountStillResolves(t *testing.T) {
 	legit := spoofedPod(livePodKusari, "kusari-agent", "kusari-agent")
-	s, _ := resolutionServerWithIdentity(t, map[string]string{"kusari-agent": "kusari-agent"}, legit)
+	s, _ := resolutionServerWithIdentity(t, kusariIdentity(), legit)
 
 	got, err := s.resolveAgentID(context.Background(), livePodKusari)
 	if err != nil || got.ID != kusariAgentID || got.By != resolvedByLabel {
-		t.Fatalf("resolve = %+v, %v; want %s via the agent-name label when the ServiceAccount matches the registered identity", got, err, kusariAgentID)
+		t.Fatalf("resolve = %+v, %v; want %s via the agent-name label when the namespace and ServiceAccount match the registered identity", got, err, kusariAgentID)
 	}
 }
 
@@ -330,7 +354,7 @@ func TestResolveAgentID_UnregisteredAgentNameLabelIsUnaffectedByIdentityMap(t *t
 	// unregistered here, so the map must not turn into a second allow-list
 	// that starts denying names it was never told about.
 	pod := spoofedPod("agent-cardvault-bb57657-jlf8w", "cardvault", "anything-at-all")
-	s, _ := resolutionServerWithIdentity(t, map[string]string{"kusari-agent": "kusari-agent"}, pod)
+	s, _ := resolutionServerWithIdentity(t, kusariIdentity(), pod)
 
 	got, err := s.resolveAgentID(context.Background(), "agent-cardvault-bb57657-jlf8w")
 	if err != nil || got.ID != "agent-cardvault" {

@@ -14,15 +14,17 @@ import (
 var errUnknownAgent = errors.New("unknown agent")
 
 // AgentPodLookup is an optional FleetClient capability: read one pod by name
-// from the agent namespace (AGENT_NAMESPACE) and return its labels and the
-// ServiceAccount it actually runs as. found is false, with a nil error, when
-// the API answered that the pod does not exist. serviceAccount is returned
-// alongside labels, never folded into the labels map, because labels are
-// untrusted (anyone who can create a pod writes them) while
-// spec.serviceAccountName is the admission-controlled identity a resolution
-// decision must be able to check it against.
+// from the agent namespace (AGENT_NAMESPACE) and return its labels, its
+// namespace and the ServiceAccount it actually runs as. found is false, with
+// a nil error, when the API answered that the pod does not exist. namespace
+// and serviceAccount are returned alongside labels, never folded into the
+// labels map, because labels are untrusted (anyone who can create a pod
+// writes them) while a pod's namespace and spec.serviceAccountName are the
+// admission-controlled identity a resolution decision must be able to check
+// against — and a ServiceAccount name is only unique within its namespace,
+// so both are required, never the ServiceAccount name alone.
 type AgentPodLookup interface {
-	LookupAgentPod(ctx context.Context, name string) (labels map[string]string, serviceAccount string, found bool, err error)
+	LookupAgentPod(ctx context.Context, name string) (labels map[string]string, namespace string, serviceAccount string, found bool, err error)
 }
 
 // agentResolution records how a caller-supplied id was mapped onto the DAG.
@@ -134,7 +136,7 @@ func (s *server) resolveAgentID(ctx context.Context, requested string) (agentRes
 		res.Tried = append(res.Tried, "pod:"+requested+" (no pod reader configured)")
 		return res, errUnknownAgent
 	}
-	labels, serviceAccount, found, err := lookup.LookupAgentPod(ctx, requested)
+	labels, podNamespace, serviceAccount, found, err := lookup.LookupAgentPod(ctx, requested)
 	switch {
 	case err != nil:
 		res.Tried = append(res.Tried, fmt.Sprintf("pod:%s (read failed: %v)", requested, err))
@@ -152,14 +154,16 @@ func (s *server) resolveAgentID(ctx context.Context, requested string) (agentRes
 			// namespace that includes hosted-daytona-coder, which holds
 			// pod-create RBAC (see d2-signalloom/infra/agent-swarm/hosted-daytona-coder),
 			// so the label alone cannot prove this pod is the registered
-			// agent-name's real instance. Require the pod's ServiceAccount to
-			// match the one the identity map registers for that name; an
+			// agent-name's real instance. Require the pod's namespace AND
+			// ServiceAccount to match the ones the identity map registers for
+			// that name -- a ServiceAccount name is only unique within its
+			// namespace, so the ServiceAccount alone is not enough. An
 			// unregistered name is unaffected (Matches returns true), so this
 			// only ever narrows a spoof of a KNOWN identity.
-			if !s.identityMap.Matches(n, serviceAccount) {
+			if !s.identityMap.Matches(n, podNamespace, serviceAccount) {
 				res.Tried = append(res.Tried, fmt.Sprintf(
-					"label:%s=%s -> %s (rejected: pod's ServiceAccount %q does not match the registered identity)",
-					AgentNameLabel, n, candidate, serviceAccount))
+					"label:%s=%s -> %s (rejected: pod's namespace/ServiceAccount %s/%q does not match the registered identity)",
+					AgentNameLabel, n, candidate, podNamespace, serviceAccount))
 			} else {
 				res.Tried = append(res.Tried, fmt.Sprintf("label:%s=%s -> %s", AgentNameLabel, n, candidate))
 				res.ID = candidate

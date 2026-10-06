@@ -53,12 +53,27 @@ setup() {
 	[ "$output" = "fe-signalloom" ]
 
 	# The params object this binding names must actually carry identity.*
-	# keys, in the SAME file fleet-manager/identity_map.go reads -- one
-	# authored list, proven by structure rather than by a second hardcoded
-	# list in this test.
+	# (ServiceAccount) keys, in the SAME file fleet-manager/identity_map.go
+	# reads -- one authored list, proven by structure rather than by a
+	# second hardcoded list in this test.
 	run yq -N '.data | keys | .[] | select(test("^identity\\."))' "$CONFIGMAP"
 	[ "$status" -eq 0 ]
 	[ -n "$output" ]
+
+	# And the identity-ns.* (namespace) half of every pair, the one Andy's
+	# review added: a ServiceAccount name alone is only unique within its
+	# namespace.
+	run yq -N '.data | keys | .[] | select(test("^identity-ns\\."))' "$CONFIGMAP"
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+
+	# Every identity.<name> key has a matching identity-ns.<name> sibling --
+	# a half-authored pair is dropped by every reader (identity_map.go,
+	# agent_identity_map.py, this policy's `registered` variable), so an
+	# orphaned half would silently stop protecting that agent.
+	sa_names=$(yq -N '.data | keys | .[] | select(test("^identity\\.")) | sub("^identity\\.", "")' "$CONFIGMAP" | sort)
+	ns_names=$(yq -N '.data | keys | .[] | select(test("^identity-ns\\.")) | sub("^identity-ns\\.", "")' "$CONFIGMAP" | sort)
+	[ "$sa_names" = "$ns_names" ]
 }
 
 @test "the binding targets fe-signalloom-agents and denies" {

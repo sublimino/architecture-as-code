@@ -529,13 +529,47 @@ func TestCiliumMeshClient_ResolveTargetIP_LabelSelectorSpoofWithWrongServiceAcco
 		Status: corev1.PodStatus{PodIP: "10.244.9.9"},
 	}
 	client := NewCiliumMeshClient(fake.NewSimpleClientset(decoy))
-	client.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+	client.identityMap = NewAgentIdentityMap(map[string]AgentIdentity{
+		"kusari-agent": {Namespace: "fe-signalloom-agents", ServiceAccount: "kusari-agent"},
+	})
 
 	ip, err := client.resolveTargetIP(context.Background(), "fe-signalloom-agents", "agent-kusari-agent")
 	if err == nil {
 		t.Fatalf("resolved IP = %q, err = nil; want an error: a decoy running as hosted-daytona-coder must not resolve as agent-kusari-agent's IP", ip)
 	}
 	if ip == "10.244.9.9" {
+		t.Fatal("must never return the decoy's IP for the real agent")
+	}
+}
+
+// TestCiliumMeshClient_ResolveTargetIP_LabelSelectorSpoofInWrongNamespaceIsRejected
+// is the direct case Andy's decision names: this site's namespace argument
+// is caller-supplied (resolveTargetIP(ctx, namespace, agentID)), so a decoy
+// in hosted-daytona-coder's own namespace that names its OWN ServiceAccount
+// literally "kusari-agent" -- the right SA name -- must still be rejected,
+// because kusari-agent is registered to run in fe-signalloom-agents, not
+// there. A ServiceAccount name is only unique within its namespace.
+func TestCiliumMeshClient_ResolveTargetIP_LabelSelectorSpoofInWrongNamespaceIsRejected(t *testing.T) {
+	decoyNamespace := "hosted-daytona-coder-workspace"
+	decoy := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "decoy-daytona-pod",
+			Namespace: decoyNamespace,
+			Labels:    map[string]string{AgentLabel: "true", AgentNameLabel: "kusari-agent"},
+		},
+		Spec:   corev1.PodSpec{ServiceAccountName: "kusari-agent"},
+		Status: corev1.PodStatus{PodIP: "10.244.9.12"},
+	}
+	client := NewCiliumMeshClient(fake.NewSimpleClientset(decoy))
+	client.identityMap = NewAgentIdentityMap(map[string]AgentIdentity{
+		"kusari-agent": {Namespace: "fe-signalloom-agents", ServiceAccount: "kusari-agent"},
+	})
+
+	ip, err := client.resolveTargetIP(context.Background(), decoyNamespace, "agent-kusari-agent")
+	if err == nil {
+		t.Fatalf("resolved IP = %q, err = nil; want an error: the right ServiceAccount name in the wrong namespace must not resolve", ip)
+	}
+	if ip == "10.244.9.12" {
 		t.Fatal("must never return the decoy's IP for the real agent")
 	}
 }
@@ -551,7 +585,9 @@ func TestCiliumMeshClient_ResolveTargetIP_LabelSelectorWithMatchingServiceAccoun
 		Status: corev1.PodStatus{PodIP: "10.244.9.10"},
 	}
 	client := NewCiliumMeshClient(fake.NewSimpleClientset(legit))
-	client.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+	client.identityMap = NewAgentIdentityMap(map[string]AgentIdentity{
+		"kusari-agent": {Namespace: "fe-signalloom-agents", ServiceAccount: "kusari-agent"},
+	})
 
 	ip, err := client.resolveTargetIP(context.Background(), "fe-signalloom-agents", "agent-kusari-agent")
 	if err != nil {
@@ -573,7 +609,9 @@ func TestCiliumMeshClient_ResolveTargetIP_UnregisteredAgentNameIsUnaffectedByIde
 		Status: corev1.PodStatus{PodIP: "10.244.9.11"},
 	}
 	client := NewCiliumMeshClient(fake.NewSimpleClientset(pod))
-	client.identityMap = NewAgentIdentityMap(map[string]string{"kusari-agent": "kusari-agent"})
+	client.identityMap = NewAgentIdentityMap(map[string]AgentIdentity{
+		"kusari-agent": {Namespace: "fe-signalloom-agents", ServiceAccount: "kusari-agent"},
+	})
 
 	ip, err := client.resolveTargetIP(context.Background(), "fe-signalloom-agents", "agent-cardvault")
 	if err != nil {

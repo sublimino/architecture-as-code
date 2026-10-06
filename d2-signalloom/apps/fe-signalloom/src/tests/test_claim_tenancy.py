@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 import api_compat
 import claim_tenancy
+from agent_identity_map import AgentIdentity
 from api_compat import settings
 from db.connection import set_pool_for_testing
 from main import app
@@ -296,6 +297,9 @@ DECOY_WORKLOAD: dict[str, Any] = {
 }
 
 
+KUSARI_IDENTITY = {"kusari-agent": AgentIdentity(namespace=NS, service_account="kusari-agent")}
+
+
 def test_a_workload_spoofing_a_registered_agents_identity_label_is_refused_403(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -303,7 +307,7 @@ def test_a_workload_spoofing_a_registered_agents_identity_label_is_refused_403(
         return [dict(w) for w in WORKLOADS] + [dict(DECOY_WORKLOAD)]
 
     monkeypatch.setattr(claim_tenancy, "workload_source", _workloads)
-    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: {"kusari-agent": "kusari-agent"})
+    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: KUSARI_IDENTITY)
 
     res = _claim(client, KUSARI_OP, "decoy-daytona")
     assert res.status_code == 403, res.text
@@ -311,12 +315,40 @@ def test_a_workload_spoofing_a_registered_agents_identity_label_is_refused_403(
     assert _claimed_models(client, KUSARI_OP) == {}
 
 
-def test_a_workload_whose_service_account_matches_its_registered_identity_is_claimable(
+def test_a_workload_with_the_right_service_account_name_but_wrong_namespace_is_refused_403(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: {"kusari-agent": "kusari-agent"})
+    # A ServiceAccount name is only unique within its namespace. This decoy's
+    # service_account is literally "kusari-agent" -- exactly the registered
+    # name -- but it runs (and is claimed) in hosted-daytona-coder's own
+    # namespace, not the one kusari-agent is registered to.
+    decoy_namespace = "hosted-daytona-coder-workspace"
+    decoy = {
+        "id": "decoy-daytona-2", "name": "decoy-daytona-2", "agent_name": "kusari-agent",
+        "namespace": decoy_namespace, "tenant": "kusari", "model": "deterministic",
+        "service_account": "kusari-agent",
+    }
+
+    async def _workloads() -> list[dict[str, Any]]:
+        return [dict(w) for w in WORKLOADS] + [decoy]
+
+    monkeypatch.setattr(claim_tenancy, "workload_source", _workloads)
+    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: KUSARI_IDENTITY)
+
+    body = {"pod_name": "decoy-daytona-2", "namespace": decoy_namespace,
+            "spiffe_id": f"spiffe://signalloom.demo/ns/{decoy_namespace}/sa/kusari-agent"}
+    res = client.post("/api/v1/agents/claim", json=body, headers=_bearer(KUSARI_OP))
+    assert res.status_code == 403, res.text
+    assert _error(res) == "agent_identity_mismatch"
+
+
+def test_a_workload_whose_namespace_and_service_account_match_its_registered_identity_is_claimable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: KUSARI_IDENTITY)
     # The shared fixture's real kusari-agent entry declares no service_account
     # at all (added here only, so every other test's fixture is untouched).
+    # Its namespace is already NS, matching KUSARI_IDENTITY.
     legit = dict(WORKLOADS[0])
     legit["service_account"] = "kusari-agent"
 
@@ -334,6 +366,6 @@ def test_an_unregistered_agent_identity_is_unaffected_by_the_identity_map(
 ) -> None:
     # demo-bot is not a key in this identity map: the map must not become a
     # second allow-list that starts denying names it was never told about.
-    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: {"kusari-agent": "kusari-agent"})
+    monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: KUSARI_IDENTITY)
     res = _claim(client, DEMO_USER, "demo-bot", model="gpt-4o")
     assert res.status_code == 200, res.text

@@ -161,7 +161,11 @@ func (c *CiliumMeshClient) resolveTargetIP(ctx context.Context, namespace, agent
 				name := agentNameFromID(agentID)
 				identified := make([]corev1.Pod, 0, len(items))
 				for _, p := range items {
-					if c.identityMap.Matches(name, p.Spec.ServiceAccountName) {
+					// Namespace is checked alongside ServiceAccount: a
+					// ServiceAccount name is only unique within its
+					// namespace, and `namespace` here can itself be
+					// caller-supplied.
+					if c.identityMap.Matches(name, namespace, p.Spec.ServiceAccountName) {
 						identified = append(identified, p)
 					}
 				}

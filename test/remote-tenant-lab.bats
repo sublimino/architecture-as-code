@@ -205,8 +205,15 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 @test "lab: it never creates or deletes a cluster" {
 	# This script attaches to the topology dual-cluster-up.sh built. A lab that
 	# can delete a cluster is a lab somebody runs by accident.
-	run ! grep -E 'kind (create|delete) cluster' "${SCRIPT}"
-	run ! grep -E 'kubectl.*delete (ns|namespace)' "${SCRIPT}"
+	#
+	# Written as plain `run` + an explicit exact-status check, rather than the
+	# equivalent `run !` negation flag: grep's exit codes are 0 found / 1
+	# not-found / 2 error, and -eq 1 is what "never creates or deletes" means --
+	# a script-read error (2) proves nothing about the script's content.
+	run grep -E 'kind (create|delete) cluster' "${SCRIPT}"
+	[ "$status" -eq 1 ]
+	run grep -E 'kubectl.*delete (ns|namespace)' "${SCRIPT}"
+	[ "$status" -eq 1 ]
 }
 
 # --- the governed resume (steps 2, 9 and 9b) --------------------------------

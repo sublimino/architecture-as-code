@@ -2952,7 +2952,8 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 # three targets are what turn that into something a human can look at:
 #
 #   gcp-tf-demo-up    deliver this checkout, stand the estate up, test it
-#   gcp-tf-demo-test  re-run the tests only, against a cluster already standing
+#   gcp-tf-demo-test  REFUSED TODAY: sends DEMO_STAGE=test, which demo-pipeline.sh
+#                     has no selection for and exits 2 on, before doing any work
 #   gcp-tf-connect    open the tunnel, claim the Dex origin, print the URL and
 #                     the login — the thing the operator actually wants
 #
@@ -2985,8 +2986,24 @@ gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, coll
 	@# being consumed by a conditional.
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' up
 
+# REFUSED END TO END, and the description says so rather than advertising it.
+#
+# This target sends `demo-up.sh test`, which sets DEMO_STAGE=test. Since
+# 2026-08-20 scripts/gcp-tf/demo-pipeline.sh REFUSES any stage but `full` and
+# exits 2 at second zero: it implements one fixed sequence, has no stage
+# selection, and running anyway would silently perform a full bring-up —
+# including a cluster rebuild — for a caller that asked not to.
+#
+# demo-pipeline.sh's own refusal comment quotes the string this line used to
+# carry ("re-run the demo tests against a cluster that is already standing") as
+# the exact promise it cannot keep. Leaving that promise in `make help` is how
+# an operator spends forty minutes discovering it.
+#
+# The target is deliberately NOT deleted. The refusal is a stated gap with a
+# named implementation path, and a target that fails loudly at second zero is
+# the honest shape of that gap; removing it would hide the gap instead.
 .PHONY: gcp-tf-demo-test
-gcp-tf-demo-test: ## Re-run the demo tests against a cluster that is already standing (ENV=<key>).
+gcp-tf-demo-test: ## REFUSED TODAY: asks for a tests-only run; demo-pipeline.sh has no stage selection and exits 2 (ENV=<key>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_impersonation)
 	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \

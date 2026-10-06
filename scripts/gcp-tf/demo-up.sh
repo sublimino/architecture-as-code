@@ -2064,6 +2064,16 @@ capture_source_identity() {
 }
 
 # stage is "full" (build the estate, then test it) or "test" (tests only).
+#
+# "test" is SENT and is not HONOURED. demo-pipeline.sh implements one fixed
+# sequence with no stage selection, and since 2026-08-20 it refuses any stage
+# but `full` and exits 2 before doing any work — see its DEMO_STAGE block. So
+# `demo-up.sh test` / `make gcp-tf-demo-test` reach the VM, deliver the payload
+# and then abort at second zero with that refusal.
+#
+# Stated here rather than in the pipeline alone because this is the file that
+# CHOOSES the value: a reader of run_lane would otherwise conclude both stages
+# work, which is the reading that made the target look implemented.
 run_lane() {
   local stage="$1"
 

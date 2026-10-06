@@ -709,7 +709,22 @@ FIXTURE
   local proof="${REPO_ROOT}/test/toolchain-mutation-proof.sh"
   [ -f "$proof" ]
 
-  local sentinel="${REPO_ROOT}/.mutation-in-progress"
+  # The sentinel name comes from the shared rail (test/helpers/mutation-sentinel.bash),
+  # not from this test: ms_guard_init mints it as "<repo-root>/.<proof-name>-mutation-in-progress",
+  # where <proof-name> is ms_guard_init's own first argument. Hard-coding
+  # ".mutation-in-progress" here used to plant a name the harness no longer
+  # checks for (it moved to the shared rail and started guarding
+  # ".toolchain-mutation-in-progress"), so the harness never saw the planted
+  # sentinel, ran a full ~20-minute mutation pass instead of refusing, and this
+  # test failed for a reason unrelated to the refusal it means to prove.
+  local proof_name
+  proof_name="$(grep -oE 'ms_guard_init[[:space:]]+[a-z0-9-]+' "$proof" | awk '{print $2}')"
+  [ -n "$proof_name" ] || {
+    echo "could not find the proof name ms_guard_init is called with in ${proof}" >&2
+    return 1
+  }
+
+  local sentinel="${REPO_ROOT}/.${proof_name}-mutation-in-progress"
   [ ! -e "$sentinel" ] || skip "a real mutation run is in progress"
 
   # A canary: if the harness repaired rather than refused, it would restore
@@ -722,12 +737,16 @@ FIXTURE
   local status_seen="$status" output_seen="$output"
   rm -f "$sentinel"
 
-  [ "$status_seen" -eq 4 ] || {
-    echo "expected exit 4 on a leaked sentinel, got ${status_seen}" >&2
+  # No pid was recorded in the synthetic sentinel above, so the rail treats it
+  # as a dead/leaked run (MS_EXIT_LEAKED=3 in mutation-sentinel.bash) rather
+  # than a live one (MS_EXIT_RUNNING=4) — and asserts on the rail's actual
+  # refusal text, not an approximation of it.
+  [ "$status_seen" -eq 3 ] || {
+    echo "expected exit 3 (leaked mutation, per the shared rail) got ${status_seen}" >&2
     echo "$output_seen" >&2
     return 1
   }
-  [[ "$output_seen" == *"did not complete"* ]] || {
+  [[ "$output_seen" == *"left a mutation on disk"* ]] || {
     echo "the refusal does not explain itself: ${output_seen}" >&2
     return 1
   }
@@ -735,7 +754,7 @@ FIXTURE
     echo "the refusal does not name the mutated file" >&2
     return 1
   }
-  [[ "$output_seen" == *"will not repair"* ]] || {
+  [[ "$output_seen" == *"will NOT repair"* ]] || {
     echo "the refusal does not state that it declines to repair" >&2
     return 1
   }

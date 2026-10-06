@@ -483,3 +483,28 @@ func TestKusariE2E_MutationGates(t *testing.T) {
 		}
 	})
 }
+
+// The guardduty-high-severity finding must come from the severity 8 envelope and
+// from nothing else: not the severity 2 finding, and not the GuardDuty management
+// calls on the CloudTrail path that guardduty-detection-tampered owns.
+func TestKusariE2E_GuardDutyHighSeverityFiresOnTheEnvelopeOnly(t *testing.T) {
+	h := newHarness(t, store.NewMemoryStore(), bundlesDir(t), collectors.NewDeduper(8192))
+	obs := corpus(t)
+	ingest(t, h, obs)
+
+	refByID := map[string]string{}
+	for _, o := range obs {
+		refByID[o.ID] = o.RawEvidenceRef
+	}
+	var refs []string
+	for _, f := range h.Recorder.Findings {
+		if f.BundleID == bundleCloudSignals && f.RuleID == "guardduty-high-severity" {
+			refs = append(refs, refByID[f.SourceObsID])
+		}
+	}
+	want := "testdata/kusari/guardduty-eventbridge-envelope.json#0"
+	if len(refs) != 1 || refs[0] != want {
+		t.Fatalf("guardduty-high-severity fired on %v, want exactly [%s]", refs, want)
+	}
+	t.Logf("guardduty-high-severity fired on %s", refs[0])
+}

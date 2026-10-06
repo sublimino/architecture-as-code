@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
-// Package awslogs projects AWS CloudTrail, IAM and VPC Flow telemetry onto
+// Package awslogs projects AWS CloudTrail, IAM, VPC Flow and GuardDuty telemetry onto
 // model.Observation under a documented label contract, buffers it durably, and
 // acknowledges the source queue only once the sink has accepted every record.
 //
@@ -12,40 +12,44 @@
 // ONLY: a rule written against this contract must keep compiling, so a key is
 // never renamed or removed, only added.
 //
-//	Key               CloudTrail                    IAM                      VPC Flow
-//	----------------- ----------------------------- ------------------------ -----------------------------
-//	tenant_id         collector config              collector config         collector config
-//	provider          "aws"                         "aws"                    "aws"
-//	aws_account_id    recipientAccountId            recipientAccountId       account-id (field 2)
-//	actor_account_id  userIdentity.arn field 4,     same                     —
+//	Key               CloudTrail                    IAM                      VPC Flow                       GuardDuty (EventBridge)
+//	----------------- ----------------------------- ------------------------ ------------------------------ ------------------------------
+//	tenant_id         collector config              collector config         collector config               collector config
+//	provider          "aws"                         "aws"                    "aws"                          "aws"
+//	aws_account_id    recipientAccountId            recipientAccountId       account-id (field 2)           detail.accountId, else account
+//	actor_account_id  userIdentity.arn field 4,     same                     —                              —
 //	                  only when an account is named
-//	aws_region        awsRegion (per record)        awsRegion                collector config
-//	event_source      eventSource                   "iam.amazonaws.com"      "vpcflow"
-//	event_name        eventName                     eventName                action: ACCEPT | REJECT
-//	error_code        errorCode, only when present  same                     —
-//	resource_type     resources[0].type             resources[0].type or     "AWS::EC2::NetworkInterface"
+//	aws_region        awsRegion (per record)        awsRegion                collector config               detail.region, else region,
+//	                                                                                                        else collector config
+//	event_source      eventSource                   "iam.amazonaws.com"      "vpcflow"                      envelope source ("aws.guardduty")
+//	event_name        eventName                     eventName                action: ACCEPT | REJECT        detail.type (the finding type)
+//	error_code        errorCode, only when present  same                     —                              —
+//	severity          —                             —                        —                              detail.severity, integer floor
+//	resource_type     resources[0].type             resources[0].type or     "AWS::EC2::NetworkInterface"   detail.resource.resourceType
 //	                                                the name allowlist below
-//	resource_name     resources[0].ARN              resources[0].ARN or      interface-id (field 3)
-//	                                                the name allowlist below
-//	source_ip         sourceIPAddress               sourceIPAddress          srcaddr (field 4)
-//	dst_ip            —                             —                        dstaddr (field 5)
-//	dst_port          —                             —                        dstport (field 7)
-//	protocol          —                             —                        protocol (field 8, IANA number)
-//	bytes             —                             —                        bytes (field 10)
+//	resource_name     resources[0].ARN              resources[0].ARN or      interface-id (field 3)         first networkInterfaceId, only
+//	                                                the name allowlist below                                when it is an eni- id
+//	source_ip         sourceIPAddress               sourceIPAddress          srcaddr (field 4)              —
+//	dst_ip            —                             —                        dstaddr (field 5)              —
+//	dst_port          —                             —                        dstport (field 7)              —
+//	protocol          —                             —                        protocol (field 8, IANA number) —
+//	bytes             —                             —                        bytes (field 10)               —
 //
 // Non-label fields:
 //
-//   - Layer is model.LayerCloudControlPlane for CloudTrail and IAM, and
+//   - Layer is model.LayerCloudControlPlane for CloudTrail, IAM and GuardDuty, and
 //     model.LayerNetworkEgress for VPC Flow.
-//   - Source is one of aws:cloudtrail, aws:iam, aws:vpcflow. IAM is selected when
+//   - Source is one of aws:cloudtrail, aws:iam, aws:vpcflow, aws:guardduty. IAM is selected when
 //     eventSource is exactly iam.amazonaws.com; everything else on the CloudTrail
 //     path is aws:cloudtrail. aws:collector is reserved for the collector's own
 //     operational observations (buffer eviction), which carry type and count.
 //   - ActorHint is userIdentity.arn verbatim, pseudonymised later by the store. VPC
 //     Flow records name no principal, so ActorHint is empty there and the §2.3 actor
-//     row reads "—"; a flow record is attributed by dst_ip and resource_name.
-//   - Timestamp is eventTime for CloudTrail/IAM and the flow `start` field for VPC
-//     Flow. It is NEVER time.Now(): replay over an S3 backlog has to reproduce live
+//     row reads "—"; a flow record is attributed by dst_ip and resource_name. A
+//     GuardDuty finding names at most a userName, never an ARN, so ActorHint is
+//     empty there too; an ARN is never fabricated from a userName.
+//   - Timestamp is eventTime for CloudTrail/IAM, the flow `start` field for VPC
+//     Flow, and the EventBridge envelope `time` for GuardDuty. It is NEVER time.Now(): replay over an S3 backlog has to reproduce live
 //     output, and a wall-clock stamp would make that impossible (pkg/obscel
 //     determinism contract).
 //   - ID is sha256 hex of RawEvidenceRef, so the same record projected twice — live
@@ -57,7 +61,21 @@
 //     ordinal among data lines, header and blank lines excluded), NOT a physical line
 //     number. The customer bucket stays the system of record for the raw event.
 //   - Description is one line under MaxDescriptionLen runes, built only from the
-//     projected label values.
+//     projected label values. For GuardDuty it is "guardduty <type> on
+//     <resourceType>" and nothing else: no title, no resource identifier.
+//
+// # Envelope dispatch
+//
+// A JSON object is routed by shape, never by key name: detail-type "GuardDuty
+// Finding" goes to ProjectGuardDuty, a Records array goes to ProjectCloudTrail, and
+// anything else is ErrUnrecognisedEnvelope, which the collector stores as a
+// projection_failure. Before this, an EventBridge envelope decoded as a CloudTrail
+// file with no records and projected to a silent zero.
+//
+// GuardDuty severity is a float on the wire (7.5, 8.9). The label is its integer
+// floor, so int(obs.labels.severity) never fails in CEL and the GuardDuty bands
+// survive: low < 4, medium 4..6, high >= 7. The rest of detail -- title,
+// description, accessKeyDetails, instanceDetails, service -- is never decoded.
 //
 // # The requestParameters name allowlist
 //
@@ -115,7 +133,7 @@ const (
 	// the rule into a detector for the absence of an actor.
 	LabelActorAccountID = "actor_account_id"
 
-	LabelAWSRegion = "aws_region"
+	LabelAWSRegion    = "aws_region"
 	LabelEventSource  = "event_source"
 	LabelEventName    = "event_name"
 	LabelErrorCode    = "error_code"
@@ -126,6 +144,10 @@ const (
 	LabelDstPort      = "dst_port"
 	LabelProtocol     = "protocol"
 	LabelBytes        = "bytes"
+
+	// LabelSeverity is the integer floor of a GuardDuty finding's detail.severity.
+	// It is already admitted by store/label_allowlist.go, so FrostDB accepts it.
+	LabelSeverity = "severity"
 
 	// LabelType and LabelCount appear only on the collector's own operational
 	// observations (Source aws:collector), never on a projected AWS record.
@@ -139,7 +161,12 @@ const (
 	SourceIAM        = "aws:iam"
 	SourceVPCFlow    = "aws:vpcflow"
 	SourceCollector  = "aws:collector"
+	SourceGuardDuty  = "aws:guardduty"
 )
+
+// DetailTypeGuardDutyFinding is the EventBridge detail-type that selects
+// ProjectGuardDuty.
+const DetailTypeGuardDutyFinding = "GuardDuty Finding"
 
 // ProviderAWS is the fixed value of the provider label.
 const ProviderAWS = "aws"
@@ -223,6 +250,20 @@ var (
 		LabelProtocol,
 		LabelBytes,
 	}
+	guardDutyRequiredKeys = []string{
+		LabelTenantID,
+		LabelProvider,
+		LabelAWSAccountID,
+		LabelAWSRegion,
+		LabelEventSource,
+		LabelEventName,
+		LabelSeverity,
+		LabelResourceType,
+	}
+	guardDutyOptionalKeys = []string{
+		// Only an ARN-free eni- id; see the GuardDuty column above.
+		LabelResourceName,
+	}
 	collectorRequiredKeys = []string{LabelTenantID, LabelProvider, LabelType, LabelCount}
 )
 
@@ -236,6 +277,8 @@ func ContractKeysFor(source string) (required, documented []string) {
 		return controlPlaneRequiredKeys, append(append([]string{}, controlPlaneRequiredKeys...), controlPlaneOptionalKeys...)
 	case SourceVPCFlow:
 		return vpcFlowRequiredKeys, append([]string{}, vpcFlowRequiredKeys...)
+	case SourceGuardDuty:
+		return guardDutyRequiredKeys, append(append([]string{}, guardDutyRequiredKeys...), guardDutyOptionalKeys...)
 	case SourceCollector:
 		return collectorRequiredKeys, append([]string{}, collectorRequiredKeys...)
 	default:

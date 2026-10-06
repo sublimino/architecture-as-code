@@ -78,12 +78,20 @@ func newHoldHarness(t *testing.T) *holdHarness {
 }
 
 // simulateKernel mirrors cgroup.freeze into cgroup.events, as the kernel does.
+//
+// cgroup.events is replaced atomically (written beside, then renamed over), and only when the
+// state changes: a real cgroupfs read never sees a half-written file, and the capture reads it
+// twice (to confirm `frozen 1`, then to render the artifact). os.WriteFile truncates first, so
+// a read between its truncate and its write saw an empty file -- under full-lane load that
+// emptied the artifact's cgroup.events section (TestSimulatedKernelNeverExposesAPartialCgroupEvents).
 func simulateKernel(t *testing.T, cg string) {
 	t.Helper()
+	scratch := t.TempDir() // same filesystem as cg (both under the test temp root), so rename is atomic
 	stop, done := make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { close(stop); <-done })
 	go func() {
 		defer close(done)
+		last := ""
 		for {
 			select {
 			case <-stop:
@@ -95,11 +103,22 @@ func simulateKernel(t *testing.T, cg string) {
 				if strings.TrimSpace(string(b)) == "1" {
 					ev = "populated 1\nfrozen 1\n"
 				}
-				_ = os.WriteFile(filepath.Join(cg, "cgroup.events"), []byte(ev), 0o644)
+				if ev != last && replaceFile(filepath.Join(scratch, "cgroup.events"), filepath.Join(cg, "cgroup.events"), ev) == nil {
+					last = ev
+				}
 			}
 			time.Sleep(time.Millisecond)
 		}
 	}()
+}
+
+// replaceFile writes body to tmp, then renames it over dst: readers of dst see the old file or
+// the new one, never a partial one.
+func replaceFile(tmp, dst, body string) error {
+	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 func (h *holdHarness) frozen() bool {

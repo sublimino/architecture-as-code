@@ -4,10 +4,13 @@
 package awslogs
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -72,14 +75,29 @@ type cloudTrailRecord struct {
 
 // Project dispatches on the origin key: a .log or .txt object is VPC Flow text, and
 // anything else is a CloudTrail/IAM JSON envelope. A .gz suffix is stripped first so
-// a real S3 key routes the same as a decompressed fixture.
+// a real S3 key routes the same as a decompressed fixture. When the origin key ends
+// in .gz, the body is inflated before dispatch.
 func (p Projector) Project(body []byte, origin Origin) ([]model.Observation, error) {
+	payload := body
+	if strings.HasSuffix(origin.Key, ".gz") {
+		gr, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("awslogs: inflating gzipped object %s: %w", origin.Key, err)
+		}
+		defer gr.Close()
+		decompressed, err := io.ReadAll(gr)
+		if err != nil {
+			return nil, fmt.Errorf("awslogs: inflating gzipped object %s: %w", origin.Key, err)
+		}
+		payload = decompressed
+	}
+
 	key := strings.TrimSuffix(origin.Key, ".gz")
 	switch {
 	case strings.HasSuffix(key, ".log"), strings.HasSuffix(key, ".txt"):
-		return p.ProjectVPCFlow(body, origin)
+		return p.ProjectVPCFlow(payload, origin)
 	default:
-		return p.ProjectCloudTrail(body, origin)
+		return p.ProjectCloudTrail(payload, origin)
 	}
 }
 

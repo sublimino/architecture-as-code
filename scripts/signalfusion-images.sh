@@ -45,8 +45,13 @@ PLATFORM="${SIGNALFUSION_PLATFORM:-$(demo_host_platform)}"
 
 # image-name|build-context|dockerfile (fields after image-name are repo-root
 # relative; dockerfile is optional and defaults to <context>/Dockerfile)
+# The context is d2-signalloom, not d2-signalloom/apps: signal-ingest/go.mod has
+# `replace ... /pkg/obscel => ../../pkg/obscel`, which is outside apps/, and docker
+# refuses a COPY from outside the context. Asserted by
+# TestBuildScriptAndDockerfileAgreeOnTheContext, which resolves each COPY source
+# against this path.
 DEMO_IMAGES=(
-  "signal-ingest:local|d2-signalloom/apps|d2-signalloom/apps/signal-ingest/Dockerfile"
+  "signal-ingest:local|d2-signalloom|d2-signalloom/apps/signal-ingest/Dockerfile"
 )
 
 # Backward-compat aliases: tests and callers may reference the old names.

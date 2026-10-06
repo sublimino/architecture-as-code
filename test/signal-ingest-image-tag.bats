@@ -45,7 +45,7 @@ raw_tag() { (cd "$mod" && go run ./cmd/image-tag); }
   printf 'package main\n' >"$mod/zz_probe_ignored.go"
   printf 'zz_probe_ignored.go\n' >>"$c/.git/info/exclude" # ignored, without touching tracked .gitignore
   git -C "$c" check-ignore -q d2-signalloom/apps/signal-ingest/zz_probe_ignored.go
-  rg -q -e '^signal-ingest/zz_probe_ignored\.go$' <<<"$(cd "$mod" && go run ./cmd/image-tag -inputs)" # go build compiles it
+  rg -q -e '^apps/signal-ingest/zz_probe_ignored\.go$' <<<"$(cd "$mod" && go run ./cmd/image-tag -inputs)" # go build compiles it
   [ "$(raw_tag)" = "$before" ] || { echo "the ignored file moved the tag"; return 1; }
   run tag
   [ "$status" -ne 0 ] && [[ "$output" == *'!! d2-signalloom/apps/signal-ingest/zz_probe_ignored.go'* ]] || { echo "guard did not refuse: status=$status $output"; return 1; }

@@ -190,9 +190,32 @@ func WithBearerToken(token string) Option {
 	}
 }
 
+// WithBearerTokenSource sets a function the sender asks for the bearer on
+// every post, for a key that is not available at start (the Secret mounted
+// late, or a key file that appears later). While the source returns "" the
+// sender SPOOLS every batch instead of dropping it, and the spool is drained
+// once a token appears. A fixed WithBearerToken takes precedence when set.
+func WithBearerTokenSource(source func() string) Option {
+	return func(m *SentinelProbeManager) {
+		m.tokenSource = source
+	}
+}
+
+// token is the bearer to post with right now: the fixed token, else what the
+// source currently returns, else "".
+func (m *SentinelProbeManager) token() string {
+	if m.bearerToken != "" {
+		return m.bearerToken
+	}
+	if m.tokenSource != nil {
+		return strings.TrimSpace(m.tokenSource())
+	}
+	return ""
+}
+
 // IngestTokenConfigured reports whether observations can be posted at all.
 func (m *SentinelProbeManager) IngestTokenConfigured() bool {
-	return m.bearerToken != ""
+	return m.token() != ""
 }
 
 // WithSensitiveList overrides the default sensitive prefix list. It can only
@@ -289,6 +312,7 @@ type SentinelProbeManager struct {
 	freezeManager *FreezeManager
 	httpClient    *http.Client
 	bearerToken   string
+	tokenSource   func() string // WithBearerTokenSource; nil without one
 	procRoot      string
 	tenants       *TenantMap
 
@@ -594,11 +618,18 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 		syscallName = SyscallNameOpenat
 	}
 
+	// Severity: a sensitive open, exec or burst is CRITICAL and freezes; a
+	// connect is WARN, reported for correlation (docs/EAP/enforcement.md).
+	// Its target is the remote endpoint the probe captured, not a path.
+	target, severity := filename, SeverityCritical
+	if raw.Type == SyscallTypeConnect {
+		target, severity = raw.RemoteEndpoint(), SeverityWarn
+	}
 	obs := TelemetryObservation{
 		Timestamp:      eventWallTime(raw.TsNs).UTC().Format(time.RFC3339Nano),
 		Syscall:        syscallName,
-		Target:         filename,
-		Severity:       SeverityCritical,
+		Target:         target,
+		Severity:       severity,
 		DirectReaction: ReactionNone,
 	}
 
@@ -702,8 +733,16 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	raw.Type = uint8(ev.Type)
 	copy(raw.Comm[:], ev.Comm)
 	copy(raw.Filename[:], ev.Filename)
+	raw.Family, raw.DestPort, raw.DestAddr = ev.Family, ev.DestPort, ev.DestAddr
 	filename := ev.Filename
 	targetPID := ev.PID
+
+	// A connect carries an endpoint, not a path: it bypasses the sensitive
+	// path filter and the runtime-lookup exemption, is reported at WARN, and
+	// never freezes. Before this it died here with an empty filename.
+	if raw.Type == SyscallTypeConnect {
+		return m.reportConnect(raw, ev)
+	}
 
 	// SLAAT-P2-4: evasive-burst detection runs independently of, and before,
 	// the sensitive-path filter below. A rapid process-spawn flood (and the
@@ -771,6 +810,37 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 			obs.DirectReaction = ReactionCgroupFrozen
 		}
 	}
+	return obs, true
+}
+
+// reportConnect builds the WARN observation for a connect from a watched
+// pod. ok is false when the destination is unset (the probe filters to
+// AF_INET/AF_INET6, so this is drift) or no owning pod resolves.
+func (m *SentinelProbeManager) reportConnect(raw SyscallEvent, ev *ebpf.SyscallEvent) (TelemetryObservation, bool) {
+	if raw.RemoteEndpoint() == "" {
+		m.stats.notSensitive.Add(1)
+		return TelemetryObservation{}, false
+	}
+	var pod *corev1.Pod
+	if m.cgroupRoot != "" {
+		pod = m.lookupPodByCgroupID(ev.CgroupID)
+	} else {
+		pod = m.lookupPodByPID(ev.PID)
+		if pod == nil && raw.TGID != 0 {
+			pod = m.lookupPodByPID(raw.TGID)
+		}
+	}
+	if pod == nil {
+		m.stats.noPod.Add(1)
+		return TelemetryObservation{}, false
+	}
+	if m.fromSelf(pod) {
+		return TelemetryObservation{}, false
+	}
+	m.stats.matched.Add(1)
+	obs := m.NormalizeObservation(raw, pod)
+	obs.CgroupPath = m.cgroupPathFor(ev.CgroupID, ev.PID)
+	obs.Opener = &OpenerIdentity{Comm: ev.Comm, TGID: ev.TGID, UID: ev.UID, ExeIno: ev.ExeIno, ExeSize: ev.ExeSize}
 	return obs, true
 }
 
@@ -911,7 +981,8 @@ func writeCorrelatorEvent(ev correlatorEvent) {
 
 // dispatchObservation transmits a single TelemetryObservation to signal-ingest via HTTP POST.
 func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) error {
-	if m.bearerToken == "" {
+	token := m.token()
+	if token == "" {
 		return ErrIngestTokenMissing
 	}
 	payload, err := json.Marshal([]ingestObservation{obs.toIngest()})
@@ -926,7 +997,7 @@ func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.bearerToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

@@ -10,7 +10,14 @@ import type { FleetTopology } from '../api/fleetApi'
 const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
 
 vi.mock('../auth/oidc', () => ({
-  useAuth0: () => ({ getAccessTokenSilently }),
+  // The demo user, which is who the Fleet page exists for. Recover is armed
+  // from the SERVER's superadmin verdict (useServerSuperadmin -> /api/v1/me),
+  // so a page rendered without an identity leaves the button disabled; the
+  // claims here are the pre-flight answer that keeps it armed in this suite.
+  useAuth0: () => ({
+    getAccessTokenSilently,
+    user: { email: 'demo-user@signalloom.local', preferred_username: 'demo-user' },
+  }),
 }))
 
 const mockSuperadmin = { value: true }

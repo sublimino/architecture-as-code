@@ -85,3 +85,73 @@ spec:
       backendRefs:
         - name: docs-signalloom
           port: 8080
+---
+# Remote-cluster warden ingress (2026-10-03 decision: a secondary cluster runs only
+# the signalloom-warden DaemonSet and its two Secrets, and forwards everything to
+# this cluster). The warden posts observations to
+# {SIGNAL_INGEST_URL}/api/v1/observations and stuns through
+# {FLEET_MANAGER_URL}/api/v1/fleet/stun/{pod}.
+#
+# ── Every path /warden-fleet has to carry (docs/EAP/remote-contract.md) ──────
+#
+#   POST /api/v1/fleet/workloads/report    the node's workload report
+#   GET  /api/v1/fleet/workloads           the hub's merged registry
+#   GET  /api/v1/fleet/stun-state          records this cluster must act on
+#   POST /api/v1/fleet/stun-state/ack      the acknowledgement
+#   POST /api/v1/fleet/stun/{agent}        the existing local-freeze record
+#
+# Each rule below is a bare PathPrefix match with NO `method` in it, so every
+# verb on every path under the prefix is forwarded, GET and POST alike. That is
+# deliberate and it is the reason the two GET routes need no second rule: a
+# `matches` entry that named a method would forward that verb and 404 the rest,
+# and the list above would then have to be maintained in two places. The
+# backends enforce the method, and the caller key enforces the scope.
+#
+# Both backends enforce their own
+# named static keys (SIGNAL_AUTH_STATIC_KEYS, FLEET_MANAGER_KEY_*), so the gateway
+# adds no auth and no path survives without a key. The prefixes are distinct from
+# /api (fe-signalloom-api) and from every client-side route in App.tsx (a bare
+# /fleet prefix hijacked the dashboard's own /fleet page, 2026-10-04); they are
+# stripped before forwarding, so the warden
+# overlay sets SIGNAL_INGEST_URL=https://<host>/warden-ingest and
+# FLEET_MANAGER_URL=https://<host>/warden-fleet
+# (infra/agent-swarm/signalloom-warden-overlays/remote-tenant).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: signalloom-remote-warden
+  namespace: fe-signalloom
+spec:
+  parentRefs:
+    - name: cluster
+      namespace: ingress
+      sectionName: https
+  hostnames:
+    - dashboard.${CLUSTER_DOMAIN}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /warden-ingest
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: signal-ingest
+          port: 8082
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /warden-fleet
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: fleet-manager
+          port: 8082

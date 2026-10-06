@@ -63,6 +63,18 @@ spec:
           env:
             - name: SL_ENV
               value: demo
+            # Node whose kubelet cAdvisor the telemetry poller scrapes (cadvisor_poller.py).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # The poller hands a ~10 MB scrape to a worker thread every 5 s; glibc's
+            # per-thread arenas turned that into RSS growth (131 → 224 MB in minutes,
+            # 2026-10-03). One arena keeps the freed text reusable.
+            - name: MALLOC_ARENA_MAX
+              value: "2"
+            - name: FE_MAX_RSS_BYTES
+              value: "301989888"
             # fleet-manager caller key for POST /stun (scope stun only); see
             # apps/fleet-manager/callerauth.go. Optional: without it the stun
             # reaches fleet-manager and is refused 401, which the audit records.
@@ -71,6 +83,38 @@ spec:
                 secretKeyRef:
                   name: fleet-manager-caller-keys
                   key: fe-signalloom
+                  optional: true
+            # fleet-manager caller key with scope read, for the remote workload
+            # registry (GET /api/v1/fleet/workloads). The stun key above cannot
+            # read it. Unset means this portal merges no remote cluster, which
+            # /api/agents reports as source_health_detail.remote_registry
+            # "unavailable" rather than as an empty registry: "no remote
+            # workloads" and "cannot read the registry" are different facts.
+            - name: FLEET_MANAGER_READ_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: fe-signalloom-read
+                  optional: true
+            # Remote cluster ids whose registry /api/agents merges, comma
+            # separated. Empty asks fleet-manager for every cluster it knows.
+            - name: FLEET_REMOTE_CLUSTERS
+              value: ""
+            # fleet-manager's operator break-glass key. recover and resume are
+            # granted to this caller alone (apps/fleet-manager/callerauth.go),
+            # which is why the dashboard's own key cannot call them and the
+            # Fleet page's Recover button answered 403 for everyone. The key
+            # stays in this pod: src/fleet_operator.py proxies both routes
+            # behind require_superadmin and presents it server-side, so the
+            # browser never holds break-glass. Optional: without it those two
+            # routes answer 503 naming the missing key, rather than forwarding
+            # and collecting a 401 that reads as the fleet refusing the
+            # operator.
+            - name: FLEET_MANAGER_OPERATOR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: operator
                   optional: true
             - name: DATABASE_URL
               valueFrom:
@@ -101,6 +145,18 @@ spec:
               # kusari-operator is the only subject mapped to tenant kusari: the
               # Kusari pilot claims kusari-agent as it, through the product.
               value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo","CgZ2aWV3ZXISBWxvY2Fs":"tenant-demo","viewer":"tenant-demo","Cg9rdXNhcmktb3BlcmF0b3ISBWxvY2Fs":"kusari","kusari-operator":"kusari"}'
+            # Who is superadmin, stated here rather than left to the defaults in
+            # src/superadmin.py. Those defaults name the demo user, so the
+            # deployment and the code agreed by coincidence and a change to
+            # either would have silently moved the boundary. This is the
+            # documented path: GET /api/v1/me reports the same decision to the
+            # dashboard, which now follows the server instead of matching the
+            # demo user's name in the browser. Both spellings of the subject are
+            # listed because Dex emits sub as its connector-encoded id.
+            - name: API_SUPERADMIN_EMAILS
+              value: '["demo-user@signalloom.local"]'
+            - name: API_SUPERADMIN_SUBJECTS
+              value: '["demo-user","CglkZW1vLXVzZXISBWxvY2Fs"]'
             - name: OIDC_PROVIDER
               value: generic
             - name: OIDC_ISSUER_URL
@@ -144,9 +200,21 @@ spec:
             # call, so a rotation needs no restart. A path, never the value.
             - name: SIGNAL_INGEST_KEY_FILE
               value: /etc/fe-signalloom/ingest-key/token
-            # AFM import gateway key configuration: JSON array of authorized keys.
+            # AFM import gateway key configuration: JSON array of authorized
+            # keys, each bound to exactly one cluster (src/afm_import.py). The
+            # binding is checked against the payload's "source_cluster", the
+            # cluster the RBAC was read from -- not against "id", which is the
+            # per-import identifier AFM sorts on and could never match a
+            # cluster name. A mismatch is still 403 cluster_not_bound.
+            #
+            # Two entries: the central cluster, and the remote pilot cluster
+            # whose id is a parameter so one overlay serves any pilot. Set
+            # REMOTE_CLUSTER_ID through this Kustomization's existing
+            # postBuild.substituteFrom, the same mechanism PUBLIC_ORIGIN uses
+            # above. A key with no file on disk is logged and skipped, so the
+            # second entry costs nothing until its Secret exists.
             - name: AFM_IMPORT_KEYS
-              value: '[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]'
+              value: '[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"},{"name":"afm-importer-remote","scopes":["afm:import"],"cluster":"${REMOTE_CLUSTER_ID:=kusari-prod}"}]'
           startupProbe:
             httpGet:
               path: /livez
@@ -178,10 +246,58 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 192Mi
             limits:
-              memory: 256Mi
+              memory: 384Mi
+        # cAdvisor transport for cadvisor_poller.py: it reads
+        # http://localhost:8001/api/v1/nodes/<node>/proxy/metrics/cadvisor, which
+        # only exists when something serves the API proxy in the pod. Nothing did,
+        # so GET /api/telemetry/agents answered 503 on every cluster and the login
+        # acceptance specs failed (2026-10-03). The sidecar binds loopback only;
+        # nodes/proxy is granted to the fe-signalloom ServiceAccount by the fleet
+        # ClusterRole fe-signalloom-cadvisor (tenants/local/signalloom.yaml).
+        - name: kubectl-proxy
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          imagePullPolicy: IfNotPresent
+          args: ["proxy", "--port=8001", "--address=127.0.0.1", "--accept-hosts=^localhost$,^127\\.0\\.0\\.1$"]
+          # The ServiceAccount has automountServiceAccountToken: false (the portal
+          # itself never talks to the API server). Only this sidecar gets a projected,
+          # short-lived token, at the path kubectl's in-cluster config reads.
+          volumeMounts:
+            - name: kubectl-proxy-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
       volumes:
+        - name: kubectl-proxy-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
         # optional: a key not yet minted leaves the proxies answering 503
         # (ingest_credential_unavailable) instead of holding the whole portal
         # in ContainerCreating. Mode 0440 + fsGroup: readable by uid 999 only.

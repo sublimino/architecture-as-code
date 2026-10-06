@@ -1,0 +1,5 @@
+# VPC Flow Logs fixtures are *.log, which ~/.gitignore_global excludes. These files
+# are embedded by fixtures.go via //go:embed testdata, so an unstaged fixture is not a
+# missing test input, it is a package that does not compile on a fresh clone. Negate
+# the global rule for this directory only.
+!*.log

@@ -130,11 +130,17 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
   test("dashboard sign out clears the session and redirects to Dex", async ({ page }) => {
     await page.goto(DASHBOARD_URL);
     await page.locator('button[title="Sign out"]').click();
+    // After sign-out the app either lands on /login (its "Sign in with Dex"
+    // button must be clicked) or AutoSignIn redirects straight to Dex.
+    // isVisible() does not wait, so an immediate probe lost that race while
+    // the signed-out page was still rendering; wait for whichever appears.
     const dexBtn = page.getByRole("button", { name: /sign in with dex/i });
-    if (await dexBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    const loginInput = page.locator('input[name="login"]');
+    await expect(dexBtn.or(loginInput).first()).toBeVisible({ timeout: 15_000 });
+    if (await dexBtn.isVisible()) {
       await dexBtn.click();
     }
-    await expect(page.locator('input[name="login"]')).toBeVisible({ timeout: 15_000 });
+    await expect(loginInput).toBeVisible({ timeout: 15_000 });
   });
 
   test("sidebar logo remains anchored and collapse toggle preserves 12px rail inset across states", async ({ page }) => {

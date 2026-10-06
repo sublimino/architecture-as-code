@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, matchPath } from 'react-router-dom'
 import { useAuth0 } from './auth/oidc'
-import { useSuperadmin, isSuperadminEligible } from './auth/superadmin'
+import { useSuperadmin, isSuperadminEligible, useServerSuperadmin } from './auth/superadmin'
 import Sidebar, { NAV } from './components/Sidebar'
 import PixelLoader from './components/PixelLoader'
 import ProtectedRoute from './auth/ProtectedRoute'
@@ -14,9 +14,16 @@ import { connectorsApi } from './api/connectorsClient'
 import { onboardingApi } from './api/onboardingClient'
 import type { CookiePreferences } from './types/api'
 
+// The server decides, with the client-side name match as the pre-flight answer
+// for the first render only (useServerSuperadmin). A non-eligible user is still
+// redirected immediately, as before; an eligible one is redirected as soon as
+// /api/v1/me says the allow-lists do not name them. Before this the browser's
+// name match was the only answer, so the dashboard and the API could disagree
+// the moment API_SUPERADMIN_EMAILS named anyone other than the demo user.
 export function SuperadminRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth0()
-  if (!isSuperadminEligible(user)) {
+  const { user, getAccessTokenSilently } = useAuth0()
+  const { superadmin } = useServerSuperadmin(user, getAccessTokenSilently)
+  if (!superadmin) {
     return <Navigate to="/agents" replace />
   }
   return <>{children}</>
@@ -55,6 +62,7 @@ const RiskExposurePage = lazy(() => import('./pages/RiskExposurePage'))
 const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
 const WeavePage = lazy(() => import('./pages/WeavePage'))
+const SignalsPage = lazy(() => import('./pages/SignalsPage'))
 const SignalFusionPage = lazy(() => import('./pages/SignalFusionPage'))
 const DistanceLatencyPage = lazy(() => import('./pages/DistanceLatencyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
@@ -418,6 +426,7 @@ export default function App() {
                 <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
                 <Route path="/activity" element={<Navigate to="/weave" replace />} />
                 <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
+                <Route path="/signals" element={<ProtectedRoute><SignalsPage /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/compliance/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />

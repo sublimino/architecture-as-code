@@ -782,6 +782,17 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "Seeds fixture observations for the demo estate. Demo-only endpoint "
         "that writes synthetic data; the observations themselves are the record."
     ),
+    ("signal_policy.py", "review_policy_decision"): (
+        "Recording a human's verdict on a policy decision. The review itself is the audit "
+        "record: signal-ingest stores it as an append-only policy_review observation carrying "
+        "the reviewer, the verdict, the note and a server timestamp, with a sha256-derived id, "
+        "inside the same signed segments and retention sweep as every other observation "
+        "(policy/review.go). Writing an audit_events row in fe-signalloom for the act of "
+        "recording an attributable judgement is the same redundancy as auditing the ingest of "
+        "an audit log, and the gateway row would be the weaker of the two copies: it carries no "
+        "verdict, no note, and no link to the decision judged. The authorization decision on "
+        "the route is separately audited upstream by api.ProtectedRouter."
+    ),
     ("api_compat.py", "release_agent_claim"): (
         "Releases an in-memory claim record for the tenant without mutating durable state."
     ),
@@ -867,16 +878,6 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
 # of error this file exists to prevent. An entry here is a debt with a name on
 # it, and it reads as one.
 AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
-    ("signal_fusion.py", "promote_actor"): (
-        "RULED AUDIT-WORTHY; the event is not written yet. "
-        "POST /actors/{actor_id}/promote transitions a provisional actor to "
-        "an issued identity in the agent_registry. That is the highest-stakes "
-        "state change in Signal Fusion — the closing beat of the three-act demo "
-        "and the action a regulator would want evidence of. The Go service owns "
-        "the signal_audit_trail table and will write the event; the Python proxy "
-        "should verify it landed. Delete this entry when the audit write is "
-        "confirmed end-to-end."
-    ),
     ("api_compat.py", "network_tests_scan"): (
         "RULED AUDIT-WORTHY; the event is not written yet. "
         "POST /network-tests/scan fires an active network reachability probe "
@@ -887,14 +888,6 @@ AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
         "authenticated_principal's own wrapper. Owned by the endpoints agent. "
         "Delete this entry when the event lands; do NOT move it to "
         "NOT_AUDIT_WORTHY, that question has been answered."
-    ),
-    ("signal_fusion.py", "promote_actor"): (
-        "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "
-        "POST /actors/{actor_id}/promote elevates a provisional actor to the "
-        "agent registry -- a material state change that regulated customers "
-        "need a record of. The Go service owns a signal_audit_trail table but "
-        "the Python layer does not yet write its own event. Delete this entry "
-        "when audit lands at either layer."
     ),
     ("signal_fusion.py", "run_correlation"): (
         "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "

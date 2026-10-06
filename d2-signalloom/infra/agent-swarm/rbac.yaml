@@ -100,3 +100,33 @@ metadata:
 # The signalloom warden's SA is signalloom-warden, declared beside its DaemonSet in
 # signalloom-warden/service-account.yaml. An SA here named
 # signalloom-warden was used by no pod; see signalloom-warden-daemonset.bats.
+---
+# hosted-daytona-coder Role lives here, beside its ServiceAccount (the RoleBinding stays
+# in hosted-daytona-coder/), for the same reason as the warden Role (970720b6): Flux dry-runs
+# every object of a Kustomization before applying any, and the API server
+# answers NotFound for a RoleBinding whose Role does not exist yet, so a
+# Kustomization that ships both never applies on a fresh cluster. Base applies the
+# Role first; the consumer Kustomization applies the RoleBinding after it
+# (2026-10-03 zero-state rebuild: agent-hosted-daytona-coder stuck at
+# "RoleBinding ... not found"). agent-swarm-base applies first.
+# The workspace manager needs RBAC to create/delete pods in the agents
+# namespace for provisioning devcontainer workspaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hosted-daytona-coder
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: hosted-daytona-coder
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: signalloom
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list"]

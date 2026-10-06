@@ -150,6 +150,10 @@ def fake_client_cls(routes: dict[str, FakeResponse], requested: list[str] | None
             path = url.split(rbac_correlation.AFM_BASE_URL, 1)[-1]
             if path not in routes:
                 raise httpx.ConnectError(f"no fake route for {path}", request=httpx.Request("POST", url))
+            # The real AFM escalation model rejects any field it does not declare (422
+            # extra_forbidden), so the fake does too: trigger_source is Signal Loom's own.
+            if path.endswith("/analysis/escalation") and kwargs.get("json"):
+                raise AssertionError(f"escalation body must be empty for AFM, got {kwargs['json']!r}")
             return routes[path]
 
     return FakeAsyncClient

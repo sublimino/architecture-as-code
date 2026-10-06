@@ -152,11 +152,11 @@ func TestBatchChainHeaders(t *testing.T) {
 }
 
 func TestBatchEpochIsRandomPerStart(t *testing.T) {
-	m1 := NewSentinelProbeManager(NewMockSharedIndexInformer(), "http://localhost:8082", nil,
+	m1 := NewSentinelProbeManager(NewMockSharedIndexInformer(), unreachableIngestURL, nil,
 		WithBearerToken(testIngestToken),
 		WithSpoolDir(t.TempDir()),
 	)
-	m2 := NewSentinelProbeManager(NewMockSharedIndexInformer(), "http://localhost:8082", nil,
+	m2 := NewSentinelProbeManager(NewMockSharedIndexInformer(), unreachableIngestURL, nil,
 		WithBearerToken(testIngestToken),
 		WithSpoolDir(t.TempDir()),
 	)
@@ -221,14 +221,13 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 	m.queue <- TelemetryObservation{Syscall: "sys_enter_openat", Target: "/etc/shadow"}
 	m.queue <- TelemetryObservation{Syscall: "sys_enter_execve", Target: "/bin/sh"}
 
-	// Wait for batches to be spooled
-	for i := 0; i < 50; i++ {
-		if m.Stats().SpoolBatches >= 3 {
-			break
-		}
-		clk.Advance(1 * time.Second)
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Wait for batches to be spooled. The budget is wall time scaled by
+	// TEST_TIMEOUT_SCALE, not a fixed iteration count: three batches on disk is
+	// the assertion, and how many times the sender goroutine got scheduled on
+	// the way there is not.
+	waitForCond(t, 2*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
+		return m.Stats().SpoolBatches >= 3
+	})
 
 	if m.Stats().SpoolBatches < 3 {
 		t.Fatalf("spool_batches = %d, want at least 3", m.Stats().SpoolBatches)
@@ -239,16 +238,12 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 	clk.Advance(2 * time.Second)
 
 	// Wait for replay to complete
-	for i := 0; i < 50; i++ {
+	waitForCond(t, 2*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
 		mu.Lock()
 		cnt := len(received)
 		mu.Unlock()
-		if cnt >= 3 && m.Stats().SpoolBatches == 0 {
-			break
-		}
-		clk.Advance(1 * time.Second)
-		time.Sleep(20 * time.Millisecond)
-	}
+		return cnt >= 3 && m.Stats().SpoolBatches == 0
+	})
 
 	cancel()
 	m.wg.Wait()

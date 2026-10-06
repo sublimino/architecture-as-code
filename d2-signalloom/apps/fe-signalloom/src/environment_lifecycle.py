@@ -58,7 +58,9 @@ MIN_REAPER_INTERVAL_SECONDS = 5.0
 MAX_REAPER_INTERVAL_SECONDS = 120.0
 LOCK_TIMEOUT_SECONDS = 5.0
 MAX_RECONCILIATION_FAILURES = 3
-MAX_RSS_BYTES = 50 * 1024 * 1024  # 50 MB bounded RSS limit
+# 50 MB was below the portal's own baseline once the cAdvisor poller ran (2026-10-03);
+# the bound is advisory (check_rss only warns) and now follows the container limit.
+MAX_RSS_BYTES = int(os.getenv("FE_MAX_RSS_BYTES", str(192 * 1024 * 1024)))
 MASS_REAPING_ALERT_THRESHOLD = 5
 
 

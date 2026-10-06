@@ -720,7 +720,9 @@ def test_posture_scale_normalized_zero_controls_is_none(client, monkeypatch):
 
         async def get(self, url: str):
             import httpx
-            return httpx.Response(200, json={"agents": [{"id": "pod-zero-ctrl", "name": "Unassessed Agent"}]})
+            return httpx.Response(200, json={"agents": [
+                {"id": "pod-zero-ctrl", "name": "Unassessed Agent", "tenant": "tenant-a"},
+            ]})
 
     monkeypatch.setattr(api_compat.httpx, "AsyncClient", SingleAgentClient)
 
@@ -751,6 +753,7 @@ def test_enriched_inventory_preserves_discovery_fields(client, monkeypatch):
                     "agents": [
                         {
                             "id": "pod-worker-1",
+                            "tenant": "tenant-a",
                             "name": "Worker Agent",
                             "namespace": "fe-signalloom-agents",
                             "service_account": "sa-worker",
@@ -815,6 +818,7 @@ def test_enriched_inventory_server_side_search_and_filters(client, monkeypatch):
                     "agents": [
                         {
                             "id": "pod-alpha",
+                            "tenant": "tenant-a",
                             "name": "Alpha Service",
                             "namespace": "production",
                             "framework": "langchain",
@@ -822,6 +826,7 @@ def test_enriched_inventory_server_side_search_and_filters(client, monkeypatch):
                         },
                         {
                             "id": "pod-beta",
+                            "tenant": "tenant-a",
                             "name": "Beta Scanner",
                             "namespace": "staging",
                             "framework": "crewai",
@@ -829,6 +834,7 @@ def test_enriched_inventory_server_side_search_and_filters(client, monkeypatch):
                         },
                         {
                             "id": "pod-gamma",
+                            "tenant": "tenant-a",
                             "name": "Gamma Auditor",
                             "namespace": "production",
                             "framework": "kagent",
@@ -883,9 +889,9 @@ def test_enriched_inventory_pagination_and_meta(client, monkeypatch):
                 200,
                 json={
                     "agents": [
-                        {"id": "agent-p1", "name": "P1"},
-                        {"id": "agent-p2", "name": "P2"},
-                        {"id": "agent-p3", "name": "P3"},
+                        {"id": "agent-p1", "name": "P1", "tenant": "tenant-a"},
+                        {"id": "agent-p2", "name": "P2", "tenant": "tenant-a"},
+                        {"id": "agent-p3", "name": "P3", "tenant": "tenant-a"},
                     ]
                 },
             )
@@ -1064,6 +1070,7 @@ def test_operational_inventory_response_envelope_and_models(client, monkeypatch)
                     "agents": [
                         {
                             "id": "agent-op-1",
+                            "tenant": "tenant-a",
                             "name": "Audit Scanner",
                             "namespace": "security",
                             "framework": "LangChain",
@@ -1119,6 +1126,7 @@ def test_capabilities_workload_scoped_discovery(client, monkeypatch):
                     "agents": [
                         {
                             "id": "discovered-agent-1",
+                            "tenant": "tenant-a",
                             "name": "Discovered Pod",
                             "namespace": "agent-ns",
                             "service_account": "agent-sa",
@@ -1532,6 +1540,7 @@ def test_dossier_identity_separation_of_planes(client, monkeypatch):
                 "agents": [
                     {
                         "id": "discovered-agent-4444",
+                        "tenant": "tenant-a",
                         "name": "Discovered K8s Workload",
                         "namespace": "fe-signalloom-agents",
                         "service_account": "sa-discovered",
@@ -2015,6 +2024,7 @@ def test_get_agents_filter_by_lifecycle_state_and_spiffe_id(client, monkeypatch)
                     "agents": [
                         {
                             "id": "pod-inventory-1",
+                            "tenant": "tenant-a",
                             "name": "Inventory Agent",
                             "namespace": "fe-signalloom-agents",
                             "framework": "kagent",
@@ -2023,6 +2033,7 @@ def test_get_agents_filter_by_lifecycle_state_and_spiffe_id(client, monkeypatch)
                         },
                         {
                             "id": "pod-audit-2",
+                            "tenant": "tenant-a",
                             "name": "Audit Collector",
                             "namespace": "fe-signalloom-agents",
                             "framework": "langchain",
@@ -2198,6 +2209,7 @@ def test_agent_telemetry_discovered_agent_success(client, monkeypatch):
                 "agents": [
                     {
                         "id": "agent-cardvault",
+                        "tenant": "tenant-a",
                         "name": "Cardvault Agent",
                         "namespace": "fe-signalloom-agents",
                     }

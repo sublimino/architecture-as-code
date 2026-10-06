@@ -24,6 +24,7 @@ from api_compat import (
     authenticated_principal,
     authenticated_tenant,
 )
+from ingest_client import ACTING_TENANT_HEADER, ALL_TENANTS, ingest_headers
 
 logger = logging.getLogger(__name__)
 
@@ -266,12 +267,32 @@ SERVER_SPIFFE_ID = os.getenv(
 )
 
 
+def _is_unregistered_route(resp: httpx.Response) -> bool:
+    """True only for signal-ingest's registry denial of a path it does not serve."""
+    if resp.status_code != 403:
+        return False
+    try:
+        return resp.json() == {"error": "unregistered_route"}
+    except ValueError:
+        return False
+
+
 async def proxy_federation_request(
     request: Request,
     subpath: str = "",
     tenant_id: str | None = None,
+    *,
+    principal: Principal,
 ) -> Response:
-    """Forward a request to the signal-ingest federation endpoints with tenant isolation."""
+    """Forward a request to the signal-ingest federation endpoints with tenant isolation.
+
+    The upstream call presents fe-signalloom's own signal-ingest gateway key with the acting
+    tenant and subject (``ingest_client.ingest_headers``), exactly like every other signal-ingest
+    proxy; the caller's own credential is never forwarded. signal-ingest authenticates with named
+    static keys (SLTM), so forwarding the browser's Dex token - the pre-SLTM shape - was answered
+    with 401 ``authentication_failed`` and the dashboard's Federated Services page errored. Seen
+    on the 2026-10-03 cold rebuild, where this was the one proxy still forwarding the credential.
+    """
     clean_subpath = subpath.lstrip("/")
     target_path = f"/api/v1/federation/{clean_subpath}" if clean_subpath else "/api/v1/federation"
 
@@ -385,12 +406,14 @@ async def proxy_federation_request(
         ):
             headers[k] = v
 
-    auth_header = request.headers.get("authorization")
-    if auth_header:
-        headers["Authorization"] = auth_header
+    # Last, so nothing copied above can shadow the gateway identity.
+    upstream_identity = ingest_headers(principal, write=request.method not in ("GET", "HEAD", "OPTIONS"))
+    headers.update(upstream_identity)
 
     params = dict(request.query_params)
-    if tenant_id and "tenant" not in params:
+    # A superadmin read acts for every tenant ("*"); naming one tenant in the query would
+    # contradict the acting header, so it is only added when the request acts for one tenant.
+    if tenant_id and "tenant" not in params and upstream_identity[ACTING_TENANT_HEADER] != ALL_TENANTS:
         params["tenant"] = tenant_id
 
     try:
@@ -440,13 +463,20 @@ async def proxy_federation_request(
             f"signal-ingest federation proxy error: {exc}",
         )
 
-    # If upstream signal-ingest does not implement the requested federation route (404),
-    # serve the canonical federation fallback dataset rather than failing with 502/404.
-    if resp.status_code == 404 and request.method == "GET":
+    # If upstream signal-ingest does not implement the requested federation route, serve the
+    # canonical federation fallback dataset rather than failing with 502/404. signal-ingest
+    # answers a path outside its route registry with 403 {"error":"unregistered_route"} before
+    # its mux can 404 (api/auth.go, default deny), so that exact shape means "not implemented"
+    # too; any other 403 is a real denial and passes through. The registry also returns no
+    # pattern for a registered path with the wrong method, so a GET against a write-only
+    # federation route would land here as well; the fallback map bounds that to its seven
+    # read subpaths.
+    if request.method == "GET" and (resp.status_code == 404 or _is_unregistered_route(resp)):
         fallback = _get_federation_fallback(clean_subpath)
         if fallback is not None:
             logger.info(
-                "signal-ingest 404 on federation subpath %r: returning canonical fallback",
+                "signal-ingest %d on federation subpath %r (route not served): returning canonical fallback",
+                resp.status_code,
                 clean_subpath,
             )
             return JSONResponse(
@@ -532,10 +562,12 @@ async def proxy_federation_request(
 async def proxy_federation_route(
     request: Request,
     subpath: str = "",
-    tenant_id: str = Depends(authenticated_tenant),
+    principal: Principal = Depends(authenticated_principal),
 ) -> Response:
     """Proxy federation requests to upstream signal-ingest service with tenant isolation."""
-    return await proxy_federation_request(request, subpath, tenant_id=tenant_id)
+    return await proxy_federation_request(
+        request, subpath, tenant_id=principal.tenant, principal=principal
+    )
 
 
 def install_federation_api(app: Any) -> None:

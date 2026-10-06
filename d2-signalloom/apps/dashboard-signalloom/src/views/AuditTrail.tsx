@@ -62,7 +62,12 @@ const EVENT_TYPES = [
   'violation.acknowledged',
   'compliance.reassess_requested', 'compliance.scan_completed',
   // Requests forwarded to an upstream service, recorded before forwarding.
-  'policy.bundle_submitted', 'policy.rollback_requested', 'rbac.scan_requested',
+  'policy.bundle_submitted', 'policy.rollback_requested', 'rbac.scan_requested', 'afm.cluster_import_requested',
+  'fleet.recover_requested', 'fleet.resume_requested',
+  // Membership: a superadmin issued an invite, a Dex subject redeemed it (migration 054).
+  'invite.created', 'invite.redeemed',
+  // Weave promotion through the superadmin-gated proxy (migration 055).
+  'actor.promote_requested',
   'api_key.created', 'api_key.rotated',
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
@@ -111,6 +116,18 @@ const EVENT_COLORS: Record<string, string> = {
   'policy.bundle_submitted': 'var(--violet)',
   'policy.rollback_requested': 'var(--violet)',
   'rbac.scan_requested': 'var(--cyan)',
+  'afm.cluster_import_requested': 'var(--cyan)', // operator or exporter import through the AFM gateway
+  // Break-glass: thawing containment, proxied with fleet-manager's operator key
+  // behind a superadmin gate. Amber rather than teal because undoing a freeze
+  // is the direction that needs a second look, not the direction that is safe.
+  'fleet.recover_requested': 'var(--amber)',
+  'fleet.resume_requested': 'var(--amber)',
+  // Membership changes are provisioning, like operator.created: teal for the
+  // grant, cyan for the subject taking it up.
+  'invite.created': 'var(--teal)',
+  'invite.redeemed': 'var(--cyan)',
+  // A promotion is a change the product then acts on: violet, like a policy bundle.
+  'actor.promote_requested': 'var(--violet)',
   'api_key.created': 'var(--teal)',
   'api_key.rotated': 'var(--cyan)',
   'nhi.enrolled': 'var(--teal)',

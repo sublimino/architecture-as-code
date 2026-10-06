@@ -1,0 +1,62 @@
+{
+  "Records": [
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T11:02:11Z",
+      "eventSource": "iam.amazonaws.com",
+      "eventName": "CreateRole",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "210987654321",
+      "sourceIPAddress": "192.0.2.44",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::210987654321:user/platform-admin",
+        "accountId": "210987654321",
+        "userName": "platform-admin"
+      },
+      "requestParameters": {
+        "roleName": "kusari-agent-exec",
+        "assumeRolePolicyDocument": "{\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"}}]}"
+      },
+      "responseElements": {
+        "role": {
+          "roleId": "AROAEXAMPLEID",
+          "arn": "arn:aws:iam::210987654321:role/kusari-agent-exec"
+        }
+      },
+      "resources": [
+        {
+          "type": "AWS::IAM::Role",
+          "ARN": "arn:aws:iam::210987654321:role/kusari-agent-exec"
+        }
+      ]
+    },
+    {
+      "eventVersion": "1.09",
+      "eventTime": "2026-10-02T11:03:40Z",
+      "eventSource": "iam.amazonaws.com",
+      "eventName": "PutRolePolicy",
+      "awsRegion": "us-east-1",
+      "recipientAccountId": "210987654321",
+      "sourceIPAddress": "192.0.2.44",
+      "errorCode": "MalformedPolicyDocument",
+      "userIdentity": {
+        "type": "IAMUser",
+        "arn": "arn:aws:iam::210987654321:user/platform-admin",
+        "accountId": "210987654321",
+        "userName": "platform-admin"
+      },
+      "requestParameters": {
+        "roleName": "kusari-agent-exec",
+        "policyName": "inline-escalation"
+      },
+      "responseElements": null,
+      "resources": [
+        {
+          "type": "AWS::IAM::Role",
+          "ARN": "arn:aws:iam::210987654321:role/kusari-agent-exec"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# docs-alignment fixtures
+
+Inputs for `test/docs-tests-alignment.bats`. Each file plants exactly one
+defect, so a check that reports nothing is told apart from a check that
+examined nothing.
+
+The extension is `.md.fixture`, not `.md`. A planted defect in a tracked `.md`
+file would be found by the real-tree run of the gate and by
+`scripts/docs-lint.sh`, and both would go red on their own fixtures. The gate
+takes any path as an argument, so the extension costs nothing.

@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from db.connection import set_pool_for_testing
 from main import app
+from conftest import EAP_ALICE, EAP_OPERATOR, eap_bearer
 
 DEFAULT_CLUSTER = "kind-osramp"
 DEFAULT_KEY_NAME = "afm-importer"
@@ -216,6 +217,79 @@ def test_importer_key_on_another_route_is_403(key_env, outbound):
         headers={"Authorization": f"Bearer {key_env['token']}"},
     )
     assert resp.status_code in (401, 403)
+    assert len(outbound) == 0
+
+
+def _body_with(**extra) -> bytes:
+    payload = json.loads(_valid_body())
+    payload.update(extra)
+    return json.dumps(payload).encode("utf-8")
+
+
+def _post(client, body: bytes, token: str):
+    return client.post(
+        "/api/v1/afm/clusters/import",
+        content=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+
+
+def test_the_key_binding_is_checked_against_source_cluster_not_the_import_id(key_env, outbound):
+    """The real dashboard payload: a generated id plus the cluster it read from.
+
+    ``id`` is per-import (``signalloom-<stamp>-<rand>``, which the AFM embed
+    sorts on), so comparing it against a key's cluster binding could never
+    match and only a superadmin -- who presents no key -- could import at all.
+    """
+    client = TestClient(app, raise_server_exceptions=False)
+    body = _body_with(id="signalloom-20261004T090000-a7f2", source_cluster=DEFAULT_CLUSTER)
+
+    resp = _post(client, body, key_env["token"])
+
+    assert resp.status_code == 200
+    assert len(outbound) == 1
+    forwarded = json.loads(outbound[0].content)
+    # Both fields reach AFM unchanged: the gateway binds, it does not rewrite.
+    assert forwarded["id"] == "signalloom-20261004T090000-a7f2"
+    assert forwarded["source_cluster"] == DEFAULT_CLUSTER
+
+
+def test_a_source_cluster_the_key_is_not_bound_to_is_still_403(key_env, outbound):
+    """The refusal is kept; only what it is checked against changed."""
+    client = TestClient(app, raise_server_exceptions=False)
+    body = _body_with(id="signalloom-20261004T090000-a7f2", source_cluster="someone-elses-cluster")
+
+    resp = _post(client, body, key_env["token"])
+
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "cluster_not_bound"
+    assert len(outbound) == 0
+
+
+def test_source_cluster_overrides_a_matching_id_so_the_id_is_not_a_second_way_in(key_env, outbound):
+    """A payload naming the bound cluster in ``id`` but another in ``source_cluster``.
+
+    Were ``id`` still consulted as a fallback when ``source_cluster`` is
+    present, this would be a way to import another cluster's RBAC under a key
+    bound to this one.
+    """
+    client = TestClient(app, raise_server_exceptions=False)
+    body = _body_with(id=DEFAULT_CLUSTER, source_cluster="someone-elses-cluster")
+
+    resp = _post(client, body, key_env["token"])
+
+    assert resp.status_code == 403
+    assert len(outbound) == 0
+
+
+@pytest.mark.parametrize("bad", ["", 7, [], {}])
+def test_a_present_but_malformed_source_cluster_is_422_not_ignored(key_env, outbound, bad):
+    """Ignoring it would silently fall back to ``id`` and widen the binding."""
+    client = TestClient(app, raise_server_exceptions=False)
+
+    resp = _post(client, _body_with(source_cluster=bad), key_env["token"])
+
+    assert resp.status_code == 422
     assert len(outbound) == 0
 
 
@@ -496,3 +570,49 @@ def test_digest_compare_is_constant_time(key_env, outbound, monkeypatch):
     )
     assert resp_bad.status_code == 401
     assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# T4 Operator path: the dashboard's own superadmin token
+# ---------------------------------------------------------------------------
+
+
+def test_superadmin_dex_token_imports_any_cluster_and_is_audited_as_the_operator(key_env, outbound, eap_jwt_env):
+    """The RBAC importer panel sends the page's Dex bearer; a superadmin may import any cluster id."""
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body("signalloom-operator-import"),
+        headers={**eap_bearer(EAP_OPERATOR), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(outbound) == 1
+    assert outbound[0].url.path == "/clusters/import"
+    assert "authorization" not in {k.lower() for k in outbound[0].headers}
+    assert json.loads(outbound[0].content)["id"] == "signalloom-operator-import"
+
+
+def test_non_superadmin_dex_token_is_403_and_never_retried_as_a_key(key_env, outbound, eap_jwt_env):
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body(),
+        headers={**eap_bearer(EAP_ALICE), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "superadmin_required"
+    assert outbound == []
+
+
+def test_operator_path_needs_no_importer_key_configuration(outbound, eap_jwt_env, monkeypatch):
+    """A dashboard import must not fail 503 on an estate whose importer key was never minted."""
+    monkeypatch.delenv("AFM_IMPORT_KEYS", raising=False)
+    monkeypatch.setenv("AFM_BASE_URL", "http://afm-platform.fe-k8s-afm.svc.cluster.local:8000")
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body("signalloom-no-key"),
+        headers={**eap_bearer(EAP_OPERATOR), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(outbound) == 1

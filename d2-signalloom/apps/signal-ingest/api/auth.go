@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -401,6 +402,12 @@ type RouteRequirement struct {
 	Method, Path string
 	Permission   Permission
 	Enumeration  bool
+	// ActorScoped reports whether the route's {id} is an ACTOR id checked against the
+	// principal's per-actor allow-list. Added by the SLAWS review API, which is the first route
+	// whose {id} is something else (a decision id): without this, an inventory consumer can only
+	// see that a path contains {id} and has to guess what the id means. Guessing wrong in either
+	// direction is a security defect, so the inventory now says.
+	ActorScoped bool
 }
 
 func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
@@ -428,6 +435,15 @@ func (h *Handlers) routeDefinitions(metrics http.Handler) []routeDefinition {
 		{"GET", "/api/v1/telemetry/coding-agents/aggregate", "GET /api/v1/telemetry/coding-agents/aggregate", PermissionObservationRead, true, false, h.handleAggregateCodingAgentTelemetry},
 		{"POST", "/api/v1/telemetry/coding-agents/aggregate", "POST /api/v1/telemetry/coding-agents/aggregate", PermissionObservationRead, true, false, h.handleAggregateCodingAgentTelemetry},
 		{"POST", "/api/v1/telemetry/coding-agents/ordering", "POST /api/v1/telemetry/coding-agents/ordering", PermissionObservationRead, false, false, h.handleCodingAgentOrdering},
+		// SLAWS review API. The reads are enumeration-budgeted like every other list route: a
+		// review queue is paged through, and a principal that can page it without limit can
+		// inventory the estate's detections. The POST is not: recording one verdict is one call,
+		// and spending a reader's page budget on an attributable write would make a busy reviewer
+		// unable to record what they just read.
+		{"GET", "/api/v1/policy/findings", "GET /api/v1/policy/findings", PermissionPolicyRead, true, false, h.handlePolicyFindings},
+		{"GET", "/api/v1/policy/decisions", "GET /api/v1/policy/decisions", PermissionPolicyRead, true, false, h.handlePolicyDecisions},
+		{"GET", "/api/v1/policy/rates", "GET /api/v1/policy/rates", PermissionPolicyRead, true, false, h.handlePolicyRates},
+		{"POST", "/api/v1/policy/decisions/{id}/review", "POST /api/v1/policy/decisions/{id}/review", PermissionPolicyReview, false, false, h.handlePolicyReview},
 	}
 	if metrics != nil {
 		r = append(r, routeDefinition{"GET", "/metrics", "GET /metrics", PermissionMetrics, false, false, metrics.ServeHTTP})
@@ -447,6 +463,10 @@ const (
 
 	// RateBurstEnv names the environment variable to configure per-key burst capacity.
 	RateBurstEnv = "SIGNAL_INGEST_RATE_BURST"
+
+	// PrincipalBudgetEnv configures the enumeration budget: rows a principal (per acting
+	// user behind a gateway) may page through per BudgetWindow. Default 1000.
+	PrincipalBudgetEnv = "SIGNAL_INGEST_PRINCIPAL_BUDGET"
 
 	// IdleBucketEvictionAge is how long an unaccessed token bucket is retained before eviction.
 	IdleBucketEvictionAge = 10 * time.Minute
@@ -549,6 +569,26 @@ func (p *ProtectedRouter) EvictKeyBucket(subject string) {
 	p.mu.Unlock()
 }
 
+// actingSubjectPattern bounds the bucket suffix a gateway may add: one printable ASCII token.
+var actingSubjectPattern = regexp.MustCompile(`^[\x21-\x7e]{1,128}$`)
+
+// rateLimitKey names the token bucket a request draws from. A key is one bucket, except a
+// gateway (PermissionActForTenant) draws from one bucket per user it acts for: since SLTM every
+// dashboard user reaches this service through fe-signalloom's single gateway key, and a bucket
+// per key made one user's page load (20-odd routes, 100+ calls) answer 429 for everyone else.
+// Only a principal holding tenant:act-for can split its bucket, so a plain client cannot fan out
+// buckets by writing the header, and idle buckets are still evicted after IdleBucketEvictionAge.
+func rateLimitKey(principal Principal, r *http.Request) string {
+	if !principal.Permissions[PermissionActForTenant] {
+		return principal.Subject
+	}
+	values := r.Header.Values(ActingSubjectHeader)
+	if len(values) != 1 || !actingSubjectPattern.MatchString(values[0]) {
+		return principal.Subject
+	}
+	return principal.Subject + "/" + values[0]
+}
+
 func (p *ProtectedRouter) takeKeyToken(subject string, now time.Time) (bool, int, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -600,7 +640,7 @@ func (p *ProtectedRouter) takeKeyToken(subject string, now time.Time) (bool, int
 }
 
 func (p *ProtectedRouter) register(rd routeDefinition) {
-	requirement := RouteRequirement{rd.method, rd.path, rd.permission, rd.enumeration}
+	requirement := RouteRequirement{rd.method, rd.path, rd.permission, rd.enumeration, rd.actorScoped}
 	p.inventory = append(p.inventory, requirement)
 	p.registered[rd.pattern] = requirement
 	slog.Info("HTTP authorization route registered", "method", rd.method, "route", rd.path, "permission", rd.permission, "enumeration", rd.enumeration)
@@ -680,7 +720,7 @@ func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.now != nil {
 		now = p.now()
 	}
-	if allowed, retryAfter, auditNeeded := p.takeKeyToken(principal.Subject, now); !allowed {
+	if allowed, retryAfter, auditNeeded := p.takeKeyToken(rateLimitKey(principal, r), now); !allowed {
 		route, method := p.safeAuditRoute(r)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		if auditNeeded {
@@ -786,7 +826,10 @@ func (p *ProtectedRouter) applyEnumeration(w http.ResponseWriter, r *http.Reques
 	}
 	p.mu.Lock()
 	now := time.Now()
-	e := p.budgets[principal.Subject]
+	// Same key as the token bucket: a gateway's budget is per user it acts
+	// for, so one dashboard user's browsing cannot exhaust every other's.
+	budgetKey := rateLimitKey(principal, r)
+	e := p.budgets[budgetKey]
 	if e.reset.IsZero() || !now.Before(e.reset) {
 		e = budgetEntry{reset: now.Add(p.options.BudgetWindow)}
 	}
@@ -796,7 +839,7 @@ func (p *ProtectedRouter) applyEnumeration(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	e.used += limit
-	p.budgets[principal.Subject] = e
+	p.budgets[budgetKey] = e
 	p.mu.Unlock()
 	return true
 }

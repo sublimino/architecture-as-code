@@ -16,6 +16,7 @@
 # runs with P2_LIVE_L3=1.
 
 setup() {
+  load "${BATS_TEST_DIRNAME}/lib/freeport.bash"
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   SCRIPT="${REPO_ROOT}/scripts/p2-dualcluster-preflight.sh"
   FAKE_DIR="${BATS_TEST_TMPDIR}/fake"
@@ -310,11 +311,20 @@ live_prereqs() {
 @test "P2PRE live mutation: a real listener on a free gated port is detected as a blocker" {
   live_prereqs
   command -v nc >/dev/null || skip "nc unavailable"
-  port=34788
-  ss -tlnH | awk '{print $4}' | grep -qE ":${port}\$" && skip "port ${port} already bound"
+  # The port is whatever is free right now, not a fixed 34788. P2_HOST_PORTS
+  # tells the script which ports to gate, so the assertion does not need a
+  # specific number -- and the old form made two concurrent runs of this suite
+  # either collide on 34788 or silently skip and lose the coverage.
+  port="$(free_port)"
   nc -l 127.0.0.1 "$port" </dev/null >/dev/null 2>&1 &
   pid=$!
-  for _ in $(seq 1 50); do ss -tlnH | awk '{print $4}' | grep -qE ":${port}\$" && break; sleep 0.1; done
+  # wait_for_listen, NOT wait_for_port: `nc -l` accepts one connection and
+  # exits, so a probe that dials the port would consume the listener and the
+  # script under test would then find nothing bound.
+  if ! wait_for_listen "$port" 5; then
+    kill "$pid" 2>/dev/null || true
+    skip "listener on ${port} never came up"
+  fi
   P2_HOST_PORTS="$port" run bash "$SCRIPT" --quiet
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
   [ "$status" -eq 1 ]

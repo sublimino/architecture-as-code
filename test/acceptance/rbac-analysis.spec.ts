@@ -1,8 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { afm, config, guards, login } from "./helpers";
+import { afm, config, guards, login, getAuthToken } from "./helpers";
 
 test.describe("RBAC analysis importer", () => {
   let importedClusterId: string | undefined;
+  // The AFM mutation gate needs the page's Dex bearer; the worker-scoped
+  // `request` fixture inherits cookies only, so the test body captures it.
+  let bearer: string | undefined;
 
   test.beforeAll(async ({ request }) => {
     test.skip(!guards.afmDeployed(), "k8s-afm slice not deployed — run: make demo-k8s-afm-up");
@@ -12,12 +15,15 @@ test.describe("RBAC analysis importer", () => {
   test.afterEach(async ({ request }) => {
     if (!importedClusterId) return;
 
-    const deletion = await request.delete(`${config.base}/afm/clusters/${importedClusterId}`);
+    expect(bearer, "no OIDC token captured before the import").toBeTruthy();
+    const deletion = await request.delete(`${config.base}/afm/clusters/${importedClusterId}`, {
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
     expect(deletion.ok()).toBeTruthy();
     importedClusterId = undefined;
   });
 
-  test("generates, copies, imports, and verifies frontend-agent namespace RBAC", async ({ page, context }) => {
+  test("generates, copies, sends through the gateway, and verifies frontend-agent namespace RBAC", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await login(page);
 
@@ -42,25 +48,25 @@ test.describe("RBAC analysis importer", () => {
     const copiedYaml = await page.evaluate(() => navigator.clipboard.readText());
     expect(copiedYaml).toContain("namespace: fe-signalloom-agents");
 
-    const afmFrame = page.frameLocator('[data-testid="afm-iframe"]');
-    await afmFrame.getByRole("link", { name: "Import", exact: true }).click();
-    await expect(afmFrame.getByRole("heading", { name: "Import RBAC Data" })).toBeVisible();
+    bearer = (await getAuthToken(page)) ?? undefined;
+    expect(bearer, "no OIDC token in page storage").toBeTruthy();
 
-    const importId = `signalloom-agents-e2e-${Date.now()}`;
-    await afmFrame.getByLabel("ID (optional)").fill(importId);
-    const importYaml = afmFrame.getByPlaceholder("rbac: { subjects: [], roles: [], bindings: [] }");
-    await importYaml.click();
-    await page.keyboard.press("Control+V");
-    await expect(importYaml).toHaveValue(copiedYaml);
-
-    const importResponse = page.waitForResponse(response =>
-      response.url().endsWith("/clusters/import") && response.request().method() === "POST",
+    // Send goes through fe-signalloom's authenticated import gateway as the
+    // signed-in superadmin; AFM's own /clusters/import is closed at nginx
+    // (SLTM-P1-1). The id is the panel's own, so it is read off the wire.
+    const importRequest = page.waitForRequest(request =>
+      request.url().endsWith("/api/v1/afm/clusters/import") && request.method() === "POST",
     );
-    await afmFrame.getByRole("button", { name: "Import", exact: true }).click();
-    await expect((await importResponse).ok()).toBeTruthy();
+    await importer.getByTestId("importer-send").click();
+    const sent = await importRequest;
+    expect(sent.headers()["authorization"]).toBe(`Bearer ${bearer}`);
+    const importId = (sent.postDataJSON() as { id?: string }).id;
+    expect(importId, "the panel sent no cluster id").toMatch(/^signalloom-/);
     importedClusterId = importId;
-    await expect(afmFrame.getByText(new RegExp(`Imported cluster .*${importId}`))).toBeVisible();
-    await expect(afmFrame.getByText("Failed to fetch")).not.toBeVisible();
+    const importResponse = await sent.response();
+    expect(importResponse?.status(), await importResponse?.text()).toBe(200);
+    await expect(importer.getByText(new RegExp(`Sent ${importId} to AFM`))).toBeVisible();
+    await expect(importer.getByTestId("importer-send-loader")).toHaveCount(0);
 
     await importer.scrollIntoViewIfNeeded();
     await expect(yaml).toHaveValue(copiedYaml);

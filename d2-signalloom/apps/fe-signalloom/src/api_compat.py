@@ -35,6 +35,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from config import settings
 from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
 import claim_tenancy
+import fleet_workloads
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +336,16 @@ class AgentResponse(BaseModel):
     record_class: Literal["registered", "discovered", "resolved", "fixture"] = "registered"
     is_registry_linked: bool = False
 
+    # Remote-cluster provenance (docs/EAP/remote-contract.md "Discovery and
+    # tenancy"). Set only for a workload the portal learned about from
+    # fleet-manager's workload registry, where ``origin`` is "remote". Null for
+    # every central-cluster agent, so a consumer can tell "this pod is on
+    # another cluster, there is no local pod object and no cAdvisor sample for
+    # it" from "this field was not populated".
+    cluster_id: str | None = None
+    pod: str | None = None
+    frozen: bool | None = None
+
     # Section 2.1 Enriched Structures
     runtime: RuntimeMetadata | None = None
     responsibility: ResponsibilityMetadata | None = None
@@ -362,6 +373,10 @@ class SourceHealthMap(BaseModel):
     k8s_discovery: SourceHealthDetail
     postgres_registry: SourceHealthDetail
     crypto_proofs: SourceHealthDetail
+    #: fleet-manager's remote workload registry. Null when this deployment
+    #: merges no remote cluster, so an absent key means "not configured" and a
+    #: present one with status "unavailable" means "configured and unreadable".
+    remote_registry: SourceHealthDetail | None = None
 
 
 class PaginationMetadata(BaseModel):
@@ -1621,9 +1636,15 @@ class Principal:
         return self.email or self.subject
 
 
-def authenticated_principal(
-    authorization: Annotated[str | None, Header()] = None,
-) -> Principal:
+def verified_bearer_claims(authorization: str | None) -> dict[str, Any]:
+    """The validated claims of a ``Bearer`` ID token, with no tenant decision.
+
+    The first half of ``authenticated_principal``: header shape, signature,
+    issuer, audience and the host-credential scope restriction. Split out so
+    ``invites.redeem`` can accept a Dex identity that has *no* tenant yet --
+    the whole point of an invite is to give it one -- without re-implementing
+    any of the checks that make the identity trustworthy.
+    """
     if authorization is None:
         raise APIError(401, "authentication_required", "Bearer authentication is required")
     scheme, separator, token = authorization.partition(" ")
@@ -1640,15 +1661,148 @@ def authenticated_principal(
             "host_credential_scope_restricted",
             "External host credentials grant audit-upload-only permissions and cannot access operator control plane APIs",
         )
+    return claims
 
-    tenant = settings.api_subject_tenants.get(claims["sub"])
-    if tenant is None:
-        raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
 
+def _email_claim(claims: dict[str, Any]) -> str | None:
     email = claims.get("email")
     if not isinstance(email, str) or not email.strip():
-        email = None
-    return Principal(tenant=tenant, subject=claims["sub"], email=email)
+        return None
+    return email
+
+
+# ---------------------------------------------------------------------------
+# Subject -> tenant binding (migration 053), consulted before the environment map
+# ---------------------------------------------------------------------------
+#
+# ``authenticated_principal`` is a *sync* dependency and is also called as a
+# plain function (``afm_import.py``, the adversarial token suites), so it
+# cannot await a query itself. The lookup therefore runs in a small async
+# dependency, ``subject_binding_hint``, that FastAPI resolves first and hands
+# in. The hint is keyed on the token's *unverified* ``sub``; it is only ever
+# used after ``validate_jwt`` has confirmed the same ``sub``, so a forged
+# subject can at most warm the cache for a name it cannot then present.
+#
+# Results are cached per subject for a short TTL so the binding is not one
+# query per request, and ``invalidate_subject_binding`` is called on redeem so
+# a freshly bound subject is live on its next request.
+
+SUBJECT_BINDING_TTL_SECONDS = 30.0
+_subject_binding_cache: dict[str, tuple[str | None, float]] = {}
+#: The hint's shape: ``(subject the lookup was keyed on, bound tenant)``.
+SubjectBinding = tuple[str, str]
+
+
+def invalidate_subject_binding(subject: str | None = None) -> None:
+    """Forget a cached binding (one subject, or all of them when ``None``)."""
+    if subject is None:
+        _subject_binding_cache.clear()
+    else:
+        _subject_binding_cache.pop(subject, None)
+
+
+async def lookup_subject_binding(subject: str) -> str | None:
+    """The tenant ``subject_tenants`` binds ``subject`` to, or ``None``.
+
+    ``None`` means "no row, or no database": both fall through to the
+    ``API_SUBJECT_TENANTS`` map, which remains the documented fallback. A
+    database *error* is also ``None``, logged: refusing every login because the
+    binding table is briefly unreachable would take the environment-mapped
+    pilot operators down with it, and the environment map is exactly the path
+    that does not need the database.
+    """
+    now = time.monotonic()
+    cached = _subject_binding_cache.get(subject)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+    pool = _subject_binding_pool()
+    if pool is None:
+        return None
+    tenant: str | None
+    try:
+        row = await pool.fetchrow(
+            "SELECT tenant FROM subject_tenants WHERE subject = $1", subject,
+        )
+    except Exception:  # noqa: BLE001 -- availability over a transient fault; see docstring
+        logger.warning("subject binding lookup failed; falling back to API_SUBJECT_TENANTS", exc_info=True)
+        return None
+    tenant = row["tenant"] if row else None
+    if isinstance(tenant, str) and tenant.strip():
+        tenant = tenant.strip()
+    else:
+        tenant = None
+    _subject_binding_cache[subject] = (tenant, now + SUBJECT_BINDING_TTL_SECONDS)
+    return tenant
+
+
+def _subject_binding_pool() -> Any:
+    """The pool the binding lookup may use, or ``None``.
+
+    Reads the live pool and never creates one: ``_get_pool`` carries retry and
+    backoff state, and a lookup that ran *before* the handler would consume a
+    retry the handler's ``_require_pool`` was owed (the recovery path in
+    test_resilience_dependency_faults is exactly that sequence). The first
+    request after boot therefore resolves from the environment map alone; the
+    lifespan and every pooled handler establish the pool for the ones after.
+
+    Only a real ``asyncpg.Pool``, or a stand-in that declares
+    ``serves_subject_bindings``, is consulted. The suite's fakes stand in for
+    specific tables and raise on SQL they do not know; running the lookup
+    against them would turn every test's first request into a logged failure.
+    """
+    pool = _pool
+    if pool is None:
+        return None
+    if isinstance(pool, asyncpg.Pool) or getattr(pool, "serves_subject_bindings", False):
+        return pool
+    return None
+
+
+def _unverified_subject(authorization: str | None) -> str | None:
+    """The ``sub`` claim as written, with no verification. A cache key only."""
+    if not authorization:
+        return None
+    _scheme, _sep, token = authorization.partition(" ")
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (ValueError, TypeError):
+        return None
+    sub = claims.get("sub") if isinstance(claims, dict) else None
+    return sub if isinstance(sub, str) and sub else None
+
+
+async def subject_binding_hint(
+    authorization: Annotated[str | None, Header()] = None,
+) -> SubjectBinding | None:
+    """Pre-resolve the caller's binding so the sync principal can use it."""
+    sub = _unverified_subject(authorization)
+    if sub is None:
+        return None
+    tenant = await lookup_subject_binding(sub)
+    return (sub, tenant) if tenant else None
+
+
+def resolve_tenant(claims: dict[str, Any], binding: SubjectBinding | None) -> str | None:
+    """The tenant for verified ``claims``: the binding table first, then the map."""
+    sub = claims["sub"]
+    if binding is not None and binding[0] == sub:
+        return binding[1]
+    return settings.api_subject_tenants.get(sub)
+
+
+def authenticated_principal(
+    authorization: Annotated[str | None, Header()] = None,
+    binding: Annotated[SubjectBinding | None, Depends(subject_binding_hint)] = None,
+) -> Principal:
+    claims = verified_bearer_claims(authorization)
+    tenant = resolve_tenant(claims, binding)
+    if tenant is None:
+        raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
+    return Principal(tenant=tenant, subject=claims["sub"], email=_email_claim(claims))
 
 
 def authenticated_tenant(
@@ -2434,8 +2588,17 @@ def _agent_response_from_discovered(
     stunned_at = discovered.get("stunned_at")
     stun_reason = discovered.get("stun_reason")
 
+    # A remote workload carries the reporting cluster's id; a central one is on
+    # this cluster by construction. Reporting "kind-osramp" for a pilot pod
+    # would be a fabricated location on the one field a reader uses to decide
+    # which cluster to go and look at.
+    remote_cluster_id = discovered.get("cluster_id")
+    remote_pod = discovered.get("pod")
+    remote_frozen = discovered.get("frozen")
+    is_remote = isinstance(remote_cluster_id, str) and bool(remote_cluster_id.strip())
+
     runtime = RuntimeMetadata(
-        cluster_id="kind-osramp",
+        cluster_id=remote_cluster_id if is_remote else "kind-osramp",
         namespace=disc_ns,
         pod_name=discovered_id if disc_ns else None,
         pod_uid=str(pod_uid) if pod_uid else None,
@@ -2603,6 +2766,9 @@ def _agent_response_from_discovered(
         state=state,
         record_class=record_class,
         is_registry_linked=is_registry_linked,
+        cluster_id=remote_cluster_id if is_remote else None,
+        pod=remote_pod if is_remote else None,
+        frozen=remote_frozen if (is_remote and isinstance(remote_frozen, bool)) else None,
         runtime=runtime,
         responsibility=responsibility,
         identity=identity,
@@ -3530,9 +3696,45 @@ async def get_capabilities(
     )
 
 
+def _discovered_tenant(item: dict[str, Any]) -> str:
+    """The tenant a discovered workload declares, or "" when it declares none.
+
+    Discovery reports the pod's ``signalloom.ai/tenant`` label as ``tenant``
+    (``claim_tenancy`` relies on the same field for the claim decision), so this
+    is the platform's declaration and never the caller's.
+    """
+    value = item.get("tenant")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _visible_to_tenant(item: dict[str, Any], tenant_id: str, is_admin: bool) -> bool:
+    """Whether a discovered workload belongs on ``tenant_id``'s agent list.
+
+    Until this gate existed the list was the one surface in the portal that was
+    not a tenant boundary: every signed-in user saw every discovered workload in
+    the two central namespaces, which the pilot docs had to carry as a CAUTION.
+    Registry rows and claims were the boundary instead. Discovery now obeys the
+    same rule as everything else:
+
+    * a superadmin sees every workload, which is what makes the fleet and
+      cross-tenant demo pages work at all;
+    * anyone else sees a workload only when its declared tenant is exactly
+      theirs -- exact string compare, so a homoglyph tenant is a different
+      tenant, the same rule ``claim_tenancy.authorize`` applies;
+    * a workload that declares no tenant is shown to no tenant user. That
+      deliberately hides the platform's own ``controlplane``-labelled agents
+      and any unlabelled workload, both of which were unclaimable anyway: a row
+      nobody may act on is noise that reads as an inventory gap.
+    """
+    if is_admin:
+        return True
+    declared = _discovered_tenant(item)
+    return bool(declared) and declared == tenant_id
+
+
 @router.get("/agents", response_model=AgentListResponse, responses=ERROR_RESPONSES)
 async def agents(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     response: Response = Response(),
     search: str | None = None,
     namespace: str | None = None,
@@ -3546,6 +3748,14 @@ async def agents(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1)] = 50,
 ) -> AgentListResponse:
+    # Imported here, not at module scope: ``superadmin`` imports this module for
+    # ``Principal``/``authenticated_principal``, so a top-level import would be
+    # a cycle.
+    from superadmin import is_superadmin
+
+    tenant_id = principal.tenant
+    is_admin = is_superadmin(principal)
+
     # --- k8s discovery (always attempted) ---
     raw_discovered: list[dict[str, Any]] = []
     discovery_health: Literal["healthy", "degraded", "error", "unavailable"] = "healthy"
@@ -3564,12 +3774,23 @@ async def agents(
             raise TypeError("agent discovery agents must be a list")
         for item in disc_list:
             if isinstance(item, dict) and item.get("id") is not None:
-                raw_discovered.append(item)
+                if _visible_to_tenant(item, tenant_id, is_admin):
+                    raw_discovered.append(item)
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         logger.warning("agent discovery upstream unavailable: %s", exc)
         discovery_health = "unavailable"
         discovery_last_good = None
         discovery_msg = str(exc)
+
+    # --- remote-cluster workloads (fleet-manager's registry) ---
+    #
+    # A remote pod is never matched against the Postgres registry: there is no
+    # flow in this tree that claims one, and matching by name would let a pilot
+    # cluster's pod name silently adopt a central registry row's identity,
+    # lifecycle and compliance. They are therefore built straight as discovered
+    # records, after the same tenant gate the central list now gets.
+    remote_records, remote_status, remote_msg = await fleet_workloads.fetch(FLEET_MANAGER_URL)
+    remote_visible = [r for r in remote_records if _visible_to_tenant(r, tenant_id, is_admin)]
 
     all_records: list[AgentResponse] = []
     pg_status: Literal["healthy", "degraded", "error", "unavailable"] = "healthy"
@@ -3639,6 +3860,21 @@ async def agents(
                 row, compliance, discovered_overlay=None,
                 stun_detail=_stun_detail_for(stun_index, row["id"], row["name"]),
             ))
+
+    # Remote-cluster workloads, appended after both branches so they land in
+    # fixture mode and in registry mode alike. They are always ``discovered``
+    # and never registry-linked: fleet-manager's registry is an inventory, not
+    # a governance record.
+    for remote in remote_visible:
+        all_records.append(
+            _agent_response_from_discovered(
+                remote,
+                tenant_id=tenant_id,
+                record_class="discovered",
+                is_registry_linked=False,
+                stun_detail=_stun_detail_for(stun_index, remote.get("id"), remote.get("name")),
+            )
+        )
 
     # Compute meta counts before filtering/pagination
     total_records = len(all_records)
@@ -3761,6 +3997,11 @@ async def agents(
             status="healthy",
             last_good=_now_iso(),
             message=None,
+        ),
+        remote_registry=SourceHealthDetail(
+            status=remote_status,
+            last_good=_now_iso() if remote_status == "healthy" else None,
+            message=remote_msg,
         ),
     )
 
@@ -3938,7 +4179,7 @@ def _derived_topology(tenant_id: str, available, reason: str) -> TrustTopologyRe
 
 @router.get("/trust-topology", response_model=TrustTopologyResponse, responses=ERROR_RESPONSES)
 async def trust_topology(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TrustTopologyResponse:
     """Live collector first; a labelled derived topology only if it is unreachable.
 
@@ -3959,6 +4200,7 @@ async def trust_topology(
     derived route always answered but could not express which of the three
     situations produced it. The schema can express all three, so it does.
     """
+    tenant_id = principal.tenant
     fallback_reason = ""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -3993,7 +4235,7 @@ async def trust_topology(
             fallback_reason = f"kubernetes collector unavailable: {collector.reason}"
 
     if fallback_reason:
-        available = (await agents(tenant_id)).agents
+        available = (await agents(principal)).agents
         if not available:
             _ensure_seeded(tenant_id)
             with _STORE_LOCK:

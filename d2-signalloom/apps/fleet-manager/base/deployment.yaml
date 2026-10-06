@@ -94,6 +94,26 @@ spec:
                   optional: true
             - name: FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES
               value: "stun"
+            # A REMOTE cluster's warden (docs/EAP/remote-contract.md). It posts
+            # POST /api/v1/fleet/workloads/report, reads
+            # GET /api/v1/fleet/stun-state and acknowledges with
+            # POST /api/v1/fleet/stun-state/ack. Scope `report` covers exactly
+            # those three and nothing else.
+            #
+            # A SEPARATE caller from signalloom-warden above, not a widened
+            # one. `stun` lets a caller request a freeze of any agent the hub
+            # knows, including the hub's own. A remote node reports what it
+            # sees and obeys what it is told, so it needs none of that, and a
+            # key that carried both scopes would let a pilot cluster stun the
+            # central estate. Disjoint scopes, two keys, one Secret each.
+            - name: FLEET_MANAGER_KEY_WARDEN
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-manager-caller-keys
+                  key: warden
+                  optional: true
+            - name: FLEET_MANAGER_KEY_WARDEN_SCOPES
+              value: "report"
             - name: FLEET_MANAGER_KEY_FE_SIGNALLOOM
               valueFrom:
                 secretKeyRef:
@@ -112,7 +132,7 @@ spec:
                   key: dashboard
                   optional: true
             - name: FLEET_MANAGER_KEY_DASHBOARD_SCOPES
-              value: "stun,deploy,scan,reset"
+              value: "stun,deploy,scan,reset,read"
             # The operator break-glass key: the only caller that may /recover
             # (which thaws every stunned agent) or /reset.
             - name: FLEET_MANAGER_KEY_OPERATOR
@@ -122,7 +142,32 @@ spec:
                   key: operator
                   optional: true
             - name: FLEET_MANAGER_KEY_OPERATOR_SCOPES
-              value: "stun,resume,recover,deploy,scan,reset"
+              value: "stun,resume,recover,deploy,scan,reset,read"
+            # Resume governance (resume_token.go). A resume is accepted only
+            # with a token signed by enough operators whose PUBLIC keys are
+            # loaded here at start. The ConfigMap is written at bootstrap by
+            # scripts/fleet-operator-keys.sh (make fleet-operator-keys); the
+            # private halves stay under <keys_dir>/fleet-operators/ and are
+            # never applied. Optional, so a cluster that has not minted keys
+            # still starts: every governed resume then fails closed, which is
+            # the correct answer with no operators to attribute it to. The
+            # file and directory forms, OPERATOR_KEY_BUNDLE_FILE and
+            # OPERATOR_KEY_DIR, stay available for a pilot that mounts a
+            # bundle instead.
+            - name: OPERATOR_KEYS_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: fleet-manager-operator-keys
+                  key: keys.json
+                  optional: true
+            # The audience a token must name and the trust root id it must
+            # carry, checked by DefaultResumeTokenPolicy. Plain values for the
+            # local estate; a pilot overlay overrides both with its own, so a
+            # token minted for the lab is refused on a pilot and vice versa.
+            - name: FLEET_AUDIENCE
+              value: "signalloom-fleet/local"
+            - name: OPERATOR_TRUST_ROOT_ID
+              value: "signalloom-operators-v1"
             # SPIRE plane. The server API on :8081 speaks only mTLS, so the
             # client takes this pod's X509-SVID from the SPIRE agent socket and
             # accepts only spiffe://signalloom.demo/spire/server (override with

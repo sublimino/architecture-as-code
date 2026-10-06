@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, config, afm, guards } from "./helpers";
+import { login, config, afm, guards, getAuthToken } from "./helpers";
 
 const BASE = config.base;
 
@@ -114,6 +114,12 @@ test.describe("AFM integration in Signal Loom", () => {
   });
 
   test("AFM scan trigger endpoint returns 202 on POST and 405 on PUT/DELETE/PATCH", async ({ page }) => {
+    // Every mutation through the AFM proxies passes the dashboard's superadmin
+    // gate (nginx auth_request -> /api/v1/auth/check), so the request must carry
+    // the Dex bearer the page holds; page.request shares cookies, not storage.
+    const token = await getAuthToken(page);
+    expect(token, "no OIDC token in page storage").toBeTruthy();
+    const bearer = { Authorization: `Bearer ${token}` };
     const clustersRes = await page.request.get(`${BASE}/afm/clusters`);
     expect(clustersRes.ok()).toBeTruthy();
     const clusters = await clustersRes.json();
@@ -123,22 +129,29 @@ test.describe("AFM integration in Signal Loom", () => {
     // POST returns 202 Accepted
     const postRes = await page.request.post(`${BASE}/afm/clusters/${clusterId}/jobs`, {
       data: { trigger_source: "acceptance-test" },
+      headers: bearer,
     });
     expect(postRes.status()).toBe(202);
     const postBody = await postRes.json();
     expect(postBody.cluster_id).toBe(clusterId);
-    expect(postBody.status).toBe("queued");
+    // The record carries AFM's own job state; a sample cluster scans instantly, so "done"
+    // is as valid as "queued" on a live estate. Anything else is a contract break.
+    expect(["queued", "running", "done"]).toContain(postBody.status);
 
     // PUT, DELETE, PATCH return 405 Method Not Allowed
     for (const method of ["put", "delete", "patch"] as const) {
-      const res = await page.request[method](`${BASE}/afm/clusters/${clusterId}/jobs`);
+      const res = await page.request[method](`${BASE}/afm/clusters/${clusterId}/jobs`, { headers: bearer });
       expect(res.status()).toBe(405);
     }
   });
 
   test("AFM scan trigger returns 404 for unknown cluster", async ({ page }) => {
+    const token = await getAuthToken(page);
+    expect(token, "no OIDC token in page storage").toBeTruthy();
+    const bearer = { Authorization: `Bearer ${token}` };
     const postRes = await page.request.post(`${BASE}/afm/clusters/non-existent-cluster-id/jobs`, {
       data: { trigger_source: "acceptance-test" },
+      headers: bearer,
     });
     expect(postRes.status()).toBe(404);
   });

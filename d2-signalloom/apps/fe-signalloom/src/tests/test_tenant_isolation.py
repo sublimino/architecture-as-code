@@ -356,6 +356,10 @@ def unscoped_statements(pool: RecordingPool, tenant: str) -> list[tuple[str, tup
 
 DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/agents", None),
+    # Looks the token up by hash and, on success, writes subject_tenants and
+    # an audit row under the invite's tenant. With the recording pool the
+    # lookup returns no row (404), after the statements this sweep inspects.
+    ("POST", "/api/v1/invites/redeem", {"token": "not-a-real-invite-token"}),
     ("GET", "/api/v1/agents", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/origin-verification", None),
@@ -722,6 +726,26 @@ def _template_for(concrete: str) -> str:
 #: that stops being true the sweep must gain it.
 NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/v1/auth/check"),                       # role check only, no data; covered by test_auth_check
+    # Identity of the caller, from the validated token plus process config:
+    # there is no table to scope. Covered by test_me.py.
+    ("GET", "/api/v1/me"),
+    # Break-glass thaw, proxied to fleet-manager with its operator key behind
+    # require_superadmin (fleet_operator.py). Both audit through
+    # _audit_outbound_request, which files under the caller's own tenant, and
+    # neither reads a tenant-owned table. Covered by test_fleet_operator.py and
+    # by SUPERADMIN_ROUTES below.
+    ("POST", "/api/v1/fleet/recover"),
+    ("POST", "/api/v1/fleet/resume/{agent_id}"),
+    ("POST", "/api/v1/afm/clusters/import"),             # importer key bound to one cluster, or a superadmin token; no DB; SLTM-P1-1
+    # Invites (invites.py, migration 053). Both are require_superadmin and act
+    # across tenants by role: the superadmin names the tenant an invite is
+    # for. The invites table deliberately carries `tenant`, not `tenant_id`,
+    # so it is outside TENANT_OWNED_TABLES; the only tenant-owned write is the
+    # audit row, filed under the invite's tenant. Covered by test_invites.py
+    # and by SUPERADMIN_ROUTES below. The redeem route is a plain
+    # authenticated route and is swept in DB_ROUTES.
+    ("POST", "/api/v1/invites"),
+    ("GET", "/api/v1/invites"),
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results
@@ -831,6 +855,26 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/signals/correlate"),
     ("POST", "/api/signals/collectors/seed"),
     ("GET", "/api/signals/observations/stream"),
+    # SLAWS policy review proxies (signal_policy.py). Exempt for a DIFFERENT and stronger reason
+    # than the block above, which is why they are listed separately rather than folded in.
+    #
+    # The block above rests on signal-ingest being single-tenant and the proxy discarding the
+    # authenticated tenant. These routes rest on the opposite: signal-ingest IS tenant-scoped on
+    # these paths (api/policy_routes.go resolves every one through observationReadScope, and
+    # api.TestPolicyFeedsAreTenantScoped / TestPolicyTenantParameterNarrowsOnlyForCrossTenantReaders
+    # pin it), and signal_policy._proxy forwards the verified tenant in
+    # X-SignalLoom-Acting-Tenant through ingest_client.ingest_headers, which reads it from the
+    # validated Principal and from nothing else.
+    #
+    # So they are exempt from THIS sweep because they issue no database statement in
+    # fe-signalloom at all -- there is no SQL here to bind a tenant to. The scoping they do have
+    # is enforced one hop away and tested there, plus
+    # tests/test_signal_policy.py::TestForwarding, which asserts the acting-tenant header on
+    # every route and that a write never acts for "*".
+    ("GET", "/api/signals/policy/findings"),
+    ("GET", "/api/signals/policy/decisions"),
+    ("GET", "/api/signals/policy/rates"),
+    ("POST", "/api/signals/policy/decisions/{decision_id}/review"),
     # Signed audit sessions -- verified and tested in test_audit_ingest.py
     ("GET", "/api/audit/sessions"),
     ("GET", "/api/audit/sessions/{session_id}"),
@@ -877,16 +921,15 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("DELETE", "/api/connectors/{connector_id}"),
     ("DELETE", "/api/v1/connectors/{connector_id}"),
     # cAdvisor pod telemetry (cadvisor_poller.py): authenticated (router-level
-    # Depends(authenticated_principal)) but genuinely cluster-wide, not
-    # tenant-partitioned -- there is no tenant_id anywhere in AgentTelemetry
-    # or the poller's pod index, only namespace/pod_name. Same residual-gap
-    # class as test_rbac_correlation_routes_are_not_tenant_scoped_at_all
-    # below: an authenticated tenant that already knows (or guesses) another
-    # tenant's pod_name can read its telemetry. Not fixed here: retrofitting
-    # a tenant mapping onto pod-level cAdvisor metrics is a product decision
-    # about where that mapping lives, not a one-line filter -- same shape as
-    # the already-escalated RBAC finding, called out rather than silently
-    # excused.
+    # Depends(authenticated_principal)) AND tenant-partitioned since the
+    # remote-cluster work, but still not database-backed, which is why it stays
+    # on this list. A cAdvisor sample carries no tenant -- the poller indexes by
+    # namespace and pod name only -- so the pod-to-tenant mapping is read from
+    # the pod's own signalloom.ai/tenant label through claim_tenancy, the same
+    # source the claim decision uses. The gate is proved by
+    # test_cadvisor_telemetry_tenancy.py, including the two oracles it has to
+    # avoid (the 409 ambiguity answer and the SSE stream). Discovery being
+    # unreadable fails these closed.
     ("GET", "/api/telemetry/agents"),
     ("GET", "/api/v1/telemetry/agents"),
     ("GET", "/api/telemetry/agents/{pod_name}"),
@@ -1661,6 +1704,18 @@ SUPERADMIN_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/demo/supercred/runs/any-run-id/log", None),
     ("GET", "/api/demo/supercred/runs/any-run-id/stream", None),
     ("POST", "/api/audit/privileged-invocations", {"step_id": "1", "kind": "step"}),
+    # Break-glass: /recover thaws every stunned agent and /resume thaws one,
+    # and both are granted to fleet-manager's operator key alone. The gate has
+    # to be here, not in the browser, because the key is presented server-side.
+    ("POST", "/api/v1/fleet/recover", None),
+    ("POST", "/api/v1/fleet/resume/demo-agent", None),
+    # Issuing an invite binds a future subject to a tenant of the issuer's
+    # choosing; listing them reveals every pending email across tenants.
+    ("POST", "/api/v1/invites", {"email": "new@example.test", "tenant": "tenant-a"}),
+    ("GET", "/api/v1/invites", None),
+    # Promotion turns a provisional correlation into an actor the product acts
+    # on; the gateway key that reaches signal-ingest is presented server-side.
+    ("POST", "/api/signals/actors/actor-shadow-llm-001/promote", None),
 ]
 
 

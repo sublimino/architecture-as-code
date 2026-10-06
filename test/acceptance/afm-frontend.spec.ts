@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, config, afm, guards } from "./helpers";
+import { login, config, afm, guards, getAuthToken } from "./helpers";
 
 /**
  * AFM Frontend Test Suite — runs against both standalone and iframe modes.
@@ -77,9 +77,13 @@ test.describe(`AFM Frontend (${MODE} mode)`, () => {
     expect(resp.ok()).toBeTruthy();
     let result = await resp.json();
     if (!result || !result.metadata) {
+      // A mutation through the AFM proxy passes the dashboard's superadmin gate,
+      // so it carries the page's Dex bearer (page.request shares cookies only).
+      const token = await getAuthToken(page);
+      expect(token, "no OIDC token in page storage").toBeTruthy();
       const trig = await page.request.post(`${AFM_BASE}/clusters/local/analysis/escalation`, {
         data: { check_pairs: false },
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       if (trig.ok()) {
         const trigData = await trig.json();

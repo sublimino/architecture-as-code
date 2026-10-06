@@ -71,6 +71,8 @@ export default function WeavePage() {
   const [selectedActor, setSelectedActor] = useState<ProvisionalActor | null>(null)
   const [seeding, setSeeding] = useState(false)
   const [seedResult, setSeedResult] = useState<string | null>(null)
+  const [promoting, setPromoting] = useState<string | null>(null)
+  const [promoteErrors, setPromoteErrors] = useState<Record<string, string>>({})
 
   const fetchData = useCallback(async () => {
     try {
@@ -109,6 +111,27 @@ export default function WeavePage() {
       setSeedResult(err instanceof Error ? err.message : 'Seed failed.')
     } finally {
       setSeeding(false)
+    }
+  }, [getAccessTokenSilently, fetchData])
+
+  // Promote is superadmin-gated server-side (fe-signalloom signal_fusion.py promote_actor);
+  // the page shows the server's refusal rather than hiding the button on a
+  // client-side guess.
+  const handlePromote = useCallback(async (actor: ProvisionalActor) => {
+    setPromoting(actor.id)
+    setPromoteErrors((prev) => {
+      const next = { ...prev }
+      delete next[actor.id]
+      return next
+    })
+    try {
+      const token = await getAccessTokenSilently()
+      await weaveApi.promoteActor(token, actor.id)
+      await fetchData()
+    } catch (err) {
+      setPromoteErrors((prev) => ({ ...prev, [actor.id]: promoteErrorMessage(err) }))
+    } finally {
+      setPromoting(null)
     }
   }, [getAccessTokenSilently, fetchData])
 
@@ -336,6 +359,9 @@ export default function WeavePage() {
               key={actor.id}
               actor={actor}
               onViewEvidence={() => setSelectedActor(actor)}
+              onPromote={() => void handlePromote(actor)}
+              promoting={promoting === actor.id}
+              promoteError={promoteErrors[actor.id]}
             />
           ))}
         </div>
@@ -399,7 +425,36 @@ function SignalThread({ layer, observations }: { layer: SignalLayer; observation
 
 // ─── Actor Card ──────────────────────────────────────────────────────────────
 
-function ActorCard({ actor, onViewEvidence }: { actor: ProvisionalActor; onViewEvidence: () => void }) {
+/** The message a failed promote deserves. Exported so the test can pin the mapping. */
+export function promoteErrorMessage(err: unknown): string {
+  const status = (err as { response?: { status?: number; data?: { error?: { code?: string; message?: string } | string } } })?.response?.status
+  const data = (err as { response?: { data?: unknown } })?.response?.data as
+    | { error?: { code?: string; message?: string } | string; message?: string }
+    | undefined
+  const code = typeof data?.error === 'object' ? data.error?.code : undefined
+  if (status === 403 && code === 'superadmin_required') return 'Promotion is a superadmin action. Your identity is not on the allow-list.'
+  if (status === 404) return 'signal-ingest does not know this actor for your tenant.'
+  if (status === 409) return 'This actor has already been promoted.'
+  if (status === 502 || status === 503) return 'signal-ingest is unreachable from the portal right now.'
+  if (typeof data?.error === 'string') return data.error
+  if (typeof data?.error === 'object' && data.error?.message) return data.error.message
+  return err instanceof Error ? err.message : 'Promote failed.'
+}
+
+function ActorCard({
+  actor,
+  onViewEvidence,
+  onPromote,
+  promoting = false,
+  promoteError,
+}: {
+  actor: ProvisionalActor
+  onViewEvidence: () => void
+  onPromote?: () => void
+  promoting?: boolean
+  promoteError?: string
+}) {
+  const [confirming, setConfirming] = useState(false)
   const layerCount = new Set(actor.evidence_chain.map((e) => e.layer)).size
   const statusColor = STATUS_COLORS[actor.status] ?? 'var(--dim)'
   const confidencePct = Math.round(actor.confidence * 100)
@@ -474,9 +529,11 @@ function ActorCard({ actor, onViewEvidence }: { actor: ProvisionalActor; onViewE
         >
           View Evidence
         </button>
-        {actor.status === 'actionable' && (
+        {actor.status === 'actionable' && !confirming && (
           <button
             data-testid="promote-actor-btn"
+            onClick={() => setConfirming(true)}
+            disabled={promoting}
             style={{
               padding: '7px 14px',
               fontSize: 12,
@@ -485,13 +542,63 @@ function ActorCard({ actor, onViewEvidence }: { actor: ProvisionalActor; onViewE
               border: 'none',
               background: 'var(--teal)',
               color: 'var(--on-accent)',
-              cursor: 'pointer',
+              cursor: promoting ? 'wait' : 'pointer',
+              opacity: promoting ? 0.6 : 1,
             }}
           >
-            Promote
+            {promoting ? 'Promoting...' : 'Promote'}
           </button>
         )}
+        {actor.status === 'actionable' && confirming && (
+          <>
+            <button
+              data-testid="promote-confirm-btn"
+              onClick={() => {
+                setConfirming(false)
+                onPromote?.()
+              }}
+              style={{
+                padding: '7px 14px',
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                background: 'var(--amber)',
+                color: 'var(--on-accent)',
+                cursor: 'pointer',
+              }}
+            >
+              Confirm promote
+            </button>
+            <button
+              data-testid="promote-cancel-btn"
+              onClick={() => setConfirming(false)}
+              style={{
+                padding: '7px 14px',
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--surface2)',
+                color: 'var(--text)',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
       </div>
+      {confirming && (
+        <div data-testid="promote-confirm-note" style={{ fontSize: 11, color: 'var(--amber)' }}>
+          Promotion is a superadmin action and is audited. It marks this actor as one the product acts on.
+        </div>
+      )}
+      {promoteError && (
+        <div role="alert" data-testid="promote-error" style={{ fontSize: 11, color: 'var(--error)' }}>
+          {promoteError}
+        </div>
+      )}
     </div>
   )
 }

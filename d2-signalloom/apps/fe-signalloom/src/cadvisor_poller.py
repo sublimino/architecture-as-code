@@ -21,12 +21,13 @@ import httpx
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api_compat import APIError, authenticated_principal
+from api_compat import APIError, Principal, authenticated_principal
+import claim_tenancy
 
 logger = logging.getLogger("signalloom.cadvisor")
 
 FREEZE_EPSILON = 0.0001  # 0.1 ms threshold for freeze flatline invariant
-DEFAULT_POLL_INTERVAL = 2.0
+DEFAULT_POLL_INTERVAL = 5.0  # cAdvisor re-samples every ~15 s; 2 s only re-parsed the same data
 #: No successful scrape for this long and the API answers 503, not old numbers.
 DEFAULT_STALE_AFTER = 15.0
 CONTAINER_TTL = 60.0
@@ -242,7 +243,10 @@ class CadvisorPoller:
 
     async def poll_once(self) -> dict[str, AgentTelemetry]:
         try:
-            samples = parse_cadvisor_metrics(await self.scrape(), now=self.clock())
+            # The scrape is ~10 MB of Prometheus text; parsing it on the event loop
+            # starved the liveness probe and crash-looped the portal (2026-10-03).
+            text = await self.scrape()
+            samples = await asyncio.to_thread(parse_cadvisor_metrics, text, self.clock())
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             raise
@@ -360,7 +364,10 @@ class CadvisorPoller:
                 pass
 
 
-GLOBAL_CADVISOR_POLLER = CadvisorPoller()
+# NODE_NAME comes from the Deployment (spec.nodeName fieldRef); the kubelet proxy
+# URL is served by the kubectl-proxy sidecar on 127.0.0.1:8001 (deployment.yaml).
+# Without both, every telemetry route answered 503 on every cluster (2026-10-03).
+GLOBAL_CADVISOR_POLLER = CadvisorPoller(node_name=os.getenv("NODE_NAME", "osramp-control-plane"))
 
 router = APIRouter(tags=["telemetry"], dependencies=[Depends(authenticated_principal)])
 
@@ -377,22 +384,79 @@ def _require_fresh_telemetry() -> CadvisorPoller:
     return poller
 
 
+async def _visible_pods(principal: Principal) -> set[tuple[str, str]] | None:
+    """``(namespace, pod_name)`` pairs this caller may read telemetry for.
+
+    ``None`` means "no restriction", which only a superadmin gets.
+
+    A cAdvisor sample carries no tenant: the poller indexes by namespace and
+    pod name, which is why these four routes were previously authenticated but
+    cluster-wide, so an authenticated tenant that knew or guessed another
+    tenant's pod name could read its CPU series. The tenant of a pod is not
+    invented here either; it is the pod's own ``signalloom.ai/tenant`` label,
+    read through the same discovery source ``claim_tenancy`` uses for the claim
+    decision. That keeps one answer to "whose pod is this" rather than two that
+    can disagree.
+
+    Discovery being unreadable fails the request closed (``claim_tenancy``
+    raises 503), not open. An unavailable tenant map means the gate cannot be
+    applied, and answering without it is exactly the leak this closes.
+    """
+    from superadmin import is_superadmin
+
+    if is_superadmin(principal):
+        return None
+
+    workloads = await claim_tenancy.list_workloads()
+    visible: set[tuple[str, str]] = set()
+    for workload in workloads:
+        declared = workload.get("tenant")
+        if not isinstance(declared, str) or declared.strip() != principal.tenant:
+            continue
+        namespace = workload.get("namespace")
+        if not isinstance(namespace, str) or not namespace:
+            continue
+        # Discovery reports a pod under any of these keys depending on source;
+        # every one of them is a name the poller could have indexed.
+        for key in ("name", "id", "agent_name", "pod"):
+            value = workload.get(key)
+            if isinstance(value, str) and value:
+                visible.add((namespace, value))
+    return visible
+
+
 @router.get("/api/v1/telemetry/agents/{pod_name}")
 @router.get("/api/telemetry/agents/{pod_name}")
 async def get_agent_telemetry(
-    pod_name: str, stream: bool = False, namespace: Optional[str] = None, request: Request = None
+    pod_name: str,
+    principal: Principal = Depends(authenticated_principal),
+    stream: bool = False,
+    namespace: Optional[str] = None,
+    request: Request = None,
 ):
     poller = _require_fresh_telemetry()
+    visible = await _visible_pods(principal)
+
+    def permitted(item: AgentTelemetry) -> bool:
+        return visible is None or (item.namespace, item.pod_name) in visible
+
     accept = request.headers.get("accept", "") if request else ""
     if stream or "text/event-stream" in accept:
+        # The stream is filtered per item rather than refused up front: a pod
+        # the caller may not read must never reach the wire, and a pod that
+        # appears later (the poller discovers containers continuously) must be
+        # subject to the same check as one that was already indexed.
         queue, unsubscribe = poller.subscribe(pod_name)
 
         async def sse_stream():
             try:
                 while True:
                     item: AgentTelemetry = await queue.get()
-                    if namespace is None or item.namespace == namespace:
-                        yield format_sse(item)
+                    if namespace is not None and item.namespace != namespace:
+                        continue
+                    if not permitted(item):
+                        continue
+                    yield format_sse(item)
             finally:
                 unsubscribe()
 
@@ -408,6 +472,10 @@ async def get_agent_telemetry(
         )
 
     matches = [t for t in poller.find_telemetry(pod_name) if namespace is None or t.namespace == namespace]
+    # Filtered before the count, so another tenant's pod cannot be detected
+    # through the 409: were it counted first, two pods of the same name in two
+    # tenants would answer "ambiguous" and confirm the other one exists.
+    matches = [t for t in matches if permitted(t)]
     if not matches:
         raise APIError(404, "telemetry_not_found", "No telemetry for this agent pod")
     if len(matches) > 1:
@@ -419,8 +487,18 @@ async def get_agent_telemetry(
 
 @router.get("/api/v1/telemetry/agents")
 @router.get("/api/telemetry/agents")
-async def list_agent_telemetry():
-    return JSONResponse(_require_fresh_telemetry().get_all_telemetry())
+async def list_agent_telemetry(
+    principal: Principal = Depends(authenticated_principal),
+):
+    poller = _require_fresh_telemetry()
+    visible = await _visible_pods(principal)
+    everything = poller.get_all_telemetry()
+    if visible is None:
+        return JSONResponse(everything)
+    return JSONResponse({
+        key: value for key, value in everything.items()
+        if (value.get("namespace"), value.get("pod_name")) in visible
+    })
 
 
 def install_cadvisor_telemetry_api(app: FastAPI) -> None:

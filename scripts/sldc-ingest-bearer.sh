@@ -8,6 +8,22 @@
 #   sldc-ingest-bearer.sh --context CTX [--key NAME]...          create if absent, else converge / no-op
 #   sldc-ingest-bearer.sh --context CTX [--key NAME]... --rotate replace with newly generated values
 #   ... | sldc-ingest-bearer.sh --context CTX --key NAME --from-stdin   install the value read from stdin
+#   sldc-ingest-bearer.sh --context CTX --key NAME --emit-remote-secrets DIR   write the consumer Secret as YAML
+#
+# --emit-remote-secrets DIR converges the selected keys as usual, then writes
+# each one's consumer Secret to DIR/<secret>.yaml for `kubectl apply` on
+# ANOTHER cluster. Nothing is applied to a remote cluster by this script, and
+# nothing is written for a key whose caller is an operator tool with no
+# consumer Secret. The warden's remote key is
+# `--key signalloom-warden`, whose consumer Secret is
+# fe-signalloom-agents/signalloom-warden-ingest-token, which is the name the
+# remote-tenant overlay's DaemonSet reads.
+#
+# DIR is created mode 0700 and each file written mode 0600. The files hold key
+# material in clear base64. Hand them over on an agreed secure channel and
+# delete them. scripts/fleet-manager-caller-keys.sh --emit-remote-secrets
+# writes the same ingest Secret plus the fleet caller key, so one of the two
+# commands is usually enough.
 #
 # Without --key, every key in KEYS below. One key per caller, each a random
 # 32-byte token (base64url) held in two Secrets with the same value:
@@ -62,7 +78,7 @@ FIELD_MANAGER=sldc-ingest-bearer
 
 log() { printf '[sldc-ingest-bearer] %s\n' "$*" >&2; }
 usage() {
-	sed -n '7,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+	sed -n '7,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
 }
 die() { # die CODE MESSAGE
 	log "ERROR: $2"
@@ -127,6 +143,25 @@ write_issuer() {
 		"$2" "$1" "$b64" "$exp" |
 		kube apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null ||
 		die 3 "could not write Secret $1/$2 in context $CONTEXT; the two Secrets may now disagree — re-run to converge them"
+}
+
+# emit_consumer_secret NS NAME TOKEN: write the consumer Secret to EMIT_DIR as
+# YAML for `kubectl apply` on another cluster. Nothing is applied here.
+#
+# Same document shape as write_token, so the file a remote cluster applies and
+# the Secret this cluster holds are the same object with the same labels. The
+# subshell sets umask 077 before mkdir and before the redirect, so neither the
+# directory nor the file is ever group- or world-readable, not even briefly.
+emit_consumer_secret() {
+	local b64 out="$EMIT_DIR/$2.yaml"
+	b64=$(printf '%s' "$3" | base64 | tr -d '\n')
+	(
+		umask 077
+		mkdir -p "$EMIT_DIR" || exit 1
+		printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: sldc-ingest-bearer\n    signalloom.io/credential: ingest-static-bearer\ntype: Opaque\ndata:\n  token: %s\n' \
+			"$2" "$1" "$b64" >"$out" || exit 1
+	) || die 3 "could not write $out"
+	log "  wrote $out (apply it on the REMOTE cluster, then delete it)"
 }
 
 # key_row NAME -> the KEYS row, or nothing.
@@ -197,7 +232,7 @@ converge_key() {
 }
 
 main() {
-	CONTEXT="" ROTATE="" FROM_STDIN=""
+	CONTEXT="" ROTATE="" FROM_STDIN="" EMIT_DIR=""
 	local selected=() row
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -214,6 +249,11 @@ main() {
 			;;
 		--rotate) ROTATE=1; shift ;;
 		--from-stdin) FROM_STDIN=1; shift ;;
+		--emit-remote-secrets)
+			[[ -n "${2:-}" ]] || die 2 "--emit-remote-secrets needs a directory"
+			EMIT_DIR="$2"
+			shift 2
+			;;
 		-h | --help) usage; return 0 ;;
 		*) usage; die 2 "unknown argument: $1" ;;
 		esac
@@ -231,6 +271,22 @@ main() {
 	for row in "${selected[@]}"; do
 		converge_key "$row" "$stdin_value"
 	done
+	# Emission is a second pass over the same rows, after every key has
+	# converged: a file written from a value that a later failure would have
+	# changed is worse than no file.
+	if [[ -n "$EMIT_DIR" ]]; then
+		local name consumer_ns consumer_secret rest token
+		for row in "${selected[@]}"; do
+			IFS='|' read -r name consumer_ns consumer_secret rest <<<"$row"
+			[[ -n "$consumer_ns" ]] || {
+				log "key $name has no consumer Secret; nothing to emit"
+				continue
+			}
+			token=$(read_token "$ISSUER_NS" "${ISSUER_PREFIX}${name}") || exit $?
+			valid "$token" || die 3 "key $name is absent or too short after converging; refusing to emit"
+			emit_consumer_secret "$consumer_ns" "$consumer_secret" "$token"
+		done
+	fi
 }
 
 main "$@"

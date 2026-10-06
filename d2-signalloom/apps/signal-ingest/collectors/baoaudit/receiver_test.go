@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -201,8 +201,11 @@ func TestAuditReceiver_IngestRawBytes(t *testing.T) {
 }
 
 func TestAuditReceiver_UnixgramSocket(t *testing.T) {
-	sockPath := fmt.Sprintf("/tmp/test-baoaudit-%d.sock", time.Now().UnixNano())
-	defer os.Remove(sockPath)
+	// t.TempDir() rather than a timestamped /tmp name: unique either way, but
+	// this one is cleaned up by the framework instead of leaking a socket inode
+	// into /tmp on every run, and it cannot collide at all. The unixgram path
+	// limit is 108 bytes and t.TempDir() is well inside it.
+	sockPath := filepath.Join(t.TempDir(), "baoaudit.sock")
 
 	sink := &mockSink{}
 	receiver := NewAuditReceiver(100, sink)

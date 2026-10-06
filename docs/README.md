@@ -49,6 +49,7 @@ flowchart TB
     BACK["deploying-a-backend-service.md"]
     RB["gcp-demo/RUNBOOK.md"]
     OPS["gcp-demo/OPERATIONS.md"]
+    KUS["EAP/ pilot pages"]
   end
 
   subgraph debug["3 · Debug it"]
@@ -100,6 +101,19 @@ Start locally. The local workflow needs Docker.
 | [`kagent-d5.md`](kagent-d5.md) | The Kagent agent framework demo (D5) |
 | [`../d2-signalloom/apps/agentmaxxing-host-sensor/README.md`](../d2-signalloom/apps/agentmaxxing-host-sensor/README.md) | AgentMaxxing host sensor and Linux confinement architecture |
 | [`../d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md`](../d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md) | AgentMaxxing demo console and telemetry bridge contract |
+
+The Kusari pilot has its own pages. They are written for a Kusari engineer
+who onboards from zero on the pilot's secondary cluster.
+
+| Document | What it covers |
+| :--- | :--- |
+| [`EAP/README.md`](EAP/README.md) | Pilot overview, what Kusari gets, reading order, and the source records |
+| [`EAP/onboarding.md`](EAP/onboarding.md) | Numbered steps from no access to a signed-in session bound to tenant `kusari` |
+| [`EAP/pages.md`](EAP/pages.md) | One section per dashboard page: path, API calls, actions, and who may take them |
+| [`EAP/secondary-cluster.md`](EAP/secondary-cluster.md) | What runs on the Kusari cluster, the hub-side keys, and the checks for each step |
+| [`EAP/enforcement.md`](EAP/enforcement.md) | Detection triggers, the freeze chain, how it is recorded, how to resume, and the forensic bundle |
+| [`EAP/faq-and-limits.md`](EAP/faq-and-limits.md) | Known limits with the file that proves each one, and what to do instead |
+| [`EAP/remote-contract.md`](EAP/remote-contract.md) | The wire contract between a remote warden, fleet-manager and the portal: TLS, workload report, remote stun, stun state and resume, discovery |
 
 Deploy to GCP after the local tests pass. The GCP workflow costs money and needs cloud credentials.
 
@@ -155,6 +169,7 @@ status without a linked record is "No completion record".
 | [Signal Loom Security Remediation](signalloom/SLSEC-security-remediation-proposal.md) | SLSEC | Delivered: [operational hardening](signalloom/SLSEC-operational-hardening.md) |
 | [SLAAT Whole-System Autonomous Adversarial Testing](Proposal%20-%20SLAAT%20Whole-System%20Autonomous%20Adversarial%20Testing%20%282026-Q4%29.md) | SLAAT | Phase 1 certified: [vulnerability dossier](slaat-phase1-adversarial-dossier.md), [Governor report](slaat/SLAAT-P1-GOVERNOR-REPORT.md). Phase 2 certified: [remediation report](slaat-phase2-remediation-report.md), [Governor report](slaat/SLAAT-P2-GOVERNOR-REPORT.md) |
 | [Spireless Token-Based Agent Identity Migration](Proposal%20—%20Signal%20Loom%20Spireless%20Token-Based%20Agent%20Identity%20Migration%20%282026-Q4%29.md) | SLTM | Phase 1 (static probe API key): `make test-sltm-probe-apikey` |
+| [AWS Telemetry Ingest & Multilayer Policy Engine Beta](Proposal%20—%20Signal%20Loom%20AWS%20Telemetry%20Ingest%20&%20Multilayer%20Policy%20Engine%20Beta%20%282026-Q3%29.md) | SLAWS | Bootstrap, awaiting sign-off: `collectors/awslogs` scaffold (`899d2609`), 17 cards, offline acceptance `make test-signal-ingest` |
 | [Exhaustive System Security and Vulnerability Audit](Proposal%20—%20Exhaustive%20System%20Security%20and%20Vulnerability%20Audit%20%282026-Q3%29.md) |  -  | No completion record |
 | [First User and Privileged-User Onboarding (precursor)](FIRST-USER-ONBOARDING-PROPOSAL.md) |  -  | Evidence analysis. SLON and AMXO build on it. |
 | [SuperCredential Multi-Agent Evolution](multi-agent-supercred-proposal.md) |  -  | No completion record |
@@ -179,6 +194,7 @@ certifications of each mission. The file prefix is the mission shortcode.
 | CRKC  -  Runtime Confinement, Live FAIR Risk, and Kernel Containment | [`crkc-final-mission-certification.md`](signalloom/crkc-final-mission-certification.md) |
 | EAPR  -  Enterprise Access Preview Certification Remediation | [`eapr-governor-log.md`](signalloom/eapr-governor-log.md), [`eap-adversarial-sweep-2026-09-25.md`](signalloom/eap-adversarial-sweep-2026-09-25.md), [`eap-board-reaudit-2026-09-25.md`](signalloom/eap-board-reaudit-2026-09-25.md) |
 | SLED  -  Signal Loom Expiry Daemon | [`sled-mission-certification.md`](signalloom/sled-mission-certification.md), [`sled-p2-certification.md`](signalloom/sled-p2-certification.md), [`sled-p3-certification.md`](signalloom/sled-p3-certification.md) |
+| SLDC  -  Local Dual-Cluster EAP Pilot Validation | [`SLDC-MISSION-CERTIFICATION.md`](eap/SLDC-MISSION-CERTIFICATION.md), [`SLDC-P2-TOPOLOGY-AUDIT.md`](eap/SLDC-P2-TOPOLOGY-AUDIT.md), [`SLDC-P3-TENANT-INVENTORY.md`](eap/SLDC-P3-TENANT-INVENTORY.md), [`SLDC-P5-CHECKLIST-AUDIT.md`](eap/SLDC-P5-CHECKLIST-AUDIT.md), [`SLDC-P6-PREFLIGHT.md`](eap/SLDC-P6-PREFLIGHT.md), [`FINAL-MISSION-CERTIFICATION-REPORT.md`](eap/FINAL-MISSION-CERTIFICATION-REPORT.md). The living pages of the same mission are linked from the Kusari pilot table above. |
 | SLRC  -  SLED Live Runtime Certification Closure | [`slrc-final-certification-dossier.md`](signalloom/evidence/slrc-final-certification-dossier.md), [`slrc-p1-1-teardown-adapters-architecture.md`](signalloom/slrc-p1-1-teardown-adapters-architecture.md), [`slrc-p2-1-lifecycle-persistence-architecture.md`](signalloom/slrc-p2-1-lifecycle-persistence-architecture.md) |
 | SLSEC  -  Signal Loom Security Remediation | [`SLSEC-security-remediation-proposal.md`](signalloom/SLSEC-security-remediation-proposal.md), [`SLSEC-operational-hardening.md`](signalloom/SLSEC-operational-hardening.md) |
 | SLAAT : Whole-System Autonomous Adversarial Testing | [Phase 1 vulnerability dossier](slaat-phase1-adversarial-dossier.md), [Phase 1 Governor report](slaat/SLAAT-P1-GOVERNOR-REPORT.md), [Phase 2 remediation report](slaat-phase2-remediation-report.md), [Phase 2 Governor report](slaat/SLAAT-P2-GOVERNOR-REPORT.md), [`slaat-governor-log.md`](signalloom/slaat-governor-log.md) |

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,6 +51,12 @@ var bootstrapSecrets = map[string]map[string]string{
 	"discovery-portal-database": {
 		"DATABASE_URL":            "postgres://signal@postgres.inf-signalloom:5432/signal",
 		"IDENTITY_ENCRYPTION_KEY": strings.Repeat("ab", 32),
+	},
+	// Minted by scripts/signal-segment-key.sh (make signal-segment-key, run by
+	// demo-signalloom-up): the FrostDB store's pseudonymisation root key and epoch.
+	"signal-ingest-segment-pseudonym": {
+		"SIGNAL_SEGMENT_PSEUDONYM_KEY":   strings.Repeat("cd", 32),
+		"SIGNAL_SEGMENT_PSEUDONYM_EPOCH": "1",
 	},
 }
 
@@ -121,6 +128,13 @@ type deploymentSpec struct {
 				Secret *struct {
 					SecretName string `yaml:"secretName"`
 				} `yaml:"secret"`
+				// A signal store on an emptyDir is erased on every reschedule, so
+				// decoding both tells the durability test which one it got rather
+				// than letting an absent claim read as "no volume configured".
+				EmptyDir              *struct{} `yaml:"emptyDir"`
+				PersistentVolumeClaim *struct {
+					ClaimName string `yaml:"claimName"`
+				} `yaml:"persistentVolumeClaim"`
 				Projected *struct {
 					Sources []struct {
 						Secret *struct {
@@ -788,5 +802,94 @@ func TestEachInClusterCallerMountsItsOwnKey(t *testing.T) {
 				t.Errorf("SIGNAL_INGEST_KEY_FILE = %q, want %s/token", keyFile, mountPath)
 			}
 		})
+	}
+}
+
+// TestReconciledManifestStoresSignalsDurably is the P1-1 durability gate.
+//
+// Two halves of one claim, which is why they are asserted together. The binary only opens the
+// Parquet-backed FrostDB store when SIGNAL_STORE=frostdb (store/factory_frostdb.go); unset, it
+// silently returns a MemoryStore and every observation lives in RAM. And a FrostDB store whose
+// SIGNAL_STORE_DIR is an emptyDir is erased on every reschedule, so it would be durable only
+// until the pod moved. Either half alone is a store that loses data while reporting success, so a
+// manifest that sets the env without the claim, or mounts the claim without the env, is red here.
+func TestReconciledManifestStoresSignalsDurably(t *testing.T) {
+	r := renderReconciledManifest(t)
+
+	env := map[string]string{}
+	for _, e := range r.container.Env {
+		if e.ValueFrom == nil {
+			env[e.Name] = e.Value
+		}
+	}
+	if got := env["SIGNAL_STORE"]; got != "frostdb" {
+		t.Errorf("SIGNAL_STORE = %q, want %q; store.NewStoreFromEnv returns an in-memory store on anything else", got, "frostdb")
+	}
+	const storeDir = "/data/signals"
+	if got := env["SIGNAL_STORE_DIR"]; got != storeDir {
+		t.Errorf("SIGNAL_STORE_DIR = %q, want %q", got, storeDir)
+	}
+
+	// The store directory is backed by a claim, and mounted writable where the binary writes.
+	var claimName string
+	var found bool
+	for _, v := range r.deployment.Template.Spec.Volumes {
+		if v.Name != "signal-store" {
+			continue
+		}
+		found = true
+		if v.EmptyDir != nil {
+			t.Errorf("volume signal-store is an emptyDir; %s is erased on every reschedule", storeDir)
+		}
+		if v.PersistentVolumeClaim == nil {
+			t.Fatal("volume signal-store has no persistentVolumeClaim")
+		}
+		claimName = v.PersistentVolumeClaim.ClaimName
+	}
+	if !found {
+		t.Fatal("the Deployment declares no signal-store volume")
+	}
+	var mounted bool
+	for _, m := range r.container.VolumeMounts {
+		if m.Name != "signal-store" {
+			continue
+		}
+		mounted = m.MountPath == storeDir
+		if m.ReadOnly {
+			t.Error("signal-store is mounted read-only; the store writes Parquet files to it")
+		}
+	}
+	if !mounted {
+		t.Errorf("signal-store is not mounted at %s, where SIGNAL_STORE_DIR points", storeDir)
+	}
+
+	// The claim is reconciled alongside the Deployment; a claimName naming nothing leaves the pod
+	// Pending forever, which is the failure this assertion catches at build time instead.
+	pvc, ok := r.object("PersistentVolumeClaim", claimName)
+	if !ok {
+		t.Fatalf("the Deployment claims %q, which the reconciled manifest does not create", claimName)
+	}
+	var spec struct {
+		AccessModes      []string `yaml:"accessModes"`
+		StorageClassName *string  `yaml:"storageClassName"`
+		Resources        struct {
+			Requests struct {
+				Storage string `yaml:"storage"`
+			} `yaml:"requests"`
+		} `yaml:"resources"`
+	}
+	if err := pvc.Spec.Decode(&spec); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(spec.AccessModes, []string{"ReadWriteOnce"}) {
+		t.Errorf("accessModes = %v, want [ReadWriteOnce]; one writer, which is what replicas: 1 is", spec.AccessModes)
+	}
+	if got := spec.Resources.Requests.Storage; got != "10Gi" {
+		t.Errorf("storage request = %q, want 10Gi", got)
+	}
+	// Unset, not "": an explicit empty string means "no class", which disables dynamic
+	// provisioning and is not the same as taking the cluster default.
+	if spec.StorageClassName != nil {
+		t.Errorf("storageClassName = %q, want it unset so the cluster default provisions the volume", *spec.StorageClassName)
 	}
 }

@@ -53,6 +53,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
 from api_compat import APIError, Principal, authenticated_principal
+from cross_tenant_audit import audit_cross_tenant_read
 from ingest_client import ingest_headers, ingest_headers_for_tenant
 from superadmin import is_superadmin
 
@@ -131,7 +132,6 @@ async def _proxy(
                 # not become a 502: the status is the answer, and inventing a JSON body for it
                 # would hide which hop refused.
                 content = {"error": "upstream_non_json", "status": resp.status_code}
-            return JSONResponse(status_code=resp.status_code, content=content)
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _signal_ingest_url())
         raise APIError(502, "upstream_unavailable", "signal-ingest service unreachable") from exc
@@ -143,6 +143,19 @@ async def _proxy(
     except Exception as exc:
         logger.exception("signal-ingest policy proxy error: %s %s", method, path)
         raise APIError(502, "upstream_unavailable", "signal-ingest proxy error") from exc
+
+    if not write and 200 <= resp.status_code < 300:
+        # Gated on `write`, not just the response: POST .../review's own cross-tenant retry
+        # (ingest_headers_for_tenant, below) is a write acting for another tenant on purpose, and
+        # its response naming that tenant is not a "read" in the sense this audits -- auditing it
+        # here would mislabel a recorded write as a cross_tenant_read. GET /rates is a harmless
+        # no-op (no tenant_id field in its response at all) -- see cross_tenant_audit's module
+        # docstring. Raises 503 database_unavailable (fail closed) if a superadmin's read
+        # surfaced another tenant's data and the audit database is unreachable.
+        await audit_cross_tenant_read(
+            principal, f"{method} {path}", content, what=f"Reading {path} cross-tenant",
+        )
+    return JSONResponse(status_code=resp.status_code, content=content)
 
 
 def _read_params(

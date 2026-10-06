@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -99,3 +100,242 @@ func (m *MemoryStore) DropPartition(_ context.Context, before time.Time) error {
 func (m *MemoryStore) Close() error {
 	return nil
 }
+
+// QueryPage returns observations matching the page query filters in (timestamp DESC, id DESC) order.
+func (m *MemoryStore) QueryPage(_ context.Context, q PageQuery) ([]model.Observation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	layerSet := make(map[model.Layer]struct{}, len(q.Layers))
+	for _, l := range q.Layers {
+		layerSet[l] = struct{}{}
+	}
+
+	hasCursor := !q.CursorTimestamp.IsZero() || q.CursorID != ""
+
+	if q.Limit > 0 {
+		h := newObservationMinHeap(q.Limit)
+		seen := make(map[string]struct{})
+
+		for i := range m.data {
+			o := &m.data[i]
+			if !q.After.IsZero() && o.Timestamp.Before(q.After) {
+				continue
+			}
+			if !q.Before.IsZero() && !o.Timestamp.Before(q.Before) {
+				continue
+			}
+			if len(layerSet) > 0 {
+				if _, ok := layerSet[o.Layer]; !ok {
+					continue
+				}
+			}
+			if q.ActorID != "" && o.ActorHint != q.ActorID {
+				continue
+			}
+			if q.SubjectID != "" {
+				matchSubject := (o.ActorHint == q.SubjectID) ||
+					(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
+						o.Labels["principal_id"] == q.SubjectID ||
+						o.Labels["impersonated_user"] == q.SubjectID ||
+						o.Labels["user"] == q.SubjectID))
+				if !matchSubject {
+					continue
+				}
+			}
+			if !q.AllTenants {
+				if q.Tenant == "" || o.Labels == nil || o.Labels["tenant_id"] != q.Tenant {
+					continue
+				}
+			}
+			if hasCursor {
+				if !(o.Timestamp.Before(q.CursorTimestamp) || (o.Timestamp.Equal(q.CursorTimestamp) && o.ID < q.CursorID)) {
+					continue
+				}
+			}
+			if o.ID != "" {
+				if _, dup := seen[o.ID]; dup {
+					continue
+				}
+				seen[o.ID] = struct{}{}
+			}
+			h.push(*o)
+		}
+
+		return h.sorted(), nil
+	}
+
+	var matched []model.Observation
+	for _, o := range m.data {
+		if !q.After.IsZero() && o.Timestamp.Before(q.After) {
+			continue
+		}
+		if !q.Before.IsZero() && !o.Timestamp.Before(q.Before) {
+			continue
+		}
+		if len(layerSet) > 0 {
+			if _, ok := layerSet[o.Layer]; !ok {
+				continue
+			}
+		}
+		if q.ActorID != "" && o.ActorHint != q.ActorID {
+			continue
+		}
+		if q.SubjectID != "" {
+			matchSubject := (o.ActorHint == q.SubjectID) ||
+				(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
+					o.Labels["principal_id"] == q.SubjectID ||
+					o.Labels["impersonated_user"] == q.SubjectID ||
+					o.Labels["user"] == q.SubjectID))
+			if !matchSubject {
+				continue
+			}
+		}
+		if !q.AllTenants {
+			if q.Tenant == "" || o.Labels == nil || o.Labels["tenant_id"] != q.Tenant {
+				continue
+			}
+		}
+		matched = append(matched, o)
+	}
+
+	matched = DedupeByID(matched)
+
+	// Sort in (timestamp DESC, id DESC) order.
+	sortObservations(matched)
+
+	// Apply cursor filter: keep only rows strictly after (CursorTimestamp, CursorID) in tuple order.
+	if hasCursor {
+		filtered := make([]model.Observation, 0, len(matched))
+		for _, o := range matched {
+			if o.Timestamp.Before(q.CursorTimestamp) || (o.Timestamp.Equal(q.CursorTimestamp) && o.ID < q.CursorID) {
+				filtered = append(filtered, o)
+			}
+		}
+		matched = filtered
+	}
+
+	return matched, nil
+}
+
+// Stats computes observation statistics without materializing or decoding observations.
+func (m *MemoryStore) Stats(_ context.Context, q StatsQuery) (StoreStats, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	byLayer := make(map[string]int)
+	byFidelity := make(map[string]int)
+	var lastIngestion *time.Time
+	total := 0
+
+	for _, o := range m.data {
+		if !q.AllTenants {
+			if q.Tenant == "" || o.Labels == nil || o.Labels["tenant_id"] != q.Tenant {
+				continue
+			}
+		}
+		total++
+		if o.Layer != "" {
+			byLayer[string(o.Layer)]++
+		}
+		if o.Fidelity != "" {
+			byFidelity[string(o.Fidelity)]++
+		}
+		if lastIngestion == nil || o.Timestamp.After(*lastIngestion) {
+			t := o.Timestamp
+			lastIngestion = &t
+		}
+	}
+
+	return StoreStats{
+		TotalObservations:      total,
+		ObservationsByLayer:    byLayer,
+		ObservationsByFidelity: byFidelity,
+		LastIngestion:          lastIngestion,
+	}, nil
+}
+
+// sortObservations sorts observations by (timestamp DESC, id DESC).
+func sortObservations(obs []model.Observation) {
+	sort.SliceStable(obs, func(i, j int) bool {
+		if obs[i].Timestamp.Equal(obs[j].Timestamp) {
+			return obs[i].ID > obs[j].ID
+		}
+		return obs[i].Timestamp.After(obs[j].Timestamp)
+	})
+}
+
+type observationMinHeap struct {
+	items []model.Observation
+	cap   int
+}
+
+func newObservationMinHeap(capacity int) *observationMinHeap {
+	return &observationMinHeap{
+		items: make([]model.Observation, 0, capacity),
+		cap:   capacity,
+	}
+}
+
+// obsIsLess returns true if a is "smaller" than b in (Timestamp DESC, ID DESC) order.
+func obsIsLess(a, b *model.Observation) bool {
+	if a.Timestamp.Equal(b.Timestamp) {
+		return a.ID < b.ID
+	}
+	return a.Timestamp.Before(b.Timestamp)
+}
+
+func (h *observationMinHeap) push(o model.Observation) {
+	if len(h.items) < h.cap {
+		h.items = append(h.items, o)
+		h.siftUp(len(h.items) - 1)
+		return
+	}
+	if len(h.items) == 0 {
+		return
+	}
+	// If o is smaller than or equal to the minimum in heap, discard it.
+	if obsIsLess(&o, &h.items[0]) || (!obsIsLess(&h.items[0], &o) && o.ID == h.items[0].ID && o.Timestamp.Equal(h.items[0].Timestamp)) {
+		return
+	}
+	// o is larger than root: replace root and sift down.
+	h.items[0] = o
+	h.siftDown(0)
+}
+
+func (h *observationMinHeap) siftUp(i int) {
+	for i > 0 {
+		parent := (i - 1) / 2
+		if !obsIsLess(&h.items[i], &h.items[parent]) {
+			break
+		}
+		h.items[i], h.items[parent] = h.items[parent], h.items[i]
+		i = parent
+	}
+}
+
+func (h *observationMinHeap) siftDown(i int) {
+	n := len(h.items)
+	for {
+		left := 2*i + 1
+		if left >= n {
+			break
+		}
+		smallest := left
+		right := left + 1
+		if right < n && obsIsLess(&h.items[right], &h.items[left]) {
+			smallest = right
+		}
+		if !obsIsLess(&h.items[smallest], &h.items[i]) {
+			break
+		}
+		h.items[i], h.items[smallest] = h.items[smallest], h.items[i]
+		i = smallest
+	}
+}
+
+func (h *observationMinHeap) sorted() []model.Observation {
+	sortObservations(h.items)
+	return h.items
+}
+

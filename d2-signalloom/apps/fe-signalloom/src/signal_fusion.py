@@ -40,7 +40,15 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
         ) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
-            return JSONResponse(status_code=resp.status_code, content=resp.json())
+            out_headers: dict[str, str] = {}
+            for h in ("x-next-cursor", "link", "x-result-truncated"):
+                if h in resp.headers:
+                    out_headers[h] = resp.headers[h]
+            return JSONResponse(
+                status_code=resp.status_code,
+                content=resp.json(),
+                headers=out_headers if out_headers else None,
+            )
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
         raise APIError(
@@ -69,11 +77,14 @@ async def get_observations(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     layer: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
+    cursor: str | None = None,
 ) -> JSONResponse:
     """List signal observations from the columnar store."""
     params: dict[str, Any] = {"limit": limit}
     if layer:
         params["layer"] = layer
+    if cursor:
+        params["cursor"] = cursor
     return await _proxy("GET", "/api/v1/observations", principal, params=params)
 
 

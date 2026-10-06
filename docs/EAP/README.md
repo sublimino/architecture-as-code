@@ -36,6 +36,7 @@ The architecture decisions that define this shape are ADR-11 to ADR-14 in
 4. [enforcement.md](enforcement.md). What the warden does when an agent misbehaves, how it is recorded, and what the forensic bundle holds.
 5. [faq-and-limits.md](faq-and-limits.md). Known limits and what to do when something is not there.
 6. [kusari-e2e.md](kusari-e2e.md). The AWS signal path: how to run its tests, read the per-rule table, add a signal or a rule, and replay a window. Two known defects are named there.
+7. [observations-api.md](observations-api.md). The signal-ingest observations endpoint: deterministic ordering, cursor pagination, and response headers.
 
 ## Source records
 

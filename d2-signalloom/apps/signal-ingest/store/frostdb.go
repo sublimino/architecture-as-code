@@ -538,6 +538,258 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 	return results, nil
 }
 
+// QueryPage reads observations from FrostDB using the query engine with pushed-down filters,
+// returning bounded results ordered by (timestamp DESC, id DESC).
+func (f *FrostDBStore) QueryPage(ctx context.Context, q PageQuery) ([]model.Observation, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Fold the retention floor into q.After so engine-level filtering prunes dropped partitions.
+	if !f.droppedBefore.IsZero() {
+		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
+			q.After = f.droppedBefore
+		}
+	}
+
+	builder := f.engine.ScanTable(tableName).
+		Project(logicalplan.All())
+
+	filterQuery := Query{
+		Layers:    q.Layers,
+		After:     q.After,
+		Before:    q.Before,
+		ActorID:   q.ActorID,
+		SubjectID: q.SubjectID,
+	}
+	filter, err := buildFilter(filterQuery, f.pseudonymiser)
+	if err != nil {
+		return nil, fmt.Errorf("frostdb: build filter: %w", err)
+	}
+	if filter != nil {
+		builder = builder.Filter(filter)
+	}
+
+	hasCursor := !q.CursorTimestamp.IsZero() || q.CursorID != ""
+
+	if q.Limit > 0 {
+		h := newObservationMinHeap(q.Limit)
+		seen := make(map[string]struct{})
+
+		err = builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
+			n := int(r.NumRows())
+			if n == 0 {
+				return nil
+			}
+			schema := r.Schema()
+			colIdx := make(map[string]int, schema.NumFields())
+			for i, field := range schema.Fields() {
+				colIdx[field.Name] = i
+			}
+
+			tenantColIdx, hasTenantCol := colIdx["labels.tenant_id"]
+			tsColIdx, hasTsCol := colIdx["timestamp"]
+			idColIdx, hasIDCol := colIdx["id"]
+
+			for i := 0; i < n; i++ {
+				if !q.AllTenants {
+					if q.Tenant == "" || !hasTenantCol {
+						continue
+					}
+					rowTenant := stringAt(r.Column(tenantColIdx), i)
+					if rowTenant != q.Tenant {
+						continue
+					}
+				}
+
+				var rowTs time.Time
+				if hasTsCol {
+					ns := int64At(r.Column(tsColIdx), i)
+					if ns > 0 {
+						rowTs = time.Unix(0, ns).UTC()
+					}
+				}
+				var rowID string
+				if hasIDCol {
+					rowID = stringAt(r.Column(idColIdx), i)
+				}
+
+				if hasCursor {
+					if !(rowTs.Before(q.CursorTimestamp) || (rowTs.Equal(q.CursorTimestamp) && rowID < q.CursorID)) {
+						continue
+					}
+				}
+
+				if rowID != "" {
+					if _, dup := seen[rowID]; dup {
+						continue
+					}
+					seen[rowID] = struct{}{}
+				}
+
+				if len(h.items) == h.cap && len(h.items) > 0 {
+					root := &h.items[0]
+					if rowTs.Before(root.Timestamp) || (rowTs.Equal(root.Timestamp) && rowID <= root.ID) {
+						continue
+					}
+				}
+
+				o := decodeObservationAt(r, i, colIdx)
+				h.push(o)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("frostdb: query page execute: %w", err)
+		}
+
+		return h.sorted(), nil
+	}
+
+	var results []model.Observation
+	err = builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
+		n := int(r.NumRows())
+		if n == 0 {
+			return nil
+		}
+		schema := r.Schema()
+		colIdx := make(map[string]int, schema.NumFields())
+		for i, field := range schema.Fields() {
+			colIdx[field.Name] = i
+		}
+
+		tenantColIdx, hasTenantCol := colIdx["labels.tenant_id"]
+
+		for i := 0; i < n; i++ {
+			if !q.AllTenants {
+				if q.Tenant == "" || !hasTenantCol {
+					continue
+				}
+				rowTenant := stringAt(r.Column(tenantColIdx), i)
+				if rowTenant != q.Tenant {
+					continue
+				}
+			}
+
+			o := decodeObservationAt(r, i, colIdx)
+			results = append(results, o)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("frostdb: query page execute: %w", err)
+	}
+
+	results = DedupeByID(results)
+
+	// Sort in (timestamp DESC, id DESC) order.
+	sortObservations(results)
+
+	// Apply cursor filter: keep only rows strictly after (CursorTimestamp, CursorID) in tuple order.
+	if hasCursor {
+		filtered := make([]model.Observation, 0, len(results))
+		for _, o := range results {
+			if o.Timestamp.Before(q.CursorTimestamp) || (o.Timestamp.Equal(q.CursorTimestamp) && o.ID < q.CursorID) {
+				filtered = append(filtered, o)
+			}
+		}
+		results = filtered
+	}
+
+	return results, nil
+}
+
+// Stats computes observation statistics without materializing or decoding full observations.
+func (f *FrostDBStore) Stats(ctx context.Context, q StatsQuery) (StoreStats, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	projections := []logicalplan.Expr{
+		colRef(colLayer),
+		colRef("fidelity"),
+		colRef(colTimestamp),
+	}
+	if !q.AllTenants && q.Tenant != "" {
+		projections = append(projections, colRef("labels.tenant_id"))
+	}
+
+	builder := f.engine.ScanTable(tableName).
+		Project(projections...)
+
+	if !f.droppedBefore.IsZero() {
+		filter := colRef(colTimestamp).GtEq(logicalplan.Literal(f.droppedBefore.UnixNano()))
+		builder = builder.Filter(filter)
+	}
+
+	byLayer := make(map[string]int)
+	byFidelity := make(map[string]int)
+	var lastIngestion *time.Time
+	total := 0
+
+	err := builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
+		n := int(r.NumRows())
+		if n == 0 {
+			return nil
+		}
+		schema := r.Schema()
+		colIdx := make(map[string]int, schema.NumFields())
+		for i, field := range schema.Fields() {
+			colIdx[field.Name] = i
+		}
+
+		layerIdx, hasLayer := colIdx["layer"]
+		fidelityIdx, hasFidelity := colIdx["fidelity"]
+		tsIdx, hasTs := colIdx["timestamp"]
+		tenantIdx, hasTenant := colIdx["labels.tenant_id"]
+
+		for i := 0; i < n; i++ {
+			if !q.AllTenants {
+				if q.Tenant == "" || !hasTenant {
+					continue
+				}
+				rowTenant := stringAt(r.Column(tenantIdx), i)
+				if rowTenant != q.Tenant {
+					continue
+				}
+			}
+
+			total++
+
+			if hasLayer {
+				l := stringAt(r.Column(layerIdx), i)
+				if l != "" {
+					byLayer[l]++
+				}
+			}
+			if hasFidelity {
+				fid := stringAt(r.Column(fidelityIdx), i)
+				if fid != "" {
+					byFidelity[fid]++
+				}
+			}
+			if hasTs {
+				ns := int64At(r.Column(tsIdx), i)
+				if ns > 0 {
+					ts := time.Unix(0, ns).UTC()
+					if lastIngestion == nil || ts.After(*lastIngestion) {
+						lastIngestion = &ts
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return StoreStats{}, fmt.Errorf("frostdb: stats execute: %w", err)
+	}
+
+	return StoreStats{
+		TotalObservations:      total,
+		ObservationsByLayer:    byLayer,
+		ObservationsByFidelity: byFidelity,
+		LastIngestion:          lastIngestion,
+	}, nil
+}
+
 // matchesQuery applies query filters to an observation. Retained as a correctness
 // oracle for testing equivalence between pushed-down FrostDB execution and in-memory evaluation.
 //
@@ -629,98 +881,102 @@ func recordToObservations(r arrow.Record) []model.Observation {
 	}
 
 	results := make([]model.Observation, n)
-	generation := SegmentSchemaOf(r)
-
 	for i := 0; i < n; i++ {
-		o := model.Observation{
-			Labels:        make(map[string]string),
-			SchemaVersion: generation,
-		}
-
-		if idx, ok := colIdx["id"]; ok {
-			o.ID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["timestamp"]; ok {
-			ns := int64At(r.Column(idx), i)
-			o.Timestamp = time.Unix(0, ns).UTC()
-		}
-		if idx, ok := colIdx["layer"]; ok {
-			o.Layer = model.Layer(stringAt(r.Column(idx), i))
-		}
-		if idx, ok := colIdx["fidelity"]; ok {
-			o.Fidelity = model.FidelityTier(stringAt(r.Column(idx), i))
-		}
-		if idx, ok := colIdx["source"]; ok {
-			o.Source = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["confidence"]; ok {
-			o.Confidence = float64At(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["actor_hint"]; ok {
-			o.ActorHint = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["raw_evidence_ref"]; ok {
-			o.RawEvidenceRef = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["description"]; ok {
-			o.Description = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["principal_id"]; ok {
-			o.PrincipalID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["actor_id"]; ok {
-			o.ActorID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["session_id"]; ok {
-			o.SessionID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["impersonated_user"]; ok {
-			o.ImpersonatedUser = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx["delegation_depth"]; ok {
-			o.DelegationDepth = int(int64At(r.Column(idx), i))
-		}
-
-		// v2 pseudonym columns. Absent on a v1 record, which is why each is guarded.
-		if idx, ok := colIdx[ColHMACActorHint]; ok {
-			o.HMACActorHint = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx[ColHMACActorID]; ok {
-			o.HMACActorID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx[ColHMACPrincipalID]; ok {
-			o.HMACPrincipalID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx[ColHMACSessionID]; ok {
-			o.HMACSessionID = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx[ColHMACImpersonatedUser]; ok {
-			o.HMACImpersonatedUser = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx[ColEvidenceRefDigest]; ok {
-			o.EvidenceRefDigest = stringAt(r.Column(idx), i)
-		}
-		if idx, ok := colIdx[SegmentSchemaVersionColumn]; ok {
-			if v := stringAt(r.Column(idx), i); v != "" {
-				o.SchemaVersion = v
-			}
-		}
-
-		// Extract dynamic label columns (prefixed with "labels.").
-		for name, idx := range colIdx {
-			if strings.HasPrefix(name, "labels.") {
-				key := strings.TrimPrefix(name, "labels.")
-				val := stringAt(r.Column(idx), i)
-				if val != "" {
-					o.Labels[key] = val
-				}
-			}
-		}
-
-		results[i] = o
+		results[i] = decodeObservationAt(r, i, colIdx)
 	}
 
 	return results
+}
+
+// decodeObservationAt decodes a single model.Observation from an Arrow record at row index i.
+func decodeObservationAt(r arrow.Record, i int, colIdx map[string]int) model.Observation {
+	generation := SegmentSchemaOf(r)
+	o := model.Observation{
+		Labels:        make(map[string]string),
+		SchemaVersion: generation,
+	}
+
+	if idx, ok := colIdx["id"]; ok {
+		o.ID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["timestamp"]; ok {
+		ns := int64At(r.Column(idx), i)
+		o.Timestamp = time.Unix(0, ns).UTC()
+	}
+	if idx, ok := colIdx["layer"]; ok {
+		o.Layer = model.Layer(stringAt(r.Column(idx), i))
+	}
+	if idx, ok := colIdx["fidelity"]; ok {
+		o.Fidelity = model.FidelityTier(stringAt(r.Column(idx), i))
+	}
+	if idx, ok := colIdx["source"]; ok {
+		o.Source = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["confidence"]; ok {
+		o.Confidence = float64At(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["actor_hint"]; ok {
+		o.ActorHint = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["raw_evidence_ref"]; ok {
+		o.RawEvidenceRef = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["description"]; ok {
+		o.Description = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["principal_id"]; ok {
+		o.PrincipalID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["actor_id"]; ok {
+		o.ActorID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["session_id"]; ok {
+		o.SessionID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["impersonated_user"]; ok {
+		o.ImpersonatedUser = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx["delegation_depth"]; ok {
+		o.DelegationDepth = int(int64At(r.Column(idx), i))
+	}
+
+	// v2 pseudonym columns. Absent on a v1 record, which is why each is guarded.
+	if idx, ok := colIdx[ColHMACActorHint]; ok {
+		o.HMACActorHint = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx[ColHMACActorID]; ok {
+		o.HMACActorID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx[ColHMACPrincipalID]; ok {
+		o.HMACPrincipalID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx[ColHMACSessionID]; ok {
+		o.HMACSessionID = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx[ColHMACImpersonatedUser]; ok {
+		o.HMACImpersonatedUser = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx[ColEvidenceRefDigest]; ok {
+		o.EvidenceRefDigest = stringAt(r.Column(idx), i)
+	}
+	if idx, ok := colIdx[SegmentSchemaVersionColumn]; ok {
+		if v := stringAt(r.Column(idx), i); v != "" {
+			o.SchemaVersion = v
+		}
+	}
+
+	// Extract dynamic label columns (prefixed with "labels.").
+	for name, idx := range colIdx {
+		if strings.HasPrefix(name, "labels.") {
+			key := strings.TrimPrefix(name, "labels.")
+			val := stringAt(r.Column(idx), i)
+			if val != "" {
+				o.Labels[key] = val
+			}
+		}
+	}
+
+	return o
 }
 
 // stringAt safely extracts a string from an Arrow array at position i.

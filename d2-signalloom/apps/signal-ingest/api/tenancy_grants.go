@@ -148,6 +148,9 @@ func (s actorScope) filter(actors []*model.ProvisionalActor) []*model.Provisiona
 
 // scopedActors is Engine.GetActors as the request's principal may see it.
 func (h *Handlers) scopedActors(r *http.Request) ([]*model.ProvisionalActor, error) {
+	if h.Engine == nil {
+		return nil, nil
+	}
 	s, err := h.actorScopeFor(r)
 	if err != nil {
 		return nil, err
@@ -158,6 +161,9 @@ func (h *Handlers) scopedActors(r *http.Request) ([]*model.ProvisionalActor, err
 // scopedActor is Engine.GetActor as the request's principal may see it: an actor of another
 // tenant is nil, exactly like an absent one, so the reply cannot confirm it exists.
 func (h *Handlers) scopedActor(r *http.Request, id string) (*model.ProvisionalActor, error) {
+	if h.Engine == nil {
+		return nil, nil
+	}
 	s, err := h.actorScopeFor(r)
 	if err != nil {
 		return nil, err

@@ -178,8 +178,9 @@ check "M3 zero clusters" "AFM zero clusters is a FAIL even when the health endpo
 
 # ─── M4: the MagicDNS check degrades to a prefix match ──────────────────────
 #
-# The likely shape of a well-meaning future edit, and it re-admits sl-demo-1-1 —
-# a node that resolves, serves and answers 200 while being the wrong node.
+# The likely shape of a well-meaning future edit, and it re-admits a
+# Tailscale-suffixed duplicate of the expected hostname — a node that
+# resolves, serves and answers 200 while being the wrong node.
 echo "M4  the MagicDNS name check accepts a prefix instead of requiring equality"
 mutate "$LIB" 's|^  if \[ "\$first_label" = "\$expect_host" \]; then printf .PASS.; else printf .FAIL.; fi$|  case "$first_label" in "${expect_host}"*) printf "PASS" ;; *) printf "FAIL" ;; esac|'
 check "M4 magicdns prefix" "TSNAME a suffixed name is REJECTED, not accepted as a prefix match"

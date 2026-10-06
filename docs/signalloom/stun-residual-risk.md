@@ -23,17 +23,28 @@
 >   pod recreation erased `public.audit_events`) was fixed by
 >   `d396b8ee` "feat(signalloom): add host-backed postgres persistence and
 >   lifecycle targets" (2026-10-01), after this record was written.
-> - **Open, unretested against current code — owner to re-verify.**
+> - **Retested 2026-10-06 against `f3bed75a` on `sldc/bypass-retest` — see
+>   `## Retest 2026-10-06` below and the updated register entries.**
 >   BYPASS-001/002/004/005 (credential TTL/lease non-revoke, audit
->   non-atomicity) predate the current `fleet-manager`
->   `RotateAgentCredentials` / `RevokeCredentials` cascade and the
->   `attestation_event_contract.go` Witness-attested pipeline
->   (`d2-signalloom/apps/fleet-manager/openbao_client.go:707-760`), which look
->   like they address the same concerns but were never checked against this
->   register. BYPASS-017/019-025 (cgroup/veth/sentinel-state loss on pod
->   reschedule, node reboot, or sentinel restart) are about the freeze
->   mechanism itself and are architecture-independent; nothing in this repo's
->   current tests exercises them.
+>   non-atomicity): 001 and 005 are now **CLOSED** (token-accessor revoke by
+>   subject in `k8sclient.go:740-826`, and the append-only `audit_events`
+>   trigger in migration 030, respectively); 004 is **PARTIALLY** closed
+>   (registry+audit are now one local transaction, but the remote-mutation/
+>   local-commit gap is architectural and documented, not accidental); 002
+>   stays **UNVERIFIED (needs live lab)** — a real OpenBao pod restart is a
+>   live-cluster action out of scope for this retest, though the premise it
+>   depends on (deleting a role/KV path) no longer describes how containment
+>   revokes credentials. BYPASS-017/019-025 (cgroup/veth/sentinel-state loss on
+>   pod reschedule, node reboot, or sentinel restart): 017, 019 and 025 are now
+>   **CLOSED** by the Deployment/ReplicaSet-level `signalloom.io/stunned`
+>   owner-chain record (`kernel.go`, `main.go`), which the reconciler reads
+>   independently of any pod label or in-memory state and re-applies on every
+>   observed pod, including replacements and a freshly-restarted sentinel's
+>   initial sync. 020 stays **UNVERIFIED (needs live lab)** (node reboot is a
+>   live/destructive action, explicitly out of scope). 021 is refined but still
+>   **PARTIALLY UNVERIFIED**; 022 and 024 are **PARTIALLY** (self-healing
+>   resync bounds 022; the specific config-off vector in 024 no longer exists,
+>   but a new, narrower dead-code question is raised); 023 remains **OPEN**.
 > - The companion input census this statement cites below,
 >   `stun-residual-risk-frame.md` (P7-PRE, 2026-09-01), was not recovered: it
 >   is superseded working notes feeding this already-published matrix, and the
@@ -73,11 +84,11 @@ derived set with this delimited publication.
 
 <!-- STUN-PUBLISHED-BYPASS-REGISTER:v1 BEGIN -->
 
-1. `STUN-BYPASS-001` — **OPEN; repository premise verified.** A token issued before role and KV deletion can remain usable to its TTL because `stun-agent.sh` performs no token or lease revoke.
-2. `STUN-BYPASS-002` — **OPEN; not executed.** Restarting in-memory OpenBao followed by bootstrap can recreate the deleted role or KV path without changing the stunned target.
-3. `STUN-BYPASS-003` — **SOURCE-CONFIRMED.** The fake proxy patches `state=stunned`, emits an Event, and reports “credentials revoked” without calling OpenBao; it also omits the sentinel's `stun-request`, so the ordinary proxy path does not invoke T3.
-4. `STUN-BYPASS-004` — **OPEN; repository premise verified.** The proxy side effect precedes the application audit transaction, so cluster mutation and audit persistence are not atomic.
-5. `STUN-BYPASS-005` — **OPEN; not executed.** Deleting the caller-owned freeze-first JSONL removes its record without restoring deleted OpenBao state.
+1. `STUN-BYPASS-001` — **CLOSED by `d2-signalloom/apps/fleet-manager/k8sclient.go:740-826` (`revokeBaoPlaneFor`) + `openbao_client.go:483-500` (`RevokeTokensBySubject`).** `stun-agent.sh` no longer exists in this repository (grep-confirmed absent; the name survives only in prose/doc references). The real cascade now revokes every live OpenBao token whose SPIFFE subject matches the stunned agent, by accessor, via `LIST auth/token/accessors` + `revoke-accessor` — independent of when the token was issued, which closes the specific TTL-survival window the bypass described. Proven by `TestBaoPlane_RevokesTheAgentsTokens` (`bao_plane_tokens_test.go:30-51`), which asserts both a pre-issued `acc-1` and a `sub`-tagged `acc-2` token are revoked and the plane only reports `Contained` when both the lease AND the token revoke succeed (`TestBaoPlane_TokenRevocationFailureIsNotContained`, same file, line 53).
+2. `STUN-BYPASS-002` — **UNVERIFIED (needs live lab).** Premise re-verified current: OpenBao still runs `-dev` (in-memory, no PVC, single replica) at `d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml:26`, so a pod restart wipes all mounts/roles/tokens and the bootstrap Jobs (`openbao-fleet-bootstrap.yaml`, `openbao-fleet-manager-bootstrap.yaml`) would recreate them from scratch. But current containment (see 001) never deletes a role or KV path — it revokes leases and token accessors — so the bypass's own mechanism ("recreate the deleted role or KV path") does not describe how this code revokes credentials; what would need verifying instead is whether a restart+rebootstrap lets the agent mint a *fresh* credential while k8s state still says stunned. That requires an actual OpenBao pod restart, which is explicitly out of scope for this card. **Procedure for the live lab:** `kubectl -n inf-bao delete pod -l app.kubernetes.io/name=openbao`; wait for `openbao-fleet-bootstrap` and `openbao-fleet-manager-bootstrap` Jobs to complete; attempt a fresh JWT login as the stunned agent's SPIFFE identity against the new OpenBao; separately confirm whether the pod's still-active node-local TC drop (unaffected by OpenBao restart) prevents the agent process from ever reaching the new OpenBao to present that credential.
+3. `STUN-BYPASS-003` — **SOURCE-CONFIRMED.** The fake proxy patches `state=stunned`, emits an Event, and reports “credentials revoked” without calling OpenBao; it also omits the sentinel's `stun-request`, so the ordinary proxy path does not invoke T3. *(Re-verified 2026-10-06: this path is no longer load-bearing — `d2-signalloom/apps/fe-signalloom/src/api_compat.py:5663-5668` now calls fleet-manager's real cascade instead; the fake proxy's own behavior is unchanged where it still exists, so the verdict stands as stated.)*
+4. `STUN-BYPASS-004` — **PARTIALLY closed.** The fake-proxy half of this concern is gone: `api_compat.py:5666-5668` replaced the call that "relabelled the pod with a canned reason and claimed a credential revocation it never performed." The registry `UPDATE` and the `audit_events` `INSERT` are now one local `_write` transaction (`api_compat.py:5692-5695`), so a rejected audit row can no longer silently diverge from registry state, and even a failed cascade is recorded as `agent.stun_failed` rather than dropped. What remains open, by design and now explicitly documented rather than accidental: "fleet-manager is called first, because an outcome cannot be recorded before it is observed... that gap is irreducible in any observe-then-record design" (`api_compat.py:5690-5695`). A crash between the remote cluster mutation succeeding and the local transaction committing still loses the audit row while the mutation already happened; no outbox/idempotent-replay pattern bridges that gap.
+5. `STUN-BYPASS-005` — **CLOSED by `d2-signalloom/apps/fe-signalloom/src/db/migrations/030_audit_events_append_only.sql`.** The caller-owned JSONL file this bypass described no longer exists; the audit trail is `public.audit_events`, written exclusively via `INSERT` by `_audit_log()` in `api_compat.py`. Migration 030 installs a `BEFORE UPDATE OR DELETE OR TRUNCATE ... FOR EACH STATEMENT` trigger, `ENABLE ALWAYS` (not skipped by `session_replication_role=replica`), that unconditionally raises `42501` — measured on the live cluster to refuse the same statements that succeeded before the trigger existed, even though the app role is a Postgres superuser (migration file lines 26-54). The caller can no longer delete its own record over the ordinary application DB connection; only a superuser explicitly disabling the trigger (a deliberate, greppable DDL act, not a silent delete) can rewrite history.
 6. `STUN-BYPASS-006` — **PRECONDITION MEASURED.** `policy.networking.k8s.io` is unserved and neither administrative CRD exists, so a control depending on that group is fail-open here.
 7. `STUN-BYPASS-007` — **STATE MEASURED.** The Cilium cluster-wide policy CRD exists while `stun-quarantine-admin-deny` is absent.
 8. `STUN-BYPASS-008` — **STATE MEASURED by P7-PRE.** `ResourceSet/agent-swarm` and its generated Kustomization are absent, so their intended controls are not stored.
@@ -89,20 +100,80 @@ derived set with this delimited publication.
 14. `STUN-BYPASS-014` — **VENDOR-DOCUMENTED.** Calico's iptables/nftables rule renderer accepts established traffic before policy evaluation [V3].
 15. `STUN-BYPASS-015` — **VENDOR-DOCUMENTED, not locally measured.** AWS documents a local conntrack cache and cleanup rather than policy-change invalidation [V5].
 16. `STUN-BYPASS-016` — **VENDOR-DOCUMENTED with unmeasured exceptions.** Cilium re-evaluates ordinary selected endpoint traffic, but proxy, hairpin, loopback, host-network, and unselected paths prevent a flat guarantee [V2].
-17. `STUN-BYPASS-017` — **OPEN; not executed.** Pod replacement or loss of `signalloom.ai/state=stunned` removes label selection until equivalent containment reaches the replacement.
+17. `STUN-BYPASS-017` — **CLOSED by `d2-signalloom/apps/signalloom-stun-sentinel/kernel.go:30-33,119-186` + `main.go:60-86,198-254`.** A `signalloom.io/stunned=true` annotation on the pod's controlling Deployment (or ReplicaSet, if no Deployment controls it) is read by `ownerStunned()`/`isPodStunned()` and ORed with the three pod-label terms, so a replacement pod with no labels at all is still recognised as stunned from its owner chain. `reconcile()` then freezes and TC-drops it unconditionally. Proven by `TestKernelTruth_DeploymentStunRecordMakesPodStunned` (`kernel_test.go:250-277`): a pod with zero direct labels, owned by a Deployment carrying only the annotation, reconciles down the freeze path (`err` contains `"after freezing pod"`, i.e. the freeze step itself succeeded and only the test's mock veth step failed).
 18. `STUN-BYPASS-018` — **SCHEMA MEASURED.** `ResourceSet.spec` has no `ignore`, so its managed objects cannot use Kustomization field-survival semantics [R1].
-19. `STUN-BYPASS-019` — **OPEN; repository premise verified.** Replacement or reschedule creates a new cgroup and veth without the old freeze or TC filter.
-20. `STUN-BYPASS-020` — **OPEN; repository premise verified.** Node reboot destroys the target cgroup and TC state even when Kubernetes metadata later reconstructs the pod.
-21. `STUN-BYPASS-021` — **PARTIALLY UNVERIFIED.** A kubelet-triggered target-container restart destroys the frozen target; a bare kubelet daemon restart remains unmeasured and is not claimed equivalent.
-22. `STUN-BYPASS-022` — **OPEN; repository premise verified.** Node-root can write `0` to `cgroup.freeze` or delete the TC qdisc without changing the stun label.
-23. `STUN-BYPASS-023` — **OPEN; repository premise verified.** Unsupported cgroup/PID/veth layout or a host-network target can make node-local resolution fail.
-24. `STUN-BYPASS-024` — **SOURCE-CONFIRMED configuration risk.** `STUN_CONNTRACK=off`, deletion failure, or CNI-owned conntrack outside netfilter can preserve established state despite node-local mutation.
-25. `STUN-BYPASS-025` — **OPEN; repository premise verified.** Sentinel restart loses the in-memory `stunnedPods` map and old stdout while kernel state can remain active.
+19. `STUN-BYPASS-019` — **CLOSED, same mechanism and evidence as STUN-BYPASS-017.** A reschedule or replacement produces a new pod UID, a new cgroup, and a new veth, but the informer's `AddFunc` enqueues it the same as any other pod (`main.go:107-126`), and `reconcile()` resolves the *new* cgroup/veth and applies freeze+TC-drop to them the moment the owner-chain annotation says stunned — it does not depend on the replacement inheriting anything from the pod it replaced.
+20. `STUN-BYPASS-020` — **UNVERIFIED (needs live lab).** Node reboot is a destructive, live-cluster action explicitly out of scope for this card. Whether 017/019's owner-chain mechanism closes the resulting gap depends on facts only a real reboot settles: does kubelet reconstruct the pod with the *same* UID (cgroup/TC state is gone regardless, and must be timed) or a *new* one (then it is the 019 case); and how long between node-back-up and the sentinel's first post-reboot `reconcile()` for that pod. **Procedure:** on a disposable kind node, `docker stop <node-container> && docker start <node-container>`; record wall-clock timestamps for node-down, node-up, kubelet-ready, pod-UID-observed, and first `reconcile()` log line for that pod (`stun` or `kernel_state` event in the sentinel's structured log); separately confirm no packet reached the agent process in the gap via a tcpdump on the host veth started before the reboot.
+21. `STUN-BYPASS-021` — **PARTIALLY UNVERIFIED (narrowed, not closed).** `resolvePodCgroup` (`freezer.go:75-81`) resolves the pod-level cgroup (keyed by pod UID), not a per-container one, and cgroup v2 freeze state is inherited by any child cgroup created under an already-frozen ancestor (kernel-documented behavior, not sentinel-reconciliation-driven). That means a kubelet-triggered *container* restart within the same still-frozen pod cgroup should remain frozen without the sentinel doing anything — narrower than the original premise. This is unverified on this repository's own kernel/cgroup driver (no live test run here), and a bare kubelet *daemon* restart remains separately and explicitly unmeasured, exactly as the prior register stated.
+22. `STUN-BYPASS-022` — **PARTIALLY.** Still true that node-root can write `0` to `cgroup.freeze` or delete the TC qdisc without touching the k8s stun label — nothing in this code path can prevent an actor with that level of node access. But the informer's 30 s resync (`main.go:36` `informerResync`, `main.go:549`) re-enqueues every tracked pod every cycle regardless of whether anything changed, and `reconcile()` unconditionally re-calls `freezer.freeze()` + `tc.attachDrop()` whenever `isPodStunned()` is true (`main.go:240-251`) — so node-root tampering self-heals within ≤30 s as long as the same actor has not also disabled the sentinel itself (a materially larger foothold, out of this register's scope).
+23. `STUN-BYPASS-023` — **OPEN; repository premise re-verified current.** `findHostVeth` (`network.go:71-100`) hardcodes `eth0` as "the expected pod interface" with no `pod.Spec.HostNetwork` branch anywhere in the sentinel (grep-confirmed: the only `HostNetwork`-adjacent references in the package are comments describing the sentinel's *own* hostNetwork DaemonSet pod, never the target). A host-network target, or any non-`eth0` CNI naming convention, makes `reconcile()` fail at the TC step (`main.go:245-248`, `"find veth after freezing pod"`) indefinitely, while the cgroup freeze (`main.go:242`) has already succeeded — a silent partial-containment state with no alert distinguishing it from a transient error, and no test in the suite exercises a host-network target.
+24. `STUN-BYPASS-024` — **PARTIALLY, plus a new documentation-staleness finding.** The `STUN_CONNTRACK` toggle no longer exists: there is no `conntrack` reference anywhere in `d2-signalloom/apps/signalloom-stun-sentinel/*.go` at `f3bed75a` (grep-confirmed), so the specific config-off vector in the original bypass is moot, and the TC-drop-only severance mechanism (`network.go:296` `attachDrop`) does not depend on conntrack state the way CNI NetworkPolicy conntrack-aware filtering does. However, this same document's own "Process-tier bypass" section (below) cites `grep -n conntrack .../network.go` returning line numbers that do not exist at `f3bed75a` — that evidence is stale against this base, a defect in the document separate from the bypass question. A standalone `d2-signalloom/apps/stun-sentinel/pkg/tc/conntrack.go` exists elsewhere in the same Go module but is not imported by the production reconcile path (`main.go` imports `pkg/cgroup`, `pkg/correlator`, `pkg/ebpf`, `pkg/hubclient`, `pkg/quarantine` — not `pkg/tc`); if conntrack handling is meant to be load-bearing, it is currently dead code reachable only from `cmd/stun-tcctl`, which is a new, narrower finding for the owner.
+25. `STUN-BYPASS-025` — **CLOSED.** The in-memory `stunHolds` state is explicitly designed to die with the process: `"The hold dies with the process: persistence across a restart is the stun record's job"` (`stunhold.go:21-22`). On sentinel restart, the informer's initial LIST+ADD sync re-triggers `reconcile()` for every existing pod, re-deriving `isPodStunned()` from durable k8s state (pod labels + the owner-chain annotation, same mechanism as 017/019/022) and re-applying freeze+TC unconditionally — not from the lost in-memory map, and not from stdout. `TestKernelTruth_DeploymentStunRecordMakesPodStunned` (`kernel_test.go:250-277`) is structurally this scenario: a fresh harness with zero prior in-memory state correctly reconciles a stunned pod from durable state alone.
 26. `STUN-BYPASS-026` — **LIVE PRECONDITION MEASURED by P7-PRE; destructive test not run.** The running PostgreSQL Deployment has no PVC, so pod recreation can erase `public.audit_events`.
 27. `STUN-BYPASS-027` — **TTL AND AGGREGATION MEASURED; ordering UNVERIFIED.** Events have a one-hour effective TTL and aggregate repeated observations into one object with a count; no measurement proves which enforcement outlives which Event [E1].
 28. `STUN-BYPASS-028` — **SOURCE-CONFIRMED reader ambiguity; enforcement overlap unmeasured.** After metadata reversion, SuperCred reads current pod state and cannot distinguish “stun erased” from “never stunned” [S1].
 
 <!-- STUN-PUBLISHED-BYPASS-REGISTER:v1 END -->
+
+## Retest 2026-10-06: proposed fixes
+
+Proposed fixes only, for every ID this retest did not mark CLOSED — OPEN,
+PARTIALLY, and UNVERIFIED alike, since all three still carry residual risk.
+None of these are implemented by this card.
+
+**STUN-BYPASS-002 (OpenBao restart recreates state; UNVERIFIED).** Give
+OpenBao a persistent backend (file or raft storage on the existing-shape PVC
+pattern already used for `spire-server-data` in the same manifest) instead of
+`-dev`, so a pod restart does not require the bootstrap Jobs to rerun at all.
+Short of that, add a startup probe on the bootstrap Jobs' completion that
+fleet-manager's `/health` reflects as degraded until bootstrap finishes, so a
+restart window is at least observable rather than silent.
+
+**STUN-BYPASS-004 (remote mutation precedes local audit commit; PARTIALLY).**
+Add a local pre-commit intent record — a row written *before* the call to
+fleet-manager, in the same transaction style already used, carrying
+`stun_attempt_id` and status `requested`— then update it to its observed
+outcome after `_perform_cluster_stun` returns. A crash in the gap then leaves
+a `requested` row an operator can reconcile against fleet-manager's own
+idempotency-keyed audit log, instead of leaving no local record at all.
+
+**STUN-BYPASS-020 (node reboot; UNVERIFIED, needs live lab).** No code fix
+proposed until the live lab (procedure given at STUN-BYPASS-020 above)
+establishes what actually happens; fixing a mechanism before measuring it
+risks solving the wrong problem. If the lab shows the owner-chain mechanism
+is not fast enough, the fix is almost certainly a short "pod observed running
+but not yet reconciled" quarantine state on the sentinel's own readiness, so
+nothing can reach the agent before its first post-restart reconcile.
+
+**STUN-BYPASS-021 (kubelet-triggered restart; PARTIALLY UNVERIFIED).** Add an
+integration test that forces a real container restart inside a real cgroup
+v2 hierarchy (no kind/live cluster needed — a local cgroup v2 namespace is
+sufficient) and asserts the child cgroup created after the restart reads
+`frozen 1` without the sentinel acting again. That converts the kernel-manual
+reasoning in this retest into a repeatable, offline-safe proof.
+
+**STUN-BYPASS-022 (node-root bypass; PARTIALLY, bounded by 30s resync).**
+Shorten `informerResync` for this specific signal, or add a dedicated
+drift-detection loop that polls `cgroup.events`/qdisc state on a tighter
+interval than the general resync, specifically for pods the owner chain or
+labels say are stunned. Also alert (not just self-heal) on any detected
+drift — a silent correction hides that tampering happened at all.
+
+**STUN-BYPASS-023 (host-network / non-`eth0` targets; OPEN).** Add an
+explicit `pod.Spec.HostNetwork` check in `reconcile()`: for a host-network
+target, cgroup freeze is still correct (it is pod-scoped, not network-scoped)
+but the TC-drop step should fail *loudly and distinctly* — a dedicated event
+type such as `network_severance_unsupported_hostnetwork` — rather than
+retrying the generic "find veth" error indefinitely and indistinguishably
+from a transient fault. The same guard generalises to any interface name
+other than `eth0` once a real multi-NIC CNI estate is in scope.
+
+**STUN-BYPASS-024 (conntrack dead code; PARTIALLY).** Either wire
+`pkg/tc/conntrack.go` into the production reconcile path if it is meant to be
+load-bearing, or delete it along with `cmd/stun-tcctl` if the TC-drop-only
+design superseded it — and in either case, refresh this document's own
+"Process-tier bypass" evidence section, whose `grep -n conntrack network.go`
+citation is stale against `f3bed75a`.
 
 ## Fail-open CNI case
 

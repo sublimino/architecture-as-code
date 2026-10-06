@@ -52,5 +52,6 @@ teardown() { rm -rf "$WORK"; }
 
 @test "rejects unknown options" {
   run "$SCRIPT" --bogus
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unknown option: --bogus"* ]]
 }

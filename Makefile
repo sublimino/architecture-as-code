@@ -65,6 +65,7 @@ SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
 CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
 POSTGRES_DATA_DIR ?= .cache/postgres
+LOCAL_PATH_DATA_DIR ?= .cache/local-path
 # Observability (kube-prometheus-stack + trivy-system) is OFF by default.
 # These tenants are not dependencies of any demo slice and dominate cluster
 # build time (~3 minutes of reconciliation waits). Opt in explicitly:
@@ -171,8 +172,8 @@ stress-agent-cgroups: ## Run the live adversarial cgroup-freeze and OOM battery 
 ##@ Cluster lifecycle
 
 .PHONY: cluster
-cluster: ## Create the Kind cluster with persistent host-backed Zot and Postgres caches.
-	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" ./scripts/create-kind-cluster.sh
+cluster: ## Create the Kind cluster with persistent host-backed Zot, Postgres and local-path storage.
+	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" LOCAL_PATH_DATA_DIR="$(LOCAL_PATH_DATA_DIR)" ./scripts/create-kind-cluster.sh
 
 .PHONY: cluster-up
 cluster-up: cluster ## Phase 2 alias: create the shared Kind cluster.

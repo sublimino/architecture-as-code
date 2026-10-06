@@ -116,6 +116,17 @@ func (c *k8sFleetClient) SetAdmissionClient(ac AdmissionClient) {
 func (c *k8sFleetClient) AdmissionClient() AdmissionClient {
 	return c.admissionClient
 }
+// SetIdentityMap wires the agent identity map into both of this client's
+// label-resolution sites: its own resolvePod fallback and the mesh client's
+// resolveTargetIP fallback (mesh_client.go), which would otherwise keep
+// trusting a label alone even after this client's own check is wired.
+func (c *k8sFleetClient) SetIdentityMap(m *AgentIdentityMap) {
+	c.identityMap = m
+	if mesh, ok := c.meshClient.(*CiliumMeshClient); ok {
+		mesh.identityMap = m
+	}
+}
+
 func (c *k8sFleetClient) namespaceOrDefault(namespace string) string {
 	if namespace == "" {
 		return c.defaultNamespace

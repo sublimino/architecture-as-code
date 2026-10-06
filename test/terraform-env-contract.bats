@@ -342,6 +342,14 @@ FIXTURE
   #
   # -n is non-interactive: it can never prompt, and it never runs tar because
   # argument parsing fails first.
+  #
+  # Under a sandbox that sets no_new_privs (/proc/self/status NoNewPrivs: 1),
+  # sudo refuses to run as root AT ALL before it ever reaches argument
+  # parsing, so the real usage-error assertion below is unreachable here —
+  # not a guard failure, a sandbox constraint this test cannot see past.
+  if grep -qxE 'NoNewPrivs:[[:space:]]*1' /proc/self/status 2>/dev/null; then
+    skip "sandbox sets no_new_privs; sudo refuses to run as root before parsing -u, never reaching the usage-error path this test checks"
+  fi
   run sudo -n -u '' true
   [ "$status" -ne 0 ]
   [[ "$output" == *"usage: sudo"* ]] || {

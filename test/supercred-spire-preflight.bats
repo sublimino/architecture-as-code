@@ -12,7 +12,10 @@ setup() {
 }
 
 @test "SUPERCRED SPIRE failure does not assert an unobserved token cause" {
+  # Exact status: grep's codes are 0 found / 1 not-found / 2 error (e.g. the
+  # script itself is missing). -ne 0 would also pass on a 2, which asserts
+  # nothing about whether the forbidden phrase is actually absent.
   run grep -F 'SPIRE agent not ready — the agent needs a valid join token' \
     "$root/scripts/supercred-demo.sh"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
 }

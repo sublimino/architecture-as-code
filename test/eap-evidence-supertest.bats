@@ -70,6 +70,10 @@ probe() { jq -r --arg id "$1" '.probes[] | select(.id == $id) | .status' "$res";
 @test "the results file is only written where --out says, never into the repo" {
 	before="$(git -C "$root" status --porcelain)"
 	run bash "$st" --out "$res"
+	# No live-probe overrides in this test (setup unsets them), so this is the
+	# same default environment as "offline: evidence-contract probes pass,
+	# live probes are NOT_RUN and the verdict is FAIL" above: exit 1.
+	[ "$status" -eq 1 ]
 	[ -s "$res" ]
 	[ "$(git -C "$root" status --porcelain)" = "$before" ]
 }

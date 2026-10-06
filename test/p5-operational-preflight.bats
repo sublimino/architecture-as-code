@@ -304,6 +304,13 @@ EOF
 @test "the preflight never writes into the repo it audits" {
 	before="$(git -C "$fx" status --porcelain)"
 	run "$script" --out "$BATS_TEST_TMPDIR/full.json"
+	# make_fixture_repo satisfies the static half of PF-2..PF-6 and
+	# P5_SKIP_CLUSTER=1 skips the live halves, but AUX-KEYS still fails (the
+	# fixture has no real signed cosign key), so the full run is exit 1.
+	# Without checking this, a preflight that crashed before touching the repo
+	# would also leave it untouched, and the porcelain comparison below would
+	# pass having run nothing.
+	[ "$status" -eq 1 ]
 	[ "$(git -C "$fx" status --porcelain)" = "$before" ]
 }
 

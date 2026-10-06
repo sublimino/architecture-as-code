@@ -70,8 +70,16 @@ suite_test_fails() {
 
   # A pattern that matched NO test exits 0 with no test lines, which would read
   # as "the guard did not fire" when the truth is "there is no such guard".
-  # pipefail-safe: $out is already fully captured in memory; printf's single write cannot race grep -q, and this is an if-condition, exempt from errexit anyway.
-  if ! printf '%s' "$out" | grep -qE '^(ok|not ok) '; then
+  #
+  # A herestring, not a pipe: `cmd | grep -q` under pipefail (set at the top of
+  # this script) can report a MATCH as no-match -- grep -q exits at the first
+  # match, the producer takes SIGPIPE, and 141 becomes the pipeline's status.
+  # The comment this replaced claimed printf was immune because it is a
+  # builtin writing already-captured memory; scripts/check-vacuous-assertions.sh
+  # measured that belief false directly (a 3MB printf still inverted 141/0) --
+  # the threshold is data size, not whether the producer is a builtin. `<<<`
+  # feeds grep with no second process and nothing to race.
+  if ! grep -qE '^(ok|not ok) ' <<<"$out"; then
     echo "    HARNESS FAULT: no test matched /${pattern}/" >&2
     return 2
   fi

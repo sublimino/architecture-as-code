@@ -54,7 +54,12 @@ esac'
 mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "$2" >"$stub/$1"; chmod +x "$stub/$1"; }
 
 @test "only stubs are reachable: no real kind, docker, pkill, ip, make or kubectl" {
-	for b in kind docker pkill ip iptables make kubectl; do [ "$(command -v "$b")" = "$stub/$b" ]; done
+	# Multi-lined so the vacuity scanner's line-oriented classifier (it cannot
+	# see into an inline for-loop body) registers the assertion instead of
+	# reading this test as having none.
+	for b in kind docker pkill ip iptables make kubectl; do
+		[ "$(command -v "$b")" = "$stub/$b" ]
+	done
 }
 
 @test "teardown deletes exactly the two SLDC clusters, via the stub, and passes" {
@@ -106,6 +111,10 @@ mkstub() { printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_LOG"\n%s\n' "$1" "
 
 @test "teardown never deletes a bridge-attached veth" {
 	run bash "$teardown_sh"
+	# Without this, a teardown that crashed before ever reaching the veth logic
+	# would still leave 'link delete' absent from the log, and the grep below
+	# would pass having proven nothing about the behaviour it names.
+	[ "$status" -eq 0 ]
 	run ! grep -q 'link delete' "$STUB_LOG"
 }
 

@@ -135,6 +135,11 @@ assert_canonicalised() { # <header=value>...
 @test "lua: a spoofed tenant header can never reach upstream unchanged" {
 	for v in kusari 4b53ab6b "%20KUSARI" ""; do
 		run envoy_lua "x-tenant-id=$v" "x-forwarded-tenant=rogue"
+		# Matches assert_canonicalised/assert_rejected above: without this, a
+		# LuaJIT crash would still leave lua_field reading an empty field from
+		# the error text, and the checks below would happen to fail for the
+		# right reason by accident rather than by design.
+		[ "$status" -eq 0 ]
 		[ "$(lua_field action)" = "continue" ]
 		[ "$(lua_field req.x-tenant-id)" = "kusari" ]
 	done
@@ -157,10 +162,13 @@ assert_canonicalised() { # <header=value>...
 
 @test "lua: homoglyph tenants (Cyrillic i, fullwidth k, Turkish dotted I) are 403" {
 	run envoy_lua "x-tenant-id=kusar%D1%96"
+	[ "$status" -eq 0 ]
 	[ "$(lua_field status)" = "403" ]
 	run envoy_lua "x-tenant-id=%EF%BD%8Busari"
+	[ "$status" -eq 0 ]
 	[ "$(lua_field status)" = "403" ]
 	run envoy_lua "x-tenant-id=KUSAR%C4%B0"
+	[ "$status" -eq 0 ]
 	[ "$(lua_field status)" = "403" ]
 }
 
@@ -175,6 +183,7 @@ assert_canonicalised() { # <header=value>...
 
 @test "lua: CRLF inside the tenant value is 403" {
 	run envoy_lua "x-tenant-id=kusari%0D%0Ax-evil:%201"
+	[ "$status" -eq 0 ]
 	[ "$(lua_field status)" = "403" ]
 }
 
@@ -200,6 +209,7 @@ assert_canonicalised() { # <header=value>...
 
 @test "lua: the security audit log line cannot be split by CR/LF in the tenant value" {
 	run envoy_lua "x-tenant-id=rogue%0D%0A[SECURITY_AUDIT]%20forged"
+	[ "$status" -eq 0 ]
 	[ "$(lua_field status)" = "403" ]
 	warn="$(lua_field log.warn)"
 	[[ "$warn" == "[SECURITY_AUDIT] Tenant rejection:"* ]]

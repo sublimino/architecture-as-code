@@ -67,8 +67,18 @@ fails_only() { # CHECK-NAME: exit 1, exactly one failed check, and it is this on
 }
 
 @test "no real cluster tool is reachable from the test PATH" {
-	for b in docker kind df; do [ "$(command -v "$b")" = "$stub/$b" ]; done
-	for b in kubectl ip iptables pkill make; do run ! command -v "$b"; done
+	for b in docker kind df; do
+		[ "$(command -v "$b")" = "$stub/$b" ]
+	done
+	# Written as plain `run` + an explicit status check, rather than the
+	# equivalent bats `run !` negation flag, which was on one line with the
+	# `for` -- the vacuity scanner's line-oriented classifier cannot see into
+	# an inline for-loop body at all, so neither the assertion nor the `run`
+	# ever registered and the check read as absent rather than present.
+	for b in kubectl ip iptables pkill make; do
+		run command -v "$b"
+		[ "$status" -eq 1 ]
+	done
 }
 
 @test "every check holds: exit 0, PASS 8/8, report written, repo untouched" {

@@ -77,6 +77,11 @@ STUB
 @test "with no key file, the key is read from the issuer Secret" {
 	export FAKE_SECRET_B64="$(printf '%s' "$KEY" | base64 | tr -d '\n')"
 	run "$SCRIPT" 1
+	# Without this, a run that crashed before ever calling curl would still
+	# leave $CALLS/$HEADERS exactly as unpopulated by the real script, and the
+	# rg checks below would need the fallback path to have actually executed
+	# to mean anything.
+	[ "$status" -eq 0 ]
 	rg -q 'kubectl -n fe-signalloom get secret signal-ingest-key-signalfusion-demo' "$CALLS"
 	rg -q -x -F "Authorization: Bearer $KEY" "$HEADERS"
 	! rg -qF "$KEY" "$CALLS"

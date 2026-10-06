@@ -101,9 +101,34 @@ afm.deploy_ready=1
 afm.health_code=200
 afm.cluster_count=1
 afm.cluster_ids=local
+pf.unit_active=active
+pf.unit_enabled=enabled
+pf.listeners=1
+pf.main_pid=1509084
+pf.pid_alive=yes
+spire.jwt_active_kid=nnsfgifDSBnAJTRpyFs8HiEFna6dW0AN
+spire.jwt_prepared_kid=NDpwg3CGHayGiYH0WqHjGVV187kWfpxb
+spire.jwt_active_expiry=2026-08-24 17:41:45 +0000 UTC
+spire.bundle_bytes=5132
+spire.jwt_kids=nnsfgifDSBnAJTRpyFs8HiEFna6dW0AN,NDpwg3CGHayGiYH0WqHjGVV187kWfpxb,dTkURcNOMrbH5YNwagsONVZDKFgou7Ng,KKEv0c4CBplCbeqrNdwIHssG77QjVdkT
+spire.jwt_keys=KEY_ACTIVE,KEY_PREPARED,KEY_C,KEY_D
+bao.jwt_config_bytes=1095
+bao.jwt_keys=KEY_ACTIVE,KEY_PREPARED,KEY_C,KEY_D
 probe.complete=1
 REPORT
 }
+
+# The SPIRE/OpenBao key values above are PLACEHOLDERS (KEY_ACTIVE, KEY_C …) and
+# the kids beside them are the real ones recorded off sl-demo-1-vm on
+# 2026-08-24. That split is deliberate. The adjudicator does set membership on
+# opaque strings — it never parses a key — so a 124-character base64 DER in the
+# fixture would make every assertion below unreadable while testing exactly the
+# same code path. The KIDS stay real because nd_der_for_kid matches on them
+# positionally, and a made-up kid would hide a real ordering bug.
+#
+# The one thing this MUST not do is diverge in SHAPE, so the counts are held
+# equal to what the live lane emits: four kids, four keys, comma-separated, in
+# bundle order with the active authority first.
 
 # The guard against the quietest failure in this file: a test that reads a key
 # the fixture does not have gets an empty string, the adjudicator returns
@@ -639,6 +664,306 @@ stub_failing_curl() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# PUBLISH PATH — the forward that dies without telling anyone
+# ════════════════════════════════════════════════════════════════════════════
+
+@test "PUBLISH a forward that is active and listening passes" {
+  # The positive control for every PUBLISH test below. Without it, a
+  # nd_verdict_publish that returned FAIL unconditionally would make all four
+  # failure cases pass while the check was useless.
+  local r; r="$(healthy_report)"
+  assert_field_present "$r" pf.unit_active
+  assert_field_present "$r" pf.listeners
+  run nd_verdict_publish "$(nd_field "$r" pf.unit_active)" "$(nd_field "$r" pf.listeners)"
+  [ "$output" = PASS ]
+  run nd_publish_state "$(nd_field "$r" pf.unit_active)" "$(nd_field "$r" pf.listeners)"
+  [ "$output" = SERVING ]
+}
+
+@test "PUBLISH the ZOMBIE forward — systemd active, NOTHING listening — is a FAIL" {
+  # THE case this check exists for, and the one every naive in-VM probe passes.
+  # kubectl port-forward does not exit when the pod it forwards to is rolled:
+  # the process survives, systemd reports `active`, the journal's last line is
+  # still "Forwarding from 0.0.0.0:30754", and the socket is gone. The public
+  # origin serves 502 throughout.
+  #
+  # A single "is the unit up" boolean reports this GREEN, which is precisely how
+  # a dashboard rollout took the public URL down with every check passing.
+  run nd_verdict_publish active 0
+  [ "$output" = FAIL ]
+  run nd_publish_state active 0
+  [ "$output" = ZOMBIE ]
+}
+
+@test "PUBLISH a unit that is down with no listener is a FAIL, and a DIFFERENT state" {
+  # Same verdict as the zombie, deliberately different state: the zombie needs
+  # the forward re-established after whatever rolled the backend, this needs the
+  # unit started. Collapsing them would send an operator to the wrong command.
+  run nd_verdict_publish inactive 0
+  [ "$output" = FAIL ]
+  run nd_publish_state inactive 0
+  [ "$output" = DOWN ]
+}
+
+@test "PUBLISH a FOREIGN listener on the port is never a pass" {
+  # Traffic may be answering, but not from the supervised unit — so nothing
+  # re-establishes it after a reboot, and a restart of the real unit will fail
+  # to bind. The tempting reading ("something is listening, so we are fine") is
+  # the one this refuses.
+  run nd_verdict_publish inactive 1
+  [ "$output" = FAIL ]
+  run nd_publish_state inactive 1
+  [ "$output" = FOREIGN_LISTENER ]
+}
+
+@test "PUBLISH an unmeasured unit or listener count is UNKNOWN, never a pass" {
+  # `ss` absent, or the unit name wrong, must not read as a healthy forward.
+  run nd_verdict_publish UNKNOWN 1
+  [ "$output" = UNKNOWN ]
+  run nd_verdict_publish active UNKNOWN
+  [ "$output" = UNKNOWN ]
+  # A non-numeric listener count is a broken probe, not zero listeners.
+  run nd_verdict_publish active 'error'
+  [ "$output" = UNKNOWN ]
+  run nd_publish_state active 'error'
+  [ "$output" = UNMEASURED ]
+}
+
+@test "PUBLISH the entry point reports the zombie with its own diagnosis" {
+  # The verdict alone is not the product — an operator must learn WHICH of the
+  # four states this is. Drives the real shared block against a mutated report.
+  local r; r="$(with_field "$(healthy_report)" pf.listeners 0)"
+  run bash -c ". '$LIB'; nd_checks_shared \"\$1\" demo-1 30754 sl-demo-1" _ "$r"
+  [[ "$output" == *"ZOMBIE"* ]]
+  [[ "$output" == *"does not exit when the pod it forwards to is rolled"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# JWT TRUST — the SuperCred outage, caught before it lands
+# ════════════════════════════════════════════════════════════════════════════
+
+@test "JWT a lane where OpenBao holds every key SPIRE publishes passes" {
+  # The positive control. Every failing case below is worthless without it: an
+  # adjudicator hardwired to FAIL would satisfy all of them.
+  local r; r="$(healthy_report)"
+  assert_field_present "$r" spire.jwt_keys
+  assert_field_present "$r" bao.jwt_keys
+  assert_field_present "$r" spire.jwt_active_kid
+  local der; der="$(nd_der_for_kid "$(nd_field "$r" spire.jwt_kids)" \
+                     "$(nd_field "$r" spire.jwt_keys)" "$(nd_field "$r" spire.jwt_active_kid)")"
+  [ "$der" = KEY_ACTIVE ]
+  run nd_verdict_jwt_trust "$(nd_field "$r" spire.jwt_active_kid)" \
+        "$(nd_field "$r" spire.jwt_keys)" "$(nd_field "$r" bao.jwt_keys)" "$der"
+  [ "$output" = PASS ]
+}
+
+@test "JWT the ACTIVE authority missing from OpenBao is BROKEN_NOW" {
+  # Every SPIFFE->OpenBao login is failing right now with "no known key
+  # successfully validated the token signature". SuperCred step 2 dies on
+  # exactly this while the runner still reports script_available=true.
+  run nd_verdict_jwt_trust ACTIVEKID 'KEY_ACTIVE,KEY_C' 'KEY_C' KEY_ACTIVE
+  [ "$output" = BROKEN_NOW ]
+}
+
+@test "JWT the PREPARED authority missing is WILL_BREAK — the live sl-demo-1 state" {
+  # Recorded off sl-demo-1 on 2026-08-24T09:15Z: SPIRE published four keys,
+  # OpenBao held three, the absent one was the PREPARED authority, and the
+  # active authority was due to expire at 17:41:45Z the same day. The lane
+  # worked perfectly and was going to stop, unattended, about eight hours later.
+  #
+  # node-doctor scored 24 pass and the user-surface gate reported both demos
+  # READY at that moment. Neither could see it. This is the case that proves
+  # capability is not completion, and that the cause is cheaper to check than
+  # the symptom.
+  local r; r="$(with_field "$(healthy_report)" bao.jwt_keys 'KEY_ACTIVE,KEY_C,KEY_D')"
+  local der; der="$(nd_der_for_kid "$(nd_field "$r" spire.jwt_kids)" \
+                     "$(nd_field "$r" spire.jwt_keys)" "$(nd_field "$r" spire.jwt_active_kid)")"
+  run nd_verdict_jwt_trust "$(nd_field "$r" spire.jwt_active_kid)" \
+        "$(nd_field "$r" spire.jwt_keys)" "$(nd_field "$r" bao.jwt_keys)" "$der"
+  [ "$output" = WILL_BREAK ]
+}
+
+@test "JWT WILL_BREAK is a FAIL in the summary, not a soft warning" {
+  # The considered call, asserted so a future "this lane works, tone it down"
+  # cannot quietly make it rc=0. DEGRADED exists for a condition we EXPECT and
+  # cannot fix for up to 168h; this is neither — it is never expected and the
+  # fix is one command. A rc=0 verdict on a certain, imminent, trivially
+  # fixable outage is how the principal ends up being the detector again.
+  local r; r="$(with_field "$(healthy_report)" bao.jwt_keys 'KEY_ACTIVE,KEY_C,KEY_D')"
+  run bash -c ". '$LIB'; nd_checks_shared \"\$1\" demo-1 30754 sl-demo-1; nd_summary demo-1 demo" _ "$r"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"will stop the moment SPIRE rotates"* ]]
+}
+
+@test "JWT an UNREADABLE side is UNKNOWN — the vacuous pass this refuses" {
+  # THE defect this adjudicator is shaped around. A failed kubectl produces an
+  # empty key list on both sides, the membership loop never executes, and a
+  # naive implementation returns PASS having compared NOTHING.
+  #
+  # That exact bug was found in assert_openbao_accepts_spire_jwt_keys on
+  # 2026-08-23, where it passed against no cluster at all — in the one assert
+  # that exists to catch silent identity-plane failure.
+  run nd_verdict_jwt_trust KID '' 'KEY_A' KEY_A
+  [ "$output" = UNKNOWN ]
+  run nd_verdict_jwt_trust KID 'KEY_A' '' KEY_A
+  [ "$output" = UNKNOWN ]
+  run nd_verdict_jwt_trust KID UNKNOWN UNKNOWN UNKNOWN
+  [ "$output" = UNKNOWN ]
+}
+
+@test "JWT a lane with no SPIRE is NOT_DEPLOYED, distinct from zero keys" {
+  # "Nothing has been asked" and "everything was asked and nothing matched" send
+  # a reader to completely different places — a missing deployment versus a sync
+  # command for a component that is not there.
+  run nd_verdict_jwt_trust NOT_DEPLOYED NOT_DEPLOYED NOT_DEPLOYED UNKNOWN
+  [ "$output" = NOT_DEPLOYED ]
+}
+
+@test "JWT nd_der_for_kid refuses to answer from lists that are not parallel" {
+  # The positional lookup is only safe because probe.sh builds both lists from
+  # ONE jq selector. If they ever desync, a positional answer is a DIFFERENT
+  # key's bytes returned with no error anywhere — so a length disagreement must
+  # produce UNKNOWN rather than a confident wrong string.
+  run nd_der_for_kid 'a,b,c' 'K1,K2' a
+  [ "$output" = UNKNOWN ]
+  # Positive control: parallel lists DO resolve, and to the right element.
+  run nd_der_for_kid 'a,b,c' 'K1,K2,K3' b
+  [ "$output" = K2 ]
+  # A kid that is not in the list is UNKNOWN, never the first element.
+  run nd_der_for_kid 'a,b,c' 'K1,K2,K3' zzz
+  [ "$output" = UNKNOWN ]
+}
+
+@test "JWT nd_csv_count never prints 0 for an unmeasured list" {
+  # "OpenBao holds 0 keys" and "OpenBao could not be read" are opposite
+  # findings, and both would otherwise render as the same number in the prose.
+  run nd_csv_count ''
+  [ "$output" = UNKNOWN ]
+  run nd_csv_count UNKNOWN
+  [ "$output" = UNKNOWN ]
+  run nd_csv_count 'a,b,c'
+  [ "$output" = 3 ]
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# DEX — the redirect_uri that broke sign-in while the page returned 200
+# ════════════════════════════════════════════════════════════════════════════
+
+@test "DEX an accepted redirect_uri passes and a rejected one FAILS" {
+  # Both arms measured against sl-demo-1 on 2026-08-24 by following the
+  # redirect: the dashboard's own /callback returned 200 with a clean body, and
+  # https://evil.example/cb returned 400 with "Unregistered redirect_uri".
+  run nd_verdict_dex_redirect 200 no
+  [ "$output" = PASS ]
+  run nd_verdict_dex_redirect 400 yes
+  [ "$output" = FAIL ]
+}
+
+@test "DEX a 302 with no rejection passes — the first hop is not the answer" {
+  # Dex bounces to its connector before rejecting anything, so a 302 is a normal
+  # intermediate state. What decides is the rejection flag, not the code.
+  run nd_verdict_dex_redirect 302 no
+  [ "$output" = PASS ]
+  # And a rejection outranks ANY status code: if the body says unregistered,
+  # the verdict is FAIL even on a 200.
+  run nd_verdict_dex_redirect 200 yes
+  [ "$output" = FAIL ]
+}
+
+@test "DEX an empty body cannot be said to lack the rejection" {
+  # "Dex accepted it" and "we never got an answer" both produce no match for the
+  # rejection string. Only the second is UNKNOWN, and conflating them reports a
+  # dead origin as a working sign-in.
+  run nd_verdict_dex_redirect 200 UNKNOWN
+  [ "$output" = UNKNOWN ]
+  run nd_verdict_dex_redirect 000 no
+  [ "$output" = UNKNOWN ]
+}
+
+@test "DEX the probed callback path is the one the dashboard actually uses" {
+  # An earlier draft of this probe guessed /auth/callback and reported the LIVE,
+  # WORKING lane as broken — Dex rejected the guess exactly as it would reject a
+  # genuine misconfiguration. The value is pinned to the client's own source so
+  # the two cannot drift apart again.
+  local oidc="${REPO_ROOT}/d2-signalloom/apps/dashboard-signalloom/src/auth/oidc.tsx"
+  [ -s "$oidc" ]
+  grep -q 'redirect_uri: `${window.location.origin}/callback`' "$oidc"
+  grep -q 'ND_DEX_CALLBACK:-/callback' "$ENTRY"
+}
+
+@test "DEX the probe FOLLOWS redirects, which is what makes it able to fail" {
+  # Measured, not assumed: a bare GET /dex/auth returns 302 for a VALID
+  # redirect_uri AND for https://evil.example/cb. A probe reading the first
+  # response passes identically against a completely broken origin — a check
+  # that cannot fail, which is worse than no check.
+  code_only "$ENTRY" | grep -q 'curl -skL'
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# DEMO SURFACES — the Signal Fusion class: reachable, 200, and unusable
+# ════════════════════════════════════════════════════════════════════════════
+
+@test "DEMO a capable surface with acts passes" {
+  # The positive control for the three failure cases below.
+  run nd_verdict_demo_surface 200 true 3
+  [ "$output" = PASS ]
+}
+
+@test "DEMO a 200 that reports script_available=false FAILS" {
+  # THE Signal Fusion outage. The page returned 200, the demo API was reachable,
+  # and all three acts 503'd. HTTP 200 is not evidence that a demo can run —
+  # only the runner's own statement that it CAN is, and this is where that gets
+  # asserted.
+  run nd_verdict_demo_surface 200 false 3
+  [ "$output" = FAIL ]
+}
+
+@test "DEMO a capable surface advertising ZERO acts FAILS" {
+  # A runner that reports itself capable and enumerates nothing is a demo a
+  # human opens and cannot drive. It passes every reachability check there is.
+  run nd_verdict_demo_surface 200 true 0
+  [ "$output" = FAIL ]
+}
+
+@test "DEMO a 5xx or 404 FAILS and an unreachable surface is UNKNOWN" {
+  run nd_verdict_demo_surface 503 '' ''
+  [ "$output" = FAIL ]
+  run nd_verdict_demo_surface 404 '' ''
+  [ "$output" = FAIL ]
+  # A transport failure has not shown the demo to be broken — it has shown
+  # nothing, and must not be reported as a product outage.
+  run nd_verdict_demo_surface 000 '' ''
+  [ "$output" = UNKNOWN ]
+}
+
+@test "DEMO an absent script_available is UNKNOWN, never treated as false" {
+  # A response shape change would otherwise report every demo BROKEN at once —
+  # a whole-estate false RED, which erodes trust in a doctor as surely as a
+  # false GREEN does.
+  run nd_verdict_demo_surface 200 '' 3
+  [ "$output" = UNKNOWN ]
+  run nd_verdict_demo_surface 200 true 'x'
+  [ "$output" = UNKNOWN ]
+}
+
+@test "DEMO the doctor never reports success over an EMPTY surface set" {
+  # A gate that cannot list what it guards must not pass. The entry point's
+  # empty-registry arm is UNKNOWN, and this asserts the wording that says so.
+  code_only "$ENTRY" | grep -q 'nd_unknown "the demo surface registry could not be enumerated'
+  refute_match "$ENTRY" 'nd_pass "the demo surface registry' \
+    "an unenumerable registry must never render as a pass"
+}
+
+@test "DEMO surfaces are enumerated from the registry, never from a list here" {
+  # A hand-written list in a doctor silently stops covering the newest demo,
+  # which is the one most likely to be broken. Same rule the user-surface gate
+  # is built on, asserted here so the doctor cannot drift away from it.
+  code_only "$ENTRY" | grep -q 'demo-surface-registry.py'
+  refute_match "$ENTRY" 'for demo in .*supercred.*signalfusion' \
+    "a hardcoded demo list stops covering the newest demo"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # PROBE — properties of the collector that cannot be checked by running it
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -711,6 +1036,58 @@ code_only() {
     "a verdict decided on the VM is a verdict this suite cannot drive without a VM"
   # Positive control: lib.sh, which SHOULD contain them, does.
   code_only "$LIB" | grep -q 'PASS'
+}
+
+@test "PROBE the publish path is collected as three separate facts" {
+  # The unit state, the listening socket and the pid are collected separately
+  # and never merged, because the DISAGREEMENT between them is the diagnosis: a
+  # zombie forward reads `active` with no listener. A probe that emitted one
+  # "is it up" boolean could not express that state at all.
+  code_only "$PROBE" | grep -q 'emit pf.unit_active'
+  code_only "$PROBE" | grep -q 'emit pf.listeners'
+  code_only "$PROBE" | grep -q 'emit pf.main_pid'
+}
+
+@test "PROBE the listener count is counted, never piped into grep -q" {
+  # Under `set -o pipefail` a `grep -q` that matches early can close the pipe and
+  # surface 141, inverting the answer — the shape VAC008 rejects in verdict
+  # positions. This is a verdict input, so it must be a count that runs to
+  # completion.
+  refute_match "$PROBE" 'ss -ltn[^|]*\|[^|]*grep -q' \
+    "grep -q under pipefail can report the opposite of what it found"
+  # Positive control: the counting form IS there, and it forces a literal 0
+  # rather than an empty string, so "no listeners" and "unreadable" stay apart.
+  code_only "$PROBE" | grep -q 'END{print n+0}'
+}
+
+@test "PROBE both SPIRE key lists are built from ONE pinned jq selector" {
+  # nd_der_for_kid matches the active kid POSITIONALLY across spire.jwt_kids and
+  # spire.jwt_keys. That is only safe while both lists filter identically. The
+  # obvious spelling gives the kid list a looser filter than the key list, and
+  # they desync the first time a bundle carries a jwt-svid key of another type —
+  # after which the lookup returns a DIFFERENT key's bytes with no error.
+  #
+  # nd_der_for_kid's length check is the runtime backstop; this is the guard
+  # that keeps the lists parallel in the first place.
+  code_only "$PROBE" | grep -q 'JWT_SVID_SELECT='
+  local uses
+  uses="$(code_only "$PROBE" | grep -c '\${JWT_SVID_SELECT}')"
+  [ "$uses" -eq 2 ]
+  # And there is exactly ONE jwt-svid selector in the file — the definition
+  # above. A refute_match here would be self-defeating: the forbidden pattern is
+  # the definition's own text, so the guard fires on the very line that makes
+  # the property true. Counting is the form that expresses "one, and only one".
+  local selectors
+  selectors="$(code_only "$PROBE" | grep -c 'select(\.use=="jwt-svid"')"
+  [ "$selectors" -eq 1 ]
+}
+
+@test "PROBE the JWT trust read distinguishes 'no keys' from 'could not read'" {
+  # Both produce an empty key list and they are opposite findings. The byte
+  # counts are what let lib.sh tell them apart, exactly as zot.log_bytes does
+  # for the log scan.
+  code_only "$PROBE" | grep -q 'emit spire.bundle_bytes'
+  code_only "$PROBE" | grep -q 'emit bao.jwt_config_bytes'
 }
 
 @test "PROBE the collector does not enable nounset" {

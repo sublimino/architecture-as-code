@@ -45,6 +45,82 @@
 # the two facts a green cluster actively hides — a registry that serves but
 # cannot store, and a platform that is up and empty.
 #
+# ═══ THE FIVE OUTAGES THE PRINCIPAL FOUND BY HAND ══════════════════════════
+#
+# Every one of these was live while the test suite scored 29/29 PASS. They are
+# the acceptance criterion for this file: he must never be the detector again.
+#
+#   #  outage                       caught here by             vantage
+#   ─  ───────────────────────────  ─────────────────────────  ──────────
+#   1  Signal Fusion 503 on all     USER SURFACES — asserts    operator
+#      three acts, page 200         script_available and that
+#                                   acts enumerate, per demo
+#   2  SuperCred step 2 died on     SPIRE -> OPENBAO JWT       VM
+#      a stale OpenBao key          TRUST — compares the two
+#      snapshot                     key sets directly
+#   3  `Unregistered redirect_uri`  USER SURFACES — drives     operator
+#      broke sign-in                Dex with the dashboard's
+#                                   own redirect_uri
+#   4  tailnet 502 / 000            TAILNET SURFACE — five     operator
+#                                   named states off curl's
+#                                   exit status
+#   5  a dashboard rollout killed   PUBLISH PATH — the unit    VM
+#      the public URL               state AND the listening
+#                                   socket, which disagree
+#
+# ─── #2 is checked at the CAUSE, not the symptom, and that is the point ─────
+#
+# SuperCred reported `script_available: true` throughout. Capability is not
+# completion, so no readiness probe could ever have caught it — and proving
+# completion means DRIVING the demo, which takes minutes and MUTATES the
+# cluster (step 1 deploys workloads, seeds OpenBao, registers a SPIRE entry).
+# That can never run against a lane somebody is presenting from.
+#
+# Comparing SPIRE's published JWT-SVID keys with the set OpenBao will accept is
+# read-only, takes seconds, and is strictly BETTER than driving the demo: SPIRE
+# publishes the next authority as `prepared` hours before it activates it, so
+# the drift is visible before anything breaks. Measured on sl-demo-1 on
+# 2026-08-24: SPIRE published four keys, OpenBao held three, the missing one was
+# the prepared authority, and the active authority was due to expire the same
+# afternoon. The lane worked perfectly and was going to stop, unattended. This
+# doctor scored 24 pass and the user-surface gate reported both demos READY at
+# that same moment; neither could see it.
+#
+# ═══ WHAT A NODE-LOCAL DOCTOR STRUCTURALLY CANNOT CATCH ════════════════════
+#
+# Stated because the gap is real and a doctor that hides its own blind spots is
+# worse than one that names them. THIS SCRIPT IS NOT NODE-LOCAL — it runs the
+# tailnet, Dex and demo-surface checks from the OPERATOR'S machine and the rest
+# over SSH — and that asymmetry is deliberate, because these cannot be seen from
+# the VM at all:
+#
+#   the port-forward zombie      every in-VM check passed while the public
+#                                origin served 502. The VM-side HTTP probe hits
+#                                127.0.0.1:<app_port>, which IS the forward, so
+#                                it can see a dead socket — but it cannot see
+#                                that `tailscale serve` in front of it is
+#                                answering 502 to the world. Hence the pair.
+#   MagicDNS resolution          whether the NAME resolves is a property of the
+#                                asking machine's tailnet membership. The VM
+#                                always resolves itself.
+#   TLS certificate presence     tailscaled listens on 443 either way; only a
+#                                client completing a handshake learns there is
+#                                no certificate to present.
+#   Dex redirect_uri             `Unregistered redirect_uri` depends on the
+#                                ORIGIN in the request. A loopback probe uses a
+#                                different origin and is registered when the
+#                                tailnet name is not.
+#
+# And three things nothing here can see at all, honestly:
+#
+#   · a Funnel/public origin distinct from the tailnet origin — not probed
+#   · a Let's Encrypt rate-limit window that has not yet been hit; the DEGRADED
+#     path reports the outage once TLS is already failing, not the budget before
+#   · whether a demo RUNS TO COMPLETION. This is readiness only. The completion
+#     proof is scripts/ci/user-surface-gate.sh --execute --all-steps, which
+#     mutates and belongs in a disposable CI lane. For SuperCred specifically the
+#     JWT trust check above is the earlier and cheaper signal.
+#
 # ═══ SHAPE ═════════════════════════════════════════════════════════════════
 #
 #   scripts/node-doctor/probe.sh   runs ON the VM. Collects. Never adjudicates.
@@ -273,6 +349,76 @@ probe_tailnet_detail() {
 # HTTP_FALLBACK in particular must be its OWN value — not a pass, because the
 # intended HTTPS posture is absent, and not the generic failure arm, because
 # the estate IS serving and the rest of the suite must carry on against it.
+# ─── Dex: is the dashboard's OWN redirect_uri still registered? ─────────────
+#
+# `Unregistered redirect_uri` broke sign-in over the tailnet while the dashboard
+# answered 200 throughout: Dex was recreated, `storage: type: memory` lost the
+# origin claim, and the issuer reverted.
+#
+# -L IS LOAD-BEARING AND WAS PROVEN SO. Measured against sl-demo-1 on
+# 2026-08-24, `GET /dex/auth` returns 302 for the real redirect_uri AND for
+# `https://evil.example/cb`; Dex bounces to its connector first and only rejects
+# at the next hop. A probe reading the FIRST response cannot separate a healthy
+# origin from a totally broken one — it would have passed either way. Following
+# the redirect separates them cleanly:
+#
+#   <origin>/callback     -> 200, no rejection in the body
+#   evil.example/cb       -> 400, body contains "Unregistered redirect_uri"
+#
+# The path is /callback, taken from the dashboard's own oidc.tsx
+# (`redirect_uri: ${window.location.origin}/callback`). An earlier draft of this
+# probe guessed /auth/callback and reported the LIVE, WORKING lane as broken —
+# the guess is what produced the false verdict, so the value is pinned to the
+# client's source and test/node-doctor.bats asserts the two still agree.
+probe_dex_redirect() {
+  local origin="$1" body code
+  command -v curl >/dev/null 2>&1 || { printf 'UNKNOWN:UNKNOWN'; return; }
+  body="$(mktemp)"
+  code="$(curl -skL -o "$body" -w '%{http_code}' --max-time 15 \
+    "${origin}/dex/auth?client_id=${ND_DEX_CLIENT}&redirect_uri=${origin}${ND_DEX_CALLBACK}&response_type=code&scope=openid+profile+email" 2>/dev/null)"
+  # Read into a variable and test it. `curl … | grep -q` under pipefail can
+  # report the opposite of what it found, and this is a verdict input.
+  local hit=no
+  if [ -s "$body" ] && grep -qi 'Unregistered redirect_uri' "$body"; then hit=yes; fi
+  # An EMPTY body cannot be said to lack the rejection — that is the difference
+  # between "Dex accepted it" and "we never got an answer".
+  [ -s "$body" ] || hit=UNKNOWN
+  rm -f "$body"
+  printf '%s:%s' "${code:-000}" "$hit"
+}
+ND_DEX_CLIENT="${ND_DEX_CLIENT:-signalloom-dashboard}"
+ND_DEX_CALLBACK="${ND_DEX_CALLBACK:-/callback}"
+
+# ─── Demo surfaces: can the demos actually RUN? ─────────────────────────────
+#
+# Signal Fusion answered 503 on all three acts while the page returned 200 and
+# the demo API was reachable. Reachability is not the question; CAPABILITY is.
+#
+# Surfaces are enumerated from the SAME registry the user-surface gate uses
+# (scripts/ci/demo-surface-registry.py over demo_runner.DEMO_CONFIGS), never
+# from a list here. A hand-written list in a doctor is a list that silently stops
+# covering the newest demo, which is the one most likely to be broken.
+#
+# This is a READINESS check and says so: it proves the runner reports itself
+# capable and enumerates acts. It does NOT prove completion — that needs
+# --execute, which mutates the cluster and must never run against a lane
+# somebody is presenting from. The SuperCred class of outage (capable, reachable,
+# fails mid-run) is caught upstream by the SPIRE/OpenBao trust check instead,
+# which sees the cause rather than the symptom and costs nothing.
+mint_demo_token() {
+  local origin="$1"
+  curl -sk --max-time 20 \
+    --data-urlencode 'grant_type=password' \
+    --data-urlencode "client_id=${ND_DEX_CLIENT}" \
+    --data-urlencode "username=${ND_DEMO_USER}" \
+    --data-urlencode "password=${ND_DEMO_PASS}" \
+    --data-urlencode 'scope=openid profile email groups audience:server:client_id:signalloom-api' \
+    "${origin}/dex/token" 2>/dev/null \
+    | sed -n 's/.*"id_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+ND_DEMO_USER="${ND_DEMO_USER:-demo-user@signalloom.local}"
+ND_DEMO_PASS="${ND_DEMO_PASS:-demo-user}"
+
 nd_classify_tailnet() {
   local https_detail="$1" http_detail="$2"
   local https_code="${https_detail%%:*}" https_rc="${https_detail##*:}"
@@ -300,7 +446,7 @@ run_one() {
   printf 'instance: %s  zone=%s  project=%s\n' "$INSTANCE_NAME" "$ZONE" "$PROJECT_ID"
   printf 'time:     %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  local status ci_label idle
+  local status ci_label idle v
   status="$(vm_status)"
   ci_label="$(vm_label 'ci-lane')"
   idle="$(vm_metadata 'idle-suspend-minutes')"
@@ -381,6 +527,72 @@ run_one() {
           nd_fail "nothing is served on ${TS_FQDN} — the connection is refused (curl exit 7). The node may be on the tailnet with no 'tailscale serve' configuration at all."
           ;;
       esac
+    fi
+
+    # ─── The surfaces a human actually opens ────────────────────────────────
+    #
+    # Only when the origin is answering: every check below would report the same
+    # single cause otherwise, and a screen of UNKNOWNs with one root is noise.
+    if [ "$t_root" = "200" ] && [ "${ND_USER_SURFACES:-1}" = "1" ]; then
+      nd_header "USER SURFACES (measured from here, through https://${TS_FQDN})"
+      local origin="https://${TS_FQDN}"
+
+      local dex_detail dex_code dex_unreg
+      dex_detail="$(probe_dex_redirect "$origin")"
+      dex_code="${dex_detail%%:*}"; dex_unreg="${dex_detail##*:}"
+      v="$(nd_verdict_dex_redirect "$dex_code" "$dex_unreg")"
+      if [ "$v" = "FAIL" ] && [ "$dex_unreg" = "yes" ]; then
+        nd_fail "SIGN-IN IS BROKEN: Dex rejects the dashboard's own redirect_uri ${origin}${ND_DEX_CALLBACK} as UNREGISTERED (final status ${dex_code}). Nobody can log in over this URL, and the dashboard will keep answering 200 the whole time. This is what a recreated Dex leaves behind — 'storage: type: memory' loses the origin claim and the issuer reverts. Re-register the origin: scripts/lib/dex-origin.sh."
+      else
+        nd_report "$v" "Dex accepts the dashboard's redirect_uri ${ND_DEX_CALLBACK} at this origin (final status ${dex_code}, no rejection in the body)"
+      fi
+
+      local token
+      token="$(mint_demo_token "$origin")"
+      if [ -z "$token" ]; then
+        # NOT "every demo is broken". A bad token 401s every surface at once, and
+        # a doctor that reports that as a product outage teaches its reader to
+        # disbelieve it — the same reasoning the user-surface gate's CANNOT-RUN
+        # path is built on.
+        nd_unknown "could not mint a Dex token at ${origin}/dex/token as ${ND_DEMO_USER}, so no demo surface below could be measured. This is reported as unmeasured rather than as an outage: a bad token makes every surface 401 at once."
+      elif ! command -v python3 >/dev/null 2>&1; then
+        nd_unknown "python3 is not available here, so the demo registry could not be enumerated and no demo surface was checked."
+      else
+        local reg
+        reg="$(python3 "${REPO_ROOT}/scripts/ci/demo-surface-registry.py" \
+                 "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/demo_runner.py" \
+                 "${REPO_ROOT}/d2-signalloom/apps/dashboard-signalloom/src/api" 2>/dev/null)"
+        if [ -z "$reg" ]; then
+          # A doctor that reports success over an empty set is the vacuous pass
+          # this repo refuses. No surfaces enumerated is UNKNOWN, never a pass.
+          nd_unknown "the demo surface registry could not be enumerated, so NO demo was checked. This is not 'all demos healthy' — it is an empty set, and a check over an empty set has told you nothing."
+        else
+          while IFS="$(printf '\t')" read -r dtype dlabel _dscript dpfx; do
+            [ -n "$dtype" ] || continue
+            if [ -z "$dpfx" ]; then
+              nd_fail "${dlabel}: the server registry lists this demo and NO client module calls it. It is unreachable from the UI — each half of the contract is green about its own side, and only comparing them sees this."
+              continue
+            fi
+            local dbody dcode davail dsteps
+            dbody="$(curl -sk -H "Authorization: Bearer ${token}" --max-time 20 \
+                      -w '\n%{http_code}' "${origin}${dpfx}/status" 2>/dev/null)"
+            dcode="$(printf '%s' "$dbody" | tail -n1)"
+            davail="$(printf '%s' "$dbody" | sed '$d' \
+                      | sed -n 's/.*"script_available"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -1)"
+            dsteps="$(curl -sk -H "Authorization: Bearer ${token}" --max-time 20 \
+                       "${origin}${dpfx}/steps" 2>/dev/null \
+                       | grep -o '"step_id"' | wc -l | tr -d ' ')"
+            v="$(nd_verdict_demo_surface "$dcode" "$davail" "$dsteps")"
+            case "$v" in
+              PASS) nd_pass "${dlabel} (${dpfx}): status 200, script_available=true, ${dsteps} act(s) enumerated — READY. Note this proves capability, NOT completion." ;;
+              FAIL) nd_fail "${dlabel} (${dpfx}) IS NOT USABLE: GET ${dpfx}/status -> ${dcode}, script_available=${davail:-<absent>}, ${dsteps} act(s). This is the Signal Fusion class — the page loads, the API is reachable, and every act 503s. Usual causes: the demo's *_DEMO_CWD env var is unset on the serving pod, the script is absent from its image, or the request lands on a backend that has neither." ;;
+              *)    nd_unknown "${dlabel} (${dpfx}) could not be measured (status=${dcode:-none}, script_available=${davail:-<absent>}, steps=${dsteps:-<none>})." ;;
+            esac
+          done <<EOF
+$reg
+EOF
+        fi
+      fi
     fi
   fi
 

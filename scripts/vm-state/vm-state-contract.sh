@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# vm-state-contract.sh — assert the eight VM facts the pipeline depends on,
+# vm-state-contract.sh — assert the nine VM facts the pipeline depends on,
 # BEFORE the pipeline spends twenty minutes discovering one of them the hard way.
 #
 # ── Why this file exists, and why a static test could not have prevented it ──
@@ -27,7 +27,7 @@
 # goss (github.com/goss-org/goss) was the proposed mechanism and it is a good
 # tool. It is the wrong tool HERE, for four measured reasons:
 #
-#  1. SIX OF THE EIGHT FACTS ARE CAPABILITY PROBES, NOT STATE. goss is excellent
+#  1. SEVEN OF THE NINE FACTS ARE CAPABILITY PROBES, NOT STATE. goss is excellent
 #     at declarative state — package installed, port listening, file present
 #     with mode 0755, service running. It expresses "can THIS process create a
 #     file in THIS directory right now" as a `command:` block, which is a shell
@@ -151,7 +151,7 @@ VMSC_FORMAT="text"
 # ── Result accumulation ──────────────────────────────────────────────────────
 #
 # NOTHING below exits early. A gate that stops at the first failure turns an
-# eight-fact report into a one-fact report, and the operator then fixes that one
+# nine-fact report into a one-fact report, and the operator then fixes that one
 # thing and burns another forty-minute run discovering the next. Every fact is
 # probed, every failure is named, and the exit status is decided at the end.
 
@@ -450,7 +450,7 @@ main() {
 
   # The pin file is a hard precondition, not a fact. Without it facts 1 and 2
   # cannot be evaluated at all, and a gate that silently downgrades two of its
-  # eight assertions to "skipped" is the vacuous pass this repo keeps finding.
+  # nine assertions to "skipped" is the vacuous pass this repo keeps finding.
   if [ ! -f "${VMSC_PIN_FILE}" ]; then
     echo "HARNESS ERROR: pin source not found at ${VMSC_PIN_FILE}" >&2
     echo "               Facts 1 and 2 derive their versions from it and cannot run." >&2

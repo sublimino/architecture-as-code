@@ -25,8 +25,9 @@ import (
 const identityBindingPolicyPath = "base/agent-identity-binding.yaml"
 
 type identityBindingPolicy struct {
-	vars        []admissionv1.Variable
-	validations []admissionv1.Validation
+	vars            []admissionv1.Variable
+	validations     []admissionv1.Validation
+	matchConditions []admissionv1.MatchCondition
 }
 
 func loadIdentityBindingPolicy(t *testing.T) identityBindingPolicy {
@@ -46,7 +47,11 @@ func loadIdentityBindingPolicy(t *testing.T) identityBindingPolicy {
 			if len(obj.Spec.Validations) == 0 {
 				t.Fatal("policy has no validations")
 			}
-			p = identityBindingPolicy{vars: obj.Spec.Variables, validations: obj.Spec.Validations}
+			p = identityBindingPolicy{
+				vars:            obj.Spec.Variables,
+				validations:     obj.Spec.Validations,
+				matchConditions: obj.Spec.MatchConditions,
+			}
 			found = true
 		}
 	}
@@ -54,6 +59,48 @@ func loadIdentityBindingPolicy(t *testing.T) identityBindingPolicy {
 		t.Fatalf("sl-agent-identity-binding not found in %s", identityBindingPolicyPath)
 	}
 	return p
+}
+
+// matches evaluates this policy's matchConditions against pod, the way the
+// real API server does BEFORE resolving params or running variables/
+// validations: only object/oldObject/request are in scope, no params or
+// variables. true means the request would actually reach the validations
+// this test file's admit() evaluates; false means the API server would
+// never run this policy's CEL at all for this object.
+func (p identityBindingPolicy) matches(t *testing.T, pod *corev1.Pod) bool {
+	t.Helper()
+	env, err := cel.NewEnv(
+		cel.Variable("object", cel.DynType),
+		cel.Variable("oldObject", cel.DynType),
+		cel.Variable("request", cel.DynType),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act := map[string]any{
+		"object":    asIdentityCEL(t, pod),
+		"oldObject": nil,
+		"request":   map[string]any{"operation": "CREATE"},
+	}
+	for _, mc := range p.matchConditions {
+		ast, iss := env.Compile(mc.Expression)
+		if iss.Err() != nil {
+			t.Fatalf("compile matchCondition %q: %v", mc.Name, iss.Err())
+		}
+		prg, err := env.Program(ast)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _, err := prg.Eval(act)
+		if err != nil {
+			t.Fatalf("eval matchCondition %q: %v", mc.Name, err)
+		}
+		ok, isBool := out.Value().(bool)
+		if !isBool || !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func asIdentityCEL(t *testing.T, v any) any {
@@ -245,5 +292,60 @@ func TestIdentityBindingVAP_NilParamsAdmitsEverything(t *testing.T) {
 
 	if msg := p.admit(t, decoy, nil); msg != "" {
 		t.Fatalf("missing params must admit (parameterNotFoundAction: Allow), got denial: %s", msg)
+	}
+}
+
+// ── matchConditions: the policy runs for ANY namespace, gated only on
+// carrying the agent-name label (sldc/sa-identity gap 2) ───────────────────
+
+func TestIdentityBindingVAP_MatchConditionsSkipAPodWithNoAgentNameLabel(t *testing.T) {
+	p := loadIdentityBindingPolicy(t)
+	if len(p.matchConditions) == 0 {
+		t.Fatal("policy declares no matchConditions; a cluster-wide matchResources with no match condition would run this CEL on every pod in the cluster")
+	}
+	ordinary := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "some-other-namespace"},
+		Spec:       corev1.PodSpec{ServiceAccountName: "default"},
+	}
+	if p.matches(t, ordinary) {
+		t.Fatal("a pod with no signalloom.ai/agent-name label must not match -- the point of matchConditions is to skip it")
+	}
+}
+
+func TestIdentityBindingVAP_MatchConditionsRunForAnyNamespaceThatCarriesTheLabel(t *testing.T) {
+	// The whole point of gap 2: a decoy in hosted-daytona-coder's own
+	// namespace that carries the agent-name label must still reach the
+	// validations -- matchConditions filters on the LABEL, never on
+	// namespace.
+	p := loadIdentityBindingPolicy(t)
+	decoy := identityPod("hosted-daytona-coder-workspace", "kusari-agent", "kusari-agent")
+	if !p.matches(t, decoy) {
+		t.Fatal("a pod carrying signalloom.ai/agent-name must match regardless of namespace -- that is the entire point of removing the namespaceSelector")
+	}
+}
+
+func TestIdentityBindingVAP_BindingHasNoNamespaceRestriction(t *testing.T) {
+	raw, err := os.ReadFile(identityBindingPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, doc := range strings.Split(string(raw), "\n---\n") {
+		var obj admissionv1.ValidatingAdmissionPolicyBinding
+		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
+			t.Fatal(err)
+		}
+		if obj.Kind != "ValidatingAdmissionPolicyBinding" || obj.Name != "sl-agent-identity-binding-binding" {
+			continue
+		}
+		found = true
+		if obj.Spec.MatchResources != nil && obj.Spec.MatchResources.NamespaceSelector != nil {
+			t.Fatalf("binding still restricts matchResources to a namespaceSelector (%+v); "+
+				"the spoof this policy guards against is cross-namespace, so a namespace "+
+				"restriction here would defeat it", obj.Spec.MatchResources.NamespaceSelector)
+		}
+	}
+	if !found {
+		t.Fatalf("sl-agent-identity-binding-binding not found in %s", identityBindingPolicyPath)
 	}
 }

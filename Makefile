@@ -2894,6 +2894,14 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 			echo "ERROR: app_port resolved to '$$app_port', which is not a port number."; \
 			exit 3;; \
 	esac; \
+	prev_source_ref=''; \
+	prev_source_sha=''; \
+	prev_source_recorded_at=''; \
+	if [ -f '$(GCP_TF_HANDOFF_FILE)' ]; then \
+		prev_source_ref="$$(jq -r '.source_ref // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+		prev_source_sha="$$(jq -r '.source_sha // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+		prev_source_recorded_at="$$(jq -r '.source_recorded_at // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+	fi; \
 	jq -n \
 		--argjson schema_version 1 \
 		--arg schema '$(GCP_TF_HANDOFF_SCHEMA)' \
@@ -2911,7 +2919,10 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg access_mode "$$access_mode" \
 		--arg hostname "$$hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		--arg prev_source_ref "$$prev_source_ref" \
+		--arg prev_source_sha "$$prev_source_sha" \
+		--arg prev_source_recorded_at "$$prev_source_recorded_at" \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at} + (if $$prev_source_ref != "" then {source_ref: $$prev_source_ref} else {} end) + (if $$prev_source_sha != "" then {source_sha: $$prev_source_sha} else {} end) + (if $$prev_source_recorded_at != "" then {source_recorded_at: $$prev_source_recorded_at} else {} end)' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \
@@ -2941,10 +2952,10 @@ GCP_TF_DEMO_SCRIPT ?= scripts/gcp-tf/demo-up.sh
 # computed default does not reach a sub-process through MAKEFLAGS, and an
 # impersonation target that silently fails to arrive is the failure this whole
 # block exists to prevent.
-GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)'
+GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)' GCP_TF_DEMO_REF='$(GCP_TF_DEMO_REF)'
 
 .PHONY: gcp-tf-demo-up
-gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key>).
+gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key> GCP_TF_DEMO_REF=<ref>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_impersonation)
 	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \

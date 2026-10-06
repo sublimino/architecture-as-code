@@ -93,6 +93,7 @@ setup() {
 	export GCP_TF_DEMO_SSH_WAIT_ATTEMPTS=2
 	export GCP_TF_DEMO_SSH_WAIT_INTERVAL=0
 	export GCP_TF_DEMO_TIMEOUT_MINUTES=1
+	export GCP_TF_DEMO_REF="HEAD"
 
 	# The VM's filesystem, so the post-transfer size check has real bytes to
 	# read back rather than a canned answer.

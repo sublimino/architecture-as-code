@@ -156,6 +156,7 @@ HANDOFF_DIR="${GCP_TF_HANDOFF_DIR:-${REPO_ROOT}/deploy/gcp}"
 GCLOUD_CMD="${GCP_TF_DEMO_GCLOUD:-gcloud}"
 TAR_CMD="${GCP_TF_DEMO_TAR:-tar}"
 GIT_CMD="${GCP_TF_DEMO_GIT:-git}"
+GCP_TF_DEMO_REF="${GCP_TF_DEMO_REF:-}"
 
 # Where the delivered checkout and its reports live ON THE VM. Both are part of
 # the contract with demo-pipeline.sh (chunk C) and are stated in
@@ -702,6 +703,37 @@ APP_PORT=""
 OPERATOR_SA=""
 HANDOFF_FILE=""
 
+SOURCE_REF=""
+SOURCE_SHA=""
+REF_WORKTREE=""
+
+cleanup_ref_worktree() {
+  if [ -n "$REF_WORKTREE" ] && [ -d "$REF_WORKTREE" ]; then
+    "$GIT_CMD" -C "$REPO_ROOT" worktree remove --force "$REF_WORKTREE" >/dev/null 2>&1 || rm -rf "$REF_WORKTREE"
+    "$GIT_CMD" -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+    REF_WORKTREE=""
+  fi
+}
+
+resolve_source_ref() {
+  [ -n "$SOURCE_SHA" ] && return 0
+
+  if [ -z "${GCP_TF_DEMO_REF:-}" ]; then
+    printf 'demo-up: DEMO-REF-UNSET — GCP_TF_DEMO_REF is required. Specify a ref (e.g. GCP_TF_DEMO_REF=HEAD or GCP_TF_DEMO_REF=<branch|tag|sha>).\n' >&2
+    exit 2
+  fi
+
+  local sha
+  sha="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --verify "${GCP_TF_DEMO_REF}^{commit}" 2>/dev/null || true)"
+  if [ -z "$sha" ] || [ "${#sha}" -ne 40 ]; then
+    printf 'demo-up: DEMO-REF-UNRESOLVED — cannot resolve ref '\''%s'\'' to a commit in %s.\n' "$GCP_TF_DEMO_REF" "$REPO_ROOT" >&2
+    exit 2
+  fi
+
+  SOURCE_REF="$GCP_TF_DEMO_REF"
+  SOURCE_SHA="$sha"
+}
+
 RUN_COMMIT="unknown"
 RUN_BRANCH="unknown"
 RUN_STARTED_AT=""
@@ -1090,6 +1122,8 @@ ensure_vm_ready() {
 # deliver_code snapshots a throwaway repo on the VM for that. It is a marker,
 # not history.
 require_clean_tree() {
+  [ "${SOURCE_REF:-${GCP_TF_DEMO_REF:-}}" = "HEAD" ] || return 0
+
   [ "${GCP_TF_DEMO_ALLOW_DIRTY:-0}" != "1" ] || {
     warn "GCP_TF_DEMO_ALLOW_DIRTY=1 — delivering HEAD. Your uncommitted changes are NOT in this run, and the report will be stamped with HEAD's commit regardless."
     return 0
@@ -1121,6 +1155,7 @@ build_payload() {
   local out="$1"
   [ -n "$out" ] || die "build_payload needs an output path"
 
+  resolve_source_ref
   require_clean_tree
 
   "$GIT_CMD" -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 ||
@@ -1129,13 +1164,20 @@ build_payload() {
   # Presence before packaging. A payload that omits the pipeline produces a 127
   # on the VM twenty minutes later, by which point the obvious suspect is the VM.
   #
-  # Checked against `git ls-files`, not against the filesystem: an UNTRACKED
-  # pipeline exists on disk and will not be in the archive, and "it is right
-  # there" is the most convincing possible wrong answer.
-  "$GIT_CMD" -C "$REPO_ROOT" ls-files --error-unmatch "$PIPELINE_REL" >/dev/null 2>&1 ||
+  # Checked against the tracked pipeline at SOURCE_SHA:
+  "$GIT_CMD" -C "$REPO_ROOT" cat-file -e "${SOURCE_SHA}:${PIPELINE_REL}" >/dev/null 2>&1 ||
     die "no TRACKED pipeline at ${PIPELINE_REL}. If the file exists on disk it is untracked, and 'git archive' will not carry it. Commit it, or override with GCP_TF_DEMO_PIPELINE=<relative-path>."
 
-  "$GIT_CMD" -C "$REPO_ROOT" archive --format=tar.gz -o "$out" HEAD
+  if [ "$SOURCE_REF" = "HEAD" ]; then
+    "$GIT_CMD" -C "$REPO_ROOT" archive --format=tar.gz -o "$out" "$SOURCE_SHA"
+  else
+    REF_WORKTREE="${TMPDIR:-/tmp}/osramp-demo-ref-${ENV_KEY:-demo}-${SOURCE_SHA}"
+    cleanup_ref_worktree
+    "$GIT_CMD" -C "$REPO_ROOT" worktree add --detach "$REF_WORKTREE" "$SOURCE_SHA" >/dev/null 2>&1 ||
+      die "could not create detached worktree for ref ${SOURCE_REF} (${SOURCE_SHA}) at ${REF_WORKTREE}"
+    "$GIT_CMD" -C "$REF_WORKTREE" archive --format=tar.gz -o "$out" HEAD
+    cleanup_ref_worktree
+  fi
 
   # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
   # survives someone swapping git archive back out for a tar with excludes.
@@ -1736,6 +1778,7 @@ final_exit_code() {
 run_exit_trap() {
   local rc=$?
   trap - EXIT INT TERM
+  cleanup_ref_worktree
   local outcome=""
   if [ -f "${REPORT_DIR}/${SUMMARY_NAME}" ]; then
     outcome="$(jq -r '.outcome // ""' "${REPORT_DIR}/${SUMMARY_NAME}" 2>/dev/null || echo "")"
@@ -2046,9 +2089,46 @@ prepare() {
 }
 
 capture_source_identity() {
-  RUN_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  RUN_BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  if [ -n "$SOURCE_SHA" ]; then
+    RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short "$SOURCE_SHA" 2>/dev/null || echo unknown)"
+    RUN_BRANCH="${SOURCE_REF:-unknown}"
+  elif [ -n "${GCP_TF_DEMO_REF:-}" ]; then
+    resolve_source_ref
+    RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short "$SOURCE_SHA" 2>/dev/null || echo unknown)"
+    RUN_BRANCH="${SOURCE_REF:-unknown}"
+  else
+    local h_sha="" h_ref=""
+    if [ -f "${HANDOFF_FILE:-}" ]; then
+      h_sha="$(jq -r '.source_sha // ""' "$HANDOFF_FILE" 2>/dev/null || true)"
+      h_ref="$(jq -r '.source_ref // ""' "$HANDOFF_FILE" 2>/dev/null || true)"
+    fi
+    if [ -n "$h_sha" ]; then
+      RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short "$h_sha" 2>/dev/null || echo "${h_sha:0:7}")"
+      RUN_BRANCH="${h_ref:-unknown}"
+    else
+      RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+      RUN_BRANCH="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    fi
+  fi
   RUN_STARTED_AT="$(date -Iseconds)"
+}
+
+record_source_in_handoff() {
+  [ -f "$HANDOFF_FILE" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local tmp="${HANDOFF_FILE}.$$.tmp"
+  local rec_at
+  rec_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq \
+    --arg ref "$SOURCE_REF" \
+    --arg sha "$SOURCE_SHA" \
+    --arg rec "$rec_at" \
+    '. + {source_ref: $ref, source_sha: $sha, source_recorded_at: $rec}' \
+    "$HANDOFF_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$HANDOFF_FILE" || {
+    rm -f "$tmp"
+    return 1
+  }
+  return 0
 }
 
 # stage is "full" (build the estate, then test it) or "test" (tests only).
@@ -2134,6 +2214,7 @@ run_lane() {
 
   echo ""
   if [ "$final_exit" -eq 0 ]; then
+    record_source_in_handoff || warn "could not record source identity in ${HANDOFF_FILE}"
     echo "==> PASS — the estate is standing and tested."
     echo "    Open it with:  make gcp-tf-connect ENV=${ENV_KEY}"
   else
@@ -2152,11 +2233,13 @@ run_lane() {
 }
 
 cmd_up() {
+  resolve_source_ref
   prepare up
   run_lane full
 }
 
 cmd_test() {
+  resolve_source_ref
   prepare test
   run_lane test
 }

@@ -11,6 +11,14 @@ Every claim path resolves its target here first:
 * 503 ``discovery_unavailable``  discovery cannot be read; the claim fails closed
 * 404 ``workload_not_found``     no running workload of that name in that namespace
 * 409 ``workload_ambiguous``     more than one workload answers to that name
+* 403 ``agent_identity_mismatch`` the workload's agent_name label names a
+  REGISTERED agent (agent_identity_map, the same map
+  d2-signalloom/apps/fleet-manager/identity_map.go and the
+  ValidatingAdmissionPolicy at
+  d2-signalloom/apps/fleet-manager/base/agent-identity-binding.yaml read) but
+  its actual ServiceAccount does not match the one registered for it -- a
+  decoy claiming a known identity, not that agent. An unregistered
+  agent_name is unaffected.
 * 403 ``workload_tenant_undeclared``  the workload carries no tenant label
 * 403 ``cross_tenant_forbidden`` the workload belongs to another tenant (not named)
 * 422 ``workload_model_undeclared``  the workload carries no model label
@@ -27,6 +35,8 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
+import agent_identity_map
+
 
 # agent_claims.model is NOT NULL; an agent that declares no model is recorded
 # as exactly this, never as a guessed model. Nullable columns record NULL.
@@ -37,7 +47,14 @@ UNDECLARED_MODEL = "undeclared"
 REFUSAL_CODES = frozenset({
     "workload_not_found", "workload_ambiguous", "workload_tenant_undeclared",
     "cross_tenant_forbidden", "workload_model_undeclared", "model_mismatch",
+    "agent_identity_mismatch",
 })
+
+# The agent-name -> ServiceAccount map. Called fresh on every authorize(),
+# same pattern as workload_source below, so a test can replace it with a
+# fixture mapping with no filesystem involved. Production reads the
+# ConfigMap volume mount (agent_identity_map.load's default directory).
+identity_map_source: Callable[[], dict[str, str]] = agent_identity_map.load
 
 
 @dataclass(frozen=True)
@@ -105,6 +122,25 @@ def authorize(
             409, "workload_ambiguous", f"More than one workload answers to '{name}' in '{namespace}'"
         )
     workload = matches[0]
+
+    # The agent_name field is sourced from signalloom.ai/agent-name, a label
+    # its creator writes -- including hosted-daytona-coder, which holds
+    # pod-create RBAC in this namespace. If that name is a REGISTERED agent
+    # identity, the workload's actual ServiceAccount (read live from the pod
+    # spec, never a label) must match the one registered for it, or this is a
+    # decoy claiming a known agent's identity, not that agent. An
+    # unregistered agent_name is unaffected: this is never a second
+    # allow-list for which agents may exist.
+    claimed_identity = _label(workload.get("agent_name"))
+    if claimed_identity and not agent_identity_map.matches(
+        identity_map_source(), claimed_identity, workload.get("service_account")
+    ):
+        raise api_compat.APIError(
+            403, "agent_identity_mismatch",
+            f"Workload '{name}' is labelled as registered agent '{claimed_identity}' but runs as "
+            f"ServiceAccount '{workload.get('service_account')}', not the one registered for that agent",
+        )
+
     declared = _label(workload.get("tenant"))
     if not declared:
         raise api_compat.APIError(

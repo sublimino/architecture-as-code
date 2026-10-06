@@ -282,11 +282,15 @@ push-local-foundation: ## Push only the fleet and shared infrastructure artifact
 push-local-signalloom: ## Push Signal Loom artifacts for the explicit demo lifecycle.
 	./scripts/push-local.sh signalloom
 
-.PHONY: push-local-fleet push-local-agent-trust
+.PHONY: push-local-fleet push-local-agent-trust push-local-osramp push-local-olly
 push-local-fleet: ## Push only the signed fleet artifact to the local registry.
 	./scripts/push-local.sh fleet
 push-local-agent-trust: ## Push only signed Agent Trust manifests to the local registry.
 	./scripts/push-local.sh agent-trust
+push-local-osramp: ## Push signed OSRAMP frontend and backend artifacts to the local registry.
+	./scripts/push-local.sh osramp
+push-local-olly: ## Push signed Olly Sentinel replica artifacts to the local registry.
+	./scripts/push-local.sh olly
 
 .PHONY: bootstrap-local
 bootstrap-local: ## Bootstrap Flux syncing from the in-cluster registry.
@@ -350,7 +354,7 @@ signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper int
 .PHONY: netassert-runner-image
 netassert-runner-image: ## Build and load the pinned netassert v2.1.5 runner used by the Scan Now button.
 	docker build -f d2-signalloom/netassert-runner.Dockerfile -t netassert-runner:local d2-signalloom
-	kind load docker-image --name $(CLUSTER_NAME) netassert-runner:local
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh netassert-runner:local
 
 .PHONY: signalloom-dashboard-image
 signalloom-dashboard-image: ## Build, sign, and load the dashboard workload image.
@@ -1376,7 +1380,7 @@ demo-signalloom-supercred-evidence-test: ## Unit-test what the evidence probes C
 	bats d2-signalloom/test/supercred-evidence-probe.bats
 
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
-demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
+demo-osramp-up: push-local-fleet push-local-osramp ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
 	./scripts/osramp-up.sh
 demo-osramp-test-config: ## Validate existing OSRAMP manifests without a running slice.
 	@# components/ holds no kustomization.yaml of its own -- the overlays live one

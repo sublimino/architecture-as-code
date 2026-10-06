@@ -56,7 +56,12 @@ setup() {
 # happened in a path nobody remembered to update.
 collect_sign_invocations() {
   local f
-  for f in Makefile $(git ls-files 'scripts/*.sh' 'scripts/**/*.sh' 2>/dev/null); do
+  local script_files
+  script_files="$(git ls-files 'scripts/*.sh' 'scripts/**/*.sh' 2>/dev/null || true)"
+  if [ -z "$script_files" ]; then
+    script_files="$(find scripts -name '*.sh')"
+  fi
+  for f in Makefile $script_files; do
     [ -f "${f}" ] || continue
     awk -v file="${f}" '
       # Prose mentions `cosign sign` constantly -- in shell comments, and in

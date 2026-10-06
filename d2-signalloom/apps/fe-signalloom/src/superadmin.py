@@ -18,7 +18,7 @@ from api_compat import APIError, Principal, authenticated_principal
 from config import settings
 
 _DEFAULT_SUPERADMIN_EMAILS = frozenset({"demo-user@signalloom.local"})
-_DEFAULT_SUPERADMIN_SUBJECTS = frozenset({"demo-user"})
+_DEFAULT_SUPERADMIN_SUBJECTS = frozenset({"demo-user", "CglkZW1vLXVzZXISBWxvY2Fs"})
 
 
 def _configured_strings(value: object, *, setting_name: str) -> set[str]:

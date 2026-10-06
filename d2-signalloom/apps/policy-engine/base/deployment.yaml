@@ -35,6 +35,20 @@ spec:
             # into the policy-engine-bundles ConfigMap and loaded once at boot.
             - name: POLICY_BUNDLES_DIR
               value: /etc/policy-engine/bundles
+            # SLAWS-P5-4: dry-run policy evaluation pseudonymises actor identities with the
+            # same HMAC derivation the store uses (signal-ingest-segment-pseudonym Secret).
+            - name: SIGNAL_SEGMENT_PSEUDONYM_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: signal-ingest-segment-pseudonym
+                  key: SIGNAL_SEGMENT_PSEUDONYM_KEY
+                  optional: true
+            - name: SIGNAL_SEGMENT_PSEUDONYM_EPOCH
+              valueFrom:
+                secretKeyRef:
+                  name: signal-ingest-segment-pseudonym
+                  key: SIGNAL_SEGMENT_PSEUDONYM_EPOCH
+                  optional: true
           volumeMounts:
             - name: policy-bundles
               mountPath: /etc/policy-engine/bundles

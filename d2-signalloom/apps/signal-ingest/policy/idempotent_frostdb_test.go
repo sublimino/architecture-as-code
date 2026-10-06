@@ -8,6 +8,7 @@ package policy
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
@@ -124,4 +125,110 @@ func idSet(rows []model.Observation) map[string]struct{} {
 		out[rows[i].ID] = struct{}{}
 	}
 	return out
+}
+
+func TestIdempotentReview_FrostDBRestartPreservesDeduplication(t *testing.T) {
+	t.Setenv(store.SegmentPseudonymKeyEnv, "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
+	st, err := store.NewFrostDBStore()
+	if err != nil {
+		t.Fatalf("NewFrostDBStore: %v", err)
+	}
+	defer st.Close()
+
+	decObs := decisionFixture()
+	if err := st.Append(context.Background(), []model.Observation{*decObs}); err != nil {
+		t.Fatalf("Append decision: %v", err)
+	}
+
+	reviewedAt := time.Date(2026, 10, 4, 12, 30, 0, 0, time.UTC)
+	rv := Review{
+		ID:         ReviewID("tenant-a", decObs.ID, "alice@example.com", string(VerdictTruePositive), "initial review"),
+		DecisionID: decObs.ID,
+		TenantID:   "tenant-a",
+		Verdict:    VerdictTruePositive,
+		Note:       "initial review",
+		Reviewer:   "alice@example.com",
+		ReviewedAt: reviewedAt,
+	}
+	revObs := ReviewObservation(rv, decObs)
+
+	// Ingest review via dedupe sink into store
+	deduper := collectors.NewDeduper(4096)
+	storeSink := collectors.NewStoreSink(st)
+	dedupeSink := collectors.NewDedupeSink(storeSink, deduper)
+
+	if err := dedupeSink.IngestObservation(context.Background(), &revObs); err != nil {
+		t.Fatalf("first IngestObservation(review): %v", err)
+	}
+
+	rowsBefore := frostRows(t, st)
+	reviewCountBefore := 0
+	for i := range rowsBefore {
+		if IsReview(&rowsBefore[i]) {
+			reviewCountBefore++
+		}
+	}
+	if reviewCountBefore != 1 {
+		t.Fatalf("expected 1 review row before restart, got %d", reviewCountBefore)
+	}
+
+	// Replay exact same review -> dropped by deduper
+	if err := dedupeSink.IngestObservation(context.Background(), &revObs); err != nil {
+		t.Fatalf("replaying review returned error: %v", err)
+	}
+	if got := deduper.Dropped(); got != 1 {
+		t.Fatalf("expected 1 dropped replay, got %d", got)
+	}
+
+	// --- Simulate restart / store reopen: warm a new deduper from FrostDB ---
+	restartedDeduper := collectors.NewDeduper(4096)
+	if err := restartedDeduper.Warm(context.Background(), st, collectors.DefaultDedupeWarmWindow, newestTimestamp(rowsBefore), testLogger(t)); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+
+	restartedSink := collectors.NewDedupeSink(storeSink, restartedDeduper)
+	// Replay the exact same review after restart -> dropped by warmed deduper
+	if err := restartedSink.IngestObservation(context.Background(), &revObs); err != nil {
+		t.Fatalf("replaying review after restart: %v", err)
+	}
+	if got := restartedDeduper.Dropped(); got != 1 {
+		t.Fatalf("expected 1 dropped replay after restart, got %d", got)
+	}
+
+	rowsAfter := frostRows(t, st)
+	reviewCountAfter := 0
+	for i := range rowsAfter {
+		if IsReview(&rowsAfter[i]) {
+			reviewCountAfter++
+		}
+	}
+	if reviewCountAfter != 1 {
+		t.Fatalf("review count moved from 1 to %d across restart replay", reviewCountAfter)
+	}
+
+	// A changed note creates a new review observation and is admitted
+	rv2 := Review{
+		ID:         ReviewID("tenant-a", decObs.ID, "alice@example.com", string(VerdictTruePositive), "revised note"),
+		DecisionID: decObs.ID,
+		TenantID:   "tenant-a",
+		Verdict:    VerdictTruePositive,
+		Note:       "revised note",
+		Reviewer:   "alice@example.com",
+		ReviewedAt: reviewedAt.Add(time.Hour),
+	}
+	revObs2 := ReviewObservation(rv2, decObs)
+	if err := restartedSink.IngestObservation(context.Background(), &revObs2); err != nil {
+		t.Fatalf("ingesting revised review: %v", err)
+	}
+
+	rowsWithRevision := frostRows(t, st)
+	reviewCountWithRevision := 0
+	for i := range rowsWithRevision {
+		if IsReview(&rowsWithRevision[i]) {
+			reviewCountWithRevision++
+		}
+	}
+	if reviewCountWithRevision != 2 {
+		t.Fatalf("expected 2 review rows after revision, got %d", reviewCountWithRevision)
+	}
 }

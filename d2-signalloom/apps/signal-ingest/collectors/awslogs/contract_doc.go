@@ -17,8 +17,8 @@
 //	tenant_id         collector config              collector config         collector config
 //	provider          "aws"                         "aws"                    "aws"
 //	aws_account_id    recipientAccountId            recipientAccountId       account-id (field 2)
-//	actor_account_id  userIdentity.arn field 4,     same                     —
-//	                  only when an account is named
+//	actor_account_id  twelve-digit account or absent, same                     —
+//	                  userIdentity.arn field 4
 //	aws_region        awsRegion (per record)        awsRegion                collector config
 //	event_source      eventSource                   "iam.amazonaws.com"      "vpcflow"
 //	event_name        eventName                     eventName                action: ACCEPT | REJECT

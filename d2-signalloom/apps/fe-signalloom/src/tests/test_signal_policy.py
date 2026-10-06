@@ -201,6 +201,23 @@ class TestReviewGate:
             )
         assert resp.status_code == 201
 
+    def test_gate_removal_is_detected(self, client, monkeypatch):
+        """Monkeypatching is_superadmin to admit everyone lets the read-only POST reach upstream.
+
+        Proves that without the superadmin gate, a non-reviewer request would not be refused
+        by the gateway middleware.
+        """
+        _as(READ_ONLY_SUBJECT)
+        monkeypatch.setattr(signal_policy, "is_superadmin", lambda _p: True)
+        upstream = _Upstream(status=201, payload={"id": "r1"})
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-1/review",
+                json={"verdict": "false_positive", "note": "gate bypass proof"},
+            )
+        assert resp.status_code == 201
+        assert len(upstream.calls) == 1, "when gate is bypassed, request reaches upstream"
+
 
 # ---------------------------------------------------------------------------
 # 3. Forwarding: path, query, body, credential, attribution
@@ -259,6 +276,22 @@ class TestForwarding:
         assert resp.status_code == 201
         assert upstream.call["path"] == "/api/v1/policy/decisions/dec-1/review"
         assert upstream.call["json"] == {"verdict": "needs_info", "note": "need the pod spec"}
+
+    def test_review_with_changed_note_is_forwarded_as_a_new_assertion(self, client):
+        """A review revision with a modified note forwards the updated note to signal-ingest."""
+        _as(REVIEWER_SUBJECT)
+        upstream = _Upstream(
+            status=201,
+            payload={"id": "r2", "decision_id": "dec-1", "verdict": "true_positive", "note": "revised assessment"},
+        )
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-1/review",
+                json={"verdict": "true_positive", "note": "revised assessment"},
+            )
+        assert resp.status_code == 201
+        assert upstream.call["path"] == "/api/v1/policy/decisions/dec-1/review"
+        assert upstream.call["json"] == {"verdict": "true_positive", "note": "revised assessment"}
 
     def test_review_body_is_reassembled_not_relayed(self, client):
         """A caller-supplied reviewer or timestamp must not reach signal-ingest.

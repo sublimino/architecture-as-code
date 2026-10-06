@@ -254,8 +254,8 @@ repo_bundle_identities() {
     [ "$n" -gt 0 ] || {
         echo "kusari-cloud-signals has produced no findings."
         echo "If the AWS collector has only replayed the DEFAULT fixture corpus this is expected:"
-        echo "the extra-signal fixtures live under collectors/awslogs/testdata/kusari/ and are not in"
-        echo "awslogs.FixtureFiles(), so fixture mode does not replay them. See docs/EAP/kusari-e2e.md."
+        echo "the extra-signal fixtures live under collectors/awslogs/testdata/kusari/ and fixture mode"
+        echo "replays them only with AWSLOGS_FIXTURE_SET=kusari. See docs/EAP/kusari-e2e.md."
         return 1
     }
 

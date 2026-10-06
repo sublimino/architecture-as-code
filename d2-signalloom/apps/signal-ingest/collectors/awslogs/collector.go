@@ -415,7 +415,7 @@ func (c *Collector) replayFixtures(ctx context.Context) error {
 	if c.sink == nil {
 		return nil
 	}
-	obs, err := FixtureObservations(c.cfg.TenantID, c.cfg.Region)
+	obs, err := FixtureSetObservations(c.cfg.FixtureSet, c.cfg.TenantID, c.cfg.Region)
 	if err != nil {
 		return err
 	}

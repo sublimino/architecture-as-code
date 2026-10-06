@@ -25,7 +25,8 @@ import (
 //
 // So the two sets are explicit and disjoint, and KusariFixtureFiles is opt-in:
 // the e2e harness and the Kusari contract test name it, the default replay path
-// does not.
+// does not. Fixture mode replays it only when AWSLOGS_FIXTURE_SET=kusari
+// (FixtureSetKusari), which kind-osramp sets so stage 2 sees the bursts.
 const (
 	KusariFixtureEKS            = "kusari/eks-control-plane.json"
 	KusariFixtureConsoleLogin   = "kusari/console-login.json"

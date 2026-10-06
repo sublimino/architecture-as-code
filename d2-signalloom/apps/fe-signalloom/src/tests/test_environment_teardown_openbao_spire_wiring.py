@@ -204,13 +204,16 @@ def test_revoke_svid_unconfigured_default_now_fails_closed(monkeypatch):
 def test_shred_openbao_unverified_opt_in_completes_but_says_so(monkeypatch):
     """SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 is the loud, explicit opt-in for
     demo/fixture use: the stage reports COMPLETED (so a pipeline with no real
-    OpenBao can still proceed) but the detail must say "UNVERIFIED" so the
-    result never reads as a clean, verified success."""
+    OpenBao can still proceed) but the detail must say "UNVERIFIED", AND
+    res.verified must be False -- machine-visible, not just free text, so a
+    caller that only checks outcome/ok cannot read this as a clean,
+    verified success."""
     monkeypatch.delenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER", raising=False)
     monkeypatch.setenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", "1")
     res = shred_openbao(H)
     assert res.outcome is StageOutcome.COMPLETED
     assert "UNVERIFIED" in res.detail
+    assert res.verified is False
 
 
 def test_revoke_svid_unverified_opt_in_completes_but_says_so(monkeypatch):
@@ -219,6 +222,7 @@ def test_revoke_svid_unverified_opt_in_completes_but_says_so(monkeypatch):
     res = revoke_svid(H)
     assert res.outcome is StageOutcome.COMPLETED
     assert "UNVERIFIED" in res.detail
+    assert res.verified is False
 
 
 def test_shred_openbao_configured_provider_ignores_the_opt_in_flag(monkeypatch):
@@ -233,3 +237,4 @@ def test_shred_openbao_configured_provider_ignores_the_opt_in_flag(monkeypatch):
     res = shred_openbao(H, client=good_client)
     assert res.outcome is StageOutcome.COMPLETED
     assert "UNVERIFIED" not in res.detail
+    assert res.verified is True

@@ -149,17 +149,6 @@ observations_window() {
     }
 }
 
-# observations fetches a single page and writes it to $1. Used by the tests
-# that only need to know whether the store holds anything at all; a full page
-# just means the store may hold rows this one read could not see.
-observations() {
-    local out="$1"
-    observations_window "$out" "" "" || return 1
-    if [ "$(jq length "$out")" -ge "${LIVE_LIMIT}" ]; then
-        echo "# observations page is full (${LIVE_LIMIT} rows); rows beyond it are not inspected" >&3
-    fi
-}
-
 # _obs_fetch_width fetches the window [max(0,hi-w), hi) into $1 and echoes its
 # row count. hi and w are epoch seconds; lo<=0 means "from the beginning" (no
 # 'after' sent) -- the server itself folds an absent 'after' down to its own
@@ -341,9 +330,22 @@ repo_bundle_identities() {
     fi
 }
 
+# observations_store writes the whole de-duplicated store to $1, paging it once
+# per file run (observations_all is ~100 requests) and copying the cached result
+# for later tests. The route's single page is a non-deterministic sample of the
+# store, so no assertion may rely on it.
+observations_store() {
+    local cache="${BATS_FILE_TMPDIR}/observations-all.json"
+    if [ ! -s "$cache" ]; then
+        observations_all "${cache}.tmp" || return 1
+        mv "${cache}.tmp" "$cache"
+    fi
+    cp "$cache" "$1"
+}
+
 @test "live: tenant kusari has findings, and every rule that fired is declared in this tree" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     jq '[.[] | select(.source == "policy_finding") | select(.labels.tenant_id == "kusari")]' \
         "${BATS_TEST_TMPDIR}/obs.json" >"${BATS_TEST_TMPDIR}/findings.json"
@@ -376,7 +378,7 @@ repo_bundle_identities() {
 
 @test "live: the cloud-signals bundle is detecting, not merely loaded" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     # A bundle that loads and never fires is indistinguishable from a bundle
     # that was never shipped, so being loaded is not the claim worth making.
@@ -409,7 +411,7 @@ repo_bundle_identities() {
 
 @test "live: every stored finding and decision is shadow mode" {
     live_or_skip
-    observations "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     # Both shipped bundles are shadow. A warn or enforce row means a promotion
     # reached the cluster without reaching the tree, which is the one thing the
@@ -428,7 +430,7 @@ repo_bundle_identities() {
 
 @test "live: a decision cites the findings it counted, and cites them by id" {
     live_or_skip
-    observations_all "${BATS_TEST_TMPDIR}/obs.json"
+    observations_store "${BATS_TEST_TMPDIR}/obs.json"
 
     jq '[.[] | select(.source == "policy_decision") | select(.labels.tenant_id == "kusari")]' \
         "${BATS_TEST_TMPDIR}/obs.json" >"${BATS_TEST_TMPDIR}/decisions.json"

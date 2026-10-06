@@ -10,8 +10,13 @@
 #     survived" — or, worse, as "the mutation was caught". Every expectation therefore asserts the
 #     number of tests that actually ran.
 #   - A harness killed mid-run leaves the working tree mutated. The trap restores on any exit.
+#   - A pattern that no longer matches the source (the code moved) means that mutant was never
+#     applied, so never tested. It is reported as STALE PATTERN, naming the mutant and the pattern,
+#     counted as a failure, and the remaining mutants still run. (Until 2026-10-06 apply() exited
+#     under set -e instead, and every mutant after a stale one silently never ran.)
 #
 # Usage: ./mutation-check.sh        (from the package directory)
+#        MUTCHECK_ONLY='<label regex>' ./mutation-check.sh   (a subset; selecting none fails)
 set -eo pipefail
 
 cd "$(dirname "$0")"
@@ -24,6 +29,22 @@ GOFLAGS_ENV=(env "GOCACHE=${GOCACHE:-/tmp/gocache}" "GOMODCACHE=${GOMODCACHE:-/t
 
 pass=0
 fail=0
+stale=0
+selected_count=0
+
+# selected <label>: whether MUTCHECK_ONLY (a regex over labels, empty = all) picks this mutant.
+selected() {
+  if [ -n "${MUTCHECK_ONLY:-}" ] && ! [[ "$1" =~ $MUTCHECK_ONLY ]]; then
+    return 1
+  fi
+  selected_count=$((selected_count + 1))
+}
+
+# report_stale <label> <file> <pattern>: the mutant was never applied, so it was never tested.
+report_stale() {
+  printf 'STALE PATTERN %-52s %s no longer contains: %s\n' "$1" "$2" "$3"
+  stale=$((stale + 1))
+}
 
 # apply <file> <old> <new> — asserts the pattern is present before replacing it, so a mutation that
 # silently no-ops (because the code moved) cannot be scored as "survived".
@@ -68,14 +89,19 @@ expect_red() {
 # type system and therefore CANNOT be killed by a test. Recording it as an expected survivor is
 # honest; deleting it from the script would hide a known gap, and asserting it dies would be a lie.
 expect_survives() {
+  selected "$1" || return 0
   printf 'expected-survivor %-44s %s\n' "$1" "$2"
 }
 
 mutate() {
   local label="$1" file="$2" old="$3" new="$4" pattern="$5" want_min="$6"
+  selected "$label" || return 0
   restore
-  apply "$file" "$old" "$new"
-  expect_red "$label" "$pattern" "$want_min"
+  if apply "$file" "$old" "$new"; then
+    expect_red "$label" "$pattern" "$want_min"
+  else
+    report_stale "$label" "$file" "$old"
+  fi
   restore
 }
 
@@ -111,11 +137,19 @@ mutate "coarsen in local time rather than UTC" tombstone.go \
   'return t.Format("2006-01-02")' \
   'TestTombstoneCoarsenDay' 1
 
-restore
-apply tombstone.go \
-  '		ReceiptCommitment:      ReceiptCommitment(nonce, projection),' \
-  '		ReceiptCommitment:      hexOfSubjectOracle(nonce, req.TenantID, req.SubjectID, projection.KeysDestroyedBand, day),'
-cat >> tombstone.go <<'GO'
+# Not a plain mutate: the mutant also appends the oracle it substitutes.
+oracle_mutant() {
+  local label="reinstate the P4-PRE subject-oracle digest"
+  local old='		ReceiptCommitment:      ReceiptCommitment(nonce, projection, req.ReceiptDigest),'
+  selected "$label" || return 0
+  restore
+  if ! apply tombstone.go "$old" \
+    '		ReceiptCommitment:      hexOfSubjectOracle(nonce, req.TenantID, req.SubjectID, projection.KeysDestroyedBand, day),'; then
+    report_stale "$label" tombstone.go "$old"
+    restore
+    return 0
+  fi
+  cat >> tombstone.go <<'GO'
 
 // hexOfSubjectOracle is a MUTATION-ONLY construction reproducing SLDP-P4-PRE §6.2's receipt_digest.
 func hexOfSubjectOracle(nonce []byte, tenant, subject, keys, day string) string {
@@ -124,9 +158,11 @@ func hexOfSubjectOracle(nonce []byte, tenant, subject, keys, day string) string 
 	return hex.EncodeToString(d[:])
 }
 GO
-expect_red "reinstate the P4-PRE subject-oracle digest" \
-  'TestTombstoneNonJoinability|TestTombstoneReceiptCommitmentIsNotASubjectOracle|TestTombstoneLinkageProbeSurvivesRepeatedMints|TestTombstoneAdversaryHoldingEverythingLearnsOnlyTheCohort' 4
-restore
+  expect_red "$label" \
+    'TestTombstoneNonJoinability|TestTombstoneReceiptCommitmentIsNotASubjectOracle|TestTombstoneLinkageProbeSurvivesRepeatedMints|TestTombstoneAdversaryHoldingEverythingLearnsOnlyTheCohort' 4
+  restore
+}
+oracle_mutant
 
 mutate "make the confirmation commitment unkeyed" tombstone.go \
   '	mac := hmac.New(sha256.New, k[:])' \
@@ -234,5 +270,10 @@ mutate "let an unpublished field into the receipt projection" tombstone.go \
   'TestTombstoneProjectionIsASubsetOfPublishedFields' 1
 
 echo
-echo "killed=$pass survived_or_inconclusive=$fail"
-[ "$fail" -eq 0 ]
+echo "killed=$pass survived_or_inconclusive=$fail stale=$stale"
+if [ "$selected_count" -eq 0 ]; then
+  echo "MUTCHECK_ONLY='${MUTCHECK_ONLY:-}' selected no mutant: nothing was tested" >&2
+  echo "selected no mutant"
+  exit 1
+fi
+[ "$fail" -eq 0 ] && [ "$stale" -eq 0 ]

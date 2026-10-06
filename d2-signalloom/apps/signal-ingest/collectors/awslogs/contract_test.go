@@ -4,6 +4,8 @@
 package awslogs
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -496,3 +498,48 @@ func contains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+func TestProjection_GzippedObjectInflatesBeforeDispatch(t *testing.T) {
+	raw := mustFixture(t, FixtureCloudTrail)
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write(raw); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	gzippedBytes := buf.Bytes()
+	origin := Origin{
+		Bucket: "kusari-logs",
+		Key:    "AWSLogs/123456789012/CloudTrail/us-east-1/2026/10/02/123456789012_CloudTrail_us-east-1_20261002T0915Z_sample.json.gz",
+	}
+
+	obs, err := testProjector().Project(gzippedBytes, origin)
+	if err != nil {
+		t.Fatalf("Project gzipped CloudTrail: %v", err)
+	}
+	if len(obs) != 4 {
+		t.Fatalf("projected %d observations from gzipped CloudTrail, want 4", len(obs))
+	}
+
+	wantPrefix := "s3://kusari-logs/AWSLogs/123456789012/CloudTrail/us-east-1/2026/10/02/123456789012_CloudTrail_us-east-1_20261002T0915Z_sample.json.gz#"
+	for i, o := range obs {
+		wantRef := fmt.Sprintf("%s%d", wantPrefix, i)
+		if o.RawEvidenceRef != wantRef {
+			t.Errorf("obs[%d].RawEvidenceRef = %q, want %q", i, o.RawEvidenceRef, wantRef)
+		}
+		if o.ID != derivedID(t, wantRef) {
+			t.Errorf("obs[%d].ID = %q, want %q", i, o.ID, derivedID(t, wantRef))
+		}
+	}
+
+	// An invalid gzip stream under a .gz key must fail rather than silently returning nil.
+	corruptOrigin := Origin{Bucket: "kusari-logs", Key: "AWSLogs/corrupt.json.gz"}
+	if _, err := testProjector().Project([]byte("not-gzip-data"), corruptOrigin); err == nil {
+		t.Fatal("Project with corrupt gzip payload returned nil error, want inflation failure")
+	}
+}
+

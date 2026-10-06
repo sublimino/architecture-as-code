@@ -418,312 +418,26 @@ sequenceDiagram
 | P4-1 | context-mode | Go API engineer | S | 60m | antigravity | Actor IDs containing `//` are rejected on every `{id}` route; canonicalise or encode them. |
 | P4-GOV | ajm-auto-kanban | Governor | S | 60m | antigravity | Final acceptance: every acceptance command, live tiers twice in a row. |
 
-### Spec: Shared Patterns — Phase 1
-
-#### P1 Wire Contract: Authenticated AFM Import Gateway
-- **Inbound Route:** `POST /api/v1/afm/clusters/import` on `fe-signalloom` gateway and API.
-- **Forwarding Destination:** `http://afm-platform.fe-k8s-afm.svc.cluster.local (port 8000)/clusters/import` (internal cluster Service).
-- **Authentication Header:** `Authorization: Bearer <key>` (RFC 6750 Bearer token, minimum 32 random bytes).
-- **Static Key Name:** `afm-importer`.
-- **Required Scope:** `afm:import`.
-- **Environment Configuration:** `AFM_IMPORT_KEYS` on `fe-signalloom` deployment containing a JSON-encoded array of authorized key definitions:
-  `[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]`
-- **Verifier Secret (fe-signalloom):** `fe-signalloom/fe-signalloom-afm-importer-key`, projected as a volume mount at `/etc/fe-signalloom/afm-importer-key/`. Contains data keys `afm-importer` (raw token value) and `afm-importer.expires` (RFC 3339 expiration timestamp).
-- **Consumer Secret (fe-signalloom-agents):** `fe-signalloom-agents/signalloom-rbac-exporter-afm-key`, projected as a volume mount into the exporter pod. Contains data key `token` (raw Bearer token value).
-- **Key Issuer Script:** `scripts/afm-importer-key.sh` (generates the matching Secret pair for verifier and consumer namespaces).
-- **Exporter Identity:** ServiceAccount `signalloom-rbac-exporter` and pod label `app.kubernetes.io/name: signalloom-rbac-exporter` in namespace `fe-signalloom-agents`.
-- **Bound Cluster Attribution:** `kind-osramp`. In accordance with the architectural constitution ("Tenancy comes from operator configuration, never from the workload"), the verifier enforces that the payload's `id` field matches the cluster bound to the presented key.
-- **Payload Schema:**
-  ```json
-  {
-    "id": "kind-osramp",
-    "name": "Local Cluster",
-    "rbac": {
-      "subjects": [
-        {
-          "kind": "User|ServiceAccount|Group",
-          "name": "string",
-          "namespace": "string (optional)"
-        }
-      ],
-      "roles": [
-        {
-          "name": "string",
-          "scope": "Cluster|Namespace",
-          "namespace": "string (optional)",
-          "rules": [
-            {
-              "verbs": ["string"],
-              "apiGroups": ["string"],
-              "resources": ["string"]
-            }
-          ]
-        }
-      ],
-      "bindings": [
-        {
-          "name": "string",
-          "scope": "Cluster|Namespace",
-          "namespace": "string (optional)",
-          "roleRef": "string",
-          "subjects": [
-            {
-              "kind": "User|ServiceAccount|Group",
-              "name": "string",
-              "namespace": "string (optional)"
-            }
-          ]
-        }
-      ]
-    }
-  }
-  ```
-- **Payload Size Bound:** `AFM_IMPORT_MAX_BYTES` (default: `1048576` bytes / 1 MiB).
-- **Digest Verification:** Constant-time comparison using `hmac.compare_digest` over SHA-256 digests (`hashlib.sha256(key.encode()).digest()`).
-- **Refusal Status Codes and Error Bodies:**
-  - Missing Authorization header: `401 Unauthorized` with `{"error": "missing_authorization_header"}`
-  - Unknown or invalid Bearer key: `401 Unauthorized` with `{"error": "invalid_api_key"}`
-  - Expired Bearer key: `401 Unauthorized` with `{"error": "key_expired"}`
-  - Insufficient scope (missing `afm:import`): `403 Forbidden` with `{"error": "insufficient_scope"}`
-  - Cluster ID mismatch (payload `id` differs from key binding): `403 Forbidden` with `{"error": "cluster_id_mismatch"}`
-  - Payload size exceeds `AFM_IMPORT_MAX_BYTES`: `413 Payload Too Large` with `{"error": "payload_too_large"}`
-  - Invalid JSON syntax or schema failure: `422 Unprocessable Entity` with `{"error": "invalid_payload_schema"}`
-  - Downstream AFM connection failure or 5xx: `502 Bad Gateway` with `{"error": "upstream_afm_error"}`
-
-#### File Ownership Split: Phase 1 Cards
-
-| File / Subsystem Path | P1-1 (Gateway & Auth) | P1-2 (Exporter CronJob & RBAC) | Governance / Shared |
-| :--- | :--- | :--- | :--- |
-| `d2-signalloom/apps/fe-signalloom/src/**` | Sole Owner (implements `/api/v1/afm/clusters/import`, key loader, schema validation) | Read-only | — |
-| `d2-signalloom/apps/fe-signalloom/base/deployment.yaml` | Sole Owner (mounts `/etc/fe-signalloom/afm-importer-key/`, configures `AFM_IMPORT_KEYS`) | Read-only | — |
-| `d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml` | Sole Owner (egress to `afm-platform` on port 8000, ingress from `fe-signalloom-agents`) | Read-only | — |
-| `d2-signalloom/apps/dashboard-signalloom/nginx.conf` | Sole Owner (L7 403 on direct `/afm/clusters/import` browser upload path) | Read-only | — |
-| `d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml` | Sole Owner (Envoy HTTPRoute L7 filter closing external `/clusters/import`) | Read-only | — |
-| `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml` | Sole Owner (labels on in-namespace CronJob only) | Read-only | — |
-| `scripts/afm-importer-key.sh` | Sole Owner (Secret generation script) | Read-only | — |
-| `d2-signalloom/apps/fe-signalloom/src/tests/**` | Sole Owner (pytest suite for import route, auth gates, size limits) | Read-only | — |
-| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/**` | Read-only | Sole Owner (probe bundle base) | — |
-| `d2-signalloom/infra/agent-swarm/signalloom-rbac-exporter/**` | Read-only | Sole Owner (exporter CronJob, config, ServiceAccount) | — |
-| `d2-osramp-fleet/tenants/base/agent-swarm.yaml` | Read-only | Sole Owner (ClusterRole/Binding in ResourceSet, Secret sync) | — |
-| `test/sltm-rbac-exporter.bats` | Read-only | Sole Owner (exporter manifest and mock push tests) | — |
-| `Makefile` | Non-colliding target registration (line-distinct additions) | Non-colliding target registration (line-distinct additions) | — |
-| `docs/Proposal — ... (2026-Q4).md` | Non-colliding errata appending | Non-colliding errata appending | Preflight / Governor |
-
-### Spec: Shared Patterns — Phase 2
-
-#### Phase 2 Wire Contract: Probe Batching, Spooling & Batch Chain
-
-##### 1. Probe Sender Serialization & Dynamic Batching (P2-1)
-- **Single Sender Goroutine:** The probe correlator uses exactly ONE dedicated sender goroutine draining observations (replacing the uncoordinated 8-worker pool).
-- **Dynamic Batch Flush Criteria:** The sender accumulates observations and flushes when either:
-  1. `SIGNAL_INGEST_BATCH_MAX` (default: `100`) observations have accumulated, or
-  2. `SIGNAL_INGEST_BATCH_LINGER` (default: `250ms`) duration has elapsed since the first buffered observation.
-- **Batch Stamping Invariant:** Every batch is stamped with `X-SignalLoom-Batch-Epoch`, `X-SignalLoom-Batch-Seq`, and `X-SignalLoom-Batch-Prev` at the moment of batch assembly.
-- **Spool Ordering & Precedence:** Replay from disk strictly precedes in-memory dispatch. No new memory batch may overtake or be dispatched ahead of a non-empty spool directory. Replay is FIFO ordered.
-
-##### 2. On-Node Spool Envelope & Storage Constraints (P2-1)
-- **Spool Directory:** Configured via `SIGNAL_INGEST_SPOOL_DIR` (default: `/var/lib/signalloom/spool`), created mode `0700` owned by root.
-- **File Envelope Schema (JSON):**
-  ```json
-  {
-    "v": 1,
-    "epoch": "<sender-epoch-uuid>",
-    "seq": 1,
-    "prev": "<hex-sha256-or-empty>",
-    "created": "<rfc3339nano>",
-    "body": [ ... ]
-  }
-  ```
-- **Atomic File Writing:** Spooled batches are written to a temporary file (`.tmp-...`) mode `0600`, flushed and `fsync`'d, then atomically renamed to their final sequential file name.
-- **Spool Bounds:**
-  - `SIGNAL_INGEST_SPOOL_MAX_BYTES` (default: `268435456` = 256 MiB). When the spool exceeds `MAX_BYTES`, oldest files are dropped (FIFO eviction) and counted in `spool_dropped_bytes` / `spool_dropped_batches` stats.
-  - `SIGNAL_INGEST_SPOOL_MAX_AGE` (default: `8h`). Spooled files older than `MAX_AGE` are expired and pruned.
-
-##### 3. Probe Response Handling Policy Matrix (P2-1)
-| HTTP Status / Condition | Probe Action | Spool Behavior | Backoff / Retry |
-| :--- | :--- | :--- | :--- |
-| `2xx` (`200 OK`, `201 Created`) | Success. Advance sequence. | Delete spooled file (if replaying). | None; proceed to next batch. |
-| `Network Error` / `Timeout` / `5xx` | Outage / Server Error. | Write batch to spool (`0600`). | Exponential backoff with jitter (1s to 30s). |
-| `429 Too Many Requests` | Rate limited. | Write batch to spool (`0600`). | Pause sender for duration in `Retry-After` header (capped at 300s). Default backoff if header absent. |
-| `401 Unauthorized` / `403 Forbidden` | Bad / Expired / Unbound Credential. | **NEITHER retried NOR spooled** (drop to prevent spool overflow). | Counted in `dispatch_auth_errors`, logged at `ERROR`. |
-| `Other 4xx` (`400`, `422`) | Malformed Client Request. | **Dropped and NOT spooled**. | Counted in `dispatch_client_errors`, logged at `ERROR`. |
-
-##### 4. Ingest Chain Verification & Idempotent Replay Contract (P2-3)
-- **Chain Identity Key:** Chain tracking is strictly scoped per `principal.Subject` (e.g. `static-key/stun-sentinel`).
-- **Chain Request Headers:**
-  - `X-SignalLoom-Batch-Epoch`: Opaque random string / UUID minted at probe start.
-  - `X-SignalLoom-Batch-Seq`: Monotonically increasing 64-bit unsigned integer (starts at `1` within each epoch).
-  - `X-SignalLoom-Batch-Prev`: Lowercase hex SHA-256 digest of the exact wire bytes of the immediately preceding batch body within the same epoch (`""` empty string for `Seq == 1`).
-- **Unchained Callers (Absence Rule):** If `X-SignalLoom-Batch-Epoch` is absent, the request is treated as an unchained signal source (e.g. log forwarders, legacy collectors). Admitted normally; no chain validation is enforced.
-- **Malformed Headers:** If any chain header is present but malformed (non-integer sequence, invalid hex digest, missing epoch), signal-ingest immediately returns `400 Bad Request` with `{"error": "malformed_batch_chain_headers"}`.
-- **Idempotent Duplicate Replay Rule:**
-  - If a batch matches an already recorded `(principal.Subject, epoch, seq, body_digest)`, signal-ingest returns `HTTP 201 Created` with payload:
-    ```json
-    {
-      "ingested": 0,
-      "duplicate": true
-    }
-    ```
-  - The observations in the duplicate batch are NOT appended to `h.Store`. P2-3 owns this deduplication logic.
-- **Chain Gap & Reorder Audit:** If a sequence gap or unexpected `Prev` hash occurs within an epoch, signal-ingest logs/audits a `batch_chain` audit event with `{"status": "gap"|"reordered"|"digest_mismatch", "expected_seq": N, "received_seq": M, "expected_prev": "...", "received_prev": "..."}` and processes the batch.
-
-##### 5. Audit Event Types & DB Schema Synchronization (P2-3)
-- **New Audit Event Type:** `batch_chain`
-- **Migration:** `d2-signalloom/apps/fe-signalloom/src/db/migrations/051_batch_chain_event_type.sql` updates `signal_audit_trail.event_type` check constraint.
-- **Bootstrap SQL Sync:** Regenerated via `scripts/generate-bootstrap.py` for `contracts/discovery-portal-bootstrap.sql` and `infra/inf-signalloom/configs/base/bootstrap/discovery-portal-bootstrap.sql`.
-- **Go Constant:** `audit.EventBatchChain = "batch_chain"` in `d2-signalloom/apps/signal-ingest/audit/audit.go` and added to `AllEventTypes`.
-
-##### 6. Canonical Test Vectors (P2-1 & P2-3)
-The following 3 compact JSON request bodies (one line each) define the exact wire byte test vectors. Each batch's `X-SignalLoom-Batch-Prev` is the lowercase hex SHA-256 digest of the exact preceding body bytes computed via `printf '%s' "$body" | sha256sum`:
-
-- **Batch 1 (`Seq = 1`, `Prev = ""`):**
-```json
-[{"id":"stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:33.123456789Z:sys_enter_openat:74acf31844532670","timestamp":"2026-10-01T22:35:33.123456789Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat/74acf31844532670","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","direct_reaction":"cgroup_frozen","namespace":"fe-signalloom-agents","pod_name":"agent-kusari-7d9f","severity":"CRITICAL","syscall":"sys_enter_openat","target":"/etc/passwd","tenant_id":"kusari"},"description":"sys_enter_openat target 74acf31844532670 by fe-signalloom-agents/agent-kusari-7d9f"}]
-```
-  - Exact Wire Length: `752` bytes
-  - Lowercase Hex SHA-256: `81ff916f0fdf3d8d7cb6a133070f18a8e3b1579867ae131727314e147a635aa0` (Expected `Prev` for Batch 2)
-
-- **Batch 2 (`Seq = 2`, `Prev = "81ff916f0fdf3d8d7cb6a133070f18a8e3b1579867ae131727314e147a635aa0"`):**
-```json
-[{"id":"stun-sentinel:fe-signalloom-agents/agent-cardvault-5b7c:2026-10-01T22:35:34.000000000Z:sys_enter_openat:74acf31844532670","timestamp":"2026-10-01T22:35:34.000000000Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"cardvault-agent","raw_evidence_ref":"ebpf://sys_enter_openat/74acf31844532670","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","direct_reaction":"cgroup_frozen","namespace":"fe-signalloom-agents","pod_name":"agent-cardvault-5b7c","severity":"CRITICAL","syscall":"sys_enter_openat","target":"/etc/shadow","tenant_id":"__unattributed__"},"description":"sys_enter_openat target 74acf31844532670 by fe-signalloom-agents/agent-cardvault-5b7c"},{"id":"stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:35.000000000Z:sys_enter_execve:1234567890abcdef","timestamp":"2026-10-01T22:35:35.000000000Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_execve/1234567890abcdef","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","namespace":"fe-signalloom-agents","pod_name":"agent-kusari-7d9f","severity":"CRITICAL","syscall":"sys_enter_execve","target":"/bin/busybox","tenant_id":"kusari"},"description":"sys_enter_execve target 1234567890abcdef by fe-signalloom-agents/agent-kusari-7d9f"}]
-```
-  - Exact Wire Length: `1492` bytes
-  - Lowercase Hex SHA-256: `8e0b5ada5165abbbdaf691f152a3e6a4dd392aab67da7522a61976cd147f831a` (Expected `Prev` for Batch 3)
-
-- **Batch 3 (`Seq = 3`, `Prev = "8e0b5ada5165abbbdaf691f152a3e6a4dd392aab67da7522a61976cd147f831a"`):**
-```json
-[{"id":"stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:36.000000000Z:evasive_syscall_burst:fedcba0987654321","timestamp":"2026-10-01T22:35:36.000000000Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://evasive_syscall_burst/fedcba0987654321","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","namespace":"fe-signalloom-agents","pod_name":"agent-kusari-7d9f","severity":"CRITICAL","syscall":"evasive_syscall_burst","target":">=20 execve in 1s from one cgroup","tenant_id":"kusari"},"description":"evasive_syscall_burst target fedcba0987654321 by fe-signalloom-agents/agent-kusari-7d9f"}]
-```
-  - Exact Wire Length: `760` bytes
-  - Lowercase Hex SHA-256: `95651ec386a92c31c12056ef512dd5b09b315a3627eb02f9cf9525d790de2657` (Expected `Prev` for Batch 4)
-
-##### 7. Disjoint File Ownership Table: Phase 2 Cards
-| File / Directory Path | P2-1 (Probe Spool & Chain Stamp) | P2-2 (Key Reload & Rate Limit) | P2-3 (Ingest Chain Verify & Dedup) |
-| :--- | :--- | :--- | :--- |
-| `d2-signalloom/apps/stun-sentinel/pkg/correlator/**` | Sole Owner | Read-only | Read-only |
-| `d2-signalloom/apps/signalloom-stun-sentinel/config.go` & `main.go` | Sole Owner | Read-only | Read-only |
-| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml` | Sole Owner | Read-only | Read-only |
-| `test/sentinel-capabilities.bats` & `d2-signalloom/apps/stun-sentinel/deploy/manifest_test.go` | Sole Owner | Read-only | Read-only |
-| `d2-signalloom/apps/signal-ingest/api/static_bearer.go` & `static_keys.go` | Read-only | Sole Owner | Read-only |
-| `d2-signalloom/apps/signal-ingest/api/key_reload.go` (new) | Read-only | Sole Owner | Read-only |
-| `d2-signalloom/apps/signal-ingest/api/auth.go` | Read-only | Sole Owner | **FORBIDDEN (No Touch)** |
-| `d2-signalloom/apps/signal-ingest/main.go` | Read-only | Sole Owner | **FORBIDDEN (No Touch)** |
-| `d2-signalloom/apps/signal-ingest/api/handlers.go` | Read-only | Read-only | Sole Owner (`handleIngestObservations` ONLY) |
-| `d2-signalloom/apps/signal-ingest/api/batch_chain.go` (new) | Read-only | Read-only | Sole Owner |
-| `d2-signalloom/apps/signal-ingest/audit/audit.go` | Read-only | Read-only | Sole Owner (`EventBatchChain`) |
-| `d2-signalloom/apps/fe-signalloom/src/db/migrations/051_*.sql` | Read-only | Read-only | Sole Owner |
-| `d2-signalloom/contracts/discovery-portal-bootstrap.sql` | Read-only | Read-only | Sole Owner |
-| `d2-signalloom/infra/inf-signalloom/configs/base/bootstrap/discovery-portal-bootstrap.sql` | Read-only | Read-only | Sole Owner |
-| `d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json` | Read-only | Read-only | Sole Owner |
-
-### Spec: Shared Patterns — Phase 3
-
-#### Phase 3 Architecture: Probe Rename (ADR-07: `signalloom-warden`) & No-Overlap Cutover
-
-##### 1. Canonical Name Mapping (ADR-07)
-The probe runtime identity, Kubernetes resources, image repositories, and authentication identities are renamed from `stun-sentinel` / `signalloom-stun-sentinel` to `signalloom-warden`.
-
-| Resource / Identity Type | Old Name / Spec | New Name (ADR-07) | Governing File / Location |
-| :--- | :--- | :--- | :--- |
-| DaemonSet | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:58` |
-| ServiceAccount | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/service-account.yaml:5` |
-| Role & RoleBinding | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml:5,18` |
-| App Labels | `app.kubernetes.io/name: stun-sentinel`<br>`signalloom.ai/agent-name: signalloom-stun-sentinel` | `app.kubernetes.io/name: signalloom-warden`<br>`signalloom.ai/agent-name: signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:61,76`<br>`d2-osramp-fleet/tenants/base/agent-swarm.yaml:559` |
-| ConfigMap | `stun-sentinel-config` | `signalloom-warden-config` | `d2-signalloom/infra/agent-swarm/signalloom-warden/configmap.yaml:5` |
-| Ingest Token Secret | `stun-sentinel-ingest-token` | `signalloom-warden-ingest-token` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:167` |
-| Fleet Manager Stun Key Secret | `stun-sentinel-fleet-key` | `signalloom-warden-fleet-key` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:185` |
-| Governance Secret | `stun-sentinel-governance` | `signalloom-warden-governance` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:191` |
-| Signal Ingest Key Name | `stun-sentinel` (subject `static-key/stun-sentinel`) | `signalloom-warden` (subject `static-key/signalloom-warden`) | `d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml:71` |
-| Signal Ingest Key Secret | `signal-ingest-key-stun-sentinel` | `signal-ingest-key-signalloom-warden` | `d2-signalloom/apps/signal-ingest/base/deployment.yaml:166` |
-| Fleet Manager Caller Name | `stun-sentinel` (`FLEET_MANAGER_KEY_STUN_SENTINEL`) | `signalloom-warden` (`FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN`) | `scripts/fleet-manager-caller-keys.sh:27`<br>`d2-signalloom/apps/fleet-manager/base/deployment.yaml:81` |
-| Flux Kustomization Name | `agent-signalloom-stun-sentinel` | `agent-signalloom-warden` | `d2-osramp-fleet/tenants/base/agent-swarm.yaml:555` |
-| Flux Overlay Path | `./signalloom-stun-sentinel-overlays/kind-osramp` | `./signalloom-warden-overlays/kind-osramp` | `d2-osramp-fleet/tenants/base/agent-swarm.yaml:574` |
-| Image Repository | `ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel` | `ghcr.io/controlplaneio-in-toto/signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:105` |
-| Cold Start Fixture | `stun-sentinel` row in manifests table | `signalloom-warden` row in manifests table | `test/fixtures/cold-start-manifests.tsv:11` |
-
-##### 2. Recommended Disposition of R3 and R4 (Governor Confirmation)
-- **R3 Go Module Library & Importers (`KEPT / ALLOW-LISTED`):**
-  - **Module Directory & Path:** `d2-signalloom/apps/stun-sentinel` and `github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel` are retained.
-  - **Rationale:** This module houses low-level eBPF (`pkg/tc`, `pkg/ebpf`), correlator (`pkg/correlator`), and filter (`pkg/filter`) library primitives imported across package boundaries by `fleet-manager/mesh_client.go:16` and `go.mod` replace directives. Renaming the internal Go module introduces unnecessary churn across non-probe services without operational benefit.
-- **R4 Wire Data Compatibility (`KEPT / ALLOW-LISTED`):**
-  - **Telemetry Ingest Source:** `ingestSource = "stun-sentinel"` (`d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go:32`) is retained.
-  - **Rationale:** `ingestSource` prefixes every observation ID (`ingestSource:namespace/pod:timestamp:syscall:targetDigest`). Preserving this string maintains wire-level backward compatibility for existing telemetry consumers, historical audit query invariants, and FrostDB segments.
-
-##### 3. Guard Allow-List (Phase 3 Rename Guard)
-The Phase 3 rename guard (`test/sltm-rename-guard.bats`, delivered in P3-2) verifies that no old name occurrences exist outside the explicit allow-list. The allow-list is derived from R3, R4, and R7:
-1. **Decision Records (R7):** All files matching the `scripts/docs-lint.sh:45` `RECORDS` pattern (`docs/Proposal *`, `docs/signalloom/evidence/**`, `MEMORY/**`, `Plans/**`, `ci-evidence/**`, `HARDENING_LEDGER.md`, etc.).
-2. **Retained Go Library & Importers (R3):** `d2-signalloom/apps/stun-sentinel/**`, `d2-signalloom/apps/fleet-manager/mesh_client.go`, `d2-signalloom/apps/fleet-manager/go.mod`, `d2-signalloom/apps/fleet-manager/go.sum`.
-3. **Wire Data Constants (R4):** `d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go`.
-
-##### 4. Four-Step No-Overlap Cutover Plan
-Because the running `stun-sentinel` probe binary self-excludes only `stun-sentinel` pods (`signalloom-stun-sentinel/main.go:33-44`, `pkg/filter/exclusion.go:43`), running old and new DaemonSets concurrently would cause the old probe to observe and potentially freeze the new warden, and cause eBPF/tc filter attachment collisions on the host network. Hence, cutover is executed strictly **old-before-new** with a start-up gate:
-
-- **Step 1 — Dual-Key Minting (Parallel Acceptance):**
-  - Mint new key `signalloom-warden` in `signal-ingest` (`fe-signalloom/signal-ingest-key-signalloom-warden`) and `fleet-manager` (`fe-signalloom/fleet-manager-caller-keys` key `signalloom-warden`).
-  - Signal-ingest and fleet-manager accept BOTH old (`stun-sentinel`) and new (`signalloom-warden`) caller keys simultaneously without service disruption.
-  - *Verification:* `curl` to `signal-ingest` and `fleet-manager` using both bearer tokens succeeds with HTTP 200/201.
-
-- **Step 2 — Old DaemonSet Drain & Removal:**
-  - Suspend Flux Kustomization: `flux suspend kustomization agent-signalloom-stun-sentinel -n fe-signalloom-agents`.
-  - Foreground-delete old DaemonSet: `kubectl delete ds stun-sentinel -n fe-signalloom-agents --cascade=foreground`.
-  - Wait for all old probe pods to terminate: `kubectl wait --for=delete pod -l app.kubernetes.io/name=stun-sentinel -n fe-signalloom-agents --timeout=60s`.
-  - *Verification:* `kubectl get pods -n fe-signalloom-agents -l app.kubernetes.io/name=stun-sentinel` returns 0 items.
-
-- **Step 3 — New Warden DaemonSet Deploy & Start-Up Gate:**
-  - The new `signalloom-warden` binary includes a start-up preflight gate: it verifies via Kubernetes API that no old `stun-sentinel` pod exists on its node before attaching eBPF/tc hooks.
-  - Deploy new Flux Kustomization `agent-signalloom-warden` (`path: ./signalloom-warden-overlays/kind-osramp`, `prune: true`).
-  - Old ConfigMap `stun-sentinel-config`, ServiceAccount `stun-sentinel`, Role/RoleBinding `stun-sentinel` are pruned by Flux.
-  - *Verification:*
-    - `kubectl get ds -n fe-signalloom-agents signalloom-warden` reaches Ready.
-    - Exactly 1 probe DaemonSet estate-wide (`signalloom.ai/role=sentinel`).
-    - 0 nodes with >1 probe pod.
-
-- **Step 4 — Post-Acceptance Old Key Retirement:**
-  - After P3-GOV completes green live certification (`make test-sltm-probe-apikey` and `scripts/run-e2e-dual-cluster-containment.sh`), remove old Secret `signal-ingest-key-stun-sentinel` and old key `stun-sentinel` from `fleet-manager-caller-keys`.
-  - *Verification:* `signal-ingest` key reload audits key deletion; only `signalloom-warden` remains active.
-
-##### 5. Disjoint File Ownership Table: Phase 3 Parallel Cards
-
-| Scope / File Pattern | P3-1 (Runtime Identity, Manifests, Image, RBAC) | P3-2 (Living Docs, Repos-level Tests, Rename Guard) | P3-GOV (Governor) |
-| :--- | :--- | :--- | :--- |
-| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/**` | **Sole Owner** (git mv -> `signalloom-warden/**`) | Read-only | Verification |
-| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/**` | **Sole Owner** (git mv -> `signalloom-warden-overlays/**`) | Read-only | Verification |
-| `d2-signalloom/apps/signalloom-stun-sentinel/**` | **Sole Owner** (git mv -> `signalloom-warden/**`) | Read-only | Verification |
-| `d2-signalloom/deploy/stun-sentinel-*.yaml` | **Sole Owner** (tombstones updated) | Read-only | Verification |
-| `d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml` & `base/deployment.yaml` | **Sole Owner** (key config & secret projection) | Read-only | Verification |
-| `d2-signalloom/apps/fleet-manager/callerauth.go` & `base/deployment.yaml` | **Sole Owner** (caller auth & secret projection) | Read-only | Verification |
-| `scripts/fleet-manager-caller-keys.sh` & `scripts/sldc-ingest-bearer.sh` | **Sole Owner** (key generation scripts) | Read-only | Verification |
-| `scripts/warden-cutover.sh` | **Sole Owner** (new cutover script) | Read-only | Live Execution |
-| `d2-osramp-fleet/tenants/base/agent-swarm.yaml` | **Sole Owner** (Kustomization name & path) | Read-only | Verification |
-| `Makefile` & `d2-signalloom/Makefile` | **Sole Owner** (targets, image build rules) | Read-only | Verification |
-| `test/sltm-probe-apikey.bats` & unit tests for probe/ingest/fleet | **Sole Owner** (updates for new identity names) | Read-only | Verification |
-| `test/fixtures/cold-start-manifests.tsv` | **Sole Owner** | Read-only | Verification |
-| `test/sltm-rename-guard.bats` | Read-only | **Sole Owner** (new guard test) | Verification |
-| `test/e2e-dual-cluster-containment.bats` & `test/e2e-mutation-proof.sh` | Read-only | **Sole Owner** | Verification |
-| Living Docs (`*.md`, `AGENTS.md`, `README.md`, `docs/README.md`) outside RECORDS | Read-only | **Sole Owner** | Verification |
-| `docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv` | Read-only (consumed) | Read-only (consumed) | Verification |
-| Decision Records (`RECORDS` regex) | **FORBIDDEN (No Touch)** | **FORBIDDEN (No Touch)** | **FORBIDDEN (No Touch)** |
-
 ### Spec: Work Decomposition
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | pass (baseline measured; findings recorded) | — | — | — | — |
-| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | pass (inventory written; wire contract pinned) | — | — | — | — |
-| P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | pass — delivered: `52fae47095a41f217d8300e23eb849cef850b12c` (see Errata — SLTM-P1-1) | — | — | — | — |
-| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | pass — delivered: 24565a359600b3474e391059d85e41f1daa1895f (see Errata — SLTM-P1-2) | — | — | — | — |
-| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | pass — delivered: `376d8205` / `9ea6339f` (see Errata — SLTM-P1-GOV) | — | — | — | — |
-| P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | pass (inventory written; shared patterns pinned) — delivered: `b10042333773e0d53303fa8adb11b02dcca2c71a` (see Errata — SLTM-P2-PRE) | — | — | — | — |
-| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | pass — delivered: `e4ebc708b94751eefc5a84c40eec3f5ff997390e` (see Errata — SLTM-P2-1) | — | — | — | — |
-| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | pass — delivered: 4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b (see Errata — SLTM-P2-2) | — | — | — | — |
-| P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | pass — delivered: `cfbd0d4952797b798e7984c9791a7ab7519d12c7` (see Errata — SLTM-P2-3) | — | — | — | — |
-| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | pass — delivered: `06810a4b` (see Errata — SLTM-P2-GOV) | — | — | — | — |
-| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
-| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | pass — delivered: `ec9354c1396869165896f61fa5d183cdc8210c3e` (see Errata — SLTM-P3-1) | — | — | — | — |
-| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | pass — delivered: c6e2ac28c65c56b0056f3642d6eabea41ce398cc (see Errata — SLTM-P3-2) | — | — | — | — |
-| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | pass — delivered: `3d1ebc53` (see Errata — SLTM-P3-GOV) | — | — | — | — |
-| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | pass — delivered: `fc10c498fbb826ab0931b2a63cfa20f665b7df89` (see Errata — SLTM-P4-1) | — | — | — | — |
-| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | pass — delivered: `2ff21edb` (see Errata — SLTM-P4-GOV) | — | — | — | — |
+| P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | — | — | — | — | — |
+| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | — | — | — | — | — |
+| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | — | — | — | — | — |
+| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | — | — | — | — | — |
+| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | — | — | — | — | — |
+| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
 
@@ -1882,5 +1596,327 @@ Replayed in isolated `git archive HEAD` throwaway exports (`/tmp/sltm-g3-mut-*`)
 | **Batch Chain & Replay Audit (D10)** | `signal-ingest/api/batch_chain_test.go` | Gaps and replays audited; legitimate spool replay and epoch restart admitted without false alarm. | **PASS** |
 | **Single Probe DaemonSet** | `kubectl --context kind-osramp get ds -A -o json | jq -r '.items[] | select(.metadata.namespace == "fe-signalloom-agents") | "\(.metadata.namespace)/\(.metadata.name)"'` | Exactly `fe-signalloom-agents/signalloom-warden` (1/1 Ready). | **PASS** |
 | **Double-Slash Actor IDs (P4-1)** | `signal-ingest/api/actor_id_test.go` | Percent-encoded SPIFFE IDs with `//` readable on all 8 `{id}` routes. | **PASS** |
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+
+#### Errata — SLTM lead relocation (contract digest)
+
+- **Created:** 2026-10-06 07:54:29+01:00
+- **Last Updated:** 2026-10-06 07:54:29+01:00
+- The board added per-phase Shared Patterns blocks and filled the Work Decomposition Result column outside this Errata section, which drifted the approved contract digest (36dc1768) and blocked COMPLETE_CANDIDATE. With the principal's approval to complete, the reviewed body is restored byte-for-byte to the approved revision (81ef6b30) and that material is preserved verbatim below, demoted two heading levels so it stays inside Errata.
+
+##### Relocated: per-phase Shared Patterns
+
+##### Spec: Shared Patterns — Phase 1
+
+#### P1 Wire Contract: Authenticated AFM Import Gateway
+- **Inbound Route:** `POST /api/v1/afm/clusters/import` on `fe-signalloom` gateway and API.
+- **Forwarding Destination:** `http://afm-platform.fe-k8s-afm.svc.cluster.local (port 8000)/clusters/import` (internal cluster Service).
+- **Authentication Header:** `Authorization: Bearer <key>` (RFC 6750 Bearer token, minimum 32 random bytes).
+- **Static Key Name:** `afm-importer`.
+- **Required Scope:** `afm:import`.
+- **Environment Configuration:** `AFM_IMPORT_KEYS` on `fe-signalloom` deployment containing a JSON-encoded array of authorized key definitions:
+  `[{"name":"afm-importer","scopes":["afm:import"],"cluster":"kind-osramp"}]`
+- **Verifier Secret (fe-signalloom):** `fe-signalloom/fe-signalloom-afm-importer-key`, projected as a volume mount at `/etc/fe-signalloom/afm-importer-key/`. Contains data keys `afm-importer` (raw token value) and `afm-importer.expires` (RFC 3339 expiration timestamp).
+- **Consumer Secret (fe-signalloom-agents):** `fe-signalloom-agents/signalloom-rbac-exporter-afm-key`, projected as a volume mount into the exporter pod. Contains data key `token` (raw Bearer token value).
+- **Key Issuer Script:** `scripts/afm-importer-key.sh` (generates the matching Secret pair for verifier and consumer namespaces).
+- **Exporter Identity:** ServiceAccount `signalloom-rbac-exporter` and pod label `app.kubernetes.io/name: signalloom-rbac-exporter` in namespace `fe-signalloom-agents`.
+- **Bound Cluster Attribution:** `kind-osramp`. In accordance with the architectural constitution ("Tenancy comes from operator configuration, never from the workload"), the verifier enforces that the payload's `id` field matches the cluster bound to the presented key.
+- **Payload Schema:**
+  ```json
+  {
+    "id": "kind-osramp",
+    "name": "Local Cluster",
+    "rbac": {
+      "subjects": [
+        {
+          "kind": "User|ServiceAccount|Group",
+          "name": "string",
+          "namespace": "string (optional)"
+        }
+      ],
+      "roles": [
+        {
+          "name": "string",
+          "scope": "Cluster|Namespace",
+          "namespace": "string (optional)",
+          "rules": [
+            {
+              "verbs": ["string"],
+              "apiGroups": ["string"],
+              "resources": ["string"]
+            }
+          ]
+        }
+      ],
+      "bindings": [
+        {
+          "name": "string",
+          "scope": "Cluster|Namespace",
+          "namespace": "string (optional)",
+          "roleRef": "string",
+          "subjects": [
+            {
+              "kind": "User|ServiceAccount|Group",
+              "name": "string",
+              "namespace": "string (optional)"
+            }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+- **Payload Size Bound:** `AFM_IMPORT_MAX_BYTES` (default: `1048576` bytes / 1 MiB).
+- **Digest Verification:** Constant-time comparison using `hmac.compare_digest` over SHA-256 digests (`hashlib.sha256(key.encode()).digest()`).
+- **Refusal Status Codes and Error Bodies:**
+  - Missing Authorization header: `401 Unauthorized` with `{"error": "missing_authorization_header"}`
+  - Unknown or invalid Bearer key: `401 Unauthorized` with `{"error": "invalid_api_key"}`
+  - Expired Bearer key: `401 Unauthorized` with `{"error": "key_expired"}`
+  - Insufficient scope (missing `afm:import`): `403 Forbidden` with `{"error": "insufficient_scope"}`
+  - Cluster ID mismatch (payload `id` differs from key binding): `403 Forbidden` with `{"error": "cluster_id_mismatch"}`
+  - Payload size exceeds `AFM_IMPORT_MAX_BYTES`: `413 Payload Too Large` with `{"error": "payload_too_large"}`
+  - Invalid JSON syntax or schema failure: `422 Unprocessable Entity` with `{"error": "invalid_payload_schema"}`
+  - Downstream AFM connection failure or 5xx: `502 Bad Gateway` with `{"error": "upstream_afm_error"}`
+
+#### File Ownership Split: Phase 1 Cards
+
+| File / Subsystem Path | P1-1 (Gateway & Auth) | P1-2 (Exporter CronJob & RBAC) | Governance / Shared |
+| :--- | :--- | :--- | :--- |
+| `d2-signalloom/apps/fe-signalloom/src/**` | Sole Owner (implements `/api/v1/afm/clusters/import`, key loader, schema validation) | Read-only | — |
+| `d2-signalloom/apps/fe-signalloom/base/deployment.yaml` | Sole Owner (mounts `/etc/fe-signalloom/afm-importer-key/`, configures `AFM_IMPORT_KEYS`) | Read-only | — |
+| `d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml` | Sole Owner (egress to `afm-platform` on port 8000, ingress from `fe-signalloom-agents`) | Read-only | — |
+| `d2-signalloom/apps/dashboard-signalloom/nginx.conf` | Sole Owner (L7 403 on direct `/afm/clusters/import` browser upload path) | Read-only | — |
+| `d2-k8s-afm/apps/afm-platform/base/gateway-route.yaml` | Sole Owner (Envoy HTTPRoute L7 filter closing external `/clusters/import`) | Read-only | — |
+| `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml` | Sole Owner (labels on in-namespace CronJob only) | Read-only | — |
+| `scripts/afm-importer-key.sh` | Sole Owner (Secret generation script) | Read-only | — |
+| `d2-signalloom/apps/fe-signalloom/src/tests/**` | Sole Owner (pytest suite for import route, auth gates, size limits) | Read-only | — |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/**` | Read-only | Sole Owner (probe bundle base) | — |
+| `d2-signalloom/infra/agent-swarm/signalloom-rbac-exporter/**` | Read-only | Sole Owner (exporter CronJob, config, ServiceAccount) | — |
+| `d2-osramp-fleet/tenants/base/agent-swarm.yaml` | Read-only | Sole Owner (ClusterRole/Binding in ResourceSet, Secret sync) | — |
+| `test/sltm-rbac-exporter.bats` | Read-only | Sole Owner (exporter manifest and mock push tests) | — |
+| `Makefile` | Non-colliding target registration (line-distinct additions) | Non-colliding target registration (line-distinct additions) | — |
+| `docs/Proposal — ... (2026-Q4).md` | Non-colliding errata appending | Non-colliding errata appending | Preflight / Governor |
+
+##### Spec: Shared Patterns — Phase 2
+
+#### Phase 2 Wire Contract: Probe Batching, Spooling & Batch Chain
+
+##### 1. Probe Sender Serialization & Dynamic Batching (P2-1)
+- **Single Sender Goroutine:** The probe correlator uses exactly ONE dedicated sender goroutine draining observations (replacing the uncoordinated 8-worker pool).
+- **Dynamic Batch Flush Criteria:** The sender accumulates observations and flushes when either:
+  1. `SIGNAL_INGEST_BATCH_MAX` (default: `100`) observations have accumulated, or
+  2. `SIGNAL_INGEST_BATCH_LINGER` (default: `250ms`) duration has elapsed since the first buffered observation.
+- **Batch Stamping Invariant:** Every batch is stamped with `X-SignalLoom-Batch-Epoch`, `X-SignalLoom-Batch-Seq`, and `X-SignalLoom-Batch-Prev` at the moment of batch assembly.
+- **Spool Ordering & Precedence:** Replay from disk strictly precedes in-memory dispatch. No new memory batch may overtake or be dispatched ahead of a non-empty spool directory. Replay is FIFO ordered.
+
+##### 2. On-Node Spool Envelope & Storage Constraints (P2-1)
+- **Spool Directory:** Configured via `SIGNAL_INGEST_SPOOL_DIR` (default: `/var/lib/signalloom/spool`), created mode `0700` owned by root.
+- **File Envelope Schema (JSON):**
+  ```json
+  {
+    "v": 1,
+    "epoch": "<sender-epoch-uuid>",
+    "seq": 1,
+    "prev": "<hex-sha256-or-empty>",
+    "created": "<rfc3339nano>",
+    "body": [ ... ]
+  }
+  ```
+- **Atomic File Writing:** Spooled batches are written to a temporary file (`.tmp-...`) mode `0600`, flushed and `fsync`'d, then atomically renamed to their final sequential file name.
+- **Spool Bounds:**
+  - `SIGNAL_INGEST_SPOOL_MAX_BYTES` (default: `268435456` = 256 MiB). When the spool exceeds `MAX_BYTES`, oldest files are dropped (FIFO eviction) and counted in `spool_dropped_bytes` / `spool_dropped_batches` stats.
+  - `SIGNAL_INGEST_SPOOL_MAX_AGE` (default: `8h`). Spooled files older than `MAX_AGE` are expired and pruned.
+
+##### 3. Probe Response Handling Policy Matrix (P2-1)
+| HTTP Status / Condition | Probe Action | Spool Behavior | Backoff / Retry |
+| :--- | :--- | :--- | :--- |
+| `2xx` (`200 OK`, `201 Created`) | Success. Advance sequence. | Delete spooled file (if replaying). | None; proceed to next batch. |
+| `Network Error` / `Timeout` / `5xx` | Outage / Server Error. | Write batch to spool (`0600`). | Exponential backoff with jitter (1s to 30s). |
+| `429 Too Many Requests` | Rate limited. | Write batch to spool (`0600`). | Pause sender for duration in `Retry-After` header (capped at 300s). Default backoff if header absent. |
+| `401 Unauthorized` / `403 Forbidden` | Bad / Expired / Unbound Credential. | **NEITHER retried NOR spooled** (drop to prevent spool overflow). | Counted in `dispatch_auth_errors`, logged at `ERROR`. |
+| `Other 4xx` (`400`, `422`) | Malformed Client Request. | **Dropped and NOT spooled**. | Counted in `dispatch_client_errors`, logged at `ERROR`. |
+
+##### 4. Ingest Chain Verification & Idempotent Replay Contract (P2-3)
+- **Chain Identity Key:** Chain tracking is strictly scoped per `principal.Subject` (e.g. `static-key/stun-sentinel`).
+- **Chain Request Headers:**
+  - `X-SignalLoom-Batch-Epoch`: Opaque random string / UUID minted at probe start.
+  - `X-SignalLoom-Batch-Seq`: Monotonically increasing 64-bit unsigned integer (starts at `1` within each epoch).
+  - `X-SignalLoom-Batch-Prev`: Lowercase hex SHA-256 digest of the exact wire bytes of the immediately preceding batch body within the same epoch (`""` empty string for `Seq == 1`).
+- **Unchained Callers (Absence Rule):** If `X-SignalLoom-Batch-Epoch` is absent, the request is treated as an unchained signal source (e.g. log forwarders, legacy collectors). Admitted normally; no chain validation is enforced.
+- **Malformed Headers:** If any chain header is present but malformed (non-integer sequence, invalid hex digest, missing epoch), signal-ingest immediately returns `400 Bad Request` with `{"error": "malformed_batch_chain_headers"}`.
+- **Idempotent Duplicate Replay Rule:**
+  - If a batch matches an already recorded `(principal.Subject, epoch, seq, body_digest)`, signal-ingest returns `HTTP 201 Created` with payload:
+    ```json
+    {
+      "ingested": 0,
+      "duplicate": true
+    }
+    ```
+  - The observations in the duplicate batch are NOT appended to `h.Store`. P2-3 owns this deduplication logic.
+- **Chain Gap & Reorder Audit:** If a sequence gap or unexpected `Prev` hash occurs within an epoch, signal-ingest logs/audits a `batch_chain` audit event with `{"status": "gap"|"reordered"|"digest_mismatch", "expected_seq": N, "received_seq": M, "expected_prev": "...", "received_prev": "..."}` and processes the batch.
+
+##### 5. Audit Event Types & DB Schema Synchronization (P2-3)
+- **New Audit Event Type:** `batch_chain`
+- **Migration:** `d2-signalloom/apps/fe-signalloom/src/db/migrations/051_batch_chain_event_type.sql` updates `signal_audit_trail.event_type` check constraint.
+- **Bootstrap SQL Sync:** Regenerated via `scripts/generate-bootstrap.py` for `contracts/discovery-portal-bootstrap.sql` and `infra/inf-signalloom/configs/base/bootstrap/discovery-portal-bootstrap.sql`.
+- **Go Constant:** `audit.EventBatchChain = "batch_chain"` in `d2-signalloom/apps/signal-ingest/audit/audit.go` and added to `AllEventTypes`.
+
+##### 6. Canonical Test Vectors (P2-1 & P2-3)
+The following 3 compact JSON request bodies (one line each) define the exact wire byte test vectors. Each batch's `X-SignalLoom-Batch-Prev` is the lowercase hex SHA-256 digest of the exact preceding body bytes computed via `printf '%s' "$body" | sha256sum`:
+
+- **Batch 1 (`Seq = 1`, `Prev = ""`):**
+```json
+[{"id":"stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:33.123456789Z:sys_enter_openat:74acf31844532670","timestamp":"2026-10-01T22:35:33.123456789Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_openat/74acf31844532670","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","direct_reaction":"cgroup_frozen","namespace":"fe-signalloom-agents","pod_name":"agent-kusari-7d9f","severity":"CRITICAL","syscall":"sys_enter_openat","target":"/etc/passwd","tenant_id":"kusari"},"description":"sys_enter_openat target 74acf31844532670 by fe-signalloom-agents/agent-kusari-7d9f"}]
+```
+  - Exact Wire Length: `752` bytes
+  - Lowercase Hex SHA-256: `81ff916f0fdf3d8d7cb6a133070f18a8e3b1579867ae131727314e147a635aa0` (Expected `Prev` for Batch 2)
+
+- **Batch 2 (`Seq = 2`, `Prev = "81ff916f0fdf3d8d7cb6a133070f18a8e3b1579867ae131727314e147a635aa0"`):**
+```json
+[{"id":"stun-sentinel:fe-signalloom-agents/agent-cardvault-5b7c:2026-10-01T22:35:34.000000000Z:sys_enter_openat:74acf31844532670","timestamp":"2026-10-01T22:35:34.000000000Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"cardvault-agent","raw_evidence_ref":"ebpf://sys_enter_openat/74acf31844532670","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","direct_reaction":"cgroup_frozen","namespace":"fe-signalloom-agents","pod_name":"agent-cardvault-5b7c","severity":"CRITICAL","syscall":"sys_enter_openat","target":"/etc/shadow","tenant_id":"__unattributed__"},"description":"sys_enter_openat target 74acf31844532670 by fe-signalloom-agents/agent-cardvault-5b7c"},{"id":"stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:35.000000000Z:sys_enter_execve:1234567890abcdef","timestamp":"2026-10-01T22:35:35.000000000Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://sys_enter_execve/1234567890abcdef","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","namespace":"fe-signalloom-agents","pod_name":"agent-kusari-7d9f","severity":"CRITICAL","syscall":"sys_enter_execve","target":"/bin/busybox","tenant_id":"kusari"},"description":"sys_enter_execve target 1234567890abcdef by fe-signalloom-agents/agent-kusari-7d9f"}]
+```
+  - Exact Wire Length: `1492` bytes
+  - Lowercase Hex SHA-256: `8e0b5ada5165abbbdaf691f152a3e6a4dd392aab67da7522a61976cd147f831a` (Expected `Prev` for Batch 3)
+
+- **Batch 3 (`Seq = 3`, `Prev = "8e0b5ada5165abbbdaf691f152a3e6a4dd392aab67da7522a61976cd147f831a"`):**
+```json
+[{"id":"stun-sentinel:fe-signalloom-agents/agent-kusari-7d9f:2026-10-01T22:35:36.000000000Z:evasive_syscall_burst:fedcba0987654321","timestamp":"2026-10-01T22:35:36.000000000Z","layer":"endpoint_host","fidelity":"strong","source":"stun-sentinel","confidence":0.95,"actor_id":"kusari-agent","raw_evidence_ref":"ebpf://evasive_syscall_burst/fedcba0987654321","labels":{"cgroup_path":"/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice","namespace":"fe-signalloom-agents","pod_name":"agent-kusari-7d9f","severity":"CRITICAL","syscall":"evasive_syscall_burst","target":">=20 execve in 1s from one cgroup","tenant_id":"kusari"},"description":"evasive_syscall_burst target fedcba0987654321 by fe-signalloom-agents/agent-kusari-7d9f"}]
+```
+  - Exact Wire Length: `760` bytes
+  - Lowercase Hex SHA-256: `95651ec386a92c31c12056ef512dd5b09b315a3627eb02f9cf9525d790de2657` (Expected `Prev` for Batch 4)
+
+##### 7. Disjoint File Ownership Table: Phase 2 Cards
+| File / Directory Path | P2-1 (Probe Spool & Chain Stamp) | P2-2 (Key Reload & Rate Limit) | P2-3 (Ingest Chain Verify & Dedup) |
+| :--- | :--- | :--- | :--- |
+| `d2-signalloom/apps/stun-sentinel/pkg/correlator/**` | Sole Owner | Read-only | Read-only |
+| `d2-signalloom/apps/signalloom-stun-sentinel/config.go` & `main.go` | Sole Owner | Read-only | Read-only |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/daemonset.yaml` | Sole Owner | Read-only | Read-only |
+| `test/sentinel-capabilities.bats` & `d2-signalloom/apps/stun-sentinel/deploy/manifest_test.go` | Sole Owner | Read-only | Read-only |
+| `d2-signalloom/apps/signal-ingest/api/static_bearer.go` & `static_keys.go` | Read-only | Sole Owner | Read-only |
+| `d2-signalloom/apps/signal-ingest/api/key_reload.go` (new) | Read-only | Sole Owner | Read-only |
+| `d2-signalloom/apps/signal-ingest/api/auth.go` | Read-only | Sole Owner | **FORBIDDEN (No Touch)** |
+| `d2-signalloom/apps/signal-ingest/main.go` | Read-only | Sole Owner | **FORBIDDEN (No Touch)** |
+| `d2-signalloom/apps/signal-ingest/api/handlers.go` | Read-only | Read-only | Sole Owner (`handleIngestObservations` ONLY) |
+| `d2-signalloom/apps/signal-ingest/api/batch_chain.go` (new) | Read-only | Read-only | Sole Owner |
+| `d2-signalloom/apps/signal-ingest/audit/audit.go` | Read-only | Read-only | Sole Owner (`EventBatchChain`) |
+| `d2-signalloom/apps/fe-signalloom/src/db/migrations/051_*.sql` | Read-only | Read-only | Sole Owner |
+| `d2-signalloom/contracts/discovery-portal-bootstrap.sql` | Read-only | Read-only | Sole Owner |
+| `d2-signalloom/infra/inf-signalloom/configs/base/bootstrap/discovery-portal-bootstrap.sql` | Read-only | Read-only | Sole Owner |
+| `d2-signalloom/apps/signal-ingest/api/testdata/batch-chain-vector.json` | Read-only | Read-only | Sole Owner |
+
+##### Spec: Shared Patterns — Phase 3
+
+#### Phase 3 Architecture: Probe Rename (ADR-07: `signalloom-warden`) & No-Overlap Cutover
+
+##### 1. Canonical Name Mapping (ADR-07)
+The probe runtime identity, Kubernetes resources, image repositories, and authentication identities are renamed from `stun-sentinel` / `signalloom-stun-sentinel` to `signalloom-warden`.
+
+| Resource / Identity Type | Old Name / Spec | New Name (ADR-07) | Governing File / Location |
+| :--- | :--- | :--- | :--- |
+| DaemonSet | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:58` |
+| ServiceAccount | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/service-account.yaml:5` |
+| Role & RoleBinding | `stun-sentinel` | `signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml:5,18` |
+| App Labels | `app.kubernetes.io/name: stun-sentinel`<br>`signalloom.ai/agent-name: signalloom-stun-sentinel` | `app.kubernetes.io/name: signalloom-warden`<br>`signalloom.ai/agent-name: signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:61,76`<br>`d2-osramp-fleet/tenants/base/agent-swarm.yaml:559` |
+| ConfigMap | `stun-sentinel-config` | `signalloom-warden-config` | `d2-signalloom/infra/agent-swarm/signalloom-warden/configmap.yaml:5` |
+| Ingest Token Secret | `stun-sentinel-ingest-token` | `signalloom-warden-ingest-token` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:167` |
+| Fleet Manager Stun Key Secret | `stun-sentinel-fleet-key` | `signalloom-warden-fleet-key` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:185` |
+| Governance Secret | `stun-sentinel-governance` | `signalloom-warden-governance` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:191` |
+| Signal Ingest Key Name | `stun-sentinel` (subject `static-key/stun-sentinel`) | `signalloom-warden` (subject `static-key/signalloom-warden`) | `d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml:71` |
+| Signal Ingest Key Secret | `signal-ingest-key-stun-sentinel` | `signal-ingest-key-signalloom-warden` | `d2-signalloom/apps/signal-ingest/base/deployment.yaml:166` |
+| Fleet Manager Caller Name | `stun-sentinel` (`FLEET_MANAGER_KEY_STUN_SENTINEL`) | `signalloom-warden` (`FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN`) | `scripts/fleet-manager-caller-keys.sh:27`<br>`d2-signalloom/apps/fleet-manager/base/deployment.yaml:81` |
+| Flux Kustomization Name | `agent-signalloom-stun-sentinel` | `agent-signalloom-warden` | `d2-osramp-fleet/tenants/base/agent-swarm.yaml:555` |
+| Flux Overlay Path | `./signalloom-stun-sentinel-overlays/kind-osramp` | `./signalloom-warden-overlays/kind-osramp` | `d2-osramp-fleet/tenants/base/agent-swarm.yaml:574` |
+| Image Repository | `ghcr.io/controlplaneio-in-toto/signalloom-stun-sentinel` | `ghcr.io/controlplaneio-in-toto/signalloom-warden` | `d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml:105` |
+| Cold Start Fixture | `stun-sentinel` row in manifests table | `signalloom-warden` row in manifests table | `test/fixtures/cold-start-manifests.tsv:11` |
+
+##### 2. Recommended Disposition of R3 and R4 (Governor Confirmation)
+- **R3 Go Module Library & Importers (`KEPT / ALLOW-LISTED`):**
+  - **Module Directory & Path:** `d2-signalloom/apps/stun-sentinel` and `github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel` are retained.
+  - **Rationale:** This module houses low-level eBPF (`pkg/tc`, `pkg/ebpf`), correlator (`pkg/correlator`), and filter (`pkg/filter`) library primitives imported across package boundaries by `fleet-manager/mesh_client.go:16` and `go.mod` replace directives. Renaming the internal Go module introduces unnecessary churn across non-probe services without operational benefit.
+- **R4 Wire Data Compatibility (`KEPT / ALLOW-LISTED`):**
+  - **Telemetry Ingest Source:** `ingestSource = "stun-sentinel"` (`d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go:32`) is retained.
+  - **Rationale:** `ingestSource` prefixes every observation ID (`ingestSource:namespace/pod:timestamp:syscall:targetDigest`). Preserving this string maintains wire-level backward compatibility for existing telemetry consumers, historical audit query invariants, and FrostDB segments.
+
+##### 3. Guard Allow-List (Phase 3 Rename Guard)
+The Phase 3 rename guard (`test/sltm-rename-guard.bats`, delivered in P3-2) verifies that no old name occurrences exist outside the explicit allow-list. The allow-list is derived from R3, R4, and R7:
+1. **Decision Records (R7):** All files matching the `scripts/docs-lint.sh:45` `RECORDS` pattern (`docs/Proposal *`, `docs/signalloom/evidence/**`, `MEMORY/**`, `Plans/**`, `ci-evidence/**`, `HARDENING_LEDGER.md`, etc.).
+2. **Retained Go Library & Importers (R3):** `d2-signalloom/apps/stun-sentinel/**`, `d2-signalloom/apps/fleet-manager/mesh_client.go`, `d2-signalloom/apps/fleet-manager/go.mod`, `d2-signalloom/apps/fleet-manager/go.sum`.
+3. **Wire Data Constants (R4):** `d2-signalloom/apps/stun-sentinel/pkg/correlator/ingest.go`.
+
+##### 4. Four-Step No-Overlap Cutover Plan
+Because the running `stun-sentinel` probe binary self-excludes only `stun-sentinel` pods (`signalloom-stun-sentinel/main.go:33-44`, `pkg/filter/exclusion.go:43`), running old and new DaemonSets concurrently would cause the old probe to observe and potentially freeze the new warden, and cause eBPF/tc filter attachment collisions on the host network. Hence, cutover is executed strictly **old-before-new** with a start-up gate:
+
+- **Step 1 — Dual-Key Minting (Parallel Acceptance):**
+  - Mint new key `signalloom-warden` in `signal-ingest` (`fe-signalloom/signal-ingest-key-signalloom-warden`) and `fleet-manager` (`fe-signalloom/fleet-manager-caller-keys` key `signalloom-warden`).
+  - Signal-ingest and fleet-manager accept BOTH old (`stun-sentinel`) and new (`signalloom-warden`) caller keys simultaneously without service disruption.
+  - *Verification:* `curl` to `signal-ingest` and `fleet-manager` using both bearer tokens succeeds with HTTP 200/201.
+
+- **Step 2 — Old DaemonSet Drain & Removal:**
+  - Suspend Flux Kustomization: `flux suspend kustomization agent-signalloom-stun-sentinel -n fe-signalloom-agents`.
+  - Foreground-delete old DaemonSet: `kubectl delete ds stun-sentinel -n fe-signalloom-agents --cascade=foreground`.
+  - Wait for all old probe pods to terminate: `kubectl wait --for=delete pod -l app.kubernetes.io/name=stun-sentinel -n fe-signalloom-agents --timeout=60s`.
+  - *Verification:* `kubectl get pods -n fe-signalloom-agents -l app.kubernetes.io/name=stun-sentinel` returns 0 items.
+
+- **Step 3 — New Warden DaemonSet Deploy & Start-Up Gate:**
+  - The new `signalloom-warden` binary includes a start-up preflight gate: it verifies via Kubernetes API that no old `stun-sentinel` pod exists on its node before attaching eBPF/tc hooks.
+  - Deploy new Flux Kustomization `agent-signalloom-warden` (`path: ./signalloom-warden-overlays/kind-osramp`, `prune: true`).
+  - Old ConfigMap `stun-sentinel-config`, ServiceAccount `stun-sentinel`, Role/RoleBinding `stun-sentinel` are pruned by Flux.
+  - *Verification:*
+    - `kubectl get ds -n fe-signalloom-agents signalloom-warden` reaches Ready.
+    - Exactly 1 probe DaemonSet estate-wide (`signalloom.ai/role=sentinel`).
+    - 0 nodes with >1 probe pod.
+
+- **Step 4 — Post-Acceptance Old Key Retirement:**
+  - After P3-GOV completes green live certification (`make test-sltm-probe-apikey` and `scripts/run-e2e-dual-cluster-containment.sh`), remove old Secret `signal-ingest-key-stun-sentinel` and old key `stun-sentinel` from `fleet-manager-caller-keys`.
+  - *Verification:* `signal-ingest` key reload audits key deletion; only `signalloom-warden` remains active.
+
+##### 5. Disjoint File Ownership Table: Phase 3 Parallel Cards
+
+| Scope / File Pattern | P3-1 (Runtime Identity, Manifests, Image, RBAC) | P3-2 (Living Docs, Repos-level Tests, Rename Guard) | P3-GOV (Governor) |
+| :--- | :--- | :--- | :--- |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel/**` | **Sole Owner** (git mv -> `signalloom-warden/**`) | Read-only | Verification |
+| `d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel-overlays/**` | **Sole Owner** (git mv -> `signalloom-warden-overlays/**`) | Read-only | Verification |
+| `d2-signalloom/apps/signalloom-stun-sentinel/**` | **Sole Owner** (git mv -> `signalloom-warden/**`) | Read-only | Verification |
+| `d2-signalloom/deploy/stun-sentinel-*.yaml` | **Sole Owner** (tombstones updated) | Read-only | Verification |
+| `d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml` & `base/deployment.yaml` | **Sole Owner** (key config & secret projection) | Read-only | Verification |
+| `d2-signalloom/apps/fleet-manager/callerauth.go` & `base/deployment.yaml` | **Sole Owner** (caller auth & secret projection) | Read-only | Verification |
+| `scripts/fleet-manager-caller-keys.sh` & `scripts/sldc-ingest-bearer.sh` | **Sole Owner** (key generation scripts) | Read-only | Verification |
+| `scripts/warden-cutover.sh` | **Sole Owner** (new cutover script) | Read-only | Live Execution |
+| `d2-osramp-fleet/tenants/base/agent-swarm.yaml` | **Sole Owner** (Kustomization name & path) | Read-only | Verification |
+| `Makefile` & `d2-signalloom/Makefile` | **Sole Owner** (targets, image build rules) | Read-only | Verification |
+| `test/sltm-probe-apikey.bats` & unit tests for probe/ingest/fleet | **Sole Owner** (updates for new identity names) | Read-only | Verification |
+| `test/fixtures/cold-start-manifests.tsv` | **Sole Owner** | Read-only | Verification |
+| `test/sltm-rename-guard.bats` | Read-only | **Sole Owner** (new guard test) | Verification |
+| `test/e2e-dual-cluster-containment.bats` & `test/e2e-mutation-proof.sh` | Read-only | **Sole Owner** | Verification |
+| Living Docs (`*.md`, `AGENTS.md`, `README.md`, `docs/README.md`) outside RECORDS | Read-only | **Sole Owner** | Verification |
+| `docs/signalloom/evidence/sltm-p3-pre/rename-map.tsv` | Read-only (consumed) | Read-only (consumed) | Verification |
+| Decision Records (`RECORDS` regex) | **FORBIDDEN (No Touch)** | **FORBIDDEN (No Touch)** | **FORBIDDEN (No Touch)** |
+
+
+##### Relocated: Work Decomposition with final Result column
+
+##### Spec: Work Decomposition
+
+| Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
+| P0 | preflight | Validate SLTM harness identity and the Phase 1 baseline on the integration branch | None | `scripts/kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLTM`; `make test-sldc-offline`; `make test-sltm-probe-apikey` | S | antigravity | pass (baseline measured; findings recorded) | — | — | — | — |
+| P1-PRE | preflight | Inventory AFM's RBAC import contract, upload API and authentication, and the probe bundle's packaging | P0 | Written inventory with file:line citations for `cluster-import.yaml`, the afm-platform upload route and its auth | S | antigravity | pass (inventory written; wire contract pinned) | — | — | — | — |
+| P1-1 | implementation | An authenticated AFM import gateway in this repo: fe-signalloom `POST /api/v1/afm/clusters/import` accepts only a named static key (`afm-importer`, scope `afm:import`, bound to one cluster) and forwards to afm-platform `/clusters/import`; afm-platform's NetworkPolicy then admits `/clusters/import` only from fe-signalloom and AFM's own in-cluster CronJob. The afm-platform backend is NOT in this repository (`d2-k8s-afm/AGENTS.md`), so it is not edited | P1-PRE | pytest per refusal path (no key, wrong key, wrong scope, oversized body); key not in argv or logs; NetworkPolicy render test; mutation proofs | M | antigravity | pass — delivered: `52fae47095a41f217d8300e23eb849cef850b12c` (see Errata — SLTM-P1-1) | — | — | — | — |
+| P1-2 | implementation | A read-only RBAC exporter ships in the probe bundle as a separate unprivileged CronJob with its own ServiceAccount, pushing to AFM with its own key | P1-PRE | Rendered RBAC is exactly get/list/watch on clusterroles, clusterrolebindings, roles, rolebindings, namespaces, serviceaccounts and never secrets; restricted PSS; offline push against a fake AFM; mutation proofs | M | antigravity | pass — delivered: 24565a359600b3474e391059d85e41f1daa1895f (see Errata — SLTM-P1-2) | — | — | — | — |
+| P1-GOV | governor | Merge P1 in order; one live import from the Kusari cluster appears in AFM with an attributed key name | P1-1, P1-2 | `make test-sldc-offline`; live AFM import check | M | antigravity | pass — delivered: `376d8205` / `9ea6339f` (see Errata — SLTM-P1-GOV) | — | — | — | — |
+| P2-PRE | preflight | Inventory the probe's dispatch path, signal-ingest's key loader and router, and the spool's hostPath and PSS constraints | P1-GOV | Written inventory with file:line citations | S | antigravity | pass (inventory written; shared patterns pinned) — delivered: `b10042333773e0d53303fa8adb11b02dcca2c71a` (see Errata — SLTM-P2-PRE) | — | — | — | — |
+| P2-1 | implementation | The probe spools failed dispatches to a bounded on-node spool and replays them in order (D7), and stamps every batch with the D10 chain headers (`X-SignalLoom-Batch-Epoch`, `-Seq`, `-Prev`) | P2-PRE | Go tests: outage, restart, cap overflow, 401/403 not retried, Retry-After honoured; detection and freeze unaffected; mutation proofs | L | antigravity | pass — delivered: `e4ebc708b94751eefc5a84c40eec3f5ff997390e` (see Errata — SLTM-P2-1) | — | — | — | — |
+| P2-2 | implementation | signal-ingest reloads its key directory without a restart (D8) and rate-limits per key with 429 (D9) | P2-PRE | Go tests: delete, rotate, malformed update keeps the last good set; flood isolation; mutation proofs | M | antigravity | pass — delivered: 4c171dd9663d422e0da6665e5b9b3d33f7fc3c9b (see Errata — SLTM-P2-2) | — | — | — | — |
+| P2-3 | implementation | signal-ingest verifies the D10 chain headers per key and audits gaps, replays and reordering; absent headers mean an unchained sender (a log forwarder) and are accepted and recorded, never refused | P2-PRE | Go tests: replay, reorder, gap, epoch restart, spool replay accepted; mutation proofs | M | antigravity | pass — delivered: `cfbd0d4952797b798e7984c9791a7ab7519d12c7` (see Errata — SLTM-P2-3) | — | — | — | — |
+| P2-GOV | governor | Merge P2; live partition injection loses nothing within the cap; a revoked key stops within 90 s | P2-1, P2-2, P2-3 | `SLTM_LIVE=1 make test-sltm-probe-apikey` extended with the partition and revoke cases | M | antigravity | pass — delivered: `06810a4b` (see Errata — SLTM-P2-GOV) | — | — | — | — |
+| P3-PRE | preflight | Classify every `stun-sentinel` occurrence and write the rename map and cutover plan | P2-GOV | Inventory table: occurrence class, file, new name; decision records excluded | S | antigravity | pass (inventory written; rename map committed; cutover planned) | — | — | — | — |
+| P3-1 | implementation | Rename the probe's image, ServiceAccount, RBAC, labels, ConfigMap, Flux path and event names to `signalloom-warden` with a no-overlap cutover | P3-PRE | Rendered-manifest tests; tenant map and fleet-manager caller key still resolve; mutation proofs | L | antigravity | pass — delivered: `ec9354c1396869165896f61fa5d183cdc8210c3e` (see Errata — SLTM-P3-1) | — | — | — | — |
+| P3-2 | implementation | Rename tests and living docs; a guard test fails on the old name outside an explicit allow-list | P3-PRE | Guard bats with a planted occurrence going red; docs-lint clean | M | antigravity | pass — delivered: c6e2ac28c65c56b0056f3642d6eabea41ce398cc (see Errata — SLTM-P3-2) | — | — | — | — |
+| P3-GOV | governor | Merge P3; live cutover leaves exactly one probe DaemonSet and Steps 4–6 green | P3-1, P3-2 | `SLTM_LIVE=1 make test-sltm-probe-apikey`; `make test-e2e-dual-cluster-containment` | M | antigravity | pass — delivered: `3d1ebc53` (see Errata — SLTM-P3-GOV) | — | — | — | — |
+| P4-1 | implementation | Actor IDs containing `//` are readable on every `{id}` route | P3-GOV | Go tests per `{id}` route with a SPIFFE-derived ID; mutation proof | S | antigravity | pass — delivered: `fc10c498fbb826ab0931b2a63cfa20f665b7df89` (see Errata — SLTM-P4-1) | — | — | — | — |
+| P4-GOV | governor | Final acceptance: every acceptance command passes, live tiers twice in a row | P4-1 | All acceptance commands, two consecutive green runs with timestamps | S | antigravity | pass — delivered: `2ff21edb` (see Errata — SLTM-P4-GOV) | — | — | — | — |
+
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

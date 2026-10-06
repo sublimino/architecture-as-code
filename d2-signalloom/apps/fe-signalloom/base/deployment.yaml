@@ -195,6 +195,18 @@ spec:
               value: fake-slack
             - name: OUTBOUND_REPORTING_BACKEND
               value: fake-email
+            # This demo deployment has no OpenBao/SPIRE provider wired for EAP
+            # environment teardown (no SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER
+            # set), so environment_teardown.shred_openbao()/revoke_svid() now
+            # fail closed by default (StageOutcome.FAILED) and
+            # POST /api/v1/eap/lifecycle/environments/{hash}/teardown would
+            # 500 on every call. This is the explicit, loudly-named escape
+            # hatch documented in environment_teardown.py: it does not make
+            # the shred/revoke verified, it only lets the demo's teardown
+            # pipeline complete, and every stage detail for the two affected
+            # stages will say "UNVERIFIED" in the audit trail.
+            - name: SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED
+              value: "1"
             # fe-signalloom's own signal-ingest key (fe-signalloom-gateway),
             # read from the mounted Secret by src/ingest_client.py on every
             # call, so a rotation needs no restart. A path, never the value.

@@ -483,13 +483,23 @@ def test_cli_namespace_env_and_flag(kube, tsmock):
 # ------------------------------------------------------------------------------
 
 def test_ordered_teardown_executes_all_five_stages_in_exact_order(kube, tsmock):
-    """Asserts 5 stages execute in order: drain_routes, shred_openbao, revoke_svid, evict_tailscale, delete_namespace."""
+    """Asserts 5 stages execute in order: drain_routes, shred_openbao, revoke_svid, evict_tailscale, delete_namespace.
+
+    shred_openbao/revoke_svid now fail closed with no provider configured
+    (see test_environment_teardown_openbao_spire_wiring.py), so this test
+    configures trivial fake providers via stage_kwargs -- proving the order
+    and overall completion without relying on the old unverified default.
+    """
     mgr = _draining_manager()
     recorded_stages = []
     report = run_ordered_teardown(
         H,
         manager=mgr,
         recorder=recorded_stages,
+        stage_kwargs={
+            TeardownStage.SHRED_OPENBAO: {"client": lambda customer_hash: None},
+            TeardownStage.REVOKE_SVID: {"client": lambda customer_hash: None},
+        },
     )
     expected_order = [
         TeardownStage.DRAIN_ROUTES,

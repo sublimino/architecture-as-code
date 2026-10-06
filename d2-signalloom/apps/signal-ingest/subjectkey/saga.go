@@ -203,11 +203,11 @@ func (s *Saga) OperationID(tenantID, pseudonym string) (string, error) {
 	if pseudonym == "" {
 		return "", ErrSubjectRequired
 	}
-	kek, err := s.hierarchy.tenantKEK(tenantID, 0)
+	key, err := s.hierarchy.operationIDKey(tenantID, 0)
 	if err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, kek)
+	mac := hmac.New(sha256.New, key)
 	put := func(v string) {
 		var l [4]byte
 		binary.BigEndian.PutUint32(l[:], uint32(len(v)))
@@ -234,14 +234,10 @@ func (s *Saga) DestroySubjectKeys(ctx context.Context, tenantID, subjectID strin
 	if err != nil {
 		return privacy.KeyDestructionReceipt{}, err
 	}
-	destroyed := 0
-	for range receipt.Versions {
-		destroyed++
-	}
 	return privacy.KeyDestructionReceipt{
 		SubjectID:         subjectID,
 		TenantID:          tenantID,
-		KeysRemoved:       destroyed,
+		KeysRemoved:       len(receipt.Versions),
 		DestroyedAt:       receipt.CompletedAt,
 		OperationID:       receipt.OperationID,
 		ReceiptDigest:     digest,
@@ -310,6 +306,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 		SubjectPseudonym: pseudonym,
 		TargetVersions:   versionNumbers(live),
 		Nonce:            nonce,
+		CachesPurged:     ClearedCacheNames(),
 		StartedAt:        s.clock(),
 	})
 	if err != nil {
@@ -325,21 +322,43 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 
 	// A version provisioned after the snapshot must not be silently missed.
 	//
-	// At StatePending nothing has been certified, so the honest response is to WIDEN the target set:
-	// refusing here would leave the new key live forever, because the operation ID is deterministic
-	// and a re-issued request resolves to this same stuck saga. After StateKeysDestroyed the saga has
-	// already certified "every targeted version is destroyed", so a newly-appeared version means that
-	// certification is now false and the only safe answer is to refuse loudly.
+	// THE RE-READ HERE IS LOAD-BEARING, and its absence was a real defect found by adversarial
+	// review. The obvious version of this check compares saga.TargetVersions against the `live` slice
+	// read before BeginSaga -- but on the CREATE path those are the same slice under two names, so
+	// the comparison is a value against itself and the guard cannot fire at all. Since every real
+	// erasure takes the create path, the guard existed and guarded nothing: a Provision landing
+	// between the snapshot and the journal insert produced a version in neither set, the saga
+	// completed, and the receipt attested to an erasure that had not happened. Worse, the operation
+	// id is deterministic, so the re-issued request loaded the completed saga, saw the drift it had
+	// itself created, and refused forever.
+	//
+	// So the set is re-read AFTER the journal row is durable, and diffed against what the journal
+	// actually holds.
+	//
+	// At StatePending nothing has been certified, so the honest response is to WIDEN the target set.
+	// After StateKeysDestroyed the saga has already certified its work, so a newly-appeared version
+	// means that certification is now false and the only safe answer is to refuse loudly.
+	live, err = s.store.ListVersions(ctx, tenantID, pseudonym)
+	if err != nil {
+		return DestructionReceipt{}, fmt.Errorf("subjectkey: re-read key versions after journal insert: %w", err)
+	}
 	current := versionNumbers(live)
 	if drift := newVersions(saga.TargetVersions, current); len(drift) > 0 {
 		if saga.State != StatePending {
-			return DestructionReceipt{}, fmt.Errorf("%w: versions %v appeared after state %q", ErrVersionDrift, drift, saga.State)
+			return DestructionReceipt{}, fmt.Errorf(
+				"%w: versions %v appeared after state %q. A subject whose erasure has completed must "+
+					"not be re-provisioned; the defect is upstream at provisioning time, not here, and "+
+					"this refusal is the only place it becomes visible",
+				ErrVersionDrift, drift, saga.State)
 		}
 		saga.TargetVersions = current
 	}
 
 	// ---- Boundary 2: the irreversible act, per version, idempotent per version. ----------------
-	results := make(map[int]DestroyResult, len(saga.TargetVersions))
+	// No map of DestroyResult is kept. An earlier version accumulated one and never read it, which
+	// looked like a cross-check and was not. Certification is deliberately by READ-BACK
+	// (certifyAllDestroyed), never by the destroy calls' return values -- trusting those would make
+	// the state a record of what was asked for rather than what happened.
 	if saga.State == StatePending {
 		if err := s.fault(FaultBeforeDestroyVersions); err != nil {
 			return DestructionReceipt{}, err
@@ -351,11 +370,9 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 				return DestructionReceipt{}, err
 			}
 			scope.KeyEpoch = rec.KeyEpoch
-			res, err := s.store.DestroyVersion(ctx, scope, s.clock())
-			if err != nil {
+			if _, err := s.store.DestroyVersion(ctx, scope, s.clock()); err != nil {
 				return DestructionReceipt{}, fmt.Errorf("subjectkey: destroy version %d: %w", v, err)
 			}
-			results[v] = res
 		}
 		if err := s.fault(FaultAfterDestroyVersions); err != nil {
 			return DestructionReceipt{}, err
@@ -371,7 +388,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 			return DestructionReceipt{}, err
 		}
 		targets := saga.TargetVersions
-		saga, err = s.store.AdvanceSaga(ctx, opID, StatePending, func(r *SagaRecord) {
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StatePending, func(r *SagaRecord) {
 			r.TargetVersions = targets
 		})
 		if err != nil {
@@ -401,7 +418,13 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 		if err := s.fault(FaultBeforeCachesClearedTransition); err != nil {
 			return DestructionReceipt{}, err
 		}
-		saga, err = s.store.AdvanceSaga(ctx, opID, StateKeysDestroyed, nil)
+		cleared := ClearedCacheNames()
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StateKeysDestroyed, func(r *SagaRecord) {
+			// Persisted HERE, at the transition that records the purge actually happening, so the
+			// receipt digest is a function of what THIS operation did rather than of what the
+			// currently-running binary happens to be configured to clear.
+			r.CachesPurged = cleared
+		})
 		if err != nil {
 			return DestructionReceipt{}, fmt.Errorf("subjectkey: advance to %s: %w", StateCachesCleared, err)
 		}
@@ -424,7 +447,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 		if err := s.fault(FaultBeforeReceiptPersist); err != nil {
 			return DestructionReceipt{}, err
 		}
-		saga, err = s.store.AdvanceSaga(ctx, opID, StateCachesCleared, func(r *SagaRecord) {
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StateCachesCleared, func(r *SagaRecord) {
 			r.ReceiptDigest = digest
 			// CompletedAt is persisted HERE, with the digest that covers it, so a resumed saga
 			// rebuilds the same receipt. Stamping it at the `completed` transition instead would
@@ -445,7 +468,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 		if err := s.fault(FaultBeforeCompletedTransition); err != nil {
 			return DestructionReceipt{}, err
 		}
-		saga, err = s.store.AdvanceSaga(ctx, opID, StateReceiptRecorded, nil)
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StateReceiptRecorded, nil)
 		if err != nil {
 			return DestructionReceipt{}, fmt.Errorf("subjectkey: advance to %s: %w", StateCompleted, err)
 		}
@@ -472,7 +495,15 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 	if err != nil {
 		return DestructionReceipt{}, err
 	}
-	if saga.ReceiptDigest != "" && digest != saga.ReceiptDigest {
+	// Unconditional. Guarding this on a non-empty recorded digest would let a saga that somehow
+	// reached `completed` without one return a freshly computed receipt unchecked. Migration 009's
+	// CHECK makes that unreachable on PostgreSQL, but MemoryStore has no such constraint and the
+	// guard must not depend on which store is wired in.
+	if saga.ReceiptDigest == "" {
+		return DestructionReceipt{}, fmt.Errorf(
+			"subjectkey: saga %s is complete but carries no recorded receipt digest; its receipt cannot be attested", opID)
+	}
+	if digest != saga.ReceiptDigest {
 		return DestructionReceipt{}, fmt.Errorf(
 			"subjectkey: rebuilt receipt digest %s does not match the digest recorded at %s (%s); "+
 				"SLDP-P4-2's tombstone would disagree with this receipt", digest, StateReceiptRecorded, saga.ReceiptDigest)
@@ -485,6 +516,15 @@ func (s *Saga) certifyAllDestroyed(ctx context.Context, tenantID, pseudonym stri
 	recs, err := s.store.ListVersions(ctx, tenantID, pseudonym)
 	if err != nil {
 		return fmt.Errorf("subjectkey: re-read key versions for certification: %w", err)
+	}
+	// Certify over the LIVE set, not just the target set. A version provisioned while the destroy
+	// loop was running is in neither, and checking only the targets would certify "everything I
+	// aimed at is gone" while something else is still readable. Failing here leaves the saga at
+	// StatePending, so the next attempt widens the targets and succeeds -- recoverable, unlike a
+	// false certification.
+	if extra := newVersions(targets, versionNumbers(recs)); len(extra) > 0 {
+		return fmt.Errorf("%w: versions %v appeared during destruction; re-run to widen the target set",
+			ErrVersionDrift, extra)
 	}
 	for _, v := range targets {
 		rec, err := findVersion(recs, v)
@@ -530,7 +570,7 @@ func (s *Saga) buildReceipt(ctx context.Context, saga SagaRecord, completedAt ti
 		SubjectPseudonym:  saga.SubjectPseudonym,
 		Nonce:             saga.Nonce,
 		Versions:          versions,
-		CachesPurged:      ClearedCacheNames(),
+		CachesPurged:      append([]string(nil), saga.CachesPurged...),
 		ResidualPseudonym: ResidualUnresolvableToken,
 		StorageResidual:   s.residual,
 		ComplianceNote:    ComplianceNote,

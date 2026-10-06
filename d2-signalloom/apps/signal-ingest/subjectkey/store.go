@@ -112,6 +112,29 @@ type KeyRecord struct {
 	PriorWrappedDigest string
 }
 
+// validPseudonym reports whether p has the exact shape migration 009's CHECK enforces.
+//
+// The two halves of this contract were each validated only against themselves: the database required
+// 64 lowercase hex while the in-memory store required merely non-empty, so any pseudonymiser output
+// that was not 64-hex passed the whole suite and would have failed at the first production insert.
+// Found by adversarial review, 2026-09-14.
+func validPseudonym(p string) bool {
+	if len(p) != 64 {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// ErrPseudonymMalformed is returned when a subject pseudonym is not 64 lowercase hex characters.
+var ErrPseudonymMalformed = errors.New("subjectkey: subject pseudonym must be 64 lowercase hex characters, matching migration 009's CHECK")
+
 // Scope returns the KeyScope naming this record.
 func (r KeyRecord) Scope() KeyScope {
 	return KeyScope{
@@ -134,7 +157,11 @@ type SagaRecord struct {
 	// TargetVersions is the version set snapshotted at StatePending, sorted ascending.
 	TargetVersions []int
 	// Nonce is persisted so a resumed saga reproduces the same receipt digest.
-	Nonce         string
+	Nonce string
+	// CachesPurged is persisted for the same reason. It is an input to the digest, so deriving it
+	// from the running binary's CacheRegistry at rebuild time would make every completed saga's
+	// digest change the moment that registry changed.
+	CachesPurged  []string
 	ReceiptDigest string
 	StartedAt     time.Time
 	UpdatedAt     time.Time
@@ -167,10 +194,16 @@ type KeyStore interface {
 	// BeginSaga inserts the journal row if absent. created reports whether this call inserted it.
 	BeginSaga(ctx context.Context, rec SagaRecord) (SagaRecord, bool, error)
 	// LoadSaga returns the journal row.
-	LoadSaga(ctx context.Context, operationID string) (SagaRecord, error)
+	//
+	// tenantID is REQUIRED and is not a convenience. Under FORCE ROW LEVEL SECURITY the row is
+	// invisible without a transaction-local tenant claim, and the tenant is only discoverable FROM
+	// the row -- so a signature that omitted it could only work by bypassing RLS. It did: every live
+	// test ran as a superuser with rolbypassrls, and on a correctly-configured app role the saga
+	// could never advance past `pending`.
+	LoadSaga(ctx context.Context, tenantID, operationID string) (SagaRecord, error)
 	// AdvanceSaga moves the row from `from` to the next state, applying mutate first. It refuses if
 	// the observed state is not `from` (ErrStateConflict) or the move is not one step (ErrIllegalTransition).
-	AdvanceSaga(ctx context.Context, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error)
+	AdvanceSaga(ctx context.Context, tenantID, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -253,29 +286,35 @@ func (m *MemoryStore) Provision(_ context.Context, tenantID, pseudonym string, e
 		sort.Slice(liveRecs, func(i, j int) bool { return liveRecs[i].KeyVersion < liveRecs[j].KeyVersion })
 		surplus := live + 1 - MaxKeyVersionsPerSubject
 		for i := 0; i < surplus && i < len(liveRecs); i++ {
-			m.destroyLocked(liveRecs[i], now)
+			if err := m.destroyLocked(liveRecs[i], now); err != nil {
+				return KeyRecord{}, err
+			}
 		}
 	}
 	return *rec, nil
 }
 
 // destroyLocked performs the irreversible overwrite. Caller holds m.mu.
-func (m *MemoryStore) destroyLocked(r *KeyRecord, now time.Time) {
+//
+// It returns an error on CSPRNG failure rather than degrading. The previous version called Zero() on
+// an already-zero buffer and carried a comment claiming that made the failure "visible" -- it made
+// nothing visible, the error was simply dropped, and deleting the branch changed no observable
+// behaviour, so no test could distinguish a working CSPRNG from a dead one. A comment vouching for a
+// guard that does nothing is worse than no guard. Found by adversarial review, 2026-09-14.
+func (m *MemoryStore) destroyLocked(r *KeyRecord, now time.Time) error {
 	if r.Destroyed() {
-		return
+		return nil
+	}
+	overwrite := make([]byte, len(r.WrappedDEK))
+	if _, err := io.ReadFull(rand.Reader, overwrite); err != nil {
+		return fmt.Errorf("subjectkey: system CSPRNG unavailable, refusing to overwrite key material: %w", err)
 	}
 	r.PriorWrappedDigest = WrappedDigest(r.WrappedDEK)
-	overwrite := make([]byte, len(r.WrappedDEK))
-	// A CSPRNG failure here must not degrade to a weaker overwrite. Zeroes would still destroy the
-	// key, so falling back to them is safe for erasure — but it must be visible, hence the zeroing
-	// is explicit rather than an ignored error.
-	if _, err := io.ReadFull(rand.Reader, overwrite); err != nil {
-		Zero(overwrite)
-	}
 	Zero(r.WrappedDEK)
 	r.WrappedDEK = overwrite
 	t := now.UTC()
 	r.DestroyedAt = &t
+	return nil
 }
 
 // ListVersions returns every version for a subject, sorted ascending.
@@ -332,7 +371,9 @@ func (m *MemoryStore) DestroyVersion(_ context.Context, scope KeyScope, now time
 			AlreadyDestroyed:   true,
 		}, nil
 	}
-	m.destroyLocked(r, now)
+	if err := m.destroyLocked(r, now); err != nil {
+		return DestroyResult{}, err
+	}
 	return DestroyResult{
 		Scope:              scope,
 		PriorWrappedDigest: r.PriorWrappedDigest,
@@ -352,6 +393,7 @@ func (m *MemoryStore) BeginSaga(_ context.Context, rec SagaRecord) (SagaRecord, 
 	}
 	cp := rec
 	cp.TargetVersions = append([]int(nil), rec.TargetVersions...)
+	cp.CachesPurged = append([]string(nil), rec.CachesPurged...)
 	cp.State = StatePending
 	cp.StartedAt = rec.StartedAt.UTC()
 	cp.UpdatedAt = rec.StartedAt.UTC()
@@ -360,15 +402,21 @@ func (m *MemoryStore) BeginSaga(_ context.Context, rec SagaRecord) (SagaRecord, 
 }
 
 // LoadSaga returns the journal row.
-func (m *MemoryStore) LoadSaga(_ context.Context, operationID string) (SagaRecord, error) {
+func (m *MemoryStore) LoadSaga(_ context.Context, tenantID, operationID string) (SagaRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.sagas[operationID]
 	if !ok {
 		return SagaRecord{}, fmt.Errorf("%w: %s", ErrSagaNotFound, operationID)
 	}
+	// Mirror the Postgres row-level-security scoping in memory, so a tenant mix-up fails the same
+	// way in both stores rather than only in production.
+	if tenantID != "" && r.TenantID != tenantID {
+		return SagaRecord{}, fmt.Errorf("%w: %s is not visible to tenant %q", ErrSagaNotFound, operationID, tenantID)
+	}
 	cp := *r
 	cp.TargetVersions = append([]int(nil), r.TargetVersions...)
+	cp.CachesPurged = append([]string(nil), r.CachesPurged...)
 	return cp, nil
 }
 
@@ -377,7 +425,7 @@ func (m *MemoryStore) LoadSaga(_ context.Context, operationID string) (SagaRecor
 // The compare is the concurrency control. Two invocations racing on the same operation both read
 // StatePending; one advances and the other gets ErrStateConflict rather than both proceeding. That
 // is why the transition takes `from` rather than trusting the caller's cached copy.
-func (m *MemoryStore) AdvanceSaga(_ context.Context, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error) {
+func (m *MemoryStore) AdvanceSaga(_ context.Context, tenantID, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error) {
 	to, ok := NextState(from)
 	if !ok {
 		return SagaRecord{}, fmt.Errorf("%w: %q has no successor", ErrIllegalTransition, from)
@@ -387,6 +435,9 @@ func (m *MemoryStore) AdvanceSaga(_ context.Context, operationID string, from Sa
 	r, exists := m.sagas[operationID]
 	if !exists {
 		return SagaRecord{}, fmt.Errorf("%w: %s", ErrSagaNotFound, operationID)
+	}
+	if tenantID != "" && r.TenantID != tenantID {
+		return SagaRecord{}, fmt.Errorf("%w: %s is not visible to tenant %q", ErrSagaNotFound, operationID, tenantID)
 	}
 	if r.State != from {
 		return SagaRecord{}, fmt.Errorf("%w: expected %q, found %q", ErrStateConflict, from, r.State)
@@ -406,5 +457,6 @@ func (m *MemoryStore) AdvanceSaga(_ context.Context, operationID string, from Sa
 	}
 	cp := *r
 	cp.TargetVersions = append([]int(nil), r.TargetVersions...)
+	cp.CachesPurged = append([]string(nil), r.CachesPurged...)
 	return cp, nil
 }

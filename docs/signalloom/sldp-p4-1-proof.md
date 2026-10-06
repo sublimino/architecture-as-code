@@ -412,6 +412,80 @@ delete reached them.
 
 ---
 
+## 8.8 Adversarial review (Forge) — findings and disposition
+
+Forge ran read-only against the package and returned **fail**, with two criticals. Its verdict carried
+an important caveat of its own: **its cross-family path was unavailable** (`codex exec` quota
+exhausted), so it ran Claude-family — the same lineage as the code it reviewed. It said so plainly
+rather than presenting a same-family read as a cross-vendor one.
+
+Two of its seventeen findings were already fixed before it reported (it reviewed a pre-advisor
+snapshot): **F1** is the same microsecond divergence recorded in §8.7 D1, and **F3**'s "the test does
+not exist" was true when it looked. One of F1's sub-claims is wrong against this implementation —
+Forge said `Truncate(time.Microsecond)` "is not a sufficient fix either" because PostgreSQL *rounds*.
+It is sufficient here because the truncation happens **at source**, so the value written has no
+sub-microsecond digits and the rounding is a no-op; falsified both ways in §8.7.
+
+**Everything else it found was real.** Disposition:
+
+| # | severity | finding | disposition |
+|---|---|---|---|
+| F2 | CRITICAL | the version-drift check compared `saga.TargetVersions` against the **same slice** it was built from, so it could not fire on the create path | **fixed** — re-read after `BeginSaga`; `TestErasureSaga_KeyProvisionedDuringTheJournalRaceIsNotMissed`, mutation M15 |
+| — | CRITICAL | (adjacent window, found while fixing F2) a version arriving **during** the destroy loop was certified around | **fixed** — certification now covers the live set, not the target set; `...KeyProvisionedDuringDestructionIsCaughtByCertification`, M16 |
+| F4 | HIGH | `CachesPurged` derived from a package var, so the digest was a property of the deployed binary | **fixed** — persisted in `subject_key_erasures.caches_purged`; `...ReceiptDigestSurvivesACacheRegistryChange`, M17 |
+| F5 | MEDIUM | the CSPRNG-failure branch zeroed an already-zero buffer while its comment claimed visibility | **fixed** — `destroyLocked` returns an error |
+| F6 | MEDIUM | a zero `CompletedAt` digested cleanly while a zero `DestroyedAt` was refused | **fixed** — `...ReceiptRefusesAZeroCompletedAt`, M19 |
+| F7 | MEDIUM | `TenantKEKFingerprint` documented as proving the tenant key was untouched by erasure — it cannot | **corrected** — the comment now states what it does detect (a master-key or scheme change) and that erasure-invariance is structural, not proven by this value |
+| F8 | MEDIUM | the tenant KEK served as both AES-GCM wrapping key and HMAC key | **fixed** — separate `operationIDKey` via HKDF |
+| F9 | MEDIUM | the store accepted pseudonyms migration 009 rejects | **fixed** — `validPseudonym` in `KeyScope.Validate`; `...StoreRejectsPseudonymsTheDatabaseWouldReject`, M18 |
+| F10 | MEDIUM | `CHECK (destroyed_at >= created_at)` mixes DB and app clocks, so NTP skew refuses a legitimate destruction | **fixed** — constraint removed, with the reasoning recorded in the migration |
+| F11 | MEDIUM | a write-only `results` map that looked like a cross-check | **removed**, with a comment stating certification is by read-back |
+| F13 | LOW | the digest-agreement guard was skipped on an empty recorded digest | **fixed** — unconditional |
+| F14 | LOW | a fully destroyed control reported as available with no reason | **fixed** — `...ProofRefusesAFullyDestroyedControl`, M20 |
+| F15 | LOW | a prefix-MAC described as "HMAC-shaped" | **fixed** — real `hmac.New` |
+| F16 | LOW | loop instead of `len()` | fixed |
+| F12 | LOW | `subject_key_erasures_recorded_carries_digest` subsumes the `completed` variant | **kept** — belt-and-braces; Forge verified the subsumption on live PG |
+| F17 | LOW | no `009_..._rollback.sql` | **decided: none**, following 008's precedent |
+
+**F2 is worth stating in full, because it is the defect this card most needed to not ship.** Every real
+erasure takes the create path, where the guard compared a value with itself. A `Provision` landing in
+the snapshot/journal window produced a version in neither set, the saga completed, and **the receipt
+attested to an erasure that had not happened** — a direct instance of the one thing §4 claims is
+impossible. Then, because the operation id is deterministic, the re-issued Article 17 request loaded
+the completed saga, saw the drift it had itself created, and refused **permanently**. The existing
+drift test could not catch it: it pre-seeds the journal with `BeginSaga` before calling `Erase`, so it
+only ever exercised the resume path.
+
+**Fixing F2 surfaced a second window** nobody had named — a version provisioned *during* the destroy
+loop, after the drift re-read. The post-journal re-read cannot see it; only certification over the
+live set can. That is now a separate guard with a separate test and a separate mutation, because one
+test standing in for two guards is how a guard stops being covered.
+
+**One bug was found by the live database, not by review.** `pq.Array(nil)` renders as SQL `NULL`, so a
+nil `CachesPurged` violated the new column's `NOT NULL`. Normalised in `nonNilStrings`/`nonNilInts`.
+It surfaced only because `TestSubjectKeyPG_SagaJournalIsIdempotentAndCompareAndSwapped` calls
+`BeginSaga` directly rather than through the saga, which always populates the field.
+
+**Mutation sweep after the fixes: 20 killed / 0 survived / 0 build-breaks** (was 14). Two of the six
+new mutations initially reported `NO-OP` and `BUILD` and the harness refused to score them — M13's sed
+anchor had gone stale when `OperationID` switched to the separated key, and M20's `if false` left a
+variable unused.
+
+## 8.9 Cross-vendor audit (Rule 2a): NOT RUN
+
+**Skipped, not passed.** The codex CLI's ChatGPT-account quota was exhausted on 2026-09-14 and no
+API-key fallback is configured; every GPT-5.x model returns HTTP 400 or a usage-limit error. Probed
+directly three times, including from inside the repo to rule out the `Not inside a trusted directory`
+failure mode. **No non-Anthropic model inspected the package, the migration or this document.** Claims
+(a)–(e) rest on same-family review only — and Forge, which returned `fail`, was *also* same-family
+because its own cross-family path was down.
+
+The gap covers all five claims equally, including every change made after §8.7 and §8.8.
+A Kimi-family audit (Anvil) was dispatched as the available substitute; the codex quota resets
+**2026-09-19 12:42**, and re-running Cato then costs one call.
+
+---
+
 ## 9. Files
 
 | file | lines | role |

@@ -1173,9 +1173,18 @@ build_payload() {
   # and `git archive HEAD` carries tracked files only — so this verifier is the
   # second line, not the first. What it must not do is fire on the tracked file
   # the repository deliberately ships as documentation.
+  # `\.handoff\.json$` is anchored to `deploy/gcp/`, same as `deploy-sa` below
+  # it. The real, gitignored, per-environment hand-off this term exists to
+  # catch is ALWAYS written there (GCP_TF_HANDOFF_FILE = deploy/gcp/<env>.
+  # handoff.json). A bare suffix match also caught test/fixtures/gcp-tf-v2/
+  # handoff/*.handoff.json — fifteen synthetic fixtures tracked on purpose for
+  # the v2 acceptance suite, zero of which carry real estate identity — and
+  # refused every payload on their account alone. Anchoring the directory keeps
+  # the catch and drops the false positive; it does not widen what is let
+  # through, because a fixture under test/fixtures/ was never the risk.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
-    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform[/-])|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
+    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform[/-])|\.tfvars($|\.json$)|deploy/gcp/[^/]*\.handoff\.json$|deploy/gcp/deploy-sa$' |
     grep -vE '\.example\.tfvars$|\.tfvars\.example$' |
     head -5 || true)"
   if [ -n "$leaked" ]; then
@@ -3177,39 +3186,6 @@ reclaim_tailnet_origin_on_abort() {
     warn "could NOT re-claim the tailnet Dex origin for https://${fqdn}. THIS LANE'S TAILNET LOGIN IS BROKEN RIGHT NOW and will stay broken until somebody repairs it: make gcp-tf-ts-up ENV=${ENV_KEY}"
 
   return 0
-}
-
-# ─── Determine and RECORD this lane's TLS certificate state ─────────────────
-#
-# Runs scripts/gcp-tf/tailscale-cert-state.sh on the VM out of the delivered
-# tree. See that file's header for why the journal is the source of truth and
-# `tailscale cert`'s exit status is never consulted — it EXITS 0 when issuance
-# fails with a 429, so gating on it reports a certificate that does not exist.
-#
-# Called from the deploy path rather than from the boot path on purpose. The
-# certificate RESTORE has to beat tailscaled's first request at boot+42s; this
-# does not — it only has to happen before anything asserts on the tailnet
-# surface, and running it here keeps it in the delivered tree where it can be
-# fixed without replacing a VM.
-#
-# NEVER FATAL. A lane inside a rate-limit window is expected to come up on the
-# HTTP fallback and must still be acceptance-tested; see the call site.
-assert_tailnet_cert_state() {
-  local script="${REMOTE_WORK_DIR}/scripts/gcp-tf/tailscale-cert-state.sh"
-  local rc=0 out
-
-  # `sudo`: it reads the journal and reconfigures serve.
-  # `2>&1`: the loud warnings go to stderr inside the script, and they are the
-  # entire point of running it — dropping them would leave the fallback silent,
-  # which is the one outcome this is not allowed to have.
-  out="$(remote_run "sudo SIGNALLOOM_APP_PORT=$(printf '%q' "$APP_PORT") bash $(printf '%q' "$script") 2>&1")" || rc=$?
-
-  [ -n "$out" ] && printf '%s\n' "$out"
-
-  if [ "$rc" -ne 0 ]; then
-    warn "the certificate-state probe exited ${rc} on ${INSTANCE_NAME}. This lane's TLS posture is UNKNOWN — it may be serving HTTPS, may be on the plain-HTTP fallback, or may be serving nothing. Determine it with: make gcp-tf-ts-status ENV=${ENV_KEY}"
-    return 1
-  fi
 }
 
 # ─── Determine and RECORD this lane's TLS certificate state ─────────────────

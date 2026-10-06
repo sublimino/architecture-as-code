@@ -1,6 +1,7 @@
-# ServiceAccount for the cardvault-agent. SPIRE issues an SVID scoped to
-# spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent,
-# which OpenBao's JWT role binds to for credential issuance.
+# Source ServiceAccount rendered into fe-signalloom by the apps Kustomization's
+# targetNamespace. The sustained Netassert fixture needs the same name in
+# fe-signalloom-agents, which its fleet ResourceSet owns independently. Neither
+# ServiceAccount mounts a token or receives RBAC through this manifest.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

@@ -732,6 +732,7 @@ run_stage \
      test/bao-spire-proof.bats test/ci-lock.bats \
      test/ci-path-anchoring.bats test/ci-state-locality.bats \
      test/cosign-signing-consistency.bats test/demo-lifecycle.bats \
+     test/osramp-up-lifecycle.bats test/supercred-spire-preflight.bats test/wait-deadline.bats \
      test/flux-dynamic-labels.bats \
      test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
      test/gcp-ci-vm-status.bats test/healthcheck.bats \
@@ -1158,6 +1159,13 @@ run_stage \
      d2-signalloom/test/spire-jwks-live.bats \
      d2-signalloom/test/supercred-demo-api.bats \
      d2-signalloom/test/api-route-liveness.bats"
+
+# Stage 7a executes Netassert itself; shell probes cannot prove its
+# ephemeral-container path actually ran.
+run_stage \
+  "Live NetworkPolicy enforcement (netassert)" \
+  "stage7a-netassert.tap" \
+  "cd ${WORK_DIR} && make -C d2-signalloom test-netassert"
 
 # Stage 7b: Adversarial API surface probes (BATS TAP)
 #

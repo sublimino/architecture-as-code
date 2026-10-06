@@ -57,18 +57,19 @@ variable "default_region" {
 variable "environments" {
   description = "Typed map of every Signal Loom environment, keyed by stable environment key. The eleven contract rules are enforced by modules/env-contract; this root adds only the non-empty rule."
   type = map(object({
-    kind             = string # "demo" | "ci"
-    subnet_cidr      = string # RFC1918 /24, unique across the map
-    region           = string # e.g. "europe-west2"
-    zone             = string # e.g. "europe-west2-a"
-    machine_type     = string # e.g. "n2-standard-16"
-    boot_disk_gb     = number
-    hostname         = string       # fully-qualified, unique across the map; "" disables DNS
-    allowed_ipv4     = list(string) # CIDRs permitted at the edge; never 0.0.0.0/0
-    allowed_ipv6     = list(string) # CIDRs permitted at the edge; never ::/0
-    app_port         = number       # backend port the LB health-checks and forwards to
-    deletion_protect = bool
-    labels           = map(string) # extra labels, merged over the mandatory set
+    kind               = string # "demo" | "ci"
+    subnet_cidr        = string # RFC1918 /24, unique across the map
+    region             = string # e.g. "europe-west2"
+    zone               = string # e.g. "europe-west2-a"
+    machine_type       = string # e.g. "n2-standard-16"
+    boot_disk_gb       = number
+    hostname           = string               # fully-qualified, unique across the map; "" disables DNS
+    tailscale_hostname = optional(string, "") # explicit Tailscale node name override (e.g. "sl-eap-4b53ab6b"); "" derives sl-<key>
+    allowed_ipv4       = list(string)         # CIDRs permitted at the edge; never 0.0.0.0/0
+    allowed_ipv6       = list(string)         # CIDRs permitted at the edge; never ::/0
+    app_port           = number               # backend port the LB health-checks and forwards to
+    deletion_protect   = bool
+    labels             = map(string) # extra labels, merged over the mandatory set
   }))
 
   # Rule 12 — a mutating root refuses an empty map.

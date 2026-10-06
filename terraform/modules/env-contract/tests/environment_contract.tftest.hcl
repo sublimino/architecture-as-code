@@ -105,6 +105,7 @@ run "resolved_map_carries_every_downstream_module_input" {
       output.environments["demo-1"].machine_type == "n2-standard-16",
       output.environments["demo-1"].boot_disk_gb == 200,
       output.environments["demo-1"].hostname == "demo-1.example.invalid",
+      output.environments["demo-1"].tailscale_hostname == "",
       output.environments["demo-1"].app_port == 8080,
       output.environments["demo-1"].deletion_protect == true,
       output.environments["demo-1"].labels["component"] == "signalloom",
@@ -449,5 +450,63 @@ run "rules_09_and_10_still_accept_realistic_ranges" {
   assert {
     condition     = length(var.environments) == 1
     error_message = "a realistic allowlist must still plan cleanly, or the two negatives above prove nothing"
+  }
+}
+
+# ─── Rule 14 — tailscale_hostname format ─────────────────────────────────────
+
+run "rule_14_accepts_valid_tailscale_hostnames" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "", tailscale_hostname = "sl-eap-4b53ab6b", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = {} }
+      "demo-2" = { kind = "demo", subnet_cidr = "10.10.2.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-8", boot_disk_gb = 100, hostname = "", tailscale_hostname = "sl-custom-node", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = false, labels = {} }
+      "ci-1"   = { kind = "ci", subnet_cidr = "10.10.3.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-8", boot_disk_gb = 100, hostname = "", tailscale_hostname = "", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = false, labels = {} }
+    }
+  }
+  assert {
+    condition     = output.environments["demo-1"].tailscale_hostname == "sl-eap-4b53ab6b"
+    error_message = "resolved tailscale_hostname must survive into output"
+  }
+  assert {
+    condition     = output.environments["demo-2"].tailscale_hostname == "sl-custom-node"
+    error_message = "sl-<name> format must be accepted"
+  }
+}
+
+run "rule_14_rejects_invalid_tailscale_hostname" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "", tailscale_hostname = "invalid_node_name", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = {} }
+    }
+  }
+  expect_failures = [var.environments]
+}
+
+# ─── Rule 15 — tailscale_hostname uniqueness ─────────────────────────────────
+
+run "rule_15_rejects_duplicate_tailscale_hostnames" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "", tailscale_hostname = "sl-eap-4b53ab6b", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = {} }
+      "demo-2" = { kind = "demo", subnet_cidr = "10.10.2.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-8", boot_disk_gb = 100, hostname = "", tailscale_hostname = "sl-eap-4b53ab6b", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = false, labels = {} }
+    }
+  }
+  expect_failures = [var.environments]
+}
+
+run "rule_15_accepts_multiple_empty_tailscale_hostnames" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "", tailscale_hostname = "", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = {} }
+      "demo-2" = { kind = "demo", subnet_cidr = "10.10.2.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-8", boot_disk_gb = 100, hostname = "", tailscale_hostname = "", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = false, labels = {} }
+    }
+  }
+  assert {
+    condition     = length(var.environments) == 2
+    error_message = "multiple empty tailscale_hostnames must be permitted (they derive distinct sl-<key> names)"
   }
 }

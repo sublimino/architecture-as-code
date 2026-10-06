@@ -27,19 +27,20 @@ locals {
   # per-environment module blocks. That is the mechanism behind ISC-75:
   # adding demo-2 is a new map entry in a tfvars file and nothing else.
   resolved = { for k, v in var.environments : k => {
-    environment_key  = k
-    kind             = v.kind
-    name_prefix      = local.name_prefix[k]
-    labels           = local.mandatory_labels[k]
-    region           = v.region
-    zone             = v.zone
-    subnet_cidr      = v.subnet_cidr
-    machine_type     = v.machine_type
-    boot_disk_gb     = v.boot_disk_gb
-    hostname         = v.hostname
-    allowed_ipv4     = v.allowed_ipv4
-    allowed_ipv6     = v.allowed_ipv6
-    app_port         = v.app_port
-    deletion_protect = v.deletion_protect
+    environment_key    = k
+    kind               = v.kind
+    name_prefix        = local.name_prefix[k]
+    labels             = local.mandatory_labels[k]
+    region             = v.region
+    zone               = v.zone
+    subnet_cidr        = v.subnet_cidr
+    machine_type       = v.machine_type
+    boot_disk_gb       = v.boot_disk_gb
+    hostname           = v.hostname
+    tailscale_hostname = v.tailscale_hostname
+    allowed_ipv4       = v.allowed_ipv4
+    allowed_ipv6       = v.allowed_ipv6
+    app_port           = v.app_port
+    deletion_protect   = v.deletion_protect
   } }
 }

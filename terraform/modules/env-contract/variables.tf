@@ -25,18 +25,19 @@
 variable "environments" {
   description = "Typed map of every Signal Loom environment, keyed by stable environment key."
   type = map(object({
-    kind             = string # "demo" | "ci"
-    subnet_cidr      = string # RFC1918 /24, unique across the map
-    region           = string # e.g. "europe-west2"
-    zone             = string # e.g. "europe-west2-a"
-    machine_type     = string # e.g. "n2-standard-16"
-    boot_disk_gb     = number
-    hostname         = string       # fully-qualified, unique across the map; "" disables DNS
-    allowed_ipv4     = list(string) # CIDRs permitted at the edge; never 0.0.0.0/0
-    allowed_ipv6     = list(string) # CIDRs permitted at the edge; never ::/0
-    app_port         = number       # backend port the LB health-checks and forwards to
-    deletion_protect = bool
-    labels           = map(string) # extra labels, merged over the mandatory set
+    kind               = string # "demo" | "ci"
+    subnet_cidr        = string # RFC1918 /24, unique across the map
+    region             = string # e.g. "europe-west2"
+    zone               = string # e.g. "europe-west2-a"
+    machine_type       = string # e.g. "n2-standard-16"
+    boot_disk_gb       = number
+    hostname           = string               # fully-qualified, unique across the map; "" disables DNS
+    tailscale_hostname = optional(string, "") # explicit Tailscale node name override (e.g. "sl-eap-4b53ab6b"); "" derives sl-<key>
+    allowed_ipv4       = list(string)         # CIDRs permitted at the edge; never 0.0.0.0/0
+    allowed_ipv6       = list(string)         # CIDRs permitted at the edge; never ::/0
+    app_port           = number               # backend port the LB health-checks and forwards to
+    deletion_protect   = bool
+    labels             = map(string) # extra labels, merged over the mandatory set
   }))
 
   # Rule 1 — key format.
@@ -231,6 +232,31 @@ variable "environments" {
         for k, v in var.environments : "${k}=${v.app_port}"
         if !(v.app_port >= 1 && v.app_port <= 65535 && floor(v.app_port) == v.app_port)
       ]),
+    )
+  }
+
+  # Rule 14 — tailscale_hostname format. When non-empty, must match ^sl-eap-[a-f0-9]{8}$ or ^sl-[a-z0-9-]+$.
+  validation {
+    condition = alltrue([
+      for v in values(var.environments) : v.tailscale_hostname == "" || can(regex("^(sl-eap-[a-f0-9]{8}|sl-[a-z0-9-]+)$", v.tailscale_hostname))
+    ])
+    error_message = format(
+      "ENV-RULE-14-TAILSCALE-HOSTNAME-FORMAT: tailscale_hostname must be \"\" (to derive sl-<key>), ^sl-eap-[a-f0-9]{8}$ (customer pilot), or ^sl-[a-z0-9-]+$; rejected: %s.",
+      join(", ", [for k, v in var.environments : "${k}=${v.tailscale_hostname}" if !(v.tailscale_hostname == "" || can(regex("^(sl-eap-[a-f0-9]{8}|sl-[a-z0-9-]+)$", v.tailscale_hostname)))]),
+    )
+  }
+
+  # Rule 15 — tailscale_hostname values unique across lanes, ignoring the "" sentinel.
+  validation {
+    condition = length([for v in values(var.environments) : v.tailscale_hostname if v.tailscale_hostname != ""]) == length(
+      distinct([for v in values(var.environments) : v.tailscale_hostname if v.tailscale_hostname != ""])
+    )
+    error_message = format(
+      "ENV-RULE-15-TAILSCALE-HOSTNAME-UNIQUE: tailscale_hostname values must be unique across the map (\"\" is exempt); duplicated: %s.",
+      join(", ", distinct([
+        for v in values(var.environments) : v.tailscale_hostname
+        if v.tailscale_hostname != "" && length([for w in values(var.environments) : w.tailscale_hostname if w.tailscale_hostname == v.tailscale_hostname]) > 1
+      ])),
     )
   }
 }

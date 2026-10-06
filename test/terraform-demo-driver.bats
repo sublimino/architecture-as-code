@@ -2517,3 +2517,23 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	[[ "${output}" == *"AFM_REQUIRED=0"* ]]
 	[[ "${output}" == *"502"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# ts_node_hostname: prefers hand-off tailscale_hostname, falls back to sl-<key>
+# ---------------------------------------------------------------------------
+
+@test "DEMODRIVER ts_node_hostname prefers tailscale_hostname from handoff" {
+	local handoff="${BATS_TEST_TMPDIR}/handoff.json"
+	printf '{"tailscale_hostname":"sl-eap-4b53ab6b"}\n' > "${handoff}"
+	run bash -c 'eval "$(sed -n "/^ts_node_hostname() {/,/^}/p" "'"${DRIVER_SRC}"'")" && HANDOFF_FILE="'"${handoff}"'" ENV_KEY="demo-2" ts_node_hostname'
+	[ "$status" -eq 0 ]
+	[ "$output" = "sl-eap-4b53ab6b" ]
+}
+
+@test "DEMODRIVER ts_node_hostname falls back to sl-<key> when handoff lacks tailscale_hostname" {
+	local handoff="${BATS_TEST_TMPDIR}/handoff.json"
+	printf '{"hostname":""}\n' > "${handoff}"
+	run bash -c 'eval "$(sed -n "/^ts_node_hostname() {/,/^}/p" "'"${DRIVER_SRC}"'")" && HANDOFF_FILE="'"${handoff}"'" ENV_KEY="demo-2" ts_node_hostname'
+	[ "$status" -eq 0 ]
+	[ "$output" = "sl-demo-2" ]
+}

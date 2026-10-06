@@ -139,4 +139,12 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 - AJM decision: the Kusari pilot repurposes lane `demo-2`. No fifth lane, no lane-kind or regex change, no quota request.
 - AJM decision: no GitHub Actions jobs for this branch. Deploys are local only.
 - Adopted from an unannounced external edit: the pilot endpoint is the salted EAP host `sl-eap-4b53ab6b`. That edit's claim that gcloud works was false inside the agent sandbox at 12:45. Its uncommitted `Makefile` and `test/terraform-make-contract.bats` changes admitting `pilot-kusari` in the main checkout are not part of this mission.
-- Council corrections: `dual-cluster-up.sh` creates the second cluster; `RUN_COMMIT` and hand-off regeneration; `surfaces-report` needs `LANES` and a short SHA; tailnet receipts need `gcp-tf-test-both`; `ACT_ENABLED` needs a code gate; `-n fe-signalloom-agents`; live tier must fail on skip; TFID digest test already red at `c7b09517`.
+- Council corrections:
+  - `dual-cluster-up.sh` creates the second cluster.
+  - `RUN_COMMIT` and hand-off regeneration must carry the pinned SHA.
+  - `surfaces-report` needs `LANES` and a short SHA.
+  - Tailnet receipts need `gcp-tf-test-both`.
+  - `ACT_ENABLED` needs a code gate.
+  - The `kubectl` check needs `-n fe-signalloom-agents`.
+  - The live tier must fail on a skip.
+  - The TFID digest test is already red at `c7b09517`.

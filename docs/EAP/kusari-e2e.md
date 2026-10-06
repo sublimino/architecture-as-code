@@ -93,8 +93,9 @@ than merely loaded, and every policy row is still `shadow`. Each decision's
 exists.
 
 Override `WL_CONTEXT` (default `kind-osramp`), `INGEST_NS` (default
-`fe-signalloom`), `KUSARI_LIVE_PORT` (default `28094`) and `KUSARI_LIVE_LIMIT`
-(default `5000`) as needed.
+`fe-signalloom`), `KUSARI_LIVE_PORT` (default: a free port kubectl picks) and
+`KUSARI_LIVE_LIMIT` (default `100`, the observations route's page maximum; it
+answers 400 above that and has no cursor) as needed.
 
 ### Seeding a live cluster and reviewing a decision
 

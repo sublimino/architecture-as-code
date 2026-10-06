@@ -42,8 +42,10 @@ reviewer separately, and nothing in it may accept one from the caller.
 """
 from __future__ import annotations
 
+import json
 import logging
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 import httpx
@@ -51,7 +53,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
 from api_compat import APIError, Principal, authenticated_principal
-from ingest_client import ingest_headers
+from ingest_client import ingest_headers, ingest_headers_for_tenant
 from superadmin import is_superadmin
 
 logger = logging.getLogger(__name__)
@@ -107,6 +109,7 @@ async def _proxy(
     principal: Principal,
     *,
     write: bool = False,
+    headers: dict[str, str] | None = None,
     **kwargs: Any,
 ) -> JSONResponse:
     """Forward one request to signal-ingest as the gateway, acting for ``principal``'s tenant.
@@ -116,7 +119,8 @@ async def _proxy(
     ``signal_fusion._proxy``; kept as its own function rather than imported so the policy routes
     do not inherit a future change to the observations proxy by accident.
     """
-    headers = ingest_headers(principal, write=write)
+    if headers is None:
+        headers = ingest_headers(principal, write=write)
     try:
         async with httpx.AsyncClient(base_url=_signal_ingest_url(), timeout=_TIMEOUT) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
@@ -249,13 +253,52 @@ async def review_policy_decision(
         raise APIError(400, "invalid_decision_id", "decision id is required")
 
     quoted = urllib.parse.quote(decision_id, safe="")
-    return await _proxy(
-        "POST",
-        f"/api/v1/policy/decisions/{quoted}/review",
+    path = f"/api/v1/policy/decisions/{quoted}/review"
+    payload = {"verdict": verdict, "note": note}
+    resp = await _proxy("POST", path, principal, write=True, json=payload)
+    if resp.status_code != 404 or not is_superadmin(principal):
+        return resp
+    # A write acts for one real tenant, the reviewer's own, and signal-ingest answers 404 for a
+    # decision that tenant cannot see. A superadmin reads every tenant, so the decision they are
+    # looking at on /signals may belong to another one (the Kusari pilot: demo-user is
+    # tenant-demo, the decisions are kusari's). Resolve the owner through the same read scope
+    # the page used and act for that tenant, once. Found 2026-10-06 on the first live review.
+    tenant = await _decision_tenant(decision_id, principal)
+    if tenant is None or tenant == principal.tenant:
+        return resp
+    headers = ingest_headers_for_tenant(tenant, principal.subject)
+    return await _proxy("POST", path, principal, write=True, headers=headers, json=payload)
+
+
+# How far back a superadmin's review may reach when the decision is another tenant's. The page
+# offers 90 minutes; a `since` view can go further, and 30 days is the longest a decision is
+# meant to wait for a verdict.
+_DECISION_LOOKUP_SPAN = timedelta(days=30)
+_DECISION_LOOKUP_LIMIT = 500  # signal-ingest's MaxPolicyLimit
+
+
+async def _decision_tenant(decision_id: str, principal: Principal) -> str | None:
+    """Which tenant owns ``decision_id``, as seen through ``principal``'s read scope."""
+    since = (datetime.now(timezone.utc) - _DECISION_LOOKUP_SPAN).strftime("%Y-%m-%dT%H:%M:%SZ")
+    listing = await _proxy(
+        "GET",
+        "/api/v1/policy/decisions",
         principal,
-        write=True,
-        json={"verdict": verdict, "note": note},
+        params={"since": since, "limit": _DECISION_LOOKUP_LIMIT},
     )
+    if listing.status_code != 200:
+        return None
+    try:
+        rows = json.loads(listing.body)
+    except ValueError:
+        return None
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == decision_id:
+            tenant = row.get("tenant_id")
+            return tenant if isinstance(tenant, str) and tenant else None
+    return None
 
 
 def install_signal_policy_api(app: Any) -> None:

@@ -136,7 +136,14 @@ spec:
   paramRef:
     name: fleet-config
     namespace: fe-signalloom
-    parameterNotFoundAction: Allow
+    # Deny, not Allow: a missing fleet-config ConfigMap must not silently
+    # admit every spoof. The API server enforces this BEFORE the policy's
+    # CEL ever runs (params resolution happens ahead of matchConditions and
+    # validations), so it is strictly stronger than anything expressible in
+    # this policy's own CEL. Combined with matchConditions above, a missing
+    # ConfigMap only denies pods that carry signalloom.ai/agent-name at all
+    # -- an ordinary, unlabelled workload is unaffected either way.
+    parameterNotFoundAction: Deny
   # No namespaceSelector: matchResources is deliberately cluster-wide. See
   # the policy's own Scope comment above -- restricting this to
   # fe-signalloom-agents would defeat the point, since the spoof is a decoy

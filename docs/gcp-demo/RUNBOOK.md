@@ -555,7 +555,24 @@ The VM bills until it is gone. `gcp-tf-demo-up` leaves it **running** on a
 failure so it can be inspected — that is deliberate, and it is your job to close
 it out.
 
-Suspend it (keeps the disk, resumes fast, still costs storage):
+**Suspend and destroy are opposite lifecycles, and the difference is the disk.**
+Getting this wrong is what makes the demo URL move, so it is worth the two
+paragraphs before the commands.
+
+*Suspend keeps the disk.* `/var/lib/tailscale` survives, so the node key
+survives, and on resume the same device reconnects with an identical node ID,
+tailnet IP and MagicDNS name. **There is nothing to do.** Proven both ways on
+2026-08-20.
+
+*Destroy takes the disk.* The node key goes with it, and `terraform destroy`
+removes the GCP instance while removing nothing from the tailnet. The corpse
+keeps owning `sl-<env>`, so the next build of that environment is handed
+`sl-<env>-1`, then `-2`. See [The demo URL
+drifted](#the-demo-url-drifted--sl-demo-1-1-instead-of-sl-demo-1) for what that
+looks like and how to recover.
+
+Suspend it (keeps the disk, resumes fast, still costs storage — and needs no
+project owner, see [the operator role](#suspending-without-project-owner)):
 
 ```bash
 gcloud compute instances suspend <instance> --zone=<zone> --project=<project> \
@@ -567,6 +584,23 @@ Or destroy the environment outright:
 ```bash
 make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1
 ```
+
+`gcp-tf-destroy` releases the tailnet name for you: it runs
+`demo-up.sh ts-logout --force` before the `terraform destroy`, because after the
+VM is gone there is nothing left to log out from. That call is best-effort by
+design — a destroy must never be blocked by a cleanup — so read its output. If
+it reports that the logout did not happen, do [the manual
+recovery](#the-demo-url-drifted--sl-demo-1-1-instead-of-sl-demo-1) before
+rebuilding.
+
+> **The one path that bypasses all of the above: a replacement-apply.**
+> `metadata_startup_script` is a create-time property. Editing
+> `terraform/modules/compute/startup/demo-vm.sh` therefore plans as
+> **destroy-and-recreate**, and a `make gcp-tf-apply` that replaces the instance
+> never touches `gcp-tf-destroy` and never runs the logout hook. A text edit to
+> the startup script is a destroy in disguise, and it takes the demo URL with
+> it. Run `make gcp-tf-ts-logout ENV=<key> FORCE=1` **by hand** before applying
+> any plan whose diff says `must be replaced` on `google_compute_instance`.
 
 `CONFIRM` must be typed and must match `ENV`. Typing the key is the point: it is
 the step that fails when you meant `demo-2` and your shell history said
@@ -663,7 +697,7 @@ for a missing package.
 
 | Symptom | What it actually is | Fix | Exit |
 | :--- | :--- | :--- | :--- |
-| `no node named 'sl-demo-1' in this tailnet` | The node is **absent**, not offline. Three causes, indistinguishable from your machine: the VM is down (the node is ephemeral, so it is *removed*, not shown offline); the auth key expired or `tag:sl-demo` has no `tagOwners` entry so it was never approved; or an ACL hides it from you. The message lists the nodes you *can* see, which is the one piece of evidence available locally. | `make gcp-tf-demo-status ENV=…` first — if the VM is suspended, that is the whole answer. Otherwise [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) rows 1 and 5. | 2 |
+| `no node named 'sl-demo-1' in this tailnet` | The node is **absent**, not offline. Three causes, indistinguishable from your machine: the VM is gone and its record has already been released (by the destroy hook, the shutdown unit, or the auto-reap — *not* promptly, see below); the auth key expired or `tag:sl-demo` has no `tagOwners` entry so it was never approved; or an ACL hides it from you. The message lists the nodes you *can* see, which is the one piece of evidence available locally. | `make gcp-tf-demo-status ENV=…` first — if the VM is suspended, that is the whole answer. Otherwise [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) rows 1 and 5. | 2 |
 | `node '…' is in the tailnet but OFFLINE` | The node is **known by name and not answering**. Not a resolution problem and not an ACL problem — those would present as the row above. The VM is suspended or its `tailscaled` is not running. | `make gcp-tf-demo-up ENV=…` | 2 |
 | `node '…' has no MagicDNS name` | MagicDNS is off for the **tailnet**. The node has an IP and no name, so no certificate can be issued and there is no URL to hand over. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 2 | 2 |
 | `… does not resolve on this machine` | The node is up and named; **your device** is not using the tailnet's resolver. Usually `tailscale up --accept-dns=false`, occasionally something local rewriting `/etc/resolv.conf` after `tailscaled` wrote it. `tailscale status` looks healthy throughout. | `tailscale up --accept-dns`. For a scripted probe with no browser: `GCP_TF_DEMO_SKIP_MAGICDNS_CHECK=1` | 4 |
@@ -685,6 +719,87 @@ gcloud compute ssh <instance> --zone=<zone> --project=<project> \
 ```
 
 `make gcp-tf-destroy` also ends it, by destroying the node.
+
+### The demo URL drifted — `sl-demo-1-1` instead of `sl-demo-1`
+
+The demo URL is the deliverable, and it is derived from the VM's MagicDNS name.
+This is how it moves.
+
+**What happened.** A tailnet device record survives the VM that created it.
+`terraform destroy` removes the GCP instance and removes nothing from the
+tailnet, so the destroyed node keeps owning `sl-demo-1`. When the rebuilt VM
+asks for that name, Tailscale grants it `sl-demo-1-1` — and would grant `-2` on
+the next rebuild. Measured on 2026-08-18: `sl-demo-1` rebuilt as `sl-demo-1-1`.
+
+**It is not the auth key.** This was misdiagnosed once as an auth key that
+needed re-minting as ephemeral, and the whole diagnosis was wrong. The key is
+already reusable, ephemeral and pre-approved, it needs no rotation, and a rejoin
+reclaims the exact name on the **same existing key**. Suspect the device list,
+never the key. The startup script's own error says so, for the same reason.
+
+**How you find out.** You are told, in three places, rather than discovering it
+in a browser:
+
+- the VM's bring-up **asserts** the granted name matches the requested one and
+  fails loudly when it does not;
+- it writes `/var/lib/signalloom/tailscale-name-mismatch`, which survives
+  reboots and is cleared automatically on the first boot that gets the right
+  name, so a healthy VM cannot report failure forever;
+- `make gcp-tf-demo-status` and `make gcp-tf-ts-status` read that marker and
+  report a mismatch as a **failure**.
+
+The marker contains no key material, and `test/terraform-ts-stable-node-name.bats`
+asserts that rather than leaving it to good intentions.
+
+**Prevention — release the name before the VM goes away.** Three mechanisms,
+because they cover three different exits:
+
+| Exit | What releases the name |
+| :--- | :--- |
+| `make gcp-tf-destroy` | Runs `demo-up.sh ts-logout --force` before the destroy. Automatic; best-effort, so read its output. |
+| A clean shutdown or reboot | A systemd shutdown unit on the VM logs out. Covers hard kills that never reach the Makefile. |
+| **A replacement-apply** | **Nothing.** See the warning in [Step 7](#step-7--tear-down): editing the startup script replaces the instance, and that path never runs the hook. Run `make gcp-tf-ts-logout ENV=<key> FORCE=1` by hand first. |
+
+`tailscale logout` removes the record in **under 5 seconds**. Four
+destroy-and-rebuild cycles on 2026-08-20 reclaimed the exact name every time.
+
+**Recovery, once it has already drifted.** Delete the offline `sl-<env>` device
+at <https://login.tailscale.com/admin/machines>, then rebuild. The console is
+the fix. Waiting also works but is slow: the ephemeral auto-reap frees the name
+**more than 47 and less than 100 minutes** after the node goes offline, measured
+independently on `demo-1` and `demo-2`. On any rebuild faster than that — which
+is every rebuild — a suffixed name is the *expected* outcome and not a fault.
+
+> Note the consequence for the table above: for up to an hour after a destroy
+> the record is still present and shows as **offline**, not absent. `no node
+> named 'sl-demo-1'` and `node '…' is OFFLINE` therefore do **not** cleanly
+> separate "destroyed" from "suspended" during that window.
+
+### Suspending without project owner
+
+Suspend is the step that stops the billing, and until 2026-08-19 it required
+project owner — so it was either skipped or done with an over-privileged
+credential. The operator identity now carries a custom role,
+`slOperatorInstanceLifecycle`, holding exactly four permissions:
+`compute.instances.suspend`, `.resume`, `.start`, and `compute.zoneOperations.get`.
+
+`.start` is there because a suspended instance is transitioned to `TERMINATED`
+by Compute Engine after 60 days, which is exactly what happens to a parked lane;
+resume does not cover start. `zoneOperations.get` is there because all three
+verbs are asynchronous and gcloud polls the returned Operation unless `--async`
+is passed, which no driver passes — without it the VM really does suspend and
+the driver reports a 403.
+
+**One-time cost, and it is an operational step rather than a code change.**
+Creating a custom role needs `iam.roles.create`. That is in `roles/iam.roleAdmin`
+and **not** in `roles/resourcemanager.projectIamAdmin`, which is what the deploy
+service account holds — so the deploy identity cannot create this role, and is
+deliberately not being given the ability to. Apply `terraform/platform` **once**
+as an identity holding `roleAdmin` or **owner**. The alternative is
+`manage_operator_lifecycle_role = false`, which applies everything else cleanly
+and leaves the role as a documented follow-up; the operator then keeps the
+tunnel and the login and still cannot suspend. Which one is in force is reported
+by the `lifecycle_role_is_managed` output, never inferred.
 
 ### `demo-up: no hand-off for ENV=demo-1`
 

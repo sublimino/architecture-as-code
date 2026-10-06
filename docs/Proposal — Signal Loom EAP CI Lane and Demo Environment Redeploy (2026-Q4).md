@@ -135,7 +135,7 @@ updated: 2026-10-06T12:50
 | P0 | baseline | On `integration/eapci-v0.1.0` at the cut SHA run `make test-eap-offline`, `make test-kusari-e2e`, `scripts/slaws-acceptance.sh /tmp/eapci-acceptance`, `make docs-lint`; `kanban-check.sh doctor`. | — | Four commands rc 0; totals in errata | S | antigravity | [Errata](#errata--eapci-p0) | — | — | — | — |
 | P1-PRE | preflight | File:line table for `Makefile:2397-2401` ENV check, `deploy/gcp/sl-port-over-sandbox.tfvars` lane block, `demo-up.sh:1068-1130` payload, `demo-pipeline.sh` test stages (around 838-851, 1062), `signalloom-ci.yaml:19-32`; name the exact edits for P1-1..P1-4; post lane names to `/tmp/chat.jsonl`. | P0 | Table in errata; no code change | S | antigravity | — | — | — | — | — |
 | P1-1 | implementation | Add an optional lane attribute `tailscale_hostname` to the `environments` object type (`env-contract/variables.tf`, a strict type that drops undeclared keys), carry it through the compute module (which hard-codes `sl-${environment_key}` at `compute/main.tf:175,213`) and the hand-off writer to `demo-up.sh:3384` and a pilot profile for `demo-2` in the example tfvars: labels `tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`; do not set `hostname`, which enables public TLS (`edge/main.tf:34`). `/act` stays enabled on every lane. | P1-PRE | `terraform validate`; bats: the `demo-2` profile renders `tailscale_hostname` matching `^sl-eap-[a-f0-9]{8}$` and no `hostname`; other lanes unchanged | M | antigravity | — | — | — | — | — |
-| P1-2 | implementation | `GCP_TF_DEMO_REF=<ref>`: build the payload from a clean worktree of that ref; set `RUN_COMMIT` (`demo-up.sh:2049`) from that ref's short SHA; write `source_ref` and `source_sha` to the hand-off and keep them through `gcp-tf-handoff` regeneration; refuse to run with no ref unless `GCP_TF_DEMO_REF=HEAD` is explicit. | P1-PRE | bats with stubbed git and gcloud: payload SHA equals the ref SHA; a dirty principal tree does not change it; `source_sha` survives a regenerated hand-off; missing ref fails with a named error | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | `GCP_TF_DEMO_REF=<ref>`: build the payload from a clean worktree of that ref; set `RUN_COMMIT` (`demo-up.sh:2049`) from that ref's short SHA; write `source_ref` and `source_sha` to the hand-off and keep them through `gcp-tf-handoff` regeneration; refuse to run with no ref unless `GCP_TF_DEMO_REF=HEAD` is explicit. | P1-PRE | bats with stubbed git and gcloud: payload SHA equals the ref SHA; a dirty principal tree does not change it; `source_sha` survives a regenerated hand-off; missing ref fails with a named error | M | antigravity | pass — delivered: de6649b7e3d815ebac495dd1fd6f345e0feb577c (see Errata — EAPCI-P1-2) | — | — | — | — |
 | P1-3 | implementation | In `demo-pipeline.sh`, for `ci` lanes add stages: `scripts/dual-cluster-up.sh`, `scripts/remote-tenant-lab.sh --load-kind-image`, `make test-kusari-e2e`, `KUSARI_LIVE=1 bats test/kusari-e2e-live.bats` (fails on any `# skip`), `scripts/slaws-acceptance.sh`, `make test-eap-offline`; each records its rc. Remove `test/tetragon-telemetry-stream.bats` from both `demo-pipeline.sh:820` and `vm-pipeline.sh:780` in one commit (announce to sensai-sltm on `/tmp/chat.jsonl`); the suite file, scripts and Makefile targets are P1-9's. | P1-PRE | bats with a stub runner: `ci` lanes run all six in order, `demo` lanes none; a failing or skipping stage fails the pipeline by name; `terraform-dual-lane-registration.bats` green; neither pipeline names a Tetragon suite | L | antigravity | — | — | — | — | — |
 | P1-4 | implementation | Make every workflow under `.github/workflows/` on this branch manual-only: remove `pull_request`, `push` and `schedule` triggers, keep `workflow_dispatch` and `workflow_call`; update `test/eap-pr-workflow.bats` to assert the manual-only contract; record (do not fix) the pre-existing TFID digest failure for `vm-pipeline.sh` and `ci-lock.sh`. | P1-PRE | A bats test asserts no workflow on the branch has `pull_request`, `push` or `schedule`; `eap-pr-workflow.bats` green; YAML parses (`yq`); docs-lint clean | S | antigravity | — | — | — | — | — |
 | P1-5 | implementation | Add `extraMounts` to `infra/kind/cluster-osramp.yaml` (and the hub cluster config used by `dual-cluster-up.sh`) binding the host dirs named by the existing `POSTGRES_DATA_DIR` (`.cache/postgres`), `ZOT_CACHE_DIR` (`.cache/zot`) and a new `LOCAL_PATH_DATA_DIR` (`.cache/local-path`) variables (`Makefile:66-67`) to `/var/local/signalloom-postgres-data` (uid 70, mode 0700), `/var/local-path-provisioner` and `/var/local/osramp-zot-cache`; render one kind config template (kind does not expand variables) used by both `dual-cluster-up.sh` and `create-kind-cluster.sh`, including the `/lib/modules` and `/sys/kernel/btf` binds the warden's eBPF needs on every lane; give `local-path` PVs stable directories (a `pathPattern` of `{{ .PVC.Namespace }}/{{ .PVC.Name }}` in the provisioner config) so a rebuilt cluster finds its data; export and restore the identity Secrets a rebuild would otherwise re-mint (`signal-segment-key`, fleet operator and caller keys, Dex static config); add a new script `kind-data-backup.sh` in `scripts/` with `backup <cluster> <dir>` and `restore <cluster> <dir>` subcommands using `docker cp` from the node. | P1-PRE | bats: the rendered kind config carries all three mounts with existing host dirs and correct ownership; backup then restore with a stubbed `docker` round-trips a fixture tree byte-for-byte and preserves uid 70; a PVC recreated with the same namespace and name resolves to the same host directory; `create-kind-cluster.sh` and `dual-cluster-up.sh` produce the same mount set | M | antigravity | — | — | — | — | — |
@@ -387,3 +387,50 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-PRE","status":"pass","commit":"44e140c07175b1928e8bcb45bf2887e75df03050"} -->
+
+#### Errata — EAPCI-P1-2
+
+- **Logical ID:** P1-2
+- **Created:** 2026-10-06 23:35:00+01:00
+- **Last Updated:** 2026-10-06 23:45:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0`
+- **Worktree Branch:** `refs/heads/eapci-P1-2-w1`
+- **Delivered Commit SHA:** `de6649b7e3d815ebac495dd1fd6f345e0feb577c`
+
+##### 1. Variable Contract & Error Handling
+
+- **`GCP_TF_DEMO_REF=<ref>`**: Mandatory parameter for `make gcp-tf-demo-up` / `scripts/gcp-tf/demo-up.sh`.
+  - Empty or unset ref triggers fast failure before any cloud interaction: prints `[ERROR] DEMO-REF-UNSET: GCP_TF_DEMO_REF is unset or empty` and exits with code `2`.
+  - Non-empty ref is resolved once via `$GIT_CMD -C "$REPO_ROOT" rev-parse --verify "${GCP_TF_DEMO_REF}^{commit}"` to a full 40-hex `SOURCE_SHA`.
+  - Unresolvable ref triggers named error: prints `[ERROR] DEMO-REF-UNRESOLVED: unable to resolve GCP_TF_DEMO_REF='<ref>'` and exits with code `2` with zero lingering worktrees.
+  - When `GCP_TF_DEMO_REF=HEAD`: builds directly from working tree, subject to `require_clean_tree` unless `GCP_TF_DEMO_ALLOW_DIRTY=1` is explicitly set.
+  - When `GCP_TF_DEMO_REF=<ref>` (non-HEAD): creates a clean, detached throwaway worktree at `${TMPDIR:-/tmp}/osramp-demo-ref-${ENV_KEY}-${SOURCE_SHA}` outside the repository, archives the payload from that worktree, and cleans it up immediately (with exit trap guarantee). Dirty state in the operator's checkout does not block the build or alter payload bytes.
+- **`GCP_TF_DEMO_ALLOW_DIRTY=1`**: Strictly scoped to `GCP_TF_DEMO_REF=HEAD`. It never bypasses the requirement to supply `GCP_TF_DEMO_REF`.
+
+##### 2. Four Places the SHA Is Stamped
+
+1. **`RUN_COMMIT` (`demo-up.sh:2049`)**: Short (7-character) form of `SOURCE_SHA`, resolved via `$GIT_CMD rev-parse --short "$SOURCE_SHA"`.
+2. **`DEMO_SOURCE_COMMIT` (`demo-up.sh:1845`)**: Exported into the remote execution environment on the target VM and consumed by `demo-pipeline.sh`.
+3. **Surface Receipts (`demo-up.sh:4708`, `write_surface_receipt`)**: Stamped into `.commit` in `demo-surfaces/receipts/<surface>.json`. Checked for exact match against `RUN_COMMIT` by `surfaces-report.sh` and the stale receipts guard.
+4. **Handoff File (`deploy/gcp/<env>.handoff.json`)**: Fields `source_ref`, `source_sha` (full 40-hex), and `source_recorded_at` are atomically merged on pass and preserved across `make gcp-tf-handoff` regeneration without schema bump (`signalloom.gcp.handoff/v1`).
+
+*(Note: `slaws-acceptance` on the VM stamps the throwaway marker repository's HEAD, not the source tree; `DEMO_SOURCE_COMMIT` is the authoritative provenance field.)*
+
+##### 3. Behavior of scripts/gcp-tf/four-lane-loop.sh:143
+
+In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=1 make gcp-tf-demo-up` is executed without specifying `GCP_TF_DEMO_REF`. Under the P1-2 contract, this invocation fails fast with exit code 2 (`DEMO-REF-UNSET`). Callers targeting HEAD with dirty working trees must explicitly specify `GCP_TF_DEMO_REF=HEAD GCP_TF_DEMO_ALLOW_DIRTY=1 make gcp-tf-demo-up`.
+
+##### 4. Test Verification & Mutation Proofs
+
+- `test/terraform-demo-ref.bats` (11 tests): passes clean (pinned ref worktree, dirty principal tree isolation, DEMO-REF-UNSET, DEMO-REF-UNRESOLVED, handoff persistence).
+- Full suite `bats test/terraform-*.bats` (407 tests): 100% pass, 0 skips, 0 failures.
+- `make docs-lint`: 100% clean (689 files checked).
+- Negative mutation testing verified:
+  - Reverting `RUN_COMMIT` to bare `git rev-parse HEAD` failed receipt verification (`expected commit ... got ...`).
+  - Omitting ref check failed missing ref validation.
+  - Omitting handoff carry-over in `Makefile` wiped `source_*` on regeneration.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-2","status":"pass","commit":"de6649b7e3d815ebac495dd1fd6f345e0feb577c"} -->
+

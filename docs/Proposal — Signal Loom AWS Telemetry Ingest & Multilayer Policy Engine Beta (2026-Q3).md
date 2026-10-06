@@ -554,3 +554,6 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 | `d2-signalloom/apps/signal-ingest/policy/convert.go:55` | `LabelActor` (`actor_pseudonym`) | P5-4 | Finding actor label constant |
 | `d2-signalloom/apps/signal-ingest/policy/convert.go:110` | `ActorIdentity` | P5-4 | Maps cleartext ActorHint to HMAC pseudonym |
 | `d2-signalloom/apps/signal-ingest/policy/convert.go:136` | `toObscel` | P5-4 | Converts Observation with HMAC actor |
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

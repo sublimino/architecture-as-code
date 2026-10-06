@@ -318,7 +318,7 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 | P3-2 | implementation | SIGKILL durability test between Append and delete; exactly-once after restart; key-based auth on `/api/v1/policies/*`; dry-run-only semantics on bundle registration. | P3-1, P2-GOV | Crash test; auth test; registration never persists test | M | antigravity | — | — | — | — | — |
 | P3-GOV | governor | Merge P3; acceptance twice; ADR cited; read-only trust document template committed. | P3-2 | Acceptance x2 | S | antigravity | — | — | — | — | — |
 | P4-GOV | governor | `COLLECTOR_AWSLOGS_MODE=fixture` on `kind-osramp`; Weave shows cloud layer and findings; fixture e2e twice; DuckDB runbook executed against the PVC. | P3-GOV | Fixture e2e x2; Interceptor screenshot; runbook output | S | antigravity | — | — | — | — | — |
-| P5-PRE | preflight | On `integration/slaws-v0.2.0`: run the seven acceptance commands and `scripts/check-ci-build-parity.sh`; attach the `go test -race` evidence (golang:1.27 container, zero `DATA RACE` lines, kubectl-dependent manifest tests named) to errata; table with file:line of the live seams (`collectors/awslogs/live*.go`), the account and queue config surface, the GuardDuty/EventBridge fixture gap, and the policy-engine dry-run actor comparison. | â | Seven commands rc 0 with totals; parity rc 0, 0 defects; file:line table; no code change | S | antigravity | â | â | â | â | â |
+| P5-PRE | preflight | On `integration/slaws-v0.2.0`: run the seven acceptance commands and `scripts/check-ci-build-parity.sh`; attach the `go test -race` evidence (golang:1.27 container, zero `DATA RACE` lines, kubectl-dependent manifest tests named) to errata; table with file:line of the live seams (`collectors/awslogs/live*.go`), the account and queue config surface, the GuardDuty/EventBridge fixture gap, and the policy-engine dry-run actor comparison. | — | Seven commands rc 0 with totals; parity rc 0, 0 defects; file:line table; no code change | S | antigravity | pass: 7 legs + 1 extra rc 0 (3596/3641/458/700/4957/687/118/103), diff totals.key empty; parity rc 0 (19 BUILT/RAN, 1 OPT-OUT, 0 defects); race 0 warnings in golang:1.27; seam map in docs/signalloom/slaws-p5-preflight-proof.md | — | — | — | — |
 | P5-1 | implementation | Live AWS lab per D13: Terraform under `infra/aws/slaws-lab/` for the read-only cross-account role (from `docs/signalloom/slaws-kusari-trust-policy.md`, external ID enforced), a lab bucket with CloudTrail-shaped objects, an SQS queue with S3 notifications and the D12 redrive policy; `scripts/slaws-live-lab.sh` runs signal-ingest in `COLLECTOR_AWSLOGS_MODE=live` with `SIGNAL_DEV_MODE=true`, asserts one object becomes observations through the Â§2.3 projection and that the SQS message is deleted only after `Store.Append`; refuses without credentials and prints the operator command. | P5-PRE | bats for the script (refusal, args, dry-run); `terraform validate`; unit tests at the live seams with fakes; a recorded live run in errata when credentials are present, otherwise STOP-and-report naming the command | M | antigravity | â | â | â | â | â |
 | P5-2 | implementation | Multi-account and DLQ per D11/D12: `COLLECTOR_AWSLOGS_ACCOUNTS` parsed into one `awslogs` instance per entry with its own tenant binding and credentials; invalid or duplicate entries refuse boot; `signal-ingest awslogs redrive --queue <dlq-url>` replays DLQ messages through the same projection with derived-ID dedupe and counts `redriven`; manifests gain the env and a rendered example. | P5-PRE | Unit tests: N entries â N collectors with distinct tenants; invalid entry refuses boot with the offending index; redrive dedupes a replayed object; `deploy_render_test` renders the env; counters asserted | M | antigravity | â | â | â | â | â |
 | P5-3 | implementation | GuardDuty via EventBridge: project the envelope (`detail-type: GuardDuty Finding`, `detail.severity`, `detail.type`, `detail.resource`) to Â§2.3 observations with `source=aws:guardduty` and a one-line `description`; fixture under `collectors/awslogs/testdata/`; `contract_doc.go` rows; bundle rule `guardduty-high-severity` under `policy/bundles/kusari/`; replay equals live on the extended corpus. | P5-PRE | `contract_test.go` rows for the fixture; negative contract (no raw body, no token) holds; fixture e2e emits the finding; replay-equals-live byte-identical | M | antigravity | â | â | â | â | â |
@@ -471,3 +471,86 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 - **Race evidence (ISC-35).** `go test -race -count=1 ./...` for signal-ingest in a `golang:1.27` container with the module root mounted: zero `WARNING: DATA RACE` lines across 27 packages. The failing tests in that run are environmental (manifest renders need `kubectl`; imagetag and trust-document tests read the repository), not races. Rerun with the repository mounted: 31 packages ok, zero `DATA RACE` lines; the one failing package is `signal-ingest` root, all eight failures `deploy_render_test.go` needing `kubectl` (absent in the container). Logs: `/tmp/slaws-race/race.log`, `race2.log`.
 - **Sign-off.** Andy signed off v2 on 2026-10-06 ("sign off v2 and create the SLAWS cards"); D10 records the inherited dispositions. P5 (close-out and live validation) is decomposed above with D11–D13 and is the mission on `integration/slaws-v0.2.0`.
 - Stamp: 2026-10-06 08:02:51 +0100.
+
+#### Errata — SLAWS-P5-PRE (2026-10-06, branch slaws-p5-pre, integration/slaws-v0.2.0, `f4c1326937a83c374d712bd344c28ff266c724a0`)
+
+- **Created:** `2026-10-06 09:04:47+01:00`
+- **Last Updated:** `2026-10-06 09:04:47+01:00`
+- **Proof record:** [`docs/signalloom/slaws-p5-preflight-proof.md`](signalloom/slaws-p5-preflight-proof.md)
+- **Verified baseline:** Two consecutive passes of `scripts/slaws-acceptance.sh` with clean tree (`dirty=0`) and empty caches (`GOCACHE=/tmp/gocache`, `GOMODCACHE=/tmp/gomodcache`, `CGO_ENABLED=0`, `KUBECONFIG=/dev/null`). `diff totals.key` is empty.
+
+| Command | Run 1 | Run 2 |
+| :--- | :--- | :--- |
+| `make test-signal-ingest` | rc 0, 3596 pass, 0 fail (39s) | rc 0, 3596 pass, 0 fail (57s) |
+| `make test-signal-ingest-frostdb` | rc 0, 3641 pass, 0 fail (54s) | rc 0, 3641 pass, 0 fail (52s) |
+| policy-engine `go test -v ./...` | rc 0, 458 pass, 0 fail (2s) | rc 0, 458 pass, 0 fail (2s) |
+| `make test-sldc-offline` | rc 0, 700 pass, 0 fail (363s) | rc 0, 700 pass, 0 fail (298s) |
+| `scripts/check-old-probe-name.sh` | rc 0, checked=4957 (2s) | rc 0, checked=4957 (2s) |
+| `make docs-lint` | rc 0, checked=687 (8s) | rc 0, checked=687 (7s) |
+| beyond the six: `make test-obscel` | rc 0, 118 pass, 0 fail (1s) | rc 0, 118 pass, 0 fail (1s) |
+| beyond the six: `make test-alignment` | rc 0, checked=103 (1s) | rc 0, checked=103 (1s) |
+
+- **CI parity:** `scripts/check-ci-build-parity.sh` reports 19 BUILT/RAN, 1 OPT-OUT (`netassert-runner-image`), 0 defects; rc 0. Log at `/tmp/slaws-p5/pre/parity.log`.
+- **Race evidence:** `docker run --rm -v "$PWD":/repo -w /repo/d2-signalloom/apps/signal-ingest -e CGO_ENABLED=1 golang:1.27 go test -race -count=1 ./...` (log `/tmp/slaws-p5/pre/race.log`, `/tmp/slaws-p5/evidence/P5-PRE/race.log`) executed across 34 packages with zero `WARNING: DATA RACE` occurrences (`grep -c 'WARNING: DATA RACE'` = 0). 30 packages passed clean; 2 packages had expected environmental failures (root `signal-ingest` 8 manifest tests in `deploy_render_test.go` needing `kubectl`; `internal/imagetag` 1 test needing git repository mount).
+- **SIGNAL_DEV_MODE correction for P5-1:** `signal-ingest` never reads `SIGNAL_DEV_MODE` (only `stun-sentinel/pkg/hubclient/hubclient.go:42` consumes it). P5-1 lab script configures `signal-ingest` via standard `COLLECTOR_AWSLOGS_*` variables.
+- **Seam map for Phase 5 cards:**
+
+| File:Line | Exported Symbol | Consumed By | Summary |
+| :--- | :--- | :--- | :--- |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/aws.go:106` | `ObjectRef` | P5-1, P5-2, P5-3 | S3 bucket & key ref |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/aws.go:121` | `SQSClient` | P5-1, P5-2 | Queue seam (`ReceiveMessages`, `DeleteMessage`) |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/aws.go:131` | `S3Fetcher` | P5-1, P5-2, P5-3 | Object seam (`GetObject`) |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/aws.go:141` | `STSAssumer` | P5-1, P5-2 | Trust seam (`AssumeRole`) |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:41` | `NotificationParser` | P5-1, P5-2 | Parser function type |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:50` | `LiveClientFactory` | P5-1 | Factory signature for live AWS seams |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:62` | `SetLiveClientFactory` | P5-1 | Registration func called by `live` init |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:71` | `LiveClientFactoryRegistered` | P5-1 | Factory availability probe |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:86` | `Collector` | P5-1, P5-2 | Core collector struct |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:327` | `Collector.Health` | P5-1, P5-2 | Live health probe |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:341` | `Collector.Stats` | P5-2 | Ingestion & buffer stats counters |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:431` | `Collector.pollLoop` | P5-1, P5-2 | Periodic SQS polling loop |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:461` | `Collector.PollOnce` | P5-1, P5-2 | Single receive-fetch-buffer-drain cycle |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:536` | `Collector.discardMessage` | P5-1, P5-2 | Acknowledges non-object S3 events |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:559` | `Collector.Drain` | P5-1, P5-2 | Projects & ingests ring records |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:628` | `Collector.ackAndRelease` | P5-1, P5-2 | Deletes SQS message, releases WAL slot |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/collector.go:675` | `projectionFailureObservation` | P5-3 | Emitted on unprojectable object |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/config.go:18` | `Mode` | P5-1, P5-2 | Operational mode (`off`, `fixture`, `live`) |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/config.go:39–46` | `EnvTenantID` .. `EnvRingCapacity` | P5-2 | Single-account env keys (fan-out replaces) |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/config.go:55` | `AWSCollectorConfig` | P5-1, P5-2 | Account collector configuration |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/config.go:108` | `AWSCollectorConfig.Validate` | P5-1, P5-2 | Config validation |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/config.go:140` | `ConfigFromEnv` | P5-2 | Single-account env reader |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/notification.go:76` | `ParseS3Notification` | P5-1, P5-2 | S3 notification JSON / SNS parser |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go:20` | `Origin` | P5-3 | Origin struct (bucket, key, line) |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go:39` | `Projector` | P5-3 | Observation projector |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go:76` | `Projector.Project` | P5-3 | Projection dispatcher |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go:88` | `Projector.ProjectCloudTrail` | P5-3 | CloudTrail / IAM projector |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go:185` | `actorAccountOf` | P5-4 | Extracts actor account from ARN field 4 |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go:238` | `Projector.ProjectVPCFlow` | P5-3 | VPC Flow Logs v2 projector |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go:90–134` | `LabelTenantID` .. `LabelCount` | P5-3, P5-4 | Documented label keys |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go:138–142` | `SourceCloudTrail` .. `SourceCollector` | P5-3 | Observation sources |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go:233` | `ContractKeysFor` | P5-3 | Required / documented label provider |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_kusari_test.go:202` | `TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing` | P5-3 | Pinning test for GuardDuty gap |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:70` | `STSAssumer` | P5-1 | AWS SDK v2 STS Assumer |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:130` | `SQSClient` | P5-1 | AWS SDK v2 SQS Client |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:237` | `S3Fetcher` | P5-1 | AWS SDK v2 S3 Fetcher |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:295` | `Clients` | P5-1 | Live AWS seams set |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:312` | `NewClients` | P5-1 | Constructs seams from AssumeRole |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/register.go:17` | `Factory` | P5-1 | Live factory implementation |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/register.go:40` | `init()` | P5-1 | Auto-registers live factory |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/register.go:41` | `awslogs.SetLiveClientFactory` | P5-1 | Factory registration site |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs_adapter.go:29` | `_ .../awslogs/live` | P5-1 | Blank import linking live mode |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs_adapter.go:39` | `AWSLogsCollector` | P5-1, P5-2 | Adapter to Collector interface |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs_adapter.go:51` | `NewAWSLogsCollector` | P5-2 | Single-account env adapter constructor |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs_adapter.go:56` | `NewAWSLogsCollectorWithConfig` | P5-2 | Explicit config adapter constructor |
+| `d2-signalloom/apps/signal-ingest/collectors/registry.go:14` | `Registry` | P5-2 | Collector registry |
+| `d2-signalloom/apps/signal-ingest/collectors/registry.go:129` | `NewRegistryFromEnvWithReceiver` | P5-2 | Wires collectors from env |
+| `d2-signalloom/apps/signal-ingest/collectors/registry.go:144` | `reg.Register(NewAWSLogsCollector(...))` | P5-2 | AWS logs registration call site |
+| `d2-signalloom/apps/policy-engine/observations.go:21` | `EvaluateObservationRequest` | P5-4 | Dry-run request struct |
+| `d2-signalloom/apps/policy-engine/observations.go:60` | `HandleEvaluateObservation` | P5-4 | POST `/api/v1/observations/evaluate` |
+| `d2-signalloom/apps/policy-engine/observations.go:106` | `h.evaluator.EvaluateObservation(...)` | P5-4 | Divergence 1: evaluates cleartext actor |
+| `d2-signalloom/apps/policy-engine/observations.go:129` | `PolicyStore.LoadObservationBundles` | P5-4 | Loads bundles for tenant |
+| `d2-signalloom/apps/policy-engine/observations.go:130` | `obscel.LoadBundleDir(dir)` | P5-4 | Divergence 2: actor_vars not pseudonymised |
+| `d2-signalloom/apps/signal-ingest/policy/load.go:70` | `LoadBundles` | P5-4 | Ingest bundle loader with `ActorPseudonymiser` |
+| `d2-signalloom/apps/signal-ingest/policy/convert.go:55` | `LabelActor` (`actor_pseudonym`) | P5-4 | Finding actor label constant |
+| `d2-signalloom/apps/signal-ingest/policy/convert.go:110` | `ActorIdentity` | P5-4 | Maps cleartext ActorHint to HMAC pseudonym |
+| `d2-signalloom/apps/signal-ingest/policy/convert.go:136` | `toObscel` | P5-4 | Converts Observation with HMAC actor |

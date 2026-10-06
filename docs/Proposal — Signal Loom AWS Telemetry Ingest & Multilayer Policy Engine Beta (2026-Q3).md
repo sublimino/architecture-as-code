@@ -6,10 +6,10 @@ tags:
   - signalloom
   - kusari
 date: 2026-10-03
-status: v2 implemented on integration/slaws-v0.1.0 (2026-10-04); acceptance evidence in Errata; awaiting sign-off and the kind-osramp run
+status: v2 signed off 2026-10-06 (Andy); P5 close-out and live validation decomposed, cards on integration/slaws-v0.2.0
 author: Signal Loom Architecture Team
 parentProposal: "[[Proposal — Signal Loom Unified Telemetry Architecture (2026-Q3)|Signal Loom Unified Telemetry Architecture]]"
-updated: 2026-10-05T08:41
+updated: 2026-10-06T08:05
 ---
 
 # Proposal — Signal Loom AWS Telemetry Ingest & Multilayer Policy Engine Beta (2026-Q3)
@@ -183,6 +183,7 @@ Bundles are versioned files under `policy/bundles/<tenant>/<name>.yaml`, Flux-re
 | **P2** | Two-stage evaluator | `pkg/obscel`; stage 1 at the sink; findings as observations; stage 2 windows with boot warm-up; first Kusari bundle in git; regression replay command; shadow → warn → enforce. | 2026-10-14 |
 | **P3** | Live AWS collector | SQS, S3, `sts:AssumeRole` behind interfaces with fakes; delete-after-Append; eviction metrics; read-only trust document for Kusari. | 2026-10-17 |
 | **P4-GOV** | Release and audit | Fixture e2e on `kind-osramp` twice; Weave shows cloud layer and findings; DuckDB runbook executed against the PVC. | 2026-10-21 |
+| **P5** | v2 close-out and live validation | Live AWS lab behind IaC and an operator profile; multi-account from env plus DLQ/redrive; GuardDuty via EventBridge; pseudonym-consistent dry-run and correlator review; CI parity and `-race` evidence attached. | 2026-10-10 |
 
 ---
 
@@ -235,6 +236,10 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 | D7 | Tenant from collector config, one `awslogs` instance per account, one binder shared by HTTP and in-process paths. |
 | D8 | Order: durable store and contract first, evaluator second, live AWS third. |
 | D9 | CEL only; Cedar removed. P3-PRE records the ADR. |
+| D10 | v2 is signed off (2026-10-06). ISC-31 (eviction timestamp is the buffered record\x27s receipt time) and ISC-26 (label values are free text within a closed key set) are accepted as designed. The two named flaky tests are fixed, not tolerated: key-reload watcher baseline (`75448e38`), tombstone entropy fields (`cc471262`). |
+| D11 | Multi-account from env: `COLLECTOR_AWSLOGS_ACCOUNTS` is a JSON list of `{account_id, role_arn, external_id, queue_url, tenant_id}`; the registry builds one `awslogs` instance per entry (D7 unchanged: one instance per account, tenant from collector config). An invalid entry refuses boot; the single-account env keys remain as the one-entry form. |
+| D12 | Dead-letter: the lab IaC attaches an SQS redrive policy (`maxReceiveCount` 5) to the notification queue; a poisoned body is counted `discarded` and left to the DLQ; `signal-ingest awslogs redrive` replays the DLQ through the same projection, deduped by the derived `Observation.ID`. |
+| D13 | Live validation never changes D5: no manifest in this repository selects live mode. The lab is `scripts/slaws-live-lab.sh` over Terraform under `infra/aws/slaws-lab/`, run by an operator with an AWS profile; a card without credentials stops and reports the exact command rather than fabricating a run. |
 
 ---
 ## Appendix
@@ -285,6 +290,12 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 | P3-2 | Hardening; Science | Go reliability engineer | M | 120m | antigravity | SIGKILL durability test, exactly-once after restart, eviction finding, bundle auth on the API. |
 | P3-GOV | ajm-auto-kanban; Cato | Governor | S | 60m | antigravity | Merge P3, acceptance twice, ADR cited, trust document template in docs. |
 | P4-GOV | ajm-auto-kanban; Interceptor | Governor | S | 90m | antigravity | Fixture e2e on `kind-osramp` twice; Weave shows cloud layer and findings; DuckDB runbook executed. |
+| P5-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | Baseline the seven acceptance commands and CI parity on `integration/slaws-v0.2.0`; attach the `-race` evidence; file:line map of the live seams, account config, GuardDuty gap and dry-run actor path. |
+| P5-1 | context-mode; ThreatModel; Hardening | Go cloud engineer | M | 150m | antigravity | Live AWS lab: Terraform for the read-only role, bucket, queue; `scripts/slaws-live-lab.sh` drives live mode end to end; refuses without credentials. |
+| P5-2 | context-mode; Hardening | Go collector engineer | M | 150m | antigravity | `COLLECTOR_AWSLOGS_ACCOUNTS` fan-out, DLQ redrive policy in IaC, `awslogs redrive` command with derived-ID dedupe. |
+| P5-3 | context-mode; ThreatModel | Go model engineer | M | 120m | antigravity | GuardDuty EventBridge envelope projected to Â§2.3 under `aws:guardduty`; fixture, contract rows, one bundle rule, replay equals live. |
+| P5-4 | context-mode; Science | Go policy engineer | M | 120m | antigravity | Dry-run evaluates on pseudonymised actors like live; `actor_account_id` bounded or dropped; review idempotency and read-key proof made non-vacuous. |
+| P5-GOV | ajm-auto-kanban; Interceptor; Cato | Governor | S | 90m | antigravity | Merge P5 in order; acceptance twice plus parity; Weave evidence; Phase 5 patterns; close v2.1. |
 
 ### Spec: Work Decomposition
 
@@ -307,6 +318,12 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 | P3-2 | implementation | SIGKILL durability test between Append and delete; exactly-once after restart; key-based auth on `/api/v1/policies/*`; dry-run-only semantics on bundle registration. | P3-1, P2-GOV | Crash test; auth test; registration never persists test | M | antigravity | — | — | — | — | — |
 | P3-GOV | governor | Merge P3; acceptance twice; ADR cited; read-only trust document template committed. | P3-2 | Acceptance x2 | S | antigravity | — | — | — | — | — |
 | P4-GOV | governor | `COLLECTOR_AWSLOGS_MODE=fixture` on `kind-osramp`; Weave shows cloud layer and findings; fixture e2e twice; DuckDB runbook executed against the PVC. | P3-GOV | Fixture e2e x2; Interceptor screenshot; runbook output | S | antigravity | — | — | — | — | — |
+| P5-PRE | preflight | On `integration/slaws-v0.2.0`: run the seven acceptance commands and `scripts/check-ci-build-parity.sh`; attach the `go test -race` evidence (golang:1.27 container, zero `DATA RACE` lines, kubectl-dependent manifest tests named) to errata; table with file:line of the live seams (`collectors/awslogs/live*.go`), the account and queue config surface, the GuardDuty/EventBridge fixture gap, and the policy-engine dry-run actor comparison. | â | Seven commands rc 0 with totals; parity rc 0, 0 defects; file:line table; no code change | S | antigravity | â | â | â | â | â |
+| P5-1 | implementation | Live AWS lab per D13: Terraform under `infra/aws/slaws-lab/` for the read-only cross-account role (from `docs/signalloom/slaws-kusari-trust-policy.md`, external ID enforced), a lab bucket with CloudTrail-shaped objects, an SQS queue with S3 notifications and the D12 redrive policy; `scripts/slaws-live-lab.sh` runs signal-ingest in `COLLECTOR_AWSLOGS_MODE=live` with `SIGNAL_DEV_MODE=true`, asserts one object becomes observations through the Â§2.3 projection and that the SQS message is deleted only after `Store.Append`; refuses without credentials and prints the operator command. | P5-PRE | bats for the script (refusal, args, dry-run); `terraform validate`; unit tests at the live seams with fakes; a recorded live run in errata when credentials are present, otherwise STOP-and-report naming the command | M | antigravity | â | â | â | â | â |
+| P5-2 | implementation | Multi-account and DLQ per D11/D12: `COLLECTOR_AWSLOGS_ACCOUNTS` parsed into one `awslogs` instance per entry with its own tenant binding and credentials; invalid or duplicate entries refuse boot; `signal-ingest awslogs redrive --queue <dlq-url>` replays DLQ messages through the same projection with derived-ID dedupe and counts `redriven`; manifests gain the env and a rendered example. | P5-PRE | Unit tests: N entries â N collectors with distinct tenants; invalid entry refuses boot with the offending index; redrive dedupes a replayed object; `deploy_render_test` renders the env; counters asserted | M | antigravity | â | â | â | â | â |
+| P5-3 | implementation | GuardDuty via EventBridge: project the envelope (`detail-type: GuardDuty Finding`, `detail.severity`, `detail.type`, `detail.resource`) to Â§2.3 observations with `source=aws:guardduty` and a one-line `description`; fixture under `collectors/awslogs/testdata/`; `contract_doc.go` rows; bundle rule `guardduty-high-severity` under `policy/bundles/kusari/`; replay equals live on the extended corpus. | P5-PRE | `contract_test.go` rows for the fixture; negative contract (no raw body, no token) holds; fixture e2e emits the finding; replay-equals-live byte-identical | M | antigravity | â | â | â | â | â |
+| P5-4 | implementation | Pseudonym-consistent dry-run and correlator review: policy-engine dry-run bundle registration evaluates with the same pseudonymised `obs.actor` the live path sees (no cleartext comparison); `actor_account_id` is either dropped from the on-disk label set or bounded and justified in Â§2.3; decision review idempotency covers changed-note replay and distinct reviewers; the read-key proof is restated so the superadmin gate cannot make it vacuous. | P5-PRE | Tests: dry-run and live produce identical findings on the corpus; label contract negative test updated; review idempotency cases; read-key test fails when the gate is removed | M | antigravity | â | â | â | â | â |
+| P5-GOV | governor | Merge P5-1..P5-4 in order; the seven acceptance commands twice with identical totals plus `scripts/check-ci-build-parity.sh`; Weave cloud-layer evidence via Interceptor when installed, otherwise the jev route evidence; `### Spec: Shared Patterns â Phase 5`; status line closes v2.1. | P5-1, P5-2, P5-3, P5-4 | Acceptance x2 identical; parity rc 0; evidence paths; errata | S | antigravity | â | â | â | â | â |
 
 ### Spec: Errata
 
@@ -446,3 +463,11 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 #### Errata — image pin discipline (lead)
 
 - Every merge that touches signal-ingest sources, `go.mod`, the Dockerfile or `pkg/obscel` moves the immutable image tag; the lead re-pinned after each wave (`432cae1e`, `936b401c`, `81fb97e8`, `bcf7de3f`, final `f39b3bbd`). The zot build site in `d2-signalloom/Makefile` and the image-tag bats probe were updated to the new build context (`5383a747`).
+
+#### Errata — v2 sign-off and P5 preparation (2026-10-06, sensai, `21d1e910`, `cc471262`)
+
+- **CI parity green.** `scripts/check-ci-build-parity.sh` reported two TOO LATE (`sldc-ingest-keys`, `fleet-manager-keys` minted after `demo-signalloom-afm-up`) and five MISSING steps against `demo-signalloom-up`. `scripts/ci/vm-pipeline.sh` now mints all five keys at the top of stage [4/7] under retry and builds the security and function images beside the two `-C` publishes stage 1d cannot see. Result: 19 BUILT/RAN, 1 OPT-OUT, 0 defects; `test/ci-build-parity.bats` and the two other pipeline-asserting suites 90/90 (`21d1e910`).
+- **Tombstone flake fixed, not tolerated.** `TestTombstonePublishesThresholdNotMeasurement` searched the whole document for the digits of the population; four CSPRNG-derived hex fields spelled them in about 0.3% of runs. The test now sets the entropy fields aside and asserts the deterministic remainder is identical between populations; 3000 consecutive runs green, `mutation-check.sh` still kills the population mutation (`cc471262`). Image pin unchanged (`src-940e65d16a917ad3`; tests are outside the fingerprint). The key-reload watcher flake was already fixed at `75448e38`.
+- **Race evidence (ISC-35).** `go test -race -count=1 ./...` for signal-ingest in a `golang:1.27` container with the module root mounted: zero `WARNING: DATA RACE` lines across 27 packages. The failing tests in that run are environmental (manifest renders need `kubectl`; imagetag and trust-document tests read the repository), not races. Rerun with the repository mounted: 31 packages ok, zero `DATA RACE` lines; the one failing package is `signal-ingest` root, all eight failures `deploy_render_test.go` needing `kubectl` (absent in the container). Logs: `/tmp/slaws-race/race.log`, `race2.log`.
+- **Sign-off.** Andy signed off v2 on 2026-10-06 ("sign off v2 and create the SLAWS cards"); D10 records the inherited dispositions. P5 (close-out and live validation) is decomposed above with D11–D13 and is the mission on `integration/slaws-v0.2.0`.
+- Stamp: 2026-10-06 08:02:51 +0100.

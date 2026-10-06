@@ -127,7 +127,17 @@ class _Upstream:
 
 class TestRouterMounting:
     def test_policy_routes_registered(self):
-        paths = {r.path for r in app.routes if hasattr(r, "path")}
+        def _flat_routes(routes):
+            out = []
+            for r in routes:
+                inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
+                if inner:
+                    out.extend(_flat_routes(inner))
+                else:
+                    out.append(r)
+            return out
+
+        paths = {r.path for r in _flat_routes(app.routes) if hasattr(r, "path")}
         expected = {
             "/api/signals/policy/findings",
             "/api/signals/policy/decisions",

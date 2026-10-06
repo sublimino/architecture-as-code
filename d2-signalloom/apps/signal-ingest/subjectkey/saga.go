@@ -388,7 +388,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 			return DestructionReceipt{}, err
 		}
 		targets := saga.TargetVersions
-		saga, err = s.store.AdvanceSaga(ctx, opID, StatePending, func(r *SagaRecord) {
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StatePending, func(r *SagaRecord) {
 			r.TargetVersions = targets
 		})
 		if err != nil {
@@ -419,7 +419,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 			return DestructionReceipt{}, err
 		}
 		cleared := ClearedCacheNames()
-		saga, err = s.store.AdvanceSaga(ctx, opID, StateKeysDestroyed, func(r *SagaRecord) {
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StateKeysDestroyed, func(r *SagaRecord) {
 			// Persisted HERE, at the transition that records the purge actually happening, so the
 			// receipt digest is a function of what THIS operation did rather than of what the
 			// currently-running binary happens to be configured to clear.
@@ -447,7 +447,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 		if err := s.fault(FaultBeforeReceiptPersist); err != nil {
 			return DestructionReceipt{}, err
 		}
-		saga, err = s.store.AdvanceSaga(ctx, opID, StateCachesCleared, func(r *SagaRecord) {
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StateCachesCleared, func(r *SagaRecord) {
 			r.ReceiptDigest = digest
 			// CompletedAt is persisted HERE, with the digest that covers it, so a resumed saga
 			// rebuilds the same receipt. Stamping it at the `completed` transition instead would
@@ -468,7 +468,7 @@ func (s *Saga) Erase(ctx context.Context, tenantID, subjectID string) (Destructi
 		if err := s.fault(FaultBeforeCompletedTransition); err != nil {
 			return DestructionReceipt{}, err
 		}
-		saga, err = s.store.AdvanceSaga(ctx, opID, StateReceiptRecorded, nil)
+		saga, err = s.store.AdvanceSaga(ctx, tenantID, opID, StateReceiptRecorded, nil)
 		if err != nil {
 			return DestructionReceipt{}, fmt.Errorf("subjectkey: advance to %s: %w", StateCompleted, err)
 		}

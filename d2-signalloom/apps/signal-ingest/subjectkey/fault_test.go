@@ -82,7 +82,7 @@ func TestErasureSaga_FaultOnBothSidesOfEveryBoundary(t *testing.T) {
 				if err != nil {
 					t.Fatalf("OperationID: %v", err)
 				}
-				saga, sagaErr := x.store.LoadSaga(ctx, opID)
+				saga, sagaErr := x.store.LoadSaga(ctx, "t1", opID)
 				if sagaErr == nil && saga.ReceiptDigest != "" {
 					recs, _ := x.store.ListVersions(ctx, "t1", p)
 					for _, r := range recs {
@@ -121,7 +121,7 @@ func TestErasureSaga_FaultOnBothSidesOfEveryBoundary(t *testing.T) {
 				}
 
 				// ISC-85: every fault point converges on completed.
-				final, err := x.store.LoadSaga(ctx, opID)
+				final, err := x.store.LoadSaga(ctx, "t1", opID)
 				if err != nil {
 					t.Fatalf("LoadSaga after resume: %v", err)
 				}

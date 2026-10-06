@@ -287,30 +287,27 @@ func (p *PostgresStore) BeginSaga(ctx context.Context, rec SagaRecord) (SagaReco
 	return out, created, err
 }
 
-// LoadSaga returns the journal row.
+// LoadSaga returns the journal row, scoped to tenantID.
 //
-// It resolves the tenant claim from the row's own tenant, which it cannot read without the claim.
-// That circularity is why this method takes the operation ID alone and queries with the claim unset
-// would return nothing — so instead it uses a SECURITY-neutral approach: the caller always knows the
-// tenant, and Saga always calls LoadSaga via paths that already hold it. This method exists for
-// operator tooling and takes the cost of a two-step lookup.
-func (p *PostgresStore) LoadSaga(ctx context.Context, operationID string) (SagaRecord, error) {
-	// The tenant claim must be set before the RLS policy admits the row, and the tenant is only
-	// discoverable from the row. Rather than bypass RLS, read the tenant from a claim-free query
-	// that is expected to return nothing under FORCE RLS and report the honest error if so.
+// THE TENANT PARAMETER IS THE WHOLE POINT, and its absence was a CRITICAL defect. Migration 009 puts
+// ENABLE plus FORCE ROW LEVEL SECURITY on subject_key_erasures, and app_current_tenant() is NULL
+// when the transaction-local claim is unset -- so a claim-less SELECT SUCCEEDS and returns ZERO ROWS.
+// The previous signature took only an operation id and tried to discover the tenant from the row it
+// could not see, which is circular: it worked only against a role holding BYPASSRLS.
+//
+// That is exactly what happened. Every live test ran as the container's POSTGRES_USER, a SUPERUSER
+// with rolbypassrls, so the whole suite passed while a correctly-configured deployment -- the
+// non-owner, non-superuser app role migration 008's comment explicitly requires -- would write the
+// journal row and then FAIL EVERY ADVANCE, leaving the saga at `pending` forever with no key
+// destroyed and every Article 17 request erroring. Proven against a NOSUPERUSER NOBYPASSRLS role.
+func (p *PostgresStore) LoadSaga(ctx context.Context, tenantID, operationID string) (SagaRecord, error) {
 	var out SagaRecord
-	row := p.db.QueryRowContext(ctx, `
-		SELECT operation_id, tenant_id, subject_pseudonym, state, target_versions, nonce,
-		       caches_purged, receipt_digest, started_at, updated_at, completed_at
-		  FROM subject_key_erasures WHERE operation_id = $1`, operationID)
-	if err := scanSaga(row, &out); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return SagaRecord{}, fmt.Errorf("%w: %s (note: under FORCE ROW LEVEL SECURITY this also "+
-				"means the tenant claim was not set on this connection)", ErrSagaNotFound, operationID)
-		}
-		return SagaRecord{}, err
-	}
-	return out, nil
+	err := p.withTenantTx(ctx, tenantID, true, func(tx *sql.Tx) error {
+		var ierr error
+		out, ierr = loadSagaInTx(ctx, tx, operationID)
+		return ierr
+	})
+	return out, err
 }
 
 func loadSagaInTx(ctx context.Context, tx *sql.Tx, operationID string) (SagaRecord, error) {
@@ -359,18 +356,16 @@ func scanSaga(row rowScanner, out *SagaRecord) error {
 // The `AND state = $from` predicate IS the concurrency control. Two invocations racing on the same
 // operation both read the same state; one UPDATE matches and the other matches zero rows and gets
 // ErrStateConflict, rather than both proceeding to apply the same irreversible step twice.
-func (p *PostgresStore) AdvanceSaga(ctx context.Context, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error) {
+func (p *PostgresStore) AdvanceSaga(ctx context.Context, tenantID, operationID string, from SagaState, mutate func(*SagaRecord)) (SagaRecord, error) {
 	to, ok := NextState(from)
 	if !ok {
 		return SagaRecord{}, fmt.Errorf("%w: %q has no successor", ErrIllegalTransition, from)
 	}
 	var out SagaRecord
-	// The tenant is read first so the claim can be set; see LoadSaga on why that is a two-step.
-	pre, err := p.LoadSaga(ctx, operationID)
-	if err != nil {
-		return SagaRecord{}, err
-	}
-	err = p.withTenantTx(ctx, pre.TenantID, false, func(tx *sql.Tx) error {
+	// One transaction, claim set from the CALLER's tenant. There is deliberately no pre-read to
+	// discover the tenant: that read would itself need the claim, which is the circularity that made
+	// this path work only under BYPASSRLS.
+	err := p.withTenantTx(ctx, tenantID, false, func(tx *sql.Tx) error {
 		cur, err := loadSagaInTx(ctx, tx, operationID)
 		if err != nil {
 			return err

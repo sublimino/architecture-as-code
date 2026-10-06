@@ -229,6 +229,16 @@ mutate "M20 fully destroyed control reads as available" \
   's|	if !sawLiveControl {|	if false \&\& !sawLiveControl {|' \
   'TestErasureSaga_ProofRefusesAFully' './subjectkey/...'
 
+# M21 [CRITICAL, live-PG only] - the tenant is discovered by a claim-less read instead of being
+# supplied by the caller, so the saga cannot advance under FORCE ROW LEVEL SECURITY. It is listed
+# here but NOT run by this harness, because it is only observable against a NOSUPERUSER NOBYPASSRLS
+# role and this sweep runs without a database. Falsified manually on 2026-09-14 against PostgreSQL
+# 16.15 with a NOSUPERUSER NOBYPASSRLS role: reverting the fix turns
+# TestSubjectKeyPG_SagaCompletesUnderRowLevelSecurity red with
+#   "advance to keys_destroyed: subjectkey: erasure saga not found".
+# Recorded rather than silently omitted, so the sweep's count is not read as total coverage.
+echo "  SKIPPED M21 tenant discovered by a claim-less read     (live-PG only; falsified manually, see comment)"
+
 echo
 printf 'killed=%d survived=%d build_break=%d\n' "$KILLED" "$SURVIVED" "$BUILD_BREAK"
 if [[ $SURVIVED -gt 0 || $BUILD_BREAK -gt 0 ]]; then

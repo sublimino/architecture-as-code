@@ -16,9 +16,10 @@ Every claim path resolves its target here first:
   d2-signalloom/apps/fleet-manager/identity_map.go and the
   ValidatingAdmissionPolicy at
   d2-signalloom/apps/fleet-manager/base/agent-identity-binding.yaml read) but
-  its actual ServiceAccount does not match the one registered for it -- a
-  decoy claiming a known identity, not that agent. An unregistered
-  agent_name is unaffected.
+  its actual namespace and ServiceAccount do not BOTH match the pair
+  registered for it -- a decoy claiming a known identity, not that agent.
+  A ServiceAccount name alone is not enough: it is only unique within its
+  namespace. An unregistered agent_name is unaffected.
 * 403 ``workload_tenant_undeclared``  the workload carries no tenant label
 * 403 ``cross_tenant_forbidden`` the workload belongs to another tenant (not named)
 * 422 ``workload_model_undeclared``  the workload carries no model label
@@ -50,11 +51,11 @@ REFUSAL_CODES = frozenset({
     "agent_identity_mismatch",
 })
 
-# The agent-name -> ServiceAccount map. Called fresh on every authorize(),
-# same pattern as workload_source below, so a test can replace it with a
-# fixture mapping with no filesystem involved. Production reads the
-# ConfigMap volume mount (agent_identity_map.load's default directory).
-identity_map_source: Callable[[], dict[str, str]] = agent_identity_map.load
+# The agent-name -> (namespace, ServiceAccount) map. Called fresh on every
+# authorize(), same pattern as workload_source below, so a test can replace
+# it with a fixture mapping with no filesystem involved. Production reads
+# the ConfigMap volume mount (agent_identity_map.load's default directory).
+identity_map_source: Callable[[], dict[str, agent_identity_map.AgentIdentity]] = agent_identity_map.load
 
 
 @dataclass(frozen=True)
@@ -126,19 +127,25 @@ def authorize(
     # The agent_name field is sourced from signalloom.ai/agent-name, a label
     # its creator writes -- including hosted-daytona-coder, which holds
     # pod-create RBAC in this namespace. If that name is a REGISTERED agent
-    # identity, the workload's actual ServiceAccount (read live from the pod
-    # spec, never a label) must match the one registered for it, or this is a
-    # decoy claiming a known agent's identity, not that agent. An
-    # unregistered agent_name is unaffected: this is never a second
+    # identity, the workload's actual namespace AND ServiceAccount (both read
+    # live from the pod, never a label) must match the pair registered for
+    # it, or this is a decoy claiming a known agent's identity, not that
+    # agent. Namespace is required alongside ServiceAccount because a
+    # ServiceAccount name is only unique within its namespace: a decoy in a
+    # different namespace that names its own ServiceAccount after a
+    # registered agent (e.g. hosted-daytona-coder's own namespace running a
+    # ServiceAccount literally called "kusari-agent") would otherwise pass.
+    # An unregistered agent_name is unaffected: this is never a second
     # allow-list for which agents may exist.
     claimed_identity = _label(workload.get("agent_name"))
     if claimed_identity and not agent_identity_map.matches(
-        identity_map_source(), claimed_identity, workload.get("service_account")
+        identity_map_source(), claimed_identity, workload.get("namespace"), workload.get("service_account")
     ):
         raise api_compat.APIError(
             403, "agent_identity_mismatch",
-            f"Workload '{name}' is labelled as registered agent '{claimed_identity}' but runs as "
-            f"ServiceAccount '{workload.get('service_account')}', not the one registered for that agent",
+            f"Workload '{name}' is labelled as registered agent '{claimed_identity}' but runs in "
+            f"namespace '{workload.get('namespace')}' as ServiceAccount '{workload.get('service_account')}', "
+            "not the namespace/ServiceAccount registered for that agent",
         )
 
     declared = _label(workload.get("tenant"))

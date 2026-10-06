@@ -250,11 +250,12 @@ spec:
               readOnly: true
             # Same ConfigMap fleet-manager mounts at /etc/fleet
             # (../fleet-manager/base/configmap.yaml) -- the single source of
-            # truth for the signalloom.ai/agent-name -> ServiceAccount
-            # identity map, read here by claim_tenancy.py's authorize() so
-            # autoclaim cannot be spoofed into claiming a decoy pod as a
-            # KNOWN agent identity. See identity.cardvault etc. in that
-            # ConfigMap's data for the full doc comment.
+            # truth for the signalloom.ai/agent-name -> (namespace,
+            # ServiceAccount) identity map, read here by claim_tenancy.py's
+            # authorize() so autoclaim cannot be spoofed into claiming a
+            # decoy pod as a KNOWN agent identity. See identity.cardvault /
+            # identity-ns.cardvault etc. in that ConfigMap's data for the
+            # full doc comment.
             - name: agent-identity-map
               mountPath: /etc/fe-signalloom/identity-map
               readOnly: true

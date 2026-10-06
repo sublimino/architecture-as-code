@@ -95,33 +95,49 @@ data:
         gracePeriod: 0h
         dependencies: []
         namespace: fe-signalloom-agents
-  # ── identity.<agent-name> — the agent identity map ──────────────────────
+  # ── identity.<agent-name> / identity-ns.<agent-name> — the agent identity map
   #
   # The single source of truth binding a signalloom.ai/agent-name label value
-  # to the ServiceAccount the real agent is registered to run as. A pod's
-  # labels are written by whoever creates it -- including hosted-daytona-coder,
-  # which holds pod-create RBAC in fe-signalloom-agents
+  # to the NAMESPACE and ServiceAccount the real agent is registered to run
+  # as. A pod's labels are written by whoever creates it -- including
+  # hosted-daytona-coder, which holds pod-create RBAC in fe-signalloom-agents
   # (d2-signalloom/infra/agent-swarm/hosted-daytona-coder/rolebinding.yaml) --
   # so a label match alone can never prove a pod is the real agent-name it
-  # claims to be. Every place that resolves "which agent is this pod" from a
-  # label checks the match here first:
+  # claims to be. Both namespace and ServiceAccount are required: a
+  # ServiceAccount name is only unique within its namespace, so a decoy in a
+  # DIFFERENT namespace that names its own ServiceAccount after a registered
+  # agent (e.g. a workload in hosted-daytona-coder's own namespace running as
+  # a ServiceAccount literally called "kusari-agent") must not pass a check
+  # that compares the ServiceAccount name alone. Every place that resolves
+  # "which agent is this pod" from a label checks the match here first:
   #
   #   - fleet-manager: agent_resolution.go (resolveAgentID), k8sclient.go
-  #     (resolvePod), both reading this same ConfigMap's mounted files
-  #     (identity_map.go, LoadAgentIdentityMap).
-  #   - the ValidatingAdmissionPolicy at
-  #     d2-agent-trust/policies/agent-identity-binding.yaml, which admits this
-  #     ConfigMap as its params object and rejects CREATE/UPDATE of a pod in
-  #     fe-signalloom-agents whose signalloom.ai/agent-name label names a
-  #     registered agent but whose spec.serviceAccountName differs.
+  #     (resolvePod), mesh_client.go (resolveTargetIP) -- all reading this
+  #     same ConfigMap's mounted files (identity_map.go, LoadAgentIdentityMap).
+  #   - the ValidatingAdmissionPolicy at base/agent-identity-binding.yaml,
+  #     which admits this ConfigMap as its params object and rejects
+  #     CREATE/UPDATE, in ANY namespace, of a pod whose signalloom.ai/agent-name
+  #     label names a registered agent but whose namespace/serviceAccountName
+  #     pair differs.
+  #   - fe-signalloom: agent_identity_map.py / claim_tenancy.py (authorize()).
   #
-  # One key per registered agent. Values are read verbatim (ConfigMap volume
-  # mount materialises each key as a file; trailing whitespace is trimmed by
-  # both readers), so there is exactly one authored list -- extending the map
-  # to a new agent is one line here, never a change to Go, Python or CEL.
-  # Values cross-checked against the live manifests in
+  # Two keys per registered agent -- the ServiceAccount (identity.) and its
+  # namespace (identity-ns.), kept as sibling keys rather than one combined
+  # value so no reader needs to parse a delimiter (in particular, the CEL
+  # policy above needs no string-splitting). An agent with only one half of
+  # the pair is treated as UNREGISTERED by every reader, never as "registered
+  # with an empty namespace" -- see LoadAgentIdentityMap's doc comment. Values
+  # are read verbatim (ConfigMap volume mount materialises each key as a
+  # file; trailing whitespace is trimmed by every reader), so there is
+  # exactly one authored list -- extending the map to a new agent is two
+  # lines here, never a change to Go, Python or CEL. Values cross-checked
+  # against the live manifests in
   # d2-signalloom/infra/agent-swarm/*/service-account.yaml and deployment.yaml.
   identity.cardvault: agent-cardvault
+  identity-ns.cardvault: fe-signalloom-agents
   identity.kusari-agent: kusari-agent
+  identity-ns.kusari-agent: fe-signalloom-agents
   identity.agent-nono-evidenced: agent-nono-evidenced
+  identity-ns.agent-nono-evidenced: fe-signalloom-agents
   identity.agent-standard-baseline: agent-standard-baseline
+  identity-ns.agent-standard-baseline: fe-signalloom-agents

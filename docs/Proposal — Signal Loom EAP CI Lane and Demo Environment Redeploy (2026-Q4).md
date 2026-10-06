@@ -134,7 +134,7 @@ updated: 2026-10-06T12:50
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | baseline | On `integration/eapci-v0.1.0` at the cut SHA run `make test-eap-offline`, `make test-kusari-e2e`, `scripts/slaws-acceptance.sh /tmp/eapci-acceptance`, `make docs-lint`; `kanban-check.sh doctor`. | — | Four commands rc 0; totals in errata | S | antigravity | [Errata](#errata--eapci-p0) | — | — | — | — |
 | P1-PRE | preflight | File:line table for `Makefile:2397-2401` ENV check, `deploy/gcp/sl-port-over-sandbox.tfvars` lane block, `demo-up.sh:1068-1130` payload, `demo-pipeline.sh` test stages (around 838-851, 1062), `signalloom-ci.yaml:19-32`; name the exact edits for P1-1..P1-4; post lane names to `/tmp/chat.jsonl`. | P0 | Table in errata; no code change | S | antigravity | — | — | — | — | — |
-| P1-1 | implementation | Add an optional lane attribute `tailscale_hostname` to the `environments` object type (`env-contract/variables.tf`, a strict type that drops undeclared keys), carry it through the compute module (which hard-codes `sl-${environment_key}` at `compute/main.tf:175,213`) and the hand-off writer to `demo-up.sh:3384` and a pilot profile for `demo-2` in the example tfvars: labels `tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`; do not set `hostname`, which enables public TLS (`edge/main.tf:34`). `/act` stays enabled on every lane. | P1-PRE | `terraform validate`; bats: the `demo-2` profile renders `tailscale_hostname` matching `^sl-eap-[a-f0-9]{8}$` and no `hostname`; other lanes unchanged | M | antigravity | — | — | — | — | — |
+| P1-1 | implementation | Add an optional lane attribute `tailscale_hostname` to the `environments` object type (`env-contract/variables.tf`, a strict type that drops undeclared keys), carry it through the compute module (which hard-codes `sl-${environment_key}` at `compute/main.tf:175,213`) and the hand-off writer to `demo-up.sh:3384` and a pilot profile for `demo-2` in the example tfvars: labels `tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`; do not set `hostname`, which enables public TLS (`edge/main.tf:34`). `/act` stays enabled on every lane. | P1-PRE | `terraform validate`; bats: the `demo-2` profile renders `tailscale_hostname` matching `^sl-eap-[a-f0-9]{8}$` and no `hostname`; other lanes unchanged | M | antigravity | pass — delivered: `5742a3fe` (see [Errata — EAPCI-P1-1](#errata--eapci-p1-1-demo-2-kusari-pilot-profile-tailscale_hostname-sl-eap-4b53ab6b)) | — | — | — | — |
 | P1-2 | implementation | `GCP_TF_DEMO_REF=<ref>`: build the payload from a clean worktree of that ref; set `RUN_COMMIT` (`demo-up.sh:2049`) from that ref's short SHA; write `source_ref` and `source_sha` to the hand-off and keep them through `gcp-tf-handoff` regeneration; refuse to run with no ref unless `GCP_TF_DEMO_REF=HEAD` is explicit. | P1-PRE | bats with stubbed git and gcloud: payload SHA equals the ref SHA; a dirty principal tree does not change it; `source_sha` survives a regenerated hand-off; missing ref fails with a named error | M | antigravity | — | — | — | — | — |
 | P1-3 | implementation | In `demo-pipeline.sh`, for `ci` lanes add stages: `scripts/dual-cluster-up.sh`, `scripts/remote-tenant-lab.sh --load-kind-image`, `make test-kusari-e2e`, `KUSARI_LIVE=1 bats test/kusari-e2e-live.bats` (fails on any `# skip`), `scripts/slaws-acceptance.sh`, `make test-eap-offline`; each records its rc. Remove `test/tetragon-telemetry-stream.bats` from both `demo-pipeline.sh:820` and `vm-pipeline.sh:780` in one commit (announce to sensai-sltm on `/tmp/chat.jsonl`); the suite file, scripts and Makefile targets are P1-9's. | P1-PRE | bats with a stub runner: `ci` lanes run all six in order, `demo` lanes none; a failing or skipping stage fails the pipeline by name; `terraform-dual-lane-registration.bats` green; neither pipeline names a Tetragon suite | L | antigravity | — | — | — | — | — |
 | P1-4 | implementation | Make every workflow under `.github/workflows/` on this branch manual-only: remove `pull_request`, `push` and `schedule` triggers, keep `workflow_dispatch` and `workflow_call`; update `test/eap-pr-workflow.bats` to assert the manual-only contract; record (do not fix) the pre-existing TFID digest failure for `vm-pipeline.sh` and `ci-lock.sh`. | P1-PRE | A bats test asserts no workflow on the branch has `pull_request`, `push` or `schedule`; `eap-pr-workflow.bats` green; YAML parses (`yq`); docs-lint clean | S | antigravity | — | — | — | — | — |
@@ -387,3 +387,60 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-PRE","status":"pass","commit":"44e140c07175b1928e8bcb45bf2887e75df03050"} -->
+
+#### Errata — EAPCI-P1-1 demo-2 Kusari pilot profile (tailscale_hostname sl-eap-4b53ab6b)
+
+- **Logical ID:** P1-1
+- **Created:** 2026-10-06 23:05:00+01:00
+- **Last Updated:** 2026-10-06 23:07:00+01:00
+- **Harness:** `antigravity`
+- **Worktree Branch:** `eapci-P1-1-w1`
+- **Integration Tip:** `5ea1492a`
+- **Commit SHA:** `5742a3fe744ac5f07f101a04e8ec4fe5e4d18529`
+- **Result:** `pass`
+
+##### 1. Files Touched & Contract Modifications
+
+| File | Purpose / Changes |
+| :--- | :--- |
+| `terraform/environments/variables.tf` | Added `tailscale_hostname = optional(string, "")` to strict `environments` map object schema. |
+| `terraform/modules/env-contract/variables.tf` | Added `tailscale_hostname = optional(string, "")` to strict schema; added validation rules `ENV-RULE-14-TAILSCALE-HOSTNAME-FORMAT` and `ENV-RULE-15-TAILSCALE-HOSTNAME-UNIQUE`. |
+| `terraform/modules/env-contract/main.tf` | Carried `tailscale_hostname = v.tailscale_hostname` into `local.resolved` map entries. |
+| `terraform/modules/compute/variables.tf` | Added `variable "tailscale_hostname" { type = string, default = "" }`. |
+| `terraform/modules/compute/main.tf` | Updated local `tailscale_hostname = coalesce(var.tailscale_hostname, "sl-${var.environment_key}")` at line 175; feeds metadata `signalloom-tailscale-hostname` at line 213. Network tags remain key-derived `sl-${var.environment_key}`. |
+| `terraform/environments/main.tf` | Passed `tailscale_hostname = each.value.tailscale_hostname` to `module.compute`. |
+| `Makefile` | Updated handoff generator at lines 2847 and 2909 to emit `tailscale_hostname` (falling back to `sl-<env>` if empty) ensuring hand-off JSON is always populated. |
+| `deploy/gcp/sl-port-over-sandbox.example.tfvars` | Declared `demo-2` Kusari pilot profile: `kind = "demo"`, `subnet_cidr = "10.10.2.0/24"`, `machine_type = "n2-standard-8"`, `hostname = ""` (disables public TLS frontend), `tailscale_hostname = "sl-eap-4b53ab6b"`, `labels = { tier = "pilot", owner = "andy" }`, `app_port = 8080`, `deletion_protect = false`. |
+| `terraform/modules/compute/tests/compute.tftest.hcl` | Added test case `the_tailscale_hostname_override_is_honoured`. |
+| `terraform/modules/env-contract/tests/environment_contract.tftest.hcl` | Added test cases `rule_14_rejects_invalid_tailscale_hostname_format`, `rule_14_accepts_valid_tailscale_hostnames`, `rule_15_rejects_duplicate_tailscale_hostnames`, `rule_15_accepts_multiple_empty_tailscale_hostnames`, and updated resolved map validation. |
+| `test/terraform-environment-keys.bats` | Updated rule count assertion from 16 to 18 to include `ENV-RULE-14` and `ENV-RULE-15`. |
+| `test/terraform-demo-driver.bats` | Added `ts_node_hostname` unit tests for handoff override and default fallback. |
+| `test/terraform-pilot-profile.bats` & `test/eapci-pilot-profile.bats` | Offline Bats test suites asserting `demo-2` pilot profile attributes (`tailscale_hostname = "sl-eap-4b53ab6b"`, `hostname = ""`, `labels.tier = "pilot"`), default derivations for sibling lanes (`demo-1`, `ci-1`), and `ts_node_hostname` behaviour. |
+
+##### 2. Validation Rules & Assertions
+
+1. `ENV-RULE-14-TAILSCALE-HOSTNAME-FORMAT`: When non-empty, `tailscale_hostname` must match `^sl-eap-[a-f0-9]{8}$` or `^sl-[a-z0-9-]+$`.
+2. `ENV-RULE-15-TAILSCALE-HOSTNAME-UNIQUE`: Non-empty `tailscale_hostname` values must be strictly unique across lanes. Empty string `""` sentinels are exempt and independently derive distinct `sl-<key>` node names.
+3. `Edge / Public TLS Guard`: `demo-2` declares `hostname = ""` so `edge/main.tf:34` (`tls_enabled = hostname != ""`) disables public frontend and load balancer, restricting access exclusively to the tailnet.
+
+##### 3. Mutation Proofs
+
+- **Mutant 1 (Compute module override dropped):** Removed `coalesce` in `terraform/modules/compute/main.tf:175` -> killed by `compute.tftest.hcl` (`the_tailscale_hostname_override_is_honoured` failed with `sl-demo-7 != sl-eap-4b53ab6b`). Restored and verified via `cmp`.
+- **Mutant 2 (Uniqueness rule dropped):** Removed `ENV-RULE-15-TAILSCALE-HOSTNAME-UNIQUE` validation block -> killed by `environment_contract.tftest.hcl` (`rule_15_rejects_duplicate_tailscale_hostnames` failed). Restored and verified via `cmp`.
+- **Mutant 3 (Pilot public TLS edge accidentally enabled):** Set `hostname = "demo-2.pilot.example.com"` on `demo-2` -> killed by `test/terraform-pilot-profile.bats` (`demo-2 example profile has empty hostname (public TLS edge disabled)` failed). Restored and verified via `cmp`.
+
+##### 4. Test Verification Summary
+
+- `terraform fmt -recursive -check terraform`: Clean.
+- `terraform validate` across `environments`, `compute`, `env-contract`: Clean.
+- `terraform test` in `terraform/modules/compute`: 46/46 passed.
+- `terraform test` in `terraform/modules/env-contract`: 35/35 passed.
+- `terraform test` in `terraform/environments`: 33/33 passed.
+- `bats test/terraform-pilot-profile.bats test/eapci-pilot-profile.bats`: 12/12 passed.
+- `bats test/terraform-environment-keys.bats`: 14/14 passed.
+- `bats test/terraform-demo-driver.bats`: 99/99 passed.
+- `bats test/terraform-vm-profile.bats`: 21/21 passed.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-1","status":"pass","commit":"5742a3fe744ac5f07f101a04e8ec4fe5e4d18529"} -->
+

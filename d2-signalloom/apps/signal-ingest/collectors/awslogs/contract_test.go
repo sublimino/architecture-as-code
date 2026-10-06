@@ -393,6 +393,35 @@ func TestNegativeContract_RawBodyContainersNeverBecomeLabels(t *testing.T) {
 	}
 }
 
+// TestNegativeContract_ActorAccountIDIsAlwaysTwelveDigits asserts that any emitted
+// actor_account_id label is strictly a 12-digit AWS account number, never an ARN,
+// never letters, and never a malformed string.
+func TestNegativeContract_ActorAccountIDIsAlwaysTwelveDigits(t *testing.T) {
+	for _, name := range FixtureFiles() {
+		t.Run(name, func(t *testing.T) {
+			obs, err := testProjector().Project(mustFixture(t, name), FixtureOrigin(name))
+			if err != nil {
+				t.Fatalf("Project: %v", err)
+			}
+			for i, o := range obs {
+				if acct, ok := o.Labels[LabelActorAccountID]; ok {
+					if len(acct) != 12 {
+						t.Errorf("obs[%d] %s = %q: must be exactly 12 digits", i, LabelActorAccountID, acct)
+					}
+					for _, c := range acct {
+						if c < '0' || c > '9' {
+							t.Errorf("obs[%d] %s = %q: non-digit character %q", i, LabelActorAccountID, acct, c)
+						}
+					}
+					if strings.Contains(acct, "arn:") || strings.Contains(acct, ":") {
+						t.Errorf("obs[%d] %s leaks ARN structure: %q", i, LabelActorAccountID, acct)
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestContractDocCoversEveryEmittedKey closes the loop the other way: every key any
 // fixture emits must be listed in contract_doc.go, and every key contract_doc.go lists
 // as required must actually be emitted by at least one fixture. Documentation that

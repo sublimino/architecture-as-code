@@ -137,7 +137,7 @@ updated: 2026-10-06T12:50
 | P1-1 | implementation | Add an optional lane attribute `tailscale_hostname` to the `environments` object type (`env-contract/variables.tf`, a strict type that drops undeclared keys), carry it through the compute module (which hard-codes `sl-${environment_key}` at `compute/main.tf:175,213`) and the hand-off writer to `demo-up.sh:3384` and a pilot profile for `demo-2` in the example tfvars: labels `tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`; do not set `hostname`, which enables public TLS (`edge/main.tf:34`). `/act` stays enabled on every lane. | P1-PRE | `terraform validate`; bats: the `demo-2` profile renders `tailscale_hostname` matching `^sl-eap-[a-f0-9]{8}$` and no `hostname`; other lanes unchanged | M | antigravity | — | — | — | — | — |
 | P1-2 | implementation | `GCP_TF_DEMO_REF=<ref>`: build the payload from a clean worktree of that ref; set `RUN_COMMIT` (`demo-up.sh:2049`) from that ref's short SHA; write `source_ref` and `source_sha` to the hand-off and keep them through `gcp-tf-handoff` regeneration; refuse to run with no ref unless `GCP_TF_DEMO_REF=HEAD` is explicit. | P1-PRE | bats with stubbed git and gcloud: payload SHA equals the ref SHA; a dirty principal tree does not change it; `source_sha` survives a regenerated hand-off; missing ref fails with a named error | M | antigravity | — | — | — | — | — |
 | P1-3 | implementation | In `demo-pipeline.sh`, for `ci` lanes add stages: `scripts/dual-cluster-up.sh`, `scripts/remote-tenant-lab.sh --load-kind-image`, `make test-kusari-e2e`, `KUSARI_LIVE=1 bats test/kusari-e2e-live.bats` (fails on any `# skip`), `scripts/slaws-acceptance.sh`, `make test-eap-offline`; each records its rc. Remove `test/tetragon-telemetry-stream.bats` from both `demo-pipeline.sh:820` and `vm-pipeline.sh:780` in one commit (announce to sensai-sltm on `/tmp/chat.jsonl`); the suite file, scripts and Makefile targets are P1-9's. | P1-PRE | bats with a stub runner: `ci` lanes run all six in order, `demo` lanes none; a failing or skipping stage fails the pipeline by name; `terraform-dual-lane-registration.bats` green; neither pipeline names a Tetragon suite | L | antigravity | — | — | — | — | — |
-| P1-4 | implementation | Make every workflow under `.github/workflows/` on this branch manual-only: remove `pull_request`, `push` and `schedule` triggers, keep `workflow_dispatch` and `workflow_call`; update `test/eap-pr-workflow.bats` to assert the manual-only contract; record (do not fix) the pre-existing TFID digest failure for `vm-pipeline.sh` and `ci-lock.sh`. | P1-PRE | A bats test asserts no workflow on the branch has `pull_request`, `push` or `schedule`; `eap-pr-workflow.bats` green; YAML parses (`yq`); docs-lint clean | S | antigravity | — | — | — | — | — |
+| P1-4 | implementation | Make every workflow under `.github/workflows/` on this branch manual-only: remove `pull_request`, `push` and `schedule` triggers, keep `workflow_dispatch` and `workflow_call`; update `test/eap-pr-workflow.bats` to assert the manual-only contract; record (do not fix) the pre-existing TFID digest failure for `vm-pipeline.sh` and `ci-lock.sh`. | P1-PRE | A bats test asserts no workflow on the branch has `pull_request`, `push` or `schedule`; `eap-pr-workflow.bats` green; YAML parses (`yq`); docs-lint clean | S | antigravity | pass — delivered: 5790db860f9d18b6707419e3e03faf1f773c8e6e (see Errata — EAPCI-P1-4) | — | — | — | — |
 | P1-5 | implementation | Add `extraMounts` to `infra/kind/cluster-osramp.yaml` (and the hub cluster config used by `dual-cluster-up.sh`) binding the host dirs named by the existing `POSTGRES_DATA_DIR` (`.cache/postgres`), `ZOT_CACHE_DIR` (`.cache/zot`) and a new `LOCAL_PATH_DATA_DIR` (`.cache/local-path`) variables (`Makefile:66-67`) to `/var/local/signalloom-postgres-data` (uid 70, mode 0700), `/var/local-path-provisioner` and `/var/local/osramp-zot-cache`; render one kind config template (kind does not expand variables) used by both `dual-cluster-up.sh` and `create-kind-cluster.sh`, including the `/lib/modules` and `/sys/kernel/btf` binds the warden's eBPF needs on every lane; give `local-path` PVs stable directories (a `pathPattern` of `{{ .PVC.Namespace }}/{{ .PVC.Name }}` in the provisioner config) so a rebuilt cluster finds its data; export and restore the identity Secrets a rebuild would otherwise re-mint (`signal-segment-key`, fleet operator and caller keys, Dex static config); add a new script `kind-data-backup.sh` in `scripts/` with `backup <cluster> <dir>` and `restore <cluster> <dir>` subcommands using `docker cp` from the node. | P1-PRE | bats: the rendered kind config carries all three mounts with existing host dirs and correct ownership; backup then restore with a stubbed `docker` round-trips a fixture tree byte-for-byte and preserves uid 70; a PVC recreated with the same namespace and name resolves to the same host directory; `create-kind-cluster.sh` and `dual-cluster-up.sh` produce the same mount set | M | antigravity | — | — | — | — | — |
 | P1-6 | implementation | Make `GET /api/v1/observations` deterministic, bounded and pageable without changing the JSON array body, and make `GET /api/v1/store/stats` aggregate without decoding every observation (both decode the whole store per request today, which OOM-killed signal-ingest at 1Gi on 2026-10-06 and broke `/feeds` with 502s): sort `(timestamp DESC, id DESC)` in the `GET /api/v1/observations` handler, before `scopeObservations` applies `limit`; leave `QueryRange` order untouched, because replay (`api/policy_routes.go`, `e2e/harness.go`) depends on it; accept `cursor=<opaque>` (encodes the last `(timestamp, id)`); return `X-Next-Cursor` and `Link: <…>; rel="next"` when more rows exist and `X-Result-Truncated: false` when they do not; bind the cursor to the caller's tenant scope and reject a cursor minted for another scope; reject a malformed cursor with 400 and a message naming the fix; `signal_fusion.py` forwards `cursor` and passes the paging headers back; write the signal-ingest observations API page from scratch; move `signal_fusion.py` and `test/kusari-e2e-live.bats` (`observations_store`) to cursor paging (`policy-engine` only posts to `/evaluate` and is not a reader); document ordering and paging in the signal-ingest API docs with a worked `curl` example; re-pin the image (`scripts/signal-ingest-image-tag.sh`); return the memory limit from the 2Gi stopgap (`0ac8a717`) to 1Gi once peak working set under concurrent polling is measured below 512Mi. | P1-PRE | Go: peak heap for one `/observations?limit=100` and one `/store/stats` over a 100k-row fixture stays under a stated bound; 50 identical requests return byte-identical bodies on both stores; cursor paging over a 1,000-row fixture with duplicate timestamps visits each id exactly once; a mutation removing the sort fails; malformed cursor is 400; `TestReconciledManifestRunsTheImageBuiltFromThisSource` green; pytest for `signal_fusion` paging; docs-lint clean | L | antigravity | — | — | — | — | — |
 | P1-7 | implementation | Start with a gap table against SLSE's threat model T1-T5 (a prioritised execve/connect ring, PERFMON-only capabilities and a dedicated namespace are claimed but not built; the warden runs SYS_PTRACE, BPF, NET_ADMIN and SYS_ADMIN in `fe-signalloom-agents` with a 128Mi limit, and `main.go:614` only logs a literal tracepoint list). Then close the gaps: the four tracepoints are already attached in `d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader.go:35-38` (probe `bpf/sentinel_probe.c`, cgroup id read, `Drops()` at :200); make sure the engine attaches `sys_enter_openat`, `sys_enter_openat2`, `sys_enter_execve` and `sys_enter_connect` scoped to agent cgroups, and post normalised observations to `signal-ingest` `/api/v1/observations` with the warden's named key; ring-buffer drops are counted and reported as an anomaly; the warden logs the tracepoints that actually attached. Report the new sentinel image tag; P1-GOV re-pins. | P1-PRE | Go unit tests for event normalisation of all four syscalls; a privileged-container or kind-node probe test proving an `openat("/etc/passwd")` from an agent cgroup yields one observation; drop counter exported; sentinel image re-pinned (`scripts/sentinel-image-tag.sh`) | L | antigravity | — | — | — | — | — |
@@ -387,3 +387,62 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-PRE","status":"pass","commit":"44e140c07175b1928e8bcb45bf2887e75df03050"} -->
+
+#### Errata — EAPCI-P1-4 Make every workflow on this branch manual-only
+**Created:** 2026-10-06 22:35:02+01:00
+**Last Updated:** 2026-10-06 23:59:00+01:00
+**Status:** Completed
+**Commit:** 5790db860f9d18b6707419e3e03faf1f773c8e6e
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- All 9 workflow files under `.github/workflows/` converted to manual-only (`workflow_dispatch` or `workflow_call`).
+- Removed `schedule` trigger from `.github/workflows/signalloom-ci.yaml` (lines 30-32).
+- Removed `pull_request` trigger and its path filters from `.github/workflows/signalloom-eap-pr.yaml` (lines 29-36).
+- Removed `pull_request`, `push`, and `schedule` triggers from `.github/workflows/security-scan.yaml` (lines 17-24).
+- Removed `pull_request` trigger and its branch/path filters from `.github/workflows/terraform-validate.yaml` (lines 29-39).
+- Updated `test/eap-pr-workflow.bats` to test every file in `.github/workflows/` against `pull_request`, `push`, and `schedule`, and to assert positive controls (`workflow_dispatch` or `workflow_call`) per file.
+- Updated `test/terraform-suite-registration.bats:84-87` to assert `terraform-validate.yaml` is manual-only (`workflow_dispatch`).
+- Recorded (did not fix) pre-existing TFID digest failure for `scripts/ci/vm-pipeline.sh` and `scripts/ci/ci-lock.sh` caused by `b9177c3f`. `scripts/ci/vm-pipeline.sh` was not modified (`sha256: 787128c3099ab83556a60fa580cda71a50dc8fe9f825c1b114f3dd64f14533a7`).
+- Confirmed zero gcloud calls made and `signalloom-ci` VM was not touched. Note that `main` branch schedule continues to fire on GitHub until AJM disables it there (Proposal §2).
+**Deviations:** None.
+**Notes:**
+
+##### Workflow Trigger Inventory (Before & After)
+
+| Workflow File | Triggers Before | Triggers After | Status |
+| :--- | :--- | :--- | :--- |
+| `e2e-local.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `push-artifacts.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `push-images.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `release-artifacts.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `reusable-witness-step.yaml` | `workflow_call` | `workflow_call` | Unchanged (reusable workflow) |
+| `security-scan.yaml` | `pull_request`, `push`, `workflow_dispatch`, `schedule` | `workflow_dispatch` | Automatic triggers removed |
+| `signalloom-ci.yaml` | `workflow_dispatch`, `schedule` | `workflow_dispatch` | Schedule trigger removed |
+| `signalloom-eap-pr.yaml` | `pull_request`, `workflow_dispatch` | `workflow_dispatch` | Pull request trigger removed |
+| `terraform-validate.yaml` | `pull_request`, `workflow_dispatch` | `workflow_dispatch` | Pull request trigger removed |
+
+##### Verification & Test Results
+
+| Test Suite / Probe | Command | Result | Details |
+| :--- | :--- | :--- | :--- |
+| Manual-only contract | `bats test/eap-pr-workflow.bats` | PASS (14/14 ok) | Asserts all 9 workflow files have no `pull_request`, `push`, or `schedule`, asserts positive controls for `workflow_dispatch` / `workflow_call`, and maintains EAP offline execution invariants |
+| Terraform suite registration | `bats test/terraform-suite-registration.bats` | PASS (19/19 ok) | Asserts `terraform-validate.yaml` is manual-only (`workflow_dispatch`) and runs `make gcp-tf-validate` |
+| Workflow YAML syntax | `for f in .github/workflows/*.yaml; do yq '.' "$f"; done` | PASS (9/9 clean) | All 9 YAML files parse cleanly with 0 errors |
+| Documentation lint | `make docs-lint` | PASS (689/689 clean) | Zero doclint errors across all tracked markdown files |
+| Schedule mutation proof | Inject `schedule:` into `signalloom-ci.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `signalloom-ci.yaml`; restored `cmp` clean |
+| Push mutation proof | Inject `push:` into `security-scan.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `security-scan.yaml`; restored `cmp` clean |
+
+##### TFID Digest Drift Evidence (Carried Forward from P0)
+
+```
+$ sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256
+scripts/ci/gcp-ci.sh: OK
+scripts/ci/vm-pipeline.sh: FAILED
+scripts/ci/ci-lock.sh: FAILED
+sha256sum: WARNING: 2 computed checksums did NOT match
+```
+Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` are untouched.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-4","status":"pass","commit":"5790db860f9d18b6707419e3e03faf1f773c8e6e"} -->
+

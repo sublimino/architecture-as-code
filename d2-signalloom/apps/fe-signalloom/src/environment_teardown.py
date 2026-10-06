@@ -152,6 +152,14 @@ class StageResult:
     duration_ms: int
     removed: List[str] = field(default_factory=list)
     mode: Optional[str] = None
+    # False only for the SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 escape hatch on
+    # shred_openbao()/revoke_svid(): the stage reports COMPLETED so a
+    # provider-less pipeline can still proceed, but this flag -- not just the
+    # free-text detail -- is what callers (TeardownReport, the teardown API
+    # response, the audit event) must check to see that it was never
+    # verified. True for every other stage/outcome, including FAILED (an
+    # outright failure is already visible via StageOutcome.succeeded).
+    verified: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -449,9 +457,10 @@ def shred_openbao(
     h = validate_customer_hash(customer_hash)
     start = time.monotonic()
 
-    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None) -> StageResult:
+    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None,
+               verified: bool = True) -> StageResult:
         return StageResult(TeardownStage.SHRED_OPENBAO, h, outcome, detail,
-                           int((time.monotonic() - start) * 1000), removed or [])
+                           int((time.monotonic() - start) * 1000), removed or [], verified=verified)
 
     resolved_client = client if client is not None else build_default_openbao_shred_client(timeout)
     removed_keys = [f"transit/keys/eap-{h}", f"secret/data/eap-{h}"]
@@ -471,6 +480,7 @@ def shred_openbao(
             f"independently verified ({TEARDOWN_ALLOW_UNVERIFIED_ENV}=1 set; no provider "
             "configured)",
             removed_keys,
+            verified=False,
         )
 
     try:
@@ -500,9 +510,10 @@ def revoke_svid(
     h = validate_customer_hash(customer_hash)
     start = time.monotonic()
 
-    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None) -> StageResult:
+    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None,
+               verified: bool = True) -> StageResult:
         return StageResult(TeardownStage.REVOKE_SVID, h, outcome, detail,
-                           int((time.monotonic() - start) * 1000), removed or [])
+                           int((time.monotonic() - start) * 1000), removed or [], verified=verified)
 
     resolved_client = client if client is not None else build_default_spire_revoke_client(timeout)
     revoked_svids = [f"spiffe://signalloom.demo/ns/eap-{h}/sa/tenant-app"]
@@ -522,6 +533,7 @@ def revoke_svid(
             f"independently verified ({TEARDOWN_ALLOW_UNVERIFIED_ENV}=1 set; no provider "
             "configured)",
             revoked_svids,
+            verified=False,
         )
 
     try:
@@ -670,6 +682,7 @@ def build_audit_event(
         "duration_ms": result.duration_ms,
         "removed": list(result.removed),
         "mode": result.mode,
+        "verified": result.verified,
     }
 
 
@@ -710,8 +723,24 @@ class TeardownReport:
     def ok(self) -> bool:
         return all(r.outcome.succeeded for r in self.results)
 
+    @property
+    def verified(self) -> bool:
+        """False if any stage completed without independent verification
+        (the SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 escape hatch). This is
+        the machine-readable signal that `ok=True` alone does not carry:
+        `ok` is True for an unverified-but-completed stage too, so a caller
+        that only checks `ok` would read an unverified pass as a clean,
+        verified success. Check `verified` for that distinction."""
+        return all(r.verified for r in self.results)
+
+    @property
+    def unverified_stages(self) -> List[str]:
+        return [r.stage.value for r in self.results if not r.verified]
+
     def to_dict(self) -> Dict[str, Any]:
         return {"customer_hash": self.customer_hash, "ok": self.ok,
+                "verified": self.verified,
+                "unverified_stages": list(self.unverified_stages),
                 "stages_completed": list(self.stages_completed),
                 "results": [r.to_dict() for r in self.results]}
 

@@ -132,7 +132,7 @@ updated: 2026-10-06T12:50
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | baseline | On `integration/eapci-v0.1.0` at the cut SHA run `make test-eap-offline`, `make test-kusari-e2e`, `scripts/slaws-acceptance.sh /tmp/eapci-acceptance`, `make docs-lint`; `kanban-check.sh doctor`. | — | Four commands rc 0; totals in errata | S | antigravity | — | — | — | — | — |
+| P0 | baseline | On `integration/eapci-v0.1.0` at the cut SHA run `make test-eap-offline`, `make test-kusari-e2e`, `scripts/slaws-acceptance.sh /tmp/eapci-acceptance`, `make docs-lint`; `kanban-check.sh doctor`. | — | Four commands rc 0; totals in errata | S | antigravity | [Errata](#errata--eapci-p0) | — | — | — | — |
 | P1-PRE | preflight | File:line table for `Makefile:2397-2401` ENV check, `deploy/gcp/sl-port-over-sandbox.tfvars` lane block, `demo-up.sh:1068-1130` payload, `demo-pipeline.sh` test stages (around 838-851, 1062), `signalloom-ci.yaml:19-32`; name the exact edits for P1-1..P1-4; post lane names to `/tmp/chat.jsonl`. | P0 | Table in errata; no code change | S | antigravity | — | — | — | — | — |
 | P1-1 | implementation | Add an optional lane attribute `tailscale_hostname` to the `environments` object type (`env-contract/variables.tf`, a strict type that drops undeclared keys), carry it through the compute module (which hard-codes `sl-${environment_key}` at `compute/main.tf:175,213`) and the hand-off writer to `demo-up.sh:3384` and a pilot profile for `demo-2` in the example tfvars: labels `tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`; do not set `hostname`, which enables public TLS (`edge/main.tf:34`). `/act` stays enabled on every lane. | P1-PRE | `terraform validate`; bats: the `demo-2` profile renders `tailscale_hostname` matching `^sl-eap-[a-f0-9]{8}$` and no `hostname`; other lanes unchanged | M | antigravity | — | — | — | — | — |
 | P1-2 | implementation | `GCP_TF_DEMO_REF=<ref>`: build the payload from a clean worktree of that ref; set `RUN_COMMIT` (`demo-up.sh:2049`) from that ref's short SHA; write `source_ref` and `source_sha` to the hand-off and keep them through `gcp-tf-handoff` regeneration; refuse to run with no ref unless `GCP_TF_DEMO_REF=HEAD` is explicit. | P1-PRE | bats with stubbed git and gcloud: payload SHA equals the ref SHA; a dirty principal tree does not change it; `source_sha` survives a regenerated hand-off; missing ref fails with a named error | M | antigravity | — | — | — | — | — |
@@ -189,4 +189,57 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 - Mapping: SLSE D1 is P1-7, D2 is P1-8, D3 and D4 are P1-9, D5 is P1-10, and D6 is P2-5.
 - P1-3 keeps only the pipeline list edit. P2-5 runs live after the P2-4 rebuild.
 - SLSE's Definition of Done was ticked before any work existed. It is unticked in the vault and superseded by these rows.
+
+#### Errata — EAPCI-P0
+
+- **Logical ID:** P0
+- **Created:** 2026-10-06 18:30:00+01:00
+- **Last Updated:** 2026-10-06 18:30:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0` (`44e140c07175b1928e8bcb45bf2887e75df03050`)
+- **Cut Commit SHA:** `44e140c07175b1928e8bcb45bf2887e75df03050`
+- **Merge Base Check:** `git merge-base --is-ancestor origin/feat/signal-loop-and-bootstrap-refactor integration/eapci-v0.1.0` -> `0` (clean ancestor)
+
+##### Baseline Acceptance Table
+
+| Command | Exit Code | Result / Output Summary | Pass Condition & Findings |
+| :--- | :--- | :--- | :--- |
+| `make test-eap-offline` | 0 | Pytest: 265 passed, 18 warnings in 53.14s; Bats: 1..18 (11 ok, 7 skip); Tailscale CLI: 33 passed | All 265 offline pytest tests pass; 7 ROUTELIVE bats tests skip waiting for live portal deployment; 33 Tailscale automation tests pass. Overall rc 0. |
+| `make test-kusari-e2e` | 0 | 28 passed, 0 failed in 1.141s | Both store modes verified offline: 14 tests under memory store, 14 tests under `-tags frostdb`. Full synthetic corpus and burst detection verified. |
+| `scripts/slaws-acceptance.sh /tmp/eapci-acceptance` | 1 | `signal-ingest` rc=0 pass=3618 fail=0 (22s); `signal-ingest-frostdb` rc=0 pass=3671 fail=0 (25s); `policy-engine` rc=1 pass=301 fail=1 (0s); `sldc-offline` rc=0 pass=704 fail=0 (253s); `probe-name` rc=0 pass=checked=4972 fail=0 (1s); `docs-lint` rc=0 pass=checked=689 fail=0 (7s); `obscel-extra` rc=0 pass=118 fail=0 (0s); `alignment` rc=0 pass=checked=103 fail=0 (1s) | Acceptance harness executed to completion. `policy-engine` build fails with `fatal error: /usr/include/stdc-predef.h: Permission denied` because `scripts/slaws-acceptance.sh` omits `CGO_ENABLED=0` in its policy-engine invocation while running in unprivileged sandbox. All 7 other legs pass cleanly. |
+| `make docs-lint` | 0 | `docs-lint: 689 file(s) clean (all checks: 99, correctness checks: 3, link checks: 587)` | Full documentation suite clean across all 689 tracked markdown files. Zero lint errors. |
+| `kanban-check.sh doctor --repo .` | 1 | 7 exception categories identified (all pre-existing across the wider repo board state) | (1) Graph integrity: missing edge P1-PRE → P0, orphan P0; (2) Zero-output cards: 10 historical tasks with 0 output lines; (3) Uncompiled prompts: 5 legacy cards; (4) Orphan worktrees: 11 worktrees; (5) State oscillation: 49 tasks with >1 entry into same state; (6) Dangling commit: 1 commit (47525f4a); (7) Stalled tasks: 2 active tasks. |
+
+##### Pre-Existing Red Ledger
+
+| Check / Probe | Result | Details / Pre-Existing Defect |
+| :--- | :--- | :--- |
+| `sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256` | FAILED | `scripts/ci/gcp-ci.sh: OK`, `scripts/ci/vm-pipeline.sh: FAILED`, `scripts/ci/ci-lock.sh: FAILED`. Pre-existing TFID digest failure documented in proposal amendments. |
+| `make gcp-tf-validate` (bats stage: `test/terraform-demo-driver.bats`) | FAILED | 3 tests fail in `test/terraform-demo-driver.bats` (132: failing remote path provisioning aborts; 133: provisioning and pipeline stubs fail independently; 134: PASS summary next to non-zero pipeline exit is a FAIL). All Terraform unit tests (195/195 across bootstrap, environments, compute, deploy-identity, edge, env-contract, identity, network) pass cleanly. |
+| `gcloud --version` | FAILED | `PermissionError: [Errno 13] Permission denied: '/home/andy/.config/gcloud/active_config'`. Pre-existing sandbox constraint documented in proposal §3. |
+
+##### Toolchain Inventory
+
+| Tool | Version / Status |
+| :--- | :--- |
+| `terraform` | Terraform v1.15.8 |
+| `bats` | Bats 1.13.0 |
+| `yq` | v4.53.2 |
+| `jq` | jq-1.8.1 |
+| `uv` | uv 0.5.10 |
+| `go` | go version go1.26.2 linux/amd64 |
+| `bun` | 1.4.0 |
+| `shellcheck` | 0.11.0 |
+| `python` | Python 3.14.4 |
+| `docker` | Docker version 29.7.1, build e9452d6 |
+| `gcloud` | Blocked in agent sandbox (`~/.config/gcloud` denied) |
+
+##### Non-Interference and Cleanliness Guarantee
+- `git status --porcelain` across principal repo and isolated worktree: clean (0 lines outside proposal errata).
+- Logs preserved in `/tmp/eapci-p0-logs/` (`test-eap-offline.log`, `test-kusari-e2e.log`, `slaws-acceptance.log`, `docs-lint.log`, `kanban-doctor.log`, `toolchain.txt`).
+- Acceptance artifacts preserved in `/tmp/eapci-acceptance/` and `/tmp/eapci-acceptance-p0/` (`head.txt`, `totals.txt`, `totals.key`, and individual leg logs).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P0","status":"pass","commit":"044fd718aeaa76c0b03f0a57cb5be58edfcdaef3"} -->
+
 

@@ -65,6 +65,11 @@ def is_superadmin(principal: Principal) -> bool:
     return principal.subject in subject_allowlist
 
 
+def is_superadmin_subject(principal: Principal) -> bool:
+    """Authorize high-impact controls only from the token's stable subject."""
+    return principal.subject in _configured_superadmin_subjects()
+
+
 def require_superadmin(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> Principal:

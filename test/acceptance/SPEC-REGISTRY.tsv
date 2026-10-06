@@ -77,6 +77,7 @@ governance-navigation.spec.ts	suite-only	Drives 3-tier sidebar hierarchy, supera
 kagent-agents.spec.ts	suite-only	Drives the /agents page against the live Kagent declarative swarm; requires the kagent slice (make demo-kagent-up).
 live-data.spec.ts	ci:stage8b	Walks every data-driven route with demo fixtures DISABLED and fails on any 4xx/5xx from an API call. Runs in stage8b beside smoke.spec.ts because both are `smoke`-project specs that log themselves in; stage8b passes both filenames, since acceptance-test.sh forwards "$@" to playwright as a filename filter and a spec not named there never runs.
 navigation.spec.ts	suite-only	Drives the 3-tier sidebar navigation hierarchy (View, Control, Design), persistent utility anchors, active highlighting, keyboard shortcuts, and rail collapse. Requires demo-signalloom-up.
+network-security-superadmin.spec.ts	suite-only	Dedicated project authenticates through Dex and exercises the live Network Tests API; parent orchestration decides when the shared netassert runner may be mutated.
 onboarding.spec.ts	suite-only	Drives the 3-step first user onboarding wizard flow with persistence and consent. Requires running demo cluster with dashboard-signalloom.
 policy-editor.spec.ts	suite-only	Drives Policy-as-Code CEL editor, syntax diagnostics, version rollback, and Compliance posture score drill-down. Requires demo-signalloom-up.
 rbac-analysis.spec.ts	suite-only	Behind guards.afmDeployed(). One test, SKIP without the k8s-afm slice.

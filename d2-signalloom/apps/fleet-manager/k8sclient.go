@@ -37,6 +37,12 @@ type k8sFleetClient struct {
 	// preserved across a retry rather than restamped — an assertion that a real
 	// clock makes flaky-or-vacuous depending on how fast the test runs.
 	now func() time.Time
+	// identityMap binds a signalloom.ai/agent-name label value to the
+	// ServiceAccount the real agent runs as (identity_map.go). Nil is
+	// tolerated: resolvePod's label-selector fallback then trusts every
+	// label match, which is today's behaviour for callers that construct a
+	// client directly.
+	identityMap *AgentIdentityMap
 }
 
 // Compile-time proof the real client satisfies the orchestrator's contract.
@@ -110,6 +116,17 @@ func (c *k8sFleetClient) SetAdmissionClient(ac AdmissionClient) {
 func (c *k8sFleetClient) AdmissionClient() AdmissionClient {
 	return c.admissionClient
 }
+// SetIdentityMap wires the agent identity map into both of this client's
+// label-resolution sites: its own resolvePod fallback and the mesh client's
+// resolveTargetIP fallback (mesh_client.go), which would otherwise keep
+// trusting a label alone even after this client's own check is wired.
+func (c *k8sFleetClient) SetIdentityMap(m *AgentIdentityMap) {
+	c.identityMap = m
+	if mesh, ok := c.meshClient.(*CiliumMeshClient); ok {
+		mesh.identityMap = m
+	}
+}
+
 func (c *k8sFleetClient) namespaceOrDefault(namespace string) string {
 	if namespace == "" {
 		return c.defaultNamespace
@@ -159,6 +176,31 @@ func (c *k8sFleetClient) resolvePod(ctx context.Context, namespace, agentID stri
 		return nil, classifyAPIError("list pods", target, listErr)
 	}
 	items := list.Items
+
+	// The selector matches on signalloom.ai/agent-name, which is written by
+	// whoever creates the pod -- including hosted-daytona-coder, which holds
+	// pod-create RBAC in this namespace (d2-signalloom/infra/agent-swarm/
+	// hosted-daytona-coder). A pod whose namespace/ServiceAccount does not
+	// match the identity map's registered pair for this agent name is
+	// excluded here, before the ambiguity check below, so a spoofed decoy can
+	// never win resolution either by being the sole match or by crowding out
+	// the real pod into "ambiguous". Namespace is checked alongside
+	// ServiceAccount because a ServiceAccount name is only unique within its
+	// namespace: this list is already scoped to `namespace` by the List call
+	// above, but that namespace can itself be caller-supplied (GetPodState et
+	// al. take it as a parameter), so it must be checked, not assumed.  An
+	// unregistered agent name is unaffected.
+	if c.identityMap != nil {
+		name := agentNameFromID(agentID)
+		identified := make([]corev1.Pod, 0, len(items))
+		for _, p := range items {
+			if c.identityMap.Matches(name, namespace, p.Spec.ServiceAccountName) {
+				identified = append(identified, p)
+			}
+		}
+		items = identified
+	}
+
 	// A pod being deleted is not the agent's instance any more once a live
 	// one exists: after a replace-on-recover the frozen predecessor can take
 	// tens of seconds to terminate, and counting it made every stun of the
@@ -1608,14 +1650,17 @@ func (c *k8sFleetClient) revokeSpireForIdentity(ctx context.Context, namespace, 
 // LookupAgentPod reads one pod by name from the agent namespace. A NotFound
 // is reported as found=false with a nil error; any other API failure is
 // returned so the caller can say the lookup failed rather than that the pod
-// is absent.
-func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, bool, error) {
+// is absent. The namespace and ServiceAccount are returned separately from
+// the labels: together they are the one part of this answer resolveAgentID
+// can trust a pod's creator not to have forged (see agent_resolution.go) --
+// a ServiceAccount name alone is only unique within its namespace.
+func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, string, string, bool, error) {
 	pod, err := c.clientset.CoreV1().Pods(c.defaultNamespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil, false, nil
+		return nil, "", "", false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, "", "", false, err
 	}
-	return pod.Labels, true, nil
+	return pod.Labels, pod.Namespace, pod.Spec.ServiceAccountName, true, nil
 }

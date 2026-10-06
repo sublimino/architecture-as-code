@@ -27,3 +27,11 @@ resources:
   - rbac.yaml
   - configmap.yaml
   - openbao-agent-config.yaml
+  # ValidatingAdmissionPolicy and -Binding are cluster-scoped: kustomize's
+  # namespace transformer (set by `namespace: fe-signalloom` above) and
+  # Flux's targetNamespace both skip cluster-scoped kinds, so this file is
+  # safe to carry in the same Kustomization as the namespaced fleet-manager
+  # resources. See agent-identity-binding.yaml's own header for why it
+  # exists and test/agent-identity-binding-vap.bats for the offline proof
+  # that it renders here.
+  - agent-identity-binding.yaml

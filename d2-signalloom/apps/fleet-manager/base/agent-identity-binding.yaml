@@ -1,0 +1,152 @@
+# CEL ValidatingAdmissionPolicy — Agent Identity Binding
+#
+# Binds a signalloom.ai/agent-name label value to the NAMESPACE and
+# ServiceAccount the real agent is registered to run as, and rejects any pod
+# CREATE/UPDATE, in ANY namespace, that claims a REGISTERED agent's identity
+# label while running in a different namespace or as a different
+# ServiceAccount.
+#
+# Why this exists: a pod's labels are written by whoever creates it.
+# hosted-daytona-coder holds pod-create RBAC in fe-signalloom-agents
+# (d2-signalloom/infra/agent-swarm/hosted-daytona-coder/rolebinding.yaml), so
+# without this policy it could create a pod carrying
+# signalloom.ai/agent-name=kusari-agent (or any other registered agent's
+# identity label) and have the warden, fleet-manager's own resolution
+# (../agent_resolution.go, ../k8sclient.go, ../mesh_client.go) or signal
+# attribution treat it as that agent. Both namespace and ServiceAccount are
+# required: a ServiceAccount name is only unique within its namespace, so a
+# decoy in a DIFFERENT namespace that names its own ServiceAccount after a
+# registered agent (e.g. hosted-daytona-coder's own namespace running a
+# ServiceAccount literally called "kusari-agent") must not pass a check that
+# compares the ServiceAccount name alone. The namespace/ServiceAccount pair
+# is the one part of a pod's identity its creator cannot forge independently
+# of the RBAC it already has, which is why this is the admission-time
+# backstop behind the same-process checks in Go.
+#
+# Scope: matchResources is cluster-wide (no namespaceSelector) precisely
+# BECAUSE the spoof this guards against is cross-namespace -- restricting to
+# fe-signalloom-agents would let a decoy in any OTHER namespace with the
+# right label win. spec.matchConditions below keeps this cheap and narrow in
+# practice: the CEL only runs for pods that carry signalloom.ai/agent-name at
+# all, so an ordinary cluster-wide workload with no such label is never
+# evaluated. kube-system is NOT excluded: nothing there carries that label,
+# so matchConditions already excludes it in effect, and adding a second,
+# redundant exclusion would be an unverified claim about what kube-system
+# pods look like today, maintained forever against a cluster this policy
+# does not control.
+#
+# The mapping is this ValidatingAdmissionPolicy's own params object: the
+# fleet-config ConfigMap (configmap.yaml, identity.<agent-name> /
+# identity-ns.<agent-name> key pairs) -- the SAME ConfigMap fleet-manager
+# mounts at /etc/fleet and identity_map.go (LoadAgentIdentityMap) reads. One
+# authored list; extending it to a new agent is two lines in configmap.yaml
+# and needs no change here.
+#
+# An unregistered agent-name value is unaffected (expectedServiceAccount ==
+# '' admits unconditionally) -- this policy only ever narrows a spoof of a
+# KNOWN identity, it is never a second allow-list for which agents may exist.
+#
+# Pinned offline by ../agent_identity_binding_vap_test.go (CEL evaluation,
+# same cel-go harness as vap_admission_test.go) and
+# test/agent-identity-binding-vap.bats (render presence in this
+# Flux-reconciled Kustomization chain).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sl-agent-identity-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+    signalloom.ai/tier: agents
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  # Cheap pre-filter: the validations below only matter for a pod that
+  # claims an agent identity at all. Without this, matchResources being
+  # cluster-wide (see the file header) would mean every pod create/update on
+  # the cluster runs the variables/validations block above for no reason.
+  matchConditions:
+    - name: carries-agent-name-label
+      expression: >-
+        has(object.metadata.labels) && 'signalloom.ai/agent-name' in object.metadata.labels
+  variables:
+    - name: agentNameLabel
+      expression: >-
+        has(object.metadata.labels) && 'signalloom.ai/agent-name' in object.metadata.labels
+          ? object.metadata.labels['signalloom.ai/agent-name']
+          : ''
+    - name: identityKey
+      expression: "'identity.' + variables.agentNameLabel"
+    - name: identityNsKey
+      expression: "'identity-ns.' + variables.agentNameLabel"
+    # registered is true only when BOTH halves of the pair are present --
+    # mirrors identity_map.go/agent_identity_map.py dropping a half-authored
+    # entry rather than guessing the missing half.
+    - name: registered
+      expression: >-
+        variables.agentNameLabel != '' && params != null && has(params.data) &&
+        variables.identityKey in params.data && variables.identityNsKey in params.data
+    - name: expectedServiceAccount
+      expression: "variables.registered ? params.data[variables.identityKey] : ''"
+    - name: expectedNamespace
+      expression: "variables.registered ? params.data[variables.identityNsKey] : ''"
+    - name: actualServiceAccount
+      expression: >-
+        has(object.spec.serviceAccountName) ? object.spec.serviceAccountName : ''
+    - name: actualNamespace
+      expression: >-
+        has(object.metadata.namespace) ? object.metadata.namespace : ''
+  validations:
+    - expression: >-
+        !variables.registered ||
+        (variables.expectedServiceAccount == variables.actualServiceAccount &&
+         variables.expectedNamespace == variables.actualNamespace)
+      messageExpression: >-
+        "pod labelled signalloom.ai/agent-name=" + variables.agentNameLabel +
+        " must run in namespace '" + variables.expectedNamespace +
+        "' as the registered ServiceAccount '" + variables.expectedServiceAccount +
+        "' for that agent; got namespace '" + variables.actualNamespace +
+        "' and ServiceAccount '" + variables.actualServiceAccount +
+        "' -- a label match alone is never proof of agent identity, and a " +
+        "ServiceAccount name alone is only unique within its namespace"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-agent-identity-binding-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-agent-identity-binding
+  validationActions: ["Deny"]
+  # fleet-config lives in fe-signalloom (this Kustomization's targetNamespace,
+  # set by apps/fe-signalloom/base/kustomization.yaml, which pulls this
+  # directory in as a resource). paramRef.namespace lets a cluster-scoped
+  # binding name a params object regardless of matchResources' scope.
+  paramRef:
+    name: fleet-config
+    namespace: fe-signalloom
+    # Deny, not Allow: a missing fleet-config ConfigMap must not silently
+    # admit every spoof. The API server enforces this BEFORE the policy's
+    # CEL ever runs (params resolution happens ahead of matchConditions and
+    # validations), so it is strictly stronger than anything expressible in
+    # this policy's own CEL. Combined with matchConditions above, a missing
+    # ConfigMap only denies pods that carry signalloom.ai/agent-name at all
+    # -- an ordinary, unlabelled workload is unaffected either way.
+    parameterNotFoundAction: Deny
+  # No namespaceSelector: matchResources is deliberately cluster-wide. See
+  # the policy's own Scope comment above -- restricting this to
+  # fe-signalloom-agents would defeat the point, since the spoof is a decoy
+  # created in a DIFFERENT namespace. matchConditions on the policy, not a
+  # namespace restriction here, is what keeps evaluation narrow.
+  matchResources: {}

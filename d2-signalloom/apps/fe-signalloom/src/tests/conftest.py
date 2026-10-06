@@ -20,6 +20,13 @@ Three things live here, and only three:
    delete_namespace), for modules that opt in via
    ``MOCK_KUBECTL_TEARDOWN = True``. See its docstring.
 
+3b. ``_eap_teardown_unverified_opt_in`` — same opt-in flag
+   (``MOCK_KUBECTL_TEARDOWN = True``), sets
+   ``SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1`` for the test. These suites
+   have no real OpenBao/SPIRE backing in-process either, so without this
+   shred_openbao()/revoke_svid() now fail closed (see
+   environment_teardown.py). See its docstring.
+
 4. ``pytest_configure`` — the hermetic cluster guard.  Before any test runs it
    puts guard executables for every cluster/runtime CLI first on ``PATH`` and
    points ``KUBECONFIG`` at an empty config, so no test can act on a real
@@ -317,6 +324,31 @@ def _eap_teardown_kubectl_stub(request: pytest.FixtureRequest, monkeypatch: pyte
         return environment_teardown._Completed(0, "{}", "")
 
     monkeypatch.setattr(environment_teardown, "run_bounded", _stub_run_bounded)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _eap_teardown_unverified_opt_in(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Explicit, loud opt-in for the two provider-backed teardown stages
+    (shred_openbao, revoke_svid) in suites that drive the real 5-stage
+    teardown pipeline with no OpenBao/SPIRE backing of their own.
+
+    Gated by the same ``MOCK_KUBECTL_TEARDOWN = True`` module flag as
+    ``_eap_teardown_kubectl_stub`` above -- a suite that opts into the fake
+    kubectl boundary is, by construction, a suite with no real cluster or
+    provider behind it. Without this, shred_openbao()/revoke_svid() fail
+    closed (StageOutcome.FAILED) because no provider is configured, which
+    is the correct behaviour for an unconfigured caller but would also
+    break every teardown-completion assertion these suites make. Setting
+    SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 is exactly the documented
+    escape hatch for that: it is a module-scoped, explicit admission that
+    this suite's teardown is not independently verified, never silent.
+    """
+    if not getattr(request.module, "MOCK_KUBECTL_TEARDOWN", False):
+        yield
+        return
+
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", "1")
     yield
 
 

@@ -483,13 +483,23 @@ def test_cli_namespace_env_and_flag(kube, tsmock):
 # ------------------------------------------------------------------------------
 
 def test_ordered_teardown_executes_all_five_stages_in_exact_order(kube, tsmock):
-    """Asserts 5 stages execute in order: drain_routes, shred_openbao, revoke_svid, evict_tailscale, delete_namespace."""
+    """Asserts 5 stages execute in order: drain_routes, shred_openbao, revoke_svid, evict_tailscale, delete_namespace.
+
+    shred_openbao/revoke_svid now fail closed with no provider configured
+    (see test_environment_teardown_openbao_spire_wiring.py), so this test
+    configures trivial fake providers via stage_kwargs -- proving the order
+    and overall completion without relying on the old unverified default.
+    """
     mgr = _draining_manager()
     recorded_stages = []
     report = run_ordered_teardown(
         H,
         manager=mgr,
         recorder=recorded_stages,
+        stage_kwargs={
+            TeardownStage.SHRED_OPENBAO: {"client": lambda customer_hash: None},
+            TeardownStage.REVOKE_SVID: {"client": lambda customer_hash: None},
+        },
     )
     expected_order = [
         TeardownStage.DRAIN_ROUTES,
@@ -500,7 +510,33 @@ def test_ordered_teardown_executes_all_five_stages_in_exact_order(kube, tsmock):
     ]
     assert recorded_stages == expected_order
     assert report.ok
+    assert report.verified
+    assert report.unverified_stages == []
     assert report.stages_completed == [s.value for s in expected_order]
+    assert mgr.get_lifecycle(H).state is EnvironmentLifecycleState.TERMINATED
+
+
+def test_ordered_teardown_unverified_opt_in_completes_but_is_not_reported_as_verified(kube, tsmock, monkeypatch):
+    """The gap this closes: SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 with no
+    OpenBao/SPIRE provider lets shred_openbao/revoke_svid report COMPLETED
+    (see test_environment_teardown_openbao_spire_wiring.py), so
+    report.ok/the lifecycle state alone read as a clean success -- `ok` is
+    True for an unverified-but-completed stage too. report.verified (and
+    the stages it names in unverified_stages) is the machine-readable
+    signal that distinguishes "completed" from "completed AND verified",
+    and must be visible on the overall result, not just in free-text
+    stage details.
+    """
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", "1")
+    mgr = _draining_manager()
+    report = run_ordered_teardown(H, manager=mgr)
+    assert report.ok
+    assert not report.verified
+    assert report.unverified_stages == ["shred_openbao", "revoke_svid"]
+    as_dict = report.to_dict()
+    assert as_dict["ok"] is True
+    assert as_dict["verified"] is False
+    assert as_dict["unverified_stages"] == ["shred_openbao", "revoke_svid"]
     assert mgr.get_lifecycle(H).state is EnvironmentLifecycleState.TERMINATED
 
 

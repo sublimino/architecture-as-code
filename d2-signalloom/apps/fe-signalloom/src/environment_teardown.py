@@ -58,6 +58,17 @@ DEFAULT_ROUTE_NAMESPACE = "fe-signalloom"
 HASH_LABEL = "signalloom.io/eap-hash"
 SYSTEM_ACTOR = "system:sled-teardown"
 
+# Loud, explicit opt-in for shred_openbao()/revoke_svid() to report completion
+# without a verifying provider (demo/fixture use only -- see the fail-closed
+# contract documented above those two functions). Never read as a default;
+# every other path that wants completion must configure a real provider via
+# SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire.
+TEARDOWN_ALLOW_UNVERIFIED_ENV = "SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED"
+
+
+def _teardown_unverified_allowed() -> bool:
+    return os.getenv(TEARDOWN_ALLOW_UNVERIFIED_ENV) == "1"
+
 _HASH_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
@@ -141,6 +152,14 @@ class StageResult:
     duration_ms: int
     removed: List[str] = field(default_factory=list)
     mode: Optional[str] = None
+    # False only for the SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 escape hatch on
+    # shred_openbao()/revoke_svid(): the stage reports COMPLETED so a
+    # provider-less pipeline can still proceed, but this flag -- not just the
+    # free-text detail -- is what callers (TeardownReport, the teardown API
+    # response, the audit event) must check to see that it was never
+    # verified. True for every other stage/outcome, including FAILED (an
+    # outright failure is already visible via StageOutcome.succeeded).
+    verified: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -308,13 +327,21 @@ drain_routes = sever_ingress_routes
 # OpenBaoHTTPClient and SpireCLIClient had zero importers outside its own
 # tests on the base: nothing ever constructed them. Wiring them in here is
 # opt-in, gated by the same SIGNALLOOM_TEARDOWN_* env vars
-# environment_teardown_adapters.build_teardown_executor() already reads, so
-# every existing caller that has never configured a provider (which is every
-# test fixture and the demo deployment today) keeps the exact behaviour it
-# has always had: shred_openbao()/revoke_svid() with client=None report
-# completion without verification. An operator who sets
-# SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire gets real, verified
-# shredding and revocation instead.
+# environment_teardown_adapters.build_teardown_executor() already reads.
+#
+# FAIL CLOSED BY DEFAULT: with no provider configured (client=None and
+# build_default_openbao_shred_client()/build_default_spire_revoke_client()
+# both return None), shred_openbao()/revoke_svid() no longer report
+# StageOutcome.COMPLETED. They report StageOutcome.FAILED, with a detail
+# naming SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire as the way to
+# get real, verified shredding/revocation. A caller that genuinely has no
+# OpenBao/SPIRE backing (demo deployments, offline fixtures) must say so out
+# loud via SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 -- an explicit admission
+# that this run is not verified, never the default, and surfaced as such in
+# the stage detail (which always contains the word "UNVERIFIED") even though
+# the stage reports COMPLETED so the pipeline can still proceed. A configured
+# provider (env-built or passed explicitly as `client=`) is unaffected by
+# either flag and keeps the real, verified behaviour unchanged.
 # ------------------------------------------------------------------------------
 
 class _ConfiguredOpenBaoShredClient:
@@ -366,12 +393,12 @@ class _ConfiguredSpireRevokeClient:
 
 
 def build_default_openbao_shred_client(timeout: float = STAGE_TIMEOUT_SECONDS) -> Optional[Any]:
-    """Opt-in real OpenBao client for shred_openbao(), or None (today's default).
+    """Opt-in real OpenBao client for shred_openbao(), or None (no provider configured).
 
-    None means "no provider configured"; shred_openbao() then keeps its
-    long-standing unverified-success behaviour. Set
-    SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire plus
-    SIGNALLOOM_TEARDOWN_OPENBAO_{URL,TOKEN,TEST_CIPHERTEXT} (same names
+    None means shred_openbao() has nothing to verify against, so it now fails
+    closed (StageOutcome.FAILED) unless SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1
+    is explicitly set. Set SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire
+    plus SIGNALLOOM_TEARDOWN_OPENBAO_{URL,TOKEN,TEST_CIPHERTEXT} (same names
     environment_teardown_adapters.build_teardown_executor() reads) to turn on
     real, verified shredding.
     """
@@ -393,11 +420,12 @@ def build_default_openbao_shred_client(timeout: float = STAGE_TIMEOUT_SECONDS) -
 
 
 def build_default_spire_revoke_client(timeout: float = STAGE_TIMEOUT_SECONDS) -> Optional[Any]:
-    """Opt-in real SPIRE client for revoke_svid(), or None (today's default).
+    """Opt-in real SPIRE client for revoke_svid(), or None (no provider configured).
 
     Same opt-in contract as build_default_openbao_shred_client(): None unless
     SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire and the SPIRE env
-    vars are set.
+    vars are set. revoke_svid() fails closed on None unless
+    SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 is explicitly set.
     """
     if os.getenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER") != "openbao-spire":
         return None
@@ -429,20 +457,39 @@ def shred_openbao(
     h = validate_customer_hash(customer_hash)
     start = time.monotonic()
 
-    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None) -> StageResult:
+    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None,
+               verified: bool = True) -> StageResult:
         return StageResult(TeardownStage.SHRED_OPENBAO, h, outcome, detail,
-                           int((time.monotonic() - start) * 1000), removed or [])
+                           int((time.monotonic() - start) * 1000), removed or [], verified=verified)
 
     resolved_client = client if client is not None else build_default_openbao_shred_client(timeout)
+    removed_keys = [f"transit/keys/eap-{h}", f"secret/data/eap-{h}"]
+
+    if resolved_client is None:
+        if not _teardown_unverified_allowed():
+            return result(
+                StageOutcome.FAILED,
+                "OpenBao shredding cannot be verified: no provider configured. Set "
+                "SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire (plus the OpenBao env "
+                f"vars) for real, verified shredding, or {TEARDOWN_ALLOW_UNVERIFIED_ENV}=1 to "
+                "explicitly accept an unverified pass for demo/fixture use.",
+            )
+        return result(
+            StageOutcome.COMPLETED,
+            f"UNVERIFIED: shredding of OpenBao keys and secrets for eap-{h} was not "
+            f"independently verified ({TEARDOWN_ALLOW_UNVERIFIED_ENV}=1 set; no provider "
+            "configured)",
+            removed_keys,
+            verified=False,
+        )
+
     try:
-        if resolved_client is not None:
-            if hasattr(resolved_client, "shred"):
-                resolved_client.shred(h)
-            elif hasattr(resolved_client, "shred_keys"):
-                resolved_client.shred_keys(h)
-            elif callable(resolved_client):
-                resolved_client(h)
-        removed_keys = [f"transit/keys/eap-{h}", f"secret/data/eap-{h}"]
+        if hasattr(resolved_client, "shred"):
+            resolved_client.shred(h)
+        elif hasattr(resolved_client, "shred_keys"):
+            resolved_client.shred_keys(h)
+        elif callable(resolved_client):
+            resolved_client(h)
         return result(StageOutcome.COMPLETED, f"Shredded OpenBao keys and secrets for eap-{h}", removed_keys)
     except Exception as exc:
         logger.exception("Failed to shred OpenBao keys for %s: %s", h, exc)
@@ -463,20 +510,39 @@ def revoke_svid(
     h = validate_customer_hash(customer_hash)
     start = time.monotonic()
 
-    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None) -> StageResult:
+    def result(outcome: StageOutcome, detail: str, removed: Optional[List[str]] = None,
+               verified: bool = True) -> StageResult:
         return StageResult(TeardownStage.REVOKE_SVID, h, outcome, detail,
-                           int((time.monotonic() - start) * 1000), removed or [])
+                           int((time.monotonic() - start) * 1000), removed or [], verified=verified)
 
     resolved_client = client if client is not None else build_default_spire_revoke_client(timeout)
+    revoked_svids = [f"spiffe://signalloom.demo/ns/eap-{h}/sa/tenant-app"]
+
+    if resolved_client is None:
+        if not _teardown_unverified_allowed():
+            return result(
+                StageOutcome.FAILED,
+                "SPIRE SVID revocation cannot be verified: no provider configured. Set "
+                "SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER=openbao-spire (plus the SPIRE env vars) "
+                f"for real, verified revocation, or {TEARDOWN_ALLOW_UNVERIFIED_ENV}=1 to "
+                "explicitly accept an unverified pass for demo/fixture use.",
+            )
+        return result(
+            StageOutcome.COMPLETED,
+            f"UNVERIFIED: revocation of SPIRE SVIDs and enrollment tokens for eap-{h} was not "
+            f"independently verified ({TEARDOWN_ALLOW_UNVERIFIED_ENV}=1 set; no provider "
+            "configured)",
+            revoked_svids,
+            verified=False,
+        )
+
     try:
-        if resolved_client is not None:
-            if hasattr(resolved_client, "revoke"):
-                resolved_client.revoke(h)
-            elif hasattr(resolved_client, "revoke_svid"):
-                resolved_client.revoke_svid(h)
-            elif callable(resolved_client):
-                resolved_client(h)
-        revoked_svids = [f"spiffe://signalloom.demo/ns/eap-{h}/sa/tenant-app"]
+        if hasattr(resolved_client, "revoke"):
+            resolved_client.revoke(h)
+        elif hasattr(resolved_client, "revoke_svid"):
+            resolved_client.revoke_svid(h)
+        elif callable(resolved_client):
+            resolved_client(h)
         return result(StageOutcome.COMPLETED, f"Revoked SPIRE SVIDs and enrollment tokens for eap-{h}", revoked_svids)
     except Exception as exc:
         logger.exception("Failed to revoke SVID for %s: %s", h, exc)
@@ -616,6 +682,7 @@ def build_audit_event(
         "duration_ms": result.duration_ms,
         "removed": list(result.removed),
         "mode": result.mode,
+        "verified": result.verified,
     }
 
 
@@ -656,8 +723,24 @@ class TeardownReport:
     def ok(self) -> bool:
         return all(r.outcome.succeeded for r in self.results)
 
+    @property
+    def verified(self) -> bool:
+        """False if any stage completed without independent verification
+        (the SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 escape hatch). This is
+        the machine-readable signal that `ok=True` alone does not carry:
+        `ok` is True for an unverified-but-completed stage too, so a caller
+        that only checks `ok` would read an unverified pass as a clean,
+        verified success. Check `verified` for that distinction."""
+        return all(r.verified for r in self.results)
+
+    @property
+    def unverified_stages(self) -> List[str]:
+        return [r.stage.value for r in self.results if not r.verified]
+
     def to_dict(self) -> Dict[str, Any]:
         return {"customer_hash": self.customer_hash, "ok": self.ok,
+                "verified": self.verified,
+                "unverified_stages": list(self.unverified_stages),
                 "stages_completed": list(self.stages_completed),
                 "results": [r.to_dict() for r in self.results]}
 

@@ -7,16 +7,23 @@
 # importers outside their own test file -- nothing in production ever built
 # one. environment_teardown.py's own shred_openbao()/revoke_svid() already
 # accept an explicit `client` kwarg, but every real caller (EnvironmentRegistry
-# .teardown(), the CLI, the network-teardown API route) leaves it as the
-# default None, which reports success without verifying anything happened.
+# .teardown(), the CLI, the network-teardown API route) used to leave it as
+# the default None, which reported success without verifying anything
+# happened.
 #
-# This suite proves the opt-in real-provider path:
+# This suite proves the opt-in real-provider path AND the fail-closed-by-
+# default contract that replaced the old silent pass:
 #   build_default_openbao_shred_client() / build_default_spire_revoke_client()
-#     - return None (today's default, zero behaviour change) when
-#       SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER is unset -- matching exactly
-#       what every existing test already exercises.
+#     - return None when SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER is unset.
 #     - build a real, verifying client when the operator opts in.
-#   shred_openbao()/revoke_svid() then use that client and genuinely fail
+#   shred_openbao()/revoke_svid(), given that None:
+#     - report StageOutcome.FAILED by default -- no provider means nothing
+#       verifies the shred/revoke actually happened, so it is not reported
+#       as complete.
+#     - report StageOutcome.COMPLETED with "UNVERIFIED" in the detail only
+#       when the caller explicitly sets SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1
+#       (demo/fixture escape hatch, never the default).
+#   With a configured client, shred_openbao()/revoke_svid() genuinely fail
 #   when the provider cannot prove the postcondition, instead of fabricating
 #   StageOutcome.COMPLETED regardless of what the provider did.
 # ==============================================================================
@@ -168,12 +175,66 @@ def test_revoke_svid_fails_closed_with_a_configured_client_that_cannot_verify(mo
     assert "entries remain" in res.detail
 
 
-def test_shred_openbao_unconfigured_default_is_unchanged(monkeypatch):
-    """Control: the long-standing default (no provider, no explicit client)
-    still reports completion without verification. This is the behaviour
-    every pre-existing test (test_ordered_teardown_executes_all_five_stages_
-    in_exact_order, EnvironmentRegistry.teardown() callers, etc.) depends on,
-    and this wire must not change it."""
+def test_shred_openbao_unconfigured_default_now_fails_closed(monkeypatch):
+    """Andy's fail-closed decision: the long-standing default (no provider, no
+    explicit client, no opt-in) must never report a clean completion again --
+    there is nothing backing the claim that anything was shredded. Every
+    pre-existing caller that depended on the old silent pass
+    (test_ordered_teardown_executes_all_five_stages_in_exact_order,
+    EnvironmentRegistry.teardown() callers, etc.) has been updated to either
+    configure a fake verifying provider or set the explicit unverified opt-in."""
     monkeypatch.delenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER", raising=False)
+    monkeypatch.delenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", raising=False)
+    res = shred_openbao(H)
+    assert res.outcome is StageOutcome.FAILED
+    assert "SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER" in res.detail
+    assert "SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED" in res.detail
+
+
+def test_revoke_svid_unconfigured_default_now_fails_closed(monkeypatch):
+    """Same fail-closed contract as shred_openbao() above, for stage 3."""
+    monkeypatch.delenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER", raising=False)
+    monkeypatch.delenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", raising=False)
+    res = revoke_svid(H)
+    assert res.outcome is StageOutcome.FAILED
+    assert "SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER" in res.detail
+    assert "SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED" in res.detail
+
+
+def test_shred_openbao_unverified_opt_in_completes_but_says_so(monkeypatch):
+    """SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED=1 is the loud, explicit opt-in for
+    demo/fixture use: the stage reports COMPLETED (so a pipeline with no real
+    OpenBao can still proceed) but the detail must say "UNVERIFIED", AND
+    res.verified must be False -- machine-visible, not just free text, so a
+    caller that only checks outcome/ok cannot read this as a clean,
+    verified success."""
+    monkeypatch.delenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER", raising=False)
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", "1")
     res = shred_openbao(H)
     assert res.outcome is StageOutcome.COMPLETED
+    assert "UNVERIFIED" in res.detail
+    assert res.verified is False
+
+
+def test_revoke_svid_unverified_opt_in_completes_but_says_so(monkeypatch):
+    monkeypatch.delenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER", raising=False)
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", "1")
+    res = revoke_svid(H)
+    assert res.outcome is StageOutcome.COMPLETED
+    assert "UNVERIFIED" in res.detail
+    assert res.verified is False
+
+
+def test_shred_openbao_configured_provider_ignores_the_opt_in_flag(monkeypatch):
+    """A configured provider keeps today's verified behaviour unchanged,
+    regardless of whether the unverified opt-in happens to also be set."""
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED", "1")
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_KEY_SPIRE_PROVIDER", "openbao-spire")
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_OPENBAO_URL", "https://bao.internal:8200")
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_OPENBAO_TOKEN", "s.faketoken")
+    monkeypatch.setenv("SIGNALLOOM_TEARDOWN_OPENBAO_TEST_CIPHERTEXT", "vault:v1:fake")
+    good_client = _ConfiguredOpenBaoShredClient(FakeBao(survives=False, decrypt_fails=True))
+    res = shred_openbao(H, client=good_client)
+    assert res.outcome is StageOutcome.COMPLETED
+    assert "UNVERIFIED" not in res.detail
+    assert res.verified is True

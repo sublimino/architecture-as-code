@@ -37,6 +37,12 @@ type k8sFleetClient struct {
 	// preserved across a retry rather than restamped — an assertion that a real
 	// clock makes flaky-or-vacuous depending on how fast the test runs.
 	now func() time.Time
+	// identityMap binds a signalloom.ai/agent-name label value to the
+	// ServiceAccount the real agent runs as (identity_map.go). Nil is
+	// tolerated: resolvePod's label-selector fallback then trusts every
+	// label match, which is today's behaviour for callers that construct a
+	// client directly.
+	identityMap *AgentIdentityMap
 }
 
 // Compile-time proof the real client satisfies the orchestrator's contract.
@@ -159,6 +165,26 @@ func (c *k8sFleetClient) resolvePod(ctx context.Context, namespace, agentID stri
 		return nil, classifyAPIError("list pods", target, listErr)
 	}
 	items := list.Items
+
+	// The selector matches on signalloom.ai/agent-name, which is written by
+	// whoever creates the pod -- including hosted-daytona-coder, which holds
+	// pod-create RBAC in this namespace (d2-signalloom/infra/agent-swarm/
+	// hosted-daytona-coder). A pod whose ServiceAccount does not match the
+	// identity map's registered ServiceAccount for this agent name is excluded
+	// here, before the ambiguity check below, so a spoofed decoy can never win
+	// resolution either by being the sole match or by crowding out the real
+	// pod into "ambiguous". An unregistered agent name is unaffected.
+	if c.identityMap != nil {
+		name := agentNameFromID(agentID)
+		identified := make([]corev1.Pod, 0, len(items))
+		for _, p := range items {
+			if c.identityMap.Matches(name, p.Spec.ServiceAccountName) {
+				identified = append(identified, p)
+			}
+		}
+		items = identified
+	}
+
 	// A pod being deleted is not the agent's instance any more once a live
 	// one exists: after a replace-on-recover the frozen predecessor can take
 	// tens of seconds to terminate, and counting it made every stun of the
@@ -1608,14 +1634,16 @@ func (c *k8sFleetClient) revokeSpireForIdentity(ctx context.Context, namespace, 
 // LookupAgentPod reads one pod by name from the agent namespace. A NotFound
 // is reported as found=false with a nil error; any other API failure is
 // returned so the caller can say the lookup failed rather than that the pod
-// is absent.
-func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, bool, error) {
+// is absent. The ServiceAccount is returned separately from the labels: it is
+// the one part of this answer resolveAgentID can trust a pod's creator not to
+// have forged (see agent_resolution.go).
+func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[string]string, string, bool, error) {
 	pod, err := c.clientset.CoreV1().Pods(c.defaultNamespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	}
-	return pod.Labels, true, nil
+	return pod.Labels, pod.Spec.ServiceAccountName, true, nil
 }

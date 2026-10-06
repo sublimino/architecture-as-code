@@ -95,3 +95,33 @@ data:
         gracePeriod: 0h
         dependencies: []
         namespace: fe-signalloom-agents
+  # ── identity.<agent-name> — the agent identity map ──────────────────────
+  #
+  # The single source of truth binding a signalloom.ai/agent-name label value
+  # to the ServiceAccount the real agent is registered to run as. A pod's
+  # labels are written by whoever creates it -- including hosted-daytona-coder,
+  # which holds pod-create RBAC in fe-signalloom-agents
+  # (d2-signalloom/infra/agent-swarm/hosted-daytona-coder/rolebinding.yaml) --
+  # so a label match alone can never prove a pod is the real agent-name it
+  # claims to be. Every place that resolves "which agent is this pod" from a
+  # label checks the match here first:
+  #
+  #   - fleet-manager: agent_resolution.go (resolveAgentID), k8sclient.go
+  #     (resolvePod), both reading this same ConfigMap's mounted files
+  #     (identity_map.go, LoadAgentIdentityMap).
+  #   - the ValidatingAdmissionPolicy at
+  #     d2-agent-trust/policies/agent-identity-binding.yaml, which admits this
+  #     ConfigMap as its params object and rejects CREATE/UPDATE of a pod in
+  #     fe-signalloom-agents whose signalloom.ai/agent-name label names a
+  #     registered agent but whose spec.serviceAccountName differs.
+  #
+  # One key per registered agent. Values are read verbatim (ConfigMap volume
+  # mount materialises each key as a file; trailing whitespace is trimmed by
+  # both readers), so there is exactly one authored list -- extending the map
+  # to a new agent is one line here, never a change to Go, Python or CEL.
+  # Values cross-checked against the live manifests in
+  # d2-signalloom/infra/agent-swarm/*/service-account.yaml and deployment.yaml.
+  identity.cardvault: agent-cardvault
+  identity.kusari-agent: kusari-agent
+  identity.agent-nono-evidenced: agent-nono-evidenced
+  identity.agent-standard-baseline: agent-standard-baseline

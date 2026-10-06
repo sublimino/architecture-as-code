@@ -49,6 +49,7 @@ from api_compat import (
     settings,
     verified_bearer_claims,
 )
+from cross_tenant_audit import audit_cross_tenant_read
 from superadmin import require_superadmin
 
 router = APIRouter(tags=["invites"])
@@ -219,7 +220,14 @@ async def create_invite(
 async def list_invites(
     principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> InviteListResponse:
-    """Every invite, newest first, without tokens or hashes. Superadmin only."""
+    """Every invite, newest first, without tokens or hashes. Superadmin only.
+
+    Every invite, unscoped by tenant -- a deliberate cross-tenant read (the
+    whole point of the route is a cross-tenant membership console), so every
+    distinct tenant it names other than the superadmin's own is audited.
+    Raises 503 database_unavailable (fail closed) if the audit write itself
+    cannot be recorded.
+    """
     pool = await _invites_pool("invite listing")
     rows = await pool.fetch(
         """SELECT id, email, tenant, created_by, created_at, expires_at, redeemed_by, redeemed_at
@@ -229,7 +237,14 @@ async def list_invites(
         _LIST_LIMIT,
     )
     now = _now()
-    return InviteListResponse(invites=[_summary(row, now) for row in rows])
+    summaries = [_summary(row, now) for row in rows]
+    await audit_cross_tenant_read(
+        principal,
+        "GET /api/v1/invites",
+        [s.model_dump(mode="json") for s in summaries],
+        what="Listing invites cross-tenant",
+    )
+    return InviteListResponse(invites=summaries)
 
 
 @dataclass(frozen=True)

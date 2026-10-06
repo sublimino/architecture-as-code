@@ -1,0 +1,105 @@
+# CEL ValidatingAdmissionPolicy — Agent Identity Binding
+#
+# Binds a signalloom.ai/agent-name label value to the ServiceAccount the real
+# agent is registered to run as, and rejects any pod CREATE/UPDATE in
+# fe-signalloom-agents that claims a REGISTERED agent's identity label while
+# running as a different ServiceAccount.
+#
+# Why this exists: a pod's labels are written by whoever creates it.
+# hosted-daytona-coder holds pod-create RBAC in fe-signalloom-agents
+# (d2-signalloom/infra/agent-swarm/hosted-daytona-coder/rolebinding.yaml), so
+# without this policy it could create a pod carrying
+# signalloom.ai/agent-name=kusari-agent (or any other registered agent's
+# identity label) and have the warden, fleet-manager's own resolution
+# (../agent_resolution.go, ../k8sclient.go) or signal attribution treat it as
+# that agent. The ServiceAccount is the one part of a pod's identity its
+# creator cannot forge independently of the RBAC it already has, which is why
+# this is the admission-time backstop behind the same-process checks in Go.
+#
+# The mapping is this ValidatingAdmissionPolicy's own params object: the
+# fleet-config ConfigMap (configmap.yaml, identity.<agent-name> keys) --
+# the SAME ConfigMap fleet-manager mounts at /etc/fleet and
+# identity_map.go (LoadAgentIdentityMap) reads. One authored list, three
+# readers (fleet-manager's two resolution sites, this policy); extending it
+# to a new agent is one line in configmap.yaml and needs no change here.
+#
+# An unregistered agent-name value is unaffected (expectedServiceAccount ==
+# '' admits unconditionally) -- this policy only ever narrows a spoof of a
+# KNOWN identity, it is never a second allow-list for which agents may exist.
+#
+# Pinned offline by ../agent_identity_binding_vap_test.go (CEL evaluation,
+# same cel-go harness as vap_admission_test.go) and
+# test/agent-identity-binding-vap.bats (render presence in this
+# Flux-reconciled Kustomization chain).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sl-agent-identity-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+    signalloom.ai/tier: agents
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: agentNameLabel
+      expression: >-
+        has(object.metadata.labels) && 'signalloom.ai/agent-name' in object.metadata.labels
+          ? object.metadata.labels['signalloom.ai/agent-name']
+          : ''
+    - name: identityKey
+      expression: "'identity.' + variables.agentNameLabel"
+    - name: expectedServiceAccount
+      expression: >-
+        variables.agentNameLabel != '' && params != null && has(params.data) &&
+        variables.identityKey in params.data
+          ? params.data[variables.identityKey]
+          : ''
+    - name: actualServiceAccount
+      expression: >-
+        has(object.spec.serviceAccountName) ? object.spec.serviceAccountName : ''
+  validations:
+    - expression: >-
+        variables.expectedServiceAccount == '' ||
+        variables.expectedServiceAccount == variables.actualServiceAccount
+      messageExpression: >-
+        "pod labelled signalloom.ai/agent-name=" + variables.agentNameLabel +
+        " must run as the registered ServiceAccount '" + variables.expectedServiceAccount +
+        "' for that agent; got '" + variables.actualServiceAccount +
+        "' -- a label match alone is never proof of agent identity"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-agent-identity-binding-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-agent-identity-binding
+  validationActions: ["Deny"]
+  # fleet-config lives in fe-signalloom (this Kustomization's targetNamespace,
+  # set by apps/fe-signalloom/base/kustomization.yaml, which pulls this
+  # directory in as a resource); the protected pods are in
+  # fe-signalloom-agents. paramRef.namespace lets a cluster-scoped binding
+  # name a params object outside matchResources' namespace.
+  paramRef:
+    name: fleet-config
+    namespace: fe-signalloom
+    parameterNotFoundAction: Allow
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["fe-signalloom-agents"]

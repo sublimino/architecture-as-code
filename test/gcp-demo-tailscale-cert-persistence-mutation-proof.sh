@@ -108,6 +108,7 @@ suite_test_fails() {
 
   # A pattern that matched NO test exits 0 with no test lines, which would read
   # as "the guard did not fire" when the truth is "there is no such guard".
+  # pipefail-safe: $out is already fully captured in memory; printf's single write cannot race grep -q, and this is an if-condition, exempt from errexit anyway.
   if ! printf '%s' "$out" | grep -qE '^(ok|not ok) '; then
     echo "    HARNESS FAULT: no test matched /${pattern}/" >&2
     return 2

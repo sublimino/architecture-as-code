@@ -1,6 +1,7 @@
 package tombstone
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -13,6 +14,8 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -269,9 +272,120 @@ func TestTombstonePublishesThresholdNotMeasurement(t *testing.T) {
 	if ts.AnonymitySetMin != MinAnonymitySet {
 		t.Fatalf("AnonymitySetMin = %d, want the constant %d", ts.AnonymitySetMin, MinAnonymitySet)
 	}
-	raw, _ := json.Marshal(ts)
-	if strings.Contains(string(raw), "8123") {
-		t.Fatalf("the observed bucket population leaked into the document: %s", raw)
+	if leaks := populationLeaks(t, ts, 8123); len(leaks) > 0 {
+		t.Fatalf("the observed bucket population leaked into the document: %v", leaks)
+	}
+}
+
+// randomHexFields are CSPRNG or hash outputs. A substring of one proves nothing: the previous
+// check, strings.Contains over the whole document, failed whenever the random tombstone_id
+// happened to contain "8123" -- roughly once in a few hundred runs of the offline lane. Such a
+// field leaks the population only by BEING it.
+var randomHexFields = map[string]bool{
+	"tombstone_id":            true, // crypto/rand
+	"receipt_nonce":           true, // crypto/rand
+	"receipt_commitment":      true, // SHA-256
+	"confirmation_commitment": true, // HMAC
+}
+
+// populationLeaks names every field of the published document that carries pop: a number equal
+// to it, a non-random string containing its decimal form, or a random field whose whole value is
+// it (decimal or hex, any zero padding). Every field is examined, a new one strictly by default;
+// a nested value fails loudly rather than going unexamined.
+func populationLeaks(t *testing.T, ts Tombstone, pop int) []string {
+	t.Helper()
+	raw, err := json.Marshal(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	dstr, hstr := strconv.Itoa(pop), strconv.FormatInt(int64(pop), 16)
+	var leaks []string
+	for k, v := range doc {
+		switch x := v.(type) {
+		case json.Number:
+			if x.String() == dstr {
+				leaks = append(leaks, k+"="+x.String())
+			}
+		case string:
+			if randomHexFields[k] {
+				if v := strings.TrimLeft(strings.ToLower(x), "0"); v == dstr || v == hstr {
+					leaks = append(leaks, k+"="+x)
+				}
+			} else if strings.Contains(x, dstr) {
+				leaks = append(leaks, k+"="+x)
+			}
+		case bool, nil:
+		default:
+			t.Fatalf("field %s is %T, which populationLeaks does not examine: extend it", k, v)
+		}
+	}
+	// The random list cannot become a hiding place: each entry is a field of the document, and
+	// a lowercase-hex one.
+	for k := range randomHexFields {
+		v, ok := doc[k].(string)
+		if !ok {
+			t.Fatalf("randomHexFields names %s, which is not a string field of the document", k)
+		}
+		if strings.Trim(v, "0123456789abcdef") != "" {
+			t.Fatalf("randomHexFields names %s, whose value %q is not hex", k, v)
+		}
+	}
+	sort.Strings(leaks)
+	return leaks
+}
+
+// The flake itself: a random id that merely contains the population is not a leak.
+func TestPopulationLeakCheckIgnoresARandomFieldContainingThePopulation(t *testing.T) {
+	req := goodRequest()
+	req.BucketPopulation = 8123
+	ts, _ := mustMint(t, req)
+	ts.TombstoneID = "deadbeef8123cafe0123456789abcdef"
+	ts.ReceiptNonce = "81238123" + ts.ReceiptNonce[8:]
+	if leaks := populationLeaks(t, ts, 8123); len(leaks) > 0 {
+		t.Fatalf("a random field containing 8123 was reported as a leak: %v", leaks)
+	}
+}
+
+// And a real leak, into any field of the document, is still caught.
+func TestPopulationLeakCheckCatchesTheLeakInEveryField(t *testing.T) {
+	const pop = 8123
+	req := goodRequest()
+	req.BucketPopulation = pop
+	base, _ := mustMint(t, req)
+	rt := reflect.TypeOf(base)
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		name := strings.Split(f.Tag.Get("json"), ",")[0]
+		var leaked []reflect.Value
+		switch f.Type.Kind() {
+		case reflect.Int, reflect.Int64, reflect.Uint64:
+			leaked = []reflect.Value{reflect.ValueOf(pop).Convert(f.Type)}
+		case reflect.String:
+			if randomHexFields[name] {
+				leaked = []reflect.Value{
+					reflect.ValueOf(fmt.Sprintf("%032d", pop)).Convert(f.Type),
+					reflect.ValueOf(fmt.Sprintf("%032x", pop)).Convert(f.Type),
+				}
+			} else {
+				leaked = []reflect.Value{reflect.ValueOf(fmt.Sprintf("band-%d-x", pop)).Convert(f.Type)}
+			}
+		default:
+			t.Fatalf("field %s is %s: add it to this table", f.Name, f.Type)
+		}
+		for _, lv := range leaked {
+			ts := base
+			reflect.ValueOf(&ts).Elem().Field(i).Set(lv)
+			leaks := populationLeaks(t, ts, pop)
+			if len(leaks) != 1 || !strings.HasPrefix(leaks[0], name+"=") {
+				t.Errorf("population leaked into %s as %v; populationLeaks reported %v", name, lv, leaks)
+			}
+		}
 	}
 }
 

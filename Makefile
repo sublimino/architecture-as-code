@@ -554,8 +554,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	$(MAKE) test-ui-typography
 	$(MAKE) audit-anchor-test
 	$(MAKE) test-signalfusion-bats
-	$(MAKE) test-tetragon-bats
-	$(MAKE) test-tetragon-stream
+	$(MAKE) test-sentinel-ebpf
 	bats d2-signalloom/test/olly-secret-argv.bats
 	./scripts/signalloom-api-test.sh contract
 	./scripts/signalloom-api-test.sh integration
@@ -608,7 +607,6 @@ test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	$(MAKE) demo-bao-test
 	$(MAKE) demo-kagent-test
 	$(MAKE) demo-olly-test
-	$(MAKE) test-tetragon-stream
 	@echo "=== [Cluster] All cluster test suites passed successfully! ==="
 
 test-all-browser: ## Run all Playwright browser acceptance tests across all slices.
@@ -628,7 +626,7 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 # Fusion, and weaveApi test files.
 
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render test-kusari-e2e
-.PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
+.PHONY: test-sentinel-ebpf
 .PHONY: test-signal-segment-verifier verify-signal-segments
 .PHONY: test-identity-rls-live
 
@@ -704,19 +702,8 @@ test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 		src/api/weaveApi.test.ts \
 		--reporter=verbose
 
-test-tetragon: ## Run the Tetragon telemetry collector Go unit suites (offline, no cluster).
-	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./collectors/ebpf/... -v -count=1
-	# test/mocks is a STANDALONE module (see its go.mod). `go test ./...` from the
-	# repo root cannot reach it, so it is named explicitly. Dropping this line
-	# would silently stop testing the mock server while this target stayed green.
-	cd test/mocks && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
-
-test-tetragon-stream: ## Run the offline Tetragon end-to-end stream harness and write the evidence artifact.
-	./scripts/test-tetragon-stream.sh 1000
-	@git checkout -- docs/signalloom/evidence/tetragon-stream-proof.json 2>/dev/null || true
-
-test-tetragon-bats: ## Run the Tetragon enforcement-decoupling + telemetry BATS suite (no cluster required).
-	bats test/tetragon-telemetry-stream.bats
+test-sentinel-ebpf: ## Run in-sentinel eBPF probe and correlator unit suites (offline, no cluster).
+	cd d2-signalloom/apps/stun-sentinel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... ./pkg/correlator/... -v -count=1
 
 test-signalfusion-bats: ## Run Signal Fusion structural BATS tests (no cluster required).
 	bats test/signalfusion-demo.bats

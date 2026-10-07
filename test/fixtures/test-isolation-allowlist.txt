@@ -53,6 +53,8 @@ test/sltm-probe-apikey.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/t
 test/signal-ingest-image-tag.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
 test/signal-ingest-image-tag.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
 test/signal-ingest-image-tag.bats:TMP:/tmp/gopath  # overridable: ${GOPATH:-/tmp/gopath}
+test/tombstone-mutation-check.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
+test/tombstone-mutation-check.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
 test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/go  # overridable: ${GOPATH:-/tmp/go}
 test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/go-cache  # overridable: ${GOCACHE:-/tmp/go-cache}
 test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
@@ -91,15 +93,6 @@ d2-signalloom/apps/signal-ingest/identity/alias_pg_live_test.go:PORT:55435  # in
 d2-signalloom/apps/signal-ingest/identity/tenant_live_test.go:PORT:55432  # inert: example DSN in a how-to-run comment
 d2-signalloom/apps/signal-ingest/subjectkey/postgres_live_test.go:PORT:55439  # inert: example DSN in a how-to-run comment
 d2-signalloom/apps/signal-ingest/store/duckdb_fixture_test.go:TMP:/tmp/signal-store-fixture  # inert: example path in a how-to-run comment
-
-# Socket paths handed to a collector that is off, or deliberately absent, to
-# prove it does not dial. Nothing is created.
-d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/a.sock  # inert: config value; collector never connects
-d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/custom.sock  # inert: env value asserted back out of config
-d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/definitely-not-a-tetragon-socket-9f8e7d.sock  # inert: deliberately absent path
-d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/nonexistent.sock  # inert: deliberately absent path, ModeOff
-d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/nope.sock  # inert: deliberately absent path, ModeOff
-d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go:TMP:/tmp/unused.sock  # inert: config value, client never started
 
 # Packet-tuple fields and CLI-argument strings.
 d2-signalloom/apps/signal-ingest/collectors/netebpf/collector_test.go:PORT:40123  # inert: SrcPort field of a synthetic flow record

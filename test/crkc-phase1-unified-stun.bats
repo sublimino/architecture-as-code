@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # test/crkc-phase1-unified-stun.bats
 # Unified Phase 1 Governor verification suite:
-# Integrates Tier 0 (cgroup freezer, TC eBPF) + Tier 1 (Flux drift ignore, Tetragon telemetry)
+# Integrates Tier 0 (cgroup freezer, TC eBPF) + Tier 1 (Flux drift ignore, in-sentinel eBPF telemetry)
 
 DECLARED_TESTS=10
 
@@ -21,13 +21,13 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "unified-p1: signalloom-warden binary builds statically and compiles cleanly" {
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/signalloom-warden"
+@test "unified-p1: signalloom-stun-sentinel daemon binary builds statically and compiles cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ."
   [ "$status" -eq 0 ]
 }
 
-@test "unified-p1: stun-tcctl binary builds cleanly" {
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-tcctl"
+@test "unified-p1: stun-sentinel library packages build and test cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... ./pkg/correlator/... -count=1"
   [ "$status" -eq 0 ]
 }
 
@@ -51,25 +51,14 @@ setup() {
   [ "$(jq -r '.live_severance_proof.severance.post_isolate_reachable' "$proof")" = "false" ]
 }
 
-@test "unified-p1: tetragon telemetry pipeline proof satisfies zero drop and latency SLA" {
-  local proof="${REPO_ROOT}/docs/signalloom/evidence/tetragon-stream-proof.json"
-  [ -f "$proof" ]
-  [ "$(jq -r '.verdict' "$proof")" = "pass" ]
-  [ "$(jq -r '.results.events_dropped' "$proof")" -eq 0 ]
-  local lat
-  lat="$(jq -r '.results.first_event_latency_ms' "$proof")"
-  awk -v l="$lat" 'BEGIN{exit !(l < 500)}'
+@test "unified-p1: in-sentinel ebpf kernel probe and normalisation unit suite passes cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... -count=1"
+  [ "$status" -eq 0 ]
 }
 
-@test "unified-p1: tetragon deployment manifests contain zero forbidden blocking verbs" {
-  local manifest="${REPO_ROOT}/d2-signalloom/deploy/tetragon-agent-telemetry.yaml"
-  [ -f "$manifest" ]
-  local body="${BATS_TEST_TMPDIR}/nocomments.yaml"
-  sed 's/[[:space:]]*#.*$//' "$manifest" > "$body"
-  for verb in Sigkill Override NotifyEnforcer matchActions; do
-    run grep -c "$verb" "$body"
-    [ "$output" -eq 0 ]
-  done
+@test "unified-p1: signalloom-stun-sentinel daemon unit test suite passes cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -count=1"
+  [ "$status" -eq 0 ]
 }
 
 @test "unified-p1: combined containment latency is strictly sub-second (< 1000ms)" {

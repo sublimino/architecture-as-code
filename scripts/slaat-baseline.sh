@@ -39,7 +39,7 @@ SLICES=(
   "containment-signalloom-stun-sentinel-go|cd d2-signalloom/apps/signalloom-stun-sentinel && go test ./..."
   "containment-nono-probe-go|cd d2-signalloom/apps/nono-containment-probe && go test ./..."
   "containment-olly-sentinel-pytest|cd olly-replica/apps/sentinel && uv run --python 3.12 --with-requirements requirements.txt python -m pytest tests -q"
-  "containment-tetragon-bats|make test-tetragon-bats"
+  "containment-sentinel-ebpf|make test-sentinel-ebpf"
   "estate-test-all-offline|make test-all-offline"
 )
 

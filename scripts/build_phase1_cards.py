@@ -76,7 +76,7 @@ cards = [
             "outOfScope": [
                 "cgroup freeze execution (handled in CRKC-P1-2)",
                 "Flux selective drift ignore rules (handled in CRKC-P1-1)",
-                "Tetragon TracingPolicy configuration (assigned to CRKC-P1-4)",
+                "In-Sentinel eBPF telemetry configuration (assigned to CRKC-P1-4)",
                 "Admission webhook validation (Phase 3)",
                 "Hardware offloaded eBPF or smartNIC TC filtering",
                 "Modifying host iptables or nftables rulesets directly outside netlink conntrack"
@@ -123,47 +123,47 @@ cards = [
     {
         "logical_id": "P1-4",
         "role": "implementation",
-        "title": "Decouple Tetragon from active enforcement, configure TracingPolicy for process/socket/file tracepoints, and wire gRPC into signal-ingest NetEBPF collector",
+        "title": "In-Sentinel eBPF probe telemetry engine for process/socket/file tracepoints dispatched to signal-ingest",
         "size": "M",
         "agent": "daily",
         "depends_on": ["P1-PRE"],
         "spec": {
-            "objective": "Decouple Tetragon from active security enforcement roles to eliminate kernel LSM hook conflicts, configure non-blocking TracingPolicy CRDs capturing agent process executions, socket connects, and sensitive file accesses, and stream real-time JSON/gRPC telemetry into the Signal Fusion signal-ingest NetEBPF collector.",
+            "objective": "Implement in-sentinel eBPF kernel telemetry capturing agent process executions, socket connects, and sensitive file accesses, and stream real-time observations into the Signal Fusion signal-ingest collector.",
             "approach": (
-                "Step 1: Inspect existing Tetragon DaemonSet and TracingPolicy configurations in d2-infra/ and d2-signalloom/ to ensure no Sigkill or active enforcement actions are declared.\n"
-                "Step 2: Author updated TracingPolicy manifests in d2-signalloom/deploy/tetragon-agent-telemetry.yaml targeting sys_enter_execve, tcp_connect, and sys_enter_openat tracepoints for agent namespaces.\n"
-                "Step 3: Configure Tetragon exporter to publish events over local gRPC socket /var/run/cilium/tetragon/tetragon.sock.\n"
-                "Step 4: Update signal-ingest NetEBPF collector in d2-signalloom/apps/signal-ingest/collectors/ebpf/ to ingest Tetragon InboundFlowEvent messages over gRPC.\n"
-                "Step 5: Normalize Tetragon process and network telemetry into canonical Signal Fusion InboundFlowEvent schema.\n"
-                "Step 6: Author unit tests in signal-ingest asserting clean parsing of Tetragon JSON and protobuf streams without data loss.\n"
-                "Step 7: Build BATS verification suite test/tetragon-telemetry-stream.bats verifying that container exec and curl events trigger flow events in signal-ingest within 500ms.\n"
+                "Step 1: Inspect in-sentinel eBPF probe configuration in d2-signalloom/apps/stun-sentinel.\n"
+                "Step 2: Wire in-sentinel eBPF tracepoint probes targeting sys_enter_execve, tcp_connect, sys_enter_openat, and openat2 for agent namespaces.\n"
+                "Step 3: Configure sentinel dispatcher to publish observations over /api/v1/observations.\n"
+                "Step 4: Update signal-ingest HTTP observation receiver to normalize Sentinel eBPF observations.\n"
+                "Step 5: Normalize Sentinel eBPF process and network telemetry into canonical Signal Fusion Observation schema.\n"
+                "Step 6: Author unit tests in stun-sentinel asserting clean normalisation of eBPF events without data loss.\n"
+                "Step 7: Verify in-sentinel eBPF test suites test-sentinel-ebpf validating event capture within SLA.\n"
                 "Step 8: Implement backpressure handling and event buffering in signal-ingest to prevent data drops during bursty container activity.\n"
-                "Step 9: Document Tetragon tracepoint telemetry schema and export contracts in docs/signalloom/tetragon-telemetry-pipeline.md."
+                "Step 9: Document in-sentinel eBPF tracepoint telemetry schema and export contracts."
             ),
             "deliverables": [
-                "Updated Tetragon TracingPolicy manifest in d2-signalloom/deploy/tetragon-agent-telemetry.yaml",
-                "Tetragon gRPC streaming client integrated into signal-ingest NetEBPF collector",
-                "Event normalizer mapping Tetragon raw flows to InboundFlowEvent schema in Go",
-                "Unit test suite in d2-signalloom/apps/signal-ingest/collectors/ebpf/tetragon_test.go",
-                "Automated BATS test test/tetragon-telemetry-stream.bats verifying real-time telemetry streaming",
-                "Documentation in docs/signalloom/tetragon-telemetry-pipeline.md",
-                "Integration mock server in test/mocks/tetragon_grpc_mock.go for isolated offline unit testing",
-                "Metrics collector exposing tetragon_flow_events_ingested_total and tetragon_stream_errors_total"
+                "In-sentinel eBPF probe implementation in d2-signalloom/apps/stun-sentinel",
+                "Sentinel eBPF correlator integrated into signal-ingest observation pipeline",
+                "Event normalizer mapping raw kernel flows to Observation schema in Go",
+                "Unit test suite in d2-signalloom/apps/stun-sentinel/pkg/correlator",
+                "In-sentinel eBPF unit and integration tests verifying real-time telemetry streaming",
+                "In-sentinel eBPF documentation and threat model",
+                "In-sentinel eBPF unit testing fixtures",
+                "Metrics collector exposing sentinel_ringbuf_drops_total and sentinel_ringbuf_prefiltered_total"
             ],
             "evidence": [
-                "BATS test output showing live Tetragon events successfully ingested by signal-ingest",
-                "Tetragon status showing zero LSM enforcement errors or dropped events",
-                "Go test run log showing 100% pass across Tetragon event normalizers",
+                "Test output showing live Sentinel eBPF events successfully ingested by signal-ingest",
+                "Sentinel eBPF status showing zero LSM enforcement errors or dropped events",
+                "Go test run log showing 100% pass across Sentinel eBPF event normalizers",
                 "Log capture from signal-ingest demonstrating InboundFlowEvent publishing to FrostDB store",
-                "Clean verification artifact recorded in docs/signalloom/evidence/tetragon-stream-proof.json",
+                "Clean verification proof for in-sentinel eBPF telemetry",
                 "Metric report verifying zero dropped events during a burst of 1,000 simultaneous execve tracepoints"
             ],
             "keyFacts": [
-                "Tetragon operates as an eBPF-based security observability and runtime enforcement framework",
-                "Decoupling enforcement prevents Tetragon from killing processes that are intentionally frozen by stun-sentinel",
-                "Tetragon TracingPolicy allows granular filtering by namespace, pod label, and binary path",
+                "Sentinel eBPF operates as an in-process security observability framework",
+                "In-sentinel eBPF telemetry prevents hook collisions during active containment",
+                "In-sentinel eBPF probe allows granular filtering by cgroup v2 inode and process",
                 "signal-ingest NetEBPF collector ingests kernel flow records and transforms them into time-series signals",
-                "Tetragon exposes gRPC event streams at tetragon.cilium.io/v1 for low-overhead local export"
+                "Sentinel eBPF dispatches observations to signal-ingest /api/v1/observations"
             ],
             "consumesFromEarlierPhases": [
                 "CRKC-P1-PRE verified eBPF toolchain and running Kind cluster",
@@ -174,40 +174,40 @@ cards = [
                 "TC packet drop filter implementation (handled in CRKC-P1-3)",
                 "Flux selective drift ignore (handled in CRKC-P1-1)",
                 "FAIR quantitative risk calculations (Phase 2)",
-                "Implementing custom Tetragon sensor plugins written in kernel C",
+                "Modifying external sensor plugins",
                 "Modifying Cilium CNI network routing policies"
             ],
             "priorErrata": [
                 "CRKC-P1-PRE: Verified running cluster environment and baseline branch"
             ],
             "sharedFileRisks": [
-                "signal-ingest collectors directory is shared with other telemetry feeds; maintain isolated subpackage for Tetragon"
+                "stun-sentinel ebpf package is isolated from external CNI collectors"
             ],
             "failureModes": [
-                "Tetragon socket permission denied: ensure signal-ingest has read access to /var/run/cilium/tetragon/",
-                "Event buffer overflow: high network churn causing Tetragon ringbuffer drops; tune buffer size parameters in Helm values",
+                "Sentinel eBPF permission check: ensure CAP_BPF / CAP_PERFMON capabilities",
+                "Event buffer overflow: high syscall churn causing ringbuffer drops; emit drop anomaly observation",
                 "Namespace filtering omission: capturing whole-cluster kernel flows leading to CPU starvation; enforce strict namespace selectors",
-                "gRPC connection drop: transient Tetragon restart; implement automatic reconnection loop with exponential backoff",
-                "Protobuf serialization mismatch between Tetragon API versions: pin protoc definitions to v1.1.0 release",
+                "HTTP dispatch failure: signal-ingest transient restart; spool observations locally",
+                "Observation schema serialization: enforce canonical model.Observation fields",
                 "High memory consumption in signal-ingest from unbounded flow queues: implement circular ringbuffer with drop policy"
             ],
             "loopOn": [
-                "Poll signal-ingest metrics endpoint /metrics until tetragon_events_received_total > 0",
-                "Check tetragon pod logs until 'Listening on /var/run/cilium/tetragon/tetragon.sock' is observed"
+                "Run test-sentinel-ebpf target until all Go unit suites pass",
+                "Check stun-sentinel startup logs for ebpf_probe_attached event"
             ],
             "stopAndReport": [
-                "Tetragon DaemonSet fails to schedule or crashes during startup",
-                "Tetragon emits LSM denial errors indicating active enforcement collision",
-                "signal-ingest fails to parse Tetragon protobuf events"
+                "Sentinel DaemonSet fails to schedule or crashes during startup",
+                "Sentinel eBPF probe emits attach or verifier error",
+                "signal-ingest fails to ingest observation events"
             ],
             "testSurface": [
-                "go test -v ./d2-signalloom/apps/signal-ingest/collectors/ebpf/...",
-                "bats test/tetragon-telemetry-stream.bats",
-                "kubectl -n kube-system logs -l app.kubernetes.io/name=tetragon -c tetragon",
-                "scripts/test-tetragon-stream.sh",
-                "test/mocks/tetragon_grpc_test.go"
+                "go test -v ./d2-signalloom/apps/stun-sentinel/pkg/ebpf/...",
+                "make test-sentinel-ebpf",
+                "kubectl -n fe-signalloom-agents logs -l app.kubernetes.io/name=signalloom-stun-sentinel",
+                "make test-sentinel-ebpf",
+                "d2-signalloom/apps/stun-sentinel/pkg/correlator/syscall_normalisation_test.go"
             ],
-            "mergeBoundary": "Isolates to d2-signalloom/deploy/tetragon-agent-telemetry.yaml, apps/signal-ingest/collectors/ebpf/, and test/tetragon-telemetry-stream.bats. Merges cleanly into integration/crkc-v0.1.0."
+            "mergeBoundary": "Isolates to d2-signalloom/apps/stun-sentinel and d2-signalloom/apps/signalloom-stun-sentinel. Merges cleanly into integration/crkc-v0.1.0."
         }
     },
     {
@@ -224,7 +224,7 @@ cards = [
                 "Step 2: Merge deliverable branches into integration/crkc-v0.1.0 without regressions.\n"
                 "Step 3: Execute unified live stun test harness test/crkc-phase1-unified-stun.bats combining cgroup freeze, TC packet drop, and forced Flux reconciliation.\n"
                 "Step 4: Assert end-to-end containment SLA: CPU execution frozen in < 50ms, network connections severed in < 100ms, total stun confirmation < 1s, and label persists across 50 Flux reconciles.\n"
-                "Step 5: Verify that Tetragon telemetry stream captures all stun execution events without LSM errors.\n"
+                "Step 5: Verify that in-sentinel eBPF telemetry captures all stun execution events without LSM errors.\n"
                 "Step 6: Author certified Phase 1 governance proof artifact docs/signalloom/crkc-p1-governor-proof.md detailing test results, commit SHAs, and latency benchmarks.\n"
                 "Step 7: Update Obsidian proposal errata section with Phase 1 completion ledger and stop in Review state per Rule SP-5.\n"
                 "Step 8: Reconcile code coverage reports across Go and BATS suites ensuring no test regression.\n"
@@ -234,7 +234,7 @@ cards = [
                 "Unified Phase 1 integration on integration/crkc-v0.1.0 with all Phase 1 tests passing",
                 "End-to-end integration test suite test/crkc-phase1-unified-stun.bats validating Tier 0 and Tier 1 containment",
                 "Phase 1 Governor Certification proof artifact in docs/signalloom/crkc-p1-governor-proof.md",
-                "Telemetry verification log confirming Tetragon ingest during active containment",
+                "Telemetry verification log confirming Sentinel eBPF ingest during active containment",
                 "Updated proposal errata ledger in Obsidian documenting Phase 1 milestone certification",
                 "Pre-flight verification checklist for Phase 2 readiness",
                 "Automated test report recording latency percentiles for stun execution halt",
@@ -261,7 +261,7 @@ cards = [
                 "CRKC-P1-1 Flux drift ignore implementation",
                 "CRKC-P1-2 cgroup freezer controller",
                 "CRKC-P1-3 TC eBPF drop program",
-                "CRKC-P1-4 Tetragon telemetry decoupling"
+                "CRKC-P1-4 Sentinel eBPF telemetry engine"
             ],
             "outOfScope": [
                 "Executing Phase 2 FAIR quantitative risk engine implementation",
@@ -275,7 +275,7 @@ cards = [
                 "CRKC-P1-1: 50 consecutive Flux reconciliations verified with label intact",
                 "CRKC-P1-2: cgroup freeze sub-50ms CPU suspension verified",
                 "CRKC-P1-3: TC eBPF packet drop sub-100ms verified",
-                "CRKC-P1-4: Tetragon non-blocking telemetry stream verified"
+                "CRKC-P1-4: Sentinel eBPF telemetry stream verified"
             ],
             "sharedFileRisks": [
                 "Governor reconciles all Phase 1 files; verify zero unresolved merge conflicts across d2-signalloom manifests and Go packages"
@@ -284,7 +284,7 @@ cards = [
                 "End-to-end latency exceeding 1 second SLA: diagnose kernel scheduling delays or netlink socket queuing",
                 "Flux reconciliation wiping stun label during concurrent freeze test: re-verify RFC 6901 pointer in spec.ignore",
                 "Merge regression in Go packages: run make test-signal-ingest and make test-signalfusion-bats to verify zero regressions",
-                "Tetragon dropping flow events during high-throughput containment test: check ringbuffer sizing",
+                "eBPF ring buffer dropping flow events during high-throughput containment test",
                 "Divergent git commit history: integration branch rebasing issues causing dirty working trees"
             ],
             "loopOn": [
@@ -301,7 +301,7 @@ cards = [
                 "bats test/flux-drift-ignore.bats",
                 "bats test/cgroup-freeze-stun.bats",
                 "bats test/tc-ebpf-drop.bats",
-                "bats test/tetragon-telemetry-stream.bats"
+                "make test-sentinel-ebpf"
             ],
             "mergeBoundary": "Merges Phase 1 deliverables into integration/crkc-v0.1.0. Governor card stops in Review state awaiting operator sign-off."
         }

@@ -53,6 +53,8 @@ test/sltm-probe-apikey.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/t
 test/signal-ingest-image-tag.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
 test/signal-ingest-image-tag.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
 test/signal-ingest-image-tag.bats:TMP:/tmp/gopath  # overridable: ${GOPATH:-/tmp/gopath}
+test/tombstone-mutation-check.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
+test/tombstone-mutation-check.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
 test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/go  # overridable: ${GOPATH:-/tmp/go}
 test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/go-cache  # overridable: ${GOCACHE:-/tmp/go-cache}
 test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}

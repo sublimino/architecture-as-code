@@ -53,6 +53,7 @@ const (
 // into attributing its telemetry to another tenant by a crafted payload, because the
 // payload is never consulted for tenancy.
 type AWSCollectorConfig struct {
+	AccountID  string `json:"account_id,omitempty"`
 	TenantID   string `json:"tenant_id"`
 	RoleARN    string `json:"role_arn"`
 	ExternalID string `json:"external_id"`

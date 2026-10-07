@@ -67,7 +67,7 @@ heredoc_body() {
   local stray
   stray="$(printf '%s' "$body" \
     | grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?' \
-    | grep -vE '^\$\{?(CLUSTER_NAME|ZOT_CACHE_DIR|POSTGRES_DATA_DIR)\}?$' \
+    | grep -vE '^\$\{?(CLUSTER_NAME|ZOT_CACHE_DIR|POSTGRES_DATA_DIR|LOCAL_PATH_DATA_DIR)\}?$' \
     | sort -u || true)"
   if [ -n "$stray" ]; then
     echo "Unexpected shell variables inside the kind config heredoc:"
@@ -81,13 +81,19 @@ heredoc_body() {
   # The end-to-end check: render it exactly as the script does and parse it.
   # A substitution hole usually still parses, so also assert the setting that
   # motivated the patch actually survived.
+  local py="python3"
+  if [ -x "/usr/bin/python3" ] && /usr/bin/python3 -c "import yaml" >/dev/null 2>&1; then
+    py="/usr/bin/python3"
+  fi
   local out
-  out="$(CLUSTER_NAME=testcluster ZOT_CACHE_DIR=/tmp/zot-test POSTGRES_DATA_DIR=/tmp/pg-test bash -c '
+  out="$(CLUSTER_NAME=testcluster ZOT_CACHE_DIR=/tmp/zot-test POSTGRES_DATA_DIR=/tmp/pg-test LOCAL_PATH_DATA_DIR=/tmp/lp-test bash -c '
     kind_config=/dev/stdout
     '"$(awk '/^cat >"\$kind_config" <<EOF$/,/^EOF$/' "$script")"'
   ')"
-  printf '%s' "$out" | python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())'
+  printf '%s' "$out" | "$py" -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())'
   printf '%s' "$out" | grep -qF 'nodeStatusMaxImages: -1'
   printf '%s' "$out" | grep -qF 'name: testcluster'
   printf '%s' "$out" | grep -qF '/tmp/zot-test'
+  printf '%s' "$out" | grep -qF '/tmp/pg-test'
+  printf '%s' "$out" | grep -qF '/tmp/lp-test'
 }

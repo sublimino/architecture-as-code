@@ -20,7 +20,10 @@ materialises as one file per `identity.<agent-name>` (ServiceAccount) and
 `identity-ns.<agent-name>` (namespace) key. There is exactly one authored
 list; extending it to a new agent is two lines in that ConfigMap and needs
 no change here, in fleet-manager's Go, or in the ValidatingAdmissionPolicy
-at d2-signalloom/apps/fleet-manager/base/agent-identity-binding.yaml.
+sl-agent-identity-binding, defined inline in the fleet's cluster-level
+ResourceSet at d2-osramp-fleet/tenants/base/policies.yaml (reconciled by
+flux-system -- the tenant ServiceAccount that reconciles fe-signalloom's
+own Kustomization has no RBAC to touch cluster-scoped admission policies).
 """
 from __future__ import annotations
 

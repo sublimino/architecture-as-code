@@ -14,9 +14,10 @@ Every claim path resolves its target here first:
 * 403 ``agent_identity_mismatch`` the workload's agent_name label names a
   REGISTERED agent (agent_identity_map, the same map
   d2-signalloom/apps/fleet-manager/identity_map.go and the
-  ValidatingAdmissionPolicy at
-  d2-signalloom/apps/fleet-manager/base/agent-identity-binding.yaml read) but
-  its actual namespace and ServiceAccount do not BOTH match the pair
+  ValidatingAdmissionPolicy sl-agent-identity-binding read -- defined
+  inline in the fleet's cluster-level ResourceSet at
+  d2-osramp-fleet/tenants/base/policies.yaml, reconciled by flux-system)
+  but its actual namespace and ServiceAccount do not BOTH match the pair
   registered for it -- a decoy claiming a known identity, not that agent.
   A ServiceAccount name alone is not enough: it is only unique within its
   namespace. An unregistered agent_name is unaffected.

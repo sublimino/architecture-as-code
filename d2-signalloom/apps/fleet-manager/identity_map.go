@@ -21,8 +21,13 @@ import (
 //
 //   - fleet-manager's own resolution (agent_resolution.go, k8sclient.go,
 //     mesh_client.go)
-//   - the ValidatingAdmissionPolicy at base/agent-identity-binding.yaml,
-//     which admits this ConfigMap as its params object.
+//   - the ValidatingAdmissionPolicy sl-agent-identity-binding, defined
+//     inline in the fleet's cluster-level ResourceSet at
+//     d2-osramp-fleet/tenants/base/policies.yaml (reconciled by
+//     flux-system, not by this tenant's own Kustomization -- the tenant
+//     ServiceAccount has no RBAC to touch cluster-scoped admission
+//     policies, and must not be granted any). It admits this ConfigMap as
+//     its params object.
 //
 // There is exactly one authored list: the `identity.<agent-name>` (the
 // ServiceAccount) and `identity-ns.<agent-name>` (the namespace) key pairs

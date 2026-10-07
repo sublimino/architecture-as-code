@@ -674,3 +674,22 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 - **Branch state:** integration tip unsigned and unpushed; card branches `slaws-p5-1..4` and rescue branches untouched; Governor's uncommitted refusal draft preserved at `/tmp/slaws-p5/governor-draft-errata.patch`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLAWS completion evidence (2026-10-07, integration/slaws-v0.2.0, `124c1703`)
+
+**Status:** COMPLETE_CANDIDATE. Six cards done (P5-PRE, P5-1, P5-2, P5-3, P5-4, P5-GOV); every implementation commit is reachable from the integration tip; both digest-bound acceptance commands exit zero twice with identical totals.
+**Execution site:** the mission's integration worktree `~/src/.worktrees/osramp-demo/slaws-v0.2.0/governor` (the only writer of `integration/slaws-v0.2.0`), not the principal checkout `~/src/cp/osramp-demo`, whose working tree is dirty and on a different branch owned by another session. Commands ran as user unit `slaws-p5-acceptance` outside the agent sandbox (cgo cannot read `/usr/include` inside it). Evidence id: `slaws-acceptance-3fc53335-run2-run3`.
+**Stamped:** 2026-10-07 18:02:06 +0100
+
+| Command | Literal | Exit | Result | Output sha256 (16) |
+|---|---|---|---|---|
+| slaws-acceptance (run 2) | `bash scripts/slaws-acceptance.sh /tmp/slaws-acceptance/run2` | 0 | 3700 / 3745 / 466 / 704 / 4981 / 690 / 122 / 103, 0 failures | `71620eec98a2dfff` (totals.txt, includes run timings) |
+| slaws-acceptance (run 3) | `bash scripts/slaws-acceptance.sh /tmp/slaws-acceptance/run3` | 0 | identical counts to run 2 | `295837f9802e4f03` (totals.txt, timings differ, counts identical) |
+| check-ci-build-parity (run 2) | `bash scripts/check-ci-build-parity.sh` | 0 | 18 BUILT/RAN, 1 OPT-OUT (netassert-runner-image), 0 defects | `263f2dc5eea7b218` |
+| check-ci-build-parity (run 3) | `bash scripts/check-ci-build-parity.sh` | 0 | identical | `263f2dc5eea7b218` |
+
+- Run 1 on the same head (`3fc53335`) failed one SLTM-era rate-limit timing test under host load 10.5 and is recorded in the P5-GOV errata; it is not counted.
+- Helper `link-check`: CRITICAL=0 FAIL=0 (one WARN: no P4-GOV card, covered by the predecessor certification in the P5-GOV errata).
+- Lease `ajm-auto-kanban-slaws-2b77f1f83f48` is a Claude Code cron job with no disable verb; it is deleted on candidacy under the degraded-lease rule and the deletion is checkpointed.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

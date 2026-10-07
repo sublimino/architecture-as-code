@@ -59,6 +59,7 @@ metadata:
     signalloom.ai/description: "SuperCred demo — accesses credit card data via SPIFFE→OpenBao→BasicAuth chain."
     signalloom.ai/supercred-target: "cardvault.inf-signalloom.svc.cluster.local:8080"
 spec:
+  serviceAccountName: agent-cardvault
   # NOTE: pod-level securityContext is INTENTIONALLY ABSENT.
   # The compliance scan checks for this and correctly flags it.
   containers:

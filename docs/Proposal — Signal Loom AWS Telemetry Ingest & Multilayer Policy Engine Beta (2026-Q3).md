@@ -530,7 +530,7 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 | `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go:90–134` | `LabelTenantID` .. `LabelCount` | P5-3, P5-4 | Documented label keys |
 | `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go:138–142` | `SourceCloudTrail` .. `SourceCollector` | P5-3 | Observation sources |
 | `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go:233` | `ContractKeysFor` | P5-3 | Required / documented label provider |
-| `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_kusari_test.go:202` | `TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing` | P5-3 | Pinning test for GuardDuty gap |
+| `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_kusari_test.go:197` | `TestKusariFixtures_EventBridgeEnvelopeProjectsToAGuardDutyObservation` | P5-3 | GuardDuty envelope projects to one observation |
 | `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:70` | `STSAssumer` | P5-1 | AWS SDK v2 STS Assumer |
 | `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:130` | `SQSClient` | P5-1 | AWS SDK v2 SQS Client |
 | `d2-signalloom/apps/signal-ingest/collectors/awslogs/live/live.go:237` | `S3Fetcher` | P5-1 | AWS SDK v2 S3 Fetcher |

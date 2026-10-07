@@ -380,4 +380,10 @@ describe('AgentOverviewTab — Governance Claim', () => {
     renderTab(<AgentOverviewTab agent={agent} onClaim={vi.fn()} />)
     expect(screen.getByTestId('overview-posture-score')).toHaveTextContent('Not assessed')
   })
+
+  it('renders Live containment cockpit section in overview tab', () => {
+    renderTab(<AgentOverviewTab agent={claimedDossierAgentFixture} />)
+    expect(screen.getByTestId('agent-cockpit-section')).toBeInTheDocument()
+    expect(screen.getByText('Live containment cockpit')).toBeInTheDocument()
+  })
 })

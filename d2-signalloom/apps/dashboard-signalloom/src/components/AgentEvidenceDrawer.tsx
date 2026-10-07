@@ -3,6 +3,7 @@ import type { AgentResponse, SourceHealthMap } from '../types/api'
 import StatusBadge, { KernelStateBadge, isFrozenWithoutStun } from './StatusBadge'
 import CredentialStateNotice from './CredentialStateNotice'
 import RiskWidget from './RiskWidget'
+import AgentCockpitSection from './AgentCockpitSection'
 import { useAgentRisk } from '../hooks/useAgentRisk'
 
 /**
@@ -637,6 +638,9 @@ export default function AgentEvidenceDrawer({
               </div>
             </div>
           </div>
+
+          {/* 4b. Live Containment Cockpit */}
+          <AgentCockpitSection agent={agent} style={{ marginBottom: 0 }} />
 
           {/* 5. Source Health & Freshness */}
           <div className="card" data-testid="drawer-section-source-health" style={{ padding: 14 }}>

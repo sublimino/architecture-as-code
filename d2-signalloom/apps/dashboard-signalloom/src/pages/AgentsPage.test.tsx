@@ -869,6 +869,28 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
     expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Bot')
   })
 
+  it('does not render Live containment cockpit at the top of the agents page, but renders it in drawer when open', async () => {
+    const agent = makeAgent({ id: 'agent-cockpit-check', name: 'Cockpit Check Agent' })
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [agent],
+      total: 1,
+    })
+
+    // 1. On main /agents page, no cockpit at top of page
+    const { unmount } = renderPage(['/agents'])
+    await screen.findByRole('button', { name: /scan compliance/i })
+    expect(screen.queryByTestId('agent-cockpit-section')).not.toBeInTheDocument()
+    expect(screen.queryByText('Live containment cockpit')).not.toBeInTheDocument()
+    unmount()
+
+    // 2. When ?drawer= is present, cockpit is rendered inside the drawer
+    renderPage(['/agents?drawer=agent-cockpit-check'])
+    const drawer = await screen.findByTestId('agent-evidence-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(within(drawer).getByTestId('agent-cockpit-section')).toBeInTheDocument()
+    expect(within(drawer).getByText('Live containment cockpit')).toBeInTheDocument()
+  })
+
   it('opens agent evidence drawer via ?drawer= URL parameter and renders quantitative risk section without error', async () => {
     const agent = makeAgent({ id: '5d9d84b5-b7d5-50b8-8fcf-d2ae4cc74599', name: 'Risk Evaluated Agent' })
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({

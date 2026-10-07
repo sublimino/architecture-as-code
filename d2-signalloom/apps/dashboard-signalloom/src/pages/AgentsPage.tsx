@@ -1,7 +1,6 @@
 // Filter interaction adapted from Beautiful UI Filter Table (MIT); see
 // THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import AgentCockpitSection from '../components/AgentCockpitSection'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -331,7 +330,7 @@ export function isAgentAttentionRequired(a: AgentResponse): boolean {
   }
 
   // 3. Expired SVID
-  if ((a as any).svid_expired === true || a.credential_state?.status === 'expired') {
+  if ((a as any).svid_expired === true || (a.credential_state?.status as string) === 'expired') {
     return true
   }
   if (a.identity?.cert_valid_until) {
@@ -1823,9 +1822,6 @@ export default function AgentsPage() {
           </HelpHint>
         </div>
       </div>
-
-      {/* SLDC-P4-2: live cAdvisor cockpit, self-contained */}
-      <AgentCockpitSection />
 
       {/* Subnavigation Tabs */}
       <div

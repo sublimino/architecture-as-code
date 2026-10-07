@@ -256,3 +256,23 @@ func TestRegistry_WorkspaceSaaS_ModeGating(t *testing.T) {
 		}
 	})
 }
+
+// TestRegistry_NoTetragonCollectorRegistered is a regression guard proving no Tetragon collector is registered.
+func TestRegistry_NoTetragonCollectorRegistered(t *testing.T) {
+	sink := &testMockSink{}
+	reg := NewRegistryFromEnv(sink)
+
+	if c := reg.GetCollector("tetragon"); c != nil {
+		t.Errorf("expected no collector named 'tetragon', found %T", c)
+	}
+	if c := reg.GetCollector("ebpf"); c != nil {
+		t.Errorf("expected no collector named 'ebpf', found %T", c)
+	}
+
+	for _, c := range reg.Collectors() {
+		if c.Name() == "tetragon" || c.Name() == "ebpf" {
+			t.Errorf("registry contains disallowed collector: name=%q type=%T", c.Name(), c)
+		}
+	}
+}
+

@@ -10,8 +10,8 @@ import (
 // Prometheus instrumentation for the risk engine, rendered as text exposition.
 //
 // Hand-rendered rather than pulling in the Prometheus client library, matching the pattern already
-// established for the Tetragon lane in this service (see main.go's /metrics handler, which serves
-// tetragonCollector.Metrics().Render()). One rendering convention in the process beats two.
+// established for other collectors in this service (see main.go's /metrics handler).
+// One rendering convention in the process beats two.
 
 // riskDurationBuckets are the histogram's upper bounds in seconds. Chosen around the two numbers
 // that matter: the 20 ms compute budget for 10,000 trials, and the 50 ms p95 SLA. Buckets crowd

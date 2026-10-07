@@ -79,23 +79,8 @@ func TestPeakHeap_ObservationsAndStats_FrostDBStore(t *testing.T) {
 	}
 	handler := a.ActingTenantGate(router)
 
-	// 1. Measure Peak Heap for GET /api/v1/observations?limit=100
-	runtime.GC()
-	var mBeforeObs runtime.MemStats
-	runtime.ReadMemStats(&mBeforeObs)
-
-	reqObs := bearerRequest(http.MethodGet, "/api/v1/observations?limit=100", tenantAToken)
-	wObs := httptest.NewRecorder()
-	handler.ServeHTTP(wObs, reqObs)
-
-	var mAfterObs runtime.MemStats
-	runtime.ReadMemStats(&mAfterObs)
-
-	if wObs.Code != http.StatusOK {
-		t.Fatalf("GET /observations: %d %s", wObs.Code, wObs.Body.String())
-	}
-
-	obsAllocDelta := int64(mAfterObs.TotalAlloc - mBeforeObs.TotalAlloc)
+	// 1. Peak allocation for GET /api/v1/observations?limit=100 (min of heapTrials)
+	obsAllocDelta := minAllocDelta(t, handler, "/api/v1/observations?limit=100")
 	t.Logf("FrostDBStore: /observations?limit=100 over 100k rows: TotalAlloc delta = %d KiB (%.2f MiB)",
 		obsAllocDelta/1024, float64(obsAllocDelta)/(1024*1024))
 
@@ -104,23 +89,8 @@ func TestPeakHeap_ObservationsAndStats_FrostDBStore(t *testing.T) {
 			obsAllocDelta, maxPermittedHeapAllocDeltaBytes)
 	}
 
-	// 2. Measure Peak Heap for GET /api/v1/store/stats
-	runtime.GC()
-	var mBeforeStats runtime.MemStats
-	runtime.ReadMemStats(&mBeforeStats)
-
-	reqStats := bearerRequest(http.MethodGet, "/api/v1/store/stats", tenantAToken)
-	wStats := httptest.NewRecorder()
-	handler.ServeHTTP(wStats, reqStats)
-
-	var mAfterStats runtime.MemStats
-	runtime.ReadMemStats(&mAfterStats)
-
-	if wStats.Code != http.StatusOK {
-		t.Fatalf("GET /store/stats: %d %s", wStats.Code, wStats.Body.String())
-	}
-
-	statsAllocDelta := int64(mAfterStats.TotalAlloc - mBeforeStats.TotalAlloc)
+	// 2. Peak allocation for GET /api/v1/store/stats (min of heapTrials)
+	statsAllocDelta := minAllocDelta(t, handler, "/api/v1/store/stats")
 	t.Logf("FrostDBStore: /store/stats over 100k rows: TotalAlloc delta = %d KiB (%.2f MiB)",
 		statsAllocDelta/1024, float64(statsAllocDelta)/(1024*1024))
 
@@ -128,4 +98,37 @@ func TestPeakHeap_ObservationsAndStats_FrostDBStore(t *testing.T) {
 		t.Errorf("TotalAlloc delta %d bytes exceeded bound %d bytes (128 MiB)",
 			statsAllocDelta, maxPermittedHeapAllocDeltaBytes)
 	}
+}
+
+// minAllocDelta serves req heapTrials times and returns the smallest
+// TotalAlloc delta seen. TotalAlloc is process-wide, so FrostDB's background
+// compaction after the 100k-row seed lands inside a single window and inflates
+// it (observed: 204 MiB once, under 128 MiB on the rerun). Background work can
+// only ADD to a reading, so the minimum is still an upper bound on the request's
+// own allocation, and a request that is genuinely unbounded fails every trial.
+const heapTrials = 3
+
+func minAllocDelta(t *testing.T, handler http.Handler, path string) int64 {
+	t.Helper()
+	best := int64(-1)
+	for i := 0; i < heapTrials; i++ {
+		runtime.GC()
+		var before runtime.MemStats
+		runtime.ReadMemStats(&before)
+
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, bearerRequest(http.MethodGet, path, tenantAToken))
+
+		var after runtime.MemStats
+		runtime.ReadMemStats(&after)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d %s", path, w.Code, w.Body.String())
+		}
+		d := int64(after.TotalAlloc - before.TotalAlloc)
+		if best < 0 || d < best {
+			best = d
+		}
+	}
+	return best
 }

@@ -587,7 +587,7 @@ export default function AgentActivityTab({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span
-              data-testid={secProfile.profile === 'nono-sandboxed' ? 'nono-verification-badge' : 'tetragon-flow-badge'}
+              data-testid={secProfile.profile === 'nono-sandboxed' ? 'nono-verification-badge' : 'sentinel-ebpf-flow-badge'}
               style={{
                 fontSize: 11,
                 fontWeight: 600,
@@ -603,7 +603,7 @@ export default function AgentActivityTab({
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
               {secProfile.profile === 'nono-sandboxed'
                 ? 'Cryptographically Verified Nono Audit Event Trails'
-                : 'Live Tetragon eBPF Kernel Flow Events'}
+                : 'Live Sentinel eBPF Kernel Flow Events'}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
@@ -621,13 +621,13 @@ export default function AgentActivityTab({
               </>
             ) : (
               <>
-                <span data-testid="tetragon-kernel-sensor" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span data-testid="sentinel-ebpf-kernel-sensor" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ color: colors.cyanLoom }}>⚡</span> eBPF Kernel Sensor
                 </span>
-                <span data-testid="tetragon-tracepoints" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span data-testid="sentinel-ebpf-tracepoints" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ color: colors.cyanLoom }}>📡</span> Tracepoints: sys_execve, sys_connect
                 </span>
-                <span data-testid="tetragon-flow-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span data-testid="sentinel-ebpf-flow-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ color: colors.tealLoom }}>🟢</span> Real-Time Flow Stream
                 </span>
               </>

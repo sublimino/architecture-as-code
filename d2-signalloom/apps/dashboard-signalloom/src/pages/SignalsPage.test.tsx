@@ -97,7 +97,7 @@ const observations: Array<SignalObservation & { raw?: string }> = [
     timestamp: '2026-10-05T09:02:00Z',
     layer: 'endpoint_host',
     fidelity: 'definitive',
-    source: 'tetragon',
+    source: 'sentinel-ebpf',
     confidence: 0.95,
     actor_hint: 'actor-2c91',
     raw_evidence_ref: 'blob://evidence/obs-2',
@@ -179,7 +179,7 @@ const decisions: PolicyDecision[] = [
 
 const rates: IngestRateBucket[] = [
   { bucket_start: '2026-10-05T09:00:00Z', layer: 'network_egress', source: 'ebpf-socket-sentinel', count: 4 },
-  { bucket_start: '2026-10-05T09:00:00Z', layer: 'endpoint_host', source: 'tetragon', count: 2 },
+  { bucket_start: '2026-10-05T09:00:00Z', layer: 'endpoint_host', source: 'sentinel-ebpf', count: 2 },
   { bucket_start: '2026-10-05T09:01:00Z', layer: 'network_egress', source: 'ebpf-socket-sentinel', count: 6 },
   { bucket_start: '2026-10-05T09:01:00Z', layer: 'cloud_control_plane', source: 'aws-cloudtrail', count: 1 },
 ]

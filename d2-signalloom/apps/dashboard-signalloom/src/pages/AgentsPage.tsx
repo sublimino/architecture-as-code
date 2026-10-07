@@ -331,7 +331,7 @@ export function isAgentAttentionRequired(a: AgentResponse): boolean {
   }
 
   // 3. Expired SVID
-  if ((a as any).svid_expired === true || a.credential_state?.status === 'expired') {
+  if ((a as any).svid_expired === true || (a.credential_state?.status as string) === 'expired') {
     return true
   }
   if (a.identity?.cert_valid_until) {

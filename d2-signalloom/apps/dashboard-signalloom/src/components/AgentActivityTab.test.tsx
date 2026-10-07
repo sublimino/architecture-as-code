@@ -621,7 +621,7 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
     expect(screen.getByTestId('nono-signature-status')).toHaveTextContent('Detached SVID Signed')
   })
 
-  it('renders comparative telemetry banner with Tetragon eBPF flow stream for standard baseline agent', () => {
+  it('renders comparative telemetry banner with Sentinel eBPF flow stream for standard baseline agent', () => {
     const standardAgent = createMockAgent({
       id: 'agent-standard-baseline',
       name: 'agent-standard-baseline',
@@ -647,10 +647,10 @@ describe('AgentActivityTab — Tab 5 (Activity & Attributable Timeline)', () => 
     )
 
     expect(screen.getByTestId('security-profile-telemetry-banner')).toBeInTheDocument()
-    expect(screen.getByTestId('tetragon-flow-badge')).toHaveTextContent('Standard Container')
-    expect(screen.getByTestId('tetragon-kernel-sensor')).toHaveTextContent('eBPF Kernel Sensor')
-    expect(screen.getByTestId('tetragon-tracepoints')).toHaveTextContent('Tracepoints: sys_execve, sys_connect')
-    expect(screen.getByTestId('tetragon-flow-status')).toHaveTextContent('Real-Time Flow Stream')
+    expect(screen.getByTestId('sentinel-ebpf-flow-badge')).toHaveTextContent('Standard Container')
+    expect(screen.getByTestId('sentinel-ebpf-kernel-sensor')).toHaveTextContent('eBPF Kernel Sensor')
+    expect(screen.getByTestId('sentinel-ebpf-tracepoints')).toHaveTextContent('Tracepoints: sys_execve, sys_connect')
+    expect(screen.getByTestId('sentinel-ebpf-flow-status')).toHaveTextContent('Real-Time Flow Stream')
   })
 
   describe('External Agent Evidence Projections (AMXO-P6-1)', () => {

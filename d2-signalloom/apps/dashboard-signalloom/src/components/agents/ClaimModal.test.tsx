@@ -87,6 +87,7 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
     const profile = getAgentWorkloadSecurityProfile(standardAgent)
     expect(profile.profile).toBe('standard-container')
     expect(profile.label).toBe('Standard Container')
+    expect(profile.description).toContain('Sentinel eBPF')
   })
 
   it('renders modal with agent prefilled values and security badge', () => {

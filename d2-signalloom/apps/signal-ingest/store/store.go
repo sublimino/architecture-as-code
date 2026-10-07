@@ -19,6 +19,8 @@ var ErrGroupSizeBelowAnonymityFloor = errors.New("aggregate group size falls bel
 type SignalStore interface {
 	Append(ctx context.Context, observations []model.Observation) error
 	QueryRange(ctx context.Context, q Query) ([]model.Observation, error)
+	QueryPage(ctx context.Context, q PageQuery) ([]model.Observation, error)
+	Stats(ctx context.Context, q StatsQuery) (StoreStats, error)
 	DropPartition(ctx context.Context, before time.Time) error
 	Close() error
 }
@@ -32,4 +34,32 @@ type Query struct {
 	SubjectID string        // optional: filter by data subject identity across pseudonymised columns
 	Offset    int           // optional: offset for pagination
 	Limit     int           // max results (0 = no limit)
+}
+
+// PageQuery specifies filters, tenant scope, and cursor for bounded, ordered observation retrieval.
+type PageQuery struct {
+	Layers          []model.Layer // filter by layer
+	After           time.Time     // start of range
+	Before          time.Time     // end of range
+	ActorID         string        // optional: filter by correlated actor
+	SubjectID       string        // optional: filter by data subject identity across pseudonymised columns
+	Tenant          string        // tenant scope (if !AllTenants)
+	AllTenants      bool          // if true, cross-tenant read
+	CursorTimestamp time.Time     // cursor timestamp (exclusive with CursorID)
+	CursorID        string        // cursor observation ID
+	Limit           int           // max results (0 = no limit, otherwise at most Limit)
+}
+
+// StoreStats contains aggregate metrics over observations.
+type StoreStats struct {
+	TotalObservations      int
+	ObservationsByLayer    map[string]int
+	ObservationsByFidelity map[string]int
+	LastIngestion          *time.Time
+}
+
+// StatsQuery specifies filters for calculating store aggregates.
+type StatsQuery struct {
+	Tenant     string
+	AllTenants bool
 }

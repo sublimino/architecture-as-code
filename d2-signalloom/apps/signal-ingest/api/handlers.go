@@ -533,11 +533,11 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Request) {
-	q := store.Query{}
+	pageQ := store.PageQuery{}
 
 	if layers := r.URL.Query()["layer"]; len(layers) > 0 {
 		for _, l := range layers {
-			q.Layers = append(q.Layers, model.Layer(l))
+			pageQ.Layers = append(pageQ.Layers, model.Layer(l))
 		}
 	}
 
@@ -547,7 +547,7 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "invalid 'after' time: "+err.Error())
 			return
 		}
-		q.After = t
+		pageQ.After = t
 	}
 
 	if before := r.URL.Query().Get("before"); before != "" {
@@ -556,15 +556,16 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "invalid 'before' time: "+err.Error())
 			return
 		}
-		q.Before = t
+		pageQ.Before = t
 	}
 
 	if actor := r.URL.Query().Get("actor_id"); actor != "" {
-		q.ActorID = actor
+		pageQ.ActorID = actor
 	}
 
-	if limit := r.URL.Query().Get("limit"); limit != "" {
-		n, err := strconv.Atoi(limit)
+	limit := 0
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		n, err := strconv.Atoi(limitStr)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid 'limit': "+err.Error())
 			return
@@ -573,33 +574,66 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "limit must be non-negative")
 			return
 		}
-		q.Limit = n
+		limit = n
 	}
 
-	// Tenancy filter runs before the limit; see scopeObservations.
 	tenant, all := observationReadScope(r)
-	limit := q.Limit
-	q.Limit = 0
-	obs, err := h.Store.QueryRange(r.Context(), q)
+	pageQ.Tenant = tenant
+	pageQ.AllTenants = all
+	scopeDigest := ComputeScopeDigest(tenant, all)
+
+	cursorParam := r.URL.Query().Get("cursor")
+	if cursorParam != "" {
+		parsedCur, err := ParseCursor(cursorParam, scopeDigest)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, ErrInvalidCursorMsg)
+			return
+		}
+		pageQ.CursorTimestamp = parsedCur.Timestamp
+		pageQ.CursorID = parsedCur.ID
+	}
+
+	if limit > 0 {
+		pageQ.Limit = limit + 1
+	} else {
+		pageQ.Limit = 0
+	}
+
+	obs, err := h.Store.QueryPage(r.Context(), pageQ)
 	if err != nil {
 		slog.Error("query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	// One row per derived ID. The write-side Deduper stops new duplicates; it
-	// cannot repair segments written before it existed, and those are the ones
-	// Weave reads. This runs BEFORE the limit is applied, so a page is `limit`
-	// distinct observations rather than `limit` rows of which some are copies.
-	obs = store.DedupeByID(obs)
-	obs = scopeObservations(obs, tenant, all, limit)
 
-	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that
-	// declared the field an array then dereferences null and crashes — which is
-	// exactly what the dashboard's Weave page did on an empty result:
-	//   Uncaught TypeError: Cannot read properties of null (reading 'length')
-	// The contract is "a list of observations, possibly empty", so an empty
-	// result must serialise as an empty list. handleListActors below already
-	// does this; the asymmetry was the bug.
+	// Double-check total sort on (timestamp DESC, id DESC)
+	sort.SliceStable(obs, func(i, j int) bool {
+		if obs[i].Timestamp.Equal(obs[j].Timestamp) {
+			return obs[i].ID > obs[j].ID
+		}
+		return obs[i].Timestamp.After(obs[j].Timestamp)
+	})
+
+	hasMore := limit > 0 && len(obs) > limit
+	if hasMore {
+		obs = obs[:limit]
+		last := obs[limit-1]
+		nextCursor := EncodeCursor(last.Timestamp, last.ID, scopeDigest)
+		w.Header().Set("X-Next-Cursor", nextCursor)
+
+		// Build next Link header preserving current query params
+		queryValues := r.URL.Query()
+		queryValues.Set("cursor", nextCursor)
+		reqPath := r.URL.Path
+		if reqPath == "" {
+			reqPath = "/api/v1/observations"
+		}
+		nextURL := reqPath + "?" + queryValues.Encode()
+		w.Header().Set("Link", fmt.Sprintf("<%s>; rel=\"next\"", nextURL))
+	} else {
+		w.Header().Set("X-Result-Truncated", "false")
+	}
+
 	if obs == nil {
 		obs = []model.Observation{}
 	}
@@ -764,27 +798,15 @@ type StoreStatsResponse struct {
 }
 
 func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
-	// Query all observations from the store.
-	obs, err := h.Store.QueryRange(r.Context(), store.Query{})
+	tenant, all := observationReadScope(r)
+	stats, err := h.Store.Stats(r.Context(), store.StatsQuery{
+		Tenant:     tenant,
+		AllTenants: all,
+	})
 	if err != nil {
 		slog.Error("store stats query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to query store")
 		return
-	}
-	tenant, all := observationReadScope(r)
-	obs = scopeObservations(obs, tenant, all, 0)
-
-	byLayer := make(map[string]int)
-	byFidelity := make(map[string]int)
-	var lastIngestion *time.Time
-
-	for _, o := range obs {
-		byLayer[string(o.Layer)]++
-		byFidelity[string(o.Fidelity)]++
-		if lastIngestion == nil || o.Timestamp.After(*lastIngestion) {
-			t := o.Timestamp
-			lastIngestion = &t
-		}
 	}
 
 	actors, err := h.scopedActors(r)
@@ -801,12 +823,12 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 	storeType := fmt.Sprintf("%T", h.Store)
 
 	resp := StoreStatsResponse{
-		TotalObservations:      len(obs),
-		ObservationsByLayer:    byLayer,
-		ObservationsByFidelity: byFidelity,
+		TotalObservations:      stats.TotalObservations,
+		ObservationsByLayer:    stats.ObservationsByLayer,
+		ObservationsByFidelity: stats.ObservationsByFidelity,
 		ActorCount:             len(actors),
 		ActorsByStatus:         byStatus,
-		LastIngestion:          lastIngestion,
+		LastIngestion:          stats.LastIngestion,
 		StoreType:              storeType,
 	}
 

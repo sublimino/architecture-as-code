@@ -179,7 +179,7 @@ class TestSeedProxy:
 
         def handler(request: _httpx.Request) -> _httpx.Response:
             state["sent"].append(request)
-            return _httpx.Response(state["status"], json=state["body"])
+            return _httpx.Response(state["status"], json=state["body"], headers=state.get("headers"))
 
         real = _httpx.AsyncClient
 
@@ -211,6 +211,29 @@ class TestSeedProxy:
         resp = client.post("/api/signals/collectors/seed")
         assert resp.status_code == 500
         assert resp.json() == {"error": "failed to seed fixtures"}
+
+    def test_observations_forwards_cursor_and_relays_paging_headers(self, client, ingest):
+        """GET /api/signals/observations forwards cursor param and relays X-Next-Cursor, Link, X-Result-Truncated."""
+        ingest["status"] = 200
+        ingest["body"] = [{"id": "obs-1", "timestamp": "2026-10-06T12:00:00Z"}]
+        ingest["headers"] = {
+            "x-next-cursor": "eyJ2IjoxLCJ0IjoiMjAyNi0xMC0wNlQxMjowMDowMFoiLCJpZCI6Im9icy0xIiwic2NvcGUiOiJhYmMifQ",
+            "link": '<http://signal-ingest:8082/api/v1/observations?cursor=eyJ2Ijox...>; rel="next"',
+            "x-result-truncated": "true",
+        }
+        resp = client.get("/api/signals/observations?limit=50&cursor=custom-cursor-123&layer=network")
+        assert resp.status_code == 200
+        assert resp.json() == [{"id": "obs-1", "timestamp": "2026-10-06T12:00:00Z"}]
+        assert len(ingest["sent"]) == 1
+        sent = ingest["sent"][0]
+        assert sent.method == "GET"
+        assert sent.url.path == "/api/v1/observations"
+        assert sent.url.params["limit"] == "50"
+        assert sent.url.params["cursor"] == "custom-cursor-123"
+        assert sent.url.params["layer"] == "network"
+        assert resp.headers.get("x-next-cursor") == ingest["headers"]["x-next-cursor"]
+        assert resp.headers.get("link") == ingest["headers"]["link"]
+        assert resp.headers.get("x-result-truncated") == "true"
 
 
 # ---------------------------------------------------------------------------

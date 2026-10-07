@@ -130,8 +130,8 @@ func TestObservationReadsAreScopedToThePrincipalsTenant(t *testing.T) {
 // page of another tenant's rows starves the caller's own.
 func TestObservationLimitCountsOnlyTheTenantsOwnRows(t *testing.T) {
 	router, _ := tenancyRouter(t)
-	if got := strings.Join(getObservationIDs(t, router, tenantBToken, "?limit=1"), ","); got != "obs-1-tenant-b" {
-		t.Fatalf("tenant-b limit=1 read %q, want obs-1-tenant-b", got)
+	if got := strings.Join(getObservationIDs(t, router, tenantBToken, "?limit=1"), ","); got != "obs-4-tenant-b" {
+		t.Fatalf("tenant-b limit=1 read %q, want obs-4-tenant-b", got)
 	}
 }
 

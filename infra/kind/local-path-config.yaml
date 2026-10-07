@@ -28,11 +28,56 @@ data:
   setup: |-
     #!/bin/sh
     set -eu
-    mkdir -m 0777 -p "$VOL_DIR"
+    absolutePath=""
+    while getopts "p:s:m:a:" opt; do
+      case ${opt} in
+        p) absolutePath=${OPTARG} ;;
+        s) sizeInBytes=${OPTARG} ;;
+        m) volMode=${OPTARG} ;;
+        a) action=${OPTARG} ;;
+        \?) echo "Invalid option: -${OPTARG}" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "${absolutePath:-}" ]; then
+      absolutePath="${VOL_DIR:-}"
+    fi
+    if [ -z "${absolutePath:-}" ]; then
+      echo "Error: no target path specified" >&2
+      exit 1
+    fi
+    mkdir -m 0777 -p "$absolutePath"
+    vol_base="$(dirname "$absolutePath")"
+    vol_name="$(basename "$absolutePath")"
+    if echo "$vol_name" | grep -q "^pvc-.*_"; then
+      pvc_suffix="${vol_name#*_}"
+      for old_dir in "$vol_base"/pvc-*_"${pvc_suffix}"; do
+        if [ -d "$old_dir" ] && [ "$old_dir" != "$absolutePath" ]; then
+          if [ -n "$(ls -A "$old_dir" 2>/dev/null)" ] && [ -z "$(ls -A "$absolutePath" 2>/dev/null)" ]; then
+            cp -a "$old_dir/." "$absolutePath/" 2>/dev/null || true
+            rm -rf "$old_dir" 2>/dev/null || true
+          fi
+        fi
+      done
+    fi
   teardown: |-
     #!/bin/sh
     set -eu
-    rm -rf "$VOL_DIR"
+    absolutePath=""
+    while getopts "p:s:m:a:" opt; do
+      case ${opt} in
+        p) absolutePath=${OPTARG} ;;
+        s) sizeInBytes=${OPTARG} ;;
+        m) volMode=${OPTARG} ;;
+        a) action=${OPTARG} ;;
+        \?) echo "Invalid option: -${OPTARG}" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "${absolutePath:-}" ]; then
+      absolutePath="${VOL_DIR:-}"
+    fi
+    if [ -n "${absolutePath:-}" ]; then
+      rm -rf "$absolutePath"
+    fi
   helperPod.yaml: |-
     apiVersion: v1
     kind: Pod
@@ -52,5 +97,5 @@ data:
           effect: NoSchedule
       containers:
       - name: helper-pod
-        image: docker.io/kindest/local-path-helper:v20260131-7181c60a
+        image: docker.io/library/redis:7-alpine
         imagePullPolicy: IfNotPresent

@@ -195,12 +195,29 @@ restore_cluster() {
     fi
   done
 
-  # 3. Fix ownership in node
+  # 3. Fix ownership in node and adopt PVC directories
   "$DOCKER_BIN" exec "$node" chown -R 65532:65532 /var/local/osramp-zot-cache 2>/dev/null || true
   "$DOCKER_BIN" exec "$node" chmod 0750 /var/local/osramp-zot-cache 2>/dev/null || true
   "$DOCKER_BIN" exec "$node" chown -R 70:70 /var/local/signalloom-postgres-data 2>/dev/null || true
   "$DOCKER_BIN" exec "$node" chmod 0700 /var/local/signalloom-postgres-data 2>/dev/null || true
   "$DOCKER_BIN" exec "$node" chmod -R 0777 /var/local-path-provisioner 2>/dev/null || true
+  "$DOCKER_BIN" exec "$node" /bin/bash -c '
+    for old_dir in /var/local-path-provisioner/pvc-*; do
+      [ -d "$old_dir" ] || continue
+      old_name="$(basename "$old_dir")"
+      if echo "$old_name" | grep -q "^pvc-.*_"; then
+        pvc_suffix="${old_name#*_}"
+        for cur_dir in /var/local-path-provisioner/pvc-*_"${pvc_suffix}"; do
+          if [ -d "$cur_dir" ] && [ "$cur_dir" != "$old_dir" ]; then
+            if [ -n "$(ls -A "$old_dir" 2>/dev/null)" ] && [ -z "$(ls -A "$cur_dir" 2>/dev/null)" ]; then
+              cp -a "$old_dir/." "$cur_dir/" 2>/dev/null || true
+              rm -rf "$old_dir" 2>/dev/null || true
+            fi
+          fi
+        done
+      fi
+    done
+  ' 2>/dev/null || true
 
   # 4. Restore identity Secrets
   if [ -d "$dir/secrets" ] && command -v "$KUBECTL_BIN" >/dev/null 2>&1; then

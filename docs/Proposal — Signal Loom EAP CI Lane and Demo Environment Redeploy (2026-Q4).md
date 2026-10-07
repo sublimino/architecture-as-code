@@ -190,9 +190,9 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 - P1-3 keeps only the pipeline list edit. P2-5 runs live after the P2-4 rebuild.
 - SLSE's Definition of Done was ticked before any work existed. It is unticked in the vault and superseded by these rows.
 
-#### Errata — EAPCI-P1-8 SLSE D2: remove the Tetragon gRPC collector from signal-ingest
+#### Errata — EAPCI-P1-8
 **Created:** 2026-10-07 00:36:57+01:00
-**Last Updated:** 2026-10-07 00:52:00+01:00
+**Last Updated:** 2026-10-07 04:00:15+01:00
 **Status:** Completed
 **Commit:** 4a0a767be9179f4098354a0b1f12c83508e9bf28
 **Governor merge:** pending Governor reconciliation

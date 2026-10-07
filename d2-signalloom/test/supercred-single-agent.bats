@@ -45,6 +45,12 @@ setup() {
   grep -Eq '^[[:space:]]*-[[:space:]]*agents-cardvault-sa\.yaml[[:space:]]*$' "$kustomization"
 }
 
+@test "SUPERCRED the agent manifest specifies the registered ServiceAccount" {
+  # sl-agent-identity-binding ValidatingAdmissionPolicy requires a pod labelled
+  # signalloom.ai/agent-name=cardvault to run as agent-cardvault in fe-signalloom-agents.
+  grep -Fq 'serviceAccountName: agent-cardvault' "$manifest"
+}
+
 @test "SUPERCRED the single-creator audit can actually fail" {
   # A guard nobody has watched fail is not a guard.
   run bash -c '

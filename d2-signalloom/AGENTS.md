@@ -72,7 +72,7 @@ flowchart TB
 | Policy compiler | Go CLI. Compiles CEL invariants into admission policies and nono Landlock profiles. | [`cmd/policy-compiler/`](cmd/policy-compiler/) |
 | Policy library | Go package for the policy compiler (CEL checks, CEL and Landlock output) | [`pkg/policy/`](pkg/policy/) |
 | riskctl bridge | Go wrapper. Runs `tools/riskctl/riskctl` from the repository root. `make riskctl` builds that binary from [`tools/riskctl/`](../tools/riskctl/). | [`cmd/riskctl/`](cmd/riskctl/) |
-| Host deployment manifests | Signalloom Warden DaemonSet and NetworkPolicy, Tetragon audit telemetry | [`deploy/`](deploy/) |
+| Host deployment manifests | Signalloom Warden DaemonSet and NetworkPolicy | [`deploy/`](deploy/) |
 | Governance contracts | AgentMaxxing JSON Schemas, fixtures, and a Python schema checker | [`governance/`](governance/) |
 | Design-system demo | Standalone React app with fixture data only | [`design-system-demo/`](design-system-demo/) |
 | NetAssert runner | Agent pod resolver script for the NetAssert Job image | [`netassert-runner/`](netassert-runner/), [`netassert-runner.Dockerfile`](netassert-runner.Dockerfile) |

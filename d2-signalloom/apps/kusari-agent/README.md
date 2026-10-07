@@ -85,7 +85,7 @@ kubectl -n fe-signalloom-agents debug -q -it "$POD" --image=busybox:1.36 --targe
   cat /proc/1/root/tmp/hostile-test.txt
 ```
 
-For a detector (Falco, Tetragon, the eBPF sentinel), the signature is: process `/kusari-agent` in a pod labelled `signalloom.ai/agent=true` opening `/tmp/hostile-test.txt` for write. The `/stats` counter and the log line give you the expected count to reconcile detections against.
+For a detector (Falco, the in-sentinel eBPF probe), the signature is: process `/kusari-agent` in a pod labelled `signalloom.ai/agent=true` opening `/tmp/hostile-test.txt` for write. The `/stats` counter and the log line give you the expected count to reconcile detections against.
 
 ## What this is not
 

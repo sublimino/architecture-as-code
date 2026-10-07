@@ -191,13 +191,16 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 - SLSE's Definition of Done was ticked before any work existed. It is unticked in the vault and superseded by these rows.
 
 #### Errata — EAPCI-P1-7 SLSE D1: in-sentinel eBPF engine (openat, openat2, execve, connect)
-<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 **Created:** 2026-10-06 23:20:00+01:00
+**Last Updated:** 2026-10-07 03:57:00+01:00
 **Status:** Completed
-**Branch:** `eapci-P1-7-w1`
-**Base commit:** `205ca580`
-**Commit:** `bb50e83c` (`feat(sentinel): wire in-sentinel eBPF probe normalisation, drop anomaly and truthful attach logging`)
-**Sentinel image tag:** `src-08e40cec5d33` (computed by `scripts/sentinel-image-tag.sh`, unpinned on branch; P1-GOV re-pins `daemonset.yaml:95`)
+**Commit:** bb50e83c0c72c168f937361a7ade07df4e2c91bd
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:** Documented warden capability set (SYS_PTRACE, BPF, NET_ADMIN, SYS_ADMIN without PERFMON in fe-signalloom-agents) and single shared 16 MiB ring buffer as OPEN/RESIDUAL for AJM; kernel path prefilter (bpf/path_prefilter.h) reduces ring contention by >99% in place of prioritized dual-ring.
+**Deviations:** Image tag unpinned on branch per P1-GOV specification (scripts/sentinel-image-tag.sh computes src-08e40cec5d33; daemonset.yaml:95 pin updated at P1-GOV).
+**Notes:** New suites reachable via go test ./... in d2-signalloom/apps/stun-sentinel and d2-signalloom/apps/signalloom-stun-sentinel; live containerized verifier & test suite runs via ./d2-signalloom/apps/stun-sentinel/bpf/build.sh test.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-7","status":"pass","commit":"bb50e83c0c72c168f937361a7ade07df4e2c91bd"} -->
 
 ##### 1. Module Ground Truth & Architecture
 - **Live Engine Core:** `d2-signalloom/apps/stun-sentinel` contains the canonical eBPF probe (`bpf/sentinel_probe.c`), loader (`pkg/ebpf/loader.go`), and event normaliser/dispatcher (`pkg/correlator/ebpf_correlator.go`).
@@ -232,5 +235,6 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
   - `go test ./...` in `d2-signalloom/apps/signalloom-stun-sentinel`: 100% pass.
   - Zero Tetragon references found in both trees.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-7","status":"pass","commit":"bb50e83c0c72c168f937361a7ade07df4e2c91bd"} -->
 
 

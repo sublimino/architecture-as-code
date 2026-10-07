@@ -114,11 +114,15 @@ data:
   #   - fleet-manager: agent_resolution.go (resolveAgentID), k8sclient.go
   #     (resolvePod), mesh_client.go (resolveTargetIP) -- all reading this
   #     same ConfigMap's mounted files (identity_map.go, LoadAgentIdentityMap).
-  #   - the ValidatingAdmissionPolicy at base/agent-identity-binding.yaml,
-  #     which admits this ConfigMap as its params object and rejects
-  #     CREATE/UPDATE, in ANY namespace, of a pod whose signalloom.ai/agent-name
-  #     label names a registered agent but whose namespace/serviceAccountName
-  #     pair differs.
+  #   - the ValidatingAdmissionPolicy sl-agent-identity-binding, defined
+  #     inline in the fleet's cluster-level ResourceSet at
+  #     d2-osramp-fleet/tenants/base/policies.yaml (reconciled by
+  #     flux-system, NOT by this tenant's own Kustomization -- the tenant
+  #     ServiceAccount has no RBAC to touch cluster-scoped admission
+  #     policies, and must not be granted any). It admits this ConfigMap as
+  #     its params object and rejects CREATE/UPDATE, in ANY namespace, of a
+  #     pod whose signalloom.ai/agent-name label names a registered agent
+  #     but whose namespace/serviceAccountName pair differs.
   #   - fe-signalloom: agent_identity_map.py / claim_tenancy.py (authorize()).
   #
   # Two keys per registered agent -- the ServiceAccount (identity.) and its

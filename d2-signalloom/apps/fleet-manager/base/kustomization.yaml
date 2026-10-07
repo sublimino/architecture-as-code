@@ -27,11 +27,18 @@ resources:
   - rbac.yaml
   - configmap.yaml
   - openbao-agent-config.yaml
-  # ValidatingAdmissionPolicy and -Binding are cluster-scoped: kustomize's
-  # namespace transformer (set by `namespace: fe-signalloom` above) and
-  # Flux's targetNamespace both skip cluster-scoped kinds, so this file is
-  # safe to carry in the same Kustomization as the namespaced fleet-manager
-  # resources. See agent-identity-binding.yaml's own header for why it
-  # exists and test/agent-identity-binding-vap.bats for the offline proof
-  # that it renders here.
-  - agent-identity-binding.yaml
+  # The agent identity-binding ValidatingAdmissionPolicy/-Binding do NOT live
+  # here. This Kustomization is reconciled by the TENANT ServiceAccount
+  # system:serviceaccount:fe-signalloom:flux, which has no RBAC to touch
+  # cluster-scoped admission-policy objects -- and must not be granted any,
+  # because a tenant that can edit admission policies can disable its own
+  # guardrails. An earlier version of this file DID include that policy
+  # here, which made the tenant's entire `apps` dry-run apply fail and took
+  # down everything else in this Kustomization with it (found on a live
+  # deploy, 2026-10-07). The policy is defined inline in the fleet's own
+  # cluster-level ResourceSet instead:
+  # d2-osramp-fleet/tenants/base/policies.yaml (reconciled by flux-system),
+  # the same pattern the pre-existing source.policy.fluxcd.controlplane.io
+  # policy there already uses. See that file's own header comment for the
+  # full design, and test/tenant-kustomizations-no-cluster-scoped-kinds.bats
+  # for the regression test that would have caught this.

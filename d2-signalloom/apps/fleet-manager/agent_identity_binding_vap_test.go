@@ -13,16 +13,74 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// agent_identity_binding_vap_test.go evaluates the CEL in
-// base/agent-identity-binding.yaml against the exact pod shapes
-// hosted-daytona-coder could create versus a legitimate agent pod, using the
-// same cel-go harness vap_admission_test.go uses for the sibling
-// state-protection policy -- except this policy declares a paramKind, so the
-// harness here also binds `params` to the fleet-config ConfigMap, which is
-// how the real admission control plane evaluates it against a resolved
-// ValidatingAdmissionPolicyBinding.paramRef.
+// agent_identity_binding_vap_test.go evaluates the CEL in the
+// sl-agent-identity-binding ValidatingAdmissionPolicy/-Binding against the
+// exact pod shapes hosted-daytona-coder could create versus a legitimate
+// agent pod, using the same cel-go harness vap_admission_test.go uses for
+// the sibling state-protection policy -- except this policy declares a
+// paramKind, so the harness here also binds `params` to the fleet-config
+// ConfigMap, which is how the real admission control plane evaluates it
+// against a resolved ValidatingAdmissionPolicyBinding.paramRef.
+//
+// The policy is NOT a standalone file: it is defined inline, as two items
+// of spec.resources, in the fleet's cluster-level ResourceSet at
+// d2-osramp-fleet/tenants/base/policies.yaml (reconciled by flux-system --
+// the tenant ServiceAccount that reconciles fe-signalloom's own
+// Kustomization has no RBAC to touch cluster-scoped admission policies, and
+// must not be granted any; see that file's header comment for the full
+// history). findPoliciesResource extracts the one matching resource by
+// kind+metadata.name and fails the test loudly if it is missing, so a
+// rename or accidental deletion in policies.yaml cannot make every test
+// below pass vacuously against an empty policy.
 
-const identityBindingPolicyPath = "base/agent-identity-binding.yaml"
+const policiesResourceSetPath = "../../../d2-osramp-fleet/tenants/base/policies.yaml"
+
+// policiesResourceSet is the minimal shape needed to walk a Flux
+// fluxcd.controlplane.io/v1 ResourceSet's spec.resources without vendoring
+// that CRD's Go types here: resources are heterogeneous raw Kubernetes
+// objects, so each entry is read generically and re-marshalled on demand
+// into whichever concrete admissionv1 type a caller needs.
+type policiesResourceSet struct {
+	Spec struct {
+		Resources []map[string]any `json:"resources"`
+	} `json:"spec"`
+}
+
+// findPoliciesResource returns the raw YAML bytes of the single
+// spec.resources entry in policies.yaml matching kind and metadata.name.
+// It fails the test loudly -- t.Fatalf, never a zero-value return a caller
+// could silently unmarshal into an empty struct -- if policies.yaml cannot
+// be read/parsed, if spec.resources is empty (the ResourceSet shape may
+// have changed), or if no entry matches.
+func findPoliciesResource(t *testing.T, kind, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(policiesResourceSetPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", policiesResourceSetPath, err)
+	}
+	var rs policiesResourceSet
+	if err := yaml.Unmarshal(raw, &rs); err != nil {
+		t.Fatalf("parse %s: %v", policiesResourceSetPath, err)
+	}
+	if len(rs.Spec.Resources) == 0 {
+		t.Fatalf("%s: spec.resources is empty or missing -- the ResourceSet shape may have changed", policiesResourceSetPath)
+	}
+	for _, res := range rs.Spec.Resources {
+		resKind, _ := res["kind"].(string)
+		meta, _ := res["metadata"].(map[string]any)
+		resName, _ := meta["name"].(string)
+		if resKind == kind && resName == name {
+			out, err := yaml.Marshal(res)
+			if err != nil {
+				t.Fatalf("remarshal %s %s: %v", kind, name, err)
+			}
+			return out
+		}
+	}
+	t.Fatalf("%s %q not found in %s spec.resources -- it may have been renamed, removed, or moved to another ResourceSet",
+		kind, name, policiesResourceSetPath)
+	return nil // unreachable: t.Fatalf stops this goroutine
+}
 
 type identityBindingPolicy struct {
 	vars            []admissionv1.Variable
@@ -32,33 +90,29 @@ type identityBindingPolicy struct {
 
 func loadIdentityBindingPolicy(t *testing.T) identityBindingPolicy {
 	t.Helper()
-	raw, err := os.ReadFile(identityBindingPolicyPath)
-	if err != nil {
-		t.Fatal(err)
+	raw := findPoliciesResource(t, "ValidatingAdmissionPolicy", "sl-agent-identity-binding")
+	var obj admissionv1.ValidatingAdmissionPolicy
+	if err := yaml.Unmarshal(raw, &obj); err != nil {
+		t.Fatalf("unmarshal sl-agent-identity-binding: %v", err)
 	}
-	var found bool
-	var p identityBindingPolicy
-	for _, doc := range strings.Split(string(raw), "\n---\n") {
-		var obj admissionv1.ValidatingAdmissionPolicy
-		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
-			t.Fatal(err)
-		}
-		if obj.Kind == "ValidatingAdmissionPolicy" && obj.Name == "sl-agent-identity-binding" {
-			if len(obj.Spec.Validations) == 0 {
-				t.Fatal("policy has no validations")
-			}
-			p = identityBindingPolicy{
-				vars:            obj.Spec.Variables,
-				validations:     obj.Spec.Validations,
-				matchConditions: obj.Spec.MatchConditions,
-			}
-			found = true
-		}
+	if len(obj.Spec.Validations) == 0 {
+		t.Fatal("policy has no validations")
 	}
-	if !found {
-		t.Fatalf("sl-agent-identity-binding not found in %s", identityBindingPolicyPath)
+	return identityBindingPolicy{
+		vars:            obj.Spec.Variables,
+		validations:     obj.Spec.Validations,
+		matchConditions: obj.Spec.MatchConditions,
 	}
-	return p
+}
+
+func loadIdentityBindingBinding(t *testing.T) admissionv1.ValidatingAdmissionPolicyBinding {
+	t.Helper()
+	raw := findPoliciesResource(t, "ValidatingAdmissionPolicyBinding", "sl-agent-identity-binding-binding")
+	var obj admissionv1.ValidatingAdmissionPolicyBinding
+	if err := yaml.Unmarshal(raw, &obj); err != nil {
+		t.Fatalf("unmarshal sl-agent-identity-binding-binding: %v", err)
+	}
+	return obj
 }
 
 // matches evaluates this policy's matchConditions against pod, the way the
@@ -292,35 +346,18 @@ func TestIdentityBindingVAP_NoAgentNameLabelIsAdmitted(t *testing.T) {
 // all when this field is Deny). The field must be Deny: fleet-config
 // missing must not silently admit every spoof.
 func TestIdentityBindingVAP_BindingDeniesOnMissingParams(t *testing.T) {
-	raw, err := os.ReadFile(identityBindingPolicyPath)
-	if err != nil {
-		t.Fatal(err)
+	obj := loadIdentityBindingBinding(t)
+	if obj.Spec.ParamRef == nil {
+		t.Fatal("binding declares no paramRef")
 	}
-	var found bool
-	for _, doc := range strings.Split(string(raw), "\n---\n") {
-		var obj admissionv1.ValidatingAdmissionPolicyBinding
-		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
-			t.Fatal(err)
+	action := obj.Spec.ParamRef.ParameterNotFoundAction
+	if action == nil || *action != admissionv1.DenyAction {
+		got := "<nil>"
+		if action != nil {
+			got = string(*action)
 		}
-		if obj.Kind != "ValidatingAdmissionPolicyBinding" || obj.Name != "sl-agent-identity-binding-binding" {
-			continue
-		}
-		found = true
-		if obj.Spec.ParamRef == nil {
-			t.Fatal("binding declares no paramRef")
-		}
-		action := obj.Spec.ParamRef.ParameterNotFoundAction
-		if action == nil || *action != admissionv1.DenyAction {
-			got := "<nil>"
-			if action != nil {
-				got = string(*action)
-			}
-			t.Fatalf("paramRef.parameterNotFoundAction = %s, want %q: a missing fleet-config ConfigMap must deny, not silently admit every spoof",
-				got, admissionv1.DenyAction)
-		}
-	}
-	if !found {
-		t.Fatalf("sl-agent-identity-binding-binding not found in %s", identityBindingPolicyPath)
+		t.Fatalf("paramRef.parameterNotFoundAction = %s, want %q: a missing fleet-config ConfigMap must deny, not silently admit every spoof",
+			got, admissionv1.DenyAction)
 	}
 }
 
@@ -371,27 +408,10 @@ func TestIdentityBindingVAP_MatchConditionsRunForAnyNamespaceThatCarriesTheLabel
 }
 
 func TestIdentityBindingVAP_BindingHasNoNamespaceRestriction(t *testing.T) {
-	raw, err := os.ReadFile(identityBindingPolicyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, doc := range strings.Split(string(raw), "\n---\n") {
-		var obj admissionv1.ValidatingAdmissionPolicyBinding
-		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
-			t.Fatal(err)
-		}
-		if obj.Kind != "ValidatingAdmissionPolicyBinding" || obj.Name != "sl-agent-identity-binding-binding" {
-			continue
-		}
-		found = true
-		if obj.Spec.MatchResources != nil && obj.Spec.MatchResources.NamespaceSelector != nil {
-			t.Fatalf("binding still restricts matchResources to a namespaceSelector (%+v); "+
-				"the spoof this policy guards against is cross-namespace, so a namespace "+
-				"restriction here would defeat it", obj.Spec.MatchResources.NamespaceSelector)
-		}
-	}
-	if !found {
-		t.Fatalf("sl-agent-identity-binding-binding not found in %s", identityBindingPolicyPath)
+	obj := loadIdentityBindingBinding(t)
+	if obj.Spec.MatchResources != nil && obj.Spec.MatchResources.NamespaceSelector != nil {
+		t.Fatalf("binding still restricts matchResources to a namespaceSelector (%+v); "+
+			"the spoof this policy guards against is cross-namespace, so a namespace "+
+			"restriction here would defeat it", obj.Spec.MatchResources.NamespaceSelector)
 	}
 }

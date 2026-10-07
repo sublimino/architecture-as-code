@@ -814,65 +814,111 @@ Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/
 
 - **Logical ID:** P1-GOV
 - **Created:** 2026-10-07 06:14:30+01:00
-- **Last Updated:** 2026-10-07 06:14:30+01:00
+- **Last Updated:** 2026-10-07 08:41:28+01:00
 - **Harness:** `kpai` (Claude Code)
-- **Integration ref (unchanged, not advanced):** `refs/heads/integration/eapci-v0.1.0` = `f431272c35ce487f3c71ea3ab52dc985bbae051a`
-- **Result:** `fail`: hard blocker hit (the Tetragon acceptance grep still matches, and the merged tip is red). Ref not moved, pins not committed, counted runs not started.
+- **Integration ref advanced (compare-and-swap):** `refs/heads/integration/eapci-v0.1.0` `3b0e18b4700f904d5689f10efaf4b18c165d6900` → `92c5eb7cddc9e80fc33059f6bb313ee57fc5709e` (`git update-ref <ref> <new> <old>`, rc 0; governor worktree synced with `read-tree -u -m`, clean). Not pushed.
+- **Result:** `pass`, after remediation attempt 1. All ten P1 cards are merged `--no-ff` in the specified order. Both images were re-pinned once. The counted pair is identical. The only red in `slaws-acceptance` is the inherited `policy-engine` cgo leg, identical to P0.
 
-##### 1. Base
+##### 1. History
 
-The card text names `205ca580` as the tip. The ref had already moved to `f431272c` (`205ca580` is an ancestor): the feat merge `44e140c0` plus errata-collection docs commits. The merge chain was built on the ref's actual value, in a detached worktree at `/tmp/eapci-p1gov`.
+- **Attempt 1 (06:14, `fail`):** the ten merges built cleanly. `test/eapci-ci-stages.bats:320` (P1-3) asserted the suite that P1-9 deletes, and the Tetragon grep still matched P1-3's and P1-8's guards. The ref was not moved. AJM committed that verdict as `3b0e18b4`.
+- **Remediation attempt 1:** the in-scope fixes below, then the pins, the battery and three counted pairs. The base for the compare-and-swap moved from `f431272c` to `3b0e18b4` (AJM's docs-only commit), which was merged into the chain as `7a7d0e14`. The tree delta `35c86d9b..7a7d0e14` is that proposal file only.
 
-##### 2. Merge chain (detached, not on any ref)
+##### 2. Merge chain, first-parent order
 
-| Step | Branch / tip | Merge SHA | Conflicts and resolution |
+| Step | Source | Commit | Notes |
 | :--- | :--- | :--- | :--- |
-| P1-1 | `eapci-P1-1-w1` `e8232cd28ee3ded76e969eb2429b8eaf354f663e` | `7102ea8d1b078075c77ec48df533d5b44686e902` | Proposal only. Took the integration copy (`--ours`), which already holds the collected errata. The branch side differed only in Work Decomposition result cells and pre-normalisation duplicates. |
-| P1-2 | `eapci-P1-2-w1` `5919019041e740f65da11142b2608a11bdc10b3f` | `237e5943787655a063d1c37eb644444c52b85c21` | Makefile `gcp-tf-handoff` jq line: the expected collision. Owner rule (P1-1) applied hunk-level with `git merge-file --ours`, so P1-2's non-conflicting Makefile hunks were kept. Proposal resolved `--ours`. |
-| compose | governor commit | `5e14dc3eba7021cdd9566dacae429210b577de6a` | Re-applied P1-2's three `--arg prev_source_*` lines and the conditional `source_*` object merges onto P1-1's line ("P1-2 merges by a separate step"). terraform-demo-ref, terraform-pilot-profile, eapci-pilot-profile and terraform-demo-driver: 122/122 green. |
+| P1-1 | `eapci-P1-1-w1` `e8232cd28ee3ded76e969eb2429b8eaf354f663e` | `7102ea8d1b078075c77ec48df533d5b44686e902` | The proposal conflicted. Took the integration copy (`--ours`), which already held the collected errata; the branch side differed only in decomposition result cells. The same rule applied to every card. |
+| P1-2 | `5919019041e740f65da11142b2608a11bdc10b3f` | `237e5943787655a063d1c37eb644444c52b85c21` | Expected Makefile `gcp-tf-handoff` jq collision. Owner P1-1 kept with hunk-level `git merge-file --ours`; P1-2's other Makefile hunks kept. |
+| compose | governor | `5e14dc3eba7021cdd9566dacae429210b577de6a` | P1-2's `--arg prev_source_*` lines and conditional `source_*` merges re-applied onto P1-1's line ("P1-2 merges by a separate step"). Four terraform suites: 122/122. |
 | P1-4 | `c1a63be34148d613f13d329c148925031383ed68` | `cae27d3a837c6884601072747041506e5893fb0d` | Proposal only. |
 | P1-5 | `7281bacfb1cf6de99482d812dff7275a55d6ff52` | `d9264773c1839a35aeea2015c427f42e086694e7` | Proposal only. |
 | P1-6 | `35c152f6b72b1308c9c7c74fbbe65fb7bbabb5a8` | `be987753ad68ee393d8a3f0be086718818988bff` | Proposal only. |
 | P1-7 | `645017a2f481106b5a3707ff8e878f46c6cf3b01` | `cc68fde75e0f66af8215c9ba8caac2bbdc50e679` | Proposal only. |
 | P1-8 | `027cf8f64d9f35770271282bb02ae60b5030e556` | `f5859da3cd983516683d1da68acc739044bb8b8c` | Proposal only. |
 | P1-3 | `cadacac96aa45a5e78fb6ebf4a69149b4cde1cc1` | `290dbd47b989f175a30f2ad3f948acabb3c45c13` | Proposal only. |
-| P1-9 | `65d376ecf6b53bd4644b7f3c5e78ae47562d68c4` | `20fed3df264e3375f960d7990ee96e1716cf0ede` | `test/fixtures/test-isolation-allowlist.txt`: a blank line only (P1-8 and P1-9 both deleted the same six Tetragon rows). Owner side taken with `merge-file --ours`; non-blank content is identical to the P1-9 side. |
+| P1-9 | `65d376ecf6b53bd4644b7f3c5e78ae47562d68c4` | `20fed3df264e3375f960d7990ee96e1716cf0ede` | `test-isolation-allowlist.txt`: a blank line only (P1-8 and P1-9 deleted the same six rows). Owner side taken with `merge-file --ours`; non-blank content identical to P1-9. |
 | P1-10 | `7e1e5ed9e0e510996860718ad7e6006c1c990d1a` | `e4f8cd56813ab4a59c50dc7b8e9564d1eb85ed45` | Proposal only. |
+| fix | governor | `bab3fa260fefb4bc2ffaff519d9cff9940ff5e2e` | Deleted P1-3's stale "suite still exists" test. P1-3's tool-named greps replaced by "every `[d2-*/]test/*.bats` a pipeline names exists on disk". P1-8's registry name check replaced by an exact collector-set test. `.mdx` onboarding prose fixed. Mutation proofs: an orphan suite reference in each pipeline, and a dropped name, are each killed. |
+| docs | governor | `f8a11e247680cfac845b938dfba19ad7d3ab3bb8` | `d2-signalloom/AGENTS.md` deploy row and the kusari-agent README detector example no longer name the removed tool. |
+| pins | governor | `9b2f438a07ad76affd909086ecd8a3c8055d9403` | Single re-pin plus ledger re-record (§3). |
+| fix | governor | `10d4198a20a8f3241f36b59cd3411fe4dce1cc30` | `terraform-env-contract` stage-refusal test: P1-3 made `DEMO_ENV` mandatory first, so the test hit the lane error and its `full` control passed for the wrong reason. All three invocations now pass `DEMO_ENV=demo-1`. |
+| fix | governor | `41bce5cdf59f0251125d168a4617b5223857beb0` | Alignment: `docs/EAP/observations-api.md` (P1-6) uses `>/dev/stderr` and a no-match-safe `awk` in place of `>&2` and `\|\| true`, checked under `set -euo pipefail`. Old-probe-name: anchored allowlist entries for P1-9's unified-stun suite (R3 module directories) and P1-5's backup of `stun-sentinel-fleet-key` (still minted by `fleet-manager-caller-keys.sh`). |
+| fix | governor | `35c86d9b4a69269d83887559dc23aac9ffa50b90` | P1-6's `TestPeakHeap_ObservationsAndStats_FrostDBStore` takes the minimum TotalAlloc delta of three trials; the 128 MiB bound is unchanged. FrostDB background compaction had pushed one reading to 204 MiB. Mutation (+200 MiB) killed; five clean runs. |
+| sync | merge | `7a7d0e14cc60dab3d14625e3e6b3f8f4dd223b27` | Merged AJM's `3b0e18b4` (proposal only). |
+| docs | governor | `92c5eb7cddc9e80fc33059f6bb313ee57fc5709e` | Ledger note reworded so it no longer names the removed tool (comment only). |
 
-Every worker tip matched or descended from its reported SHA (each extra commit is a docs commit). There were no amended commits and no rebases.
+No rebases were needed. No worker commit was amended. Every worker tip matched or descended from its reported SHA (each extra commit is a docs commit).
 
-##### 3. Blocking findings
+##### 3. Pins and ledger (set once, after the last Go merge)
 
-1. **P1-3 vs P1-9, a red by construction that nobody removed.** `test/eapci-ci-stages.bats:320-321` (`EAPCI test/tetragon-telemetry-stream.bats file still exists on disk`) asserts a file that P1-9 deletes, so the test fails on the merged tip. Owner: P1-3 (or P1-9, which deleted the file). Fix: a new commit deleting that test. It needs to come from a card, not a governor hand-fix (out of scope).
-2. **Tetragon acceptance grep is not clean.** `rg -il tetragon Makefile scripts test d2-signalloom/deploy d2-signalloom/apps/signal-ingest d2-signalloom/apps/dashboard-signalloom/src` → `test/eapci-ci-stages.bats` (P1-3: header comment :11, negative guards :310-316, the stale test above) and `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:260-273` (P1-8: the `TestRegistry_NoTetragonCollectorRegistered` regression guard). Repo-wide, excluding `docs/**` and `*.md`, adds `ci-evidence/p5-baseline-summary.txt:63-64` (a dated record, exempt) and `d2-signalloom/apps/docs-signalloom/src/content/docs/agents/dual-agent-onboarding.mdx:122` (user-facing prose, owned by no card). **Decision for AJM:** do negative regression guards that name Tetragon (P1-3's greps, P1-8's registry test) count as "history" for this criterion? If yes, only finding 1 and the `.mdx` line remain. If no, both guards need rewording by their owners.
+- signal-ingest `base/deployment.yaml:45`: `src-8273655b1f19c15a` → `src-93ef78c37f62ca38` (`scripts/signal-ingest-image-tag.sh`).
+- sentinel `signalloom-warden/daemonset.yaml:95` and `test/fixtures/cold-start-manifests.tsv:11`: `src-0a6aad47e85a` → `src-08e40cec5d33` (`scripts/sentinel-image-tag.sh`; matches P1-7's report).
+- Guards: `TestReconciledManifestRunsTheImageBuiltFromThisSource` PASS; `test/sentinel-image-provenance.bats` 13/13. Both tags were recomputed unchanged on `10d4198a`, `41bce5cd`, `35c86d9b` and `92c5eb7c`. No pin changed after the counted runs started, and no `_test.go` is a signal-ingest tag input.
+- `test/fixtures/gcp-tf-ci/untouched-scripts.sha256`: `vm-pipeline.sh` re-recorded once, `4babac66…` → `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0`, naming `b9177c3f902019e94d5d7129684f18a3e018d90b` and P1-3 `df82316b`. `ci-lock.sh` is still red (inherited since b9177c3f). **Acknowledgement requested from sensai-sltm on `/tmp/chat.jsonl`; none received yet.**
+- `go mod tidy` (go1.27.0) leaves signal-ingest, stun-sentinel and signalloom-stun-sentinel unchanged; `cilium/tetragon` is gone from `go.mod`.
 
-##### 4. Battery evidence on the merged chain (`KUBECONFIG=/dev/null`)
+##### 4. Counted acceptance (`KUBECONFIG=/dev/null`, detached `/tmp/eapci-p1gov`)
 
-- After P1-1/P1-2/compose: the four terraform bats suites 122/122 (`terraform init -backend=false` was needed in the fresh worktree: env-contract and the modules carry no committed lock).
-- After P1-4..P1-8: `eap-pr-workflow`, `postgres-persistence`, `zot-cache`, `kind-config-heredoc`, `signalloom-warden-manifests` 52/52, 0 skips. `go mod tidy` (go1.27.0 from `/tmp/gomodcache`, `GOTOOLCHAIN=local`, `GOPROXY=off`) left signal-ingest, stun-sentinel and signalloom-stun-sentinel `go.mod`/`go.sum` unchanged. `go vet` was clean on both sentinels. signal-ingest `go vet` reports copylocks at `api/static_bearer_test.go:273`; that file is untouched by P1, so the finding is pre-existing and outside `go test`'s vet subset.
-- After P1-3/P1-9: `eapci-ci-stages`, `bats-registry-coverage`, `terraform-dual-lane-registration`, `ci-report-integrity`, `gcp-demo-pipeline` gave 64 ok and 4 not ok. Three are `bats-registry-coverage` (proof-invocation, inherited `GCP_TF_PROOFS_RUN`, root suites not invoked by CI), and the same three are red at base `f431272c` (re-run in `/tmp/eapci-p1gov-base`). The uninvoked-suite list grows by `eapci-pilot-profile.bats` (P1-1), `kind-data-backup.bats` and `kind-data-mounts.bats` (P1-5), and shrinks by `kusari-e2e-live.bats` (P1-3). The fourth is finding 1.
-- `SINGLE_LANE_ALLOWED` (`test/terraform-dual-lane-registration.bats`) after P1-3+P1-9: `test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats test/kusari-e2e-live.bats test/eapci-ci-stages.bats`. No Tetragon entry.
+Pair 3 is the counted pair, on `35c86d9b4a69269d83887559dc23aac9ffa50b90`, `dirty=0` before and after both runs. Out dirs: `/tmp/eapci-acceptance-p1gov-run1` and `-run2`.
 
-##### 5. Pins and ledger (computed, NOT committed)
+| Command | run1 | run2 |
+| :--- | :--- | :--- |
+| `make test-eap-offline` | rc 0, 18 ok, 0 not ok, 7 skip (ROUTELIVE: no fe-signalloom) | identical |
+| `make test-kusari-e2e` | rc 0, 40 PASS | identical |
+| `scripts/slaws-acceptance.sh` | rc 1 (policy-engine only) | identical |
+| `make docs-lint` | rc 0, 689 files clean | identical |
 
-- signal-ingest: currently `src-8273655b1f19c15a` (P1-6); `scripts/signal-ingest-image-tag.sh` on `e4f8cd56` → `src-93ef78c37f62ca38`.
-- sentinel: currently `src-0a6aad47e85a`; `scripts/sentinel-image-tag.sh` → `src-08e40cec5d33` (matches P1-7's report).
-- `test/fixtures/gcp-tf-ci/untouched-scripts.sha256:139` pins `4babac66…`; merged `scripts/ci/vm-pipeline.sh` is `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0` (matches P1-3's report). Not re-recorded.
+`totals.key` (byte-identical in both runs; `diff` empty; `head.txt` identical):
 
-These values are valid only for chain tip `e4f8cd56`. Any fix commit to Go or sentinel inputs means recomputing them.
+```text
+timeout_scale=1
+signal-ingest            rc=0 pass=3569 fail=0
+signal-ingest-frostdb    rc=0 pass=3632 fail=0
+policy-engine            rc=1 pass=301 fail=1
+sldc-offline             rc=0 pass=704 fail=0
+probe-name               rc=0 pass=checked=4973 fail=0
+docs-lint                rc=0 pass=checked=689 fail=0
+obscel-extra             rc=0 pass=118 fail=0
+alignment                rc=0 pass=checked=104 fail=0
+```
+
+- **policy-engine** is the same 301/1 as P0: the leg builds with cgo, and the sandbox denies `/usr/include/stdc-predef.h`. It is environmental, not code; the acceptance script was left unchanged.
+- **Mismatched and failing pairs (2 of the 3 allowed):** pair 1 (`10d4198a`, kept as `-pair1-*`) was identical but red on alignment, probe-name and sldc-offline, fixed in `41bce5cd`. Pair 2 (`41bce5cd`, kept as `-pair2-*`) mismatched on the FrostDB peak-heap flake, fixed in `35c86d9b`.
+- **Count deltas vs base:** both signal-ingest legs lose exactly 40 passing tests, the same set in both modes: 35 top-level tests plus 5 subtests of `TestNormalizeHostileSparseInputs`. Every one is defined in the deleted `collectors/ebpf/` package (P1-8):
+  - `TestAntiInboundFlowEventStructIsUnmodified`, `TestAntiParentPackageDoesNotImportEbpf`, `TestBackoffScheduleIsNonDecreasingAndCapped`
+  - `TestCollectorFromEnvDefaultsToOff`, `TestCollectorFromEnvReadsConfiguration`, `TestCollectorHealthReportsMissingSocket`, `TestCollectorModeFixtureIngestsOneOfEachClass`, `TestCollectorModeOffDoesNothing`
+  - `TestDecodeJSONEventBlankLineIsNotAnError`, `TestDecodeJSONEventDiscardsUnknownFields`, `TestIngestCountsOutOfContractNamespaceAsSkipped`, `TestJitterStaysWithinBand`
+  - `TestMetricsCountersIncrement`, `TestMetricsExposeAllRequiredSeries`, `TestMetricsRenderIsDeterministic`, `TestNamespaceFilterAllowsUnattributedButRejectsOutOfContract`
+  - `TestNormalizeClampsOutOfRangePort`, `TestNormalizedEventsAreAcceptedByNetEBPFCollector`, `TestNormalizeHostileSparseInputs` (and its 5 subtests), `TestNormalizeOpenatPreservesFilePath`, `TestNormalizePodUIDFallsBackToContainerID`, `TestNormalizeProcessExecPopulatesPodAttribution`, `TestNormalizeSequenceNumbersAreMonotonicPerNode`, `TestNormalizeTCPConnectPopulatesDestination`, `TestNormalizeTimestampRoundTrip`, `TestNormalizeUnattributedEventDoesNotPanic`
+  - `TestRingBufferBoundsAndDropPolicy`, `TestRingBufferConcurrentProducerConsumer`, `TestRingBufferPopUnblocksOnContextCancel`, `TestRingBufferZeroCapacityFallsBackToDefault`
+  - `TestStreamClientBurstOfOneThousandDropsNothing`, `TestStreamClientIngestsFromMockGRPCServer`, `TestStreamClientReconnectsAfterStreamEnds`, `TestStreamJSONDecodesNDJSON`, `TestStreamJSONSurvivesMalformedLine`
+
+##### 5. Battery on the merged tree
+
+- **EAPCI and Terraform bats** (`eapci-*`, `kind-data-*`, dual-lane, env-contract, identity): 91 ok; reds are #45 sudo under NoNewPrivs (sandbox) and the TFID `ci-lock.sh` drift (inherited). #47 (stage refusal) was introduced by P1-3 and fixed in `10d4198a`.
+- **Card bats** (gcp-demo-pipeline, terraform-demo-driver, ci-report-integrity, kind-config-heredoc, eap-pr-workflow, postgres-persistence, zot-cache, signalloom-warden-manifests, bats-registry-coverage, crkc-phase1-unified-stun): 209 ok, 3 not ok. All three `bats-registry-coverage` reds are also red at base `f431272c`, so the "green after the P1-3/P1-9 pair" criterion was never met at base either. The uninvoked-suite list grows by `eapci-pilot-profile.bats`, `kind-data-backup.bats` and `kind-data-mounts.bats`, and shrinks by `kusari-e2e-live.bats`. `SINGLE_LANE_ALLOWED`: `test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats test/kusari-e2e-live.bats test/eapci-ci-stages.bats`.
+- **`make gcp-tf-validate`:** rc 2 (1133 ok). The eight affected suites were re-run side by side at tip and base: **identical red sets (8 each, 287 ok each; tip-only and base-only both empty)**. The eight are sudo/NoNewPrivs, TFID `ci-lock.sh`, the bootstrap plan, the working-tree artefact check, the leaked-sentinel exit code, the four-lane proof glob, the drifted-name anti-test and VACGATE. `ms_sed_effective` (#549) failed only under the full sweep's load and passed on the rerun.
+- **`make -n test-sentinel-ebpf`** rc 0 and **`make test-sentinel-ebpf`** rc 0.
+- **Go suites:** signal-ingest memory and FrostDB modes rc 0, stun-sentinel and signalloom-stun-sentinel rc 0.
+- **Dashboard vitest:** 216 files, 3731 passed, 3 skipped (after a frozen `bun install` in the fresh tree).
+- **Tetragon greps on `92c5eb7c`:** `rg -il tetragon Makefile scripts test d2-signalloom/deploy d2-signalloom/apps/signal-ingest d2-signalloom/apps/dashboard-signalloom/src` → no output. `rg -il tetragon Makefile scripts test d2-signalloom --glob '!docs/**'` → no output. Repo-wide excluding `docs/**` and `*.md` → only `ci-evidence/p5-baseline-summary.txt` (a dated record).
 
 ##### 6. Deviations
 
-- The proposal file is tracked in the repo, and its errata were committed on the integration line by earlier collection commits. This block is written to the governor worktree and left **uncommitted**, per the governor rule.
-- Host Go is 1.26.2 and the sandbox blocks `~/go/pkg/sumdb`, so Go ran through the cached go1.27.0 toolchain binary.
+- Base was `f431272c`, not the card's `205ca580` (an ancestor), and then `3b0e18b4` after AJM's commit.
+- The governor authored eight commits beyond the two re-pins: the jq composition, the stale-test and guard rewrite, two doc-drift fixes, the env-contract invocation, the alignment and allowlist fix, the peak-heap trial, and the ledger reword. They were made under remediation attempt 1's instruction to fix in-scope items. Each is a separate commit naming the card it repairs.
+- Go ran via the cached go1.27.0 toolchain (`GOTOOLCHAIN=local`), because host Go is 1.26.2 and the sandbox denies `~/go/pkg/sumdb`.
+- This block lives in the governor worktree's tracked proposal file and is left uncommitted, per the governor rule.
 
-##### 7. To resume
+##### 7. Recommendations (outside this card)
 
-1. P1-3 owner: a new commit removing `test/eapci-ci-stages.bats:320-322`, plus AJM's ruling on guard tests (finding 2). Optionally, a docs card for the `.mdx` line.
-2. Re-run P1-GOV. The chain above reproduces mechanically: the same two resolutions (`merge-file --ours` hunk-level) plus the compose commit. Then pin both images once, re-record the ledger once naming `b9177c3f` and P1-3, and run the counted pair.
-3. Detached chain kept at `/tmp/eapci-p1gov` (HEAD `e4f8cd56813ab4a59c50dc7b8e9564d1eb85ed45`) for inspection. It is on no ref and safe to remove.
+- sensai-sltm to acknowledge the `vm-pipeline.sh` ledger re-record. `ci-lock.sh` drift still needs its own owner.
+- `slaws-acceptance` policy-engine leg: set `CGO_ENABLED=0` in the script, or run it outside nono, so the gate can exit 0. Owner: SLAWS line.
+- `bats-registry-coverage`: register the three new EAPCI/kind-data suites in a pipeline stage.
+- Worker branches `eapci-P1-{1..10}-w1` and their worktrees are merged and removable.
 
-##### P2 prerequisites checklist (carried forward)
+##### P2 prerequisites checklist
 
 - [ ] demo-2 live tfvars
 - [ ] AJM approval to destroy demo-2
@@ -896,5 +942,5 @@ These values are valid only for chain tip `e4f8cd56`. Any fix commit to Go or se
 | P1-10 | — | — | — | — |
 | P1-GOV | — | — | — | — |
 
-
-<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-GOV","status":"pass","commit":"92c5eb7cddc9e80fc33059f6bb313ee57fc5709e"} -->

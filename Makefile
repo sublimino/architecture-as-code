@@ -1206,6 +1206,7 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/sltm-ingest-chain.bats \
 	test/old-probe-name-guard.bats \
 	test/agent-identity-binding-vap.bats \
+	test/tenant-kustomizations-no-cluster-scoped-kinds.bats \
 	test/dockerfile-copy-sources.bats \
 	test/osramp-up-lifecycle.bats \
 	d2-signalloom/test/netassert-gitops.bats \

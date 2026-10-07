@@ -64,9 +64,20 @@ The verdict and the note are inside the derived ID. So:
   and is collapsed by the same deduper that collapses a replayed observation. One row.
 - Changing the verdict or a character of the note derives a **different** ID, and is a second,
   separately attributable assertion. The first one stays on the record; the decisions feed shows
-  the latest. (`TestPolicyReviewRevisionIsASecondRowAndTheFeedShowsTheLatest`)
+  the latest. (`TestPolicyReviewRevisionIsASecondRowAndTheFeedShowsTheLatest`,
+  `TestPolicyReviewChangedNoteIsARevisionNotAConflict`)
 - Two people reaching the same verdict are two reviews. Collapsing those would destroy the only
-  interesting case — agreement.
+  interesting case — agreement. (`TestPolicyReviewDistinctReviewersEachRecordARow`)
+
+#### Idempotency matrix
+
+| Tenant | Decision ID | Reviewer | Verdict | Note | Result | Behavior |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Same | Same | Same | Same | Same | `409 Conflict` | Identical replay is collapsed; names existing review ID |
+| Same | Same | Same | Changed | Same | `201 Created` | Verdict revision recorded as new assertion; feed shows latest |
+| Same | Same | Same | Same | Changed | `201 Created` | Note revision recorded as new assertion; feed shows latest |
+| Same | Same | Distinct | Same | Same | `201 Created` | Distinct reviewer judgement recorded; independent agreement |
+| Distinct | Same | Same | Same | Same | `404 Not Found` | Cross-tenant access restricted; does not act as existence oracle |
 
 ## Permissions
 

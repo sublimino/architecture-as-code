@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,9 @@ type PolicyStore struct {
 	// makes "a registration never survives a restart" structural rather than a
 	// convention someone has to remember.
 	obsBundles map[string][]*obscel.Bundle
+
+	pseudonymKey   []byte
+	pseudonymEpoch uint32
 }
 
 // NewPolicyStore creates an initialized, thread-safe PolicyStore.
@@ -174,6 +178,58 @@ func calculateChecksum(bundle *PolicyBundle) string {
 	return hex.EncodeToString(h[:])
 }
 
+// SetPseudonymConfig sets the root key and epoch for actor pseudonymisation.
+func (s *PolicyStore) SetPseudonymConfig(root []byte, epoch uint32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pseudonymKey = append([]byte(nil), root...)
+	s.pseudonymEpoch = epoch
+}
+
+// PseudonymiserFor returns an obscel.HMACPseudonymiser for tenantID.
+func (s *PolicyStore) PseudonymiserFor(tenantID string) (*obscel.HMACPseudonymiser, error) {
+	s.mu.RLock()
+	key := s.pseudonymKey
+	epoch := s.pseudonymEpoch
+	s.mu.RUnlock()
+
+	if len(key) < obscel.MinRootKeyBytes {
+		if raw := os.Getenv("SIGNAL_SEGMENT_PSEUDONYM_KEY"); raw != "" {
+			if decoded, err := hex.DecodeString(raw); err == nil && len(decoded) >= obscel.MinRootKeyBytes {
+				var ep uint32
+				if rawEpoch := os.Getenv("SIGNAL_SEGMENT_PSEUDONYM_EPOCH"); rawEpoch != "" {
+					if p, err := strconv.ParseUint(rawEpoch, 10, 32); err == nil {
+						ep = uint32(p)
+					}
+				}
+				s.SetPseudonymConfig(decoded, ep)
+				key = decoded
+				epoch = ep
+			}
+		}
+	}
+	if len(key) < obscel.MinRootKeyBytes {
+		return nil, obscel.ErrRootKeyTooShort
+	}
+	return obscel.NewHMACPseudonymiser(key, tenantID, epoch)
+}
+
+// HasPseudonymConfig reports whether pseudonym root key material is configured.
+func (s *PolicyStore) HasPseudonymConfig() bool {
+	s.mu.RLock()
+	hasKey := len(s.pseudonymKey) >= obscel.MinRootKeyBytes
+	s.mu.RUnlock()
+	if hasKey {
+		return true
+	}
+	if raw := os.Getenv("SIGNAL_SEGMENT_PSEUDONYM_KEY"); raw != "" {
+		if decoded, err := hex.DecodeString(raw); err == nil && len(decoded) >= obscel.MinRootKeyBytes {
+			return true
+		}
+	}
+	return false
+}
+
 // RegisterBundle validates and stores a new versioned policy bundle atomically.
 func (s *PolicyStore) RegisterBundle(tenantID string, bundle *PolicyBundle) error {
 	if bundle == nil {
@@ -187,6 +243,38 @@ func (s *PolicyStore) RegisterBundle(tenantID string, bundle *PolicyBundle) erro
 	}
 	if len(bundle.Rules) == 0 {
 		return fmt.Errorf("at least one policy rule is required in bundle")
+	}
+
+	if len(bundle.ActorVars) > 0 {
+		if !s.HasPseudonymConfig() {
+			return fmt.Errorf("bundle %s declares actor_vars but SIGNAL_SEGMENT_PSEUDONYM_KEY is not configured", bundle.ID)
+		}
+		ps, err := s.PseudonymiserFor(tenantID)
+		if err != nil {
+			return fmt.Errorf("creating pseudonymiser for tenant %s: %w", tenantID, err)
+		}
+		staged := make(map[string][]string, len(bundle.ActorVars))
+		for _, name := range bundle.ActorVars {
+			values, ok := bundle.Vars[name]
+			if !ok {
+				continue
+			}
+			out := make([]string, len(values))
+			for i, v := range values {
+				p, err := ps.Pseudonym(v)
+				if err != nil {
+					return fmt.Errorf("pseudonymising vars.%s[%d] of bundle %s: %w", name, i, bundle.ID, err)
+				}
+				out[i] = p
+			}
+			staged[name] = out
+		}
+		if bundle.Vars == nil && len(staged) > 0 {
+			bundle.Vars = make(map[string][]string)
+		}
+		for name, values := range staged {
+			bundle.Vars[name] = values
+		}
 	}
 
 	// 1. Atomic CEL validation: Compile all rules upfront before acquiring write lock.

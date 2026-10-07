@@ -27,9 +27,11 @@ type PolicyBundle struct {
 	Description string       `json:"description,omitempty" yaml:"description,omitempty"`
 	CreatedAt   string       `json:"created_at" yaml:"created_at"`
 	Status      string       `json:"status,omitempty" yaml:"status,omitempty"`
-	Rules       []PolicyRule `json:"rules" yaml:"rules"`
-	RawBundle   string       `json:"raw_bundle,omitempty" yaml:"raw_bundle,omitempty"`
-	Checksum    string       `json:"checksum" yaml:"checksum"`
+	Rules       []PolicyRule        `json:"rules" yaml:"rules"`
+	RawBundle   string              `json:"raw_bundle,omitempty" yaml:"raw_bundle,omitempty"`
+	Checksum    string              `json:"checksum" yaml:"checksum"`
+	ActorVars   []string            `json:"actor_vars,omitempty" yaml:"actor_vars,omitempty"`
+	Vars        map[string][]string `json:"vars,omitempty" yaml:"vars,omitempty"`
 
 	// DryRun marks a bundle that arrived over POST /api/v1/policies/bundles.
 	// Per SLAWS v2 §4.4 that route registers a dry-run bundle only and never

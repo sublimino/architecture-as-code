@@ -27,6 +27,7 @@ import (
 	"strconv"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/pseudonym"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
 
 // SegmentPseudonymKeyEnv holds hex-encoded root key material for segment pseudonymisation.
@@ -93,6 +94,7 @@ type ActorPseudonymiser interface {
 // is exactly equality on the plaintext and the query plan does not change at all.
 type SegmentPseudonymiser struct {
 	ring   *pseudonym.KeyRing
+	hmac   *obscel.HMACPseudonymiser
 	tenant string
 }
 
@@ -110,7 +112,11 @@ func NewSegmentPseudonymiser(root []byte, tenant string, epoch uint32) (*Segment
 	if err != nil {
 		return nil, fmt.Errorf("store: segment pseudonymiser: %w", err)
 	}
-	return &SegmentPseudonymiser{ring: ring, tenant: tenant}, nil
+	h, err := obscel.NewHMACPseudonymiser(root, tenant, epoch)
+	if err != nil {
+		return nil, fmt.Errorf("store: segment pseudonymiser: %w", err)
+	}
+	return &SegmentPseudonymiser{ring: ring, hmac: h, tenant: tenant}, nil
 }
 
 // NewSegmentPseudonymiserFromEnv builds a pseudonymiser from the environment.
@@ -171,7 +177,7 @@ func (p *SegmentPseudonymiser) Pseudonym(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	out, err := p.ring.Pseudonym(p.tenant, value)
+	out, err := p.hmac.Pseudonym(value)
 	if err != nil {
 		return "", fmt.Errorf("store: segment pseudonym: %w", err)
 	}

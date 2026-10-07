@@ -559,6 +559,25 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 
+
+#### Errata — SLAWS-P5-1 Live AWS lab as code: Terraform read-only role, bucket and queue under infra/aws/slaws-lab, scripts/slaws-live-lab.sh drives COLLECTOR_AWSLOGS_MODE=live end to end and refuses without credentials
+**Created:** 2026-10-06 10:05:39+01:00
+**Last Updated:** 2026-10-06 10:05:39+01:00
+**Status:** Completed
+**Commit:** b97bd727f9f04f29f6cca670d48155da9a602938
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Provisioned read-only cross-account role (`slaws-lab-reader`), S3 bucket (`slaws-lab-kusari-*`), and SQS notification queue with DLQ (`slaws-lab-notify`, `slaws-lab-dlq`, `maxReceiveCount = 5`) under `infra/aws/slaws-lab/` strictly enforcing `sts:ExternalId` per D5 and D13.
+- `scripts/slaws-live-lab.sh` implements credential gating first, refusing with exit code 3 when unauthenticated credentials are presented and reporting the exact operator invocation command (`AWS_PROFILE=<profile> scripts/slaws-live-lab.sh --region <region>`).
+- Implemented gzip inflation in `collectors/awslogs/project.go` `Project()` for `.gz` object keys before dispatching to CloudTrail/VPC Flow projectors.
+- Added seam tests `lab_seam_test.go` and `live_test.go` asserting delete-after-Append ordering and assume-role external-ID enforcement using `awsfake` exclusively (no network in tests).
+- Re-pinned `d2-signalloom/apps/signal-ingest/base/deployment.yaml` to immutable tag `src-beeb5a6406456b98` reflecting the non-test Go update.
+- Recorded STOP report in `/tmp/slaws-p5/evidence/P5-1/stop-report.txt` as live AWS execution was gated by missing credentials in the sandbox.
+**Deviations:**
+- None. `SIGNAL_DEV_MODE` was intentionally omitted from `scripts/slaws-live-lab.sh` configuration as `signal-ingest` does not consume it (noted in P5-PRE errata).
+**Notes:**
+- All 8 acceptance legs passed with identical results on runs 1 and 2 (signal-ingest: 3606, frostdb: 3651, policy-engine: 458, sldc-offline: 704, probe-name: 4967, docs-lint: 689, obscel-extra: 118, alignment: 103).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 #### Errata — SLAWS-P5-2 (multi-account fan-out & DLQ redrive, 2026-10-06, `6f859ec8`, `be33f9cb`)
 
 - **Created:** `2026-10-06 10:35:00+01:00`

@@ -149,7 +149,7 @@ updated: 2026-10-06T12:50
 | P2-1 | implementation | `make gcp-tf-up ENV=ci-1`, `make gcp-tf-demo-up ENV=ci-1 GCP_TF_DEMO_REF=integration/eapci-v0.1.0`, `make doctor-node ENV=ci-1`, `make gcp-tf-test-both ENV=ci-1`; collect the P1-3 stage results. | P2-PRE | Hand-off `source_sha` equals the integration tip short SHA; all six EAP stages rc 0 with zero skips; tailnet receipt present | M | antigravity | — | — | — | — | — |
 | P2-2 | implementation | The same four targets for `ENV=demo-2` (destroying its current deployment, approved by AJM), deployed as the Kusari pilot at `sl-eap-4b53ab6b.taild4da3.ts.net`; run the onboarding smoke (`docs/EAP/onboarding.md` §1-§5); run the stun chain: `POST /act/read-passwd` → warden in-sentinel eBPF observation → stun label → authorised resume. | P2-1 | Hand-off SHA matches; the endpoint resolves on the tailnet; a sentinel observation for `/etc/passwd` from `agent-kusari`; `signalloom.io/stunned=true` then cleared by resume; no Tetragon CRD; smoke transcript | M | antigravity | — | — | — | — | — |
 | P2-3 | implementation | The same four targets for `ENV=demo-1` at the integration tip; then `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=<short tip SHA recorded at P2-PRE>`. | P2-2 | Zero STALE and zero MISSING across the three lanes; hand-offs dated today; `ci-2` untouched | M | antigravity | — | — | — | — | — |
-| P2-4 | implementation | Migrate local `kind-osramp` (and `kind-signalloom-hub`) to the P1-5 mounts: declare a window on `/tmp/chat.jsonl` and wait for no objection; check free disk is at least twice the node's `/var` usage; quiesce writers (scale signal-ingest and Postgres consumers to zero) and take a `pg_dump`; record Postgres row counts, the FrostDB observation count, kagent DB rows and the actor pseudonym of one known actor; the new `kind-data-backup.sh backup`; rebuild with `scripts/cluster-scratch-standup.sh`; restore; re-record counts; then `kind delete cluster` and rebuild once more without restore and re-record. | P2-PRE | Counts and the known actor's pseudonym equal across all three readings; `docker inspect` shows host binds for the three paths; Kusari live tier 7/7 using cursor paging; two identical observations requests return identical bodies; no data under the node's anonymous `/var` volume | M | antigravity | — | — | — | — | — |
+| P2-4 | implementation | Migrate local `kind-osramp` (and `kind-signalloom-hub`) to the P1-5 mounts: declare a window on `/tmp/chat.jsonl` and wait for no objection; check free disk is at least twice the node's `/var` usage; quiesce writers (scale signal-ingest and Postgres consumers to zero) and take a `pg_dump`; record Postgres row counts, the FrostDB observation count, kagent DB rows and the actor pseudonym of one known actor; the new `kind-data-backup.sh backup`; rebuild with `scripts/cluster-scratch-standup.sh`; restore; re-record counts; then `kind delete cluster` and rebuild once more without restore and re-record. | P2-PRE | Counts and the known actor's pseudonym equal across all three readings; `docker inspect` shows host binds for the three paths; Kusari live tier 7/7 using cursor paging; two identical observations requests return identical bodies; no data under the node's anonymous `/var` volume | M | antigravity | STOP/FAIL (P1-5 local-path UUID defect: Postgres hostPath & identity secrets 100% matched, Kusari 7/7 pass, obs cmp identical; dynamic PVC UUID prefix causes local-path stores drift across scratch rebuilds) | — | — | — | — |
 | P2-5 | implementation | After P2-4, on local `kind-osramp`, run a live adversarial suite against the warden with zero fixtures: `openat2` direct invocation, a symlink race to `/etc/passwd`, `execve` of a shell, an egress `connect`, and a ring-buffer flood of benign `openat` chaff; each must yield an observation, and a flood must surface a drop anomaly rather than silent loss. | P2-4 | bats live tier (gated like `test/kusari-e2e-live.bats`, fails on skip in counted runs): 100% of the five attacks observed; flood reports drops; warden RSS under 50 MiB during the run | M | antigravity | — | — | — | — | — |
 | P2-GOV | governor | Reconcile P2 evidence; confirm `ci-2` untouched; close errata; request AJM final approval. | P2-1, P2-2, P2-3, P2-4, P2-5 | Errata complete; surfaces-report attached | S | antigravity | — | — | — | — | — |
 
@@ -973,4 +973,51 @@ alignment                rc=0 pass=checked=104 fail=0
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-PRE","status":"pass","commit":"3e4656b0"} -->
+
+#### Errata — EAPCI-P2-4
+
+- **Logical ID:** P2-4
+- **Created:** 2026-10-07 20:40:00+01:00
+- **Last Updated:** 2026-10-07 21:18:00+01:00
+- **Harness:** `antigravity`
+- **Delivery Status:** `fail` (Hard Blocker per card specification — P1-5 local-path provisioner UUID re-binding defect)
+- **Base Ref:** `refs/heads/integration/eapci-v0.1.0`
+
+##### 1. Coordination & Maintenance Window
+
+- Declared maintenance window on `/tmp/chat.jsonl`:
+  ```json
+  {"timestamp": "2026-10-07T19:40:37.854856+00:00", "sender": "sensai-antigravity (EAPCI-P2-4)", "action": "window-announcement", "clusters": ["kind-osramp", "kind-signalloom-hub"], "start_time": "2026-10-07T19:40:37.854856+00:00", "expected_duration": "25 minutes", "purpose": "EAPCI-P2-4 migration to P1-5 host-persistent data mounts with backup/restore verification and rebuild testing.", "message": "Declaring maintenance window for kind-osramp and kind-signalloom-hub: starting now, expected duration 25 minutes. Please object if active runs are underway."}
+  ```
+- **Objections:** 0 received. No active collision with peer sessions.
+
+##### 2. Host Binds and Backup Verification
+
+- Backups created outside repository root under mode `0700`:
+  - `kind-osramp`: `/tmp/signalloom-backups-eapci-p2-4/osramp` (833M, 576K `manifest.sha256`, 400K `manifest.stat`, 6 identity Secrets)
+  - `kind-signalloom-hub`: `/tmp/signalloom-backups-eapci-p2-4/signalloom-hub` (28K, 0 identity Secrets)
+- Host directories:
+  - `POSTGRES_DATA_DIR`: `/home/andy/src/cp/osramp-demo/.cache/postgres` (osramp) / `.cache/signalloom-hub/postgres` (hub)
+  - `ZOT_CACHE_DIR`: `/home/andy/src/cp/osramp-demo/.cache/zot` (osramp) / `.cache/signalloom-hub/zot` (hub)
+  - `LOCAL_PATH_DATA_DIR`: `/home/andy/src/cp/osramp-demo/.cache/local-path` (osramp) / `.cache/signalloom-hub/local-path` (hub)
+- `docker inspect` verified `type: bind` for all 3 paths on both `osramp-control-plane` and `signalloom-hub-control-plane`.
+
+##### 3. Findings & Defect Root-Cause Analysis (Hard Blocker)
+
+- **Postgres (hostPath) & Identity Secrets**: 100% data fidelity preserved across readings:
+  - Signalloom Postgres: 46 tables matching exact counts (e.g. `audit_events: 464`, `signal_audit_trail: 2061`, `agent_credentials: 13`, `agent_registry: 2`, `platform_backends: 1`, `tenant_onboarding: 1`, `tenant_settings: 1`, `schema_migrations: 41`).
+  - Known actors `cred-agent-1791069756213-rpxn1` (`95b5ff7c-d904-4cb7-8e44-7b2fbed34140`) and `kusari-agent` (`f6e85b67-c50a-5f3f-85a4-9018483fcac8`) preserved.
+  - All 6 identity secrets cleanly exported with stripped dynamic metadata and re-applied.
+- **Kusari Live Tier**:
+  - `KUSARI_LIVE=1 bats --tap test/kusari-e2e-live.bats` passed 7/7 with 0 skips and 0 failures.
+  - Determinism verification: Two sequential GET requests to `/api/v1/observations?limit=100` yielded byte-identical responses (`8f3c4005370baabd0aeb761485b9bd5c2c093bab47cc47bb48e808a1ad1bbb9c`, `cmp` exit code 0).
+- **P1-5 Local-Path Provisioner UUID Defect**:
+  - `rancher.io/local-path-provisioner:v20260521-9fb22683` (v0.0.34) hardcodes volume directory naming to `pvc-<pv-uid>_<pvc-ns>_<pvc-name>` and ignores `"pathPattern": "{{ .PVC.Namespace }}/{{ .PVC.Name }}"`.
+  - When a cluster is recreated or rebuilt from scratch, Kubernetes generates new UUIDs for PVCs (e.g. `pvc-000329f0..._fe-signalloom_signal-store` vs backed-up `pvc-4fcb69e0..._fe-signalloom_signal-store`), provisioning empty new host directories while previous data sits orphaned under the old UUID directory.
+  - Consequently, PVC-backed stores (FrostDB `fe-signalloom/signal-store` and Kagent `kagent/kagent-postgresql`) cannot survive scratch cluster recreation without either static PV definitions or provisioner-level directory mapping.
+  - In accordance with the explicit STOP clause (*"P1-5 did not deliver stable PV paths, or the rebuilt node lacks the three host binds. Counts differ after one retake. Keep the backup, keep the cluster as it is, and report."*), execution was stopped and referred back to the Governor / P1-5.
+
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+<!-- kanban-check: {"card":"EAPCI-P2-4","status":"fail","commit":"101befa6"} -->
+
 

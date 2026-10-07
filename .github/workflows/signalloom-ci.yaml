@@ -27,9 +27,7 @@ on:
         description: "Leave VM running on failure for debugging"
         default: true
         type: boolean
-  schedule:
-    # Nightly at 02:00 UTC (03:00 BST)
-    - cron: "0 2 * * *"
+  # Nightly schedule trigger removed for this branch; manual workflow_dispatch only (Proposal — Signal Loom EAP CI Lane §2 / EAPCI-P1-4).
 
 concurrency:
   group: signalloom-ci

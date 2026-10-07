@@ -1,22 +1,23 @@
 #!/usr/bin/env bats
 #
-# eap-pr-workflow.bats — the EAP suites are gated on pull_request, and only
-# through `make test-eap-offline`.
+# eap-pr-workflow.bats — every workflow under .github/workflows/ on this branch
+# is manual-only (workflow_dispatch or workflow_call), and the EAP suites run
+# only through `make test-eap-offline`.
 #
-# ─── The defect ─────────────────────────────────────────────────────────────
-# SLES B11: the EAP pytest suites ran only on the nightly GCP VM lane
-# (signalloom-ci.yaml, workflow_dispatch + cron). Nothing ran them on a PR.
-# The fix is a second, runner-hosted workflow. Two ways that fix quietly
-# regresses, both caught here:
+# ─── The contract ─────────────────────────────────────────────────────────────
+# EAPCI-P1-4 / Proposal §2: Deploys and CI on this branch are local-only; every
+# workflow file under .github/workflows/ is manual-only (pull_request, push, and
+# schedule triggers removed; workflow_dispatch and workflow_call retained).
 #
-#   1. Someone adds `pull_request` to signalloom-ci.yaml instead. That starts
-#      a GCP VM on every PR and times out. So this suite asserts the NEW file
-#      has the trigger AND the OLD file still does not.
-#   2. The PR workflow drifts from the Makefile target to a bare pytest
-#      invocation ("pip install pytest && pytest tests"). That runs different
-#      code in CI than a developer runs locally. So this suite asserts a step
-#      runs the literal command `make test-eap-offline`, not a pytest of its
-#      own.
+# This suite asserts:
+#   1. No workflow under .github/workflows/ triggers on pull_request, push, or
+#      schedule.
+#   2. Positive control: every workflow under .github/workflows/ has
+#      workflow_dispatch (or workflow_call for reusable-witness-step.yaml), so an
+#      emptied `on:` block cannot pass.
+#   3. The EAP offline job in signalloom-eap-pr.yaml maintains its execution
+#      invariants: runs `make test-eap-offline`, does not invoke pytest directly,
+#      does not mask exit codes, requires no cloud secrets, and pins all actions.
 #
 # ─── Parametrised on purpose ────────────────────────────────────────────────
 # EAP_PR_WORKFLOW overrides the file under test. The positive control for the
@@ -31,8 +32,7 @@ setup_file() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   export REPO_ROOT
   export WORKFLOW="${EAP_PR_WORKFLOW:-${REPO_ROOT}/.github/workflows/signalloom-eap-pr.yaml}"
-  export NIGHTLY="${REPO_ROOT}/.github/workflows/signalloom-ci.yaml"
-  export CONTROL="${REPO_ROOT}/.github/workflows/security-scan.yaml"
+  export WORKFLOWS_DIR="${REPO_ROOT}/.github/workflows"
 }
 
 setup() {
@@ -61,30 +61,57 @@ triggers() {
   yq '(.on // .true) | keys | .[]' "$1"
 }
 
-@test "new workflow triggers on pull_request" {
+@test "every workflow in .github/workflows/ is manual-only (no pull_request, push, schedule)" {
+  local files=("${WORKFLOWS_DIR}"/*.yaml)
+  [ "${#files[@]}" -ge 9 ] || fail "expected at least 9 workflow files, found ${#files[@]}"
+  for f in "${files[@]}"; do
+    run triggers "$f"
+    [ "$status" -eq 0 ]
+    if grep -qx 'pull_request' <<<"$output"; then
+      fail "workflow $f contains pull_request trigger"
+    fi
+    if grep -qx 'push' <<<"$output"; then
+      fail "workflow $f contains push trigger"
+    fi
+    if grep -qx 'schedule' <<<"$output"; then
+      fail "workflow $f contains schedule trigger"
+    fi
+  done
+}
+
+@test "positive control: every workflow in .github/workflows/ has workflow_dispatch or workflow_call" {
+  local files=("${WORKFLOWS_DIR}"/*.yaml)
+  [ "${#files[@]}" -ge 9 ] || fail "expected at least 9 workflow files, found ${#files[@]}"
+  for f in "${files[@]}"; do
+    run triggers "$f"
+    [ "$status" -eq 0 ]
+    base="$(basename "$f")"
+    if [ "$base" = "reusable-witness-step.yaml" ]; then
+      grep -qx 'workflow_call' <<<"$output" || fail "workflow $f missing workflow_call trigger"
+    else
+      grep -qx 'workflow_dispatch' <<<"$output" || fail "workflow $f missing workflow_dispatch trigger"
+    fi
+  done
+}
+
+@test "signalloom-eap-pr.yaml is manual-only and triggers on workflow_dispatch" {
   run triggers "${WORKFLOW}"
   [ "$status" -eq 0 ]
-  grep -qx 'pull_request' <<<"$output"
+  refute_grep -qx 'pull_request' <<<"$output"
+  refute_grep -qx 'push' <<<"$output"
+  refute_grep -qx 'schedule' <<<"$output"
+  grep -qx 'workflow_dispatch' <<<"$output"
 }
 
-@test "nightly signalloom-ci.yaml still does NOT trigger on pull_request" {
-  [ -f "${NIGHTLY}" ]
-  run triggers "${NIGHTLY}"
+@test "signalloom-ci.yaml is manual-only and triggers on workflow_dispatch (schedule removed)" {
+  local nightly="${WORKFLOWS_DIR}/signalloom-ci.yaml"
+  [ -f "${nightly}" ]
+  run triggers "${nightly}"
   [ "$status" -eq 0 ]
   refute_grep -qx 'pull_request' <<<"$output"
-  # It must still be the dispatch + schedule lane; if both vanish the file was
-  # gutted, which is a different regression from the one above.
+  refute_grep -qx 'push' <<<"$output"
+  refute_grep -qx 'schedule' <<<"$output"
   grep -qx 'workflow_dispatch' <<<"$output"
-  grep -qx 'schedule' <<<"$output"
-}
-
-@test "positive control: the trigger probe sees pull_request on security-scan.yaml" {
-  # Proves triggers() reads the trigger list correctly on a file known to have
-  # pull_request, so the negative assertion above is not vacuous.
-  [ -f "${CONTROL}" ]
-  run triggers "${CONTROL}"
-  [ "$status" -eq 0 ]
-  grep -qx 'pull_request' <<<"$output"
 }
 
 @test "job runs on ubuntu-latest with a timeout of at most 10 minutes" {
@@ -173,18 +200,6 @@ triggers() {
   [ "$status" -eq 0 ]
   [ "$output" = "d2-signalloom/apps/fe-signalloom/src/requirements.txt" ]
   [ -f "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/requirements.txt" ]
-}
-
-@test "paths filter names the app, both bats suites, the Makefile and itself" {
-  run yq '(.on // .true).pull_request.paths[]' "${WORKFLOW}"
-  [ "$status" -eq 0 ]
-  for p in 'd2-signalloom/apps/fe-signalloom/**' \
-           'd2-signalloom/test/authz-suite-liveness.bats' \
-           'd2-signalloom/test/api-route-liveness.bats' \
-           'Makefile' \
-           '.github/workflows/signalloom-eap-pr.yaml'; do
-    grep -qxF "$p" <<<"$output" || fail "paths filter is missing: $p"
-  done
 }
 
 @test "concurrency is per-ref with cancel-in-progress" {

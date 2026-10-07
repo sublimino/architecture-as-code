@@ -607,11 +607,14 @@ func main() {
 		}
 		defer loader.Close()
 
+		healthSrv.drops = loader.Drops
+		healthSrv.prefiltered = loader.Prefiltered
+
 		logEvent(stunEvent{
 			Timestamp: now(),
 			Event:     "ebpf_probe_attached",
 			Details: map[string]interface{}{
-				"tracepoints": []string{"sys_enter_openat", "sys_enter_openat2", "sys_enter_execve", "sys_enter_connect"},
+				"tracepoints": loader.AttachedTracepoints(),
 				"ringbuf_mb":  16,
 			},
 		})
@@ -628,7 +631,7 @@ func main() {
 		}
 		probeMgr := correlator.NewSentinelProbeManager(informer, os.Getenv("SIGNAL_INGEST_URL"), freezeMgr,
 			append(opts, correlator.WithCgroupRoot(cfg.CgroupRoot), correlator.WithHTTPClient(hub.ingest))...)
-		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, loader.Prefiltered, 30*time.Second)
+		go reportCorrelatorStats(ctx, probeMgr.Stats, loader.Drops, loader.Prefiltered, probeMgr.ReportDropAnomaly, 30*time.Second)
 		if err := probeMgr.Start(ctx, loader.Reader()); err != nil {
 			logEvent(stunEvent{Timestamp: now(), Event: "ebpf_correlator_stopped", Error: err.Error(), DryRun: cfg.DryRun})
 		}
@@ -688,7 +691,7 @@ func kernelFrozenFor(freezer *cgroupFreezer, pod *corev1.Pod) bool {
 // because the path could not be sensitive (bpf/path_prefilter.h). With the
 // filter working it climbs with the openat firehose while not_sensitive and
 // ringbuf_drops fall.
-func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, drops, prefiltered func() (uint64, error), every time.Duration) {
+func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, drops, prefiltered func() (uint64, error), onDropAnomaly func(uint64), every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	var last correlator.Stats
@@ -702,6 +705,9 @@ func reportCorrelatorStats(ctx context.Context, stats func() correlator.Stats, d
 			s := stats()
 			d, err := drops()
 			p, perr := prefiltered()
+			if err == nil && d > lastDrops && onDropAnomaly != nil {
+				onDropAnomaly(d - lastDrops)
+			}
 			if !first && s == last && d == lastDrops && p == lastPre && err == nil && perr == nil {
 				continue
 			}

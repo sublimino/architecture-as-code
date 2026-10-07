@@ -29,6 +29,10 @@ type HealthResponse struct {
 	// FleetStunFailures counts failed stun deliveries to fleet-manager: each is
 	// a correlator freeze held in the kernel without its stun record or pin.
 	FleetStunFailures int64 `json:"fleet_stun_failures"`
+	// RingbufDrops is the count of records discarded due to ring buffer overflow.
+	RingbufDrops uint64 `json:"ringbuf_drops"`
+	// RingbufPrefiltered is the count of open records filtered out before the ring buffer.
+	RingbufPrefiltered uint64 `json:"ringbuf_prefiltered"`
 }
 
 // HealthServer serves HTTP health and readiness probes on a configured address (default :8081).
@@ -44,6 +48,9 @@ type HealthServer struct {
 	frozenUnlabelled func() int
 	// fleetStunFailures counts correlator freezes fleet-manager did not record.
 	fleetStunFailures func() int64
+	// drops and prefiltered report eBPF probe ring buffer statistics.
+	drops       func() (uint64, error)
+	prefiltered func() (uint64, error)
 	// captures serves GET /captures and /captures/<id>[/<artifact>]
 	// (capture.go); nil means 404. Only the manifest and the two
 	// spec-analogue artifacts are served, never the quarantine snapshot with
@@ -87,13 +94,26 @@ func (h *HealthServer) Handler() http.Handler {
 		if h.reconcileCount != nil {
 			count = h.reconcileCount.Load()
 		}
+		var ringbufDrops, ringbufPrefiltered uint64
+		if h.drops != nil {
+			if d, err := h.drops(); err == nil {
+				ringbufDrops = d
+			}
+		}
+		if h.prefiltered != nil {
+			if p, err := h.prefiltered(); err == nil {
+				ringbufPrefiltered = p
+			}
+		}
 		resp := HealthResponse{
-			Status:         "ok",
-			DryRun:         h.dryRun,
-			CgroupDriver:   h.cgroupDriver,
-			TCReady:        tcReady,
-			ReconcileCount: count,
-			ResyncSeconds:  int64(informerResync / time.Second),
+			Status:             "ok",
+			DryRun:             h.dryRun,
+			CgroupDriver:       h.cgroupDriver,
+			TCReady:            tcReady,
+			ReconcileCount:     count,
+			ResyncSeconds:      int64(informerResync / time.Second),
+			RingbufDrops:       ringbufDrops,
+			RingbufPrefiltered: ringbufPrefiltered,
 		}
 		if h.fleetStunFailures != nil {
 			resp.FleetStunFailures = h.fleetStunFailures()
@@ -116,6 +136,17 @@ func (h *HealthServer) Handler() http.Handler {
 		if h.reconcileCount != nil {
 			count = h.reconcileCount.Load()
 		}
+		var ringbufDrops, ringbufPrefiltered uint64
+		if h.drops != nil {
+			if d, err := h.drops(); err == nil {
+				ringbufDrops = d
+			}
+		}
+		if h.prefiltered != nil {
+			if p, err := h.prefiltered(); err == nil {
+				ringbufPrefiltered = p
+			}
+		}
 		status := "ok"
 		ready := true
 		if h.isReady != nil && !h.isReady() {
@@ -123,12 +154,14 @@ func (h *HealthServer) Handler() http.Handler {
 			ready = false
 		}
 		resp := HealthResponse{
-			Status:         status,
-			DryRun:         h.dryRun,
-			CgroupDriver:   h.cgroupDriver,
-			TCReady:        tcReady,
-			ReconcileCount: count,
-			ResyncSeconds:  int64(informerResync / time.Second),
+			Status:             status,
+			DryRun:             h.dryRun,
+			CgroupDriver:       h.cgroupDriver,
+			TCReady:            tcReady,
+			ReconcileCount:     count,
+			ResyncSeconds:      int64(informerResync / time.Second),
+			RingbufDrops:       ringbufDrops,
+			RingbufPrefiltered: ringbufPrefiltered,
 		}
 		if h.fleetStunFailures != nil {
 			resp.FleetStunFailures = h.fleetStunFailures()
@@ -284,6 +317,20 @@ func (h *HealthServer) serveMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# HELP sentinel_frozen_unlabelled_pods Pods whose cgroup.events reports frozen 1 with no stun label and no owner stun record.\n")
 	fmt.Fprintf(w, "# TYPE sentinel_frozen_unlabelled_pods gauge\n")
 	fmt.Fprintf(w, "sentinel_frozen_unlabelled_pods %d\n", n)
+	if h.drops != nil {
+		if d, err := h.drops(); err == nil {
+			fmt.Fprintf(w, "# HELP sentinel_ringbuf_drops_total Total kernel ring buffer drops due to buffer saturation.\n")
+			fmt.Fprintf(w, "# TYPE sentinel_ringbuf_drops_total counter\n")
+			fmt.Fprintf(w, "sentinel_ringbuf_drops_total %d\n", d)
+		}
+	}
+	if h.prefiltered != nil {
+		if p, err := h.prefiltered(); err == nil {
+			fmt.Fprintf(w, "# HELP sentinel_ringbuf_prefiltered_total Total opens filtered before reserving ring buffer space.\n")
+			fmt.Fprintf(w, "# TYPE sentinel_ringbuf_prefiltered_total counter\n")
+			fmt.Fprintf(w, "sentinel_ringbuf_prefiltered_total %d\n", p)
+		}
+	}
 }
 
 // Start launches the HTTP health server and stops gracefully when the context is cancelled.

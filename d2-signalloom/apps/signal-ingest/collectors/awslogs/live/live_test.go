@@ -29,7 +29,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/awslogs"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/awslogs/awsfake"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/awslogs/live"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
 const (
@@ -501,3 +503,143 @@ func TestLive_FactorySuppliesTheSNSAwareNotificationParser(t *testing.T) {
 		t.Fatalf("parser returned %+v, want one ref in kusari-trail", refs)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// D13 Live seam proofs using awsfake
+// ---------------------------------------------------------------------------
+
+func TestLive_AssumeRoleRefusalWithoutExternalID_AWSFake(t *testing.T) {
+	sts := awsfake.NewSTS(testRole, testExtID)
+
+	// An empty external ID must fail with ErrExternalIDRequired immediately.
+	_, err := sts.AssumeRole(context.Background(), testRole, "")
+	if !errors.Is(err, awslogs.ErrExternalIDRequired) {
+		t.Fatalf("AssumeRole with empty external ID = %v, want ErrExternalIDRequired", err)
+	}
+
+	// Mismatched external ID must fail with AccessDenied.
+	_, err = sts.AssumeRole(context.Background(), testRole, "wrong-external-id")
+	if err == nil || !strings.Contains(err.Error(), "external ID mismatch") {
+		t.Fatalf("AssumeRole with wrong external ID = %v, want external ID mismatch error", err)
+	}
+
+	// Matching external ID succeeds.
+	creds, err := sts.AssumeRole(context.Background(), testRole, testExtID)
+	if err != nil {
+		t.Fatalf("AssumeRole with valid external ID failed: %v", err)
+	}
+	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" {
+		t.Errorf("AssumeRole returned empty credentials: %+v", creds)
+	}
+}
+
+type liveFakeSink struct {
+	mu   sync.Mutex
+	log  *[]string
+	obs  []model.Observation
+	fail bool
+}
+
+func (s *liveFakeSink) IngestObservation(_ context.Context, o *model.Observation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fail {
+		return errors.New("sink unavailable")
+	}
+	if o != nil {
+		s.obs = append(s.obs, *o)
+		if s.log != nil {
+			*s.log = append(*s.log, "sink:"+o.ID[:8])
+		}
+	}
+	return nil
+}
+
+type liveFakeOrderedSQS struct {
+	inner *awsfake.SQS
+	log   *[]string
+}
+
+func (q *liveFakeOrderedSQS) ReceiveMessages(ctx context.Context, queueURL string, maxMessages int32) ([]awslogs.Message, error) {
+	return q.inner.ReceiveMessages(ctx, queueURL, maxMessages)
+}
+
+func (q *liveFakeOrderedSQS) DeleteMessage(ctx context.Context, queueURL, receiptHandle string) error {
+	if err := q.inner.DeleteMessage(ctx, queueURL, receiptHandle); err != nil {
+		return err
+	}
+	if q.log != nil {
+		*q.log = append(*q.log, "delete:"+receiptHandle)
+	}
+	return nil
+}
+
+func TestLive_DeleteAfterAppendOrdering_AWSFake(t *testing.T) {
+	var log []string
+	sink := &liveFakeSink{log: &log}
+
+	sqs := awsfake.NewSQS(testQueue)
+	s3 := awsfake.NewS3()
+	sts := awsfake.NewSTS(testRole, testExtID)
+
+	body, err := awslogs.FixtureBytes(awslogs.FixtureCloudTrail)
+	if err != nil {
+		t.Fatalf("FixtureBytes: %v", err)
+	}
+
+	const objectKey = "AWSLogs/123456789012/CloudTrail/us-east-1/2026/10/02/trail-sample.json"
+	s3.Put(awslogs.ObjectRef{Bucket: "kusari-trail", Key: objectKey}, body)
+	sqs.Enqueue(awsfake.ObjectCreated("msg-100", "kusari-trail", objectKey))
+
+	orderedQueue := &liveFakeOrderedSQS{inner: sqs, log: &log}
+
+	cfg := awslogs.AWSCollectorConfig{
+		TenantID:   "kusari",
+		RoleARN:    testRole,
+		ExternalID: testExtID,
+		QueueURL:   testQueue,
+		Region:     testRegion,
+		BufferDir:  t.TempDir(),
+		MaxRecords: 10,
+	}
+
+	c, err := awslogs.New(cfg, sink,
+		awslogs.WithMode(string(awslogs.ModeLive)),
+		awslogs.WithAWS(orderedQueue, s3, sts),
+		awslogs.WithoutPollLoop(),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := c.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer c.Stop()
+
+	acked, err := c.PollOnce(ctx)
+	if err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if acked != 1 {
+		t.Errorf("acked = %d, want 1", acked)
+	}
+
+	// 4 observations ingested into sink before delete:rh-msg-100
+	if len(log) != 5 {
+		t.Fatalf("log has %d entries, want 5: %v", len(log), log)
+	}
+	for i := 0; i < 4; i++ {
+		if !strings.HasPrefix(log[i], "sink:") {
+			t.Errorf("log[%d] = %q, want sink ingest before delete", i, log[i])
+		}
+	}
+	if log[4] != "delete:rh-msg-100" {
+		t.Errorf("log[4] = %q, want delete:rh-msg-100", log[4])
+	}
+	if deleted := sqs.Deleted(); len(deleted) != 1 || deleted[0] != "msg-100" {
+		t.Errorf("sqs.Deleted() = %v, want [msg-100]", deleted)
+	}
+}
+

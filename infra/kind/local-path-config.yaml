@@ -25,3 +25,19 @@ data:
       ],
       "pathPattern": "{{ .PVC.Namespace }}/{{ .PVC.Name }}"
     }
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: helper-pod
+          image: docker.io/kindest/local-path-helper:v20241212-8ac705d0
+          imagePullPolicy: IfNotPresent
+

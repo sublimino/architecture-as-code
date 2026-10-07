@@ -8,7 +8,7 @@
 #   - Demo lane isolation (none of the 6 EAP stages execute)
 #   - Named stage failure recording in stages.json and summary.json
 #   - Stage 4 Kusari live TAP skip guard (fails on # skip)
-#   - Removal of test/tetragon-telemetry-stream.bats from both pipelines
+#   - Every bats suite either pipeline names exists on disk (no orphaned suite references)
 
 setup() {
 	repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
@@ -307,16 +307,18 @@ assert_absent() {
 	[ "$status" -eq 0 ]
 }
 
-# ═══ Tetragon Reference Removal ═══════════════════════════════════════════════
+# ═══ Suite Reference Integrity ═══════════════════════════════════════════════
+# EAPCI-P1-3 dropped a deleted suite from both pipelines and EAPCI-P1-9 deleted
+# the file. A pipeline that names a suite which no longer exists would fail at
+# run time, so every [d2-*/]test/*.bats path either pipeline names must be on disk.
 
-@test "EAPCI neither pipeline file references tetragon suites" {
-	run grep -i "tetragon" "$script"
-	[ "$status" -eq 1 ]
-
-	run grep -i "tetragon" "$vm_pipeline"
-	[ "$status" -eq 1 ]
-}
-
-@test "EAPCI test/tetragon-telemetry-stream.bats file still exists on disk" {
-	[ -f "$repo/test/tetragon-telemetry-stream.bats" ]
+@test "EAPCI every bats suite named by either pipeline exists on disk" {
+	local missing="" f
+	for f in $(grep -ohE '(d2-[a-z]+/)?test/[A-Za-z0-9_.-]+\.bats' "$script" "$vm_pipeline" | sort -u); do
+		[ -f "$repo/$f" ] || missing="$missing $f"
+	done
+	if [ -n "$missing" ]; then
+		echo "pipelines name suites that do not exist:$missing"
+		return 1
+	fi
 }

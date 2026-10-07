@@ -377,7 +377,7 @@ FIXTURE
   # checkout phase anyway — but the stage guard sits ABOVE that, so an
   # unsupported stage must produce exit 2 and the stage message, while a
   # supported one must get past the guard and fail differently.
-  run env DEMO_STAGE=test DEMO_WORK_DIR=/nonexistent-tree-for-test \
+  run env DEMO_ENV=demo-1 DEMO_STAGE=test DEMO_WORK_DIR=/nonexistent-tree-for-test \
     DEMO_REPORT_DIR="${BATS_TEST_TMPDIR}/r" \
     DEMO_PIPELINE_LOG="${BATS_TEST_TMPDIR}/p.log" \
     bash "${PIPE}"
@@ -393,7 +393,7 @@ FIXTURE
 
   # The mutation control: DEMO_STAGE=full must NOT be refused. Without this, a
   # guard that rejected everything would pass the test above.
-  run env DEMO_STAGE=full DEMO_WORK_DIR=/nonexistent-tree-for-test \
+  run env DEMO_ENV=demo-1 DEMO_STAGE=full DEMO_WORK_DIR=/nonexistent-tree-for-test \
     DEMO_REPORT_DIR="${BATS_TEST_TMPDIR}/r2" \
     DEMO_PIPELINE_LOG="${BATS_TEST_TMPDIR}/p2.log" \
     bash "${PIPE}"
@@ -620,7 +620,7 @@ FIXTURE
   command -v docker >/dev/null 2>&1 || skip "no docker on this machine"
   docker version >/dev/null 2>&1 || skip "docker socket unreachable here"
 
-  run env DEMO_STAGE=full DEMO_WORK_DIR=/nonexistent-tree-for-test \
+  run env DEMO_ENV=demo-1 DEMO_STAGE=full DEMO_WORK_DIR=/nonexistent-tree-for-test \
     DEMO_REPORT_DIR="${BATS_TEST_TMPDIR}/r" \
     DEMO_PIPELINE_LOG="${BATS_TEST_TMPDIR}/p.log" \
     bash "${PIPE}"

@@ -321,7 +321,7 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 | P5-PRE | preflight | On `integration/slaws-v0.2.0`: run the seven acceptance commands and `scripts/check-ci-build-parity.sh`; attach the `go test -race` evidence (golang:1.27 container, zero `DATA RACE` lines, kubectl-dependent manifest tests named) to errata; table with file:line of the live seams (`collectors/awslogs/live*.go`), the account and queue config surface, the GuardDuty/EventBridge fixture gap, and the policy-engine dry-run actor comparison. | — | Seven commands rc 0 with totals; parity rc 0, 0 defects; file:line table; no code change | S | antigravity | pass: 7 legs + 1 extra rc 0 (3596/3641/458/700/4957/687/118/103), diff totals.key empty; parity rc 0 (19 BUILT/RAN, 1 OPT-OUT, 0 defects); race 0 warnings in golang:1.27; seam map in docs/signalloom/slaws-p5-preflight-proof.md | — | — | — | — |
 | P5-1 | implementation | Live AWS lab per D13: Terraform under `infra/aws/slaws-lab/` for the read-only cross-account role (from `docs/signalloom/slaws-kusari-trust-policy.md`, external ID enforced), a lab bucket with CloudTrail-shaped objects, an SQS queue with S3 notifications and the D12 redrive policy; `scripts/slaws-live-lab.sh` runs signal-ingest in `COLLECTOR_AWSLOGS_MODE=live` with `SIGNAL_DEV_MODE=true`, asserts one object becomes observations through the Â§2.3 projection and that the SQS message is deleted only after `Store.Append`; refuses without credentials and prints the operator command. | P5-PRE | bats for the script (refusal, args, dry-run); `terraform validate`; unit tests at the live seams with fakes; a recorded live run in errata when credentials are present, otherwise STOP-and-report naming the command | M | antigravity | â | â | â | â | â |
 | P5-2 | implementation | Multi-account and DLQ per D11/D12: `COLLECTOR_AWSLOGS_ACCOUNTS` parsed into one `awslogs` instance per entry with its own tenant binding and credentials; invalid or duplicate entries refuse boot; `signal-ingest awslogs redrive --queue <dlq-url>` replays DLQ messages through the same projection with derived-ID dedupe and counts `redriven`; manifests gain the env and a rendered example. | P5-PRE | Unit tests: N entries â N collectors with distinct tenants; invalid entry refuses boot with the offending index; redrive dedupes a replayed object; `deploy_render_test` renders the env; counters asserted | M | antigravity | â | pass: delivered in 6f859ec8, pinned in be33f9cb (src-d95b29a282d1c082); multi-account fan-out, DLQ redrive subcommand, manifest secret wiring, runbook, full test suite pass (see Errata — SLAWS-P5-2) | â | â | â |
-| P5-3 | implementation | GuardDuty via EventBridge: project the envelope (`detail-type: GuardDuty Finding`, `detail.severity`, `detail.type`, `detail.resource`) to Â§2.3 observations with `source=aws:guardduty` and a one-line `description`; fixture under `collectors/awslogs/testdata/`; `contract_doc.go` rows; bundle rule `guardduty-high-severity` under `policy/bundles/kusari/`; replay equals live on the extended corpus. | P5-PRE | `contract_test.go` rows for the fixture; negative contract (no raw body, no token) holds; fixture e2e emits the finding; replay-equals-live byte-identical | M | antigravity | â | â | â | â | â |
+| P5-3 | implementation | GuardDuty via EventBridge: project the envelope (`detail-type: GuardDuty Finding`, `detail.severity`, `detail.type`, `detail.resource`) to Â§2.3 observations with `source=aws:guardduty` and a one-line `description`; fixture under `collectors/awslogs/testdata/`; `contract_doc.go` rows; bundle rule `guardduty-high-severity` under `policy/bundles/kusari/`; replay equals live on the extended corpus. | P5-PRE | `contract_test.go` rows for the fixture; negative contract (no raw body, no token) holds; fixture e2e emits the finding; replay-equals-live byte-identical | M | antigravity | pass — delivered: d5ef8da6 (see Errata — SLAWS-P5-3) | â | â | â | â |
 | P5-4 | implementation | Pseudonym-consistent dry-run and correlator review: policy-engine dry-run bundle registration evaluates with the same pseudonymised `obs.actor` the live path sees (no cleartext comparison); `actor_account_id` is either dropped from the on-disk label set or bounded and justified in Â§2.3; decision review idempotency covers changed-note replay and distinct reviewers; the read-key proof is restated so the superadmin gate cannot make it vacuous. | P5-PRE | Tests: dry-run and live produce identical findings on the corpus; label contract negative test updated; review idempotency cases; read-key test fails when the gate is removed | M | antigravity | â | â | â | â | â |
 | P5-GOV | governor | Merge P5-1..P5-4 in order; the seven acceptance commands twice with identical totals plus `scripts/check-ci-build-parity.sh`; Weave cloud-layer evidence via Interceptor when installed, otherwise the jev route evidence; `### Spec: Shared Patterns â Phase 5`; status line closes v2.1. | P5-1, P5-2, P5-3, P5-4 | Acceptance x2 identical; parity rc 0; evidence paths; errata | S | antigravity | â | â | â | â | â |
 
@@ -582,3 +582,32 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+#### Errata — SLAWS-P5-3 (2026-10-06, branch slaws-p5-3, integration/slaws-v0.2.0, d5ef8da6)
+
+- **Commit:** `d5ef8da6`
+- **Delivered files:**
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/project_guardduty.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_test.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_kusari_test.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/fixtures_kusari.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/frostdb_contract_test.go`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/testdata/kusari/guardduty-eventbridge-envelope.json`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/testdata/kusari/guardduty-eventbridge-low-severity.json`
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/testdata/kusari/guardduty-tamper.json`
+  - `d2-signalloom/apps/signal-ingest/e2e/expectations.go`
+  - `d2-signalloom/apps/signal-ingest/e2e/kusari_e2e_test.go`
+  - `docs/EAP/kusari-e2e.md`
+  - `policy/bundles/kusari/cloud-signals.yaml`
+  - `d2-signalloom/apps/policy-engine/base/bundles-configmap.yaml`
+  - `d2-signalloom/apps/signal-ingest/base/deployment.yaml`
+- **Test results:**
+  - `go test ./collectors/awslogs/... ./policy/...` in `signal-ingest` passes clean (rc 0).
+  - `make test-kusari-e2e` (both Memory and FrostDB store modes) passes clean (rc 0, 66 canonical lines byte-identical replay equals live).
+  - `make test-signal-ingest` (3596 pass, 0 fail) and `make test-signal-ingest-frostdb` (3641 pass, 0 fail) pass clean.
+  - `make test-sldc-offline` (700 pass, 0 fail) passes clean.
+  - `scripts/check-ci-build-parity.sh` (19 BUILT/RAN, 1 OPT-OUT, 0 defects) and `scripts/check-old-probe-name.sh` pass clean.
+- **Incomplete:** Nothing. All deliverables completed and verified.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

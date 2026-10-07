@@ -73,10 +73,12 @@ type cloudTrailRecord struct {
 	RequestParameters json.RawMessage `json:"requestParameters"`
 }
 
-// Project dispatches on the origin key: a .log or .txt object is VPC Flow text, and
-// anything else is a CloudTrail/IAM JSON envelope. A .gz suffix is stripped first so
-// a real S3 key routes the same as a decompressed fixture. When the origin key ends
-// in .gz, the body is inflated before dispatch.
+// Project dispatches on the origin key, then on the envelope shape. A .gz object is
+// inflated first, and the .gz suffix is stripped so a real S3 key routes the same as a
+// decompressed fixture. A .log or .txt object is VPC Flow text. A JSON object is
+// probed: detail-type "GuardDuty Finding" is an EventBridge GuardDuty finding, a
+// Records array is a CloudTrail/IAM file, and anything else is ErrUnrecognisedEnvelope
+// -- never a silent zero, which is what an EventBridge envelope used to project to.
 func (p Projector) Project(body []byte, origin Origin) ([]model.Observation, error) {
 	payload := body
 	if strings.HasSuffix(origin.Key, ".gz") {
@@ -93,11 +95,23 @@ func (p Projector) Project(body []byte, origin Origin) ([]model.Observation, err
 	}
 
 	key := strings.TrimSuffix(origin.Key, ".gz")
-	switch {
-	case strings.HasSuffix(key, ".log"), strings.HasSuffix(key, ".txt"):
+	if strings.HasSuffix(key, ".log") || strings.HasSuffix(key, ".txt") {
 		return p.ProjectVPCFlow(payload, origin)
-	default:
+	}
+
+	var probe envelopeProbe
+	if err := json.Unmarshal(payload, &probe); err != nil {
+		// Not a JSON object: let the CloudTrail path report the decode error in
+		// the words it always has.
 		return p.ProjectCloudTrail(payload, origin)
+	}
+	switch {
+	case probe.DetailType == DetailTypeGuardDutyFinding:
+		return p.ProjectGuardDuty(payload, origin)
+	case len(probe.Records) > 0 && string(probe.Records) != "null":
+		return p.ProjectCloudTrail(payload, origin)
+	default:
+		return nil, fmt.Errorf("%w (%s)", ErrUnrecognisedEnvelope, origin.Key)
 	}
 }
 

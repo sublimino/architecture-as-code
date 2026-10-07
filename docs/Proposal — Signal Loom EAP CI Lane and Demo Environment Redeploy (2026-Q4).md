@@ -763,3 +763,14 @@ Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-8","status":"pass","commit":"4a0a767be9179f4098354a0b1f12c83508e9bf28"} -->
+
+#### Errata — EAPCI-P1-10 SLSE D5: dashboard labels say Sentinel eBPF
+**Created:** 2026-10-07 04:43:51+01:00
+**Last Updated:** 2026-10-07 04:43:51+01:00
+**Status:** Completed
+**Commit:** a2de480994bb1a034eb1d9a95dfa80dd4a6f2c1a
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Telemetry source tags and fixture literals are consistently named `sentinel-ebpf`. Added full unit test coverage for `ContainmentPolicyConsentStep.tsx` (`ContainmentPolicyConsentStep.test.tsx`). Updated `policyApi.ts:184`, `fe-signalloom/src/api_compat.py:6018`, and Playwright selector in `test/acceptance/agent-claim.spec.ts` (`sentinel-ebpf-flow-badge`) to ensure end-to-end alignment across data fixtures, API compatibility models, component tests, and browser acceptance suites. Resolved TypeScript compiler strictness issues across the dashboard to ensure `bunx tsc --noEmit` returns exit code 0.
+**Deviations:** None. All deliverables in the specification and the omitted `policyApi.ts`, `SignalsPage.test.tsx`, `fe-signalloom/src/api_compat.py`, and `test/acceptance/agent-claim.spec.ts` were updated.
+**Notes:** `rg -i tetragon d2-signalloom/apps/dashboard-signalloom/src` returns 0 matches. All 216 dashboard vitest test files (3,731 tests) and `tsc --noEmit` are clean.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

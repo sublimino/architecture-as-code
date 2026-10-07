@@ -774,3 +774,38 @@ Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/
 **Deviations:** None. All deliverables in the specification and the omitted `policyApi.ts`, `SignalsPage.test.tsx`, `fe-signalloom/src/api_compat.py`, and `test/acceptance/agent-claim.spec.ts` were updated.
 **Notes:** `rg -i tetragon d2-signalloom/apps/dashboard-signalloom/src` returns 0 matches. All 216 dashboard vitest test files (3,731 tests) and `tsc --noEmit` are clean.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — EAPCI-P1-9 SLSE D3/D4: delete Tetragon manifests, scripts, suite and make targets
+**Created:** 2026-10-07 03:06:19+01:00
+**Last Updated:** 2026-10-07 05:05:15+01:00
+**Status:** Completed
+**Commit:** 00930600b13bd4b081f73d6ed06e3f6e54bd3e46
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- File deletions: Removed `d2-signalloom/deploy/tetragon-agent-telemetry.yaml`, `d2-signalloom/deploy/tetragon-helm-values.yaml`, `scripts/test-tetragon-stream.sh`, `test/tetragon-telemetry-stream.bats`, `docs/signalloom/evidence/tetragon-stream-proof.json`, `docs/signalloom/tetragon-telemetry-pipeline.md`, and the standalone `test/mocks/` module (`go.mod`, `go.sum`, `mocks`, `tetragon_grpc_mock.go`, `tetragon_grpc_test.go`).
+- Makefile targets: Removed `test-tetragon`, `test-tetragon-bats`, and `test-tetragon-stream` and their `.PHONY` definitions. Removed callers from `test-all-offline` (replaced with `$(MAKE) test-sentinel-ebpf`) and `test-all-cluster` (removed).
+- New Makefile target: Added `test-sentinel-ebpf` running `cd d2-signalloom/apps/stun-sentinel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... ./pkg/correlator/... -v -count=1`.
+- Suite updates: Updated `test/crkc-phase1-unified-stun.bats` to replace Tetragon proof/manifest assertions with in-sentinel eBPF probe and sentinel daemon tests (10/10 passing). Updated `test/acceptance/agent-claim.spec.ts` to replace Tetragon flow badge selectors with `sentinel-ebpf-flow-badge`. Updated `scripts/slaat-baseline.sh` mapping `containment-sentinel-ebpf|make test-sentinel-ebpf`.
+- Card generator updates: Updated `scripts/build_phase1_cards.py` and `scripts/generate_phase1_cards.py` to replace Tetragon references with in-sentinel eBPF telemetry descriptions.
+- Allowlist tidy: Removed dead Tetragon collector rows from `test/fixtures/test-isolation-allowlist.txt`. Added missing `test/tombstone-mutation-check.bats` `/tmp/gocache` and `/tmp/gomodcache` entries.
+- Registries verification: `test/terraform-dual-lane-registration.bats` (6/6 passing), `test/acceptance-spec-coverage.bats` (7/7 passing), `make docs-lint` (688 files clean), and `make test-alignment` (103 files clean) all 100% green.
+- Mutation tests: Verified mutation 1 (adding nonexistent `test/tetragon-telemetry-stream.bats` to `SINGLE_LANE_ALLOWED` fails dual-lane registration with RED) and mutation 2 (omitting `test-sentinel-ebpf` from `test-all-offline` fails invocation check with RED), restoring cleanly to GREEN each time.
+- Acceptance grep: `rg -il tetragon Makefile test/acceptance/agent-claim.spec.ts test/crkc-phase1-unified-stun.bats test/fixtures/test-isolation-allowlist.txt scripts/slaat-baseline.sh scripts/build_phase1_cards.py scripts/generate_phase1_cards.py` returns 0 output. Across `Makefile scripts test d2-signalloom/deploy`, only `scripts/gcp-tf/demo-pipeline.sh` and `scripts/ci/vm-pipeline.sh` match (removed in P1-3 branch, out of scope for P1-9 per contract).
+**Deviations:** None.
+**Notes:**
+
+##### Deleted Files Inventory (11 files)
+1. `d2-signalloom/deploy/tetragon-agent-telemetry.yaml`
+2. `d2-signalloom/deploy/tetragon-helm-values.yaml`
+3. `docs/signalloom/evidence/tetragon-stream-proof.json`
+4. `docs/signalloom/tetragon-telemetry-pipeline.md`
+5. `scripts/test-tetragon-stream.sh`
+6. `test/mocks/go.mod`
+7. `test/mocks/go.sum`
+8. `test/mocks/mocks`
+9. `test/mocks/tetragon_grpc_mock.go`
+10. `test/mocks/tetragon_grpc_test.go`
+11. `test/tetragon-telemetry-stream.bats`
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-9","status":"pass","commit":"00930600b13bd4b081f73d6ed06e3f6e54bd3e46"} -->

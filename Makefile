@@ -2922,7 +2922,10 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg hostname "$$hostname" \
 		--arg tailscale_hostname "$$tailscale_hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, tailscale_hostname: $$tailscale_hostname, generated_at: $$generated_at}' \
+		--arg prev_source_ref "$$prev_source_ref" \
+		--arg prev_source_sha "$$prev_source_sha" \
+		--arg prev_source_recorded_at "$$prev_source_recorded_at" \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, tailscale_hostname: $$tailscale_hostname, generated_at: $$generated_at} + (if $$prev_source_ref != "" then {source_ref: $$prev_source_ref} else {} end) + (if $$prev_source_sha != "" then {source_sha: $$prev_source_sha} else {} end) + (if $$prev_source_recorded_at != "" then {source_recorded_at: $$prev_source_recorded_at} else {} end)' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \

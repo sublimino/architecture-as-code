@@ -444,3 +444,131 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-1","status":"pass","commit":"5742a3fe744ac5f07f101a04e8ec4fe5e4d18529"} -->
 
+
+#### Errata — EAPCI-P1-2
+
+- **Logical ID:** P1-2
+- **Created:** 2026-10-06 23:35:00+01:00
+- **Last Updated:** 2026-10-06 23:45:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0`
+- **Worktree Branch:** `refs/heads/eapci-P1-2-w1`
+- **Delivered Commit SHA:** `58acb2ff02489c5897f7b09c4729cae8585cbc29`
+
+##### 1. Variable Contract & Error Handling
+
+- **`GCP_TF_DEMO_REF=<ref>`**: Mandatory parameter for `make gcp-tf-demo-up` / `scripts/gcp-tf/demo-up.sh`.
+  - Empty or unset ref triggers fast failure before any cloud interaction: prints `[ERROR] DEMO-REF-UNSET: GCP_TF_DEMO_REF is unset or empty` and exits with code `2`.
+  - Non-empty ref is resolved once via `$GIT_CMD -C "$REPO_ROOT" rev-parse --verify "${GCP_TF_DEMO_REF}^{commit}"` to a full 40-hex `SOURCE_SHA`.
+  - Unresolvable ref triggers named error: prints `[ERROR] DEMO-REF-UNRESOLVED: unable to resolve GCP_TF_DEMO_REF='<ref>'` and exits with code `2` with zero lingering worktrees.
+  - When `GCP_TF_DEMO_REF=HEAD`: builds directly from working tree, subject to `require_clean_tree` unless `GCP_TF_DEMO_ALLOW_DIRTY=1` is explicitly set.
+  - When `GCP_TF_DEMO_REF=<ref>` (non-HEAD): creates a clean, detached throwaway worktree at `${TMPDIR:-/tmp}/osramp-demo-ref-${ENV_KEY}-${SOURCE_SHA}` outside the repository, archives the payload from that worktree, and cleans it up immediately (with exit trap guarantee). Dirty state in the operator's checkout does not block the build or alter payload bytes.
+- **`GCP_TF_DEMO_ALLOW_DIRTY=1`**: Strictly scoped to `GCP_TF_DEMO_REF=HEAD`. It never bypasses the requirement to supply `GCP_TF_DEMO_REF`.
+
+##### 2. Four Places the SHA Is Stamped
+
+1. **`RUN_COMMIT` (`demo-up.sh:2049`)**: Short (7-character) form of `SOURCE_SHA`, resolved via `$GIT_CMD rev-parse --short "$SOURCE_SHA"`.
+2. **`DEMO_SOURCE_COMMIT` (`demo-up.sh:1845`)**: Exported into the remote execution environment on the target VM and consumed by `demo-pipeline.sh`.
+3. **Surface Receipts (`demo-up.sh:4708`, `write_surface_receipt`)**: Stamped into `.commit` in `demo-surfaces/receipts/<surface>.json`. Checked for exact match against `RUN_COMMIT` by `surfaces-report.sh` and the stale receipts guard.
+4. **Handoff File (`deploy/gcp/<env>.handoff.json`)**: Fields `source_ref`, `source_sha` (full 40-hex), and `source_recorded_at` are atomically merged on pass and preserved across `make gcp-tf-handoff` regeneration without schema bump (`signalloom.gcp.handoff/v1`).
+
+*(Note: `slaws-acceptance` on the VM stamps the throwaway marker repository's HEAD, not the source tree; `DEMO_SOURCE_COMMIT` is the authoritative provenance field.)*
+
+##### 3. Behavior of scripts/gcp-tf/four-lane-loop.sh:143
+
+In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=1 make gcp-tf-demo-up` is executed without specifying `GCP_TF_DEMO_REF`. Under the P1-2 contract, this invocation fails fast with exit code 2 (`DEMO-REF-UNSET`). Callers targeting HEAD with dirty working trees must explicitly specify `GCP_TF_DEMO_REF=HEAD GCP_TF_DEMO_ALLOW_DIRTY=1 make gcp-tf-demo-up`.
+
+##### 4. Test Verification & Mutation Proofs
+
+- `test/terraform-demo-ref.bats` (11 tests): passes clean (pinned ref worktree, dirty principal tree isolation, DEMO-REF-UNSET, DEMO-REF-UNRESOLVED, handoff persistence).
+- Full suite `bats test/terraform-*.bats` (407 tests): 100% pass, 0 skips, 0 failures.
+- `make docs-lint`: 100% clean (689 files checked).
+- Negative mutation testing verified:
+  - Reverting `RUN_COMMIT` to bare `git rev-parse HEAD` failed receipt verification (`expected commit ... got ...`).
+  - Omitting ref check failed missing ref validation.
+  - Omitting handoff carry-over in `Makefile` wiped `source_*` on regeneration.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-2","status":"pass","commit":"58acb2ff02489c5897f7b09c4729cae8585cbc29"} -->
+
+#### Errata — EAPCI-P1-5
+
+- **Logical ID:** P1-5
+- **Created:** 2026-10-07 00:02:18+01:00
+- **Last Updated:** 2026-10-07 00:44:00+01:00
+- **Status:** Completed
+- **Commit:** abc6ff4322762340233b48ef68b199b54c6173bc
+- **Governor merge:** pending Governor reconciliation
+- **Decisions:**
+  - Resolved per-cluster host directories (`.cache/postgres` etc. for `osramp`, `.cache/<cluster>/...` for secondary clusters) in `scripts/lib/kind-data-mounts.sh` to guarantee disjoint host paths and prevent PGDATA corruption.
+  - Executed in-node ownership adjustments (`prepare_node_data_mounts`) for Postgres (70:70, 0700), Zot (65532:65532, 0750) and local-path (0777) to eliminate host sudo requirements.
+- **Deviations:** None.
+- **Notes:**
+  - Configured rancher local-path provisioner with `pathPattern: "{{ .PVC.Namespace }}/{{ .PVC.Name }}"` in `infra/kind/local-path-config.yaml` to ensure recreated PVCs resolve deterministically.
+  - `scripts/kind-data-backup.sh` quiesces writers (`signal-ingest`, `postgresql`), uses `docker cp -a`, exports identity Secrets into a 0700 dir with dynamic metadata stripped, and produces SHA-256 + stat manifests.
+  - Verified all bats suites, shellcheck, and `make docs-lint` (689/689 files clean).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-5","status":"pass","commit":"abc6ff4322762340233b48ef68b199b54c6173bc"} -->
+
+#### Errata — EAPCI-P1-6
+
+- **Delivery Status:** `pass`
+- **Branch:** `eapci-P1-6-w1` (branched from integration tip `5ea1492a`)
+- **Commits:**
+  - `8b839a9d` — `feat(signal-ingest): deterministic observations API, cursor paging and stats aggregate`
+  - `d0f349a9` — `chore(signal-ingest): re-pin image tag to src-8273655b1f19c15a`
+
+##### 1. Opaque Cursor Specification & Security Binding
+
+- **Format:** Base64url-encoded JSON object `{"v":1,"t":"<RFC3339Nano>","id":"<obs-id>","scope":"<sha256-scope>"}`
+- **Scope Digest:** `sha256` digest over caller's resolved tenant scope (`ObservationTenantScope` or `*`).
+- **Validation:** Any modified, foreign-scope, expired, malformed base64, or unknown version cursor returns HTTP 400 Bad Request with body:
+  `{"error":"invalid 'cursor': pass the X-Next-Cursor value from the previous response unchanged"}`
+
+##### 2. HTTP Headers Contract
+
+- **Over-fetch:** Server over-fetches `limit + 1` observations to detect truncation.
+- `X-Next-Cursor`: Present when more rows exist; encodes `(timestamp, id, scope)`.
+- `Link`: RFC 5988 link header with `rel="next"` pointing to the next page URL.
+- `X-Result-Truncated`: `true` when more rows exist, `false` when the last page is reached.
+- Response body remains a bare JSON array `[]` (preserving backward compatibility).
+
+##### 3. Deterministic Ordering & Bounded Reads
+
+- **Total Order:** Sorted by `(timestamp DESC, id DESC)` before `limit` is applied.
+- **Store Unchanged:** `QueryRange` in `store/memory.go`, `store/frostdb.go`, and `policy/store.go` remains untouched so replay and policy evaluation order are preserved.
+- **Bounded Query (`QueryPage`):** Implemented for `MemoryStore` and `FrostDBStore` with filter/cursor pushdown and bounded top-K min-heap.
+- **Aggregate Stats (`Stats`):** Implemented for `MemoryStore` and `FrostDBStore` computing layer/fidelity distributions and `last_ingestion` timestamp with zero observation allocations; `handleStoreStats` verified byte-compatible via golden tests.
+
+##### 4. Peak Heap Measurements (100k-row fixture)
+
+- **Bound:** Ceiled at 128 MiB (well under 512 MiB working set goal).
+- **MemoryStore:**
+  - `GET /api/v1/observations?limit=100`: TotalAlloc delta = 2.8 MiB
+  - `GET /api/v1/store/stats`: TotalAlloc delta = 0.02 MiB
+- **FrostDBStore:**
+  - `GET /api/v1/observations?limit=100`: TotalAlloc delta = 90.82 MiB
+  - `GET /api/v1/store/stats`: TotalAlloc delta = 20.65 MiB
+- **Memory Stopgap:** Deployment memory limit retained at 2Gi in `base/deployment.yaml` pending live cluster concurrent polling load test measurement in P2.
+
+##### 5. Consumer Updates & Policy Engine Check
+
+- **fe-signalloom (`signal_fusion.py`):** Accepts and forwards `cursor` query parameter; relays `X-Next-Cursor`, `Link`, and `X-Result-Truncated` headers. Tested with pytest (17 passed).
+- **Live Tier (`test/kusari-e2e-live.bats`):** `observations_all` rewritten to page via `X-Next-Cursor` until `X-Result-Truncated: false`.
+- **Policy Engine Check:** Verified `d2-signalloom/apps/policy-engine` only POSTs to `/api/v1/observations/evaluate` and is NOT a reader of GET `/api/v1/observations`.
+
+##### 6. Image Re-Pin & Documentation
+
+- **Image Tag Pin:** `d2-signalloom/apps/signal-ingest/base/deployment.yaml:45` re-pinned to `src-8273655b1f19c15a`. `TestReconciledManifestRunsTheImageBuiltFromThisSource` is green.
+- **Documentation:** Authored `docs/EAP/observations-api.md` covering ordering, paging headers, error responses, and worked curl script. Indexed in `docs/EAP/README.md` and `docs/README.md`. `make docs-lint` passes cleanly (689 files).
+
+##### 7. Mutation Proof
+
+- Mutating `(timestamp DESC, id DESC)` sorting in `handleQueryObservations` / `store/memory.go` immediately fails:
+  - `TestObservations_OrderBeforeLimit` (`got[0] = "obs-middle-1", want "obs-newest"`)
+  - `TestObservations_CursorWalk1000Rows` (`duplicate ID "obs-row-0698" visited on page 2`)
+- Restored files verified via `cmp` with zero diff.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-6","status":"pass","commit":"8b839a9d"} -->

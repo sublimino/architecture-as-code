@@ -111,6 +111,22 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // The SuperCredential demo page and live pages against the deployed demo.
+      //
+      // Drives /supercred (the demo console, flow diagram, and live discovery)
+      // and verifies that the main pages (/agents, /compliance, /audit) project
+      // the live agent state when the demo is deployed.
+      name: "supercred-pages",
+      testMatch: /(?:supercred-page|supercred-live-pages)\.spec\.ts/,
+      timeout: 60_000,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // Full lifecycle proof: UI drives phases 1-5, observes every audience
       // projection, resets, then proves the workflow can start over.
       name: "supercred-ui-lifecycle",

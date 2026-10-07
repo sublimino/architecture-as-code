@@ -272,3 +272,75 @@ flowchart TD
 * [Dex OIDC Federation Design Guide](file:///home/andy/src/cp/osramp-demo/docs/signalloom/dex-connectors.md)
 * [Signal Loom Platform User Schema](file:///home/andy/src/cp/osramp-demo/d2-signalloom/apps/fe-signalloom/src/db/migrations/008_platform_users.sql)
 * [Signal Loom Operator Identity Module](file:///home/andy/src/cp/osramp-demo/d2-signalloom/apps/fe-signalloom/src/operator_identity.py)
+
+### Spec: Shared Patterns
+
+Obey these. They are the phase constitution.
+
+- **Strict Tenant Isolation:** All feature flag queries and user management endpoints MUST enforce `WHERE tenant_id = $1`. Only authenticated principals with `is_superadmin = true` may query or mutate across tenants.
+- **Server-Side Authorization Authority:** Frontend feature flags control presentation and visibility only. Every backend endpoint MUST enforce server-side authentication (`authenticated_principal`), role checks (`require_admin_or_superadmin`), and feature gates (`require_feature`).
+- **Vendor-Neutral Gating:** OpenFeature React SDK (`@openfeature/react-sdk`) is the only client feature evaluation interface. Never import proprietary flag clients or embed raw environment conditionals.
+- **Forward-Only Migrations:** All database migrations MUST be forward-only, numbered sequentially (`009_tenant_feature_flags.sql`, `010_platform_users_superadmin.sql`, `011_seed_design_partner_presets.sql`), and idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`).
+- **Audit Logging for User Mutations:** Every mutation to user state (invite, role update, deactivation) MUST emit an audit event to the platform audit log.
+- **Testing Standard:** Every new endpoint requires Pytest contract and authorization tests. Every new UI component requires Vitest tests with accessibility checks. Playwright acceptance journey exercises the end-to-end flow.
+- **Anti-patterns:**
+  - Client-only security checks.
+  - Hardcoded superadmin email arrays.
+  - Layout shifts on flag evaluation (must render fallback or clean loading skeleton).
+  - Writing unmigrated database columns.
+
+### Spec: Capability Plan
+
+| Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
+| :--- | :--- | :--- | :--- | ---: | :--- | :--- |
+| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Baseline offline acceptance and verify harness readiness on integration/slfa-v0.1.0 at the cut SHA. |
+| P1-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit database migrations, existing route structures, and @openfeature/react-sdk dependency resolution. |
+| P1-1 | context-mode; Hardening | Database engineer | M | 120m | antigravity | Create migration 009_tenant_feature_flags.sql and asyncpg repository module in fe-signalloom. |
+| P1-2 | context-mode | Backend engineer | M | 120m | antigravity | Implement /api/v1/features endpoint and require_feature FastAPI dependency for server-side route gating. |
+| P1-3 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Integrate @openfeature/react-sdk in dashboard-signalloom; implement FeatureGate component and useFeatureFlag hook. |
+| P1-4 | context-mode | Frontend engineer | S | 60m | antigravity | Wrap demo navigation items in Sidebar.tsx and routes in App.tsx with feature flag gates. |
+| P1-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge P1 cards in order, execute offline acceptance suites twice, and record P1 completion errata. |
+| P2-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit platform_users schema, Dex JWT payload claims, and authenticated_principal identity resolution. |
+| P2-1 | context-mode; Hardening | Database engineer | S | 60m | antigravity | Create migration 010_platform_users_superadmin.sql and update platform_users pydantic models. |
+| P2-2 | context-mode | Auth engineer | M | 120m | antigravity | Update authenticated_principal to dynamically resolve user record, role, status, and is_superadmin from database. |
+| P2-3 | context-mode; Hardening | Backend engineer | M | 120m | antigravity | Implement /api/v1/admin/users CRUD endpoints with require_admin_or_superadmin and audit event logging. |
+| P2-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge P2 cards in order, execute offline acceptance suites twice, and record P2 completion errata. |
+| P3-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit modal patterns, user table layout, and API client method structure in dashboard-signalloom. |
+| P3-1 | context-mode | Frontend engineer | S | 60m | antigravity | Implement typed API client methods in usersApi.ts for user administration endpoints with React Query hooks. |
+| P3-2 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Build UsersPage.tsx and UserTable.tsx with role badges, search/filter, and status toggles. |
+| P3-3 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Build InviteUserModal.tsx and EditUserModal.tsx with role assignment and tenant scoping. |
+| P3-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge P3 cards in order, execute offline acceptance suites twice, and record P3 completion errata. |
+| P4-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit Kusari pilot profile in live tfvars and test environment configuration. |
+| P4-1 | context-mode; Hardening | Database engineer | S | 60m | antigravity | Provision migration 011_seed_design_partner_presets.sql with default flag configuration for Kusari tenant. |
+| P4-2 | context-mode | Test engineer | M | 120m | antigravity | Author Playwright acceptance journey spec test/acceptance/user-admin-and-flags.spec.ts. |
+| P4-GOV | ajm-auto-kanban | Governor | S | 90m | antigravity | Merge P4 cards in order, execute full test pyramid, verify zero regression, and request final sign-off. |
+
+### Spec: Work Decomposition
+
+| Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
+| P0 | baseline | On `integration/slfa-v0.1.0` at the cut SHA run `make demo-signalloom-api-test`, vitest suites, `make docs-lint`; `kanban-check.sh doctor`. | — | Three commands rc 0; totals in errata | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | Audit database schema migrations, `fe-signalloom` route map, and `dashboard-signalloom` dependencies for OpenFeature; record file:line audit table in errata. | P0 | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | Add migration `009_tenant_feature_flags.sql` creating table `tenant_feature_flags` (`tenant_id`, `flag_key`, `enabled`, `config_json`, `created_at`, `updated_at`); implement tenant flag repository in `fe-signalloom/src/feature_flags.py`. | P1-PRE | Pytest unit tests for repository CRUD; migration applies cleanly on test DB; schema matches contract | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | Implement `/api/v1/features` endpoint returning tenant feature flag dictionary; implement `require_feature(flag_key: str)` FastAPI dependency for server-side route gating. | P1-1 | Pytest contract test: `/api/v1/features` returns tenant flags; `require_feature` blocks disabled routes with 404/403 and permits enabled routes | M | antigravity | — | — | — | — | — |
+| P1-3 | implementation | Integrate `@openfeature/react-sdk` in `dashboard-signalloom`; create `OpenFeatureProvider` and custom provider fetching `/api/v1/features`; provide `<FeatureGate>` component and `useFeatureFlag` hook. | P1-2 | Vitest suite for `FeatureGate` and hook; renders children when flag enabled, renders fallback or null when disabled; tsc clean | M | antigravity | — | — | — | — | — |
+| P1-4 | implementation | Gate demo navigation items in `Sidebar.tsx` and routes in `App.tsx` (`demos_fleet`, `supercred`, `rbac_analysis`, `collusion_access`) with OpenFeature gates; ensure disabled features disappear from sidebar and direct route navigation renders NotFound. | P1-3 | Vitest `Sidebar.test.tsx` green; Playwright spec confirms demo links hidden when flags are disabled; tsc clean | S | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge P1-1..P1-4 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P1 completion errata. | P1-1, P1-2, P1-3, P1-4 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Audit `public.platform_users` schema (`008_platform_users.sql`), Dex JWT token claims, and `authenticated_principal` in `api_compat.py`; record audit table in errata. | P1-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P2-1 | implementation | Add migration `010_platform_users_superadmin.sql` adding `is_superadmin BOOLEAN NOT NULL DEFAULT FALSE` to `public.platform_users`; update user queries and pydantic models in `fe-signalloom/src/platform_users.py`. | P2-PRE | Pytest migration test; model validation asserts `is_superadmin` field serialization and default false | S | antigravity | — | — | — | — | — |
+| P2-2 | implementation | Update `authenticated_principal` in `fe-signalloom` to dynamically resolve user record, tenant assignment, role, status (`active`/`suspended`), and `is_superadmin` from `public.platform_users` by normalized email from validated Dex JWT. | P2-1 | Pytest auth tests verifying email lookup, role extraction, suspended user rejection (403), and superadmin flag resolution | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | Implement `/api/v1/admin/users` CRUD endpoints (`GET /`, `POST /invite`, `PATCH /{user_id}`, `DELETE /{user_id}`) guarded by `require_admin_or_superadmin`; tenant admins manage only their tenant; superadmins manage all tenants; record audit event for each user state mutation. | P2-2 | Pytest contract and authorization tests: viewer cannot call endpoints (403), tenant admin cannot edit other tenant (403), superadmin can manage across tenants; audit event emission verified | M | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Merge P2-1..P2-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P2 completion errata. | P2-1, P2-2, P2-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | Audit modal patterns (`ClaimModal.tsx`, `ConfirmDialog.tsx`) and API client structure in `dashboard-signalloom`; map UI routes and components for User Management; record audit table in errata. | P2-GOV | Component audit map in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P3-1 | implementation | Add typed API client methods in `dashboard-signalloom/src/api/usersApi.ts` (`listUsers`, `inviteUser`, `updateUser`, `deactivateUser`) with error handling and React Query hooks. | P3-PRE | Vitest contract tests for `usersApi.ts` with mock server; typecheck clean | S | antigravity | — | — | — | — | — |
+| P3-2 | implementation | Build `UsersPage.tsx` and `UserTable.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/` with search, tenant filter (for superadmins), role badges (`admin`, `editor`, `viewer`), status toggle (`active`/`suspended`), and action buttons; gate route behind `requireAdmin` or `superadmin`. | P3-1 | Vitest tests for `UserTable.test.tsx` and `UsersPage.test.tsx`; accessibility checks pass | M | antigravity | — | — | — | — | — |
+| P3-3 | implementation | Build `InviteUserModal.tsx` and `EditUserModal.tsx` for inviting new platform operators and editing roles / tenant assignments; include email validation, role selection dropdown, and confirmation prompts. | P3-2 | Vitest tests for modal forms; interaction tests for role selection and submission | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge P3-1..P3-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P3 completion errata. | P3-1, P3-2, P3-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P4-PRE | preflight | Audit Kusari pilot profile in live tfvars and seed data; verify test environment configuration; record audit table in errata. | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Provision migration `011_seed_design_partner_presets.sql` with default flag configuration for Kusari tenant (`core_governance=true`, `audit=true`, `compliance=true`, `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`); seed initial superadmin user. | P4-PRE | Database seed verification test; flags verified for Kusari tenant vs default tenant | S | antigravity | — | — | — | — | — |
+| P4-2 | implementation | Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts` testing superadmin login → user invite → role reassignment → tenant feature flag suppression verification in the dashboard UI. | P4-1 | Playwright spec passes in acceptance test run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
+| P4-GOV | governor | Merge P4-1..P4-2 in order into `integration/slfa-v0.1.0`; execute full test pyramid (`make test-all-offline` and `make acceptance-test`); verify zero regression; request final AJM sign-off. | P4-1, P4-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
+
+### Spec: Errata
+
+_Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing has run._

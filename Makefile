@@ -2896,6 +2896,14 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 			echo "ERROR: app_port resolved to '$$app_port', which is not a port number."; \
 			exit 3;; \
 	esac; \
+	prev_source_ref=''; \
+	prev_source_sha=''; \
+	prev_source_recorded_at=''; \
+	if [ -f '$(GCP_TF_HANDOFF_FILE)' ]; then \
+		prev_source_ref="$$(jq -r '.source_ref // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+		prev_source_sha="$$(jq -r '.source_sha // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+		prev_source_recorded_at="$$(jq -r '.source_recorded_at // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+	fi; \
 	jq -n \
 		--argjson schema_version 1 \
 		--arg schema '$(GCP_TF_HANDOFF_SCHEMA)' \
@@ -2944,10 +2952,10 @@ GCP_TF_DEMO_SCRIPT ?= scripts/gcp-tf/demo-up.sh
 # computed default does not reach a sub-process through MAKEFLAGS, and an
 # impersonation target that silently fails to arrive is the failure this whole
 # block exists to prevent.
-GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)'
+GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)' GCP_TF_DEMO_REF='$(GCP_TF_DEMO_REF)'
 
 .PHONY: gcp-tf-demo-up
-gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key>).
+gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key> GCP_TF_DEMO_REF=<ref>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_impersonation)
 	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \

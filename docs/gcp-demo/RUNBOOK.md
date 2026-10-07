@@ -31,9 +31,9 @@ Run these commands to provision and connect via Tailscale:
 ```bash
 export TF_STATE_BUCKET=<your-state-bucket>
 
-make gcp-tf-up      ENV=demo-1     # Plan, review, apply, and generate hand-off
-make gcp-tf-demo-up ENV=demo-1     # Deliver codebase, build estate, and run tests
-make gcp-tf-ts-up   ENV=demo-1     # Serve dashboard over Tailscale and print URL
+make gcp-tf-up      ENV=demo-1                       # Plan, review, apply, and generate hand-off
+make gcp-tf-demo-up ENV=demo-1 GCP_TF_DEMO_REF=HEAD  # Deliver codebase, build estate, and run tests
+make gcp-tf-ts-up   ENV=demo-1                       # Serve dashboard over Tailscale and print URL
 ```
 
 Run this command if you connect via IAP tunnel:
@@ -247,7 +247,7 @@ produces a driver that reaches an estate that does not exist and reports on it.
 ## Step 5 — Stand the demo up
 
 ```bash
-make gcp-tf-demo-up ENV=demo-1
+make gcp-tf-demo-up ENV=demo-1 GCP_TF_DEMO_REF=HEAD
 ```
 
 What happens, in order:
@@ -664,7 +664,7 @@ for a missing package.
 | Symptom | What it actually is | Fix | Exit |
 | :--- | :--- | :--- | :--- |
 | `no node named 'sl-demo-1' in this tailnet` | The node is **absent**, not offline. Three causes, indistinguishable from your machine: the VM is down (the node is ephemeral, so it is *removed*, not shown offline); the auth key expired or `tag:sl-demo` has no `tagOwners` entry so it was never approved; or an ACL hides it from you. The message lists the nodes you *can* see, which is the one piece of evidence available locally. | `make gcp-tf-demo-status ENV=…` first — if the VM is suspended, that is the whole answer. Otherwise [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) rows 1 and 5. | 2 |
-| `node '…' is in the tailnet but OFFLINE` | The node is **known by name and not answering**. Not a resolution problem and not an ACL problem — those would present as the row above. The VM is suspended or its `tailscaled` is not running. | `make gcp-tf-demo-up ENV=…` | 2 |
+| `node '…' is in the tailnet but OFFLINE` | The node is **known by name and not answering**. Not a resolution problem and not an ACL problem — those would present as the row above. The VM is suspended or its `tailscaled` is not running. | `make gcp-tf-demo-up ENV=… GCP_TF_DEMO_REF=…` | 2 |
 | `node '…' has no MagicDNS name` | MagicDNS is off for the **tailnet**. The node has an IP and no name, so no certificate can be issued and there is no URL to hand over. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 2 | 2 |
 | `… does not resolve on this machine` | The node is up and named; **your device** is not using the tailnet's resolver. Usually `tailscale up --accept-dns=false`, occasionally something local rewriting `/etc/resolv.conf` after `tailscaled` wrote it. `tailscale status` looks healthy throughout. | `tailscale up --accept-dns`. For a scripted probe with no browser: `GCP_TF_DEMO_SKIP_MAGICDNS_CHECK=1` | 4 |
 | `REFUSING — another origin already holds Dex` | Something else — almost always an ngrok tunnel from `make public` — owns Dex's single OIDC issuer. Taking it would break that demo's login without warning it. The message names the holder. | `./scripts/public-tunnel.sh down`, then re-run | 6 |
@@ -672,7 +672,7 @@ for a missing package.
 | `'tailscale serve' failed` mentioning a certificate | HTTPS Certificates are off for the tailnet. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 3 | 2 |
 | `'tailscale funnel' failed` / an empty status behind Funnel | The tailnet policy grants no `funnel` `nodeAttr` to `tag:sl-demo`, so the edge refuses to route. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 4 | 2 |
 | `the node is up but the dashboard did not answer /readyz` | Got far enough to ask, so MagicDNS and the tailnet are fine. **Empty** status → the certificate did not verify (row 3). **502** → `serve` dialled `127.0.0.1:8080` and got nothing; the forward opened its port and then lost it. **404** → something answered that is *not* the dashboard nginx, which serves this path unconditionally — the unit is forwarding the wrong service. | Follow the status code, not the symptom. `make gcp-tf-ts-status ENV=…` separates "the unit is alive" from "something is listening". | 3 |
-| `could not stand up the dashboard forward` | The forward never came up, and the remote exit code names which of six causes: **3** no `kubectl` on the VM (the estate was never deployed here), **4** no readable kubeconfig (the Kind cluster belongs to another user), **5** no `fe-signalloom/dashboard-signalloom` service (the cluster is up, the app is not), **6/7** the unit could not be written or reloaded, **8** systemd would not start it, **9** it started and nothing ever bound the port — `systemctl status` is printed for that one. | 5 is by far the most common: `make gcp-tf-demo-up ENV=…`. The service is read *before* the unit is written precisely so this is immediate rather than a two-minute timeout — `Restart=always` would otherwise turn a wrong service name into a silent infinite loop. | 7 |
+| `could not stand up the dashboard forward` | The forward never came up, and the remote exit code names which of six causes: **3** no `kubectl` on the VM (the estate was never deployed here), **4** no readable kubeconfig (the Kind cluster belongs to another user), **5** no `fe-signalloom/dashboard-signalloom` service (the cluster is up, the app is not), **6/7** the unit could not be written or reloaded, **8** systemd would not start it, **9** it started and nothing ever bound the port — `systemctl status` is printed for that one. | 5 is by far the most common: `make gcp-tf-demo-up ENV=… GCP_TF_DEMO_REF=…`. The service is read *before* the unit is written precisely so this is immediate rather than a two-minute timeout — `Restart=always` would otherwise turn a wrong service name into a silent infinite loop. | 7 |
 
 **`gcp-tf-funnel-down` is not covered by teardown-verify.** If `funnel-down`
 fails it says so loudly and tells you the public listener **may still be up** —

@@ -79,6 +79,11 @@ done
 if [ "$DRY_RUN" = true ]; then
   echo "=== SLAWS Live Lab Dry Run ==="
   echo "Validating Terraform configuration in $TF_DIR..."
+  # validate needs the providers from .terraform/; a fresh checkout has none, so
+  # initialise without a backend first (served from TF_PLUGIN_CACHE_DIR when set).
+  if [ ! -d "$TF_DIR/.terraform/providers" ]; then
+    terraform -chdir="$TF_DIR" init -backend=false -input=false -no-color >/dev/null
+  fi
   terraform -chdir="$TF_DIR" validate
   echo "dry-run: Terraform configuration in $TF_DIR is valid (region=$REGION)."
   exit 0

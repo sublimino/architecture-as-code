@@ -1,19 +1,17 @@
 {
   "_fixture": [
     "A GuardDuty finding in its REAL delivery shape: an EventBridge event, not a",
-    "CloudTrail record. There is no Records[] array, so",
-    "Projector.ProjectCloudTrail decodes it successfully and returns ZERO",
-    "observations with no error -- the worst available failure mode, because a",
-    "silent zero is indistinguishable from a quiet account.",
-    "This file exists to pin that, not to be ingested:",
-    "TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing asserts the zero and",
-    "names the follow-up. It is deliberately NOT in KusariFixtureFiles(), so it",
-    "never reaches a policy rule and never contributes a finding to the e2e",
-    "totals.",
-    "The follow-up: GuardDuty findings need either an EventBridge-shaped",
-    "projection path with its own §2.3 label rows, or a forwarder that re-shapes",
-    "them onto the CloudTrail envelope before they reach the bucket. Both are",
-    "projection work in a package this card does not extend."
+    "CloudTrail record. There is no Records[] array; Projector.Project probes",
+    "detail-type and routes \"GuardDuty Finding\" to ProjectGuardDuty, which emits",
+    "one aws:guardduty observation (contract_doc.go, GuardDuty column).",
+    "Severity 8 is in GuardDuty's HIGH band, so this record is the positive for",
+    "kusari-cloud-signals/guardduty-high-severity.",
+    "detail.resource.accessKeyDetails carries an access key id (POISON-prefixed)",
+    "and a principal userName, and detail.title is free text. None of them may",
+    "reach any field of the observation:",
+    "TestNegativeContract_GuardDutyDetailNeverBecomesALabel derives its banned",
+    "values from these bytes. The envelope names a userName, not an ARN, so the",
+    "observation has no ActorHint; one is never fabricated."
   ],
   "version": "0",
   "id": "4f1a2b3c-0000-4000-8000-0123456789ab",
@@ -38,6 +36,8 @@
     "resource": {
       "resourceType": "AccessKey",
       "accessKeyDetails": {
+        "accessKeyId": "POISON-AKIAGDENVELOPE0001",
+        "principalId": "POISON-AIDAGDPRINCIPAL01",
         "userName": "kusari-agent",
         "userType": "IAMUser"
       }

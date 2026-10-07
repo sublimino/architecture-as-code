@@ -22,6 +22,13 @@ func TestEveryAWSLogsFixtureAppendsToFrostDB(t *testing.T) {
 	if len(obs) == 0 {
 		t.Fatal("no fixture observations")
 	}
+	// The Kusari corpus carries the GuardDuty severity label, which the default
+	// corpus does not; both must clear the allow-list.
+	kusari, err := awslogs.KusariFixtureObservations("kusari", "eu-west-2")
+	if err != nil {
+		t.Fatalf("KusariFixtureObservations: %v", err)
+	}
+	obs = append(obs, kusari...)
 	// The segment store fails closed without a pseudonymisation key (the same contract
 	// that stopped the kind-osramp pod); supply test key material as store's TestMain does.
 	t.Setenv(store.SegmentPseudonymKeyEnv, "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")

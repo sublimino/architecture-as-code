@@ -9,10 +9,11 @@
     "Record 3 is the NEGATIVE: a read of the detector.",
     "WHERE THE FINDINGS THEMSELVES ARE, stated so nobody reads this fixture as",
     "covering them: a GuardDuty FINDING is delivered over EventBridge, not",
-    "CloudTrail, and its envelope is {detail-type, detail{...}}, which this",
-    "projection does not parse. See guardduty-eventbridge-envelope.json and",
-    "TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing, which pins that",
-    "gap as a silent zero rather than leaving it to be discovered on the pilot."
+    "CloudTrail, in a {detail-type, detail{...}} envelope that ProjectGuardDuty",
+    "reads. See guardduty-eventbridge-envelope.json and",
+    "guardduty-eventbridge-low-severity.json, and the guardduty-high-severity",
+    "rule. These four records are that rule's negative: management calls never",
+    "fire a finding rule."
   ],
   "Records": [
     {

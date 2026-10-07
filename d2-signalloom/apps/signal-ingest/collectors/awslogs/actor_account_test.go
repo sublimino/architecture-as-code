@@ -46,6 +46,11 @@ func TestActorAccountOf(t *testing.T) {
 		// malformed string as structure -- the mistake this whole label exists to
 		// stop the rule making.
 		{"too few fields", "arn:aws:iam::123456789012", ""},
+		// Strict twelve-digit AWS account ID bound (§2.3 contract).
+		{"eleven digits", "arn:aws:iam::12345678901:user/x", ""},
+		{"thirteen digits", "arn:aws:iam::1234567890123:user/x", ""},
+		{"non-digits in account", "arn:aws:iam::12345678901a:user/x", ""},
+		{"all letters in account", "arn:aws:iam::abcdefghijkl:user/x", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := actorAccountOf(tc.arn); got != tc.want {

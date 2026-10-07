@@ -222,7 +222,16 @@ func actorAccountOf(arn string) string {
 	if len(fields) < arnAccountField+2 || fields[0] != "arn" {
 		return ""
 	}
-	return fields[arnAccountField]
+	acct := fields[arnAccountField]
+	if len(acct) != 12 {
+		return ""
+	}
+	for i := 0; i < len(acct); i++ {
+		if acct[i] < '0' || acct[i] > '9' {
+			return ""
+		}
+	}
+	return acct
 }
 
 // resourceOf returns the resource type and name for a record: the first resources[]

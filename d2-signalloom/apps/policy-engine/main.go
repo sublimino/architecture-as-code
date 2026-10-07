@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -222,6 +224,23 @@ func main() {
 	if err != nil {
 		slog.Error("failed initializing observation evaluator", "error", err)
 		os.Exit(1)
+	}
+
+	pseudonymKeyHex := os.Getenv("SIGNAL_SEGMENT_PSEUDONYM_KEY")
+	if pseudonymKeyHex != "" {
+		keyBytes, err := hex.DecodeString(pseudonymKeyHex)
+		if err != nil {
+			slog.Error("failed decoding SIGNAL_SEGMENT_PSEUDONYM_KEY", "error", err)
+			os.Exit(1)
+		}
+		var epoch uint32
+		if epochStr := os.Getenv("SIGNAL_SEGMENT_PSEUDONYM_EPOCH"); epochStr != "" {
+			if ep, err := strconv.ParseUint(epochStr, 10, 32); err == nil {
+				epoch = uint32(ep)
+			}
+		}
+		store.SetPseudonymConfig(keyBytes, epoch)
+		slog.Info("pseudonymisation key configured for policy evaluation", "epoch", epoch)
 	}
 
 	bundlesDir := os.Getenv(BundlesDirEnv)

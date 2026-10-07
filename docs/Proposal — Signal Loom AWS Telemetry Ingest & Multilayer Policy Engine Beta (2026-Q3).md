@@ -85,6 +85,7 @@ The contract is documented once in `collectors/awslogs/contract_doc.go` and asse
 | `tenant_id` | from collector config | same | same |
 | `provider` | `aws` | `aws` | `aws` |
 | `aws_account_id` | `recipientAccountId` | same | `account-id` |
+| `actor_account_id` | twelve-digit account or absent (`userIdentity.arn` field 4) | same | — |
 | `aws_region` | `awsRegion` | same | region of the flow log |
 | `event_source` | `eventSource` | `iam.amazonaws.com` | `vpcflow` |
 | `event_name` | `eventName` | `eventName` | `ACCEPT` / `REJECT` |
@@ -322,7 +323,7 @@ Findings that v1 contradicted, with locations, so cards start from the code:
 | P5-1 | implementation | Live AWS lab per D13: Terraform under `infra/aws/slaws-lab/` for the read-only cross-account role (from `docs/signalloom/slaws-kusari-trust-policy.md`, external ID enforced), a lab bucket with CloudTrail-shaped objects, an SQS queue with S3 notifications and the D12 redrive policy; `scripts/slaws-live-lab.sh` runs signal-ingest in `COLLECTOR_AWSLOGS_MODE=live` with `SIGNAL_DEV_MODE=true`, asserts one object becomes observations through the Â§2.3 projection and that the SQS message is deleted only after `Store.Append`; refuses without credentials and prints the operator command. | P5-PRE | bats for the script (refusal, args, dry-run); `terraform validate`; unit tests at the live seams with fakes; a recorded live run in errata when credentials are present, otherwise STOP-and-report naming the command | M | antigravity | â | â | â | â | â |
 | P5-2 | implementation | Multi-account and DLQ per D11/D12: `COLLECTOR_AWSLOGS_ACCOUNTS` parsed into one `awslogs` instance per entry with its own tenant binding and credentials; invalid or duplicate entries refuse boot; `signal-ingest awslogs redrive --queue <dlq-url>` replays DLQ messages through the same projection with derived-ID dedupe and counts `redriven`; manifests gain the env and a rendered example. | P5-PRE | Unit tests: N entries â N collectors with distinct tenants; invalid entry refuses boot with the offending index; redrive dedupes a replayed object; `deploy_render_test` renders the env; counters asserted | M | antigravity | â | pass: delivered in 6f859ec8, pinned in be33f9cb (src-d95b29a282d1c082); multi-account fan-out, DLQ redrive subcommand, manifest secret wiring, runbook, full test suite pass (see Errata — SLAWS-P5-2) | â | â | â |
 | P5-3 | implementation | GuardDuty via EventBridge: project the envelope (`detail-type: GuardDuty Finding`, `detail.severity`, `detail.type`, `detail.resource`) to Â§2.3 observations with `source=aws:guardduty` and a one-line `description`; fixture under `collectors/awslogs/testdata/`; `contract_doc.go` rows; bundle rule `guardduty-high-severity` under `policy/bundles/kusari/`; replay equals live on the extended corpus. | P5-PRE | `contract_test.go` rows for the fixture; negative contract (no raw body, no token) holds; fixture e2e emits the finding; replay-equals-live byte-identical | M | antigravity | pass — delivered: d5ef8da6 (see Errata — SLAWS-P5-3) | â | â | â | â |
-| P5-4 | implementation | Pseudonym-consistent dry-run and correlator review: policy-engine dry-run bundle registration evaluates with the same pseudonymised `obs.actor` the live path sees (no cleartext comparison); `actor_account_id` is either dropped from the on-disk label set or bounded and justified in Â§2.3; decision review idempotency covers changed-note replay and distinct reviewers; the read-key proof is restated so the superadmin gate cannot make it vacuous. | P5-PRE | Tests: dry-run and live produce identical findings on the corpus; label contract negative test updated; review idempotency cases; read-key test fails when the gate is removed | M | antigravity | â | â | â | â | â |
+| P5-4 | implementation | Pseudonym-consistent dry-run and correlator review: policy-engine dry-run bundle registration evaluates with the same pseudonymised `obs.actor` the live path sees (no cleartext comparison); `actor_account_id` is either dropped from the on-disk label set or bounded and justified in Â§2.3; decision review idempotency covers changed-note replay and distinct reviewers; the read-key proof is restated so the superadmin gate cannot make it vacuous. | P5-PRE | Tests: dry-run and live produce identical findings on the corpus; label contract negative test updated; review idempotency cases; read-key test fails when the gate is removed | M | antigravity | pass — delivered: af41fc1c (see Errata — SLAWS-P5-4) | â | â | â | â |
 | P5-GOV | governor | Merge P5-1..P5-4 in order; the seven acceptance commands twice with identical totals plus `scripts/check-ci-build-parity.sh`; Weave cloud-layer evidence via Interceptor when installed, otherwise the jev route evidence; `### Spec: Shared Patterns â Phase 5`; status line closes v2.1. | P5-1, P5-2, P5-3, P5-4 | Acceptance x2 identical; parity rc 0; evidence paths; errata | S | antigravity | â | â | â | â | â |
 
 ### Spec: Errata
@@ -610,4 +611,30 @@ _Cards append `#### Errata — SLAWS-<ID>` blocks here in delivery order. v2 sup
   - `scripts/check-ci-build-parity.sh` (19 BUILT/RAN, 1 OPT-OUT, 0 defects) and `scripts/check-old-probe-name.sh` pass clean.
 - **Incomplete:** Nothing. All deliverables completed and verified.
 
+#### Errata — SLAWS-P5-4 (2026-10-06, branch slaws-p5-4, integration/slaws-v0.2.0, `af41fc1c`)
+
+- **Commit:** `af41fc1c`
+- **Delivered files**:
+  - `d2-signalloom/pkg/obscel/pseudonym.go` & `pseudonym_test.go`: `NewHMACPseudonymiser` with byte-identical derivation to segment store.
+  - `d2-signalloom/apps/signal-ingest/store/segment_pseudonymiser.go` & `segment_pseudonymiser_test.go`: delegates to obscel pseudonymiser; fixed-vector test confirms equality.
+  - `d2-signalloom/apps/policy-engine/observations.go`, `store.go`, `main.go`, `types.go`, `base/deployment.yaml`: mounts `signal-ingest-segment-pseudonym` secret, pseudonymises `actor_vars` at bundle load/register (fails closed if key missing), pseudonymises observation actor during dry-run when `actor_is_pseudonym` is false.
+  - `d2-signalloom/apps/policy-engine/observations_test.go`: `TestEvaluateObservationUsesThePseudonymisedActorAndAllowlists`, `TestEvaluateObservationReproducesTheKusariGolden`, `TestBootRefusesActorVars`.
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/project.go`: `actorAccountOf` bounded to 12 digits (`^[0-9]{12}$`), returning empty string otherwise.
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/contract_doc.go`: updated row 20 to twelve-digit account or absent.
+  - `d2-signalloom/apps/signal-ingest/collectors/awslogs/actor_account_test.go`, `contract_test.go`, `store/label_value_redaction_test.go`: test cases for 12-digit bound and ARN prevention.
+  - `d2-signalloom/apps/signal-ingest/policy/kusari_corpus_golden_test.go`: generates `pkg/obscel/testdata/kusari-corpus.json` and `kusari-canonical-findings.txt`.
+  - `d2-signalloom/apps/signal-ingest/api/policy_routes_test.go`: `TestPolicyReviewChangedNoteIsARevisionNotAConflict`, `TestPolicyReviewDistinctReviewersEachRecordARow`, `TestPolicyReviewRequiresTheReviewPermissionEvenWithActForTenant`.
+  - `d2-signalloom/apps/signal-ingest/policy/idempotent_frostdb_test.go`: review replay deduplication across store reopen.
+  - `d2-signalloom/apps/fe-signalloom/src/tests/test_signal_policy.py`: `test_gate_removal_is_detected`, `test_review_with_changed_note_is_forwarded_as_a_new_assertion`.
+  - `docs/signalloom/runbooks/decision-review.md`: decision review idempotency matrix.
+  - `d2-signalloom/apps/signal-ingest/base/deployment.yaml`: image tag pinned to `src-0c0b0bf3763c000b`.
+- **Tests run**:
+  - `make test-signal-ingest`: pass (rc 0)
+  - `make test-signal-ingest-frostdb`: pass (rc 0)
+  - `policy-engine go test -v ./...`: pass (rc 0)
+  - `make test-sldc-offline`: pass (700 BATS + unit suites, rc 0)
+  - `fe-signalloom pytest tests/test_signal_policy.py`: pass (59/59, rc 0)
+  - `scripts/check-old-probe-name.sh`: pass (4964 files scanned clean)
+  - `make docs-lint`: pass (688 files clean)
+- **Pin tag**: `src-0c0b0bf3763c000b`
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

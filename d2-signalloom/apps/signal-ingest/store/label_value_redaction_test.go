@@ -9,6 +9,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
 // TestSentinelTargetHomeDirectoryUserIsRedactedBeforeTheSegment pins the decision taken for the
@@ -84,5 +86,30 @@ func TestSentinelDescriptionHomeDirectoryUserIsRedactedBeforeTheSegment(t *testi
 func TestHomeDirectoryRedactionInFreeTextStopsAtWhitespace(t *testing.T) {
 	if got := redactHomeDirectoryUserInText("opened /home/alice by ns/pod"); got != "opened /home/[REDACTED_USER] by ns/pod" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// TestActorAccountID_NeverHoldsAnARN proves that actor_account_id never holds
+// an ARN string, only a 12-digit AWS account ID.
+func TestActorAccountID_NeverHoldsAnARN(t *testing.T) {
+	s, err := NewFrostDBStoreWithBucket(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	o := readSentinelGolden(t)[0]
+	o.Labels = map[string]string{
+		"actor_account_id": "123456789012",
+	}
+	if err := s.Append(context.Background(), []model.Observation{o}); err != nil {
+		t.Fatalf("Append with 12-digit actor_account_id: %v", err)
+	}
+	got, err := s.QueryRange(context.Background(), Query{After: o.Timestamp.Add(-time.Second), Before: o.Timestamp.Add(time.Second)})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("QueryRange: %d, %v", len(got), err)
+	}
+	if got[0].Labels["actor_account_id"] != "123456789012" {
+		t.Fatalf("actor_account_id = %q, want %q", got[0].Labels["actor_account_id"], "123456789012")
 	}
 }

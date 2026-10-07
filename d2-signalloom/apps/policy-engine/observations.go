@@ -19,8 +19,9 @@ const DefaultBundlesDir = "/etc/policy-engine/bundles"
 
 // EvaluateObservationRequest is the body of POST /api/v1/observations/evaluate.
 type EvaluateObservationRequest struct {
-	TenantID    string             `json:"tenant_id"`
-	Observation obscel.Observation `json:"observation"`
+	TenantID         string             `json:"tenant_id"`
+	Observation      obscel.Observation `json:"observation"`
+	ActorIsPseudonym bool               `json:"actor_is_pseudonym"`
 }
 
 // EvaluateObservationResponse is the dry-run result for one observation.
@@ -88,6 +89,24 @@ func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r
 	}
 	req.Observation.TenantID = tenantID
 
+	// SLAWS-P5-4: when ActorIsPseudonym is false and Actor is non-empty, pseudonymise
+	// the actor using the same HMAC derivation the store uses before CEL evaluation.
+	if !req.ActorIsPseudonym && req.Observation.Actor != "" {
+		if h.store.HasPseudonymConfig() {
+			ps, err := h.store.PseudonymiserFor(tenantID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "pseudonymiser error: "+err.Error())
+				return
+			}
+			pseudonym, err := ps.Pseudonym(req.Observation.Actor)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "pseudonymisation error: "+err.Error())
+				return
+			}
+			req.Observation.Actor = pseudonym
+		}
+	}
+
 	bundles := h.store.ObservationBundles(tenantID)
 
 	resp := EvaluateObservationResponse{
@@ -130,6 +149,23 @@ func (s *PolicyStore) LoadObservationBundles(dir string) (int, error) {
 	bundles, err := obscel.LoadBundleDir(dir)
 	if err != nil {
 		return 0, err
+	}
+
+	// SLAWS-P5-4: rewrite declared actor_vars with HMAC pseudonyms.
+	// Fail closed if any bundle declares actor_vars but no pseudonym key is configured.
+	for _, b := range bundles {
+		if len(b.ActorVars) > 0 {
+			if !s.HasPseudonymConfig() {
+				return 0, fmt.Errorf("obscel: bundle %s declares actor_vars but SIGNAL_SEGMENT_PSEUDONYM_KEY is not configured", b.ID)
+			}
+			ps, err := s.PseudonymiserFor(b.TenantID)
+			if err != nil {
+				return 0, fmt.Errorf("obscel: creating pseudonymiser for bundle %s tenant %s: %w", b.ID, b.TenantID, err)
+			}
+			if err := obscel.PseudonymiseActorVars(b, ps.Pseudonym); err != nil {
+				return 0, fmt.Errorf("obscel: pseudonymising actor vars for bundle %s: %w", b.ID, err)
+			}
+		}
 	}
 
 	byTenant := make(map[string][]*obscel.Bundle, len(bundles))

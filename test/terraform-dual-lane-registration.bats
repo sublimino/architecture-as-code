@@ -58,10 +58,20 @@
 #       (2026-08-20) which is a further reason not to widen its blast radius to
 #       a second lane until it is understood.
 #
+#   test/kusari-e2e-live.bats
+#       Demo pipeline only (CI lanes). It is the live tier of the Kusari AWS
+#       signal suite, driven with KUSARI_LIVE=1 against the running estate.
+#       Only executed in demo-pipeline.sh under CI-kind lanes; not run in the
+#       legacy CI VM runner.
+#
+#   test/eapci-ci-stages.bats
+#       Demo pipeline only. It asserts the EAP CI stages sequencing, DEMO_ENV
+#       validation, and stage 4 TAP skip handling for scripts/gcp-tf/demo-pipeline.sh.
+#
 # Offline: reads two files and the test/ directory. No network, no cluster, no
 # make, no bats-in-bats.
 
-SINGLE_LANE_ALLOWED="test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats"
+SINGLE_LANE_ALLOWED="test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats test/kusari-e2e-live.bats test/eapci-ci-stages.bats"
 
 # The extraction floor. Both lists held 52 suites when this file was written.
 # A floor rather than an equality so the guard does not need editing every time

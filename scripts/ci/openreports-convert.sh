@@ -240,6 +240,8 @@ const stageMap = [
   // the shape of the very defect stage 6e exists to catch: a capability that
   // runs and is heard by nothing.
   { file: 'stage6e-spire-trust-drift.tap', parser: parseTap, source: 'bats-spire-openbao-trust-drift', category: 'security' },
+  // Stage 6eap4: Kusari live tier executed under KUSARI_LIVE=1 in CI lanes.
+  { file: 'stage6eap4-kusari-live.tap', parser: parseTap, source: 'bats-kusari-e2e-live', category: 'integration' },
   { file: 'stage7-runtime.tap',    parser: parseTap,       source: 'bats-runtime-negatives',     category: 'security' },
   { file: 'stage7b-adversarial.tap', parser: parseTap,    source: 'bats-adversarial-api',       category: 'security' },
   { file: 'stage7c-user-surface-gate.tap', parser: parseTap, source: 'bats-user-surface-gate', category: 'meta' },

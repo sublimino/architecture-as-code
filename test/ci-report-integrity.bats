@@ -28,6 +28,7 @@
 setup() {
     repo_root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
     pipeline="$repo_root/scripts/ci/vm-pipeline.sh"
+    demo_pipeline="$repo_root/scripts/gcp-tf/demo-pipeline.sh"
     converter="$repo_root/scripts/ci/openreports-convert.sh"
 }
 
@@ -37,12 +38,14 @@ setup() {
 pipeline_output_files() {
     {
         # run_stage stdout captures: the second quoted arg after run_stage.
-        grep -A2 'run_stage' "$pipeline" \
-            | grep -oE '"stage[^"]+\.(tap|json|txt)"' | tr -d '"'
+        grep -h -A2 'run_stage' "$pipeline" "$demo_pipeline" \
+            | grep -oE '"stage[0-9][^"]+\.(tap|json|txt)"' | tr -d '"'
+        # CI_EAP_STAGES definitions in demo-pipeline.sh
+        grep -h -oE 'stage[0-9][a-zA-Z0-9_-]*\.(tap|json|txt)' "$demo_pipeline"
         # Junit/XML outputs named in the command body.
-        grep -oP '\-\-junit-xml=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline"
-        grep -oP 'PLAYWRIGHT_JUNIT_OUTPUT_FILE=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline"
-        grep -oP '\-\-outputFile=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline"
+        grep -h -oP '\-\-junit-xml=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline" "$demo_pipeline" 2>/dev/null || true
+        grep -h -oP 'PLAYWRIGHT_JUNIT_OUTPUT_FILE=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline" "$demo_pipeline" 2>/dev/null || true
+        grep -h -oP '\-\-outputFile=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline" "$demo_pipeline" 2>/dev/null || true
     } | sort -u
 }
 

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import { colors } from '../styles/tokens'
+import AgentCockpitSection from './AgentCockpitSection'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -410,6 +411,9 @@ export default function AgentOverviewTab({
           </div>
         </div>
       </div>
+
+      {/* ─── Live Containment Cockpit ────────────────────────────────────────── */}
+      <AgentCockpitSection agent={agent} style={{ marginBottom: 0 }} />
 
       {/* ─── Detail Snapshot Panels ────────────────────────────────────────────── */}
       <div style={{

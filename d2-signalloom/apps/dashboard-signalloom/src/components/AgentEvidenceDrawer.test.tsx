@@ -442,5 +442,19 @@ describe('AgentEvidenceDrawer Component', () => {
     expect(riskWidget).toHaveAttribute('data-loading', 'true')
     expect(screen.getByTestId('drawer-section-risk-ale-value')).toHaveTextContent('…')
   })
+
+  it('renders Live containment cockpit section inside the drawer', () => {
+    render(
+      <AgentEvidenceDrawer
+        agent={mockAgent}
+        onClose={vi.fn()}
+      />
+    )
+
+    const drawer = screen.getByTestId('agent-evidence-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByTestId('agent-cockpit-section')).toBeInTheDocument()
+    expect(screen.getByText('Live containment cockpit')).toBeInTheDocument()
+  })
 })
 

@@ -1,9 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import React from 'react'
 import AgentMaxxingDemoPage from './AgentMaxxingDemoPage'
 
 describe('AgentMaxxingDemoPage', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
   it('renders page header with zero-customer-payload invariant badge and preset switcher', () => {
     render(<AgentMaxxingDemoPage />)
 

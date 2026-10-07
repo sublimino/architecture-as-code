@@ -133,6 +133,13 @@ if [[ -n "${DEMO_ZOT_CACHE_DIR:-}" ]]; then
   export ZOT_CACHE_DIR="${DEMO_ZOT_CACHE_DIR}"
 fi
 
+# ── The cluster kubeconfig ───────────────────────────────────────────────────
+#
+# Root Makefile:15 exports KUBECONFIG=/tmp/osramp-kubeconfig.yaml. Exporting it
+# here ensures standalone kubectl invocations throughout this script reach the
+# Kind cluster rather than falling back to unconfigured ~/.kube/config (localhost:8080).
+export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+
 # The verdict file. Derived from REPORT_DIR by default, because that is the
 # contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
 # overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file
@@ -237,7 +244,7 @@ CI_EAP_STAGES=(
   "EAP dual-cluster standup|stage6eap1-dual-cluster.txt|cd ${WORK_DIR} && ./scripts/dual-cluster-up.sh"
   "EAP remote-tenant lab|stage6eap2-remote-tenant.txt|cd ${WORK_DIR} && ./scripts/remote-tenant-lab.sh --load-kind-image"
   "Kusari E2E tests|stage6eap3-kusari-e2e.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-kusari-e2e"
-  "Kusari live tier (KUSARI_LIVE=1)|stage6eap4-kusari-live.tap|cd ${WORK_DIR} && { raw=\$(KUSARI_LIVE=1 KUBECONFIG=\"\${HOME}/.kube/config\" ${BATS_BIN} --tap test/kusari-e2e-live.bats 2>&1); rc=\$?; printf '%s\n' \"\$raw\"; if ((rc != 0)); then exit \$rc; fi; if printf '%s\n' \"\$raw\" | grep -qE '# skip'; then echo \"ERROR: test/kusari-e2e-live.bats contained skipped tests; skipping is not permitted in CI\" >&2; exit 1; fi; }"
+  "Kusari live tier (KUSARI_LIVE=1)|stage6eap4-kusari-live.tap|cd ${WORK_DIR} && { raw=\$(KUSARI_LIVE=1 KUBECONFIG=\"\${KUBECONFIG:-\${HOME}/.kube/config}\" ${BATS_BIN} --tap test/kusari-e2e-live.bats 2>&1); rc=\$?; printf '%s\n' \"\$raw\"; if ((rc != 0)); then exit \$rc; fi; if printf '%s\n' \"\$raw\" | grep -qE '# skip'; then echo \"ERROR: test/kusari-e2e-live.bats contained skipped tests; skipping is not permitted in CI\" >&2; exit 1; fi; }"
   "SLAWS acceptance|stage6eap5-slaws-acceptance.txt|cd ${WORK_DIR} && ./scripts/slaws-acceptance.sh"
   "EAP offline suites|stage6eap6-eap-offline.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-eap-offline"
 )

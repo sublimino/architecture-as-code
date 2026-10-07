@@ -51,6 +51,7 @@ if grep -qx "$CLUSTER_NAME" <<<"$EXISTING_CLUSTERS"; then
   prepare_node_data_mounts "$CLUSTER_NAME"
   configure_local_path_provisioner "$CLUSTER_NAME"
   registry_cache_configure_node "${CLUSTER_NAME}-control-plane"
+  "$KIND_BIN" export kubeconfig --name "$CLUSTER_NAME" ${KUBECONFIG:+--kubeconfig "$KUBECONFIG"}
   echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR and Postgres data at $POSTGRES_DATA_DIR"
   exit 0
 fi

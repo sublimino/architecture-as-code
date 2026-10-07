@@ -40,7 +40,7 @@ roleRef:
   name: stun-sentinel
 subjects:
   - kind: ServiceAccount
-    name: signalloom-stun-sentinel
+    name: stun-sentinel
     namespace: fe-signalloom-agents
 ---
 # Cluster-scoped: the sentinel reads node cgroup paths for eBPF program
@@ -70,5 +70,5 @@ roleRef:
   name: stun-sentinel-node-reader
 subjects:
   - kind: ServiceAccount
-    name: signalloom-stun-sentinel
+    name: stun-sentinel
     namespace: fe-signalloom-agents

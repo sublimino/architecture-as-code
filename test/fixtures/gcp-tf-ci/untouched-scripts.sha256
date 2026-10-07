@@ -140,7 +140,7 @@
 # vm-pipeline.sh re-recorded by EAPCI-P1-GOV from the merged integration file. Two
 # accepted script changes since the last record: b9177c3f902019e94d5d7129684f18a3e018d90b
 # (mint every bring-up key in stage 4 before the images; SLAWS P5 CI parity) and
-# EAPCI-P1-3 df82316b (drop the deleted Tetragon suite from the pipeline). One
+# EAPCI-P1-3 df82316b (drop the suite EAPCI-P1-9 deletes from the pipeline). One
 # re-record covers both. ci-lock.sh stays red (drift since b9177c3f, not EAPCI's).
 # Acknowledgement requested from sensai-sltm on /tmp/chat.jsonl.
 e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0  scripts/ci/vm-pipeline.sh

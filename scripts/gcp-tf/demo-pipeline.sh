@@ -245,7 +245,7 @@ CI_EAP_STAGES=(
   "EAP remote-tenant lab|stage6eap2-remote-tenant.txt|cd ${WORK_DIR} && ./scripts/remote-tenant-lab.sh --load-kind-image"
   "Kusari E2E tests|stage6eap3-kusari-e2e.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-kusari-e2e"
   "Kusari live tier (KUSARI_LIVE=1)|stage6eap4-kusari-live.tap|cd ${WORK_DIR} && { raw=\$(KUSARI_LIVE=1 KUBECONFIG=\"\${KUBECONFIG:-\${HOME}/.kube/config}\" ${BATS_BIN} --tap test/kusari-e2e-live.bats 2>&1); rc=\$?; printf '%s\n' \"\$raw\"; if ((rc != 0)); then exit \$rc; fi; if printf '%s\n' \"\$raw\" | grep -qE '# skip'; then echo \"ERROR: test/kusari-e2e-live.bats contained skipped tests; skipping is not permitted in CI\" >&2; exit 1; fi; }"
-  "SLAWS acceptance|stage6eap5-slaws-acceptance.txt|cd ${WORK_DIR} && ./scripts/slaws-acceptance.sh"
+  "SLAWS acceptance|stage6eap5-slaws-acceptance.txt|cd ${WORK_DIR} && ./scripts/slaws-acceptance.sh /tmp/eapci-acceptance"
   "EAP offline suites|stage6eap6-eap-offline.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-eap-offline"
 )
 

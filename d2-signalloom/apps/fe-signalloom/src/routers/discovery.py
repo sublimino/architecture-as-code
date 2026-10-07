@@ -65,6 +65,12 @@ def _make_error(status_code: int, code: str, message: str) -> JSONResponse:
     status_code=200,
 )
 @router.post(
+    "/api/discovery/claim",
+    response_model=DiscoveryClaimResponse,
+    responses=ERROR_RESPONSES,
+    status_code=200,
+)
+@router.post(
     "/v1/discovery/claim",
     response_model=DiscoveryClaimResponse,
     responses=ERROR_RESPONSES,

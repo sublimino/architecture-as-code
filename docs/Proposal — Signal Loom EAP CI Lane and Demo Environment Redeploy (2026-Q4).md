@@ -809,3 +809,92 @@ Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-9","status":"pass","commit":"00930600b13bd4b081f73d6ed06e3f6e54bd3e46"} -->
+
+#### Errata — EAPCI-P1-GOV
+
+- **Logical ID:** P1-GOV
+- **Created:** 2026-10-07 06:14:30+01:00
+- **Last Updated:** 2026-10-07 06:14:30+01:00
+- **Harness:** `kpai` (Claude Code)
+- **Integration ref (unchanged, not advanced):** `refs/heads/integration/eapci-v0.1.0` = `f431272c35ce487f3c71ea3ab52dc985bbae051a`
+- **Result:** `fail`: hard blocker hit (the Tetragon acceptance grep still matches, and the merged tip is red). Ref not moved, pins not committed, counted runs not started.
+
+##### 1. Base
+
+The card text names `205ca580` as the tip. The ref had already moved to `f431272c` (`205ca580` is an ancestor): the feat merge `44e140c0` plus errata-collection docs commits. The merge chain was built on the ref's actual value, in a detached worktree at `/tmp/eapci-p1gov`.
+
+##### 2. Merge chain (detached, not on any ref)
+
+| Step | Branch / tip | Merge SHA | Conflicts and resolution |
+| :--- | :--- | :--- | :--- |
+| P1-1 | `eapci-P1-1-w1` `e8232cd28ee3ded76e969eb2429b8eaf354f663e` | `7102ea8d1b078075c77ec48df533d5b44686e902` | Proposal only. Took the integration copy (`--ours`), which already holds the collected errata. The branch side differed only in Work Decomposition result cells and pre-normalisation duplicates. |
+| P1-2 | `eapci-P1-2-w1` `5919019041e740f65da11142b2608a11bdc10b3f` | `237e5943787655a063d1c37eb644444c52b85c21` | Makefile `gcp-tf-handoff` jq line: the expected collision. Owner rule (P1-1) applied hunk-level with `git merge-file --ours`, so P1-2's non-conflicting Makefile hunks were kept. Proposal resolved `--ours`. |
+| compose | governor commit | `5e14dc3eba7021cdd9566dacae429210b577de6a` | Re-applied P1-2's three `--arg prev_source_*` lines and the conditional `source_*` object merges onto P1-1's line ("P1-2 merges by a separate step"). terraform-demo-ref, terraform-pilot-profile, eapci-pilot-profile and terraform-demo-driver: 122/122 green. |
+| P1-4 | `c1a63be34148d613f13d329c148925031383ed68` | `cae27d3a837c6884601072747041506e5893fb0d` | Proposal only. |
+| P1-5 | `7281bacfb1cf6de99482d812dff7275a55d6ff52` | `d9264773c1839a35aeea2015c427f42e086694e7` | Proposal only. |
+| P1-6 | `35c152f6b72b1308c9c7c74fbbe65fb7bbabb5a8` | `be987753ad68ee393d8a3f0be086718818988bff` | Proposal only. |
+| P1-7 | `645017a2f481106b5a3707ff8e878f46c6cf3b01` | `cc68fde75e0f66af8215c9ba8caac2bbdc50e679` | Proposal only. |
+| P1-8 | `027cf8f64d9f35770271282bb02ae60b5030e556` | `f5859da3cd983516683d1da68acc739044bb8b8c` | Proposal only. |
+| P1-3 | `cadacac96aa45a5e78fb6ebf4a69149b4cde1cc1` | `290dbd47b989f175a30f2ad3f948acabb3c45c13` | Proposal only. |
+| P1-9 | `65d376ecf6b53bd4644b7f3c5e78ae47562d68c4` | `20fed3df264e3375f960d7990ee96e1716cf0ede` | `test/fixtures/test-isolation-allowlist.txt`: a blank line only (P1-8 and P1-9 both deleted the same six Tetragon rows). Owner side taken with `merge-file --ours`; non-blank content is identical to the P1-9 side. |
+| P1-10 | `7e1e5ed9e0e510996860718ad7e6006c1c990d1a` | `e4f8cd56813ab4a59c50dc7b8e9564d1eb85ed45` | Proposal only. |
+
+Every worker tip matched or descended from its reported SHA (each extra commit is a docs commit). There were no amended commits and no rebases.
+
+##### 3. Blocking findings
+
+1. **P1-3 vs P1-9, a red by construction that nobody removed.** `test/eapci-ci-stages.bats:320-321` (`EAPCI test/tetragon-telemetry-stream.bats file still exists on disk`) asserts a file that P1-9 deletes, so the test fails on the merged tip. Owner: P1-3 (or P1-9, which deleted the file). Fix: a new commit deleting that test. It needs to come from a card, not a governor hand-fix (out of scope).
+2. **Tetragon acceptance grep is not clean.** `rg -il tetragon Makefile scripts test d2-signalloom/deploy d2-signalloom/apps/signal-ingest d2-signalloom/apps/dashboard-signalloom/src` → `test/eapci-ci-stages.bats` (P1-3: header comment :11, negative guards :310-316, the stale test above) and `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:260-273` (P1-8: the `TestRegistry_NoTetragonCollectorRegistered` regression guard). Repo-wide, excluding `docs/**` and `*.md`, adds `ci-evidence/p5-baseline-summary.txt:63-64` (a dated record, exempt) and `d2-signalloom/apps/docs-signalloom/src/content/docs/agents/dual-agent-onboarding.mdx:122` (user-facing prose, owned by no card). **Decision for AJM:** do negative regression guards that name Tetragon (P1-3's greps, P1-8's registry test) count as "history" for this criterion? If yes, only finding 1 and the `.mdx` line remain. If no, both guards need rewording by their owners.
+
+##### 4. Battery evidence on the merged chain (`KUBECONFIG=/dev/null`)
+
+- After P1-1/P1-2/compose: the four terraform bats suites 122/122 (`terraform init -backend=false` was needed in the fresh worktree: env-contract and the modules carry no committed lock).
+- After P1-4..P1-8: `eap-pr-workflow`, `postgres-persistence`, `zot-cache`, `kind-config-heredoc`, `signalloom-warden-manifests` 52/52, 0 skips. `go mod tidy` (go1.27.0 from `/tmp/gomodcache`, `GOTOOLCHAIN=local`, `GOPROXY=off`) left signal-ingest, stun-sentinel and signalloom-stun-sentinel `go.mod`/`go.sum` unchanged. `go vet` was clean on both sentinels. signal-ingest `go vet` reports copylocks at `api/static_bearer_test.go:273`; that file is untouched by P1, so the finding is pre-existing and outside `go test`'s vet subset.
+- After P1-3/P1-9: `eapci-ci-stages`, `bats-registry-coverage`, `terraform-dual-lane-registration`, `ci-report-integrity`, `gcp-demo-pipeline` gave 64 ok and 4 not ok. Three are `bats-registry-coverage` (proof-invocation, inherited `GCP_TF_PROOFS_RUN`, root suites not invoked by CI), and the same three are red at base `f431272c` (re-run in `/tmp/eapci-p1gov-base`). The uninvoked-suite list grows by `eapci-pilot-profile.bats` (P1-1), `kind-data-backup.bats` and `kind-data-mounts.bats` (P1-5), and shrinks by `kusari-e2e-live.bats` (P1-3). The fourth is finding 1.
+- `SINGLE_LANE_ALLOWED` (`test/terraform-dual-lane-registration.bats`) after P1-3+P1-9: `test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats test/kusari-e2e-live.bats test/eapci-ci-stages.bats`. No Tetragon entry.
+
+##### 5. Pins and ledger (computed, NOT committed)
+
+- signal-ingest: currently `src-8273655b1f19c15a` (P1-6); `scripts/signal-ingest-image-tag.sh` on `e4f8cd56` → `src-93ef78c37f62ca38`.
+- sentinel: currently `src-0a6aad47e85a`; `scripts/sentinel-image-tag.sh` → `src-08e40cec5d33` (matches P1-7's report).
+- `test/fixtures/gcp-tf-ci/untouched-scripts.sha256:139` pins `4babac66…`; merged `scripts/ci/vm-pipeline.sh` is `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0` (matches P1-3's report). Not re-recorded.
+
+These values are valid only for chain tip `e4f8cd56`. Any fix commit to Go or sentinel inputs means recomputing them.
+
+##### 6. Deviations
+
+- The proposal file is tracked in the repo, and its errata were committed on the integration line by earlier collection commits. This block is written to the governor worktree and left **uncommitted**, per the governor rule.
+- Host Go is 1.26.2 and the sandbox blocks `~/go/pkg/sumdb`, so Go ran through the cached go1.27.0 toolchain binary.
+
+##### 7. To resume
+
+1. P1-3 owner: a new commit removing `test/eapci-ci-stages.bats:320-322`, plus AJM's ruling on guard tests (finding 2). Optionally, a docs card for the `.mdx` line.
+2. Re-run P1-GOV. The chain above reproduces mechanically: the same two resolutions (`merge-file --ours` hunk-level) plus the compose commit. Then pin both images once, re-record the ledger once naming `b9177c3f` and P1-3, and run the counted pair.
+3. Detached chain kept at `/tmp/eapci-p1gov` (HEAD `e4f8cd56813ab4a59c50dc7b8e9564d1eb85ed45`) for inspection. It is on no ref and safe to remove.
+
+##### P2 prerequisites checklist (carried forward)
+
+- [ ] demo-2 live tfvars
+- [ ] AJM approval to destroy demo-2
+- [ ] `make fleet-operator-keys`
+- [ ] P2-4 window and backup gate
+- [ ] P2-5 depends on the P2-4 rebuild
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P1-PRE | — | — | — | — |
+| P1-1 | — | — | — | — |
+| P1-2 | — | — | — | — |
+| P1-3 | — | — | — | — |
+| P1-4 | — | — | — | — |
+| P1-5 | — | — | — | — |
+| P1-6 | — | — | — | — |
+| P1-7 | — | — | — | — |
+| P1-8 | — | — | — | — |
+| P1-9 | — | — | — | — |
+| P1-10 | — | — | — | — |
+| P1-GOV | — | — | — | — |
+
+
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->

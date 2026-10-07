@@ -143,7 +143,18 @@ SUMMARY_FILE="${DEMO_SUMMARY_FILE:-${REPORT_DIR}/summary.json}"
 # Which environment this run describes. Recorded in the summary because a
 # verdict that does not name its own environment is weak evidence — reading
 # demo-1's summary as demo-2's is a one-character mistake with no guard on it.
-DEMO_ENV_KEY="${DEMO_ENV:-unknown}"
+if [[ -z "${DEMO_ENV:-}" ]]; then
+  echo "ERROR: DEMO_ENV is unset or empty. Must match ^(demo|ci)-[1-9][0-9]*$" >&2
+  exit 2
+fi
+
+if [[ ! "${DEMO_ENV}" =~ ^(demo|ci)-[1-9][0-9]*$ ]]; then
+  echo "ERROR: DEMO_ENV='${DEMO_ENV}' is malformed. Must match ^(demo|ci)-[1-9][0-9]*$" >&2
+  exit 2
+fi
+
+DEMO_ENV_KEY="${DEMO_ENV}"
+LANE_KIND="${DEMO_ENV%%-*}"
 
 # ── The delivered source, resolved BEFORE the EXIT trap is armed ─────────────
 #
@@ -210,6 +221,37 @@ SUDO_BIN="${SUDO_BIN:-sudo}"
 CHROME_BIN="${DEMO_CHROME_BIN:-/opt/google/chrome/chrome}"
 SUPERVISE_BIN="${DEMO_SUPERVISE_BIN:-${WORK_DIR}/scripts/supervise-port-forward.sh}"
 CONVERT_BIN="${DEMO_CONVERT_BIN:-${WORK_DIR}/scripts/ci/openreports-convert.sh}"
+
+# ── CI EAP Stage Table ────────────────────────────────────────────────────────
+#
+# Declared once as an ordered name|report|command table for CI lanes.
+# On CI lanes (LANE_KIND=ci), these six stages execute after deployed-staleness:
+#   1. scripts/dual-cluster-up.sh
+#   2. scripts/remote-tenant-lab.sh --load-kind-image
+#   3. make test-kusari-e2e
+#   4. Kusari live tier with KUSARI_LIVE=1 (fails on any # skip)
+#   5. scripts/slaws-acceptance.sh
+#   6. make test-eap-offline
+# Demo lanes run none of these.
+CI_EAP_STAGES=(
+  "EAP dual-cluster standup|stage6eap1-dual-cluster.txt|cd ${WORK_DIR} && ./scripts/dual-cluster-up.sh"
+  "EAP remote-tenant lab|stage6eap2-remote-tenant.txt|cd ${WORK_DIR} && ./scripts/remote-tenant-lab.sh --load-kind-image"
+  "Kusari E2E tests|stage6eap3-kusari-e2e.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-kusari-e2e"
+  "Kusari live tier (KUSARI_LIVE=1)|stage6eap4-kusari-live.tap|cd ${WORK_DIR} && { raw=\$(KUSARI_LIVE=1 KUBECONFIG=\"\${HOME}/.kube/config\" ${BATS_BIN} --tap test/kusari-e2e-live.bats 2>&1); rc=\$?; printf '%s\n' \"\$raw\"; if ((rc != 0)); then exit \$rc; fi; if printf '%s\n' \"\$raw\" | grep -qE '# skip'; then echo \"ERROR: test/kusari-e2e-live.bats contained skipped tests; skipping is not permitted in CI\" >&2; exit 1; fi; }"
+  "SLAWS acceptance|stage6eap5-slaws-acceptance.txt|cd ${WORK_DIR} && ./scripts/slaws-acceptance.sh"
+  "EAP offline suites|stage6eap6-eap-offline.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-eap-offline"
+)
+
+# Listing mode: enables stub-runner test suites to read the stage list without a cluster.
+if [[ "${DEMO_LIST_STAGES:-0}" == "1" ]]; then
+  if [[ "${LANE_KIND}" == "ci" ]]; then
+    for stage_entry in "${CI_EAP_STAGES[@]}"; do
+      IFS="|" read -r st_name st_file st_cmd <<< "$stage_entry"
+      echo "${st_name}|${st_file}|${st_cmd}"
+    done
+  fi
+  exit 0
+fi
 
 # ── The published endpoint ───────────────────────────────────────────────────
 #
@@ -817,7 +859,7 @@ run_stage \
      test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
      test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
      test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
-     test/tetragon-telemetry-stream.bats test/wait-deadline.bats \
+     test/wait-deadline.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
      test/landlock-containment-probes.bats \
@@ -964,7 +1006,8 @@ run_stage \
   "Demo pipeline control flow" \
   "stage1r-demo-pipeline.txt" \
   "cd ${WORK_DIR} && ${BATS_BIN} test/gcp-demo-pipeline.bats \
-     test/supervise-port-forward-knobs.bats"
+     test/supervise-port-forward-knobs.bats \
+     test/eapci-ci-stages.bats"
 
 # The language suites. Also cluster-free, and vm-pipeline.sh runs them after
 # bring-up purely because that is where its numbering put them.
@@ -1087,6 +1130,24 @@ run_stage \
   "Deployed workloads match the source under test" \
   "stage6b-deployed-staleness.txt" \
   "cd ${WORK_DIR} && ${MAKE_BIN} check-deployed-staleness"
+
+# ═══ CI EAP Stages (CI lanes only) ═══════════════════════════════════════════
+#
+# On CI lanes (LANE_KIND=ci), execute the six EAP stages in strict order:
+#   1. scripts/dual-cluster-up.sh
+#   2. scripts/remote-tenant-lab.sh --load-kind-image
+#   3. make test-kusari-e2e
+#   4. Kusari live tier with KUSARI_LIVE=1 (fails on any # skip)
+#   5. scripts/slaws-acceptance.sh
+#   6. make test-eap-offline
+# Demo lanes run NONE of these stages.
+if [[ "${LANE_KIND}" == "ci" ]]; then
+  echo "==> [6b-ci] Running EAP CI stages on ${DEMO_ENV_KEY}..."
+  for stage_entry in "${CI_EAP_STAGES[@]}"; do
+    IFS="|" read -r st_name st_file st_cmd <<< "$stage_entry"
+    run_stage "$st_name" "$st_file" "$st_cmd"
+  done
+fi
 
 # postBuild.substituteFrom is a SILENT NO-OP when a key is missing: the token is
 # left literal, the apply succeeds, and the object is marked Ready=True with

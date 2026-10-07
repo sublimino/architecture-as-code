@@ -122,10 +122,11 @@ setup() {
 	# today's offender would let the next variable the driver adds reintroduce it
 	# in silence.
 	local _inherited
-	for _inherited in $(compgen -v | grep '^DEMO_' || true); do
+	for _inherited in $(compgen -v | grep -E '^(DEMO_|GCP_TF_)' || true); do
 		unset "$_inherited"
 	done
 
+	export DEMO_ENV="demo-1"
 	export DEMO_WORK_DIR="$work"
 	export DEMO_REPORT_DIR="$reports"
 	export DEMO_PIPELINE_LOG="$BATS_TEST_TMPDIR/pipeline.log"
@@ -155,6 +156,11 @@ make_fake_repo() {
 		scripts/acceptance-test.sh \
 		scripts/check-flux-substitution.sh \
 		scripts/check-vacuous-assertions.sh \
+		scripts/ci/resolve-tailnet-origin.sh \
+		scripts/ci/user-surface-gate.sh \
+		scripts/dual-cluster-up.sh \
+		scripts/remote-tenant-lab.sh \
+		scripts/slaws-acceptance.sh \
 		test/guard-falsification-proof.sh \
 		d2-signalloom/test/audit-guard-reintroduction-proof.sh \
 		d2-signalloom/test/seam-guard-mutation-proof.sh; do
@@ -257,6 +263,7 @@ recipe_body() {
 # lines, and the script path for direct invocations.
 recipe_step_identifiers() {
 	recipe_body | sed -e 's/^\$(MAKE)[[:space:]]*//' \
+		-e 's/^-C[[:space:]]*[^[:space:]]*[[:space:]]*//' \
 		-e 's/^[A-Z_]*=[^[:space:]]*[[:space:]]*//' \
 		-e 's/[[:space:]].*$//' \
 		| grep -vE '^$'

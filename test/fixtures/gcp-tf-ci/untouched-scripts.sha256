@@ -136,5 +136,12 @@
 # explicitly refuses: a finding you cannot justify in a clause is a defect, not an
 # exception. NEEDS CI-OWNER REVIEW — the header above requires acceptance before a
 # re-record, and this one was authored with the reason stated but not yet accepted.
-4babac666e2462459fb3acb91f3e46cddc935277be97e81bf4638dbc4293354d  scripts/ci/vm-pipeline.sh
+#
+# vm-pipeline.sh re-recorded by EAPCI-P1-GOV from the merged integration file. Two
+# accepted script changes since the last record: b9177c3f902019e94d5d7129684f18a3e018d90b
+# (mint every bring-up key in stage 4 before the images; SLAWS P5 CI parity) and
+# EAPCI-P1-3 df82316b (drop the deleted Tetragon suite from the pipeline). One
+# re-record covers both. ci-lock.sh stays red (drift since b9177c3f, not EAPCI's).
+# Acknowledgement requested from sensai-sltm on /tmp/chat.jsonl.
+e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

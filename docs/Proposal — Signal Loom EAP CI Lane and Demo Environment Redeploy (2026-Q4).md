@@ -390,7 +390,7 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 
 #### Errata — EAPCI-P1-4 Make every workflow on this branch manual-only
 **Created:** 2026-10-06 22:35:02+01:00
-**Last Updated:** 2026-10-06 23:59:00+01:00
+**Last Updated:** 2026-10-07 04:14:04+01:00
 **Status:** Completed
 **Commit:** 5790db860f9d18b6707419e3e03faf1f773c8e6e
 **Governor merge:** pending Governor reconciliation

@@ -235,6 +235,24 @@ else
   echo "    SKIP: Dex issuer preflight (inf-signalloom/dex not deployed)"
 fi
 
+# Ensure SuperCred demo resources are deployed on the active cluster
+if [[ -z "${DASHBOARD_URL:-}" || "${DASHBOARD_URL}" == *"dashboard.osramp.acme.local"* ]]; then
+  if kubectl get namespace fe-signalloom-agents &>/dev/null; then
+    if ! kubectl -n fe-signalloom-agents get pod agent-cardvault &>/dev/null; then
+      echo "==> Deploying SuperCred demo for acceptance tests..."
+      if ! "${SCRIPT_DIR}/supercred-demo.sh" 1; then
+        echo "    ERROR: SuperCred demo step 1 failed to deploy" >&2
+        PREFLIGHT_FAILED=1
+      elif ! "${SCRIPT_DIR}/supercred-demo.sh" 2; then
+        echo "    ERROR: SuperCred demo step 2 credential chain failed" >&2
+        PREFLIGHT_FAILED=1
+      fi
+    else
+      echo "    SuperCred demo → agent-cardvault deployed"
+    fi
+  fi
+fi
+
 # Is the deployed code the code in the working tree?
 #
 # This script does not rebuild, so a source fix stays invisible to every spec

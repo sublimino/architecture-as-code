@@ -34,3 +34,8 @@ d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go:stun-sentinel # Go imp
 d2-signalloom/apps/fleet-manager/cmd/resume-token/main_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 d2-signalloom/apps/fleet-manager/resume_token_cli_compat_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 test/fixtures/test-isolation-allowlist.txt # SLAWS isolation audit allow-list records per-file reasons and so carries the R3 module paths apps/stun-sentinel and apps/signalloom-stun-sentinel
+test/crkc-phase1-unified-stun.bats:apps/signalloom-stun-sentinel # EAPCI-P1-9: the unified-stun suite builds and tests the R3 module directory apps/signalloom-stun-sentinel
+test/crkc-phase1-unified-stun.bats:apps/stun-sentinel # EAPCI-P1-9: the unified-stun suite tests the R3 library module directory apps/stun-sentinel
+test/crkc-phase1-unified-stun.bats:unified-p1: signalloom-stun-sentinel daemon # EAPCI-P1-9: test titles name the R3 daemon module they build and test
+test/crkc-phase1-unified-stun.bats:unified-p1: stun-sentinel library # EAPCI-P1-9: test title names the R3 library module it tests
+scripts/kind-data-backup.sh:stun-sentinel-fleet-key # EAPCI-P1-5: backs up the legacy caller-key Secret that scripts/fleet-manager-caller-keys.sh still mints during the warden cutover

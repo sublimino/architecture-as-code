@@ -108,8 +108,8 @@ while :; do
         "$URL")
 
     if [ "$HTTP_CODE" -ne 200 ]; then
-        echo "Error fetching page: HTTP ${HTTP_CODE}" >&2
-        cat "$PAGE_FILE" >&2
+        echo "Error fetching page: HTTP ${HTTP_CODE}" >/dev/stderr
+        cat "$PAGE_FILE" >/dev/stderr
         rm -f "$HEADER_FILE" "$PAGE_FILE"
         exit 1
     fi
@@ -119,8 +119,8 @@ while :; do
     mv "${ALL_OBSERVATIONS}.tmp" "$ALL_OBSERVATIONS"
 
     # Extract truncation flag and next cursor
-    TRUNCATED=$(grep -i '^x-result-truncated:' "$HEADER_FILE" | tr -d '\r' | awk '{print $2}' | tr '[:upper:]' '[:lower:]' || true)
-    NEXT_CURSOR=$(grep -i '^x-next-cursor:' "$HEADER_FILE" | tr -d '\r' | awk '{print $2}' || true)
+    TRUNCATED=$(awk 'tolower($1) == "x-result-truncated:" { sub(/\r$/, "", $2); print tolower($2) }' "$HEADER_FILE")
+    NEXT_CURSOR=$(awk 'tolower($1) == "x-next-cursor:" { sub(/\r$/, "", $2); print $2 }' "$HEADER_FILE")
 
     rm -f "$HEADER_FILE" "$PAGE_FILE"
 

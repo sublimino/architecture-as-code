@@ -171,8 +171,10 @@ locals {
   #
   # Computed in Terraform, not in the startup script, because it is the same
   # value modules/network derives its network tag from and a second derivation
-  # in bash is a second thing to drift.
-  tailscale_hostname = "sl-${var.environment_key}"
+  # in bash is a second thing to drift. Note: modules/network's network tag stays
+  # derived from the key (sl-$${var.environment_key}); tailscale_hostname allows
+  # an explicit override for customer pilot endpoints (e.g. sl-eap-4b53ab6b).
+  tailscale_hostname = coalesce(var.tailscale_hostname, "sl-${var.environment_key}")
 
   # Instance metadata carrying the Tailscale CONFIGURATION — never the key.
   #

@@ -2847,6 +2847,8 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	zone="$$(v '.target_environment.value.zone')"; \
 	app_port="$$(v '.target_environment.value.app_port')"; \
 	hostname="$$(v '.target_environment.value.hostname')"; \
+	tailscale_hostname="$$(v '.target_environment.value.tailscale_hostname')"; \
+	[ -n "$$tailscale_hostname" ] || tailscale_hostname="sl-$$environment_key"; \
 	access_mode="$$(v '.access_mode.value // .integration_inputs.value.access_mode')"; \
 	instance_name="$$(v '.instance_name.value // .instance_names.value[$$env] // .compute.value[$$env].instance_name')"; \
 	internal_ip="$$(v '.internal_ip.value // .internal_ips.value[$$env] // .compute.value[$$env].internal_ip')"; \
@@ -2910,8 +2912,9 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg operator_sa "$$operator_sa" \
 		--arg access_mode "$$access_mode" \
 		--arg hostname "$$hostname" \
+		--arg tailscale_hostname "$$tailscale_hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, tailscale_hostname: $$tailscale_hostname, generated_at: $$generated_at}' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \

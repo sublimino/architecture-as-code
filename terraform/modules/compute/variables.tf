@@ -352,3 +352,10 @@ variable "enable_confidential_compute" {
   type        = bool
   default     = false
 }
+
+variable "tailscale_hostname" {
+  description = "Explicit Tailscale node name override (e.g. \"sl-eap-4b53ab6b\"). When empty or unset (the default), derives \"sl-<environment_key>\"."
+  type        = string
+  default     = ""
+}
+

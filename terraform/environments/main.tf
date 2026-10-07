@@ -273,6 +273,7 @@ module "compute" {
   # environment without one must still plan and apply. With the flag false the
   # module plans no data source, no IAM binding and no metadata key.
   tailscale_enabled           = var.tailscale_enabled
+  tailscale_hostname          = each.value.tailscale_hostname
   tailscale_authkey_secret_id = var.tailscale_authkey_secret_id
   tailscale_tag               = var.tailscale_tag
   tailscale_ssh_enabled       = var.tailscale_ssh_enabled

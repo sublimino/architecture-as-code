@@ -374,4 +374,23 @@ environments = {
       owner = "andy"
     }
   }
+
+  "demo-2" = {
+    kind               = "demo"
+    subnet_cidr        = "10.10.2.0/24"
+    region             = "us-east4"
+    zone               = "us-east4-a"
+    machine_type       = "n2-standard-8"
+    boot_disk_gb       = 100
+    hostname           = ""
+    tailscale_hostname = "sl-eap-4b53ab6b"
+    allowed_ipv4       = ["192.0.2.0/24"]
+    allowed_ipv6       = ["2001:db8::/32"]
+    app_port           = 8080
+    deletion_protect   = false
+    labels = {
+      tier  = "pilot"
+      owner = "andy"
+    }
+  }
 }

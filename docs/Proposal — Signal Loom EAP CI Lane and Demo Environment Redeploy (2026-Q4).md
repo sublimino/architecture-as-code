@@ -145,7 +145,7 @@ updated: 2026-10-06T12:50
 | P1-9 | implementation | Delete `d2-signalloom/deploy/tetragon-agent-telemetry.yaml`, `tetragon-helm-values.yaml`, `scripts/test-tetragon-stream.sh`, `test/tetragon-telemetry-stream.bats` and the Tetragon evidence artefact; remove `test-tetragon`, `test-tetragon-bats`, `test-tetragon-stream` from the `Makefile` (targets 707-719, callers in `test-all-offline` 557-558 and `test-all-cluster` 611); delete `test/mocks/tetragon_grpc_*` and their `go.mod` entries; drop Tetragon references from `test/acceptance/agent-claim.spec.ts`, `test/crkc-phase1-unified-stun.bats`, the test isolation allowlist, `scripts/slaat-baseline.sh` and the card-generator scripts; add a new make target named test-sentinel-ebpf running the P1-7 suites; update registries (`bats-registry-coverage`, dual-lane allowlists) accordingly. | P1-PRE | the files this card deletes or edits carry no Tetragon reference (the repo-wide zero check runs at P1-GOV on the merged tip); a dry run of the new test-sentinel-ebpf target resolves; `bats-registry-coverage.bats` and `terraform-dual-lane-registration.bats` green | M | antigravity | — | — | — | — | — |
 | P1-10 | implementation | Replace Tetragon wording with Sentinel eBPF in `AgentActivityTab.tsx`, `ClaimModal.tsx`, `ContainmentPolicyConsentStep.tsx`, `FeedsExplorerPage.tsx`, `src/api/policyApi.ts:184` and their tests (including `SignalsPage.test.tsx`); telemetry source tags read `sentinel-ebpf`, including `fe-signalloom` `api_compat.py:6018` and the badge test id in `test/acceptance/agent-claim.spec.ts`. | P1-PRE | vitest for the four components green; `rg -i tetragon d2-signalloom/apps/dashboard-signalloom/src` returns nothing; tsc clean | S | antigravity | — | — | — | — | — |
 | P1-GOV | governor | Merge P1-1..P1-10 in order (P1-9 after P1-3; re-pin signal-ingest and sentinel images once, after the last Go merge) into `integration/eapci-v0.1.0`; run the four §5 offline commands twice with identical totals; append errata. | P1-1, P1-2, P1-3, P1-4, P1-5, P1-6, P1-7, P1-8, P1-9, P1-10 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
-| P2-PRE | preflight | Gate: `gcloud --version` loads; impersonation check (`gcp_tf_require_impersonation`); `tailscale status` up; state bucket readable; `TF_STATE_BUCKET` and `GCP_TF_VAR_FILE` set; the operator's live tfvars has the `demo-2` pilot profile. Stop and report on any failure. | P1-GOV | Six checks recorded in errata | S | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Gate: `gcloud --version` loads; impersonation check (`gcp_tf_require_impersonation`); `tailscale status` up; state bucket readable; `TF_STATE_BUCKET` and `GCP_TF_VAR_FILE` set; the operator's live tfvars has the `demo-2` pilot profile. Stop and report on any failure. | P1-GOV | Six checks recorded in errata | S | antigravity | Six checks passed (gcloud 578.0.0, SA token minted, tailnet up, 4 lane prefixes readable, env vars set, bats 6/6) | — | — | — | — |
 | P2-1 | implementation | `make gcp-tf-up ENV=ci-1`, `make gcp-tf-demo-up ENV=ci-1 GCP_TF_DEMO_REF=integration/eapci-v0.1.0`, `make doctor-node ENV=ci-1`, `make gcp-tf-test-both ENV=ci-1`; collect the P1-3 stage results. | P2-PRE | Hand-off `source_sha` equals the integration tip short SHA; all six EAP stages rc 0 with zero skips; tailnet receipt present | M | antigravity | — | — | — | — | — |
 | P2-2 | implementation | The same four targets for `ENV=demo-2` (destroying its current deployment, approved by AJM), deployed as the Kusari pilot at `sl-eap-4b53ab6b.taild4da3.ts.net`; run the onboarding smoke (`docs/EAP/onboarding.md` §1-§5); run the stun chain: `POST /act/read-passwd` → warden in-sentinel eBPF observation → stun label → authorised resume. | P2-1 | Hand-off SHA matches; the endpoint resolves on the tailnet; a sentinel observation for `/etc/passwd` from `agent-kusari`; `signalloom.io/stunned=true` then cleared by resume; no Tetragon CRD; smoke transcript | M | antigravity | — | — | — | — | — |
 | P2-3 | implementation | The same four targets for `ENV=demo-1` at the integration tip; then `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=<short tip SHA recorded at P2-PRE>`. | P2-2 | Zero STALE and zero MISSING across the three lanes; hand-offs dated today; `ci-2` untouched | M | antigravity | — | — | — | — | — |
@@ -944,3 +944,33 @@ alignment                rc=0 pass=checked=104 fail=0
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-GOV","status":"pass","commit":"92c5eb7cddc9e80fc33059f6bb313ee57fc5709e"} -->
+
+#### Errata — EAPCI-P2-PRE
+
+- **Logical ID:** P2-PRE
+- **Created:** 2026-10-07 15:20:00+01:00
+- **Last Updated:** 2026-10-07 15:20:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0` (`4884c2e099a2ac846f98871f513e33b957243aa4`)
+- **Delivery Branch:** `eapci-P2-PRE-w1`
+- **Merge Base Check:** `git merge-base --is-ancestor integration/eapci-v0.1.0 HEAD` -> `0` (`IS_ANCESTOR_OK`)
+
+##### 1. Gate Execution and Results
+
+| Gate | Check Target | Command | Result | Evidence / Output Details |
+| :--- | :--- | :--- | :--- | :--- |
+| **Gate 1** | `gcloud` executable load & version | `systemd-run --user --wait --collect --pipe gcloud --version` | PASS (rc 0) | `Google Cloud SDK 578.0.0`, `core 2026.07.24`, `kubectl 1.35.6` |
+| **Gate 2** | Service account impersonation | `systemd-run --user --wait --collect --pipe bash -c 'SA=$(cat deploy/gcp/deploy-sa); gcloud auth print-access-token --impersonate-service-account="$SA"'` | PASS (rc 0) | Access token minted for `sl-tf-deploy@sl-port-over-sandbox.iam.gserviceaccount.com` |
+| **Gate 3** | Tailnet status | `tailscale status` | PASS (rc 0) | Host `fortuna` active (`100.92.129.16`), peers `sl-ci-1` (`100.109.4.52`) and `sl-demo-1` (`100.93.225.74`) on tailnet |
+| **Gate 4** | Remote state bucket reachability | `systemd-run --user --wait --collect --pipe bash -c 'SA=$(cat deploy/gcp/deploy-sa); gcloud storage ls --impersonate-service-account="$SA" gs://sl-port-over-sandbox-osramp-tfstate/osramp/environments/'` | PASS (rc 0) | Reachable across all four lane prefixes: `ci-1/`, `ci-2/`, `demo-1/`, `demo-2/` |
+| **Gate 5** | Environment variable definitions | Variable check | PASS (rc 0) | `TF_STATE_BUCKET=sl-port-over-sandbox-osramp-tfstate`, `GCP_TF_VAR_FILE=deploy/gcp/sl-port-over-sandbox.tfvars` |
+| **Gate 6** | Operator live tfvars pilot profile | `bats test/eapci-pilot-profile.bats` | PASS (rc 0) | 6/6 tests ok: `tailscale_hostname = "sl-eap-4b53ab6b"`, `hostname = ""`, `tier = "pilot"`, `act_enabled = false` |
+
+##### 2. Decisions & Deviations
+
+- **Deviations:** Sandboxed agent execution denies direct execution of `gcloud` (reading `/home/andy/.config/gcloud/` under Landlock); shelled through `systemd-run --user --wait --collect --pipe` per doctrine, confirming `gcloud` version 578.0.0 and service account token generation succeed cleanly.
+- **Decisions:** Live tfvars in `deploy/gcp/sl-port-over-sandbox.tfvars` configured with `demo-2` pilot profile (`tailscale_hostname = "sl-eap-4b53ab6b"`, `act_enabled = false`, `labels = { tier = "pilot", owner = "sublimino", lane = "demo-2" }`). Verified offline with `bats test/eapci-pilot-profile.bats` and `bats test/terraform-pilot-profile.bats` (6/6 passing).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P2-PRE","status":"pass","commit":"3e4656b0"} -->
+

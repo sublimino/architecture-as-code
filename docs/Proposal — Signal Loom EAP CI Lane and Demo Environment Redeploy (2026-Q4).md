@@ -572,3 +572,194 @@ In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-6","status":"pass","commit":"8b839a9d"} -->
+
+#### Errata — EAPCI-P1-3 Add EAP stages to the CI-lane pipeline; drop the Tetragon suite
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-3","status":"pass","commit":"a48fee7fbdf1d62b8ec8b6158c699c3f504652e4"} -->
+**Created:** 2026-10-07 03:46:04+01:00
+**Last Updated:** 2026-10-07 03:46:04+01:00
+**Status:** Completed
+**Commit:** `a48fee7fbdf1d62b8ec8b6158c699c3f504652e4`
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- In `scripts/gcp-tf/demo-pipeline.sh`, derived `LANE_KIND="${DEMO_ENV%%-*}"` and validated `DEMO_ENV` with exit code 2 on empty or malformed values.
+- Declared the six EAP stages (`scripts/dual-cluster-up.sh`, `scripts/remote-tenant-lab.sh --load-kind-image`, `make test-kusari-e2e`, Kusari live tier with `KUSARI_LIVE=1` failing on any `# skip`, `scripts/slaws-acceptance.sh`, and `make test-eap-offline`) in `CI_EAP_STAGES` table.
+- Added `DEMO_LIST_STAGES=1` listing mode for dry-run inspection by offline test harnesses.
+- Sequenced CI EAP stages strictly after `check-deployed-staleness` (~:1134) on `ci` lanes only; demo lanes run none of them.
+- Stage 4 enforces a strict skip guard: captures TAP output from `KUSARI_LIVE=1 KUBECONFIG="${HOME}/.kube/config" bats --tap test/kusari-e2e-live.bats`, failing with non-zero exit if `# skip` is encountered.
+- Removed `test/tetragon-telemetry-stream.bats` symmetrically from `scripts/gcp-tf/demo-pipeline.sh:820` and `scripts/ci/vm-pipeline.sh:780` in one commit; announced edit to sensai-sltm on `/tmp/chat.jsonl`.
+- Registered `stage6eap4-kusari-live.tap` in `scripts/ci/openreports-convert.sh` and updated `test/ci-report-integrity.bats` to verify both pipeline definitions.
+- Authored comprehensive test suite `test/eapci-ci-stages.bats` covering DEMO_ENV validation, stage ordering, demo-lane exclusion, named stage failure with stages.json recording, and TAP skip detection.
+**Deviations:** None.
+**Notes:**
+- `bats test/terraform-dual-lane-registration.bats test/ci-report-integrity.bats test/ci-terminal-state.bats test/eapci-ci-stages.bats test/gcp-demo-pipeline.bats` verified 100% green (105 tests, 0 failures).
+- Inherited TFID ledger check (`test/fixtures/gcp-tf-ci/untouched-scripts.sha256`) for `vm-pipeline.sh` has SHA-256 `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0`; to be re-recorded once at P1-GOV.
+- Registry coverage `d2-signalloom/test/bats-registry-coverage.bats` flags `test/tetragon-telemetry-stream.bats` as unrun by runners as expected during the P1-3/P1-9 window prior to P1-9 deleting the suite file.
+
+#### Errata — EAPCI-P1-4 Make every workflow on this branch manual-only
+**Created:** 2026-10-06 22:35:02+01:00
+**Last Updated:** 2026-10-06 23:59:00+01:00
+**Status:** Completed
+**Commit:** 5790db860f9d18b6707419e3e03faf1f773c8e6e
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- All 9 workflow files under `.github/workflows/` converted to manual-only (`workflow_dispatch` or `workflow_call`).
+- Removed `schedule` trigger from `.github/workflows/signalloom-ci.yaml` (lines 30-32).
+- Removed `pull_request` trigger and its path filters from `.github/workflows/signalloom-eap-pr.yaml` (lines 29-36).
+- Removed `pull_request`, `push`, and `schedule` triggers from `.github/workflows/security-scan.yaml` (lines 17-24).
+- Removed `pull_request` trigger and its branch/path filters from `.github/workflows/terraform-validate.yaml` (lines 29-39).
+- Updated `test/eap-pr-workflow.bats` to test every file in `.github/workflows/` against `pull_request`, `push`, and `schedule`, and to assert positive controls (`workflow_dispatch` or `workflow_call`) per file.
+- Updated `test/terraform-suite-registration.bats:84-87` to assert `terraform-validate.yaml` is manual-only (`workflow_dispatch`).
+- Recorded (did not fix) pre-existing TFID digest failure for `scripts/ci/vm-pipeline.sh` and `scripts/ci/ci-lock.sh` caused by `b9177c3f`. `scripts/ci/vm-pipeline.sh` was not modified (`sha256: 787128c3099ab83556a60fa580cda71a50dc8fe9f825c1b114f3dd64f14533a7`).
+- Confirmed zero gcloud calls made and `signalloom-ci` VM was not touched. Note that `main` branch schedule continues to fire on GitHub until AJM disables it there (Proposal §2).
+**Deviations:** None.
+**Notes:**
+
+##### Workflow Trigger Inventory (Before & After)
+
+| Workflow File | Triggers Before | Triggers After | Status |
+| :--- | :--- | :--- | :--- |
+| `e2e-local.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `push-artifacts.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `push-images.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `release-artifacts.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
+| `reusable-witness-step.yaml` | `workflow_call` | `workflow_call` | Unchanged (reusable workflow) |
+| `security-scan.yaml` | `pull_request`, `push`, `workflow_dispatch`, `schedule` | `workflow_dispatch` | Automatic triggers removed |
+| `signalloom-ci.yaml` | `workflow_dispatch`, `schedule` | `workflow_dispatch` | Schedule trigger removed |
+| `signalloom-eap-pr.yaml` | `pull_request`, `workflow_dispatch` | `workflow_dispatch` | Pull request trigger removed |
+| `terraform-validate.yaml` | `pull_request`, `workflow_dispatch` | `workflow_dispatch` | Pull request trigger removed |
+
+##### Verification & Test Results
+
+| Test Suite / Probe | Command | Result | Details |
+| :--- | :--- | :--- | :--- |
+| Manual-only contract | `bats test/eap-pr-workflow.bats` | PASS (14/14 ok) | Asserts all 9 workflow files have no `pull_request`, `push`, or `schedule`, asserts positive controls for `workflow_dispatch` / `workflow_call`, and maintains EAP offline execution invariants |
+| Terraform suite registration | `bats test/terraform-suite-registration.bats` | PASS (19/19 ok) | Asserts `terraform-validate.yaml` is manual-only (`workflow_dispatch`) and runs `make gcp-tf-validate` |
+| Workflow YAML syntax | `for f in .github/workflows/*.yaml; do yq '.' "$f"; done` | PASS (9/9 clean) | All 9 YAML files parse cleanly with 0 errors |
+| Documentation lint | `make docs-lint` | PASS (689/689 clean) | Zero doclint errors across all tracked markdown files |
+| Schedule mutation proof | Inject `schedule:` into `signalloom-ci.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `signalloom-ci.yaml`; restored `cmp` clean |
+| Push mutation proof | Inject `push:` into `security-scan.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `security-scan.yaml`; restored `cmp` clean |
+
+##### TFID Digest Drift Evidence (Carried Forward from P0)
+
+```
+$ sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256
+scripts/ci/gcp-ci.sh: OK
+scripts/ci/vm-pipeline.sh: FAILED
+scripts/ci/ci-lock.sh: FAILED
+sha256sum: WARNING: 2 computed checksums did NOT match
+```
+Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` are untouched.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-4","status":"pass","commit":"5790db860f9d18b6707419e3e03faf1f773c8e6e"} -->
+
+#### Errata — EAPCI-P1-7 SLSE D1: in-sentinel eBPF engine (openat, openat2, execve, connect)
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-06 23:20:00+01:00
+**Status:** Completed
+**Branch:** `eapci-P1-7-w1`
+**Base commit:** `205ca580`
+**Commit:** `bb50e83c` (`feat(sentinel): wire in-sentinel eBPF probe normalisation, drop anomaly and truthful attach logging`)
+**Sentinel image tag:** `src-08e40cec5d33` (computed by `scripts/sentinel-image-tag.sh`, unpinned on branch; P1-GOV re-pins `daemonset.yaml:95`)
+
+##### 1. Module Ground Truth & Architecture
+- **Live Engine Core:** `d2-signalloom/apps/stun-sentinel` contains the canonical eBPF probe (`bpf/sentinel_probe.c`), loader (`pkg/ebpf/loader.go`), and event normaliser/dispatcher (`pkg/correlator/ebpf_correlator.go`).
+- **Live Daemon Binary Wrapper:** `d2-signalloom/apps/signalloom-stun-sentinel` is the deployed daemon binary (`main.go`, `Dockerfile`, `health.go`), importing `stun-sentinel/pkg/ebpf` and `stun-sentinel/pkg/correlator`.
+- **Auxiliary Probe:** `d2-signalloom/apps/signalloom-stun-sentinel/ebpf` (`probe.go`, `c/socket_trace.bpf.c`) is a legacy socket-trace probe retained for unit test compatibility.
+
+##### 2. Gap Table Against SLSE Threat Model T1–T5
+
+| Threat ID | Threat Description | Architectural State at 205ca580 | Remediations Delivered (bb50e83c) | Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| **T1** | Malicious agent process accesses sensitive path or escapes via `openat2`, `execve`, `connect`. | BPF handlers existed for all 4 tracepoints; `openat2` type was unhandled in correlator normalisation (`NormalizeObservation`). | Added `SyscallTypeOpenat2` (4) and `SyscallNameOpenat2` mapping in correlator; all 4 syscall types decoded, normalized, and dispatched to `/api/v1/observations`. | **MITIGATED** |
+| **T2** | Host capability leakage or privilege escalation from unconfined sensor container. | DaemonSet runs privileged: false with `SYS_PTRACE`, `BPF`, `NET_ADMIN`, `SYS_ADMIN` in `fe-signalloom-agents`. `CAP_PERFMON`-only and dedicated namespace were claimed but not built. | Warden capability set documented as residual; runs under bounded 128Mi limit (RSS < 50 MiB). Migration to `PERFMON`-only requires host kernel >= 5.8 CAP_PERFMON support across all target nodes. | **OPEN / RESIDUAL (AJM decision)** |
+| **T3** | High-volume syscall flood exhausts ring buffer and causes silent telemetry loss. | Per-CPU `drops` and `prefiltered` maps existed in BPF kernel probe (`sentinel_probe.c:118`); logged locally in `reportCorrelatorStats` every 30s but never surfaced to ingest API or metrics. | Added `ReportDropAnomaly` to `SentinelProbeManager`; kernel ring buffer drops emitted as critical `ringbuf_drops_anomaly` observations to `/api/v1/observations`; exposed on `/healthz`, `/readyz`, and Prometheus `/metrics` (`sentinel_ringbuf_drops_total`, `sentinel_ringbuf_prefiltered_total`). | **MITIGATED** |
+| **T4** | Forged or spoofed agent telemetry / self-attribution. | Correlator used Informer and cgroup v2 inode mapping; `sentinel_self_tgid` kernel filter prevented self-tracing. `main.go` logged hardcoded tracepoint literal array. | `Loader.AttachedTracepoints()` added to truthfully report only actually attached tracepoints in `ebpf_probe_attached`; cgroup v2 scoping verified via strict Informer SA mapping; self opens dropped in kernel space. | **MITIGATED** |
+| **T5** | Priority ring buffer starvation (benign openat noise starving critical execve/connect events). | Single 16 MiB ring buffer shared across all tracepoints. Prioritized dual-ring buffer claimed but not built. | Non-sensitive paths filtered in kernel space prior to ring buffer reservation via `bpf/path_prefilter.h`, reducing ring contention by >99%; full prioritized ring architecture recorded as residual. | **OPEN / RESIDUAL (AJM decision)** |
+
+##### 3. Deliverables & Test Verification
+- **Unit Test Normalisation Suite:**
+  - `d2-signalloom/apps/stun-sentinel/pkg/correlator/syscall_normalisation_test.go`: Validates normalisation and wire schema of `sys_enter_openat`, `sys_enter_openat2`, `sys_enter_execve`, `tcp_connect` (IPv4 & IPv6), drop anomaly emission, and ingest posting with the warden's named key.
+  - `d2-signalloom/apps/stun-sentinel/pkg/ebpf/normalisation_test.go`: Validates raw ring buffer event decoding across all 4 syscall types, BTF struct offsets, and attached tracepoints reflection.
+  - `d2-signalloom/apps/signalloom-stun-sentinel/startup_log_test.go`: Validates truthful startup logging of attached tracepoints.
+  - `d2-signalloom/apps/signalloom-stun-sentinel/health_test.go`: Validates ring buffer drops and prefiltered counters on `/healthz` and Prometheus `/metrics`.
+  - `d2-signalloom/apps/signalloom-stun-sentinel/correlator_stats_test.go`: Validates periodic stats runner triggers `ReportDropAnomaly` callback when kernel drops increase.
+- **Privileged Live Probe Test:**
+  - `d2-signalloom/apps/stun-sentinel/pkg/ebpf/live_test.go`: `TestLiveAgentOpenatScoping` executes live inside privileged container (`signalloom-bpf2go:trixie-go1.27`), confirming:
+    - 1 sensitive `openat("/etc/passwd")` from child process yields exactly 1 captured event with non-zero cgroup v2 ID.
+    - Sentinel's own opens are dropped in kernel space (`sentinel_self_tgid`).
+    - Non-sensitive noise opens are prefiltered in kernel space (`bpf/path_prefilter.h`).
+- **All Suites Passing:**
+  - `./d2-signalloom/apps/stun-sentinel/bpf/build.sh test`: 100% pass (25.89s live verifier & BPF execution).
+  - `go test ./...` in `d2-signalloom/apps/stun-sentinel`: 100% pass.
+  - `go test ./...` in `d2-signalloom/apps/signalloom-stun-sentinel`: 100% pass.
+  - Zero Tetragon references found in both trees.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — EAPCI-P1-8 SLSE D2: remove the Tetragon gRPC collector from signal-ingest
+**Created:** 2026-10-07 00:36:57+01:00
+**Last Updated:** 2026-10-07 00:52:00+01:00
+**Status:** Completed
+**Commit:** 4a0a767be9179f4098354a0b1f12c83508e9bf28
+**Governor merge:** pending Governor reconciliation
+**Decisions:**
+- Package removal decision: Completely deleted `d2-signalloom/apps/signal-ingest/collectors/ebpf/` (all 9 files: `client.go`, `collector.go`, `doc.go`, `jsonstream.go`, `metrics.go`, `normalize.go`, `ringbuffer.go`, `testserver.go`, `tetragon_test.go`). The HTTP observation path (`/api/v1/observations`) ingests `model.Observation` directly and `collectors/netebpf` maintains independent socket trace normalization; no shared normalization types from `collectors/ebpf` were required.
+- Wiring removal: Deleted the `tetragonCollector` initialization and registration (`main.go:796-806`), removed `collectors/ebpf` import (`main.go:26`), and removed `tetragonCollector.Metrics().Render()` output from the `/metrics` Prometheus exposition endpoint (`main.go:956`).
+- Module tidy: Dropped `github.com/cilium/tetragon/api v1.1.0` and unused `google.golang.org/grpc v1.71.0` from `go.mod` and `go.sum`; verified clean with `go mod tidy`.
+- Comment rewrites: Reworded comment references in `pkg/fair/metrics.go:12-14` and `retention/metrics.go:16-18` to reference general collectors instead of Tetragon.
+- Test isolation allowlist: Removed the 6 stale rows for `collectors/ebpf/tetragon_test.go` from `test/fixtures/test-isolation-allowlist.txt:97-102`.
+- Registry regression test: Added `TestRegistry_NoTetragonCollectorRegistered` to `collectors/registry_test.go` to assert no Tetragon collector is registered or read from environment.
+- Mutation test verified: Added temporary stub collector named `tetragon`, observed `TestRegistry_NoTetragonCollectorRegistered` fail (RED), and restored cleanly (GREEN).
+- Image tag computed: `scripts/signal-ingest-image-tag.sh` computes `src-c5891426d39588bf` (changed from `src-3963c9f7cd241407`). In accordance with task instructions, `deployment.yaml` was not committed on this card branch and will be re-pinned by P1-GOV after all Go merges.
+- Metric scrapers check: Searched `d2-signalloom test docs` for `tetragon_` metric consumers (`tetragon_events_received_total`, `tetragon_flow_events_ingested_total`, `tetragon_events_dropped_total`, `tetragon_stream_errors_total`, `tetragon_events_skipped_total`, `tetragon_events_identityless_total`). Confirmed no active frontend dashboards or Prometheus alert rules scrape these metrics; only docs and dead test scripts (`test/tetragon-telemetry-stream.bats`, owned by P1-9) reference them.
+- Out of scope dependencies recorded: `test/mocks/tetragon_grpc_mock.go` (and associated mock tests) is dead code following the removal of `collectors/ebpf/testserver.go`, scheduled for deletion under P1-9.
+**Deviations:** None.
+**Notes:**
+
+##### Deleted Tests Inventory (35 unit tests in `collectors/ebpf/tetragon_test.go`)
+1. `TestNormalizeProcessExecPopulatesPodAttribution`
+2. `TestNormalizePodUIDFallsBackToContainerID`
+3. `TestNormalizeTCPConnectPopulatesDestination`
+4. `TestNormalizeOpenatPreservesFilePath`
+5. `TestNormalizeClampsOutOfRangePort`
+6. `TestNormalizeSequenceNumbersAreMonotonicPerNode`
+7. `TestNormalizeTimestampRoundTrip`
+8. `TestNormalizeUnattributedEventDoesNotPanic`
+9. `TestNormalizeHostileSparseInputs`
+10. `TestNormalizedEventsAreAcceptedByNetEBPFCollector`
+11. `TestAntiInboundFlowEventStructIsUnmodified`
+12. `TestRingBufferBoundsAndDropPolicy`
+13. `TestRingBufferZeroCapacityFallsBackToDefault`
+14. `TestRingBufferConcurrentProducerConsumer`
+15. `TestRingBufferPopUnblocksOnContextCancel`
+16. `TestMetricsExposeAllRequiredSeries`
+17. `TestMetricsRenderIsDeterministic`
+18. `TestMetricsCountersIncrement`
+19. `TestStreamJSONDecodesNDJSON`
+20. `TestStreamJSONSurvivesMalformedLine`
+21. `TestDecodeJSONEventBlankLineIsNotAnError`
+22. `TestDecodeJSONEventDiscardsUnknownFields`
+23. `TestStreamClientIngestsFromMockGRPCServer`
+24. `TestStreamClientBurstOfOneThousandDropsNothing`
+25. `TestStreamClientReconnectsAfterStreamEnds`
+26. `TestBackoffScheduleIsNonDecreasingAndCapped`
+27. `TestJitterStaysWithinBand`
+28. `TestCollectorModeOffDoesNothing`
+29. `TestCollectorModeFixtureIngestsOneOfEachClass`
+30. `TestCollectorFromEnvDefaultsToOff`
+31. `TestCollectorFromEnvReadsConfiguration`
+32. `TestNamespaceFilterAllowsUnattributedButRejectsOutOfContract`
+33. `TestIngestCountsOutOfContractNamespaceAsSkipped`
+34. `TestCollectorHealthReportsMissingSocket`
+35. `TestAntiParentPackageDoesNotImportEbpf`
+
+##### Search Findings: `rg -i tetragon d2-signalloom/apps/signal-ingest`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:260`: `// TestRegistry_NoTetragonCollectorRegistered is a regression guard proving no Tetragon collector is registered.`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:261`: `func TestRegistry_NoTetragonCollectorRegistered(t *testing.T) {`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:265`: `if c := reg.GetCollector("tetragon"); c != nil {`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:266`: `t.Errorf("expected no collector named 'tetragon', found %T", c)`
+- `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:273`: `if c.Name() == "tetragon" || c.Name() == "ebpf" {`
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P1-8","status":"pass","commit":"4a0a767be9179f4098354a0b1f12c83508e9bf28"} -->

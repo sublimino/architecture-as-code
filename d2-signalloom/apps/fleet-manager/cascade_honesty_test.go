@@ -9,9 +9,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
-// SLER-P1-5 — the cascade must not fabricate success.
+// SLER-P1-5 : the cascade must not fabricate success.
 //
 // Before this card, cascade.go swallowed three distinct failures and then
 // asserted the outcome anyway:
@@ -30,7 +31,7 @@ import (
 // in the orchestrator's swallow-and-continue logic, not in the client, so a
 // real client (SLER-P1-1) returning these same errors would have hit the same
 // three lines unchanged. This suite therefore neither depends on P1-1's real
-// client nor on the noopFleetClient it retires — it is written against the
+// client nor on the noopFleetClient it retires : it is written against the
 // interface both implement, so it survives either.
 
 // failingClient is a FleetClient whose every method can be made to fail
@@ -178,7 +179,7 @@ func TestStun_UnreadableState_ReportsUnknownNotRunning(t *testing.T) {
 
 	// The whole point of the card: the pre-fix code wrote StateRunning here.
 	if got.FromState == StateRunning {
-		t.Fatalf("regression: unreadable pod state reported as %q — this is the fabricated value the fix removed", StateRunning)
+		t.Fatalf("regression: unreadable pod state reported as %q : this is the fabricated value the fix removed", StateRunning)
 	}
 	if got.FromState != StateUnknown {
 		t.Fatalf("expected from_state %q, got %q", StateUnknown, got.FromState)
@@ -276,7 +277,7 @@ func TestStun_SetStateFailure_DoesNotReportStunned(t *testing.T) {
 
 	got := soleTarget(t, result)
 	if got.ToState == StateStunned {
-		t.Fatalf("regression: to_state reported %q after the label write failed — this is the unconditional append the fix removed", StateStunned)
+		t.Fatalf("regression: to_state reported %q after the label write failed : this is the unconditional append the fix removed", StateStunned)
 	}
 	if got.ToState != StateRunning {
 		t.Fatalf("expected to_state to stay at the read value %q, got %q", StateRunning, got.ToState)
@@ -344,7 +345,7 @@ func TestStun_AllThreeFailuresInjected_ReportsTotalFailure(t *testing.T) {
 func TestStun_ReadSucceedsButBothEnforcementStepsFail_IsNeverContained(t *testing.T) {
 	// The inverse of the read-only failure: we know exactly what the agent was,
 	// and we changed nothing about it. Reading a label contains nothing, so the
-	// honest verdict is unavailable — certainly never contained.
+	// honest verdict is unavailable : certainly never contained.
 	dag := singleAgentDAG(t, "fe-signalloom-agents")
 	client := newFailingClient()
 	client.states["agent-solo"] = StateRunning
@@ -415,7 +416,7 @@ func TestStun_TargetMissingFromDAG_ReportsNotFound(t *testing.T) {
 		t.Fatal("'not found' must not be reported as success")
 	}
 	if missing.Outcome == OutcomeUnavailable {
-		t.Fatal("'not found' must not be coerced into 'unavailable' — that sends the operator to check plane connectivity for a stale target ID")
+		t.Fatal("'not found' must not be coerced into 'unavailable' : that sends the operator to check plane connectivity for a stale target ID")
 	}
 	if missing.Outcome == OutcomePartial {
 		t.Fatal("'not found' must not be coerced into 'partial'")
@@ -590,7 +591,7 @@ func TestHandleStun_RevokeFailure_DoesNotReturn200(t *testing.T) {
 	if result.OverallOutcome != OutcomePartial {
 		t.Fatalf("expected overall_outcome %q on the wire, got %q", OutcomePartial, result.OverallOutcome)
 	}
-	// The body must still carry the detail — a bare status code does not tell an
+	// The body must still carry the detail : a bare status code does not tell an
 	// operator which plane failed on which agent.
 	if len(result.Targets) == 0 {
 		t.Fatal("expected per-target detail in the body of a non-200 response")
@@ -807,5 +808,59 @@ func TestHonestyFix_IsIndependentOfTheClientImplementation(t *testing.T) {
 	}
 	if bad.OverallOutcome != OutcomeUnavailable {
 		t.Fatalf("a wholly failing client must report %q, got %q", OutcomeUnavailable, bad.OverallOutcome)
+	}
+}
+
+
+func TestCascade_HonestDownstreamRevocation(t *testing.T) {
+	dag := mustBuildTestDAG(t)
+	client := newFailingClient()
+	// Set baseline states for all agents
+	client.states["agent-cardvault"] = StateRunning
+	client.states["agent-txn-pipeline"] = StateRunning
+	client.states["agent-api-gateway"] = StateRunning
+	client.states["agent-llm-classifier"] = StateRunning
+	client.states["agent-monitor"] = StateRunning
+
+	// Inject credential revocation failure
+	client.revokeErr = fmt.Errorf("openbao token revoke connection reset")
+
+	orch := NewCascadeOrchestrator(dag, client, 0)
+	start := time.Now()
+	result, err := orch.Stun(context.Background(), "agent-cardvault", "honest downstream revocation test")
+	if err != nil {
+		t.Fatalf("stun must not abort cascade on downstream client error: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// Sub-second SLA: even with client failures, must complete in <1000ms
+	if elapsed >= 1000*time.Millisecond {
+		t.Fatalf("cascade stun took %v, exceeding 1000ms SLA", elapsed)
+	}
+	if !result.MeetsSLA() {
+		t.Fatalf("result DurationMs=%d failed MeetsSLA check", result.DurationMs)
+	}
+
+	// Overall outcome must honestly report partial or unavailable, never contained
+	if result.OverallOutcome == OutcomeContained {
+		t.Fatal("regression: cascade reported overall contained despite credential revocation failure")
+	}
+
+	// Targets must be honestly recorded in DAG order: target first, direct second, transitive third
+	if len(result.Targets) != 4 {
+		t.Fatalf("expected 4 targets, got %d", len(result.Targets))
+	}
+	if result.Targets[0].AgentID != "agent-cardvault" {
+		t.Fatalf("expected first target agent-cardvault, got %s", result.Targets[0].AgentID)
+	}
+
+	// Observability agent (agent-monitor) must not be in targets
+	for _, tgt := range result.Targets {
+		if tgt.AgentID == "agent-monitor" {
+			t.Fatal("observability agent (agent-monitor) must not be in cascade targets")
+		}
+		if tgt.Credential.Succeeded {
+			t.Fatalf("credential step must not report success when revokeErr was injected: %+v", tgt)
+		}
 	}
 }

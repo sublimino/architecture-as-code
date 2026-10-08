@@ -174,6 +174,14 @@ func (r *CascadeResult) NotFoundTargets() []string {
 	return ids
 }
 
+// SubSecondCascadeSLA defines the sub-second containment SLA bound (1000ms).
+const SubSecondCascadeSLA = 1000 * time.Millisecond
+
+// MeetsSLA reports whether the cascade operation completed within the sub-second SLA (<1000ms).
+func (r *CascadeResult) MeetsSLA() bool {
+	return r.DurationMs < 1000
+}
+
 // FleetClient abstracts the Kubernetes and OpenBao operations needed by the
 // cascade orchestrator. In production this talks to the real cluster; in tests
 // it is a mock.
@@ -660,6 +668,10 @@ func (o *CascadeOrchestrator) Stun(ctx context.Context, agentID, reason string) 
 	// Include recovery order in result for UI consumption
 	result.RecoveryOrder = o.dag.RecoveryOrder(targets)
 	result.finish(start)
+
+	if result.DurationMs > 1000 {
+		slog.Warn("cascading stun exceeded sub-second SLA", "target", agentID, "duration_ms", result.DurationMs, "affected_count", len(result.AffectedAgents))
+	}
 
 	// Cryptographic Witness Attestation (SLER-P5-1)
 	if o.attestationEngine != nil {

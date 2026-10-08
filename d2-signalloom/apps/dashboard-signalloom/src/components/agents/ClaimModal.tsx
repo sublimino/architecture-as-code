@@ -54,7 +54,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
 
   const secProfile = getAgentWorkloadSecurityProfile(agent)
 
-  const defaultPodName = agent.runtime?.pod_name || agent.name || agent.id
+  const defaultPodName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
   const defaultNamespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const defaultSpiffeId =
     agent.identity?.spiffe_id ||
@@ -78,6 +78,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
 
     const requestPayload: AgentClaimRequest = {
       pod_name: podName.trim() || defaultPodName,
+      display_name: agent.name,
       namespace: namespace.trim() || defaultNamespace,
       spiffe_id: spiffeId.trim() || defaultSpiffeId,
       harness: harness.trim() || defaultHarness,

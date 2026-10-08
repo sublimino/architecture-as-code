@@ -30,6 +30,8 @@ export interface AgentClaimRequest {
   token_budget_limit: number
   /** Existing discovered record being reconciled, when available. */
   agent_id?: string
+  /** Human-readable display name for the agent workload. */
+  display_name?: string
 }
 
 export interface AgentClaimResponse {
@@ -134,7 +136,7 @@ export async function claimDiscoveredAgent(
     signal,
   })
   if (!res.ok) {
-    throw await claimError(res, 'Auto-claim')
+    throw await claimError(res, 'Claim')
   }
   return res.json() as Promise<AgentClaimResponse>
 }

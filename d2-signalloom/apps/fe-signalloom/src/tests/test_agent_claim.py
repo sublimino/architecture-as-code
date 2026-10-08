@@ -92,7 +92,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # The workloads these tests claim, labelled into Alice's tenant by GitOps.
     workloads = declared_workloads.install(monkeypatch)
     for name in ("agent-runner-01", "agent-discovered-target", "lifecycle-agent", "alice-workload",
-                 "idempotent-agent", "posture-test-agent", "audited-agent"):
+                 "idempotent-agent", "posture-test-agent", "audited-agent",
+                 "display-name-agent", "correlated-agent"):
         workloads.declare(name, TENANT_A)
 
     def reject_external_network(*_args: Any, **_kwargs: Any) -> None:
@@ -658,3 +659,115 @@ def test_external_agent_revocation_lifecycle(client: TestClient) -> None:
     )
     assert reclaim_res.status_code == 403
     assert reclaim_res.json()["error"]["code"] == "agent_revoked"
+
+
+def test_claim_preserves_display_name(client: TestClient) -> None:
+    payload = {
+        "pod_name": "display-name-agent",
+        "namespace": "fe-signalloom-agents",
+        "spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/display-name-agent",
+        "harness": "claude-code",
+        "model": "claude-3-5-sonnet",
+        "display_name": "Custom Display Name",
+        "declared_tools": ["bash"],
+        "token_budget_limit": 100000,
+    }
+    claim_res = client.post("/api/v1/agents/claim", json=payload, headers=_bearer(ALICE_SUB))
+    assert claim_res.status_code == 200, claim_res.text
+    agent_id = claim_res.json()["agent_id"]
+
+    # Verify GET /api/agents/{agent_id} returns display_name and pod_name
+    get_res = client.get(f"/api/agents/{agent_id}", headers=_bearer(ALICE_SUB))
+    assert get_res.status_code == 200, get_res.text
+    agent_data = get_res.json()
+    assert agent_data["name"] == "Custom Display Name"
+    assert agent_data["runtime"] is not None
+    assert agent_data["runtime"]["pod_name"] == "display-name-agent"
+
+    # Claim agent by id with updated display name
+    reclaim_res = client.post(
+        f"/api/v1/agents/{agent_id}/claim",
+        json={"display_name": "Updated Display Name"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reclaim_res.status_code == 200, reclaim_res.text
+
+    get_updated = client.get(f"/api/agents/{agent_id}", headers=_bearer(ALICE_SUB))
+    assert get_updated.status_code == 200
+    assert get_updated.json()["name"] == "Updated Display Name"
+    assert get_updated.json()["runtime"]["pod_name"] == "display-name-agent"
+
+
+def test_claim_correlation_prevents_duplicate_discovered_workload(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeDiscoveryResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "agents": [
+                    {
+                        "id": "correlated-agent",
+                        "tenant": TENANT_A,
+                        "name": "Discovered Correlated Agent",
+                        "type": "service",
+                        "state": "ready",
+                        "model": "claude-3-5-sonnet",
+                        "namespace": "fe-signalloom-agents",
+                    }
+                ],
+                "namespace": "fe-signalloom-agents",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+            return False
+
+        async def get(self, url: str) -> FakeDiscoveryResponse:
+            return FakeDiscoveryResponse()
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", FakeAsyncClient)
+
+    # Initial state: only discovered workload appears
+    res_before = client.get("/api/v1/agents", headers=_bearer(ALICE_SUB))
+    assert res_before.status_code == 200
+    before_agents = res_before.json()["agents"]
+    assert len(before_agents) == 1
+    assert before_agents[0]["id"] == "correlated-agent"
+    assert before_agents[0]["record_class"] == "discovered"
+
+    # Claim the workload
+    claim_payload = {
+        "pod_name": "correlated-agent",
+        "namespace": "fe-signalloom-agents",
+        "spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/correlated-agent",
+        "harness": "claude-code",
+        "model": "claude-3-5-sonnet",
+        "display_name": "Discovered Correlated Agent",
+        "declared_tools": ["bash"],
+        "token_budget_limit": 100000,
+    }
+    claim_res = client.post("/api/v1/agents/claim", json=claim_payload, headers=_bearer(ALICE_SUB))
+    assert claim_res.status_code == 200, claim_res.text
+    claimed_id = claim_res.json()["agent_id"]
+
+    # Subsequent GET /agents: correlated workload merged into resolved agent (no duplicate row)
+    res_after = client.get("/api/v1/agents", headers=_bearer(ALICE_SUB))
+    assert res_after.status_code == 200
+    after_agents = res_after.json()["agents"]
+    assert len(after_agents) == 1
+    resolved_agent = after_agents[0]
+    assert resolved_agent["id"] == claimed_id
+    assert resolved_agent["record_class"] == "resolved"
+    assert resolved_agent["name"] == "Discovered Correlated Agent"
+    assert resolved_agent["runtime"] is not None
+    assert resolved_agent["runtime"]["pod_name"] == "correlated-agent"
+

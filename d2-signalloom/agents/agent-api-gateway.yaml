@@ -3,22 +3,29 @@ apiVersion: signalloom.controlplane.io/v1alpha1
 kind: AgentProfile
 metadata:
   name: agent-api-gateway
+  namespace: fe-signalloom-agents
   labels:
     signalloom.ai/fleet: supercred
     signalloom.ai/team: platform
 spec:
+  id: agent-api-gateway
+  name: agent-api-gateway
   type: api-gateway
   team: platform
-  trustProfile: high
+  trustProfile: medium
   riskClass: low
   gracePeriod: 168h
   dependencies:
     - agent-cardvault
   namespace: fe-signalloom-agents
+  spiffePath: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-api-gateway
+  openbaoMount: jwt/platform
   spiffe:
     trustDomain: signalloom.local
     path: /ns/platform/sa/agent-api-gateway
+    id: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-api-gateway
   openbao:
     authMount: jwt/platform
     kvPath: secret/data/platform/api-gateway
-    policies: [platform-read]
+    policies:
+      - platform-read

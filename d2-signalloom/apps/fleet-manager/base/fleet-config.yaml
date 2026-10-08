@@ -18,18 +18,18 @@ data:
       agents:
         - name: agent-cardvault
           type: data-vault
-          team: payments
-          trustProfile: low
-          riskClass: critical
+          team: platform
+          trustProfile: high
+          riskClass: high
           gracePeriod: 0h
           dependencies: []
           spiffe:
             trustDomain: signalloom.local
-            path: /ns/payments/sa/agent-cardvault
+            path: /ns/platform/sa/agent-cardvault
           openbao:
-            authMount: jwt/payments
-            kvPath: secret/data/payments/cardvault
-            policies: [payments-admin]
+            authMount: jwt/platform
+            kvPath: secret/data/platform/cardvault
+            policies: [platform-admin]
 
         - name: agent-txn-pipeline
           type: data-pipeline
@@ -50,8 +50,8 @@ data:
         - name: agent-llm-classifier
           type: llm-inference
           team: ml-ops
-          trustProfile: low
-          riskClass: critical
+          trustProfile: high
+          riskClass: high
           gracePeriod: 0h
           dependencies:
             - agent-txn-pipeline
@@ -66,7 +66,7 @@ data:
         - name: agent-api-gateway
           type: api-gateway
           team: platform
-          trustProfile: high
+          trustProfile: medium
           riskClass: low
           gracePeriod: 168h
           dependencies:
@@ -82,7 +82,7 @@ data:
         - name: agent-monitor
           type: observability
           team: sre
-          trustProfile: high
+          trustProfile: low
           riskClass: low
           gracePeriod: 168h
           dependencies:

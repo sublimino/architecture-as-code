@@ -3,10 +3,13 @@ apiVersion: signalloom.controlplane.io/v1alpha1
 kind: AgentProfile
 metadata:
   name: agent-txn-pipeline
+  namespace: fe-signalloom-agents
   labels:
     signalloom.ai/fleet: supercred
     signalloom.ai/team: payments
 spec:
+  id: agent-txn-pipeline
+  name: agent-txn-pipeline
   type: data-pipeline
   team: payments
   trustProfile: medium
@@ -15,10 +18,14 @@ spec:
   dependencies:
     - agent-cardvault
   namespace: fe-signalloom-agents
+  spiffePath: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-txn-pipeline
+  openbaoMount: jwt/payments
   spiffe:
     trustDomain: signalloom.local
     path: /ns/payments/sa/agent-txn-pipeline
+    id: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-txn-pipeline
   openbao:
     authMount: jwt/payments
     kvPath: secret/data/payments/txn-pipeline
-    policies: [payments-read]
+    policies:
+      - payments-read

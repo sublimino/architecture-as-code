@@ -3,13 +3,16 @@ apiVersion: signalloom.controlplane.io/v1alpha1
 kind: AgentProfile
 metadata:
   name: agent-monitor
+  namespace: fe-signalloom-agents
   labels:
     signalloom.ai/fleet: supercred
     signalloom.ai/team: sre
 spec:
+  id: agent-monitor
+  name: agent-monitor
   type: observability
   team: sre
-  trustProfile: high
+  trustProfile: low
   riskClass: low
   gracePeriod: 168h
   dependencies:
@@ -18,10 +21,14 @@ spec:
     - agent-llm-classifier
     - agent-api-gateway
   namespace: fe-signalloom-agents
+  spiffePath: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-monitor
+  openbaoMount: jwt/sre
   spiffe:
     trustDomain: signalloom.local
     path: /ns/sre/sa/agent-monitor
+    id: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-monitor
   openbao:
     authMount: jwt/sre
     kvPath: secret/data/sre/monitor
-    policies: [sre-read]
+    policies:
+      - sre-read

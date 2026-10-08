@@ -95,16 +95,12 @@ describe("FleetAudiencePage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("fleet-topology")).toBeInTheDocument()
       expect(screen.getByTestId("fleet-risk-gauge")).toBeInTheDocument()
+      expect(screen.getByTestId("fleet-node-agent-cardvault")).toBeInTheDocument()
+      expect(screen.getByTestId("fleet-node-agent-pipeline")).toBeInTheDocument()
+      expect(screen.getByTestId("fleet-node-agent-llm")).toBeInTheDocument()
+      expect(screen.getByTestId("fleet-risk-ale")).toBeInTheDocument()
+      expect(screen.getByText("5 agents deployed")).toBeInTheDocument()
     })
-
-    // Assert key agent nodes are in the topology
-    expect(screen.getByTestId("fleet-node-agent-cardvault")).toBeInTheDocument()
-    expect(screen.getByTestId("fleet-node-agent-pipeline")).toBeInTheDocument()
-    expect(screen.getByTestId("fleet-node-agent-llm")).toBeInTheDocument()
-
-    // Assert aggregate risk metrics are visible
-    expect(screen.getByTestId("fleet-risk-ale")).toBeInTheDocument()
-    expect(screen.getByText("5 agents deployed")).toBeInTheDocument()
   })
 
   it("hides instructor controls and roster completely from the audience presentation view", async () => {

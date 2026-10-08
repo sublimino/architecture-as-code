@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"gopkg.in/yaml.v3"
 )
 
 // k8sFleetClient is the first real FleetClient: it talks to the Kubernetes API
@@ -1663,4 +1664,211 @@ func (c *k8sFleetClient) LookupAgentPod(ctx context.Context, name string) (map[s
 		return nil, "", "", false, err
 	}
 	return pod.Labels, pod.Namespace, pod.Spec.ServiceAccountName, true, nil
+}
+
+// AgentProfileCRD models the AgentProfile Kubernetes manifest or ConfigMap YAML structure.
+type AgentProfileCRD struct {
+	APIVersion string `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string `json:"kind" yaml:"kind"`
+	Metadata   struct {
+		Name      string            `json:"name" yaml:"name"`
+		Namespace string            `json:"namespace" yaml:"namespace"`
+		Labels    map[string]string `json:"labels" yaml:"labels"`
+	} `json:"metadata" yaml:"metadata"`
+	Spec struct {
+		Type         string   `json:"type" yaml:"type"`
+		Team         string   `json:"team" yaml:"team"`
+		TrustProfile string   `json:"trustProfile" yaml:"trustProfile"`
+		RiskClass    string   `json:"riskClass" yaml:"riskClass"`
+		GracePeriod  string   `json:"gracePeriod" yaml:"gracePeriod"`
+		Dependencies []string `json:"dependencies" yaml:"dependencies"`
+		Namespace    string   `json:"namespace" yaml:"namespace"`
+	} `json:"spec" yaml:"spec"`
+}
+
+// ParseFleetFromConfigMap parses a Kubernetes ConfigMap containing either fleet.yaml
+// or individual AgentProfile YAML manifests into an in-memory DAG.
+func ParseFleetFromConfigMap(cm *corev1.ConfigMap) (*DAG, error) {
+	if cm == nil || cm.Data == nil {
+		return nil, errors.New("configmap is empty or has no data")
+	}
+
+	// 1. Direct fleet.yaml or fleet.yml
+	if data, ok := cm.Data["fleet.yaml"]; ok {
+		return ParseFleet([]byte(data))
+	}
+	if data, ok := cm.Data["fleet.yml"]; ok {
+		return ParseFleet([]byte(data))
+	}
+
+	// 2. Aggregate individual AgentProfile entries
+	var agents []Agent
+	for key, content := range cm.Data {
+		if !strings.HasSuffix(key, ".yaml") && !strings.HasSuffix(key, ".yml") {
+			continue
+		}
+		var profile AgentProfileCRD
+		if err := yaml.Unmarshal([]byte(content), &profile); err == nil && profile.Metadata.Name != "" {
+			name := profile.Metadata.Name
+			agentID := name
+			agent := Agent{
+				ID:           agentID,
+				Name:         name,
+				Type:         profile.Spec.Type,
+				Team:         profile.Spec.Team,
+				TrustProfile: profile.Spec.TrustProfile,
+				RiskClass:    profile.Spec.RiskClass,
+				GracePeriod:  profile.Spec.GracePeriod,
+				Dependencies: profile.Spec.Dependencies,
+				Namespace:    profile.Spec.Namespace,
+				State:        DefaultAgentState,
+			}
+			if agent.Namespace == "" {
+				agent.Namespace = profile.Metadata.Namespace
+			}
+			if team, ok := profile.Metadata.Labels["signalloom.ai/team"]; ok && agent.Team == "" {
+				agent.Team = team
+			}
+			agents = append(agents, agent)
+		}
+	}
+
+	if len(agents) == 0 {
+		return nil, fmt.Errorf("no valid agent profiles found in configmap %s/%s", cm.Namespace, cm.Name)
+	}
+
+	return BuildDAG(agents)
+}
+
+// LoadFleetFromConfigMap fetches a ConfigMap from the Kubernetes API and parses it into a DAG.
+func (c *k8sFleetClient) LoadFleetFromConfigMap(ctx context.Context, namespace, configMapName string) (*DAG, error) {
+	if c.clientset == nil {
+		return nil, ErrEnforcementUnavailable
+	}
+	ns := c.namespaceOrDefault(namespace)
+	cm, err := c.clientset.CoreV1().ConfigMaps(ns).Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("%w: configmap %s/%s not found", ErrTargetNotFound, ns, configMapName)
+		}
+		return nil, fmt.Errorf("%w: failed to get configmap %s/%s: %v", ErrEnforcementUnavailable, ns, configMapName, err)
+	}
+
+	return ParseFleetFromConfigMap(cm)
+}
+
+// SyncAgentLabels applies the standard agent profile labels onto the corresponding Kubernetes Pod.
+func (c *k8sFleetClient) SyncAgentLabels(ctx context.Context, namespace string, agent *Agent) error {
+	if agent == nil {
+		return errors.New("agent cannot be nil")
+	}
+	if c.clientset == nil {
+		return ErrEnforcementUnavailable
+	}
+	ns := c.namespaceOrDefault(namespace)
+	if agent.Namespace != "" {
+		ns = agent.Namespace
+	}
+
+	pod, err := c.resolvePod(ctx, ns, agent.ID)
+	if err != nil {
+		return err
+	}
+
+	labels := map[string]string{
+		AgentLabel:     "true",
+		AgentNameLabel: agentNameFromID(agent.ID),
+		PodStateLabel:  agent.State,
+	}
+	if agent.Team != "" {
+		labels["signalloom.ai/team"] = agent.Team
+	}
+	if agent.Type != "" {
+		labels["signalloom.ai/type"] = agent.Type
+	}
+	if agent.TrustProfile != "" {
+		labels["signalloom.ai/trust-profile"] = agent.TrustProfile
+	}
+	if agent.RiskClass != "" {
+		labels["signalloom.ai/risk-class"] = agent.RiskClass
+	}
+
+	patch := map[string]any{
+		"metadata": map[string]any{
+			"labels": labels,
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal sync patch: %w", err)
+	}
+
+	_, err = c.clientset.CoreV1().Pods(ns).Patch(ctx, pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("patch pod %s/%s labels: %w", ns, pod.Name, err)
+	}
+	return nil
+}
+
+// SyncFleetLabels synchronizes labels for all agents in the provided DAG with their backing Pods.
+func (c *k8sFleetClient) SyncFleetLabels(ctx context.Context, namespace string, dag *DAG) error {
+	if dag == nil {
+		return errors.New("dag cannot be nil")
+	}
+	for _, agent := range dag.AllAgents() {
+		if err := c.SyncAgentLabels(ctx, namespace, agent); err != nil {
+			if !errors.Is(err, ErrTargetNotFound) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// SaveFleetToConfigMap persists the current DAG state into a Kubernetes ConfigMap.
+func (c *k8sFleetClient) SaveFleetToConfigMap(ctx context.Context, namespace, configMapName string, dag *DAG) error {
+	if c.clientset == nil {
+		return ErrEnforcementUnavailable
+	}
+	if dag == nil {
+		return errors.New("dag cannot be nil")
+	}
+
+	ns := c.namespaceOrDefault(namespace)
+	agents := dag.AllAgents()
+	rawAgents := make([]Agent, len(agents))
+	for i, a := range agents {
+		rawAgents[i] = *a
+	}
+	cfg := FleetConfig{
+		Agents:        rawAgents,
+		AggregateRisk: dag.AggregateRisk(),
+	}
+
+	dataBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal fleet config: %w", err)
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: ns,
+			Labels: map[string]string{
+				"signalloom.ai/fleet": "supercred",
+			},
+		},
+		Data: map[string]string{
+			"fleet.yaml": string(dataBytes),
+		},
+	}
+
+	_, err = c.clientset.CoreV1().ConfigMaps(ns).Update(ctx, cm, metav1.UpdateOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err = c.clientset.CoreV1().ConfigMaps(ns).Create(ctx, cm, metav1.CreateOptions{})
+	}
+	if err != nil {
+		return fmt.Errorf("save configmap %s/%s: %w", ns, configMapName, err)
+	}
+	return nil
 }

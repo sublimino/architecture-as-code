@@ -7339,6 +7339,69 @@ async def audit(
     return AuditListResponse(events=events, total=total, page=page, limit=limit, source_health="healthy")
 
 
+def _sanitize_csv_cell(val: Any) -> str:
+    if val is None:
+        return ""
+    s = str(val)
+    if s and s[0] in ("=", "+", "-", "@"):
+        s = f"'{s}"
+    if any(c in s for c in (',', '"', '\n', '\r')):
+        escaped = s.replace('"', '""')
+        return f'"{escaped}"'
+    return s
+
+
+@router.get("/audit/events.csv", response_class=Response, responses=ERROR_RESPONSES)
+async def audit_events_csv(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    agent: str | None = None,
+    type: str | None = None,
+) -> Response:
+    res = await audit(
+        tenant_id=tenant_id,
+        page=1,
+        limit=10000,
+        from_=from_,
+        to=to,
+        agent=agent,
+        type=type,
+    )
+    headers = [
+        "id",
+        "timestamp",
+        "event_type",
+        "agent_id",
+        "agent_name",
+        "actor",
+        "authorizing_principal_id",
+        "executing_actor_id",
+        "spiffe_id",
+    ]
+    lines = [",".join(headers)]
+    for event in res.events:
+        lines.append(
+            ",".join([
+                _sanitize_csv_cell(event.id),
+                _sanitize_csv_cell(event.timestamp),
+                _sanitize_csv_cell(event.event_type),
+                _sanitize_csv_cell(event.agent_id),
+                _sanitize_csv_cell(event.agent_name),
+                _sanitize_csv_cell(event.actor),
+                _sanitize_csv_cell(event.authorizing_principal_id),
+                _sanitize_csv_cell(event.executing_actor_id),
+                _sanitize_csv_cell(event.spiffe_id),
+            ])
+        )
+    csv_content = "\n".join(lines) + "\n"
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="audit-events.csv"'},
+    )
+
+
 async def _iter_audit_stream(
     tenant_id: str,
     agent: str | None = None,

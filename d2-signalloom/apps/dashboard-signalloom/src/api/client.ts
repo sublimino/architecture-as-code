@@ -634,6 +634,12 @@ export const api = {
     if (params.agent) q.set('agent', params.agent)
     if (params.type) q.set('type', params.type)
     const path = `/audit/events.csv?${q.toString()}`
+    if (isDemoMode()) {
+      const fake = resolveFake('GET', path)
+      if (fake !== undefined) {
+        return fake as string
+      }
+    }
     const url = path.startsWith('/api') ? path : `/api${path}`
     const res = await http.request<string>({
       url,

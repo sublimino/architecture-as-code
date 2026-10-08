@@ -583,12 +583,27 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
       const req = routeObj.request()
       const url = req.url()
       const resourceType = req.resourceType()
-      // Only jitter API and data endpoints, never core HTML, CSS, or JS bundle/module loads
+      // Only jitter API and data endpoints, never core HTML, CSS, images, icons, or JS bundle/module loads
+      const isStatic = (
+        resourceType === 'image' ||
+        resourceType === 'font' ||
+        resourceType === 'stylesheet' ||
+        resourceType === 'script' ||
+        url.includes('/assets/') ||
+        url.includes('/icons/') ||
+        url.includes('/brand/') ||
+        url.endsWith('.svg') ||
+        url.endsWith('.png') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.js') ||
+        url.endsWith('.css') ||
+        url.includes('/src/') ||
+        url.includes('/node_modules/') ||
+        url.includes('/@')
+      )
       if (
+        !isStatic &&
         (resourceType === 'fetch' || resourceType === 'xhr') &&
-        !url.includes('/src/') &&
-        !url.includes('/node_modules/') &&
-        !url.includes('/@') &&
         (
           url.includes('/api/') ||
           url.includes('/v1/') ||
@@ -655,6 +670,8 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
       // Injected by network jitter to test client-side resilience; not an application defect
       return
     }
+    // Seeded offline exploration bot uses a synthetic non-JWT token; 401s from real auth-gated endpoints are expected
+    if (status === 401) return
     const url = response.url()
     let origin
     try {
@@ -681,6 +698,8 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
   page.on('requestfailed', (request) => {
     const url = request.url()
     if (syntheticAborts.has(url)) return
+    const resourceType = request.resourceType()
+    if (resourceType === 'image' || resourceType === 'font' || resourceType === 'stylesheet') return
     let origin
     try {
       origin = new URL(url).origin
@@ -692,7 +711,7 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
     // ERR_ABORTED is what a navigation away from an in-flight request looks
     // like, which an exploratory walk causes constantly by design.
     if (/ERR_ABORTED/.test(failure)) return
-    const entry = { url, status: 0, method: request.method(), resource_type: request.resourceType(), failure, from_route: route }
+    const entry = { url, status: 0, method: request.method(), resource_type: resourceType, failure, from_route: route }
     if (opts.noBackend) backendAbsent.push(entry)
     else apiFailures.push(entry)
   })

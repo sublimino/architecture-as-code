@@ -173,6 +173,13 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
         }
       }
     }
+
+    // Verify Export CSV does not fail
+    const exportBtn = page.getByRole("button", { name: "Export CSV", exact: true });
+    if (await exportBtn.isVisible()) {
+      await exportBtn.click();
+      await expect(page.getByText(/Export failed/i)).not.toBeVisible();
+    }
   });
 
   test("Surface 11: Federated Services displays live/demo source indicator and trust tables", async ({ page }) => {

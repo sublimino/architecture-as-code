@@ -347,7 +347,7 @@ export type LiveReachability = 'reachable' | 'blocked-no-nginx-location'
  * constant cannot drift from the proxy table the way it did between AMXD-P1-3
  * and AMXD-P1-4.
  */
-export const NGINX_PROXIED_API_PREFIXES: readonly string[] = ['/api/', '/v1/']
+export const NGINX_PROXIED_API_PREFIXES: readonly string[] = ['/api/', '/health/crypto', '/v1/']
 
 /**
  * The prefixes that may be carried by `client.ts`'s `req()`, which

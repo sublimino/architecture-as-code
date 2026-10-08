@@ -403,6 +403,7 @@ Obey these. They are the phase constitution.
 - Offline fleet bats battery: 70/70 tests passed.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 #### Errata — SLSC-P1-1 Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/
 **Created:** 2026-10-08 09:55:22+01:00
@@ -428,3 +429,16 @@ Obey these. They are the phase constitution.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P1-2","status":"pass","commit":"e0927ff804e84ae31bf9bb29d20c5c367adbb934"} -->
 >>>>>>> 71dc35b6 (docs(SLSC-P1-2): record errata block for Fleet Manager Go service)
+=======
+#### Errata — SLSC-P1-3 Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling
+**Created:** 2026-10-08 10:27:00+01:00
+**Last Updated:** 2026-10-08 10:27:00+01:00
+**Status:** Completed
+**Commit:** 320052bd2a832fc181059f143717df3b8fe7b466
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Validated scripts/supercred-fleet-demo.sh orchestration across all 5 agents (cardvault, txn-pipeline, llm-classifier, api-gateway, monitor), verifying dry-run namespace creation, cardvault SA/deployment manifests, fleet-agents kustomize directory, SPIRE workload registrations, and OpenBao JWT policy/role/secret seeding. Authored test/supercred-fleet-deploy.bats covering static definitions, subcommands, and mocked cluster execution.
+**Deviations:** None.
+**Notes:** 100% of tests passed under bats test/supercred-fleet-deploy.bats (12/12) and bats test/supercred-fleet-demo-harness.bats (16/16).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P1-3","status":"pass","commit":"320052bd2a832fc181059f143717df3b8fe7b466"} -->
+>>>>>>> a943748b (docs(SLSC-P1-3): record errata block for fleet deployment orchestration)

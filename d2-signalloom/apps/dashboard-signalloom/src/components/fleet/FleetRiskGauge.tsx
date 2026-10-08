@@ -32,6 +32,14 @@ export interface FleetRiskGaugeProps {
   /** Carried GBP exposure figure from the compliance evaluation. */
   carriedGbp?: number
   carried?: number
+  /** Stepwise cascade indicator: true if cascade in progress or stepwise updates active */
+  stepwise?: boolean
+  /** Stepwise cascade status: current step index (1-based) */
+  cascadeStep?: number
+  /** Stepwise cascade status: total number of cascade steps */
+  totalCascadeSteps?: number
+  /** Currently cascading agent workload ID */
+  cascadingAgent?: string
 }
 
 // ── Colour boundaries ───────────────────────────────────────────────────────
@@ -58,10 +66,12 @@ function riskBandLabel(amount: number): string {
 
 const ANIM_DURATION_MS = 600
 const ANIM_FRAMES = 30
+const STEPWISE_DURATION_MS = 180
+const STEPWISE_FRAMES = 12
 
-function useAnimatedNumber(target: number): number {
+function useAnimatedNumber(target: number, isStepwise = false): number {
   const [display, setDisplay] = useState(target)
-  const prevRef = useRef(target)
+  const displayRef = useRef(target)
   const frameRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -73,34 +83,39 @@ function useAnimatedNumber(target: number): number {
 
     if (reducedMotion) {
       setDisplay(target)
-      prevRef.current = target
+      displayRef.current = target
       return
     }
 
-    const from = prevRef.current
+    const from = displayRef.current
     if (from === target) return
-    prevRef.current = target
 
     let frame = 0
     if (frameRef.current) clearInterval(frameRef.current)
 
+    const duration = isStepwise ? STEPWISE_DURATION_MS : ANIM_DURATION_MS
+    const totalFrames = isStepwise ? STEPWISE_FRAMES : ANIM_FRAMES
+
     frameRef.current = setInterval(() => {
       frame++
-      if (frame >= ANIM_FRAMES) {
+      if (frame >= totalFrames) {
         setDisplay(target)
+        displayRef.current = target
         if (frameRef.current) clearInterval(frameRef.current)
         return
       }
       // Ease-out cubic.
-      const t = frame / ANIM_FRAMES
+      const t = frame / totalFrames
       const eased = 1 - Math.pow(1 - t, 3)
-      setDisplay(Math.round(from + (target - from) * eased))
-    }, ANIM_DURATION_MS / ANIM_FRAMES)
+      const nextVal = Math.round(from + (target - from) * eased)
+      setDisplay(nextVal)
+      displayRef.current = nextVal
+    }, duration / totalFrames)
 
     return () => {
       if (frameRef.current) clearInterval(frameRef.current)
     }
-  }, [target])
+  }, [target, isStepwise])
 
   return display
 }
@@ -147,10 +162,15 @@ export default function FleetRiskGauge({
   currency = 'GBP',
   carriedGbp,
   carried,
+  stepwise = false,
+  cascadeStep,
+  totalCascadeSteps,
+  cascadingAgent,
 }: FleetRiskGaugeProps) {
-  const displayAle = useAnimatedNumber(ale)
+  const isStepwiseActive = stepwise || cascadeStep !== undefined
+  const displayAle = useAnimatedNumber(ale, isStepwiseActive)
   const carriedValue = carriedGbp ?? carried ?? ale
-  const displayCarried = useAnimatedNumber(carriedValue)
+  const displayCarried = useAnimatedNumber(carriedValue, isStepwiseActive)
 
   const colour = riskColour(ale)
   const carriedColour = riskColour(carriedValue)
@@ -199,6 +219,41 @@ export default function FleetRiskGauge({
           {riskBandLabel(ale)}
         </span>
       </div>
+
+      {/* Stepwise cascade progression indicator */}
+      {isStepwiseActive && cascadeStep !== undefined && totalCascadeSteps !== undefined && (
+        <div
+          data-testid="fleet-risk-stepwise"
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: 'var(--amber)',
+            background: 'color-mix(in srgb, var(--amber) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--amber) 30%, transparent)',
+            padding: '2px 8px',
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            width: '100%',
+            justifyContent: 'center',
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--amber)',
+              display: 'inline-block',
+            }}
+          />
+          <span>
+            Cascade Step {cascadeStep} of {totalCascadeSteps}
+            {cascadingAgent ? `: ${cascadingAgent}` : ''}
+          </span>
+        </div>
+      )}
 
       {/* SVG Radial Gauge */}
       <svg

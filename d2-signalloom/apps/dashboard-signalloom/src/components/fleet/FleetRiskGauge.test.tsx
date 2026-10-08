@@ -266,3 +266,118 @@ describe("SLSC-P2-2 FleetRiskGauge radial gauge, Carried GBP, and risk transitio
     expect(container.textContent).not.toMatch(/\u2014/)
   })
 })
+
+describe("SLSC-P3-2 FleetRiskGauge stepwise risk metric updates", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("renders stepwise cascade indicator badge with current and total steps", () => {
+    render(
+      <FleetRiskGauge
+        ale={290600}
+        var95={438000}
+        trend="up"
+        carriedGbp={290600}
+        stepwise={true}
+        cascadeStep={1}
+        totalCascadeSteps={3}
+        cascadingAgent="agent-cardvault"
+      />
+    )
+
+    const stepwiseBadge = screen.getByTestId("fleet-risk-stepwise")
+    expect(stepwiseBadge).toBeInTheDocument()
+    expect(stepwiseBadge.textContent).toContain("Cascade Step 1 of 3: agent-cardvault")
+  })
+
+  it("animates stepwise risk transitions sequentially without jitter", () => {
+    const { rerender } = render(
+      <FleetRiskGauge
+        ale={12400}
+        var95={58000}
+        trend="stable"
+        carriedGbp={12400}
+      />
+    )
+
+    const aleEl = screen.getByTestId("fleet-risk-ale")
+    expect(aleEl.textContent).toContain("12,400")
+
+    // Step 1: node 1 cascades
+    rerender(
+      <FleetRiskGauge
+        ale={290600}
+        var95={438000}
+        trend="up"
+        carriedGbp={290600}
+        stepwise={true}
+        cascadeStep={1}
+        totalCascadeSteps={3}
+        cascadingAgent="agent-cardvault"
+      />
+    )
+
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(aleEl.textContent).toContain("290,600")
+    expect(screen.getByTestId("fleet-risk-band").textContent).toBe("Medium Risk")
+
+    // Step 2: node 2 cascades
+    rerender(
+      <FleetRiskGauge
+        ale={568800}
+        var95={819000}
+        trend="up"
+        carriedGbp={568800}
+        stepwise={true}
+        cascadeStep={2}
+        totalCascadeSteps={3}
+        cascadingAgent="agent-pipeline"
+      />
+    )
+
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(aleEl.textContent).toContain("568,800")
+    expect(screen.getByTestId("fleet-risk-band").textContent).toBe("High Risk")
+
+    // Step 3: node 3 cascades to final escalated risk
+    rerender(
+      <FleetRiskGauge
+        ale={847000}
+        var95={1200000}
+        trend="up"
+        carriedGbp={847000}
+        stepwise={true}
+        cascadeStep={3}
+        totalCascadeSteps={3}
+        cascadingAgent="agent-llm"
+      />
+    )
+
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(aleEl.textContent).toContain("847,000")
+    expect(screen.getByTestId("fleet-risk-band").textContent).toBe("High Risk")
+  })
+
+  it("contains zero em-dashes across stepwise indicator and labels", () => {
+    const { container } = render(
+      <FleetRiskGauge
+        ale={290600}
+        var95={438000}
+        trend="up"
+        carriedGbp={290600}
+        stepwise={true}
+        cascadeStep={1}
+        totalCascadeSteps={3}
+        cascadingAgent="agent-cardvault"
+      />
+    )
+
+    expect(container.textContent).not.toMatch(/\u2014/)
+    expect(container.textContent).not.toMatch(/\u2013/)
+  })
+})

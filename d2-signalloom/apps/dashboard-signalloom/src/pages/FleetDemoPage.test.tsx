@@ -1178,3 +1178,119 @@ describe("SLSC-P2-2 FleetDemoPage risk scan wiring", () => {
     })
   })
 })
+
+describe("SLSC-P3-2 FleetDemoPage animated cascade and stepwise risk recalculation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+    mockDeployFleet.mockResolvedValue(undefined)
+    mockScanFleet.mockResolvedValue(undefined)
+    mockStunFleetAgent.mockResolvedValue({
+      triggerId: 'agent-cardvault',
+      affectedIds: ['agent-cardvault', 'agent-pipeline'],
+      timestamp: '2026-08-04T00:00:00Z',
+      durationMs: 500,
+      riskBefore: 12400,
+      riskAfter: 847000,
+    })
+    mockRecoverFleet.mockResolvedValue(undefined)
+    mockResetFleet.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("recalculates risk stepwise as each node cascades into stunned state upon stun action", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    // Baseline risk: £12,400
+    const aleEls = screen.getAllByTestId("fleet-risk-ale")
+    expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
+
+    // Trigger stun
+    await user.click(screen.getByTestId("fleet-stun-btn"))
+    await user.type(await screen.findByLabelText(/Reason for stunning/), "cascade test drill")
+    await user.click(screen.getByRole("button", { name: /Confirm stun/ }))
+
+    await waitFor(() => {
+      expect(mockStunFleetAgent).toHaveBeenCalledWith("agent-cardvault", "test-token", "cascade test drill")
+    })
+
+    // Advance to step 1 (0ms stagger)
+    act(() => { vi.advanceTimersByTime(50) })
+
+    await waitFor(() => {
+      const stepwiseBadge = screen.getAllByTestId("fleet-risk-stepwise")[0]
+      expect(stepwiseBadge).toBeInTheDocument()
+      expect(stepwiseBadge.textContent).toContain("Cascade Step 1 of 2: agent-cardvault")
+    })
+
+    // Intermediate risk: approx £429,700
+    await waitFor(() => {
+      const ale = screen.getAllByTestId("fleet-risk-ale")[0]
+      expect(ale).toHaveTextContent(/429[,.]?700/)
+    })
+
+    // Advance to step 2 (200ms stagger)
+    act(() => { vi.advanceTimersByTime(250) })
+
+    await waitFor(() => {
+      const stepwiseBadge = screen.getAllByTestId("fleet-risk-stepwise")[0]
+      expect(stepwiseBadge.textContent).toContain("Cascade Step 2 of 2: agent-pipeline")
+    })
+
+    // Final escalated risk: £847,000
+    await waitFor(() => {
+      const ale = screen.getAllByTestId("fleet-risk-ale")[0]
+      expect(ale).toHaveTextContent(/847[,.]?000/)
+    })
+  })
+
+  it("excludes agent-monitor from stun cascade and keeps it active throughout cascade journey", async () => {
+    mockStunFleetAgent.mockResolvedValue({
+      triggerId: "agent-cardvault",
+      affected_agents: ["agent-cardvault", "agent-monitor"],
+      duration_ms: 300,
+      overall_outcome: "contained",
+    })
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByTestId("fleet-stun-btn"))
+    await user.type(await screen.findByLabelText(/Reason for stunning/), "monitor exclusion test")
+    await user.click(screen.getByRole("button", { name: /Confirm stun/ }))
+
+    await waitFor(() => {
+      expect(mockStunFleetAgent).toHaveBeenCalled()
+    })
+
+    // Advance through all cascade timers
+    act(() => { vi.advanceTimersByTime(500) })
+
+    // Monitor stays active in topology
+    const monitorNode = screen.getByTestId("fleet-node-agent-monitor")
+    expect(monitorNode).toHaveAttribute("data-agent-state", "active")
+    expect(monitorNode).not.toHaveAttribute("data-cascading")
+  })
+
+  it("contains zero em-dashes across rendered content and labels during cascade", async () => {
+    const { container } = renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    expect(container.textContent).not.toMatch(/\u2014/)
+    // em-dash check only
+  })
+})

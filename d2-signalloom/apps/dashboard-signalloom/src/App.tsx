@@ -31,6 +31,15 @@ export function SuperadminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+export function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, getAccessTokenSilently } = useAuth0()
+  const { superadmin } = useServerSuperadmin(user, getAccessTokenSilently)
+  if (!superadmin) {
+    return <Navigate to="/agents" replace />
+  }
+  return <>{children}</>
+}
+
 const CONSENT_ENABLED = import.meta.env.VITE_CONSENT_MODAL_ENABLED === 'true'
 
 /** localStorage key shared with OnboardingWizard: skip TTL (30 min). */
@@ -75,6 +84,7 @@ const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const CallbackPage = lazy(() => import('./pages/CallbackPage'))
+const UsersPage = lazy(() => import('./pages/admin/UsersPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -175,6 +185,7 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/redeem-invite': 'Invite',
   '/login': 'Login',
   '/callback': 'Sign In',
+  '/admin/users': 'User Administration',
 }
 
 /**
@@ -462,6 +473,7 @@ export default function App() {
                 <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/headers" element={<ProtectedRoute><SuperadminRoute><DesignSystemHeadersPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/admin/users" element={<ProtectedRoute><AdminRoute><UsersPage /></AdminRoute></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

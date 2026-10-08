@@ -1,0 +1,213 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentprofiles.signalloom.controlplane.io
+  labels:
+    app.kubernetes.io/name: signalloom
+    app.kubernetes.io/part-of: signalloom
+spec:
+  group: signalloom.controlplane.io
+  names:
+    kind: AgentProfile
+    listKind: AgentProfileList
+    plural: agentprofiles
+    singular: agentprofile
+    shortNames:
+      - ap
+      - agent
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: AgentProfile defines an autonomous AI agent workload with identity, governance, and trust boundary configuration.
+          required:
+            - apiVersion
+            - kind
+            - metadata
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: Specification for agent trust, team ownership, risk tier, and dependencies.
+              required:
+                - type
+                - team
+                - trustProfile
+                - riskClass
+                - gracePeriod
+                - dependencies
+              properties:
+                id:
+                  type: string
+                  description: Unique identifier of the agent.
+                name:
+                  type: string
+                  description: Human-readable name or identifier of the agent.
+                type:
+                  type: string
+                  description: Functional archetype of the agent.
+                  enum:
+                    - data-vault
+                    - data-pipeline
+                    - llm-inference
+                    - api-gateway
+                    - observability
+                    - demo-agent
+                team:
+                  type: string
+                  description: Team owning and operating the agent.
+                  enum:
+                    - platform
+                    - payments
+                    - ml-ops
+                    - sre
+                    - governance
+                trustProfile:
+                  type: string
+                  description: Cryptographic trust boundary classification.
+                  enum:
+                    - high
+                    - medium
+                    - low
+                riskClass:
+                  type: string
+                  description: EU AI Act and regulatory risk classification tier.
+                  enum:
+                    - high
+                    - medium
+                    - low
+                    - critical
+                gracePeriod:
+                  type: string
+                  description: Allowed time window before automated stun/isolation on compliance failure.
+                  pattern: "^[0-9]+(h|m|s)$"
+                dependencies:
+                  type: array
+                  description: List of upstream agent names this agent depends upon in the trust DAG.
+                  items:
+                    type: string
+                namespace:
+                  type: string
+                  description: Target Kubernetes namespace for agent deployment.
+                spiffePath:
+                  type: string
+                  description: SPIFFE SVID URI or workload path.
+                openbaoMount:
+                  type: string
+                  description: OpenBao authentication backend mount point.
+                spiffe:
+                  type: object
+                  description: SPIFFE identity and workload attestation configuration.
+                  properties:
+                    trustDomain:
+                      type: string
+                      default: signalloom.local
+                    path:
+                      type: string
+                      pattern: "^/ns/[a-z0-9-]+/sa/[a-z0-9-]+$"
+                    id:
+                      type: string
+                    parentId:
+                      type: string
+                    selectors:
+                      type: array
+                      items:
+                        type: string
+                openbao:
+                  type: object
+                  description: OpenBao credential mount, role, and policy configuration.
+                  properties:
+                    authMount:
+                      type: string
+                    role:
+                      type: string
+                    policy:
+                      type: string
+                    policies:
+                      type: array
+                      items:
+                        type: string
+                    kvPath:
+                      type: string
+                    tokenTtl:
+                      type: string
+                    tokenMaxTtl:
+                      type: string
+                    tokenType:
+                      type: string
+                securityContext:
+                  type: object
+                  description: Container security context compliance controls.
+                  properties:
+                    present:
+                      type: boolean
+                    runAsNonRoot:
+                      type: boolean
+                    readOnlyRootFilesystem:
+                      type: boolean
+                    allowPrivilegeEscalation:
+                      type: boolean
+                    capabilities:
+                      type: object
+                      properties:
+                        drop:
+                          type: array
+                          items:
+                            type: string
+                        add:
+                          type: array
+                          items:
+                            type: string
+                state:
+                  type: string
+                  description: Runtime lifecycle state of the agent.
+                  enum:
+                    - absent
+                    - deploying
+                    - active
+                    - non-compliant
+                    - grace-period
+                    - stunned
+            status:
+              type: object
+              description: Current observed state and health metrics of the agent profile.
+              properties:
+                state:
+                  type: string
+                lastCredentialTime:
+                  type: string
+                complianceStatus:
+                  type: string
+                observedGeneration:
+                  type: integer
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.type
+        - name: Team
+          type: string
+          jsonPath: .spec.team
+        - name: Trust
+          type: string
+          jsonPath: .spec.trustProfile
+        - name: Risk
+          type: string
+          jsonPath: .spec.riskClass
+        - name: Grace
+          type: string
+          jsonPath: .spec.gracePeriod
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

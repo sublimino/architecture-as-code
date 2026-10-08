@@ -3,22 +3,29 @@ apiVersion: signalloom.controlplane.io/v1alpha1
 kind: AgentProfile
 metadata:
   name: agent-llm-classifier
+  namespace: fe-signalloom-agents
   labels:
     signalloom.ai/fleet: supercred
     signalloom.ai/team: ml-ops
 spec:
+  id: agent-llm-classifier
+  name: agent-llm-classifier
   type: llm-inference
   team: ml-ops
-  trustProfile: low
-  riskClass: critical
+  trustProfile: high
+  riskClass: high
   gracePeriod: 0h
   dependencies:
     - agent-txn-pipeline
   namespace: fe-signalloom-agents
+  spiffePath: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-llm-classifier
+  openbaoMount: jwt/ml-ops
   spiffe:
     trustDomain: signalloom.local
     path: /ns/ml-ops/sa/agent-llm-classifier
+    id: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-llm-classifier
   openbao:
     authMount: jwt/ml-ops
     kvPath: secret/data/ml-ops/llm-classifier
-    policies: [ml-ops-read]
+    policies:
+      - ml-ops-read

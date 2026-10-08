@@ -1,24 +1,30 @@
 # Agent Profile: cardvault — Data Vault, root access, high risk, PCI scope.
-# This is the "villain" of the demo: deliberately non-compliant securityContext.
 apiVersion: signalloom.controlplane.io/v1alpha1
 kind: AgentProfile
 metadata:
   name: agent-cardvault
+  namespace: fe-signalloom-agents
   labels:
     signalloom.ai/fleet: supercred
-    signalloom.ai/team: payments
+    signalloom.ai/team: platform
 spec:
+  id: agent-cardvault
+  name: agent-cardvault
   type: data-vault
-  team: payments
-  trustProfile: low
-  riskClass: critical
+  team: platform
+  trustProfile: high
+  riskClass: high
   gracePeriod: 0h
   dependencies: []
   namespace: fe-signalloom-agents
+  spiffePath: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-cardvault
+  openbaoMount: jwt/platform
   spiffe:
     trustDomain: signalloom.local
-    path: /ns/payments/sa/agent-cardvault
+    path: /ns/platform/sa/agent-cardvault
+    id: spiffe://controlplane.io/ns/fe-signalloom/sa/agent-cardvault
   openbao:
-    authMount: jwt/payments
-    kvPath: secret/data/payments/cardvault
-    policies: [payments-admin]
+    authMount: jwt/platform
+    kvPath: secret/data/platform/cardvault
+    policies:
+      - platform-admin

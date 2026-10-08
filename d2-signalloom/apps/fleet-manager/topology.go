@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,6 +17,27 @@ import (
 // every roster count lands on zero, and the Fleet page renders a fleet in no
 // state at all. A believable wrong answer is the failure mode to design out.
 const DefaultAgentState = "active"
+
+// Standard AgentStateValue constants matching TypeScript definitions.
+const (
+	AgentStateAbsent       = "absent"
+	AgentStateDeploying    = "deploying"
+	AgentStateActive       = "active"
+	AgentStateNonCompliant = "non-compliant"
+	AgentStateGracePeriod  = "grace-period"
+	AgentStateStunned      = "stunned"
+)
+
+// IsValidAgentState checks if a state string is one of the recognized AgentStateValue options.
+func IsValidAgentState(state string) bool {
+	switch state {
+	case AgentStateAbsent, AgentStateDeploying, AgentStateActive,
+		AgentStateNonCompliant, AgentStateGracePeriod, AgentStateStunned:
+		return true
+	default:
+		return false
+	}
+}
 
 // Agent represents a single agent in the fleet topology.
 type Agent struct {
@@ -55,25 +77,46 @@ type RiskSummary struct {
 	PreviousALE *float64 `json:"previousAle,omitempty" yaml:"previousAle"`
 }
 
-// FleetConfig is the top-level YAML structure.
+// Node represents an agent node in the topology DAG with adjacency relationships.
+type Node struct {
+	ID      string   `json:"id" yaml:"id"`
+	Agent   *Agent   `json:"agent,omitempty" yaml:"agent,omitempty"`
+	InDeps  []string `json:"inDeps,omitempty" yaml:"inDeps,omitempty"`
+	OutDeps []string `json:"outDeps,omitempty" yaml:"outDeps,omitempty"`
+}
+
+// Edge represents a directed trust/dependency edge in the topology.
+type Edge struct {
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+}
+
+// FleetConfig is the top-level YAML / JSON structure.
 type FleetConfig struct {
-	Agents        []Agent     `yaml:"agents"`
-	AggregateRisk RiskSummary `yaml:"aggregateRisk"`
+	Agents        []Agent     `json:"agents" yaml:"agents"`
+	AggregateRisk RiskSummary `json:"aggregateRisk" yaml:"aggregateRisk"`
 }
 
 // DAG holds the agent dependency graph and provides traversal methods.
 type DAG struct {
+	mu sync.RWMutex
 	// risk is the authored aggregate carried alongside the graph so
 	// LoadFleet keeps its single return value and main.go's wiring is unchanged.
-	risk     RiskSummary
-	agents   map[string]*Agent
+	risk   RiskSummary
+	agents map[string]*Agent
+	nodes  map[string]*Node
 	// forward edges: agent -> agents it depends on
 	deps map[string][]string
 	// reverse edges: agent -> agents that depend on it
 	rdeps map[string][]string
+	edges []Edge
 	// ordered list of agent IDs (insertion order)
 	order []string
 }
+
+// Graph is a type alias for DAG.
+type Graph = DAG
 
 // LoadFleet reads the fleet YAML from a file path and returns a DAG.
 func LoadFleet(path string) (*DAG, error) {
@@ -103,9 +146,6 @@ func ParseFleet(data []byte) (*DAG, error) {
 	return d, nil
 }
 
-// AggregateRisk returns the authored fleet risk summary.
-func (d *DAG) AggregateRisk() RiskSummary { return d.risk }
-
 // BuildDAG constructs a DAG from a list of agents. Returns an error if:
 // - duplicate agent IDs are found
 // - a dependency references a non-existent agent
@@ -113,8 +153,10 @@ func (d *DAG) AggregateRisk() RiskSummary { return d.risk }
 func BuildDAG(agents []Agent) (*DAG, error) {
 	d := &DAG{
 		agents: make(map[string]*Agent, len(agents)),
+		nodes:  make(map[string]*Node, len(agents)),
 		deps:   make(map[string][]string, len(agents)),
 		rdeps:  make(map[string][]string, len(agents)),
+		edges:  make([]Edge, 0),
 		order:  make([]string, 0, len(agents)),
 	}
 
@@ -132,6 +174,12 @@ func BuildDAG(agents []Agent) (*DAG, error) {
 			a.State = DefaultAgentState
 		}
 		d.agents[a.ID] = a
+		d.nodes[a.ID] = &Node{
+			ID:      a.ID,
+			Agent:   a,
+			InDeps:  make([]string, 0),
+			OutDeps: make([]string, 0),
+		}
 		d.order = append(d.order, a.ID)
 	}
 
@@ -142,6 +190,9 @@ func BuildDAG(agents []Agent) (*DAG, error) {
 			}
 			d.deps[a.ID] = append(d.deps[a.ID], dep)
 			d.rdeps[dep] = append(d.rdeps[dep], a.ID)
+			d.edges = append(d.edges, Edge{From: a.ID, To: dep, Type: "data"})
+			d.nodes[a.ID].InDeps = append(d.nodes[a.ID].InDeps, dep)
+			d.nodes[dep].OutDeps = append(d.nodes[dep].OutDeps, a.ID)
 		}
 	}
 
@@ -152,8 +203,8 @@ func BuildDAG(agents []Agent) (*DAG, error) {
 	return d, nil
 }
 
-// detectCycle uses DFS-based cycle detection, returning a description of the
-// cycle if one exists, or "" if the graph is acyclic.
+// detectCycle uses DFS-based cycle detection with a 3-colour state machine,
+// returning a description of the cycle if one exists, or "" if the graph is acyclic.
 func (d *DAG) detectCycle() string {
 	const (
 		white = 0
@@ -166,6 +217,9 @@ func (d *DAG) detectCycle() string {
 	visit = func(id string) string {
 		color[id] = grey
 		for _, dep := range d.deps[id] {
+			if dep == id {
+				return fmt.Sprintf("%s -> %s", id, dep)
+			}
 			switch color[dep] {
 			case grey:
 				return fmt.Sprintf("%s -> %s", id, dep)
@@ -189,6 +243,64 @@ func (d *DAG) detectCycle() string {
 	return ""
 }
 
+// DetectCycle checks if the graph contains any cycle. Returns (hasCycle, cyclePath).
+func (d *DAG) DetectCycle() (bool, string) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	c := d.detectCycle()
+	return c != "", c
+}
+
+// DeploymentOrder computes the deterministic topological deployment order using Kahn's algorithm.
+// Root agents (those with no upstream dependencies) appear first, followed by downstream dependants.
+func (d *DAG) DeploymentOrder() ([]string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return d.kahnDeploymentOrder()
+}
+
+func (d *DAG) kahnDeploymentOrder() ([]string, error) {
+	// inDegree represents the count of unresolved dependencies for each agent
+	inDegree := make(map[string]int, len(d.agents))
+	for id, a := range d.agents {
+		inDegree[id] = len(a.Dependencies)
+	}
+
+	// Deterministic initial queue: find all root agents (in-degree 0) in insertion order
+	var queue []string
+	for _, id := range d.order {
+		if inDegree[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+
+	var result []string
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		result = append(result, current)
+
+		for _, rdep := range d.rdeps[current] {
+			inDegree[rdep]--
+			if inDegree[rdep] == 0 {
+				queue = append(queue, rdep)
+			}
+		}
+	}
+
+	if len(result) != len(d.agents) {
+		return nil, fmt.Errorf("cycle detected: topological sort failed to resolve all nodes (%d of %d resolved)", len(result), len(d.agents))
+	}
+
+	return result, nil
+}
+
+// TopologicalSort computes the deterministic topological order for deployment.
+func (d *DAG) TopologicalSort() ([]string, error) {
+	return d.DeploymentOrder()
+}
+
 // CascadeTargets returns the set of agents that must be stunned when the given
 // agent is stunned. This is the target agent plus all agents that transitively
 // depend on it (BFS on reverse edges). Agents with type "observability" are
@@ -196,6 +308,9 @@ func (d *DAG) detectCycle() string {
 //
 // The result is ordered: target first, then direct dependants, then transitive.
 func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	if _, exists := d.agents[agentID]; !exists {
 		return nil, fmt.Errorf("unknown agent: %s", agentID)
 	}
@@ -234,6 +349,9 @@ func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
 // then their dependants. This ensures each agent's upstream is healthy before
 // it is recovered.
 func (d *DAG) RecoveryOrder(stunnedIDs []string) []string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	stunSet := make(map[string]bool, len(stunnedIDs))
 	for _, id := range stunnedIDs {
 		stunSet[id] = true
@@ -278,16 +396,77 @@ func (d *DAG) RecoveryOrder(stunnedIDs []string) []string {
 	return order
 }
 
+// AggregateRisk returns the authored fleet risk summary.
+func (d *DAG) AggregateRisk() RiskSummary {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.risk
+}
+
+// SetAggregateRisk updates the aggregate risk summary in-memory.
+func (d *DAG) SetAggregateRisk(risk RiskSummary) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.risk = risk
+}
+
 // GetAgent returns the agent with the given ID, or nil if not found.
 func (d *DAG) GetAgent(id string) *Agent {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.agents[id]
 }
 
 // AllAgents returns all agents in insertion order.
 func (d *DAG) AllAgents() []*Agent {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	result := make([]*Agent, 0, len(d.order))
 	for _, id := range d.order {
 		result = append(result, d.agents[id])
 	}
 	return result
+}
+
+// GetNode returns the Node with adjacency information for the given ID.
+func (d *DAG) GetNode(id string) *Node {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.nodes[id]
+}
+
+// AllNodes returns all Nodes in insertion order.
+func (d *DAG) AllNodes() []*Node {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	result := make([]*Node, 0, len(d.order))
+	for _, id := range d.order {
+		result = append(result, d.nodes[id])
+	}
+	return result
+}
+
+// Edges returns all directed trust/dependency edges in the DAG.
+func (d *DAG) Edges() []Edge {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	result := make([]Edge, len(d.edges))
+	copy(result, d.edges)
+	return result
+}
+
+// SetAgentState updates the in-memory state of a specific agent.
+func (d *DAG) SetAgentState(id, state string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	a, exists := d.agents[id]
+	if !exists {
+		return fmt.Errorf("unknown agent: %s", id)
+	}
+	if !IsValidAgentState(state) {
+		return fmt.Errorf("invalid agent state: %q", state)
+	}
+	a.State = state
+	return nil
 }

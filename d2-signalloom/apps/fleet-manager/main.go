@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager/pkg/attestation"
+	"gopkg.in/yaml.v3"
 )
 
 // TopologyResponse is the wire format for GET /api/v1/fleet/topology.
@@ -51,12 +53,6 @@ type CascadeEvent struct {
 	DurationMs  int64    `json:"durationMs"`
 	RiskBefore  float64  `json:"riskBefore"`
 	RiskAfter   float64  `json:"riskAfter"`
-}
-
-// Edge represents a dependency edge in the topology.
-type Edge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
 }
 
 // StunRequest is the REQUIRED body of POST /api/v1/fleet/stun/{agentId}. An
@@ -473,17 +469,120 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (s *server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
+	})
+}
+
+func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.dag == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "not_ready",
+			"error":  "fleet topology DAG not initialized",
+		})
+		return
+	}
+	if s.enforcement != nil && s.enforcement.Enforcing && s.enforcement.Client != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.enforcement.Client.Health(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"status": "degraded",
+				"error":  err.Error(),
+			})
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
+		"ready":  "true",
+	})
+}
+
+// DeployResponse is returned on successful fleet deployment.
+type DeployResponse struct {
+	Status          string   `json:"status"`
+	Message         string   `json:"message"`
+	DeploymentOrder []string `json:"deployment_order,omitempty"`
+	AgentsDeployed  int      `json:"agents_deployed,omitempty"`
+}
+
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("failed to read body: %v", err))
+		return
+	}
+
+	trimmed := bytes.TrimSpace(bodyBytes)
+	if len(trimmed) > 0 && string(trimmed) != "{}" {
+		var cfg FleetConfig
+		if err := json.Unmarshal(trimmed, &cfg); err != nil {
+			if errYaml := yaml.Unmarshal(trimmed, &cfg); errYaml != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid deploy payload: %v", err))
+				return
+			}
+		}
+
+		if len(cfg.Agents) > 0 {
+			newDAG, err := BuildDAG(cfg.Agents)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			newDAG.risk = cfg.AggregateRisk
+			if newDAG.risk.Trend == "" {
+				newDAG.risk.Trend = "stable"
+			}
+			s.dag = newDAG
+			if s.orchestrator != nil {
+				s.orchestrator.dag = newDAG
+			}
+		}
+	}
+
+	if s.dag == nil {
+		writeError(w, http.StatusInternalServerError, "fleet topology DAG is not initialized")
+		return
+	}
+
+	for _, a := range s.dag.AllAgents() {
+		if a.State == "" || a.State == AgentStateAbsent || a.State == AgentStateStunned {
+			_ = s.dag.SetAgentState(a.ID, AgentStateActive)
+		}
+	}
+
+	if s.enforcement != nil && s.enforcement.Client != nil {
+		if k8sClient, ok := s.enforcement.Client.(*k8sFleetClient); ok {
+			_ = k8sClient.SyncFleetLabels(r.Context(), "", s.dag)
+		}
+	}
+
+	order, _ := s.dag.DeploymentOrder()
+	agents := s.dag.AllAgents()
+
+	resp := DeployResponse{
+		Status:          "accepted",
+		Message:         "fleet deployment initiated",
+		DeploymentOrder: order,
+		AgentsDeployed:  len(agents),
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "accepted",
-		"message": "fleet deployment initiated",
-	})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +619,8 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.HandleFunc("/api/v1/fleet/topology", s.handleTopology)
 	mux.HandleFunc("/api/v1/fleet/deploy", s.callerKeys.require(scopeDeploy, s.handleDeploy))
 	mux.HandleFunc("/api/v1/fleet/stun/", s.callerKeys.require(scopeStun, s.handleStun))

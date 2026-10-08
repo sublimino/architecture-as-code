@@ -216,7 +216,13 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   const [topology, setTopology] = useState<FleetTopologyData | null>(null)
   const [isScanned, setIsScanned] = useState(false)
   const [cascadeInProgress, setCascadeInProgress] = useState<string[]>([])
+  const [stunnedCascadeNodes, setStunnedCascadeNodes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  const handleCascadeStep = useCallback((stunnedAgentId: string, stepIndex: number, currentStunned: string[]) => {
+    if (stunnedAgentId === 'agent-monitor') return
+    setStunnedCascadeNodes(currentStunned.filter(id => id !== 'agent-monitor'))
+  }, [])
 
   // Per-operation loading states.
   const [topologyLoading, setTopologyLoading] = useState(false)
@@ -299,6 +305,8 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setDeployLoading(true)
     setDeployError(null)
     setIsScanned(false)
+    setCascadeInProgress([])
+    setStunnedCascadeNodes([])
     try {
       const token = await getAccessTokenSilently()
       await deployFleet(token)
@@ -345,7 +353,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       setStunResult(result)
       // Trigger cascade animation. fleet-manager spells it affected_agents;
       // affectedIds is the older CascadeEvent spelling.
-      setCascadeInProgress(result.affected_agents ?? result.affectedIds ?? [])
+      const rawAffected = result.affected_agents ?? result.affectedIds ?? []
+      const affected = rawAffected.filter(id => id !== 'agent-monitor')
+      setStunnedCascadeNodes([])
+      setCascadeInProgress(affected)
       void loadTopology()
     } catch (err) {
       setStunError(err instanceof Error ? err.message : 'Stun failed')
@@ -358,6 +369,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setRecoverLoading(true)
     setRecoverError(null)
     setCascadeInProgress([])
+    setStunnedCascadeNodes([])
     setStunResult(null)
     setIsScanned(false)
     try {
@@ -376,6 +388,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setResetLoading(true)
     setResetError(null)
     setCascadeInProgress([])
+    setStunnedCascadeNodes([])
     setStunResult(null)
     setIsScanned(false)
     try {
@@ -415,11 +428,34 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     if (topology && rawAgents.length === 0) {
       return { ale: 0, var95: 0, trend: 'stable', carriedGbp: 0 }
     }
+
+    // Stepwise cascade in progress: recalculate risk as each node cascades into stunned state
+    const cascadeTargets = cascadeInProgress.filter(id => id !== 'agent-monitor')
+    if (cascadeTargets.length > 0 && stunnedCascadeNodes.length > 0) {
+      const baseAle = isScanned ? ESCALATED_RISK.ale : BASELINE_RISK.ale
+      const baseVar = isScanned ? ESCALATED_RISK.var95 : BASELINE_RISK.var95
+      const targetAle = 847000
+      const targetVar = 1200000
+
+      // Stepwise progression: fraction of nodes stunned so far
+      const stepFraction = Math.min(1, stunnedCascadeNodes.length / cascadeTargets.length)
+      const currentAle = Math.round(baseAle + (targetAle - baseAle) * stepFraction)
+      const currentVar = Math.round(baseVar + (targetVar - baseVar) * stepFraction)
+
+      return {
+        ale: currentAle,
+        var95: currentVar,
+        trend: 'up',
+        previousAle: BASELINE_RISK.ale,
+        carriedGbp: currentAle,
+      }
+    }
+
     if (isScanned) {
       return ESCALATED_RISK
     }
     return BASELINE_RISK
-  }, [topology, rawAgents.length, isScanned])
+  }, [topology, rawAgents.length, isScanned, cascadeInProgress, stunnedCascadeNodes])
 
   const showControls = superadmin && !audience
 
@@ -540,6 +576,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             agents={agents}
             edges={topology?.edges ?? []}
             cascadeInProgress={cascadeInProgress}
+            onCascadeStep={handleCascadeStep}
             audience
           />
         </div>
@@ -558,6 +595,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             trend={risk.trend}
             previousAle={risk.previousAle}
             carriedGbp={risk.carriedGbp}
+            stepwise={cascadeInProgress.length > 0}
+            cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
+            totalCascadeSteps={cascadeInProgress.filter(id => id !== 'agent-monitor').length || undefined}
+            cascadingAgent={stunnedCascadeNodes[stunnedCascadeNodes.length - 1]}
           />
           <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
             {agents.length} agents deployed
@@ -726,6 +767,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               agents={agents}
               edges={topology?.edges ?? []}
               cascadeInProgress={cascadeInProgress}
+              onCascadeStep={handleCascadeStep}
               onStun={showControls ? requestStun : undefined}
               onRecover={showControls ? handleRecover : undefined}
             />
@@ -741,6 +783,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             trend={risk.trend}
             previousAle={risk.previousAle}
             carriedGbp={risk.carriedGbp}
+            stepwise={cascadeInProgress.length > 0}
+            cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
+            totalCascadeSteps={cascadeInProgress.filter(id => id !== 'agent-monitor').length || undefined}
+            cascadingAgent={stunnedCascadeNodes[stunnedCascadeNodes.length - 1]}
           />
 
           {/* Topology loading state */}

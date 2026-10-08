@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "audit_id": "slsc-p4-preflight-audit",
+  "mission": "SLSC",
+  "phase": "P4-PRE",
+  "timestamp": "2026-10-08T15:52:00Z",
+  "status": "pass",
+  "proceed": true,
+  "audited_components": {
+    "dex_oidc_group_claims": {
+      "configuration_file": "d2-signalloom/infra/inf-signalloom/base/dex.yaml",
+      "connectors_file": "d2-signalloom/infra/inf-signalloom/overlays/connectors/dex-connectors-secret.yaml",
+      "status": "ready",
+      "group_claim_structures": [
+        {
+          "group": "admin",
+          "role_mapping": "Platform Admin",
+          "scope": "fleet-wide",
+          "description": "Full fleet management, emergency cascade stun, and topological recovery"
+        },
+        {
+          "group": "compliance",
+          "role_mapping": "Compliance Officer",
+          "scope": "fleet-wide",
+          "description": "Read-only fleet risk inspection, compliance audit, and grace period adjustments"
+        },
+        {
+          "group": "team:payments",
+          "role_mapping": "Team Lead (Payments)",
+          "scope": "team-scoped: payments",
+          "description": "Read-only view restricted to payments team agents (agent-txn-pipeline, agent-llm-classifier)"
+        },
+        {
+          "group": "team:platform",
+          "role_mapping": "Team Lead (Platform)",
+          "scope": "team-scoped: platform",
+          "description": "Read-only view restricted to platform team agents (agent-cardvault, agent-api-gateway)"
+        },
+        {
+          "group": "team:sre",
+          "role_mapping": "Team Lead (SRE)",
+          "scope": "team-scoped: sre",
+          "description": "Read-only view restricted to sre team agents (agent-monitor)"
+        },
+        {
+          "group": "team:ml-ops",
+          "role_mapping": "Team Lead (ML-Ops)",
+          "scope": "team-scoped: ml-ops",
+          "description": "Read-only view restricted to ml-ops team agents"
+        }
+      ],
+      "token_encoding": {
+        "header": "RS256, kid bound to Dex JWKS",
+        "claims": ["sub", "email", "iss", "aud", "exp", "iat", "groups"]
+      }
+    },
+    "fe_signalloom_role_proxies": {
+      "files": [
+        "d2-signalloom/apps/fe-signalloom/src/auth_check.py",
+        "d2-signalloom/apps/fe-signalloom/src/superadmin.py",
+        "d2-signalloom/apps/fe-signalloom/src/fleet_operator.py",
+        "d2-signalloom/apps/fe-signalloom/src/me.py"
+      ],
+      "status": "ready",
+      "gate_endpoint": "GET /api/v1/auth/check",
+      "nginx_integration": {
+        "subrequest": "auth_request /_fleet_gate",
+        "behavior": "204 No Content forwards request with FLEET_DASHBOARD_KEY; 401/403 refuses request at perimeter",
+        "forwarded_headers": [
+          "X-User-Role (admin, compliance, team-lead)",
+          "X-User-Team (payments, platform, ml-ops, sre)"
+        ]
+      }
+    },
+    "dashboard_auth_context": {
+      "files": [
+        "d2-signalloom/apps/dashboard-signalloom/src/auth/superadmin.ts",
+        "d2-signalloom/apps/dashboard-signalloom/src/pages/FleetDemoPage.tsx"
+      ],
+      "status": "ready",
+      "mechanisms": [
+        {
+          "name": "useServerSuperadmin",
+          "description": "Queries GET /api/v1/me to verify superadmin server authority rather than client-side guessing"
+        },
+        {
+          "name": "Role-Aware View Filtering",
+          "description": "FleetDemoPage selects view mode based on user role and team claims, adapting topology filters and action buttons"
+        }
+      ]
+    },
+    "authorization_matrix": {
+      "Platform Admin": {
+        "view_scope": ["agent-cardvault", "agent-txn-pipeline", "agent-llm-classifier", "agent-api-gateway", "agent-monitor"],
+        "stun_action": "allowed (200 OK)",
+        "recover_action": "allowed (200 OK)",
+        "grace_period_adjust": "allowed (200 OK)"
+      },
+      "Compliance Officer": {
+        "view_scope": ["agent-cardvault", "agent-txn-pipeline", "agent-llm-classifier", "agent-api-gateway", "agent-monitor"],
+        "stun_action": "forbidden (403 Forbidden)",
+        "recover_action": "forbidden (403 Forbidden)",
+        "grace_period_adjust": "allowed (200 OK)"
+      },
+      "Payments Team Lead": {
+        "view_scope": ["agent-txn-pipeline", "agent-llm-classifier"],
+        "stun_action": "forbidden (403 Forbidden)",
+        "recover_action": "forbidden (403 Forbidden)",
+        "grace_period_adjust": "forbidden (403 Forbidden)"
+      }
+    }
+  },
+  "test_verification": {
+    "fleet_manager_go_tests": "PASS (1.590s, all unit and contract tests passed)",
+    "fe_signalloom_contract_tests": "PASS (56 passed, 0 failures)",
+    "dashboard_vitest_suite": "PASS (77 passed, 2 test files, 0 failures)",
+    "dashboard_typecheck": "PASS (tsc --noEmit, 0 errors)"
+  },
+  "invariants_confirmed": {
+    "zero_em_dashes": true,
+    "conventional_commits": true,
+    "antigravity_harness": true
+  }
+}

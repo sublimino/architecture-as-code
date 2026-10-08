@@ -335,17 +335,17 @@ Obey these. They are the phase constitution.
 | P1-4 | implementation | Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route | P1-3 | Vitest suite for FleetTopology.test.tsx; component renders 5 nodes and directed edges | M | antigravity | pass — delivered: ff84f867 (see Errata — SLSC-P1-4) | — | — | — | — |
 | P1-GOV | governor | Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P1-1, P1-2, P1-3, P1-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: 036dd243 (see Errata — SLSC-P1-GOV) | — | — | — | — |
 | P2-PRE | preflight | Audit policy-engine compliance evaluation rules and FAIR Monte Carlo simulation interfaces | P1-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 61d0eda4 (see Errata — SLSC-P2-PRE) | — | — | — | — |
-| P2-1 | implementation | Implement POST /api/v1/compliance/scan-fleet on policy-engine aggregating fleet FAIR risk | P2-PRE | Go unit and contract tests; endpoint evaluates 5 pods and returns FAIR risk | M | antigravity | — | — | — | — | — |
-| P2-2 | implementation | Build FleetRiskGauge.tsx and node risk tooltips in dashboard-signalloom wired to live FAIR metrics | P2-1 | Vitest FleetRiskGauge.test.tsx verifying number animations and risk band colours | M | antigravity | — | — | — | — | — |
-| P2-3 | implementation | Implement differentiated compliance grace period evaluation in Fleet Manager | P2-2 | Unit test asserting grace period calculation (72h batch vs 0h PII) | S | antigravity | — | — | — | — | — |
-| P2-GOV | governor | Merge Phase 2 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P2-1, P2-2, P2-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
-| P3-PRE | preflight | Audit DAG traversal algorithms, cascade event data structures, and OpenBao lease revocation APIs | P2-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
-| P3-1 | implementation | Implement cascading stun DAG walk in Fleet Manager triggering downstream revocation in <1000ms | P3-PRE | Go benchmark and contract test verifying cascade walk order and sub-second execution | M | antigravity | — | — | — | — | — |
-| P3-2 | implementation | Implement animated cascade transitions in FleetTopology.tsx with stepwise risk recalculation | P3-1 | Vitest interaction test verifying cascade animation sequence and node state dispatch | M | antigravity | — | — | — | — | — |
-| P3-3 | implementation | Implement topological sort recovery endpoint POST /api/v1/fleet/recover and audience route | P3-2 | Go contract test for topological sort recovery order; Vitest test for audience route | M | antigravity | — | — | — | — | — |
-| P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
+| P2-1 | implementation | Implement POST /api/v1/compliance/scan-fleet on policy-engine aggregating fleet FAIR risk | P2-PRE | Go unit and contract tests; endpoint evaluates 5 pods and returns FAIR risk | M | antigravity | pass — delivered: a5234ffa (see Errata — SLSC-P2-1) | — | — | — | — |
+| P2-2 | implementation | Build FleetRiskGauge.tsx and node risk tooltips in dashboard-signalloom wired to live FAIR metrics | P2-1 | Vitest FleetRiskGauge.test.tsx verifying number animations and risk band colours | M | antigravity | pass — delivered: acdb15ac (see Errata — SLSC-P2-2) | — | — | — | — |
+| P2-3 | implementation | Implement differentiated compliance grace period evaluation in Fleet Manager | P2-2 | Unit test asserting grace period calculation (72h batch vs 0h PII) | S | antigravity | pass — delivered: 56b7a276 (see Errata — SLSC-P2-3) | — | — | — | — |
+| P2-GOV | governor | Merge Phase 2 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P2-1, P2-2, P2-3 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: b75feae6 (see Errata — SLSC-P2-GOV) | — | — | — | — |
+| P3-PRE | preflight | Audit DAG traversal algorithms, cascade event data structures, and OpenBao lease revocation APIs | P2-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 1465d28d (see Errata — SLSC-P3-PRE) | — | — | — | — |
+| P3-1 | implementation | Implement cascading stun DAG walk in Fleet Manager triggering downstream revocation in <1000ms | P3-PRE | Go benchmark and contract test verifying cascade walk order and sub-second execution | M | antigravity | pass — delivered: 2c759b08 (see Errata — SLSC-P3-1) | — | — | — | — |
+| P3-2 | implementation | Implement animated cascade transitions in FleetTopology.tsx with stepwise risk recalculation | P3-1 | Vitest interaction test verifying cascade animation sequence and node state dispatch | M | antigravity | pass — delivered: 26fcd95e (see Errata — SLSC-P3-2) | — | — | — | — |
+| P3-3 | implementation | Implement topological sort recovery endpoint POST /api/v1/fleet/recover and audience route | P3-2 | Go contract test for topological sort recovery order; Vitest test for audience route | M | antigravity | pass — delivered: cb0575b0 (see Errata — SLSC-P3-3) | — | — | — | — |
+| P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | pass — delivered: ad7cc041 (see Errata — SLSC-P3-4) | — | — | — | — |
 | P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: fcd1c077 (see Errata — SLSC-P3-GOV) | — | — | — | — |
-| P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 480d5a54 (see Errata — SLSC-P4-PRE) | — | — | — | — |
 | P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | — | — | — | — | — |
 | P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | — | — | — | — | — |
 | P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
@@ -474,6 +474,114 @@ Obey these. They are the phase constitution.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P2-PRE","status":"pass","commit":"61d0eda4"} -->
 
+#### Errata — SLSC-P2-1 Implement POST /api/v1/compliance/scan-fleet on policy-engine aggregating fleet FAIR risk
+**Created:** 2026-10-08 11:42:00+01:00
+**Last Updated:** 2026-10-08 11:42:00+01:00
+**Status:** Completed
+**Commit:** a5234ffa
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Implemented pkg/compliance/fleet_scan.go with formal pod spec checks (securityContext, dropCapabilities, readOnlyRootFilesystem) and FAIR Monte Carlo aggregation. Calibrated standard 5-agent fleet baseline (£12,400) and escalated (£847,000) Carried GBP when agent-txn-pipeline (missing securityContext) and agent-llm-classifier (un-dropped capabilities) fail. Registered POST /api/v1/compliance/scan-fleet on policy-engine HTTP multiplexer.
+**Deviations:** None.
+**Notes:** Unit and contract tests pass 100% across all policy-engine packages.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P2-1","status":"pass","commit":"a5234ffa"} -->
+
+#### Errata — SLSC-P2-2 Build FleetRiskGauge.tsx and node risk tooltips in dashboard-signalloom wired to live FAIR metrics
+**Created:** 2026-10-08 11:47:00+01:00
+**Last Updated:** 2026-10-08 11:47:00+01:00
+**Status:** Completed
+**Commit:** acdb15ac
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Built interactive SVG radial gauge with colour-coded risk zones (teal, amber, error) and logarithmic ALE needle scaling. Added digital counter with smooth requestAnimationFrame number transition between baseline (£12,400) and escalated (£847,000) Carried GBP states. Added node hover/focus tooltips displaying per-agent control failure badges and calibrated parameter triples (min/mode/max). Wired Scan Fleet button on FleetDemoPage to update live FAIR metrics.
+**Deviations:** None.
+**Notes:** Vitest suites (FleetRiskGauge, FleetTopology, FleetDemoPage) pass 100% (119/119 tests), TypeScript typecheck passes with 0 errors, and zero em-dashes verified.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P2-2","status":"pass","commit":"acdb15ac"} -->
+
+#### Errata — SLSC-P2-3 Implement differentiated compliance grace period evaluation in Fleet Manager
+**Created:** 2026-10-08 11:44:00+01:00
+**Last Updated:** 2026-10-08 11:44:00+01:00
+**Status:** Completed
+**Commit:** 56b7a276
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Implemented GracePeriodEvaluator in grace_period.go returning 72h grace period for batch data processing agents (agent-txn-pipeline, medium risk) and 0h immediate enforcement for high-risk customer PII workloads (agent-llm-classifier). Integrated state machine transitions (active, grace-period, non-compliant, expired) and duration parsers. Exposed gracePeriodExpiry (RFC3339) and remainingHours in GET /api/v1/fleet/topology.
+**Deviations:** None.
+**Notes:** Unit, contract, and BATS test suites pass 100% (54/54 BATS tests, go vet clean).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P2-3","status":"pass","commit":"56b7a276"} -->
+
+#### Errata — SLSC-P2-GOV Merge Phase 2 cards in order into integration/slsc-v0.1.0; run offline acceptance twice
+**Created:** 2026-10-08 13:30:00+01:00
+**Last Updated:** 2026-10-08 13:31:00+01:00
+**Status:** Completed
+**Commit:** b75feae6
+**Governor merge:** Phase 2 integration clean on integration/slsc-v0.1.0
+**Decisions:** Validated clean sequential non-fast-forward merge of all Phase 2 deliverables (P2-1 scan-fleet endpoint 438b44ef, P2-2 FleetRiskGauge acdb15ac / d18c45b9, P2-3 grace period evaluation 56b7a276 / 21320c28). Successfully executed full offline test pyramid twice with zero failures: Pass 1 test/test-count-floor.bats (10/10 passed, 0 failures across 500+ pytest, 1800+ vitest, 30+ go, 200+ bats, 12/12 audit proof cases red, 70+ kpai) and Pass 2 make test-all-offline (Go unit tests across 29 modules + FrostDB correlation, Frontend Vitest across 162 files, Python invariant suites 3,317 passed, KPAI probe & contract tests 76/76 passed, and Stage 5 static configs, manifests, registries, and guards). Fixed 4 minor regression points in Governor worktree (supercred-fleet-deploy.bats registered in root_excluded, cosign patch index apps.yaml, supercred runner rbac ingress namespace, stun sentinel symlink, Makefile AUDIT_ANCHOR_PY pinned with uv pytest). Tagged integration tip integration/slsc-v0.1.0-p2 at commit b75feae6.
+**Deviations:** None.
+**Notes:** Phase 2 integration certified. Both offline verification passes passed cleanly with 0 failures across the full pyramid. Facts written to ci-evidence/slsc-p2-governor-facts.json.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P2-GOV","status":"pass","commit":"b75feae6"} -->
+
+#### Errata — SLSC-P3-PRE Audit DAG traversal algorithms, cascade event data structures, and OpenBao lease revocation APIs
+**Created:** 2026-10-08 13:38:00+01:00
+**Last Updated:** 2026-10-08 13:38:00+01:00
+**Status:** Completed
+**Commit:** 1465d28d
+**Governor merge:** Phase 3 preflight verified on integration/slsc-v0.1.0
+**Decisions:** Audited DAG traversal algorithms in topology.go (CascadeTargets BFS, Kahn RecoveryOrder, DFS 3-colour cycle detection, sub-second latency SLA). Audited cascade event data structures in cascade.go and schema.go (CascadeResult, StateChangeEvent, TargetOutcome multiplane tracking). Audited OpenBao lease and token revocation APIs in openbao_client.go (sync revocation, token and accessor invalidation, circuit breaker, per-request token file re-read). Authored ci-evidence/slsc-p3-preflight-audit.json (SHA-256: 885e1fa384c83dcaa9c06d7675050155d58122b47a0d31cf6464eaffe8555329). Verified fleet-manager Go tests, dashboard Vitest suites, and Signal Loom API contract tests cleanly.
+**Deviations:** None.
+**Notes:** Phase 3 preflight passed. All implementation cards (P3-1, P3-2, P3-3, P3-4) are unblocked.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-PRE","status":"pass","commit":"1465d28d"} -->
+
+#### Errata — SLSC-P3-1 Implement cascading stun DAG walk in Fleet Manager triggering downstream revocation in <1000ms
+**Created:** 2026-10-08 13:49:00+01:00
+**Last Updated:** 2026-10-08 13:49:00+01:00
+**Status:** Completed
+**Commit:** 2c759b08
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Refined CascadeTargets in topology.go with IsObservabilityAgent check to preserve observability agents (agent-monitor) while continuing reverse-dependency traversal for downstream non-observability dependants. Ensured deterministic BFS level order: target first, direct dependants second, transitive dependants third. Added SubSecondCascadeSLA (1000ms) bound and MeetsSLA() check on CascadeResult in cascade.go. Added benchmark latency assertions proving sub-millisecond execution (<1ms per walk across Fleet5, Fleet64, and Fleet256).
+**Deviations:** None.
+**Notes:** Unit, benchmark, and contract tests pass 100% (TestCascade suites pass, go vet clean).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-1","status":"pass","commit":"2c759b08"} -->
+
+#### Errata — SLSC-P3-2 Implement animated cascade transitions in FleetTopology.tsx with stepwise risk recalculation
+**Created:** 2026-10-08 13:50:00+01:00
+**Last Updated:** 2026-10-08 13:50:00+01:00
+**Status:** Completed
+**Commit:** 26fcd95e
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Created FleetCascadeAnimation.test.tsx testing timed stagger transitions (0ms, 200ms, 400ms) with vi.useFakeTimers(). Updated FleetTopology.tsx with scoped @keyframes sl-cascade-pulse and onCascadeStep callback. Excluded agent-monitor and observability agents from cascade pulses and state transitions. Updated FleetRiskGauge.tsx with stepwise risk metric badge and jitter-free animated number transitions. Updated FleetDemoPage.tsx with dynamic stepwise risk recalculation from £12,400 to £847,000 as nodes cascade into stunned status.
+**Deviations:** None.
+**Notes:** Vitest suites pass 100% across all 4 affected components and pages (135/135 tests passing, bun run typecheck clean).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-2","status":"pass","commit":"26fcd95e"} -->
+
+#### Errata — SLSC-P3-3 Implement topological sort recovery endpoint POST /api/v1/fleet/recover and audience route
+**Created:** 2026-10-08 13:57:00+01:00
+**Last Updated:** 2026-10-08 13:57:00+01:00
+**Status:** Completed
+**Commit:** cb0575b0
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Verified and asserted topological sort recovery order in Fleet Manager via POST /api/v1/fleet/recover, restoring root agents (agent-cardvault) before dependent consumers (agent-txn-pipeline, agent-llm-classifier, agent-api-gateway). Enhanced TestRecover_TopologicalOrder and TestRecoverHandlerTopologicalSort. Implemented FleetAudiencePage.tsx providing audience presentation mode at /demos/fleet/audience and /fleet/audience without instructor controls. Created FleetAudiencePage.test.tsx asserting presentation layout and resilience.
+**Deviations:** None.
+**Notes:** Unit, contract, and Vitest suites pass 100% (15 Go recovery tests, 7/7 audience tests, 82/82 page tests, typecheck clean).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-3","status":"pass","commit":"cb0575b0"} -->
+
+#### Errata — SLSC-P3-4 Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts
+**Created:** 2026-10-08 14:12:00+01:00
+**Last Updated:** 2026-10-08 14:12:00+01:00
+**Status:** Completed
+**Commit:** ad7cc041
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Authored two-window Playwright test supercred-fleet-cascade.spec.ts driving concurrent instructor (/demos/fleet) and audience (/demos/fleet/audience) browser contexts. Verified cascade stun of agent-cardvault transitions all dependants to stunned with stepwise risk escalation to £847,000, while preserving agent-monitor active. Verified subsequent recovery via POST /api/v1/fleet/recover in topological order returning risk to £12,400. Enforced web-first assertions with zero waitForTimeout calls and zero reload assertions. Registered spec in SPEC-REGISTRY.tsv and playwright.config.ts.
+**Deviations:** None.
+**Notes:** Acceptance test coverage suite passes 100% (7/7 BATS checks pass, 82 Vitest tests pass).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-4","status":"pass","commit":"ad7cc041"} -->
+
 #### Errata — SLSC-P3-GOV Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice
 **Created:** 2026-10-08 15:45:00+01:00
 **Last Updated:** 2026-10-08 15:45:00+01:00
@@ -485,3 +593,15 @@ Obey these. They are the phase constitution.
 **Notes:** Phase 3 integration certified. Both offline verification passes passed cleanly with 0 failures across the full pyramid. Facts written to ci-evidence/slsc-p3-governor-facts.json.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P3-GOV","status":"pass","commit":"fcd1c077"} -->
+
+#### Errata — SLSC-P4-PRE Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context
+**Created:** 2026-10-08 15:52:00+01:00
+**Last Updated:** 2026-10-08 15:52:00+01:00
+**Status:** Completed
+**Commit:** 480d5a54
+**Governor merge:** Phase 4 preflight verified on integration/slsc-v0.1.0
+**Decisions:** Audited Dex OIDC group claims configuration in inf-signalloom and static client definitions, mapping groups (admin, compliance, team:payments, team:platform, team:ml-ops, team:sre) to user roles. Audited fe-signalloom role proxies and gate endpoint (GET /api/v1/auth/check via auth_request /_fleet_gate) establishing header forwarding contract for X-User-Role and X-User-Team to upstream microservices. Audited dashboard authentication context and useServerSuperadmin hook ensuring server-authoritative role resolution. Formulated authorization matrix establishing least-privilege boundaries: Platform Admin (view all, stun, recover, adjust grace period), Compliance Officer (view all, view risk, adjust grace period, 403 on stun and recover), and Payments Team Lead (view payments team agents only: agent-txn-pipeline and agent-llm-classifier, 403 on stun, recover, and grace period adjustment). Authored ci-evidence/slsc-p4-preflight-audit.json (SHA-256: 240c11b1843d6beb4df0b2bc75e825ccbf66c8b49e01510d1366257c3a8b8382). Verified fleet-manager Go tests, fe-signalloom contract tests, and dashboard Vitest suites pass cleanly with zero regressions.
+**Deviations:** None.
+**Notes:** Phase 4 preflight passed. Implementation cards SLSC-P4-1 and SLSC-P4-2 are unblocked.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P4-PRE","status":"pass","commit":"480d5a54"} -->

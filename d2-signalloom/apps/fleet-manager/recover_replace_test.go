@@ -275,3 +275,46 @@ func TestRecoverHandlerHonoursTheMode(t *testing.T) {
 		})
 	}
 }
+
+func TestRecoverHandlerTopologicalSort(t *testing.T) {
+	dag := mustBuildTestDAG(t)
+	client := newMockClient()
+	client.states["agent-cardvault"] = StateStunned
+	client.states["agent-txn-pipeline"] = StateStunned
+	client.states["agent-llm-classifier"] = StateStunned
+	client.states["agent-api-gateway"] = StateStunned
+
+	s := &server{dag: dag, orchestrator: NewCascadeOrchestrator(dag, client, 0), callerKeys: testCallerKeys(t)}
+	// Pass agents in reverse topological order to assert topological sorting
+	body := `{"agent_ids":["agent-llm-classifier","agent-api-gateway","agent-txn-pipeline","agent-cardvault"],"mode":"replace"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/recover", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleRecover(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var res CascadeResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.RecoveryOrder) != 4 {
+		t.Fatalf("expected 4 agents in recovery_order, got %d", len(res.RecoveryOrder))
+	}
+	pos := make(map[string]int)
+	for i, id := range res.RecoveryOrder {
+		pos[id] = i
+	}
+	if pos["agent-cardvault"] != 0 {
+		t.Fatalf("expected root agent-cardvault first, got %d", pos["agent-cardvault"])
+	}
+	if pos["agent-cardvault"] >= pos["agent-txn-pipeline"] {
+		t.Fatalf("agent-cardvault must come before agent-txn-pipeline: %v", res.RecoveryOrder)
+	}
+	if pos["agent-cardvault"] >= pos["agent-api-gateway"] {
+		t.Fatalf("agent-cardvault must come before agent-api-gateway: %v", res.RecoveryOrder)
+	}
+	if pos["agent-txn-pipeline"] >= pos["agent-llm-classifier"] {
+		t.Fatalf("agent-txn-pipeline must come before agent-llm-classifier: %v", res.RecoveryOrder)
+	}
+}

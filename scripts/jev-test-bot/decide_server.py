@@ -63,12 +63,16 @@ def serve(client: JevClient, stdin, stdout) -> int:
         try:
             request = json.loads(line)
             request_id = request.get("id")
+            temperature = float(request.get("temperature", 1.0)) if request.get("temperature") is not None else 1.0
+            seed = int(request["seed"]) if request.get("seed") is not None else None
             decision = client.decide(
                 snapshot_from(request.get("snapshot") or {}),
                 request.get("intent") or "",
                 request.get("area") or "/",
                 list(request.get("recent_actions") or []),
                 set(request.get("visited_urls") or []),
+                temperature=temperature,
+                seed=seed,
             )
             response = {
                 "id": request_id,
@@ -76,6 +80,7 @@ def serve(client: JevClient, stdin, stdout) -> int:
                 "target": decision.get("target"),
                 "confidence": decision.get("confidence"),
                 "mock": decision.get("mock", True),
+                "model": decision.get("model"),
             }
         except Exception as exc:  # noqa: BLE001 — any failure must answer, not hang
             response = {"id": request_id, "error": f"{type(exc).__name__}: {exc}"}

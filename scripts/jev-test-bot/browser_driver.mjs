@@ -123,23 +123,107 @@ export function isDestructive(name) {
   return DESTRUCTIVE_PATTERNS.some((re) => re.test(String(name)))
 }
 
-// ── The calibrated simulator, ported ──────────────────────────────────────
+// ── Deterministic PRNG ─────────────────────────────────────────────────────
 //
-// A port, deliberately, of `bot.py`'s `_heuristic_mock_decide`: same filter
-// order (destructive out, then area scope, then unvisited first, then a
-// random walk avoiding an immediate repeat), same confidence bands. Kept
-// behind the same `--mock` flag so a mock browser run and a mock fetch run
-// explore by the same rules. The live path does NOT use this — it goes to
-// `decide_server.py` so there is exactly one implementation of the real
-// decision model.
-export function heuristicDecide({ elements, areaScope, recentActions, visitedUrls, url }) {
+// Mulberry32 32-bit state generator. Produces deterministic, pseudo-random
+// floats in [0, 1) from an integer seed for reproducible chaos walks.
+export function createPrng(seed) {
+  let s = (Math.floor(seed) >>> 0) || 1
+  return function next() {
+    s = (s + 0x6D2B79F5) | 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// ── Fuzz Payloads ──────────────────────────────────────────────────────────
+let _CACHED_PAYLOADS = null
+export function loadFuzzPayloads() {
+  if (_CACHED_PAYLOADS) return _CACHED_PAYLOADS
+  const candidate = join(HERE, 'fuzz_payloads.json')
+  if (existsSync(candidate)) {
+    try {
+      _CACHED_PAYLOADS = JSON.parse(readFileSync(candidate, 'utf8'))
+      return _CACHED_PAYLOADS
+    } catch {
+      /* fallback below */
+    }
+  }
+  _CACHED_PAYLOADS = {
+    unicode: ['\u202Ereversed\u202D', '\u0000null_byte', '\ud83d\udd25\ud83d\udca5\ud83d\ude80'],
+    numbers: ['0', '-1', 'NaN', 'Infinity', '9007199254740991'],
+    injection: ['<script>alert(1)</script>', "' OR '1'='1", '{{7*7}}'],
+    lengths: ['A'.repeat(1000)],
+    json_malformed: ['{"unclosed":', 'null', '{}'],
+  }
+  return _CACHED_PAYLOADS
+}
+
+export function sampleFuzzPayload(payloads = null, prng = Math.random, category = null) {
+  const dict = payloads || loadFuzzPayloads()
+  let pool = []
+  if (category && dict[category]) {
+    pool = dict[category]
+  } else {
+    for (const cat of Object.keys(dict)) {
+      if (Array.isArray(dict[cat])) pool.push(...dict[cat])
+    }
+  }
+  if (pool.length === 0) return 'jev-fuzz-probe'
+  const idx = Math.floor(prng() * pool.length)
+  return pool[idx]
+}
+
+const STORMABLE_PATTERNS = [
+  /\bscan\b/i,
+  /\brefresh\b/i,
+  /\bretry\b/i,
+  /\btest\b/i,
+  /\btoggle\b/i,
+  /\bfilter\b/i,
+  /\bnext\b/i,
+  /\bprev\b/i,
+  /\bpage\b/i,
+  /\bapply\b/i,
+  /\bsearch\b/i,
+  /\bsort\b/i,
+  /\bload\b/i,
+]
+
+export function isStormable(name) {
+  if (!name) return false
+  return STORMABLE_PATTERNS.some((re) => re.test(String(name)))
+}
+
+// ── The calibrated simulator, ported & enhanced ────────────────────────────
+//
+// A port and extension of `bot.py`'s `_heuristic_mock_decide` with:
+// - Softmax / Boltzmann exploration over temperature T
+// - Input fuzzing selection for textboxes / search filters
+// - Seeded PRNG for deterministic reproducibility
+export function heuristicDecide({
+  elements,
+  areaScope,
+  recentActions = [],
+  visitedUrls = new Set(),
+  url = '',
+  prng = Math.random,
+  temperature = 1.0,
+  fuzzInputs = false,
+  fuzzPayloads = null,
+}) {
   const clickable = elements.filter((e) => (e.operations || ['CLICK']).includes('CLICK'))
-  if (clickable.length === 0) {
+  const inputs = elements.filter(
+    (e) => (e.operations || []).includes('TYPE_TEXT') || e.role === 'textbox' || e.role === 'searchbox',
+  )
+  if (clickable.length === 0 && inputs.length === 0) {
     return { operation: 'DONE', target: null, confidence: 1.0, mock: true }
   }
 
-  let safe = clickable.filter((e) => !isDestructive(e.name))
-  if (safe.length === 0) safe = clickable
+  const candidatePool = fuzzInputs && inputs.length > 0 ? [...clickable, ...inputs] : clickable
+  let safe = candidatePool.filter((e) => !isDestructive(e.name))
+  if (safe.length === 0) safe = candidatePool.length > 0 ? candidatePool : clickable
 
   const areaClean = String(areaScope || '').replace(/^\/+|\/+$/g, '')
   if (areaClean) {
@@ -149,22 +233,45 @@ export function heuristicDecide({ elements, areaScope, recentActions, visitedUrl
     if (inScope.length > 0) safe = inScope
   }
 
-  const unvisited = safe.filter((e) => {
-    if (!e.href) return false
-    const clean = e.href.split('?')[0].replace(/\/+$/, '') || '/'
-    return !visitedUrls.has(clean) && !visitedUrls.has(`${String(url).replace(/\/+$/, '')}${clean}`)
+  // Softmax base scores: unvisited links get highest initial score,
+  // inputs and action buttons get strong exploratory scores.
+  const scores = safe.map((e) => {
+    let score = 1.0
+    if (e.href) {
+      const clean = e.href.split('?')[0].replace(/\/+$/, '') || '/'
+      const isUnvisited = !visitedUrls.has(clean) && !visitedUrls.has(`${String(url).replace(/\/+$/, '')}${clean}`)
+      if (isUnvisited) score = 3.5
+    }
+    if (e.role === 'textbox' || e.role === 'searchbox') score = 2.8
+    else if (e.role === 'button') score = 2.2
+    return score
   })
 
-  if (unvisited.length > 0) {
-    return { operation: 'CLICK', target: unvisited[0], confidence: 0.95, mock: true }
-  }
+  // Boltzmann / Softmax exploration with temperature
+  const temp = Math.max(0.05, Number(temperature) || 1.0)
+  const maxScore = Math.max(...scores)
+  const expWeights = scores.map((s) => Math.exp((s - maxScore) / temp))
+  const sumWeights = expWeights.reduce((a, b) => a + b, 0)
+  const probs = expWeights.map((w) => w / sumWeights)
 
-  const lastName = recentActions.length > 0 ? recentActions[recentActions.length - 1]?.target?.name : null
-  const others = safe.filter((e) => e.name !== lastName)
-  const pool = others.length > 0 ? others : safe
-  const chosen = pool[Math.floor(Math.random() * pool.length)]
-  const confidence = Math.round((0.84 + Math.random() * 0.12) * 100) / 100
-  return { operation: 'CLICK', target: chosen, confidence, mock: true }
+  // Sample using PRNG
+  const r = prng()
+  let cumulative = 0
+  let chosenIndex = 0
+  for (let i = 0; i < probs.length; i++) {
+    cumulative += probs[i]
+    if (r <= cumulative) {
+      chosenIndex = i
+      break
+    }
+  }
+  const chosen = safe[chosenIndex] || safe[0]
+  const isInput = chosen.role === 'textbox' || chosen.role === 'searchbox' || (chosen.operations || []).includes('TYPE_TEXT')
+  const operation = isInput ? 'TYPE_TEXT' : 'CLICK'
+  const confidence = Math.round((0.84 + prng() * 0.12) * 100) / 100
+  const payload = isInput ? sampleFuzzPayload(fuzzPayloads, prng) : undefined
+
+  return { operation, target: chosen, confidence, payload, mock: true }
 }
 
 // ── Playwright resolution ─────────────────────────────────────────────────
@@ -454,7 +561,7 @@ function defect(category, message, url, details) {
 
 // ── The walk ──────────────────────────────────────────────────────────────
 
-async function exploreRoute({ context, base, route, opts, decider, snapshotFn }) {
+async function exploreRoute({ context, base, route, opts, decider, snapshotFn, prng = Math.random, fuzzPayloads = null }) {
   const baseOrigin = new URL(base).origin
   const started = Date.now()
   const deadline = started + opts.timeout * 1000
@@ -469,6 +576,49 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
   const visitedUrls = new Set()
 
   const page = await context.newPage()
+
+  const syntheticAborts = new Set()
+  if (opts.networkJitter || opts.chaos) {
+    await page.route('**', async (routeObj) => {
+      const req = routeObj.request()
+      const url = req.url()
+      const resourceType = req.resourceType()
+      // Only jitter API and data endpoints, never core HTML, CSS, or JS bundle/module loads
+      if (
+        (resourceType === 'fetch' || resourceType === 'xhr') &&
+        !url.includes('/src/') &&
+        !url.includes('/node_modules/') &&
+        !url.includes('/@') &&
+        (
+          url.includes('/api/') ||
+          url.includes('/v1/') ||
+          url.includes('/compliance/') ||
+          url.includes('/afm/') ||
+          url.includes('/fleet-api/')
+        )
+      ) {
+        const roll = prng()
+        if (roll < 0.05) {
+          // 5% simulated offline network drop
+          syntheticAborts.add(url)
+          return routeObj.abort('failed').catch(() => {})
+        } else if (roll < 0.10) {
+          // 5% simulated rate limit
+          return routeObj.fulfill({
+            status: 429,
+            headers: { 'x-jev-chaos': 'synthetic-fault' },
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'rate_limited', message: 'Rate limit exceeded (synthetic chaos)' }),
+          }).catch(() => {})
+        } else if (roll < 0.35) {
+          // 25% latency delay
+          const delay = Math.floor(prng() * 800) + 200
+          await new Promise((r) => setTimeout(r, delay))
+        }
+      }
+      return routeObj.continue().catch(() => {})
+    })
+  }
 
   if (opts.faultRoute && normalisePath(opts.faultRoute) === normalisePath(route)) {
     await page.addInitScript(faultScript(), { kind: opts.faultKind })
@@ -500,6 +650,11 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
   page.on('response', (response) => {
     const status = response.status()
     if (status < 400) return
+    const headers = response.headers()
+    if (headers['x-jev-chaos'] === 'synthetic-fault') {
+      // Injected by network jitter to test client-side resilience; not an application defect
+      return
+    }
     const url = response.url()
     let origin
     try {
@@ -525,6 +680,7 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
   })
   page.on('requestfailed', (request) => {
     const url = request.url()
+    if (syntheticAborts.has(url)) return
     let origin
     try {
       origin = new URL(url).origin
@@ -597,6 +753,19 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
         break
       }
 
+      // Markov random navigation step: stochastic history jump or refresh
+      if ((opts.markov || opts.chaos) && turn > 1 && prng() < 0.15) {
+        if (prng() < 0.5) {
+          await page.goBack({ timeout: 5000 }).catch(() => {})
+          actions.push({ turn, operation: 'MARKOV_BACK', target: { name: 'history.back' } })
+          continue
+        } else {
+          await page.reload({ timeout: 5000 }).catch(() => {})
+          actions.push({ turn, operation: 'MARKOV_RELOAD', target: { name: 'page.reload' } })
+          continue
+        }
+      }
+
       let snapshot
       try {
         snapshot = await page.evaluate(snapshotFn)
@@ -625,6 +794,8 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
             area: route,
             recent_actions: actions.slice(-5),
             visited_urls: [...visitedUrls],
+            temperature: opts.temperature,
+            seed: opts.seed,
           })
           .catch((err) => ({ operation: 'DONE', target: null, confidence: 0, error: String(err?.message ?? err) }))
       } else {
@@ -634,6 +805,10 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
           recentActions: actions,
           visitedUrls,
           url: snapshot.url,
+          prng,
+          temperature: opts.temperature,
+          fuzzInputs: opts.fuzzInputs || opts.chaos,
+          fuzzPayloads,
         })
       }
 
@@ -655,7 +830,7 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
         continue
       }
 
-      const effect = await actOn(page, decision, opts)
+      const effect = await actOn(page, decision, opts, prng, fuzzPayloads)
       actions.push({ turn, ...effect, target: decision.target, confidence: decision.confidence ?? null })
       visitedUrls.add(normalisePath(page.url()))
 
@@ -663,7 +838,7 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
         // Once is a quiet page; twice is a dead control. Retried immediately
         // and deterministically, because nothing moved — the same element is
         // still there under the same index.
-        const retry = await actOn(page, decision, opts)
+        const retry = await actOn(page, decision, opts, prng, fuzzPayloads)
         actions.push({ turn, ...retry, target: decision.target, confidence: decision.confidence ?? null, retry: true })
         if (retry.changed === false) {
           deadControls.push({
@@ -721,6 +896,9 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
     // bot.py's report shape, so loop_report.py needs no second code path.
     target_url: base,
     area_scope: route,
+    seed: opts.seed,
+    temperature: opts.temperature,
+    chaos: Boolean(opts.chaos),
     turns_executed: actions.filter((a) => a.operation !== 'ABORT').length,
     duration_seconds: Math.round(((Date.now() - started) / 1000) * 100) / 100,
     visited_urls: [...visitedUrls],
@@ -750,23 +928,34 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn })
   }
 }
 
-async function actOn(page, decision, opts) {
+async function actOn(page, decision, opts, prng = Math.random, fuzzPayloads = null) {
   const before = await page.evaluate(FINGERPRINT_FN).catch(() => null)
   const selector = `[data-jev-idx="${decision.target.index}"]`
   const operation = decision.operation === 'TYPE_TEXT' || decision.operation === 'SELECT' ? decision.operation : 'CLICK'
 
   let error = null
+  let payloadUsed = null
   try {
     const locator = page.locator(selector).first()
     if (operation === 'TYPE_TEXT') {
-      await locator.fill('jev exploratory probe', { timeout: opts.actionTimeout })
+      const payload = decision.payload != null ? decision.payload : sampleFuzzPayload(fuzzPayloads, prng)
+      payloadUsed = String(payload)
+      await locator.fill(payloadUsed, { timeout: opts.actionTimeout })
     } else if (operation === 'SELECT') {
       await locator.selectOption({ index: 1 }, { timeout: opts.actionTimeout })
     } else {
-      // `noWaitAfter` keeps a click that triggers a navigation from being
-      // charged the full navigation timeout here; the settle below is what
-      // waits, and it waits the same amount whatever the click did.
-      await locator.click({ timeout: opts.actionTimeout, noWaitAfter: true })
+      if ((opts.clickStorm || opts.chaos) && isStormable(decision.target.name)) {
+        const stormCount = Math.floor(prng() * 3) + 3 // 3 to 5 rapid burst clicks
+        for (let i = 0; i < stormCount; i++) {
+          await locator.click({ timeout: opts.actionTimeout, noWaitAfter: true }).catch(() => {})
+          await new Promise((r) => setTimeout(r, 30))
+        }
+      } else {
+        // `noWaitAfter` keeps a click that triggers a navigation from being
+        // charged the full navigation timeout here; the settle below is what
+        // waits, and it waits the same amount whatever the click did.
+        await locator.click({ timeout: opts.actionTimeout, noWaitAfter: true })
+      }
     }
   } catch (err) {
     error = String(err?.message ?? err).split('\n')[0].slice(0, 200)
@@ -790,7 +979,7 @@ async function actOn(page, decision, opts) {
       before.dialogs !== after.dialogs
   }
 
-  return { operation, changed, error, url_before: before?.url ?? null, url_after: after?.url ?? null }
+  return { operation, changed, error, payload: payloadUsed, url_before: before?.url ?? null, url_after: after?.url ?? null }
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────
@@ -806,6 +995,14 @@ function parseArgs(argv) {
     renderTimeout: 20000,
     actionTimeout: 5000,
     settleMs: 500,
+    seed: null,
+    temperature: 1.0,
+    duration: 0,
+    chaos: false,
+    fuzzInputs: false,
+    clickStorm: false,
+    networkJitter: false,
+    markov: false,
     mock: false,
     decider: '',
     profileDir: process.env.JEV_BROWSER_PROFILE_DIR || '',
@@ -820,10 +1017,13 @@ function parseArgs(argv) {
   const numeric = {
     '--turns': 'turns',
     '--timeout': 'timeout',
+    '--duration': 'duration',
     '--nav-timeout': 'navTimeout',
     '--render-timeout': 'renderTimeout',
     '--action-timeout': 'actionTimeout',
     '--settle-ms': 'settleMs',
+    '--seed': 'seed',
+    '--temperature': 'temperature',
   }
   const strings = {
     '--base': 'base',
@@ -846,6 +1046,11 @@ function parseArgs(argv) {
       continue
     }
     switch (arg) {
+      case '--chaos': opts.chaos = true; break
+      case '--fuzz-inputs': opts.fuzzInputs = true; break
+      case '--click-storm': opts.clickStorm = true; break
+      case '--network-jitter': opts.networkJitter = true; break
+      case '--markov': opts.markov = true; break
       case '--mock': opts.mock = true; break
       case '--no-backend': opts.noBackend = true; break
       case '--fail-on-dead-control': opts.failOnDeadControl = true; break
@@ -858,6 +1063,12 @@ function parseArgs(argv) {
     }
   }
   if (!opts.decider) opts.decider = opts.mock ? 'js' : 'python'
+  if (opts.chaos) {
+    opts.fuzzInputs = true
+    opts.clickStorm = true
+    opts.networkJitter = true
+    opts.markov = true
+  }
   return opts
 }
 
@@ -899,6 +1110,15 @@ export async function main(argv) {
     return 2
   }
 
+  const seed = opts.seed != null ? opts.seed : (process.env.JEV_SEED ? Number(process.env.JEV_SEED) : Math.floor(Date.now() % 1000000))
+  opts.seed = seed
+  const prng = createPrng(seed)
+  const fuzzPayloads = loadFuzzPayloads()
+  process.stderr.write(
+    `[jev-browser] seed=${seed} temp=${opts.temperature} chaos=${opts.chaos} ` +
+      `jitter=${opts.networkJitter} inputs=${opts.fuzzInputs} storm=${opts.clickStorm} markov=${opts.markov}\n`,
+  )
+
   const { chromium } = await loadChromium()
   const profileDir = opts.profileDir || join(tmpdir(), `jev-browser-${process.pid}`)
   mkdirSync(profileDir, { recursive: true })
@@ -915,6 +1135,12 @@ export async function main(argv) {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-gpu',
+      '--disable-gpu-compositing',
+      '--disable-gpu-rasterization',
+      '--disable-gpu-early-init',
+      '--disable-gpu-sandbox',
+      '--use-gl=disabled',
+      '--disable-software-rasterizer',
       '--disable-dev-shm-usage',
       '--ignore-certificate-errors',
     ],
@@ -933,17 +1159,28 @@ export async function main(argv) {
   let rendered = 0
   const notRendered = []
 
+  const startTime = Date.now()
+  const durationMs = opts.duration ? Number(opts.duration) * 1000 : null
+
   try {
-    for (const route of routes) {
+    let routeIdx = 0
+    while (routeIdx < routes.length) {
+      if (durationMs && (Date.now() - startTime) >= durationMs) {
+        process.stderr.write(`[jev-browser] duration limit of ${opts.duration}s reached\n`)
+        break
+      }
+      const route = routes[routeIdx]
+      routeIdx += 1
       index += 1
-      const report = await exploreRoute({ context, base: opts.base, route, opts, decider, snapshotFn })
+      const report = await exploreRoute({ context, base: opts.base, route, opts, decider, snapshotFn, prng, fuzzPayloads })
       const out = join(opts.outDir, `${String(index).padStart(3, '0')}-${routeSlug(route)}.json`)
       writeFileSync(out, JSON.stringify(report, null, 2) + '\n')
       defectTotal += report.defects_count
       if (report.rendered) rendered += 1
       else notRendered.push(`${route} (${report.render_reason})`)
+      const elapsedSec = Math.round((Date.now() - startTime) / 1000)
       process.stderr.write(
-        `[jev-browser] ${route} → ${report.rendered ? 'RENDERED' : 'NOT RENDERED'} ` +
+        `[jev-browser] [${elapsedSec}s] ${route} → ${report.rendered ? 'RENDERED' : 'NOT RENDERED'} ` +
           `status=${report.document_status} controls=${report.action_space_size} ` +
           `acted=${report.actions_executed} defects=${report.defects_count}` +
           `${report.redirected_to ? ` redirected→${report.redirected_to}` : ''}\n`,
@@ -951,6 +1188,9 @@ export async function main(argv) {
       if (opts.stopOnError && defectTotal > 0) {
         process.stderr.write('[jev-browser] stopping: --stop-on-error and a defect was recorded\n')
         break
+      }
+      if (routeIdx >= routes.length && durationMs && (Date.now() - startTime) < durationMs) {
+        routeIdx = 0 // continuous walk across surface until duration is reached
       }
     }
   } finally {

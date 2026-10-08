@@ -1,0 +1,74 @@
+{
+  "cardSpecification": {
+    "objective": "Execute the comprehensive cross-plane permutation retest battery unifying SLAWS telemetry ingestion and SLAAT adversarial attack verification.\nAssert that all five SLAAT defensive surfaces hold fail-closed under concurrent adversarial load across ingress, API, SPIFFE, OpenBao, and sandbox layers.\nSimultaneously verify that SLAWS telemetry ingestion pipelines and FrostDB columnar storage engines process high-throughput observation streams without loss.\nGuarantee zero packet drop, zero parquet schema corruption, and zero unhandled security alert omissions across 16 matrix permutation vectors.\nGenerate certified baseline evidence artifact documenting pass/fail statuses, security invariants, and system resource metrics.",
+    "approach": "Deploy and run the automated cross-plane permutation runner scripts/slaws-slaat-permutation-matrix.sh across all 16 target vectors.\nDrive concurrent synthetic attack traffic against Envoy ingress routing while simultaneously streaming VPC flow logs into the ingestion pipeline.\nExecute adversarial IDOR tenant boundary probes against FastAPI endpoints while validating CloudTrail audit log capture and policy engine alerting.\nExecute SPIFFE SVID forgery attempts concurrently with live workload attestation and telemetry pipeline token exchange checks.\nExecute unauthorized OpenBao secret read attempts concurrently with dynamic credential leasing and lease renewal cycles.\nTrigger Sentinel host sensor cgroup freeze containment while exercising Landlock LSM filesystem boundary escapes.\nCapture system state, CEL policy evaluations, and FrostDB write confirmations into comprehensive verification records.\nRecord certified test outputs into ci-evidence/slaws-slaat-permutation-baseline.json for subsequent governor gating and hand-off.",
+    "deliverables": [
+      "Permutation test runner scripts/slaws-slaat-permutation-matrix.sh with matrix execution engine and clean dry-run capability",
+      "BATS regression test suite test/slaws-slaat-cross-plane-probes.bats validating permutation matrix behavior and output formats",
+      "Comprehensive retest plan specification docs/signalloom/retest-plan-slaws-slaat-permutations.md detailing test vectors and execution topology",
+      "Baseline permutation evidence artifact ci-evidence/slaws-slaat-permutation-baseline.json capturing verified vector outputs and status metrics",
+      "Concurrency verification harness integration ensuring signal-ingest and FrostDB storage engines maintain integrity under attack load",
+      "Execution logs and summary reports certifying zero dropped frames and zero unauthorized access across all five defense layers"
+    ],
+    "testSurface": [
+      "bash ./scripts/slaws-slaat-permutation-matrix.sh --dry-run: asserts matrix syntax, vector enumeration, and parameter parsing pass cleanly",
+      "bash ./scripts/slaws-slaat-permutation-matrix.sh: executes the complete 16-vector cross-plane permutation matrix with 100% pass threshold",
+      "bats test/slaws-slaat-cross-plane-probes.bats: runs the 4-test regression suite asserting runner flags, execution status, and json integrity",
+      "bash ./scripts/slaws-acceptance.sh /tmp/slaws-acceptance-test: executes full SLAWS acceptance harness verifying 8 of 8 legs pass rc 0",
+      "bats test/spiffe-openbao-policy-hardening.bats: asserts cryptographic identity attestation and secret engine default-deny rules",
+      "bats test/sandbox-confinement-hardening.bats: asserts container Landlock filesystem barriers and Sentinel sensor containment invariants"
+    ],
+    "evidence": [
+      "Baseline evidence record in ci-evidence/slaws-slaat-permutation-baseline.json recording totalVectors 16, passedVectors 16, and status PASS",
+      "Successful test execution report for test/slaws-slaat-cross-plane-probes.bats demonstrating 4 of 4 checks passing without failure",
+      "Lint verification output showing docs/signalloom/retest-plan-slaws-slaat-permutations.md passes documentation style checks with zero findings",
+      "Recorded process output and exit status 0 from scripts/slaws-slaat-permutation-matrix.sh under live execution mode",
+      "Verified FrostDB parquet partition metadata confirming clean storage compaction and uncorrupted column schemas",
+      "Integration git commit SHA recorded on target integration branch refs/heads/integration/slaat-whole-system-adversarial"
+    ],
+    "failureModes": [
+      "High-throughput network traffic bursts causing buffer overflow or dropped frames in the signal-ingest UDP socket listener",
+      "Landlock LSM path write traps inadvertently restricting parquet compaction worker threads in the storage directory",
+      "OpenBao token lease expiration races triggering intermittent HTTP 500 responses rather than expected HTTP 403 access denials",
+      "Envoy Gateway header rewriting misconfigurations allowing forged X-Forwarded-For headers to slip past client traffic policy",
+      "Transient socket connection resets during rapid concurrency probes causing false-negative test assertions",
+      "Disk space exhaustion in test evidence directories caused by uncompressed trace dumps during extended permutation runs"
+    ],
+    "outOfScope": [
+      "Modifying core SPIRE server authority configuration or altering production CA root certificates",
+      "Refactoring policy-engine FAIR Monte Carlo risk modeling algorithms and mathematical formulas",
+      "Altering foundational Kubernetes cluster CNI networking plugins or gateway crd installations",
+      "Modifying production cloud IAM roles, VPC peering definitions, or external routing policies",
+      "Upgrading third-party database dependencies or altering foundational storage engine architectures"
+    ],
+    "keyFacts": [
+      "Envoy Gateway ClientTrafficPolicy is configured to strip untrusted client IP headers at the ingress boundary",
+      "Backend FastAPI routes require authenticated principals and enforce strict tenant-isolation dependencies",
+      "FrostDB provides columnar Parquet storage supporting zero-loss buffering through DiskRingBuffer mechanisms",
+      "Sentinel eBPF sensor monitors container process execution and triggers cgroup-freeze containment within 500ms",
+      "OpenBao JWT authentication mounts enforce token lease lifetimes strictly capped at 300 seconds"
+    ],
+    "consumesFromEarlierPhases": [
+      "SLAAT Phase 2 hardened NetworkPolicy manifests and ClientTrafficPolicy ingress configuration",
+      "SLAAT Phase 3 attack replay harness scripts and verified multiplane defense baselines",
+      "SLAWS Phase 5 awslogs collector implementation, FrostDB parquet store, and obscel CEL policy vocabulary"
+    ],
+    "loopOn": [
+      "Transient socket connection resets during rapid concurrency probes; retry with exponential backoff up to 3 times",
+      "FrostDB table compaction settling delays; poll parquet directory partition status until writes are flushed"
+    ],
+    "stopAndReport": [
+      "Any exploit vector in SLAAT surfaces successfully bypassing security controls or obtaining unauthorized privileges",
+      "Any unhandled panic, fatal error, or data loss detected in signal-ingest or policy-engine observation pipelines",
+      "Any corruption or unreadable parquet schema produced during concurrent FrostDB ingestion"
+    ],
+    "sharedFileRisks": [
+      "ci-evidence/ directory contains artifacts from multiple test runs; ensure all evidence file paths are explicitly qualified"
+    ],
+    "mergeBoundary": "SLAAT-P4-1 changes are merged by SLAAT-P4-GOV into refs/heads/integration/slaat-whole-system-adversarial; must not force-push or rebase integration branch",
+    "priorErrata": [
+      "SLAAT-P3-1 attack replay verified 24/24 vulnerability findings defended with zero breaches across all four planes",
+      "SLAAT-P3-2 whole-platform acceptance executed test pyramid with 338 passing tests and certified clean status"
+    ]
+  }
+}

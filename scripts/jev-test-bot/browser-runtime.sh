@@ -30,6 +30,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DASHBOARD_DIR="${REPO_ROOT}/d2-signalloom/apps/dashboard-signalloom"
 
+if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" || ! -d "${PLAYWRIGHT_BROWSERS_PATH}" ]]; then
+  if [[ -d "${REPO_ROOT}/.cache/ms-playwright" ]]; then
+    export PLAYWRIGHT_BROWSERS_PATH="${REPO_ROOT}/.cache/ms-playwright"
+  elif [[ -d "${HOME}/.cache/ms-playwright" ]]; then
+    export PLAYWRIGHT_BROWSERS_PATH="${HOME}/.cache/ms-playwright"
+  fi
+fi
+
 # bun first: it is this repo's documented JS runtime and starts faster. node is
 # accepted because the driver is plain ESM with no bun-specific API.
 js_runtime() {

@@ -1,0 +1,92 @@
+{
+  "schema": "slsc.phase5-preflight-audit/v1",
+  "card": "SLSC-P5-PRE",
+  "logical_id": "P5-PRE",
+  "status": "pass",
+  "unblocks": [
+    "SLSC-P5-1"
+  ],
+  "timestamp": "2026-10-08T17:05:00+01:00",
+  "audit_findings": {
+    "containment_threshold_triggers": {
+      "risk_threshold": {
+        "parameter": "carried_gbp",
+        "default_limit": 500000.0,
+        "currency": "GBP",
+        "evaluation_source": "GET /api/v1/compliance/scan-fleet on policy-engine",
+        "action": "cascade_stun",
+        "target": "cardvault",
+        "sla_ms": 1000
+      },
+      "critical_compliance_failure": {
+        "parameter": "compliance_status",
+        "data_sensitivity": "PII",
+        "grace_period_hours": 0,
+        "action": "cascade_stun",
+        "target": "agent-llm-classifier"
+      },
+      "grace_period_expiry": {
+        "parameter": "remaining_hours",
+        "threshold": 0.0,
+        "action": "cascade_stun"
+      }
+    },
+    "policy_engine_design": {
+      "package": "main",
+      "target_file": "d2-signalloom/apps/fleet-manager/policy_engine.go",
+      "test_file": "d2-signalloom/apps/fleet-manager/policy_engine_test.go",
+      "endpoints": [
+        "GET /api/v1/fleet/policies",
+        "POST /api/v1/fleet/policies/evaluate"
+      ],
+      "condition_types": [
+        "RiskThreshold",
+        "ComplianceFailure",
+        "GracePeriodExpiry"
+      ],
+      "operators": [
+        ">",
+        ">=",
+        "==",
+        "<="
+      ],
+      "actions": [
+        "StunTarget",
+        "CascadeStun",
+        "Alert"
+      ],
+      "dry_run_support": true
+    },
+    "structured_audit_event_schema": {
+      "target_file": "d2-signalloom/apps/fleet-manager/audit_events.go",
+      "test_file": "d2-signalloom/apps/fleet-manager/audit_events_test.go",
+      "endpoints": [
+        "GET /api/v1/fleet/audit/events",
+        "GET /api/v1/fleet/audit/stream"
+      ],
+      "streaming_protocol": "Server-Sent Events (SSE)",
+      "content_type": "text/event-stream",
+      "event_fields": [
+        "eventId",
+        "timestamp",
+        "actionType",
+        "policyName",
+        "triggerCondition",
+        "targetAgentId",
+        "affectedAgents",
+        "durationMs",
+        "riskBefore",
+        "riskAfter",
+        "riskDelta",
+        "actor",
+        "operatorSignature"
+      ],
+      "storage": "thread-safe in-memory ring buffer with bounded capacity (default 1000 events)"
+    },
+    "baseline_verification": {
+      "fleet_manager_go_tests": "PASS: all unit and contract tests green (1.6s)",
+      "dashboard_vitest": "PASS: 82/82 tests green (5.2s)",
+      "typescript_typecheck": "PASS: 0 errors"
+    }
+  }
+}

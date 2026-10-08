@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 // DefaultAgentState is the state an agent is reported in when the fleet config
 // does not say otherwise.
 //
-// "active" and not "" — fleetApi.ts declares AgentState.state non-optional and
+// "active" and not "": fleetApi.ts declares AgentState.state non-optional and
 // types it as AgentStateValue, so an empty string is not a member of the union.
 // The dashboard does not reject it: stateToken()/stateColour() simply miss,
 // every roster count lands on zero, and the Fleet page renders a fleet in no
@@ -311,8 +312,8 @@ func (d *DAG) TopologicalSort() ([]string, error) {
 
 // CascadeTargets returns the set of agents that must be stunned when the given
 // agent is stunned. This is the target agent plus all agents that transitively
-// depend on it (BFS on reverse edges). Agents with type "observability" are
-// excluded from the cascade (they stay alive to observe).
+// depend on it (BFS on reverse edges). Agents designated for observability
+// (e.g. agent-monitor) are strictly excluded from the cascade (they stay alive to observe).
 //
 // The result is ordered: target first, then direct dependants, then transitive.
 func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
@@ -334,8 +335,15 @@ func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
 		current := queue[0]
 		queue = queue[1:]
 
-		// Skip observability agents (they are read-only watchers)
-		if d.agents[current].Type == "observability" && current != agentID {
+		// Observability agents are preserved (they are read-only watchers and remain running)
+		if d.isObservability(current) && current != agentID {
+			// Traverse reverse dependencies so downstream non-observability agents are reached
+			for _, rdep := range d.rdeps[current] {
+				if !visited[rdep] {
+					visited[rdep] = true
+					queue = append(queue, rdep)
+				}
+			}
 			continue
 		}
 
@@ -350,6 +358,23 @@ func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// isObservability returns true if the agent is designated for observability or monitoring.
+func (d *DAG) isObservability(agentID string) bool {
+	a, ok := d.agents[agentID]
+	if !ok {
+		return false
+	}
+	t := strings.ToLower(strings.TrimSpace(a.Type))
+	return t == "observability" || t == "monitor" || t == "logging" || strings.Contains(t, "observability") || agentID == "agent-monitor"
+}
+
+// IsObservabilityAgent returns true if the agent is designated for observability or monitoring.
+func (d *DAG) IsObservabilityAgent(agentID string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.isObservability(agentID)
 }
 
 // RecoveryOrder returns the topological order for recovering stunned agents.

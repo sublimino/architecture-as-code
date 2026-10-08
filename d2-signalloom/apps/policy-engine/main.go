@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/pkg/compliance"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
 
@@ -215,6 +216,7 @@ func main() {
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", handleReadyz)
 	mux.HandleFunc("/api/v1/evaluate", handleEvaluate)
+	mux.HandleFunc("/api/v1/compliance/scan-fleet", compliance.HandleScanFleet)
 
 	// Observation policy: the durable bundle set is read from disk at boot, not
 	// registered over the API (SLAWS v2 §4.4, D6).

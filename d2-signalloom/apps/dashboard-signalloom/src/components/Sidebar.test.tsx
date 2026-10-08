@@ -196,6 +196,7 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     expect(screen.getByRole('link', { name: /^Policies$/ })).toHaveAttribute('href', '/policies')
     expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('href', '/compliance')
     expect(screen.getByRole('link', { name: /^Collusion & Access$/ })).toHaveAttribute('href', '/collusion-access')
+    expect(screen.getByRole('link', { name: /^Users & Permissions$/ })).toHaveAttribute('href', '/users')
     expect(screen.getByRole('link', { name: /^Audit Trail$/ })).toHaveAttribute('href', '/audit')
 
     // Design group

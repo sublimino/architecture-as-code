@@ -133,6 +133,14 @@ if [[ -n "${DEMO_ZOT_CACHE_DIR:-}" ]]; then
   export ZOT_CACHE_DIR="${DEMO_ZOT_CACHE_DIR}"
 fi
 
+if [[ -n "${DEMO_POSTGRES_DATA_DIR:-}" ]]; then
+  export POSTGRES_DATA_DIR="${DEMO_POSTGRES_DATA_DIR}"
+fi
+
+if [[ -n "${DEMO_LOCAL_PATH_DATA_DIR:-}" ]]; then
+  export LOCAL_PATH_DATA_DIR="${DEMO_LOCAL_PATH_DATA_DIR}"
+fi
+
 # ── The cluster kubeconfig ───────────────────────────────────────────────────
 #
 # Root Makefile:15 exports KUBECONFIG=/tmp/osramp-kubeconfig.yaml. Exporting it

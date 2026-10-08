@@ -237,6 +237,8 @@ REMOTE_KEYS_DIR="${GCP_TF_DEMO_REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
 # `ls` on the host shows a directory that create-kind-cluster.sh has since
 # recreated. Only a push fails, with a 500 that names nothing.
 REMOTE_ZOT_CACHE="${GCP_TF_DEMO_REMOTE_ZOT_CACHE:-/opt/signalloom/zot-cache}"
+REMOTE_POSTGRES_DATA="${GCP_TF_DEMO_REMOTE_POSTGRES_DATA:-/opt/signalloom/postgres-data}"
+REMOTE_LOCAL_PATH_DATA="${GCP_TF_DEMO_REMOTE_LOCAL_PATH_DATA:-/opt/signalloom/local-path-data}"
 
 # EMPTY by default, meaning "run as whoever OS Login logged us in as".
 #
@@ -1608,6 +1610,14 @@ unrecoverable."
     "The running registry keeps a handle on the deleted directory, so every push
 fails with a 500 while the host path looks healthy and 'kind get clusters'
 reports the cluster is fine. Recreating the Kind cluster is the only way back."
+
+  assert_dir_is_durable GCP_TF_DEMO_REMOTE_POSTGRES_DATA "$REMOTE_POSTGRES_DATA" \
+    "the postgres persistent storage, bind-mounted into the Kind node" \
+    "Recreating the Kind cluster is required if this directory is destroyed."
+
+  assert_dir_is_durable GCP_TF_DEMO_REMOTE_LOCAL_PATH_DATA "$REMOTE_LOCAL_PATH_DATA" \
+    "the local-path provisioner storage, bind-mounted into the Kind node" \
+    "Recreating the Kind cluster is required if this directory is destroyed."
 }
 
 provision_remote_paths() {
@@ -1627,13 +1637,15 @@ provision_remote_paths() {
   # nothing else — no rm, no install -m, no truncation. chmod 700 because it
   # holds a cosign private key; cosign writes the key file itself 0600, but the
   # directory it lands in is created by us and would otherwise be 0755.
-  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") \
+  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
-    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo chmod 700 $(printf '%q' "$REMOTE_KEYS_DIR") \
+    && sudo chmod 700 $(printf '%q' "$REMOTE_POSTGRES_DATA") \
+    && sudo chmod 777 $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo touch $(printf '%q' "$REMOTE_LOG") \
     && sudo chown ${owner} $(printf '%q' "$REMOTE_LOG")" \
-    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
+    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE}, ${REMOTE_POSTGRES_DATA}, ${REMOTE_LOCAL_PATH_DATA} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
 }
 
 # Kustomize uses .git/ as a security boundary for relative path traversal:
@@ -1885,10 +1897,10 @@ run_pipeline() {
   # pipeline publishes the same dashboard Nginx service for its handover.
   # Exporting APP_PORT would couple independent lifecycle owners.
   local envs
-  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q DEMO_POSTGRES_DATA_DIR=%q DEMO_LOCAL_PATH_DATA_DIR=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
-    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE"
+    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE" "$REMOTE_POSTGRES_DATA" "$REMOTE_LOCAL_PATH_DATA"
 
   # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
   # drops to `ci`; here that account is not guaranteed to exist, and `sudo -u`

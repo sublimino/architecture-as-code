@@ -1219,7 +1219,7 @@ export function FeedsExplorerPage() {
                   {obs.source}
                 </td>
                 <td style={{ ...DataTable.td, color: 'var(--text)', fontWeight: 500, fontSize: 12 }}>
-                  {obs.actor_hint || '—'}
+                  {obs.actor_hint || '-'}
                 </td>
                 <td style={{ ...DataTable.td, fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--teal)' }}>
                   {(obs.confidence * 100).toFixed(0)}%

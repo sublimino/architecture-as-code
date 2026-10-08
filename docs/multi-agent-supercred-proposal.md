@@ -402,9 +402,6 @@ Obey these. They are the phase constitution.
 - `supercred-fleet-demo-harness.bats`: 16/16 tests passed.
 - Offline fleet bats battery: 70/70 tests passed.
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-
 #### Errata — SLSC-P1-1 Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/
 **Created:** 2026-10-08 09:55:22+01:00
 **Last Updated:** 2026-10-08 09:55:22+01:00
@@ -415,8 +412,8 @@ Obey these. They are the phase constitution.
 **Deviations:** None.
 **Notes:** Validated 100% clean with kubectl apply --dry-run=client, bats d2-signalloom/test/fleet-agents-contract.bats (21/21 passed), and bash test/agentprofile-manifest-validation.sh (16/16 passed).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P1-1","status":"pass","commit":"0f53d980bc2551e136210e2168784ad81c943e00"} -->
 
-=======
 #### Errata — SLSC-P1-2 Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser
 **Created:** 2026-10-08 10:11:00+01:00
 **Last Updated:** 2026-10-08 10:11:00+01:00
@@ -428,8 +425,7 @@ Obey these. They are the phase constitution.
 **Notes:** 100% of unit and contract tests passed under go test -v ./....
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P1-2","status":"pass","commit":"e0927ff804e84ae31bf9bb29d20c5c367adbb934"} -->
->>>>>>> 71dc35b6 (docs(SLSC-P1-2): record errata block for Fleet Manager Go service)
-=======
+
 #### Errata — SLSC-P1-3 Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling
 **Created:** 2026-10-08 10:27:00+01:00
 **Last Updated:** 2026-10-08 10:27:00+01:00
@@ -441,4 +437,16 @@ Obey these. They are the phase constitution.
 **Notes:** 100% of tests passed under bats test/supercred-fleet-deploy.bats (12/12) and bats test/supercred-fleet-demo-harness.bats (16/16).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P1-3","status":"pass","commit":"320052bd2a832fc181059f143717df3b8fe7b466"} -->
->>>>>>> a943748b (docs(SLSC-P1-3): record errata block for fleet deployment orchestration)
+
+#### Errata — SLSC-P1-4 Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route
+**Created:** 2026-10-08 10:31:00+01:00
+**Last Updated:** 2026-10-08 10:31:00+01:00
+**Status:** Completed
+**Commit:** f8ddbb41
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Built FleetTopology.tsx visualizer component and FleetDemoPage.tsx route in dashboard-signalloom presenting the 5-agent dependency graph with deterministic Dagre directed layout. Rendered node status badges (active, non-compliant, grace-period, stunned, absent), directed trust edges, agent inspector drawer, and toolbar controls (Deploy, Scan, Stun, Recover). Connected to live Fleet Manager GET /api/v1/fleet/topology polling.
+**Deviations:** None.
+**Notes:** 137/137 Vitest tests across 6 test suites passed cleanly with bun run test -- --run. tsc --noEmit and eslint passed with 0 errors. Zero em-dashes across modified frontend source files.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P1-4","status":"pass","commit":"f8ddbb41"} -->
+

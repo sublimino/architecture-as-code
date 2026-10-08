@@ -329,7 +329,7 @@ Obey these. They are the phase constitution.
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | baseline | Establish baseline: run test suites, verify harness readiness on integration/slsc-v0.1.0 at cut SHA | — | make demo-signalloom-api-test, vitest, docs-lint rc 0; totals in errata | S | antigravity | — | — | — | — | — |
 | P1-PRE | preflight | Audit SPIRE registration templates, OpenBao JWT mounts, and existing scripts/supercred-demo.sh | P0 | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
-| P1-1 | implementation | Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/ | P1-PRE | Manifest validation tests; kubectl apply --dry-run=client clean | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/ | P1-PRE | Manifest validation tests; kubectl apply --dry-run=client clean | S | antigravity | pass — delivered: 0f53d980bc2551e136210e2168784ad81c943e00 (see Errata — SLSC-P1-1) | — | — | — | — |
 | P1-2 | implementation | Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser | P1-1 | Go unit and contract tests verifying DAG adjacency parsing; cycle rejection clean | M | antigravity | — | — | — | — | — |
 | P1-3 | implementation | Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling | P1-2 | BATS test supercred-fleet-deploy.bats verifying 5 agent deployments; rc 0 | M | antigravity | — | — | — | — | — |
 | P1-4 | implementation | Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route | P1-3 | Vitest suite for FleetTopology.test.tsx; component renders 5 nodes and directed edges | M | antigravity | — | — | — | — | — |
@@ -401,3 +401,16 @@ Obey these. They are the phase constitution.
 - `fe-signalloom` FastAPI contract & migration tests: 56/56 passed.
 - `supercred-fleet-demo-harness.bats`: 16/16 tests passed.
 - Offline fleet bats battery: 70/70 tests passed.
+
+
+#### Errata — SLSC-P1-1 Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/
+**Created:** 2026-10-08 09:55:22+01:00
+**Last Updated:** 2026-10-08 09:55:22+01:00
+**Status:** Completed
+**Commit:** 0f53d980bc2551e136210e2168784ad81c943e00
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Authored OpenAPI v3 CustomResourceDefinition in signalloom.controlplane.io/v1alpha1 with structural schema for id, name, type, team, trustProfile, riskClass, gracePeriod, dependencies, spiffePath, openbaoMount, spiffe, openbao, securityContext, and state. Updated all 5 demonstration agent manifests and fleet-config.yaml to form the approved 5-node acyclic DAG.
+**Deviations:** None.
+**Notes:** Validated 100% clean with kubectl apply --dry-run=client, bats d2-signalloom/test/fleet-agents-contract.bats (21/21 passed), and bash test/agentprofile-manifest-validation.sh (16/16 passed).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

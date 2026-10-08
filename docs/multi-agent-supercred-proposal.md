@@ -351,7 +351,7 @@ Obey these. They are the phase constitution.
 | P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | pass: delivered: fafa2b51 (see Errata - SLSC-P4-GOV) | — | — | — | — |
 | P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | pass: delivered: 942fe950 (see Errata: SLSC-P5-PRE) | — | — | — | — |
 | P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | pass: delivered: 8b4f98f2 (see Errata: SLSC-P5-1) | — | — | — | — |
-| P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | — | — | — | — | — |
+| P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | pass: delivered: ac885519 (see Errata: SLSC-P5-2) | — | — | — | — |
 | P5-GOV | governor | Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid | P5-1, P5-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
@@ -665,3 +665,15 @@ Obey these. They are the phase constitution.
 **Notes:** Go unit tests pass 100% in 0.008s with zero vet findings. Docs lint passed with 0 errors. Zero em-dashes verified.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P5-1","status":"pass","commit":"8b4f98f2"} -->
+
+#### Errata — SLSC-P5-2 Implement audit event emission and operator audit stream for automated cascade actions
+**Created:** 2026-10-08 17:25:00+01:00
+**Last Updated:** 2026-10-08 17:25:00+01:00
+**Status:** Completed
+**Commit:** ac885519
+**Governor merge:** pending merge into integration/slsc-v0.1.0
+**Decisions:** Implemented structured audit event emission under audit_events.go. Defined AuditEvent struct capturing all 13 required schema fields. Created AuditRingBuffer providing thread-safe FIFO history with bounded capacity. Implemented broadcaster pub-sub mechanism for real-time Server-Sent Events. Exposed GET /api/v1/fleet/audit/events supporting pagination and query filters. Exposed GET /api/v1/fleet/audit/stream delivering real-time SSE audit events. Instrumented PolicyEngine to emit auto-policy-stun records on active containment. Instrumented handleStun and handleRecover handlers to emit audit records. Authored comprehensive unit and HTTP contract tests in audit_events_test.go.
+**Deviations:** None.
+**Notes:** Unit and contract tests pass 100% in 0.062s. Entire fleet-manager suite passes cleanly in 1.6s. Zero em-dashes verified.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P5-2","status":"pass","commit":"ac885519"} -->

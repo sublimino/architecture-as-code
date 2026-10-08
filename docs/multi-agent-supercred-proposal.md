@@ -346,7 +346,7 @@ Obey these. They are the phase constitution.
 | P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | pass — delivered: ad7cc041 (see Errata — SLSC-P3-4) | — | — | — | — |
 | P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: fcd1c077 (see Errata — SLSC-P3-GOV) | — | — | — | — |
 | P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 480d5a54 (see Errata — SLSC-P4-PRE) | — | — | — | — |
-| P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | pass — delivered: ca41b3b0 (see Errata — SLSC-P4-1) | — | — | — | — |
 | P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | — | — | — | — | — |
 | P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
 | P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
@@ -605,3 +605,15 @@ Obey these. They are the phase constitution.
 **Notes:** Phase 4 preflight passed. Implementation cards SLSC-P4-1 and SLSC-P4-2 are unblocked.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P4-PRE","status":"pass","commit":"480d5a54"} -->
+
+#### Errata — SLSC-P4-1 Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims
+**Created:** 2026-10-08 16:00:00+01:00
+**Last Updated:** 2026-10-08 16:00:00+01:00
+**Status:** Completed
+**Commit:** ca41b3b0
+**Governor merge:** merged into integration/slsc-v0.1.0 at commit 9b773d63
+**Decisions:** Implemented CallerContext in callerauth.go and ExtractCallerContext parsing X-User-Role and X-User-Team headers as well as Dex JWT Bearer token claims. Implemented FilterAgentsByTeam and FilterEdgesBetween in topology.go. Updated handleTopology in main.go to filter agents and edges for team leads while preserving full views for compliance officers and platform admins. Guarded handleStun and handleRecover returning HTTP 403 Forbidden for non-admin callers. Authored team_filter_test.go covering role-based filtering, edge isolation, action authorization denial, and JWT claim parsing.
+**Deviations:** None.
+**Notes:** Unit, vet, and contract tests pass 100% (all fleet-manager tests green). Zero em-dashes verified across all files.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P4-1","status":"pass","commit":"ca41b3b0"} -->

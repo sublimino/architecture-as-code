@@ -882,7 +882,20 @@ run_stage \
      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
      test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
      test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
-      test/rendered-env-unique.bats test/flux-annotation-values.bats"
+     test/rendered-env-unique.bats test/flux-annotation-values.bats \
+     test/afm-import-gateway-manifests.bats test/afm-importer-key-stdin.bats \
+     test/afm-importer-key.bats test/afm-rbac-exporter-manifests.bats \
+     test/afm-rbac-exporter-push.bats test/dockerfile-copy-sources.bats \
+     test/docs-tests-alignment.bats test/eapci-pilot-profile.bats \
+     test/fleet-operator-keys.bats test/freeport-lib.bats \
+     test/jev-browser-loop.bats test/jev-loop.bats \
+     test/kind-data-backup.bats test/kind-data-mounts.bats \
+     test/old-probe-name-guard.bats test/parallel-acceptance.bats \
+     test/remote-tenant-lab.bats test/signal-ingest-image-tag.bats \
+     test/signalloom-warden-manifests.bats \
+     test/sltm-ingest-chain.bats test/sltm-ingest-reload-ratelimit.bats \
+     test/source-id-tracked.bats test/spool-replay-lib.bats \
+     test/warden-cutover.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists

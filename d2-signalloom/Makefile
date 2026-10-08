@@ -20,7 +20,10 @@ UV_CACHE_DIR ?= /tmp/uv-cache
 BATS_JOBS ?= 1
 export KUBECONFIG GOPATH GOCACHE GOMODCACHE GONOSUMDB CGO_ENABLED HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME UV_CONFIG_FILE UV_CACHE_DIR BATS_JOBS
 
-.PHONY: test test-netassert bootstrap-drift bao-test-config netassert-config-drift
+.PHONY: test test-netassert bootstrap-drift bao-test-config netassert-config-drift test-openbao-lab
+test-openbao-lab: ## Run the offline OpenBao agent role behavioral proof lab.
+	./test/openbao-agent-generic-role-lab.sh
+
 test: ## Validate the D2 topology, dependency components, and Discovery Portal package.
 	./test/validate-topology.sh
 	bash ./test/validate-dependencies.sh

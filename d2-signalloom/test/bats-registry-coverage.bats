@@ -663,7 +663,10 @@ test-count-floor.bats
 dashboard-route-collisions.bats
 docs-index-sync.bats
 docs-lint.bats
-docs-rewrite-guard.bats"
+docs-rewrite-guard.bats
+test-isolation-audit.bats
+tombstone-mutation-check.bats
+signal-segment-key.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

@@ -352,7 +352,7 @@ Obey these. They are the phase constitution.
 | P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | pass: delivered: 942fe950 (see Errata: SLSC-P5-PRE) | — | — | — | — |
 | P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | pass: delivered: 8b4f98f2 (see Errata: SLSC-P5-1) | — | — | — | — |
 | P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | pass: delivered: ac885519 (see Errata: SLSC-P5-2) | — | — | — | — |
-| P5-GOV | governor | Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid | P5-1, P5-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
+| P5-GOV | governor | Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid | P5-1, P5-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | pass: delivered: d093d448 (see Errata: SLSC-P5-GOV) | — | — | — | — |
 
 ### Spec: Errata
 
@@ -677,3 +677,15 @@ Obey these. They are the phase constitution.
 **Notes:** Unit and contract tests pass 100% in 0.062s. Entire fleet-manager suite passes cleanly in 1.6s. Zero em-dashes verified.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P5-2","status":"pass","commit":"ac885519"} -->
+
+#### Errata — SLSC-P5-GOV Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid
+**Created:** 2026-10-08 17:30:00+01:00
+**Last Updated:** 2026-10-08 17:30:00+01:00
+**Status:** Completed
+**Commit:** d093d448
+**Governor merge:** Phase 5 integration clean on integration/slsc-v0.1.0
+**Decisions:** Validated sequential merge of Phase 5 deliverables. P5-1 delivered automated response policy engine with configurable compliance and risk thresholds (8b4f98f2 / e9960b0c). P5-2 delivered structured audit event emission and operator audit stream (ac885519 / 75dba587). Executed the double offline test pyramid. Floor check verified test/test-count-floor.bats with 10 of 10 tests passed. Pass 1 verified make test-all-offline across all five stages with zero failures. Pass 2 verified make test-all-offline with identical pass counts. Verified fleet-manager unit and vet tests passed in 1.8s. Verified dashboard Vitest suites passed with 210 of 210 tests passed and 0 typecheck errors. Verified policy-engine and FastAPI contract tests passed. Reconciled zero em-dashes rule across all deliverables. Tagged integration tip integration/slsc-v0.1.0-p5 at commit d093d448.
+**Deviations:** None.
+**Notes:** Phase 5 integration and complete mission certified. Facts recorded in ci-evidence/slsc-p5-governor-facts.json.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P5-GOV","status":"pass","commit":"d093d448"} -->

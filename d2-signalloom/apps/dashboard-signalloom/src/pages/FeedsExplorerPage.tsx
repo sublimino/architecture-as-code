@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { weaveApi } from '../api/weaveApi'
 import type { StoreStats, SignalObservation, FidelityTier } from '../api/weaveApi'
@@ -268,6 +269,14 @@ export function describeIngestError(err: any, fallback: string): string {
 
 export function FeedsExplorerPage() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const initialLayer = searchParams.get('layer') || 'all'
+  const initialFidelity = searchParams.get('fidelity') || 'all'
+  const initialActor = searchParams.get('actor') || ''
+  const initialWindow = searchParams.get('window') || '24h'
+  const initialQ = searchParams.get('q') || ''
+
   const [stats, setStats] = useState<StoreStats | null>(null)
   const [observations, setObservations] = useState<SignalObservation[]>([])
   const [loading, setLoading] = useState(false)
@@ -283,12 +292,35 @@ export function FeedsExplorerPage() {
   const activeObservations = historicalDate ? historicalObservations : observations
 
   // Slicing & Dicing filters
-  const [selectedLayer, setSelectedLayer] = useState<string>('all')
-  const [selectedFidelity, setSelectedFidelity] = useState<string>('all')
-  const [actorFilter, setActorFilter] = useState<string>('')
-  const [timeWindow, setTimeWindow] = useState<string>('24h')
-  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [selectedLayer, setSelectedLayer] = useState<string>(initialLayer)
+  const [selectedFidelity, setSelectedFidelity] = useState<string>(initialFidelity)
+  const [actorFilter, setActorFilter] = useState<string>(initialActor)
+  const [timeWindow, setTimeWindow] = useState<string>(initialWindow)
+  const [searchQuery, setSearchQuery] = useState<string>(initialQ)
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null)
+
+  // Sync state to URL search parameters
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams)
+    if (selectedLayer && selectedLayer !== 'all') params.set('layer', selectedLayer)
+    else params.delete('layer')
+
+    if (selectedFidelity && selectedFidelity !== 'all') params.set('fidelity', selectedFidelity)
+    else params.delete('fidelity')
+
+    if (actorFilter.trim()) params.set('actor', actorFilter.trim())
+    else params.delete('actor')
+
+    if (timeWindow && timeWindow !== '24h') params.set('window', timeWindow)
+    else params.delete('window')
+
+    if (searchQuery.trim()) params.set('q', searchQuery.trim())
+    else params.delete('q')
+
+    if (params.toString() !== searchParams.toString()) {
+      setSearchParams(params, { replace: true })
+    }
+  }, [selectedLayer, selectedFidelity, actorFilter, timeWindow, searchQuery, searchParams, setSearchParams])
 
   // Pushdown workbench options
   const [selectedProjections, setSelectedProjections] = useState<string[]>(['*'])
@@ -323,7 +355,10 @@ export function FeedsExplorerPage() {
   const loadInitialObservations = useCallback(async () => {
     try {
       const token = await getAccessTokenSilently()
-      const obs = await weaveApi.getObservations(token, { limit: 100 })
+      const obs = await weaveApi.getObservations(token, {
+        limit: 100,
+        layer: selectedLayer !== 'all' ? selectedLayer : undefined,
+      })
       if (Array.isArray(obs)) {
         setObservations(obs.slice(0, 500))
         setBufferedCount(obs.length)
@@ -331,12 +366,15 @@ export function FeedsExplorerPage() {
     } catch (err) {
       console.warn('Could not load initial observations:', err)
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, selectedLayer])
 
   useEffect(() => {
     fetchStats()
+  }, [fetchStats])
+
+  useEffect(() => {
     loadInitialObservations()
-  }, [fetchStats, loadInitialObservations])
+  }, [loadInitialObservations])
 
   // Load historical observations when historicalDate changes
   const loadHistoricalObservations = useCallback(async (dateStr: string) => {
@@ -351,6 +389,7 @@ export function FeedsExplorerPage() {
         after: startDate.toISOString(),
         before: endDate.toISOString(),
         limit: 500,
+        layer: selectedLayer !== 'all' ? selectedLayer : undefined,
       })
       setHistoricalObservations(Array.isArray(hist) ? hist : [])
     } catch (err: any) {
@@ -358,7 +397,7 @@ export function FeedsExplorerPage() {
     } finally {
       setHistoryLoading(false)
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, selectedLayer])
 
   useEffect(() => {
     if (historicalDate) {

@@ -28,6 +28,7 @@
  * kept replacing the rows underneath would defeat the only reason to press it.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { isDemoMode } from '../api/demoMode'
 import { weaveApi, type SignalObservation } from '../api/weaveApi'
@@ -74,9 +75,21 @@ export function bucketFor(window: PolicyWindow): RateBucket {
 export default function SignalsPage() {
   const { getAccessTokenSilently } = useAuth0()
   const demo = isDemoMode()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [window, setWindow] = useState<PolicyWindow>('10m')
-  const [tab, setTab] = useState<Tab>('live')
+  const initialWindow = (searchParams.get('window') as PolicyWindow) || '10m'
+  const initialTab = (searchParams.get('tab') as Tab) || 'live'
+  const initialLayer = searchParams.get('layer') || null
+  const initialFidelity = searchParams.get('fidelity') || null
+  const initialQ = searchParams.get('q') || ''
+  const initialExcludeSentinel = searchParams.get('excludeSentinel') === 'true'
+
+  const [window, setWindow] = useState<PolicyWindow>(initialWindow)
+  const [tab, setTab] = useState<Tab>(initialTab)
+  const [selectedLayer, setSelectedLayer] = useState<string | null>(initialLayer)
+  const [selectedFidelity, setSelectedFidelity] = useState<string | null>(initialFidelity)
+  const [searchQuery, setSearchQuery] = useState<string>(initialQ)
+  const [excludeSentinel, setExcludeSentinel] = useState<boolean>(initialExcludeSentinel)
   const [paused, setPaused] = useState(false)
   const [unreviewedOnly, setUnreviewedOnly] = useState(false)
 
@@ -92,13 +105,42 @@ export default function SignalsPage() {
 
   const streamRef = useRef<{ disconnect: () => void } | null>(null)
 
+  // Sync state to URL search parameters
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams)
+    if (window && window !== '10m') params.set('window', window)
+    else params.delete('window')
+
+    if (tab && tab !== 'live') params.set('tab', tab)
+    else params.delete('tab')
+
+    if (selectedLayer && selectedLayer !== 'all') params.set('layer', selectedLayer)
+    else params.delete('layer')
+
+    if (selectedFidelity && selectedFidelity !== 'all') params.set('fidelity', selectedFidelity)
+    else params.delete('fidelity')
+
+    if (searchQuery.trim()) params.set('q', searchQuery.trim())
+    else params.delete('q')
+
+    if (excludeSentinel) params.set('excludeSentinel', 'true')
+    else params.delete('excludeSentinel')
+
+    if (params.toString() !== searchParams.toString()) {
+      setSearchParams(params, { replace: true })
+    }
+  }, [window, tab, selectedLayer, selectedFidelity, searchQuery, excludeSentinel, searchParams, setSearchParams])
+
   const fetchAll = useCallback(
     async (opts: { initial: boolean }) => {
       try {
         if (opts.initial) setLoading(true)
         const token = await getAccessTokenSilently()
         const [obs, fnd, dec, rts] = await Promise.all([
-          weaveApi.getObservations(token, { limit: FEED_CAP }),
+          weaveApi.getObservations(token, {
+            limit: FEED_CAP,
+            layer: selectedLayer && selectedLayer !== 'all' ? selectedLayer : undefined,
+          }),
           policyApi.getFindings(token, { window }),
           policyApi.getDecisions(token, { window }),
           policyApi.getRates(token, { window, bucket: bucketFor(window) }),
@@ -115,10 +157,10 @@ export default function SignalsPage() {
         if (opts.initial) setLoading(false)
       }
     },
-    [getAccessTokenSilently, window],
+    [getAccessTokenSilently, window, selectedLayer],
   )
 
-  // Initial load, and a reload whenever the window changes.
+  // Initial load, and a reload whenever the window or selected layer changes.
   useEffect(() => {
     void fetchAll({ initial: true })
   }, [fetchAll])
@@ -143,7 +185,10 @@ export default function SignalsPage() {
       if (cancelled) return
       handle = weaveApi.createObservationsStream(
         token,
-        { limit: FEED_CAP },
+        {
+          limit: FEED_CAP,
+          layers: selectedLayer && selectedLayer !== 'all' ? selectedLayer : undefined,
+        },
         (obs) => {
           if (cancelled) return
           setObservations((prev) => {
@@ -167,7 +212,7 @@ export default function SignalsPage() {
       handle?.disconnect()
       if (streamRef.current === handle) streamRef.current = null
     }
-  }, [getAccessTokenSilently, paused, demo, window])
+  }, [getAccessTokenSilently, paused, demo, window, selectedLayer])
 
   const handleReview = useCallback(
     async (decisionId: string, body: { verdict: ReviewVerdict; note: string }): Promise<DecisionReview> => {
@@ -407,7 +452,11 @@ export default function SignalsPage() {
         <div role="tabpanel" id="signals-panel-live" aria-labelledby="signals-tab-live">
           <Section title="Ingest rate by layer" hint={`Per ${bucketFor(window)} bucket, stacked`}>
             <div className="card" style={{ padding: '16px 18px' }}>
-              <IngestRateChart rates={rates} />
+              <IngestRateChart
+                rates={rates}
+                selectedLayer={selectedLayer}
+                onSelectLayer={(l) => setSelectedLayer(l)}
+              />
             </div>
           </Section>
 
@@ -416,7 +465,23 @@ export default function SignalsPage() {
           </Section>
 
           <Section title="Live signal feed" hint="Newest first. Projected descriptions, never payloads">
-            <ObservationFeed observations={observations} />
+            <ObservationFeed
+              observations={observations}
+              selectedLayer={selectedLayer}
+              onSelectLayer={(l) => setSelectedLayer(l)}
+              selectedFidelity={selectedFidelity}
+              onSelectFidelity={(f) => setSelectedFidelity(f)}
+              searchQuery={searchQuery}
+              onSearchChange={(q) => setSearchQuery(q)}
+              excludeSentinel={excludeSentinel}
+              onToggleSentinel={() => setExcludeSentinel((v) => !v)}
+              onClearFilters={() => {
+                setSelectedLayer(null)
+                setSelectedFidelity(null)
+                setSearchQuery('')
+                setExcludeSentinel(false)
+              }}
+            />
           </Section>
 
           <Section title="Findings in this window" hint="Rules that fired, and the signal behind each">

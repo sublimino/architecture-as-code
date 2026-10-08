@@ -974,6 +974,43 @@ alignment                rc=0 pass=checked=104 fail=0
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-PRE","status":"pass","commit":"3e4656b0"} -->
 
+#### Errata — EAPCI-P2-1
+
+- **Logical ID:** P2-1
+- **Created:** 2026-10-08 10:40:00+01:00
+- **Last Updated:** 2026-10-08 10:40:00+01:00
+- **Harness:** `antigravity`
+- **Delivery Status:** `fail`
+- **Commit:** `c2335169`
+- **Base Ref:** `refs/heads/integration/eapci-v0.1.0`
+- **Merge Base Check:** `IS_ANCESTOR_OK`
+
+##### 1. Execution Summary
+- **Lane:** `ci-1` (`sl-ci-1-vm` in zone `us-east4-a`, project `sl-port-over-sandbox`)
+- **Remote Pipeline Execution:** `scripts/gcp-tf/demo-pipeline.sh` completed on `sl-ci-1-vm` (Total stages: 47; Passed: 32; Failed: 15).
+- **Demo Bringup & Publication:** Dashboard published on port 8080 (`http://dashboard.osramp.acme.local:8080/`), managed by supervised port-forward.
+- **EAP Stage Results (5 of 6 passed):**
+  - `EAP dual-cluster standup` (`stage6eap1-dual-cluster.txt`): PASS (exit 0, 8s)
+  - `EAP remote-tenant lab` (`stage6eap2-remote-tenant.txt`): PASS (exit 0, 98s)
+  - `Kusari E2E tests` (`stage6eap3-kusari-e2e.txt`): PASS (exit 0, 7s)
+  - `Kusari live tier (KUSARI_LIVE=1)` (`stage6eap4-kusari-live.tap`): PASS (exit 0, 1s, 7/7 tests pass, 0 skips)
+  - `SLAWS acceptance` (`stage6eap5-slaws-acceptance.txt`): FAIL (exit 1, 406s) due to `sldc-offline` timeout (rc=2, 704 pass, 0 fail after 319s)
+  - `EAP offline suites` (`stage6eap6-eap-offline.txt`): PASS (exit 0, 37s)
+- **Key Pipeline Results:**
+  - `Dex and complete dashboard journey matrix`: PASS (exit 0, 42s)
+  - `Dashboard page smoke suite`: PASS (exit 0, 208s)
+  - `Topology, dependencies, Go suites and d2-signalloom bats glob`: PASS (exit 0, 499s)
+  - `Gateway, probes, Dex, and NetworkPolicy runtime negatives`: PASS (exit 0, 72s)
+  - `Adversarial API surface probes`: PASS (exit 0, 2s)
+  - `User-facing demo surfaces over real tailnet origin`: FAIL (exit 2) (tailscale origin unconfigured on ci-1)
+
+##### 2. Decisions & Deviations
+- **Deviations:** Stage 6eap5 (`SLAWS acceptance`) failed on `sldc-offline` reaching its 300s timeout on VM n2-standard-8 with 704 passing tests and 0 failures. Stage 9 failed due to missing Tailnet peer ingress routing for `ci-1`.
+- **Recommended Action:** Escalate residual to governor for timeout calibration; lane `ci-1` proved core Kusari EAP capabilities (7/7 live tests pass, dual-cluster standup pass, remote-tenant lab pass, smoke suite pass).
+
+<!-- kanban-check: status=fail proceed=no blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P2-1","status":"fail","commit":"c2335169"} -->
+
 #### Errata — EAPCI-P2-4
 
 - **Logical ID:** P2-4

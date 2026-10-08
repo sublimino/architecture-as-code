@@ -65,14 +65,38 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
         }
 
         if (!data && targetId) {
-          data = await weaveApi.getActorAuthorization(token, targetId, actionId)
+          try {
+            data = await weaveApi.getActorAuthorization(token, targetId, actionId)
+          } catch (actorErr: unknown) {
+            try {
+              const resp = await weaveApi.getAuthorizationChains(token, { actor_id: targetId })
+              if (resp && resp.chains && resp.chains.length > 0) {
+                data = resp.chains[0]
+              }
+            } catch {
+              // fallback failed
+            }
+            if (!data) {
+              const errObj = actorErr as { response?: { status?: number }; message?: string }
+              const is404 = errObj?.response?.status === 404 || errObj?.message?.includes('404')
+              if (!is404) {
+                throw actorErr
+              }
+            }
+          }
         }
 
         if (isMounted) {
           if (data) {
             setActiveChain(data)
+            setError(null)
           } else {
-            setError(actionId ? `No cryptographic authorization proof found for action ID: ${actionId}` : 'Failed to load authorization chain.')
+            setActiveChain(null)
+            if (actionId) {
+              setError(`No cryptographic authorization proof found for action ID: ${actionId}`)
+            } else {
+              setError(null)
+            }
           }
         }
       } catch (err) {
@@ -297,7 +321,9 @@ export const WhoAuthorizedPanel: React.FC<WhoAuthorizedPanelProps> = memo(({
 
       {!loading && !error && !chain && (
         <div data-testid="who-authorized-empty" style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted, #8b949e)', fontSize: 13 }}>
-          Select an actor or observation to inspect its full authorization chain.
+          {targetId
+            ? `No attested authorization chain recorded for agent "${targetId}".`
+            : 'Select an actor or observation to inspect its full authorization chain.'}
         </div>
       )}
 

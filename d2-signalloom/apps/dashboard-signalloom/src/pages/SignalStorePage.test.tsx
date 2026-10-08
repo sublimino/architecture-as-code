@@ -183,4 +183,80 @@ describe('SignalStorePage', () => {
       expect(screen.getByTestId('action-result')).toHaveTextContent('Seeded 8 observations')
     })
   })
+
+  it('renders Super DataTable toolbar and filters rows by search query', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('raw-observations-super-table')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('store-obs-search')).toBeInTheDocument()
+    expect(screen.getByTestId('store-obs-count')).toHaveTextContent('2 of 2 observations')
+
+    const searchInput = screen.getByTestId('store-obs-search')
+    await user.type(searchInput, 'cilium')
+    expect(screen.getByText('obs-net-001')).toBeInTheDocument()
+    expect(screen.queryByText('obs-id-001')).not.toBeInTheDocument()
+    expect(screen.getByTestId('store-obs-count')).toHaveTextContent('1 of 2 observations')
+  })
+
+  it('initializes filters from URL search parameters', async () => {
+    render(
+      <MemoryRouter initialEntries={['/signal-store?layer=identity_authorization&fidelity=definitive&q=secrets']}>
+        <SignalStorePage />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('raw-observations-super-table')).toBeInTheDocument()
+    })
+    expect(screen.getByText('obs-id-001')).toBeInTheDocument()
+    expect(screen.queryByText('obs-net-001')).not.toBeInTheDocument()
+    expect(screen.getByTestId('store-obs-count')).toHaveTextContent('1 of 2 observations')
+  })
+
+  it('clears filters when clicking the clear filters button', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/signal-store?q=cilium']}>
+        <SignalStorePage />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('raw-observations-super-table')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('store-obs-count')).toHaveTextContent('1 of 2 observations')
+    await user.click(screen.getByTestId('store-obs-clear'))
+    expect(screen.getByTestId('store-obs-count')).toHaveTextContent('2 of 2 observations')
+    expect(screen.getByText('obs-net-001')).toBeInTheDocument()
+    expect(screen.getByText('obs-id-001')).toBeInTheDocument()
+  })
+
+  it('clicking a layer row filters observations and provides deep links', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('store-layer-row-network_egress')).toBeInTheDocument()
+    })
+
+    // Check deep links exist
+    const row = screen.getByTestId('store-layer-row-network_egress')
+    const links = row.querySelectorAll('a')
+    expect(links.length).toBe(2)
+    expect(links[0]).toHaveAttribute('href', '/signals?layer=network_egress')
+    expect(links[1]).toHaveAttribute('href', '/feeds?layer=network_egress')
+
+    // Click the row to filter
+    await user.click(row)
+    await waitFor(() => {
+      expect(screen.getByTestId('store-active-layer-banner')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Filtered by layer:/)).toBeInTheDocument()
+
+    // Clear via the banner button
+    await user.click(screen.getByTestId('store-clear-layer-filter'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('store-active-layer-banner')).not.toBeInTheDocument()
+    })
+  })
 })
+

@@ -222,7 +222,8 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	stunned := []string{"agent-cardvault", "agent-txn-pipeline", "agent-llm-classifier", "agent-api-gateway"}
+	// Pass stunned agents in reverse topological order to assert topological sorting
+	stunned := []string{"agent-llm-classifier", "agent-api-gateway", "agent-txn-pipeline", "agent-cardvault"}
 	result, err := orch.Recover(context.Background(), stunned)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -240,6 +241,20 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 		t.Fatalf("expected agent-cardvault first in recovery, got %q", result.RecoveryOrder[0])
 	}
 
+	pos := make(map[string]int)
+	for i, id := range result.RecoveryOrder {
+		pos[id] = i
+	}
+	if pos["agent-cardvault"] >= pos["agent-txn-pipeline"] {
+		t.Fatalf("agent-cardvault must be ordered before agent-txn-pipeline: %v", result.RecoveryOrder)
+	}
+	if pos["agent-cardvault"] >= pos["agent-api-gateway"] {
+		t.Fatalf("agent-cardvault must be ordered before agent-api-gateway: %v", result.RecoveryOrder)
+	}
+	if pos["agent-txn-pipeline"] >= pos["agent-llm-classifier"] {
+		t.Fatalf("agent-txn-pipeline must be ordered before agent-llm-classifier: %v", result.RecoveryOrder)
+	}
+
 	// Restore calls should be in topological order
 	calls := client.getCalls()
 	var restoreCalls []string
@@ -249,18 +264,19 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 		}
 	}
 
-	// cardvault must come before txn-pipeline
-	cardvaultPos, txnPos := -1, -1
+	callPos := make(map[string]int)
 	for i, id := range restoreCalls {
-		if id == "agent-cardvault" {
-			cardvaultPos = i
-		}
-		if id == "agent-txn-pipeline" {
-			txnPos = i
-		}
+		callPos[id] = i
 	}
-	if cardvaultPos >= txnPos {
+
+	if callPos["agent-cardvault"] >= callPos["agent-txn-pipeline"] {
 		t.Fatal("agent-cardvault must be restored before agent-txn-pipeline")
+	}
+	if callPos["agent-cardvault"] >= callPos["agent-api-gateway"] {
+		t.Fatal("agent-cardvault must be restored before agent-api-gateway")
+	}
+	if callPos["agent-txn-pipeline"] >= callPos["agent-llm-classifier"] {
+		t.Fatal("agent-txn-pipeline must be restored before agent-llm-classifier")
 	}
 }
 
@@ -285,7 +301,7 @@ func TestStun_ContextCancellation(t *testing.T) {
 // TestStun_ClientErrors_AreTolerated, which asserted the defect SLER-P1-5 was
 // raised to remove. That test's comment read "client failures are logged but
 // tolerated" and it checked only that the cascade returned no error and emitted
-// one event — both of which a wholly-failed containment also does. It was green
+// one event, both of which a wholly-failed containment also does. It was green
 // throughout the entire lifetime of the bug.
 //
 // The contract kept: a per-target client failure is not a cascade-level error,

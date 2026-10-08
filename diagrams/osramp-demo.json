@@ -1,0 +1,40 @@
+{
+  "type": "architecture",
+  "title": "OSRAMP Demo Architecture",
+  "subtitle": "Supply chain ingestion, Witness attestations, and GitOps evidence plane (o11y excluded).",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    { "id": "dev", "label": "Developer / CI", "sub": "GitOps · Webhook", "kind": "external", "row": 0, "col": 0 },
+    { "id": "envoy", "label": "Envoy Gateway", "sub": "Gateway API · TLS", "tag": "EDGE", "kind": "backend", "row": 0, "col": 1, "group": "foundation" },
+    { "id": "flux", "label": "Flux Operator", "sub": "GitOps · ResourceSets", "tag": "GITOPS", "kind": "backend", "row": 1, "col": 1, "group": "foundation" },
+    { "id": "zot", "label": "Zot Registry", "sub": "OCI Cache · :5000", "kind": "store", "row": 2, "col": 1, "group": "foundation" },
+    { "id": "cosign", "label": "Cosign & Witness", "sub": "SLSA L3 Keys", "kind": "security", "row": 3, "col": 1, "group": "foundation" },
+    { "id": "listener", "label": "PURL Listener", "sub": "Go · Ingestion", "kind": "backend", "row": 0, "col": 2, "group": "frontend" },
+    { "id": "processor", "label": "Witness Processor", "sub": "Syft SBOM · Signer", "tag": "CORE", "focal": true, "kind": "backend", "row": 1, "col": 2, "group": "frontend" },
+    { "id": "archiver", "label": "OSRAMP Archiver", "sub": "Go · Result Spiller", "kind": "backend", "row": 2, "col": 2, "group": "frontend" },
+    { "id": "nats", "label": "NATS JetStream", "sub": "Durable Event Bus", "kind": "store", "row": 0, "col": 3, "group": "backend" },
+    { "id": "archivista", "label": "Archivista", "sub": "in-toto Ledger", "kind": "backend", "row": 1, "col": 3, "group": "backend" },
+    { "id": "postgres", "label": "PostgreSQL", "sub": "VEX & CVE Findings", "kind": "store", "row": 2, "col": 3, "group": "backend" },
+    { "id": "minio", "label": "MinIO Store", "sub": "S3 Blob Storage", "kind": "store", "row": 1, "col": 4, "group": "backend" }
+  ],
+  "groups": [
+    { "id": "foundation", "label": "Shared Foundation (Kind: osramp)" },
+    { "id": "frontend", "label": "OSRAMP Pipeline (frontend)" },
+    { "id": "backend", "label": "Evidence Plane (backend)" }
+  ],
+  "edges": [
+    ["dev", "envoy", "HTTPS push", "link"],
+    ["envoy", "listener", "webhook", "primary"],
+    ["listener", "nats", "publish", "primary"],
+    ["nats", "processor", "consume", "primary"],
+    ["processor", "archivista", "attestations", "primary"],
+    ["archivista", "minio", "S3 store"],
+    ["processor", "nats", "evidence", "async"],
+    ["nats", "archiver", "consume", "async"],
+    ["archiver", "postgres", "results", "default"],
+    ["flux", "zot", "reconcile", "link"],
+    ["cosign", "flux", "verify", "link"],
+    ["cosign", "processor", "keys", "async"]
+  ]
+}

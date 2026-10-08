@@ -338,7 +338,7 @@ Obey these. They are the phase constitution.
 | P3-GOV | governor | Merge P3-1..P3-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P3 completion errata. | P3-1, P3-2, P3-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
 | P4-PRE | preflight | Audit Kusari pilot profile in live tfvars and seed data; verify test environment configuration; record audit table in errata. | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — audited: Kusari tenant ID/hash, seed conventions & Playwright test environment (see Errata — SLFA-P4-PRE) | — | — | — | — |
 | P4-1 | implementation | Provision migration `011_seed_design_partner_presets.sql` (sequenced as `060_seed_design_partner_presets.sql`) with default flag configuration for Kusari tenant (`core_governance=true`, `audit=true`, `compliance=true`, `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`); seed initial superadmin user. | P4-PRE | Database seed verification test; flags verified for Kusari tenant vs default tenant | S | antigravity | pass — delivered: fc890894 (see Errata — SLFA-P4-1) | — | — | — | — |
-| P4-2 | implementation | Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts` testing superadmin login → user invite → role reassignment → tenant feature flag suppression verification in the dashboard UI. | P4-1 | Playwright spec passes in acceptance test run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
+| P4-2 | implementation | Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts` testing superadmin login → user invite → role reassignment → tenant feature flag suppression verification in the dashboard UI. | P4-1 | Playwright spec passes in acceptance test run; SPEC-REGISTRY entry registered | M | antigravity | pass — delivered: f373f4e5 (see Errata — SLFA-P4-2) | — | — | — | — |
 | P4-GOV | governor | Merge P4-1..P4-2 in order into `integration/slfa-v0.1.0`; execute full test pyramid (`make test-all-offline` and `make acceptance-test`); verify zero regression; request final AJM sign-off. | P4-1, P4-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
@@ -723,6 +723,36 @@ _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing
 - Migration numbered `060_seed_design_partner_presets.sql` instead of `011_seed_design_partner_presets.sql` because migrations 001–059 already existed in the repository (011 is `011_agent_stunned_event_type.sql`). This forward-only ordering was identified in `SLFA-P4-PRE` and maintains schema migration linearity.
 **Notes:** Phase 4-1 complete. Handing off to P4-2 (Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts`).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P4-2 SLFA-P4-2: Author Playwright acceptance journey spec test/acceptance/user-admin-and-flags.spec.ts
+**Created:** 2026-10-08 04:28:00+01:00
+**Last Updated:** 2026-10-08 04:28:00+01:00
+**Status:** Completed
+**Commit:** f373f4e5
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Implemented cluster-free Playwright acceptance test harness in `test/acceptance/harness/`:
+  - `user-admin-flags-auth-stub.tsx`: Auth stub providing OIDC tokens, `useAuth0()`, `useApi()`, `useServerSuperadmin`, and tenant scoping from URL query parameters (`tenant`, `superadmin`).
+  - `user-admin-flags-entry.tsx`: React 18 harness entry mounting `QueryClientProvider`, `BrowserRouter`, `AppContext.Provider`, `FeatureFlagProvider`, `Sidebar`, `UsersPage`, `FeatureGate`, and `NotFoundPage`.
+  - `user-admin-flags-server.ts`: Standalone Bun server serving mock API endpoints (`/api/v1/me`, `/api/v1/admin/users`, `/api/v1/admin/users/invite`, `/api/v1/admin/users/:id`, `/api/v1/features`, `/api/v1/tenants`, `/harness/reset`), bundling the dashboard frontend dynamically with `Bun.build` and markdown/raw asset support.
+  - `user-admin-flags-helpers.ts`: Typed interaction and assertion library for starting the test server, state reset, modal interaction (`openInviteUserModal`, `fillAndSubmitInvite`, `editUserRole`), and Sidebar feature flag visibility assertions.
+- Created acceptance test journey in `test/acceptance/user-admin-and-flags.spec.ts`:
+  - **Stage 1 (Superadmin Login & Navigation)**: Navigates to `/admin/users` as superadmin, asserts `UsersPage` renders with `tenant-filter-select` showing all tenants (`tenant-demo`, `kusari`).
+  - **Stage 2 (User Invitation)**: Opens `InviteUserModal`, fills email (`sarah.connor@kusari.demo`), name, and selects role (`editor`), submits form, and asserts user appears in `UserTable` with `role-badge-editor` and `status-badge-invited`.
+  - **Stage 3 (Role Reassignment)**: Opens `EditUserModal`, changes role to `viewer`, acknowledges privilege change warning (`edit-confirm-checkbox`), submits, and asserts role badge dynamically updates to `role-badge-viewer`.
+  - **Stage 4 (Feature Flag Suppression under Kusari Tenant)**: Switches context to `kusari` tenant, verifies demo links (`/fleet`, `/fleet/audience`, `/supercred`, `/rbac-analysis`, `/rbac-explorer`, `/collusion-access`) are suppressed from `#sl-sidebar-nav`, while core governance links (`/policies`, `/compliance`, `/audit`, `/settings`) remain visible.
+  - **Stage 5 (Direct Route Access Control)**: Navigates directly to `/fleet` and `/demos/fleet` under `kusari` tenant, asserting route gate intercepts access and renders `NotFoundPage` (`data-testid="not-found"`).
+  - Added multi-tenant isolation test verifying non-superadmin users only see users belonging to their assigned tenant.
+- Registered spec in `test/acceptance/SPEC-REGISTRY.tsv`:
+  - `user-admin-and-flags.spec.ts	suite-only	Exercises superadmin login, user invitation, role reassignment, and tenant feature flag suppression across five stages.`
+- Configured dedicated Playwright project in `test/acceptance/playwright.config.ts` (`user-admin-and-flags`) and included spec in `smoke` testMatch regex.
+- Verified test execution:
+  - `bats test/acceptance-spec-coverage.bats` passed 7/7 checks.
+  - `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers PW_CHANNEL=chromium bunx playwright test test/acceptance/user-admin-and-flags.spec.ts` passed 4/4 tests cleanly in 17.1s with 0 flakiness.
+**Deviations:** None.
+**Notes:** Phase 4-2 complete. Handing off to P4-GOV (Merge P4-1..P4-2 into integration/slfa-v0.1.0 and execute full test pyramid).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 
 
 

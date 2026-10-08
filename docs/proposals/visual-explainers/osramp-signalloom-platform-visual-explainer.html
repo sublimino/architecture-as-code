@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OSRAMP & Signal Loom · Whole Platform Visual Explainer (Mixed Types & Versions)</title>
+  <style>
+    :root {
+      --bg: #070a12;
+      --surface: #0e1526;
+      --surface-elevated: #151f36;
+      --surface-hover: #1c2a47;
+      --border: #24324f;
+      --border-bright: #3b5078;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.2);
+      --violet: #8b5cf6;
+      --violet-glow: rgba(139, 92, 246, 0.2);
+      --teal: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --blue: #38bdf8;
+      --indigo: #6366f1;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.5;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    /* Layout */
+    .app-shell {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 100vh;
+    }
+
+    /* Top Navigation Header */
+    header {
+      background: rgba(14, 21, 38, 0.9);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-badge {
+      background: linear-gradient(135deg, var(--cyan), var(--violet));
+      color: #fff;
+      font-weight: 800;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      padding: 5px 9px;
+      border-radius: 6px;
+      box-shadow: 0 0 14px var(--cyan-glow);
+    }
+    .brand-title h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-title p {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 6px;
+      background: var(--surface);
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .nav-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-btn:hover {
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+    .nav-btn.active {
+      background: var(--blue);
+      color: #031024;
+      font-weight: 700;
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+    }
+
+    /* Main Container */
+    main {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 24px;
+      width: 100%;
+    }
+
+    .tab-content {
+      display: none;
+      animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Cards & Grids */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      position: relative;
+    }
+    .card-elevated {
+      background: var(--surface-elevated);
+      border-color: var(--border-bright);
+    }
+
+    .card h2 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card h3 {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--cyan);
+      margin-bottom: 6px;
+    }
+
+    /* KPI Cards */
+    .kpi-num {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.1;
+      margin: 6px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .kpi-lbl {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+    }
+    .kpi-desc {
+      font-size: 11.5px;
+      color: var(--teal);
+    }
+
+    /* Type & Version Badges */
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, monospace;
+    }
+    .type-service { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .type-agent { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .type-kernel { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .type-storage { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .type-gateway { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .type-solver { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
+
+    .ver-tag {
+      font-family: ui-monospace, monospace;
+      font-size: 10.5px;
+      color: #cbd5e1;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* Subsystem Filter Pills */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .filter-pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .filter-pill:hover, .filter-pill.active {
+      background: var(--surface-hover);
+      color: var(--text);
+      border-color: var(--cyan);
+    }
+    .filter-pill.active {
+      background: var(--cyan-glow);
+      color: var(--cyan);
+    }
+
+    /* Component Grid */
+    .node-catalog {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 16px;
+    }
+    .node-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      transition: all 0.2s;
+      cursor: pointer;
+      position: relative;
+    }
+    .node-card:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 4px 20px var(--cyan-glow);
+      transform: translateY(-2px);
+    }
+    .node-card.selected {
+      border-color: var(--blue);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+      background: var(--surface-elevated);
+    }
+    .node-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .node-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .node-subsys {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .node-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+      align-items: center;
+    }
+
+    /* Multi-Cloud Invariance Matrix */
+    .cloud-matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      margin-top: 12px;
+    }
+    .cloud-matrix-table th, .cloud-matrix-table td {
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    .cloud-matrix-table th {
+      background: var(--surface-elevated);
+      color: var(--text);
+      font-weight: 700;
+    }
+    .cloud-matrix-table tr:hover {
+      background: var(--surface-hover);
+    }
+    .cloud-header-stamp {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    /* Interactive Stepper Flow */
+    .flow-stepper {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      min-height: 480px;
+    }
+    .flow-nav {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .flow-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .flow-item:hover, .flow-item.active {
+      border-color: var(--cyan);
+    }
+    .flow-item.active {
+      background: #192742;
+      border-color: var(--blue);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+    }
+    .flow-item-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .flow-item-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .flow-stage {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+    .hops-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .hop-card {
+      background: var(--surface-elevated);
+      border-left: 3px solid var(--cyan);
+      border-radius: 0 6px 6px 0;
+      padding: 12px 16px;
+      position: relative;
+    }
+    .hop-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .hop-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .hop-wire {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--amber);
+      background: rgba(245, 158, 11, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .hop-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .hop-payload {
+      margin-top: 6px;
+      background: #080d1a;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: #38bdf8;
+      overflow-x: auto;
+    }
+
+    /* 6-Layer Security Pyramid */
+    .pyramid-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .layer-card {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      display: grid;
+      grid-template-columns: 180px 1fr 220px;
+      align-items: center;
+      gap: 16px;
+      transition: all 0.2s;
+    }
+    .layer-card:hover {
+      border-color: var(--violet);
+      box-shadow: 0 0 16px var(--violet-glow);
+    }
+    .layer-badge {
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .layer-info h4 {
+      font-size: 13.5px;
+      color: var(--text);
+      font-weight: 700;
+    }
+    .layer-info p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .layer-tech {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--cyan);
+      text-align: right;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 14px 24px;
+      font-size: 11.5px;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <div class="brand-wrap">
+        <span class="brand-badge">OSRAMP × SIGNAL LOOM</span>
+        <div class="brand-title">
+          <h1>Whole Platform Architecture & Taxonomy</h1>
+          <p>Mixed Runtime Types · Multi-Cloud Targets · Software & Governance Versions</p>
+        </div>
+      </div>
+      <nav class="nav-tabs">
+        <button class="nav-btn active" onclick="showTab('topology')">🌐 Whole Topology (50+ Nodes)</button>
+        <button class="nav-btn" onclick="showTab('flows')">🔄 Active Wire Flows</button>
+        <button class="nav-btn" onclick="showTab('multicloud')">☁️ Multi-Cloud Invariance</button>
+        <button class="nav-btn" onclick="showTab('defense')">🛡️ 6-Layer Security Stack</button>
+        <button class="nav-btn" onclick="showTab('protocols')">📡 Protocol Matrix</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- TAB 1: WHOLE TOPOLOGY & MIXED TYPES -->
+      <section id="tab-topology" class="tab-content active">
+        <div class="grid-5" style="margin-bottom: 20px;">
+          <div class="card card-elevated">
+            <div class="kpi-lbl">Core Namespaces</div>
+            <div class="kpi-num" style="color: var(--blue);">9</div>
+            <div class="kpi-desc">Strictly Invariant Topology</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-lbl">Service Nodes</div>
+            <div class="kpi-num" style="color: var(--cyan);">52</div>
+            <div class="kpi-desc">Across 9 Functional Groups</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-lbl">Runtime Types</div>
+            <div class="kpi-num" style="color: var(--violet);">6 Mixed</div>
+            <div class="kpi-desc">LSM, Daemon, Swarm, DB, SMT</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-lbl">Cloud Targets</div>
+            <div class="kpi-num" style="color: var(--teal);">4 Flavors</div>
+            <div class="kpi-desc">Kind, GCP, AWS, Azure</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-lbl">Supply Chain Gate</div>
+            <div class="kpi-num" style="color: var(--amber);">SLSA L3</div>
+            <div class="kpi-desc">Cosign + Witness in-toto</div>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <button class="filter-pill active" onclick="filterNodes('all')">All Subsystems (52)</button>
+          <button class="filter-pill" onclick="filterNodes('ingest')">Signal Fusion & Ingest (15)</button>
+          <button class="filter-pill" onclick="filterNodes('containment')">Containment & LSM (6)</button>
+          <button class="filter-pill" onclick="filterNodes('identity')">Identity & Trust (7)</button>
+          <button class="filter-pill" onclick="filterNodes('agentic')">Agentic Swarms (8)</button>
+          <button class="filter-pill" onclick="filterNodes('governance')">Governance & Z3 SMT (5)</button>
+          <button class="filter-pill" onclick="filterNodes('supplychain')">Supply Chain & GitOps (4)</button>
+          <button class="filter-pill" onclick="filterNodes('ui')">UI & Edge (4)</button>
+        </div>
+
+        <!-- Node Catalog -->
+        <div class="node-catalog" id="nodeContainer">
+          <!-- Populated by JavaScript with rich metadata -->
+        </div>
+      </section>
+
+      <!-- TAB 2: ACTIVE WIRE FLOWS -->
+      <section id="tab-flows" class="tab-content">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>🔄 End-to-End System Workflows & Hop Traces</h2>
+          <p style="color: var(--text-muted); font-size: 13px;">
+            Select a critical platform workflow to inspect data propagation, serialization protocols, and wire payloads across services.
+          </p>
+        </div>
+
+        <div class="flow-stepper">
+          <!-- Flow Picker -->
+          <div class="flow-nav" id="flowNav">
+            <!-- Populated via JS -->
+          </div>
+
+          <!-- Flow Stage Detail -->
+          <div class="flow-stage" id="flowDetail">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: MULTI-CLOUD INVARIANCE MATRIX -->
+      <section id="tab-multicloud" class="tab-content">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>☁️ Multi-Cloud & Sovereign Airgap Invariance Matrix</h2>
+          <p style="color: var(--text-muted); font-size: 13px;">
+            The 9 core Kubernetes namespaces remain strictly identical across all environments. Cloud-specific adaptations are isolated to the perimeter, IAM federation, and CSI storage:
+          </p>
+
+          <table class="cloud-matrix-table">
+            <thead>
+              <tr>
+                <th style="width: 22%;">Platform Dimension</th>
+                <th style="width: 19.5%;">Kind Sovereign Airgap</th>
+                <th style="width: 19.5%;">Google Cloud (GCP/GKE)</th>
+                <th style="width: 19.5%;">Amazon Web Services (AWS)</th>
+                <th style="width: 19.5%;">Microsoft Azure (AKS)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Kubernetes Engine</strong></td>
+                <td><span class="ver-tag">Kind v1.31.0</span> (Single node)</td>
+                <td><span class="ver-tag">GKE v1.30.2-gke</span> (Regional)</td>
+                <td><span class="ver-tag">EKS v1.30.1</span> (Managed NodeGroups)</td>
+                <td><span class="ver-tag">AKS v1.30.3</span> (SEV-SNP Confidential)</td>
+              </tr>
+              <tr>
+                <td><strong>Perimeter Ingress</strong></td>
+                <td>Host ExtraPortMappings (:80/:443)</td>
+                <td>Cloud Armor + GCLB + Standalone NEGs</td>
+                <td>Route 53 + AWS WAF v2 + NLB/ALB Dual</td>
+                <td>Azure Front Door Premium + Azure WAF v2</td>
+              </tr>
+              <tr>
+                <td><strong>Workload Identity / IAM</strong></td>
+                <td>In-cluster SPIRE Root Authority</td>
+                <td>GCP Workload Identity Federation</td>
+                <td>IAM Roles for Service Accounts (IRSA)</td>
+                <td>Entra ID Workload Identity</td>
+              </tr>
+              <tr>
+                <td><strong>OCI Image Registry</strong></td>
+                <td>In-cluster Zot (:5000) OCI Cache</td>
+                <td>Google Artifact Registry (GAR)</td>
+                <td>Amazon Elastic Container Registry (ECR)</td>
+                <td>Azure Container Registry (ACR) Premium</td>
+              </tr>
+              <tr>
+                <td><strong>Binary Signing Gate</strong></td>
+                <td>Local Cosign keyless + Witness</td>
+                <td>Binary Authorization Policy + KMS</td>
+                <td>AWS KMS + Cosign container verification</td>
+                <td>Azure Key Vault Managed HSM + Notary v2</td>
+              </tr>
+              <tr>
+                <td><strong>Persistent Storage CSI</strong></td>
+                <td>Local-path HostPath volumes</td>
+                <td>Compute Engine Persistent Disk (pd-ssd)</td>
+                <td>EBS gp3 CSI + S3 Glacier WORM</td>
+                <td>Azure Managed Disk Premium v2 + Immutable Blob</td>
+              </tr>
+              <tr>
+                <td><strong>Network Policy / CNI</strong></td>
+                <td>Kind default (KindNet bridge)</td>
+                <td>Datapath v2 (eBPF Cilium-powered)</td>
+                <td>Amazon VPC CNI with NetworkPolicies</td>
+                <td>Azure CNI Powered by Cilium (WireGuard)</td>
+              </tr>
+              <tr>
+                <td><strong>Airgap Hydration</strong></td>
+                <td>Seed tarball hydration (zero outbound WAN)</td>
+                <td>VPC Service Controls + Private Interconnect</td>
+                <td>AWS Direct Connect + VPC Endpoints (PrivateLink)</td>
+                <td>ExpressRoute + Private Link Endpoints</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid-3">
+          <div class="card card-elevated">
+            <h3>🔒 Invariant Core Namespaces (9)</h3>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+              <code>envoy-gateway-system</code>, <code>cert-manager</code>, <code>flux-system</code>, <code>inf-bao</code>, <code>fe-signalloom</code>, <code>d2-osramp-apps</code>, <code>agent-trust-platform</code>, <code>kubesec-afm</code>, <code>monitoring</code>.
+            </p>
+          </div>
+          <div class="card card-elevated">
+            <h3>📦 Flux Fleet GitOps Model</h3>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+              Multi-tenant ResourceSets governed by <code>Flux Operator v2.3.0</code> with <code>postBuild.substituteFrom</code> for environment-specific ConfigMaps without YAML duplication.
+            </p>
+          </div>
+          <div class="card card-elevated">
+            <h3>🛡️ Sovereign Seed Hydration</h3>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+              Kind deployment operates completely disconnected from public mirrors. In-cluster Zot hydrates images directly from pre-signed offline artifact seed tarballs.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: 6-LAYER DEFENSE STACK -->
+      <section id="tab-defense" class="tab-content">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>🛡️ Six-Layer Defense-in-Depth Confinement Architecture</h2>
+          <p style="color: var(--text-muted); font-size: 13px;">
+            Every autonomous agent and external invocation traverses six independent, interlocking security controls:
+          </p>
+
+          <div class="pyramid-stack">
+            <!-- Layer 6 -->
+            <div class="layer-card">
+              <div class="layer-badge" style="color: #c084fc;">
+                <span>📜 LAYER 6</span>
+              </div>
+              <div class="layer-info">
+                <h4>Cryptographic Merkle Audit & OpenFAIR Risk</h4>
+                <p>Every tool execution and admission is hashed into an append-only Merkle ledger (AIGF). Quantitative OpenFAIR risk computes Annualized Loss Expectancy (ALE).</p>
+              </div>
+              <div class="layer-tech">FINOS AIGF · OpenFAIR</div>
+            </div>
+
+            <!-- Layer 5 -->
+            <div class="layer-card">
+              <div class="layer-badge" style="color: #38bdf8;">
+                <span>🎛️ LAYER 5</span>
+              </div>
+              <div class="layer-info">
+                <h4>Application Feature Gates & Dynamic Auth</h4>
+                <p>CNCF OpenFeature React SDK gates UI surfaces. FastAPI <code>authenticated_principal</code> verifies Dex OIDC JWTs against database user states, immediately dropping suspended accounts.</p>
+              </div>
+              <div class="layer-tech">OpenFeature · Dex OIDC</div>
+            </div>
+
+            <!-- Layer 4 -->
+            <div class="layer-card">
+              <div class="layer-badge" style="color: #34d399;">
+                <span>🌐 LAYER 4</span>
+              </div>
+              <div class="layer-info">
+                <h4>L7 Gateway CEL Authorization & Inline DLP</h4>
+                <p>Envoy / AgentGateway evaluates CEL tool allowlists and inline Lua filters. Blocks mutating verbs (send, delete, truncate) on read-only external interfaces in ~0.25ms.</p>
+              </div>
+              <div class="layer-tech">Envoy Gateway · CEL</div>
+            </div>
+
+            <!-- Layer 3 -->
+            <div class="layer-card">
+              <div class="layer-badge" style="color: #facc15;">
+                <span>🔐 LAYER 3</span>
+              </div>
+              <div class="layer-info">
+                <h4>Workload Cryptographic Identity & Ephemeral Leases</h4>
+                <p>SPIFFE X.509 SVIDs minted via SPIRE CSI driver. OpenBao issues short-lived 300s credential leases. Static tokens are banned from process environments.</p>
+              </div>
+              <div class="layer-tech">SPIFFE / SPIRE · OpenBao</div>
+            </div>
+
+            <!-- Layer 2 -->
+            <div class="layer-card">
+              <div class="layer-badge" style="color: #fb923c;">
+                <span>🔒 LAYER 2</span>
+              </div>
+              <div class="layer-info">
+                <h4>Landlock LSM & System Call Sandboxing</h4>
+                <p><code>nono</code> enforces kernel Landlock rules denying <code>~/.ssh</code>, <code>~/.gnupg</code>, and raw token files. Restricts filesystem read/write and network namespaces per process.</p>
+              </div>
+              <div class="layer-tech">Landlock ABI-5+ · nono</div>
+            </div>
+
+            <!-- Layer 1 -->
+            <div class="layer-card">
+              <div class="layer-badge" style="color: #f43f5e;">
+                <span>🧱 LAYER 1</span>
+              </div>
+              <div class="layer-info">
+                <h4>Host Isolation, Namespaces & cgroups v2</h4>
+                <p>Unprivileged user namespaces (UID 1000), read-only root filesystems, <code>PR_SET_NO_NEW_PRIVS</code>, and cgroups v2 memory/CPU throttle limits.</p>
+              </div>
+              <div class="layer-tech">cgroups v2 · AppArmor</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: PROTOCOL & WIRE MATRIX -->
+      <section id="tab-protocols" class="tab-content">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>📡 Mixed Wire Protocols & Serialization Contracts</h2>
+          <p style="color: var(--text-muted); font-size: 13px;">
+            Inventory of communication protocols used across services, agents, and data sinks:
+          </p>
+
+          <table class="cloud-matrix-table">
+            <thead>
+              <tr>
+                <th>Protocol / Wire Standard</th>
+                <th>Transports & Serializers</th>
+                <th>Primary Use Cases in Monorepo</th>
+                <th>Security & Integrity Guarantees</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>JSON-RPC 2.0 (MCP)</strong></td>
+                <td>HTTP/1.1 or Stdio, UTF-8 JSON</td>
+                <td>Local Agent Gateway (LAGW), OpenBao tool calls, CLI shims, Gmail/Calendar</td>
+                <td>CEL <code>mcpAuthorization</code>, RS256 JWT bearer tokens, inline DLP inspection</td>
+              </tr>
+              <tr>
+                <td><strong>gRPC / HTTP/2</strong></td>
+                <td>HTTP/2 framing, Protobuf v3</td>
+                <td>SPIRE Workload API, KubeSec-AFM formal analysis, Envoy xDS control plane</td>
+                <td>Mutual TLS (mTLS) with SPIFFE X.509 SVID validation</td>
+              </tr>
+              <tr>
+                <td><strong>REST / JSON API</strong></td>
+                <td>HTTP/1.1 and HTTP/2, JSON</td>
+                <td>Signal Loom FastAPI (<code>/api/v1/</code>), Dex OIDC discovery, OpenFeature endpoints</td>
+                <td>Bearer JWT authentication, tenant isolation query scopes, OpenAPI contract validation</td>
+              </tr>
+              <tr>
+                <td><strong>NATS JetStream</strong></td>
+                <td>TCP framing, binary/JSON envelopes</td>
+                <td>OSRAMP ingestion queues, event streaming from host sensor to Signal Fusion</td>
+                <td>Token auth, message deduplication, at-least-once durable streaming</td>
+              </tr>
+              <tr>
+                <td><strong>Parquet / Columnar Stream</strong></td>
+                <td>Arrow memory format / Snappy compressed</td>
+                <td>FrostDB telemetry storage, historical security observation lake</td>
+                <td>Append-only immutability, zero-copy querying, encrypted disk backing</td>
+              </tr>
+              <tr>
+                <td><strong>AsyncPG / PostgreSQL Wire</strong></td>
+                <td>TCP, PostgreSQL v3 protocol</td>
+                <td>Platform user state, feature flags, tenant identity graph, audit event ledger</td>
+                <td>TLS encrypted connections, parameterized queries, RLS tenant isolation</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>OSRAMP & Signal Loom Platform Architecture Visual Explainer</span>
+      <span>ControlPlane AI Infrastructure · Monorepo Branch: <code>feat/signal-loop-and-bootstrap-refactor</code></span>
+    </footer>
+  </div>
+
+  <script>
+    // Tab Switching Logic
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+
+      const target = document.getElementById('tab-' + tabId);
+      if (target) target.classList.add('active');
+
+      const btn = Array.from(document.querySelectorAll('.nav-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (btn) btn.classList.add('active');
+    }
+
+    // 52-Node Whole Platform Catalog Data (Mixed Types & Versions)
+    const platformNodes = [
+      // UI & Edge
+      { id: "dashboard", name: "dashboard-signalloom", subsys: "ui", type: "service", ver: "React 19 / Vite 5.4", port: ":3000", desc: "Single Page App with OpenFeature React SDK, Super Data Table, and live telemetry feeds." },
+      { id: "fe-api", name: "fe-signalloom", subsys: "ui", type: "service", ver: "Python 3.12 / FastAPI 0.115", port: ":8000", desc: "Core API server with dynamic OIDC principal resolution and user administration CRUD." },
+      { id: "envoy-gw", name: "envoy-gateway", subsys: "ui", type: "gateway", ver: "Envoy 1.30 / GW API v1.1", port: ":80/:443", desc: "L7 edge ingress gateway terminating TLS and dispatching HTTPRoutes." },
+      { id: "dex-oidc", name: "dex", subsys: "ui", type: "service", ver: "Dex v2.39", port: ":5556", desc: "Federated OpenID Connect identity provider linking enterprise IdPs to Signal Loom." },
+
+      // Ingest & Signal Fusion
+      { id: "si-api", name: "signal-ingest · api", subsys: "ingest", type: "service", ver: "Go 1.23", port: ":8080", desc: "HTTP ingest collector accepting multi-source security events and telemetry." },
+      { id: "si-correlation", name: "signal-ingest · correlation", subsys: "ingest", type: "service", ver: "Go 1.23 / CEL", port: "internal", desc: "CEL-based correlation engine mapping runtime telemetry to principal identity graphs." },
+      { id: "si-store", name: "signal-ingest · store", subsys: "ingest", type: "storage", ver: "FrostDB v0.3 / Parquet", port: ":6060", desc: "Columnar embedded analytical storage engine executing zero-copy telemetry queries." },
+      { id: "si-identity", name: "signal-ingest · identity", subsys: "ingest", type: "storage", ver: "PostgreSQL 16", port: ":5432", desc: "Relational actor resolution graph tracking agent parent-child process lineages." },
+      { id: "si-ebpf", name: "collectors · netebpf", subsys: "ingest", type: "kernel", ver: "eBPF / CO-RE", port: "kernel", desc: "Kernel socket-layer probe capturing un-redacted outbound agent egress attempts." },
+      { id: "si-baoaudit", name: "collectors · baoaudit", subsys: "ingest", type: "service", ver: "Go 1.23", port: ":8082", desc: "Real-time OpenBao audit stream collector catching unauthorized lease attempts." },
+      { id: "osramp-listener", name: "osramp-listener", subsys: "ingest", type: "service", ver: "Python 3.12", port: ":8090", desc: "Webhook ingestion daemon capturing upstream GitOps and CI/CD event payloads." },
+      { id: "osramp-processor", name: "osramp-processor", subsys: "ingest", type: "service", ver: "Python 3.12", port: "async", desc: "Stream processor normalizing OSRAMP vulnerabilities into SPDX SBOM graphs." },
+      { id: "osramp-archiver", name: "osramp-archiver", subsys: "ingest", type: "storage", ver: "Python 3.12", port: "async", desc: "Evidence spiller archiving signed attestation bundles to immutable object stores." },
+      { id: "nats-js", name: "nats-jetstream", subsys: "ingest", type: "storage", ver: "NATS v2.10.20", port: ":4222", desc: "Clustered durable event streaming bus handling at-least-once message queues." },
+
+      // Containment & LSM
+      { id: "warden", name: "signalloom-warden", subsys: "containment", type: "daemon", ver: "Go 1.23 / K8s Client", port: ":8443", desc: "Autonomous pod reconciler enforcing Tier-0 execution freeze on rogue workloads." },
+      { id: "node-guard", name: "node-capability-guard", subsys: "containment", type: "kernel", ver: "Go 1.23", port: "admission", desc: "Node-level admission webhook verifying container security contexts and Landlock bits." },
+      { id: "nono-lsm", name: "nono · Landlock LSM", subsys: "containment", type: "kernel", ver: "nono v0.3.0 / ABI 5", port: "syscall", desc: "Kernel-level path and network sandbox preventing access to credentials." },
+      { id: "fleet-mgr", name: "fleet-manager", subsys: "containment", type: "daemon", ver: "Go 1.23 / Flux", port: ":9090", desc: "DAG-based fleet reconciler orchestrating cascading updates and emergency rollbacks." },
+
+      // Identity & Secrets
+      { id: "openbao", name: "OpenBao Vault", subsys: "identity", type: "storage", ver: "OpenBao v2.7.0", port: ":8200", desc: "Hardware-security-backed vault issuing 300s ephemeral dynamic credentials." },
+      { id: "spire-server", name: "SPIRE Server", subsys: "identity", type: "service", ver: "SPIRE v1.9.4", port: ":8081", desc: "Zero-trust SPIFFE authority minting cryptographically verifiable X.509 SVIDs." },
+      { id: "spire-agent", name: "SPIRE Agent", subsys: "identity", type: "daemon", ver: "SPIRE v1.9.4", port: "UDS", desc: "Node daemon serving the SPIFFE Workload API over Unix Domain Sockets." },
+      { id: "cardvault", name: "cardvault", subsys: "identity", type: "service", ver: "Go 1.23", port: ":8300", desc: "Zero-knowledge credential broker mediating API keys for external services." },
+      { id: "cert-mgr", name: "cert-manager", subsys: "identity", type: "daemon", ver: "cert-manager v1.15", port: "webhook", desc: "Automated X.509 certificate provisioning for ingress TLS and mTLS mesh." },
+
+      // Agentic Swarms
+      { id: "kagent", name: "Kagent Swarm Framework", subsys: "agentic", type: "agent", ver: "CNCF D5 Specification", port: ":8088", desc: "Declarative multi-agent framework orchestrating autonomous micro-agent swarms." },
+      { id: "olly-sentinel", name: "olly-sentinel", subsys: "agentic", type: "agent", ver: "ADK Python 3.12", port: ":8095", desc: "AI Site Reliability Engineer replica executing automated triage and remediation." },
+      { id: "cpai-proxy", name: "cpai-runtime-proxy", subsys: "agentic", type: "gateway", ver: "TypeScript / Node 20", port: ":8000", desc: "OpenAI-compatible gateway proxying LLM requests to Google Cloud Vertex AI." },
+      { id: "lagw", name: "Local Agent Gateway (LAGW)", subsys: "agentic", type: "gateway", ver: "agentgateway v1.6.0 (Rust)", port: ":8100/:8120", desc: "Landlock-sandboxed L7 reverse proxy enforcing CEL allowlists on MCP tools." },
+      { id: "llm-guard", name: "llm-guard", subsys: "agentic", type: "service", ver: "Python 3.12", port: ":8002", desc: "Bi-directional prompt sanitization and adversarial injection defense firewall." },
+
+      // Governance & Verification
+      { id: "afm-platform", name: "d2-k8s-afm (KubeSec-AFM)", subsys: "governance", type: "solver", ver: "Z3 SMT v4.12 / Python", port: ":8085", desc: "Mathematical formal methods solver proving RBAC safety and privilege escalation absence." },
+      { id: "policy-engine", name: "policy-engine", subsys: "governance", type: "solver", ver: "OpenFAIR / Go 1.23", port: ":8084", desc: "Quantitative risk assessment engine calculating Annualized Loss Expectancy." },
+      { id: "prod-deploy-gate", name: "prod-deploy-gate", subsys: "governance", type: "service", ver: "Go 1.23", port: ":8086", desc: "Human-in-the-loop cryptographic HMAC gate authorizing production rollouts." },
+
+      // Supply Chain & GitOps
+      { id: "flux-op", name: "Flux Operator", subsys: "supplychain", type: "daemon", ver: "Flux v2.3.0", port: "controller", desc: "Declarative GitOps controller reconciling in-cluster state with git repositories." },
+      { id: "zot-registry", name: "Zot OCI Registry", subsys: "supplychain", type: "storage", ver: "Zot v2.0.0", port: ":5000", desc: "In-cluster OCI compliant artifact and image registry with vulnerability scanning." },
+      { id: "witness-gate", name: "Witness / Cosign Gate", subsys: "supplychain", type: "service", ver: "Witness v0.6 / Cosign v2.4", port: "admission", desc: "SLSA L3 cryptographic verification gate ensuring all containers have valid attestations." }
+    ];
+
+    function renderNodes(filter = 'all') {
+      const container = document.getElementById('nodeContainer');
+      container.innerHTML = '';
+
+      const filtered = filter === 'all' 
+        ? platformNodes 
+        : platformNodes.filter(n => n.subsys === filter);
+
+      filtered.forEach(node => {
+        const card = document.createElement('div');
+        card.className = 'node-card';
+        card.innerHTML = `
+          <div class="node-top">
+            <div>
+              <div class="node-title">${node.name}</div>
+              <div class="node-subsys">${node.subsys.toUpperCase()} SUBSYSTEM</div>
+            </div>
+            <span class="type-badge type-${node.type}">${node.type}</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${node.desc}</p>
+          <div class="node-meta">
+            <span class="ver-tag">${node.ver}</span>
+            <span class="ver-tag" style="color: var(--amber);">${node.port}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function filterNodes(subsys) {
+      document.querySelectorAll('.filter-pill').forEach(el => el.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.filter-pill')).find(b => b.getAttribute('onclick').includes(subsys));
+      if (activeBtn) activeBtn.classList.add('active');
+      renderNodes(subsys);
+    }
+
+    // Active Wire Flows Data
+    const platformFlows = [
+      {
+        id: "freeze-flow",
+        title: "Tier-0 Agent Execution Freeze",
+        sub: "Signal Fusion ➔ Warden ➔ Kernel Pod Freeze",
+        hops: [
+          { title: "1. Anomaly Detection", from: "collectors/netebpf", to: "signal-ingest", wire: "eBPF RingBuffer", desc: "Agent makes unauthorized outbound connection attempt to unapproved external IP.", payload: "{ event: 'socket_connect', pid: 4812, remote_ip: '198.51.100.4', status: 'DENIED' }" },
+          { title: "2. Threat Correlation", from: "signal-ingest", to: "policy-engine", wire: "gRPC mTLS", desc: "Correlation engine maps PID 4812 to Kagent pod and computes OpenFAIR Loss Exceedance.", payload: "{ agent_id: 'kagent-crawler-0', risk_score: 94.2, action: 'TRIGGER_TIER0_CONTAINMENT' }" },
+          { title: "3. Warden Containment Reconcile", from: "policy-engine", to: "signalloom-warden", wire: "REST HTTPS", desc: "Warden executes immediate Kubernetes pod freeze by updating pod cgroup freezer state.", payload: "{ target_pod: 'kagent-crawler-0', namespace: 'agent-trust-platform', state: 'FROZEN' }" },
+          { title: "4. Cryptographic AIGF Audit", from: "signalloom-warden", to: "finos-aigf", wire: "JSON-RPC", desc: "Emits tamper-evident Merkle tree event record with SHA256 linkage to audit ledger.", payload: "{ event_hash: '9f83c...a1', prev_hash: '3e12a...0b', status: 'CONTAINED_TIER_0' }" }
+        ]
+      },
+      {
+        id: "auth-flow",
+        title: "Dynamic OIDC & User Gating",
+        sub: "Dex OIDC ➔ FastAPI ➔ PostgreSQL ➔ OpenFeature",
+        hops: [
+          { title: "1. Token Exchange", from: "dashboard-signalloom", to: "dex", wire: "OAuth 2.1 / OIDC", desc: "User logs in and receives signed RS256 JWT with email claim.", payload: "{ sub: 'user_981', email: 'andy@controlplane.com', iss: 'https://dex:5556' }" },
+          { title: "2. Dynamic Authority Check", from: "fe-signalloom", to: "public.platform_users", wire: "AsyncPG TLS", desc: "Backend resolves normalized email from JWT, extracts role, status, and is_superadmin.", payload: "SELECT id, tenant_id, role, status, is_superadmin FROM platform_users WHERE email = $1" },
+          { title: "3. Tenant Feature Evaluation", from: "dashboard-signalloom", to: "/api/v1/features", wire: "REST JSON", desc: "Client fetches tenant feature flag dictionary cached for 60 seconds.", payload: "{ demos_fleet: true, supercred: true, rbac_analysis: false, collusion_access: false }" },
+          { title: "4. Client Route Suppression", from: "OpenFeature React SDK", to: "Sidebar.tsx", wire: "React Hook", desc: "FeatureGate component dynamically removes disabled demo items without layout shifts.", payload: "<FeatureGate flag='rbac_analysis' fallback={<NotFoundPage />} />" }
+        ]
+      },
+      {
+        id: "z3-flow",
+        title: "KubeSec-AFM Formal RBAC Verification",
+        sub: "Dashboard ➔ FastAPI ➔ Z3 SMT Solver",
+        hops: [
+          { title: "1. Policy Verification Request", from: "dashboard-signalloom", to: "d2-k8s-afm", wire: "REST JSON", desc: "Security operator initiates mathematical proof of agent role privilege boundary.", payload: "{ service_account: 'kagent-worker', namespace: 'agent-trust-platform', target_role: 'cluster-admin' }" },
+          { title: "2. First-Order Logic Translation", from: "afm-platform", to: "Z3 Theorem Prover", wire: "C++ Bindings", desc: "Translates Kubernetes RoleBindings and ClusterRoles into first-order logical clauses.", payload: "(assert (exists ((p Path)) (and (CanAccess p 'secrets') (Not (Authorized p)))))" },
+          { title: "3. Satisfiability Proof", from: "Z3 Theorem Prover", to: "afm-platform", wire: "SMT-LIB2", desc: "Z3 proves UNSAT: no mathematical path exists allowing worker to access cluster secrets.", payload: "{ status: 'UNSAT', is_escalation_free: true, proof_depth: 42, solver_time_ms: 38.4 }" }
+        ]
+      }
+    ];
+
+    function renderFlows() {
+      const nav = document.getElementById('flowNav');
+      nav.innerHTML = '';
+
+      platformFlows.forEach((flow, idx) => {
+        const item = document.createElement('div');
+        item.className = 'flow-item' + (idx === 0 ? ' active' : '');
+        item.onclick = () => selectFlow(idx);
+        item.innerHTML = `
+          <div class="flow-item-title">${flow.title}</div>
+          <div class="flow-item-sub">${flow.sub}</div>
+        `;
+        nav.appendChild(item);
+      });
+
+      renderFlowDetail(0);
+    }
+
+    function selectFlow(index) {
+      document.querySelectorAll('.flow-item').forEach((el, idx) => {
+        if (idx === index) el.classList.add('active');
+        else el.classList.remove('active');
+      });
+      renderFlowDetail(index);
+    }
+
+    function renderFlowDetail(index) {
+      const detail = document.getElementById('flowDetail');
+      const flow = platformFlows[index];
+
+      let hopsHtml = '';
+      flow.hops.forEach(hop => {
+        hopsHtml += `
+          <div class="hop-card">
+            <div class="hop-header">
+              <span class="hop-title">${hop.title} (${hop.from} ➔ ${hop.to})</span>
+              <span class="hop-wire">${hop.wire}</span>
+            </div>
+            <div class="hop-desc">${hop.desc}</div>
+            <div class="hop-payload">${hop.payload}</div>
+          </div>
+        `;
+      });
+
+      detail.innerHTML = `
+        <h2 style="color: #fff;">${flow.title}</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Trace of actual wire payloads, serialization models, and execution boundaries.</p>
+        <div class="hops-timeline">${hopsHtml}</div>
+      `;
+    }
+
+    // Initialize
+    renderNodes('all');
+    renderFlows();
+  </script>
+</body>
+</html>

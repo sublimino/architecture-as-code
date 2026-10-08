@@ -344,7 +344,7 @@ Obey these. They are the phase constitution.
 | P3-2 | implementation | Implement animated cascade transitions in FleetTopology.tsx with stepwise risk recalculation | P3-1 | Vitest interaction test verifying cascade animation sequence and node state dispatch | M | antigravity | — | — | — | — | — |
 | P3-3 | implementation | Implement topological sort recovery endpoint POST /api/v1/fleet/recover and audience route | P3-2 | Go contract test for topological sort recovery order; Vitest test for audience route | M | antigravity | — | — | — | — | — |
 | P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
-| P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: fcd1c077 (see Errata — SLSC-P3-GOV) | — | — | — | — |
 | P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
 | P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | — | — | — | — | — |
 | P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | — | — | — | — | — |
@@ -473,3 +473,15 @@ Obey these. They are the phase constitution.
 **Notes:** Phase 2 preflight passed. All implementation cards (P2-1, P2-2, P2-3) are unblocked for parallel execution.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P2-PRE","status":"pass","commit":"61d0eda4"} -->
+
+#### Errata — SLSC-P3-GOV Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice
+**Created:** 2026-10-08 15:45:00+01:00
+**Last Updated:** 2026-10-08 15:45:00+01:00
+**Status:** Completed
+**Commit:** fcd1c077
+**Governor merge:** Phase 3 integration clean on integration/slsc-v0.1.0
+**Decisions:** Validated sequential non-fast-forward merge of all Phase 3 deliverables: P3-1 cascading stun DAG walk (2c759b08 / c66d948c), P3-2 animated cascade transitions (26fcd95e / 4b47c61a), P3-3 topological sort recovery and audience route (cb0575b0 / 332aa638), and P3-4 Playwright two-window cascade journey (ad7cc041 / fd42545d). Successfully executed full offline test pyramid twice with zero failures: Pass 1 test/test-count-floor.bats (10/10 passed, 0 failures across 500+ pytest, 1800+ vitest, 30+ go, 200+ bats, 12/12 audit proof cases red, 70+ kpai) and Pass 2 make test-all-offline (Go unit tests across 29 modules + FrostDB correlation, Frontend Vitest across 218 files, Python invariant suites 3,317 passed, KPAI probe & contract tests 76/76 passed, and Stage 5 static configs, manifests, registries, and guards). Reconciled regression in tree-integrity.bats by adding -d skip to conflict marker scan for directory symlinks, and enclosed async node assertions within waitFor in FleetAudiencePage.test.tsx. Tagged integration tip integration/slsc-v0.1.0-p3 at commit fcd1c077.
+**Deviations:** None.
+**Notes:** Phase 3 integration certified. Both offline verification passes passed cleanly with 0 failures across the full pyramid. Facts written to ci-evidence/slsc-p3-governor-facts.json.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-GOV","status":"pass","commit":"fcd1c077"} -->

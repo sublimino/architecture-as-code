@@ -1,0 +1,313 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 ControlPlane Security Authors
+
+import type { PlatformAccessLevel, PlatformUserWithPermissions } from '../types/api'
+
+export type { PlatformAccessLevel, PlatformUserWithPermissions }
+
+export interface PlatformLevelMeta {
+  key: PlatformAccessLevel
+  title: string
+  tone: string
+  badgeTone: string
+  description: string
+  capabilities: string[]
+}
+
+export const PLATFORM_LEVELS: Record<PlatformAccessLevel, PlatformLevelMeta> = {
+  observe: {
+    key: 'observe',
+    title: 'Observe',
+    tone: 'var(--cyan)',
+    badgeTone: '#06b6d4',
+    description: 'Real-time telemetry, immutable audit observability, and threat intelligence ingestion.',
+    capabilities: [
+      'View runtime telemetry and live agent execution metrics',
+      'Observe immutable cryptographic signal store',
+      'Browse and search multi-plane event feeds',
+      'View security, containment, and audit logs',
+    ],
+  },
+  govern: {
+    key: 'govern',
+    title: 'Govern',
+    tone: 'var(--violet)',
+    badgeTone: '#8b5cf6',
+    description: 'Active enforcement, agent lifecycle control, containment execution, and credential issuance.',
+    capabilities: [
+      'Execute agent containment (freeze, thaw, drop, stun)',
+      'Claim, anchor, and unlink agent identities',
+      'Deploy and mutate governance policy bundles',
+      'Issue, rotate, and revoke cryptographic credentials',
+    ],
+  },
+  attest: {
+    key: 'attest',
+    title: 'Attest',
+    tone: 'var(--teal)',
+    badgeTone: '#14b8a6',
+    description: 'Cryptographic attestation, signing key custody, notary validation, and compliance exports.',
+    capabilities: [
+      'Cryptographic key signing & HSM key custody operations',
+      'Cosign and witness attestation manifest generation',
+      'Authorize cryptographic trust log transitions & receipts',
+      'EU AI Act, SOC2, and ISO regulatory compliance exports',
+    ],
+  },
+}
+
+export interface FeatureFlagMeta {
+  key: string
+  label: string
+  description: string
+  category: 'identity' | 'runtime' | 'policy'
+}
+
+export const FEATURE_FLAGS: FeatureFlagMeta[] = [
+  {
+    key: 'supercred_cascade',
+    label: 'SuperCredential Multi-Agent Cascade',
+    description: 'Enables hierarchical credential cascading and multi-agent authorization bundles',
+    category: 'identity',
+  },
+  {
+    key: 'cross_plane_probes',
+    label: 'Cross-Plane Identity Probes (SLAWS/SLAAT)',
+    description: 'Permits executing identity health and cross-plane attestation probes across cluster boundaries',
+    category: 'runtime',
+  },
+  {
+    key: 'multi_agent_delegation',
+    label: 'A2A Delegation Chains',
+    description: 'Enables cryptographic Agent-to-Agent delegation proofs and transient authorization tokens',
+    category: 'identity',
+  },
+  {
+    key: 'ebpf_sentinel_l7',
+    label: 'eBPF L4/L7 Kernel Sentinel',
+    description: 'Direct socket visibility, network isolation, and Linux kernel eBPF LSM confinement probes',
+    category: 'runtime',
+  },
+  {
+    key: 'continuous_attestation',
+    label: 'Continuous Attestation Engine',
+    description: 'Automated periodic re-attestation of workload identities, SPIFFE SVIDs, and posture integrity',
+    category: 'policy',
+  },
+  {
+    key: 'cel_dynamic_evaluation',
+    label: 'Dynamic CEL Policy Evaluation',
+    description: 'Real-time Common Expression Language evaluation on incoming signals, claims, and telemetry',
+    category: 'policy',
+  },
+]
+
+export const DEFAULT_USERS: PlatformUserWithPermissions[] = [
+  {
+    id: 'usr-andy-001',
+    email: 'andy@signalloom.demo',
+    display_name: 'Andy M.',
+    role: 'admin',
+    department: 'Platform Engineering',
+    title: 'Platform Owner & Lead Architect',
+    status: 'active',
+    last_login_at: '2026-10-08T12:45:00Z',
+    created_at: '2026-01-01T08:00:00Z',
+    auth_methods: ['user/pass', '2FA Active', 'SSO Ready'],
+    platform_level: ['observe', 'govern', 'attest'],
+    feature_flags: {
+      supercred_cascade: true,
+      cross_plane_probes: true,
+      multi_agent_delegation: true,
+      ebpf_sentinel_l7: true,
+      continuous_attestation: true,
+      cel_dynamic_evaluation: true,
+    },
+    can_claim_agents: true,
+    can_sign_attestations: true,
+  },
+  {
+    id: 'usr-sarah-002',
+    email: 'sarah.chen@secops.internal',
+    display_name: 'Sarah Chen',
+    role: 'admin',
+    department: 'Security Operations',
+    title: 'Principal Security Engineer',
+    status: 'active',
+    last_login_at: '2026-10-08T11:15:00Z',
+    created_at: '2026-01-15T09:30:00Z',
+    auth_methods: ['user/pass', '2FA Active'],
+    platform_level: ['observe', 'govern', 'attest'],
+    feature_flags: {
+      supercred_cascade: true,
+      cross_plane_probes: true,
+      multi_agent_delegation: true,
+      ebpf_sentinel_l7: true,
+      continuous_attestation: true,
+      cel_dynamic_evaluation: false,
+    },
+    can_claim_agents: true,
+    can_sign_attestations: true,
+  },
+  {
+    id: 'usr-marcus-003',
+    email: 'marcus.vance@sre.internal',
+    display_name: 'Marcus Vance',
+    role: 'editor',
+    department: 'Site Reliability Engineering',
+    title: 'Lead SRE / Sentinel Operator',
+    status: 'active',
+    last_login_at: '2026-10-08T09:30:00Z',
+    created_at: '2026-02-01T10:00:00Z',
+    auth_methods: ['user/pass', '2FA Active'],
+    platform_level: ['observe', 'govern'],
+    feature_flags: {
+      supercred_cascade: false,
+      cross_plane_probes: true,
+      multi_agent_delegation: true,
+      ebpf_sentinel_l7: true,
+      continuous_attestation: false,
+      cel_dynamic_evaluation: false,
+    },
+    can_claim_agents: true,
+    can_sign_attestations: false,
+  },
+  {
+    id: 'usr-elena-004',
+    email: 'elena.rostova@compliance.internal',
+    display_name: 'Elena Rostova',
+    role: 'editor',
+    department: 'Compliance & Governance',
+    title: 'Chief Compliance Auditor',
+    status: 'active',
+    last_login_at: '2026-10-07T16:20:00Z',
+    created_at: '2026-02-15T08:30:00Z',
+    auth_methods: ['user/pass', 'SSO Ready'],
+    platform_level: ['observe', 'attest'],
+    feature_flags: {
+      supercred_cascade: false,
+      cross_plane_probes: false,
+      multi_agent_delegation: false,
+      ebpf_sentinel_l7: false,
+      continuous_attestation: true,
+      cel_dynamic_evaluation: true,
+    },
+    can_claim_agents: false,
+    can_sign_attestations: true,
+  },
+  {
+    id: 'usr-devops-005',
+    email: 'automation@ci.internal',
+    display_name: 'DevOps Service',
+    role: 'editor',
+    department: 'Automation & Tooling',
+    title: 'CI/CD Automation Agent',
+    status: 'active',
+    last_login_at: '2026-10-08T13:00:00Z',
+    created_at: '2026-01-10T12:00:00Z',
+    auth_methods: ['Service Key'],
+    platform_level: ['observe', 'govern'],
+    feature_flags: {
+      supercred_cascade: true,
+      cross_plane_probes: true,
+      multi_agent_delegation: true,
+      ebpf_sentinel_l7: false,
+      continuous_attestation: false,
+      cel_dynamic_evaluation: true,
+    },
+    can_claim_agents: true,
+    can_sign_attestations: false,
+  },
+  {
+    id: 'usr-alex-006',
+    email: 'alex.rivera@eng.internal',
+    display_name: 'Alex Rivera',
+    role: 'viewer',
+    department: 'Software Engineering',
+    title: 'AI Systems Developer',
+    status: 'active',
+    last_login_at: '2026-10-06T14:10:00Z',
+    created_at: '2026-03-01T11:00:00Z',
+    auth_methods: ['user/pass'],
+    platform_level: ['observe'],
+    feature_flags: {
+      supercred_cascade: false,
+      cross_plane_probes: false,
+      multi_agent_delegation: false,
+      ebpf_sentinel_l7: false,
+      continuous_attestation: false,
+      cel_dynamic_evaluation: false,
+    },
+    can_claim_agents: false,
+    can_sign_attestations: false,
+  },
+  {
+    id: 'usr-notary-007',
+    email: 'notary@signalloom.internal',
+    display_name: 'Trust Log Notary',
+    role: 'editor',
+    department: 'Security & Cryptography',
+    title: 'Cryptographic Notary Identity',
+    status: 'active',
+    last_login_at: '2026-10-08T13:05:00Z',
+    created_at: '2026-01-05T00:00:00Z',
+    auth_methods: ['Notary Key', 'Witness Key'],
+    platform_level: ['attest'],
+    feature_flags: {
+      supercred_cascade: false,
+      cross_plane_probes: false,
+      multi_agent_delegation: false,
+      ebpf_sentinel_l7: false,
+      continuous_attestation: true,
+      cel_dynamic_evaluation: false,
+    },
+    can_claim_agents: false,
+    can_sign_attestations: true,
+  },
+  {
+    id: 'usr-jordan-008',
+    email: 'jordan.hayes@contractor.internal',
+    display_name: 'Jordan Hayes',
+    role: 'viewer',
+    department: 'Contractor Operations',
+    title: 'External Systems Evaluator',
+    status: 'invited',
+    last_login_at: null,
+    created_at: '2026-10-01T09:00:00Z',
+    auth_methods: ['user/pass'],
+    platform_level: ['observe'],
+    feature_flags: {
+      supercred_cascade: false,
+      cross_plane_probes: false,
+      multi_agent_delegation: false,
+      ebpf_sentinel_l7: false,
+      continuous_attestation: false,
+      cel_dynamic_evaluation: false,
+    },
+    can_claim_agents: false,
+    can_sign_attestations: false,
+  },
+  {
+    id: 'usr-tanya-009',
+    email: 'tanya.morgan@legacy.internal',
+    display_name: 'Tanya Morgan',
+    role: 'editor',
+    department: 'Legacy Systems Operations',
+    title: 'Former Operations Analyst',
+    status: 'suspended',
+    last_login_at: '2026-08-12T10:00:00Z',
+    created_at: '2026-01-20T10:00:00Z',
+    auth_methods: ['user/pass', 'SSO Ready'],
+    platform_level: ['observe', 'govern'],
+    feature_flags: {
+      supercred_cascade: false,
+      cross_plane_probes: false,
+      multi_agent_delegation: false,
+      ebpf_sentinel_l7: false,
+      continuous_attestation: false,
+      cel_dynamic_evaluation: false,
+    },
+    can_claim_agents: false,
+    can_sign_attestations: false,
+  },
+]

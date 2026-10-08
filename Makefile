@@ -929,6 +929,7 @@ demo-signalloom-afm-up: ## Deploy the KubeSec-AFM slice the RBAC pages read. FAI
 	fi
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test GOPATH=/tmp/gopath
+	bash test/agentprofile-manifest-validation.sh
 demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
@@ -1597,7 +1598,7 @@ attested-test: signing-keys ## Run audit tests or the real FrostDB segment proof
 # See d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md for what this
 # proves and, more to the point, what it does not.
 AUDIT_ANCHOR_SRC := d2-signalloom/apps/fe-signalloom/src
-AUDIT_ANCHOR_PY  ?= python3
+AUDIT_ANCHOR_PY  ?= uv run --python 3.12 --with pytest --with-requirements requirements.txt python
 
 # Every recipe below cd's into the package directory, so the key paths MUST be
 # absolute before the cd happens. KEYS_DIR is absolute in a worktree (the

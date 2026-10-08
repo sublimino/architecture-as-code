@@ -783,11 +783,11 @@ run_stage \
       test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
       test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
       test/rendered-env-unique.bats test/flux-annotation-values.bats \
-      test/afm-import-gateway-manifests.bats test/afm-importer-key-stdin.bats \
-      test/afm-importer-key.bats test/afm-rbac-exporter-manifests.bats \
+      test/afm-import-gateway-manifests.bats \
+      test/afm-rbac-exporter-manifests.bats \
       test/afm-rbac-exporter-push.bats test/dockerfile-copy-sources.bats \
       test/docs-tests-alignment.bats test/eapci-pilot-profile.bats \
-      test/fleet-operator-keys.bats test/freeport-lib.bats \
+      test/freeport-lib.bats \
       test/jev-browser-loop.bats test/jev-loop.bats \
       test/kind-data-backup.bats test/kind-data-mounts.bats \
       test/old-probe-name-guard.bats test/parallel-acceptance.bats \

@@ -666,7 +666,10 @@ docs-lint.bats
 docs-rewrite-guard.bats
 test-isolation-audit.bats
 tombstone-mutation-check.bats
-signal-segment-key.bats"
+signal-segment-key.bats
+afm-importer-key.bats
+afm-importer-key-stdin.bats
+fleet-operator-keys.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

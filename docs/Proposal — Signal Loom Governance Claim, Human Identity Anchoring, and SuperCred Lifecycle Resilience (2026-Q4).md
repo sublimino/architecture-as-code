@@ -44,7 +44,7 @@ ControlPlane today announced Signal Loom's production-grade Governance Claim Wor
 
 As organizations deploy heterogeneous autonomous AI agents across Kubernetes and cloud environments, security teams face two critical hurdles. First, discovered autonomous workloads frequently appear as transient, pod-level anomalies without clear ownership or persistent governance records. Operators attempting to bring these workloads under policy enforcement historically faced claim correlation drift, where claimed workloads duplicate or revert upon interface refresh. Second, audit trails and credential issuance lacked explicit linkage to authorized human operators and clear organizational permissions tiers across Observe, Govern, and Attest maturity levels.
 
-Signal Loom resolves these challenges through an end-to-end governance lifecycle. Discovered agent workloads now correlate deterministically with backend database claims, preserving user-defined display titles across claims and restarts. Security operators gain a dedicated "Claim into Governance" action directly on workload dossiers, backed by a comprehensive Users and Permissions Super Data Table that anchors every agent action to verified human identities. Concurrently, Signal Loom hardens its OpenBao and SPIFFE credential infrastructure with self-healing mount lifecycle hooks, guaranteeing continuous credential containment and sub-second revocation across restarts. With these capabilities delivered, Signal Loom establishes robust operator confidence and verifiable audit provenance across enterprise agent deployments.
+Signal Loom resolves these challenges through an end-to-end governance lifecycle. Discovered agent workloads now correlate deterministically with backend database claims, preserving user-defined display titles across claims and restarts. Security operators gain a dedicated "Claim into Governance" action directly on workload dossiers. This is backed by a Users and Permissions Super Data Table that anchors every agent action to verified human identities. Concurrently, Signal Loom hardens its OpenBao and SPIFFE credential infrastructure with self-healing mount lifecycle hooks, guaranteeing continuous credential containment and sub-second revocation across restarts. With these capabilities delivered, Signal Loom establishes robust operator confidence and verifiable audit provenance across enterprise agent deployments.
 
 ---
 
@@ -61,7 +61,7 @@ Signal Loom resolves these challenges through an end-to-end governance lifecycle
 
 **Key Customers (if relevant):**
 
-Enterprise design partners, Chief Information Security Officers (CISOs), AI platform teams, and SecOps engineers operating autonomous agents in regulated sectors requiring continuous attestation, non-repudiable audit logs, and deterministic workload containment.
+Enterprise design partners, CISOs, AI platform teams, and SecOps engineers. Especially those running autonomous agents in regulated sectors requiring continuous attestation.
 
 |  |  |
 | :--- | :--- |
@@ -71,7 +71,7 @@ Enterprise design partners, Chief Information Security Officers (CISOs), AI plat
 
 **What is the urgency of this work?**
 
-**Critical for Q4 2026.** Enterprise pilot onboarding requires bulletproof reliability during live demonstrations and operational reviews. A claim action that appears to lose state on browser refresh or an OpenBao route 404 error during credential issuance undermines executive confidence in the platform's core governance guarantees.
+**Critical for Q4 2026.** Enterprise pilot onboarding requires reliability during live demonstrations and operational reviews. A claim action that loses state on browser refresh undermines executive confidence. An OpenBao 404 error during credential issuance creates identical damage.
 
 ---
 
@@ -80,10 +80,10 @@ Enterprise design partners, Chief Information Security Officers (CISOs), AI plat
 Technology Readiness Level Focus: **4 (Production Ready)**.
 This retrospective project delivers the complete implementation, automated test suites, and live cluster verification for four interrelated operational capabilities:
 
-1. **Deterministic Agent Claim Correlation & Persistence**: Eliminates row duplication and metadata reversion in `fe-signalloom` by resolving discovered pod names against registered claims and persisting display titles on PostgreSQL upsert conflict.
-2. **Standardized "Claim" Interaction & Overview Integration**: Replaces ambiguous "auto-claim" terminology with explicit "Claim" verbs across all UI tables, modals, and dossiers, while introducing an in-context claim button in the agent overview tab.
+1. **Deterministic Agent Claim Correlation & Persistence**: Eliminates row duplication and metadata reversion in `fe-signalloom`. Resolves discovered pod names against registered claims and persists display titles on upsert.
+2. **Standardized "Claim" Interaction & Overview Integration**: Replaces ambiguous "auto-claim" terminology with explicit "Claim" verbs across all UI tables and modals. Introduces an in-context claim button in the agent overview tab.
 3. **Tabbed Administrative Settings**: Deconstructs the monolithic settings view into four structured, query-synchronized tabs (`general`, `access`, `connectors`, `governance`).
-4. **Users & Permissions Matrix Console (`/users`)**: Provides a Super Data Table with multi-faceted filtering, CSV export, and a permissions modal mapping platform capabilities across three levels (**Observe**, **Govern**, **Attest**) and six proposal feature flags to enterprise human identities.
+4. **Users & Permissions Matrix Console (`/users`)**: Provides a Super Data Table with multi-faceted filtering and CSV export. Maps platform capabilities across three levels (**Observe**, **Govern**, **Attest**) and six proposal feature flags to human identities.
 5. **Self-Healing OpenBao Credential Architecture**: Adds idempotent backend mount verification (`kv-v2`, `jwt`, dynamic `jwks_url`) to SuperCred automation scripts, eliminating transient route failures across dev-mode restarts.
 
 The following diagram illustrates the interaction between human identity anchoring, the claim correlation engine, and the resilient credential containment plane.
@@ -265,7 +265,7 @@ Executed `make demo-signalloom-supercred-all` with zero errors:
 - **Phase 1 (Deploy & Seed)**: Services healthy, OpenBao JWT backend auto-enabled, SPIRE entry registered.
 - **Phase 2 (Credential Chain)**: Identity retrieved via SPIFFE JWT-SVID, card records fetched from Cardvault.
 - **Phase 3 (Scan)**: Missing securityContext and capabilities flagged as non-compliant.
-- **Phase 4 (Revocation & Stun)**: OpenBao role and secrets deleted; credential rejection confirmed in 1 second.
+- **Phase 4 (Revocation & Stun)**: OpenBao role and secrets deleted. Credential rejection confirmed in 1 second.
 - **Phase 5 (Teardown & Verification)**: Ephemeral resources cleaned and verified zero leftover state.
 - **Phase 1 Deployed**: Returned to deployed Phase 1 state for live operator demonstration.
 
@@ -274,7 +274,7 @@ Executed `make demo-signalloom-supercred-all` with zero errors:
 ## Security & Compliance Considerations
 
 1. **Least Privilege & Token Bounding**: All OpenBao JWT roles created by the claim and SuperCred infrastructure strictly enforce `token_ttl=5m`, `token_max_ttl=5m`, and `token_type=batch`. This eliminates long-lived token leakage risks.
-2. **Audit Provenance**: Every claim and revocation event logged to the audit store explicitly links the agent's cryptographic SPIFFE ID with the human administrator's authenticated email, providing non-repudiation.
+2. **Audit Provenance**: Every claim and revocation event logged to the audit store links the agent's SPIFFE ID with the human administrator's authenticated email. This provides non-repudiation.
 3. **Fail-Closed Policy Enforcement**: In-flight token verification and RBAC boundaries return explicit 401/403 rejections before executing administrative or mutation actions.
 4. **Data Isolation**: Multi-tenant database queries enforce tenant-scoped isolation, preventing cross-tenant discovery leaks.
 

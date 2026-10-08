@@ -351,4 +351,57 @@ describe('UsersPage Component', () => {
     fireEvent.click(dismissBtn)
     expect(screen.queryByTestId('action-error-banner')).not.toBeInTheDocument()
   })
+
+  it('opens InviteUserModal when Invite User button is clicked without onInviteUser prop', async () => {
+    let mockUseInviteUser = vi.fn().mockImplementation((options) => ({
+      mutateAsync: async (vars: any) => {
+        const payload = vars.payload || vars
+        const res = { ...MOCK_USERS_DATA[0], ...payload, id: 'usr-new-invited' }
+        options?.onSuccess?.(res, vars)
+        return res
+      },
+      isPending: false,
+    }))
+    vi.spyOn(usersApiModule, 'useInviteUser').mockImplementation(mockUseInviteUser as any)
+
+    await renderUsersPage()
+
+    const inviteBtn = screen.getByTestId('invite-user-btn')
+    fireEvent.click(inviteBtn)
+
+    expect(screen.getByTestId('invite-user-modal')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Invite Platform Operator' })).toBeInTheDocument()
+
+    // Fill email and submit
+    const emailInput = screen.getByTestId('invite-email-input')
+    await userEvent.type(emailInput, 'operator.new@acme.com')
+
+    const submitBtn = screen.getByTestId('invite-submit-btn')
+    await userEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('invite-user-modal')).not.toBeInTheDocument()
+      expect(screen.getByTestId('success-toast')).toHaveTextContent(
+        'Invitation dispatched to operator.new@acme.com',
+      )
+    })
+  })
+
+  it('opens EditUserModal when Edit button is clicked without onEditUser prop', async () => {
+    await renderUsersPage()
+
+    const editBtn = screen.getByTestId('edit-user-btn-usr-1')
+    fireEvent.click(editBtn)
+
+    expect(screen.getByTestId('edit-user-modal')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Edit Operator Profile' })).toBeInTheDocument()
+    expect(screen.getByTestId('edit-email-display')).toHaveTextContent('admin@acme.com')
+
+    // Close edit modal
+    const closeBtn = screen.getByTestId('edit-close-btn')
+    fireEvent.click(closeBtn)
+
+    expect(screen.queryByTestId('edit-user-modal')).not.toBeInTheDocument()
+  })
 })
+

@@ -12,6 +12,12 @@ export type AgentType = 'data-vault' | 'data-pipeline' | 'llm-inference' | 'api-
 export type AgentStateValue = 'absent' | 'deploying' | 'active' | 'non-compliant' | 'grace-period' | 'stunned'
 export type TrustProfile = 'high' | 'medium' | 'low'
 
+export interface ParameterTriple {
+  min: number
+  mode: number
+  max: number
+}
+
 export interface AgentState {
   id: string
   name: string
@@ -21,6 +27,9 @@ export interface AgentState {
   state: AgentStateValue
   gracePeriod?: string
   riskClass?: string
+  controlFailures?: string[]
+  parameterTriple?: ParameterTriple
+  calibratedTriple?: ParameterTriple
 }
 
 export interface Edge {
@@ -33,6 +42,8 @@ export interface RiskSummary {
   var95: number
   trend: 'up' | 'down' | 'stable'
   previousAle?: number
+  carriedGbp?: number
+  carried?: number
 }
 
 export interface CascadeEvent {

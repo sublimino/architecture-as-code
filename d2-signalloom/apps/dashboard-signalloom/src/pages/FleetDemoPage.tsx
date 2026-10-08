@@ -14,7 +14,7 @@ import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import { StatCard, Section } from '../components/DashKit'
-import type { AgentState, FleetStunResult, FleetTopology as FleetTopologyData } from '../api/fleetApi'
+import type { AgentState, FleetStunResult, FleetTopology as FleetTopologyData, RiskSummary } from '../api/fleetApi'
 import StunReasonForm from '../components/StunReasonForm'
 import { PlaneOutcomeTable, StunOverallHeadline } from '../components/StunPlanes'
 import {
@@ -177,6 +177,23 @@ function chipStyle(selected: boolean): React.CSSProperties {
   }
 }
 
+// ── FAIR Risk Baseline & Escalated Scenarios ─────────────────────────────────
+
+const BASELINE_RISK: RiskSummary = {
+  ale: 12400,
+  var95: 58000,
+  trend: 'stable',
+  carriedGbp: 12400,
+}
+
+const ESCALATED_RISK: RiskSummary = {
+  ale: 847000,
+  var95: 1200000,
+  trend: 'up',
+  previousAle: 12400,
+  carriedGbp: 847000,
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 interface FleetDemoPageProps {
@@ -197,6 +214,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   // Fleet state.
   const [topology, setTopology] = useState<FleetTopologyData | null>(null)
+  const [isScanned, setIsScanned] = useState(false)
   const [cascadeInProgress, setCascadeInProgress] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -280,6 +298,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   const handleDeploy = useCallback(async () => {
     setDeployLoading(true)
     setDeployError(null)
+    setIsScanned(false)
     try {
       const token = await getAccessTokenSilently()
       await deployFleet(token)
@@ -299,6 +318,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       const token = await getAccessTokenSilently()
       await scanFleet(token)
       setScanLoaded(true)
+      setIsScanned(true)
       void loadTopology()
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed')
@@ -339,6 +359,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setRecoverError(null)
     setCascadeInProgress([])
     setStunResult(null)
+    setIsScanned(false)
     try {
       const token = await getAccessTokenSilently()
       await recoverFleet(token)
@@ -356,6 +377,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setResetError(null)
     setCascadeInProgress([])
     setStunResult(null)
+    setIsScanned(false)
     try {
       const token = await getAccessTokenSilently()
       await resetFleet(token)
@@ -369,13 +391,35 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   }, [getAccessTokenSilently, loadTopology])
 
   // Computed summaries.
-  const agents = topology?.agents ?? []
+  const rawAgents = topology?.agents ?? []
+  const agents = useMemo(() => {
+    if (!isScanned) return rawAgents
+    return rawAgents.map(a => {
+      if (
+        (a.id === 'agent-llm-classifier' || a.id === 'agent-llm' ||
+         a.id === 'agent-txn-pipeline' || a.id === 'agent-pipeline') &&
+        a.state === 'active'
+      ) {
+        return { ...a, state: 'non-compliant' as const }
+      }
+      return a
+    })
+  }, [rawAgents, isScanned])
+
   const activeCount = agents.filter(a => a.state === 'active').length
   const stunnedCount = agents.filter(a => a.state === 'stunned').length
   const nonCompliantCount = agents.filter(a => a.state === 'non-compliant').length
   const stunnableAgents = agents.filter(a => a.type !== 'observability')
 
-  const risk = topology?.aggregateRisk ?? { ale: 0, var95: 0, trend: 'stable' as const }
+  const risk: RiskSummary = useMemo(() => {
+    if (topology && rawAgents.length === 0) {
+      return { ale: 0, var95: 0, trend: 'stable', carriedGbp: 0 }
+    }
+    if (isScanned) {
+      return ESCALATED_RISK
+    }
+    return BASELINE_RISK
+  }, [topology, rawAgents.length, isScanned])
 
   const showControls = superadmin && !audience
 
@@ -513,6 +557,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             var95={risk.var95}
             trend={risk.trend}
             previousAle={risk.previousAle}
+            carriedGbp={risk.carriedGbp}
           />
           <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
             {agents.length} agents deployed
@@ -695,6 +740,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             var95={risk.var95}
             trend={risk.trend}
             previousAle={risk.previousAle}
+            carriedGbp={risk.carriedGbp}
           />
 
           {/* Topology loading state */}

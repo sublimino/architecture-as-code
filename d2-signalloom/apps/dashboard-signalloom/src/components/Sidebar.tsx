@@ -111,6 +111,7 @@ export const NAV: NavItem[] = [
   { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies' },
   { to: '/compliance', label: 'Compliance', section: 'Control', icon: 'containment' },
   { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion' },
+  { to: '/users', label: 'Users & Permissions', section: 'Control', icon: 'approvals' },
   { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit' },
 
   // ─── Design Group ───────────────────────────────────────

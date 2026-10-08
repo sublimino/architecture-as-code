@@ -361,7 +361,7 @@ export default function InviteUserModal({
             </select>
           </div>
 
-          {/* Tenant Selector — STRICTLY Rendered ONLY for Superadmins */}
+          {/* Tenant Selector -- STRICTLY Rendered ONLY for Superadmins */}
           {isSuperadmin && (
             <div data-testid="invite-tenant-wrapper">
               <label

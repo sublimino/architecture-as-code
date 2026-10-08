@@ -65,6 +65,22 @@ describe('agentDeepLink helper', () => {
       expect(link.href).toBe('/agents/agent-triage?tab=overview')
     })
 
+    it('resolves arbitrary agent names, custom conventions, and UUIDs without regex or prefix requirements', () => {
+      const arbitraryIds = [
+        '95b5ff7c-d904-4cb7-8e44-7b2fbed34140',
+        'cred-agent-1791069756213-rpxn1',
+        'supercred:agent-cardvault',
+        'custom-worker-service',
+        'arbitrary_agent_name',
+      ]
+      for (const id of arbitraryIds) {
+        const link = buildAgentDeepLink(id)
+        expect(link.isDirectDossier).toBe(true)
+        expect(link.pathname).toBe(`/agents/${encodeURIComponent(id)}`)
+        expect(link.search).toBe('?tab=overview')
+      }
+    })
+
     it('normalizes id: and uuid: prefixes into direct dossier routes', () => {
       const link1 = buildAgentDeepLink('id:agent-triage')
       expect(link1.isDirectDossier).toBe(true)

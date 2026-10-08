@@ -36,25 +36,20 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
       const drawer = page.getByTestId("agent-evidence-drawer");
       await expect(drawer).toBeVisible({ timeout: 10_000 });
 
-      // Verify Quantitative Risk section settles without 502 upstream errors
+      // Verify Quantitative Risk section settles cleanly without error state
       const riskSection = page.getByTestId("drawer-section-risk");
       const riskError = page.getByTestId("drawer-section-risk-error");
-      await expect(riskSection.or(riskError)).toBeVisible({ timeout: 15_000 });
-
-      if (await riskError.isVisible()) {
-        const errorText = await riskError.innerText();
-        expect(errorText).not.toContain("502");
-        expect(errorText).not.toContain("invalid_upstream_response");
-        expect(errorText).not.toContain("policy-engine returned unparseable JSON");
-      }
+      await expect(riskSection).toBeVisible({ timeout: 15_000 });
+      await expect(riskError).not.toBeVisible();
+      await expect(page.getByTestId("drawer-section-risk-ale")).toBeVisible();
     }
   });
 
-  test("Surface 3b: Agent detail drawer deep-link ?drawer=<id> opens drawer and verifies Quantitative Risk (OpenFAIR) without 502", async ({ page }) => {
-    // Monitor risk endpoints for 500/502/504 errors
+  test("Surface 3b: Agent detail drawer deep-link ?drawer=<id> opens drawer and verifies Quantitative Risk (OpenFAIR) without errors", async ({ page }) => {
+    // Monitor risk endpoints for any 4xx or 5xx errors
     const failedRiskResponses: string[] = [];
     page.on("response", (res) => {
-      if (res.url().includes("/risk") && res.status() >= 500) {
+      if (res.url().includes("/risk") && res.status() >= 400) {
         failedRiskResponses.push(`${res.status()} ${res.url()}`);
       }
     });
@@ -72,29 +67,45 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     const drawer = page.getByTestId("agent-evidence-drawer");
     await expect(drawer).toBeVisible({ timeout: 15_000 });
 
-    // Assert Quantitative Risk (OpenFAIR) panel renders
+    // Assert Quantitative Risk (OpenFAIR) panel renders cleanly
     const riskSection = page.getByTestId("drawer-section-risk");
     const riskError = page.getByTestId("drawer-section-risk-error");
-    await expect(riskSection.or(riskError)).toBeVisible({ timeout: 15_000 });
+    await expect(riskSection).toBeVisible({ timeout: 15_000 });
+    await expect(riskError).not.toBeVisible();
 
-    // Assert zero 500/502/504 responses across risk API endpoints
+    // Assert zero 4xx/5xx responses across risk API endpoints
     expect(failedRiskResponses).toEqual([]);
 
-    // Assert no upstream 502 error text appears in the UI
-    if (await riskError.isVisible()) {
-      const errorText = await riskError.innerText();
-      expect(errorText).not.toContain("502");
-      expect(errorText).not.toContain("invalid_upstream_response");
-      expect(errorText).not.toContain("policy-engine returned unparseable JSON");
-    } else {
-      await expect(page.getByTestId("drawer-section-risk-ale")).toBeVisible();
-      await expect(page.getByTestId("drawer-section-risk-source")).toBeVisible();
-    }
+    await expect(page.getByTestId("drawer-section-risk-ale")).toBeVisible();
+    await expect(page.getByTestId("drawer-section-risk-source")).toBeVisible();
 
     // Verify closing drawer cleans up the ?drawer= URL parameter
     await page.getByTestId("agent-evidence-drawer-close").click();
     await expect(drawer).not.toBeVisible({ timeout: 5_000 });
     await expect(page).not.toHaveURL(/[?&]drawer=/);
+  });
+
+  test("Surface 3c: Agent detail drawer deep-link with arbitrary UUID (?drawer=95b5ff7c-d904-4cb7-8e44-7b2fbed34140) renders without 404", async ({ page }) => {
+    const failedRiskResponses: string[] = [];
+    page.on("response", (res) => {
+      if (res.url().includes("/risk") && res.status() >= 400) {
+        failedRiskResponses.push(`${res.status()} ${res.url()}`);
+      }
+    });
+
+    const targetUuid = "95b5ff7c-d904-4cb7-8e44-7b2fbed34140";
+    await page.goto(`${BASE}/agents?drawer=${targetUuid}`, { waitUntil: "domcontentloaded" });
+    const drawer = page.getByTestId("agent-evidence-drawer");
+    await expect(drawer).toBeVisible({ timeout: 15_000 });
+
+    const riskSection = page.getByTestId("drawer-section-risk");
+    const riskError = page.getByTestId("drawer-section-risk-error");
+    await expect(riskSection).toBeVisible({ timeout: 15_000 });
+    await expect(riskError).not.toBeVisible();
+
+    expect(failedRiskResponses).toEqual([]);
+    await expect(page.getByTestId("drawer-section-risk-ale")).toBeVisible();
+    await expect(page.getByTestId("drawer-section-risk-source")).toBeVisible();
   });
 
   test("Surface 5: The Weave renders real-time signal stream and layer filters", async ({ page }) => {

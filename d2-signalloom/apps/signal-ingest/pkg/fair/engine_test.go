@@ -103,3 +103,31 @@ func TestUnknownAgentReturnsError(t *testing.T) {
 		t.Errorf("expected ErrUnknownAgent, got: %v", err)
 	}
 }
+
+func TestArbitraryAgentWithFallback(t *testing.T) {
+	src := NewFixtureSource(12)
+	src.SetAllowFallback(true)
+	svc := NewService(src)
+
+	// Agents can have arbitrary names, UUIDs, or custom conventions — never regex-matched
+	testIDs := []string{
+		"95b5ff7c-d904-4cb7-8e44-7b2fbed34140",
+		"cred-agent-1791069756213-rpxn1",
+		"supercred:agent-cardvault",
+		"my-arbitrary-service-worker",
+		"assistant_v3",
+	}
+
+	for _, id := range testIDs {
+		ass, err := svc.Assess(id, Options{Trials: 1000, Seed: 42})
+		if err != nil {
+			t.Errorf("Assess failed for arbitrary agent %q with fallback enabled: %v", id, err)
+		}
+		if ass.ALE <= 0 {
+			t.Errorf("expected positive ALE for arbitrary agent %q, got %g", id, ass.ALE)
+		}
+		if ass.AgentID != id {
+			t.Errorf("expected AgentID %q, got %q", id, ass.AgentID)
+		}
+	}
+}

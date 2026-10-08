@@ -162,15 +162,21 @@ export function resolveDeepLinkTarget(
     }
   }
 
-  // Common agent ID prefixes (e.g. "agent-", "kagent-", UUID, or tenant-prefixed IDs)
-  if (
-    trimmed.startsWith('agent-') ||
-    trimmed.startsWith('kagent-') ||
-    val.startsWith('agent-') ||
-    val.startsWith('kagent-') ||
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ||
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
-  ) {
+  // Known query selector prefixes or query syntax (e.g. "app=cardvault,tier=backend", "ns:default", "sa:unknown")
+  const KNOWN_SELECTOR_PREFIXES = new Set([
+    'sa', 'serviceaccount', 'ns', 'namespace', 'selector', 'label', 'tag', 'team',
+    'tier', 'cluster', 'env', 'type', 'role', 'status', 'app', 'framework', 'model'
+  ])
+
+  const isExplicitSelector =
+    trimmed.includes('=') ||
+    trimmed.includes(',') ||
+    trimmed.startsWith('spiffe://') ||
+    (colonIdx > 0 && (KNOWN_SELECTOR_PREFIXES.has(prefix) || trimmed.toLowerCase().startsWith('k8s:')))
+
+  if (!isExplicitSelector) {
+    // Any non-empty string that is not an explicit selector is an agent identifier.
+    // Deliberately no regex or prefix restrictions on agent names.
     return { kind: 'agent', agentId: trimmed, label: trimmed }
   }
 

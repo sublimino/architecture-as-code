@@ -56,8 +56,9 @@ var shapes = []profileShape{
 // in the CLI process and in the server process, which is a precondition for the parity contract
 // meaning anything at all.
 type FixtureSource struct {
-	mu     sync.RWMutex
-	agents map[string]Telemetry
+	mu            sync.RWMutex
+	agents        map[string]Telemetry
+	allowFallback bool
 }
 
 // NewFixtureSource builds n synthetic agents spanning the profile shapes, plus the named agents the
@@ -172,8 +173,10 @@ func (s *FixtureSource) AgentTelemetry(id string) (Telemetry, bool) {
 		return t, true
 	}
 
-	// Dynamic fallback for any agent with conventional agent prefix
-	if strings.HasPrefix(slug, "kagent-") || strings.HasPrefix(slug, "agent-") {
+	// Dynamic fallback for any agent when fallback is enabled.
+	// NOTE: Deliberately no prefix checks (e.g. "agent-", "kagent-") or regexes.
+	// Agents can have arbitrary names, custom slugs, or UUIDs across diverse runtimes.
+	if s.allowFallback && strings.TrimSpace(id) != "" {
 		return Telemetry{
 			AgentID:               id,
 			RuntimeViolations:     1,
@@ -209,6 +212,14 @@ func (s *FixtureSource) Set(t Telemetry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agents[t.AgentID] = t
+}
+
+// SetAllowFallback toggles fallback telemetry generation for agents not explicitly seeded.
+// In live cluster mode this ensures arbitrary agent names, custom slugs, and UUIDs can be assessed.
+func (s *FixtureSource) SetAllowFallback(allow bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowFallback = allow
 }
 
 // DefaultFixtureCount is the fixture-set size the parity contract runs over. Fifty, because that is

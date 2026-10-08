@@ -228,10 +228,12 @@ export const weaveApi = {
     }
   },
 
-  getObservations: async (token: string, params?: { layer?: string; limit?: number }) => {
+  getObservations: async (token: string, params?: { layer?: string; limit?: number; after?: string; before?: string }) => {
     const q = new URLSearchParams()
     if (params?.layer) q.set('layer', params.layer)
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.after) q.set('after', params.after)
+    if (params?.before) q.set('before', params.before)
     const qs = q.toString()
     return asList(await req<SignalObservation[] | null>(`/signals/observations${qs ? `?${qs}` : ''}`, token))
   },

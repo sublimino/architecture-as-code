@@ -164,6 +164,9 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | `SLAAT-P3-1` | `security`, `testing`, `bash` | L | 90m | `daily` | Full adversarial attack replay against hardened platform; assert zero exploits succeed. |
 | `SLAAT-P3-2` | `testing`, `bash`, `python` | L | 90m | `daily` | Whole-platform multiplane acceptance testing and comprehensive regression suite. |
 | `SLAAT-P3-GOV` | `architecture`, `testing`, `bash` | L | 90m | `daily` | Final Mission Governor Gate: final certification report, errata ledger consolidation, and delivery sign-off. |
+| `SLAAT-P4-PRE` | `research`, `bash`, `testing` | S | 30m | `daily` | Phase 4 Pre-Flight Check & Baseline Assessment for cross-plane permutation battery. |
+| `SLAAT-P4-1` | `security`, `testing`, `bash` | M | 60m | `daily` | One-shot cross-plane permutation battery executing SLAAT 5-surface attacks concurrent with SLAWS telemetry ingest and FrostDB compaction. |
+| `SLAAT-P4-GOV` | `architecture`, `testing`, `bash` | M | 60m | `daily` | Phase 4 Governor Gate: Cross-plane permutation re-test certification, multi-mission regression proof, and delivery sign-off. |
 
 ### Spec: Work Decomposition
 
@@ -185,6 +188,9 @@ This architectural constitution defines the baseline patterns for the SLAAT miss
 | P3 | `SLAAT-P3-1` | Full Adversarial Attack Replay & Exploit Defense Verification | `SLAAT-P3-PRE` | Replay 100% of Phase 1 adversarial probes against hardened platform; verify all attacks fail cleanly. | `integration` | `L` | `daily` | pass : delivered: 97a4c179a64af061e1a68172693d82dd1caba379 (see Errata : SLAAT-P3-1) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-2` | Whole-Platform Acceptance & Multiplane Regression Suite | `SLAAT-P3-PRE` | Execute whole-platform test pyramid including `make test-all-offline`, live acceptance, and SuperCred tests. | `e2e` | `L` | `daily` | pass : delivered: 796b33cb90d9c55108019071030a507fdebdc6b6 (see Errata : SLAAT-P3-2) | $0.00 | 0 | 0s | none |
 | P3 | `SLAAT-P3-GOV` | Final Mission Governor Gate: Certification & Hand-Off | `SLAAT-P3-1`, `SLAAT-P3-2` | Generate final certification report, consolidate errata ledgers, verify clean git status, and close mission. | `e2e` | `L` | `daily` | pass : delivered: 24fb88772b71284fb424c03c368b460241ba8b41 (see Errata : SLAAT-P3-GOV) | $0.00 | 0 | 0s | none |
+| P4 | `SLAAT-P4-PRE` | Phase 4 Pre-Flight Check & Baseline Assessment | `SLAAT-P3-GOV` | Verify cross-plane test harnesses, check SLAWS and SLAAT artifacts, and confirm environment baseline readiness. | `unit` | `S` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P4 | `SLAAT-P4-1` | One-Shot Cross-Plane Permutation Attack & Ingest Battery | `SLAAT-P4-PRE` | Execute all 5 SLAAT adversarial attack surfaces concurrently with SLAWS telemetry ingestion, FrostDB storage, and CEL policy evaluation; verify zero bypasses and zero data loss. | `integration` | `M` | `daily` | not started | $0.00 | 0 | 0s | none |
+| P4 | `SLAAT-P4-GOV` | Phase 4 Governor Gate: Permutation Re-Test Certification & Hand-Off | `SLAAT-P4-1` | Reconcile permutation test outputs, compile cross-mission retest report, verify clean git status, and certify defense invariants. | `e2e` | `M` | `daily` | not started | $0.00 | 0 | 0s | none |
 
 ### Spec: Errata
 

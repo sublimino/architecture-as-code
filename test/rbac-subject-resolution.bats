@@ -18,6 +18,9 @@ setup() {
 	REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 	CHECKER="${REPO_ROOT}/scripts/check-rbac-subjects.py"
 	FIXTURE="${BATS_TEST_TMPDIR}/fixture"
+	if ! python3 -c 'import yaml' >/dev/null 2>&1 && /usr/bin/python3 -c 'import yaml' >/dev/null 2>&1; then
+		PATH="/usr/bin:${PATH}"
+	fi
 }
 
 # A minimal but VALID repo: one SA, one Role, one binding that resolves.

@@ -77,28 +77,46 @@ export const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'va
  * Plain strings stay valid so the existing callers are untouched; only the
  * headers whose meaning is genuinely not self-evident pay the cost of an object.
  */
-export type TableHeader = string | { label: string; help: string; testId?: string }
+export type TableHeader = string | {
+  label: string
+  help?: string
+  testId?: string
+  width?: number | string
+  style?: CSSProperties
+}
 
-export function Table({ headers, children }: { headers: TableHeader[]; children: ReactNode }) {
+export function Table({
+  headers,
+  children,
+  tableStyle,
+}: {
+  headers: TableHeader[]
+  children: ReactNode
+  tableStyle?: CSSProperties
+}) {
   return (
     <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', ...tableStyle }}>
         <thead>
           <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
             {headers.map((h, idx) => {
               const label = typeof h === 'string' ? h : h.label
               const isFirst = idx === 0
               const isLast = idx === headers.length - 1
+              const colWidth = typeof h === 'object' ? h.width : undefined
+              const colStyle = typeof h === 'object' ? h.style : undefined
               return (
                 <th
                   key={label}
                   style={{
                     ...thStyle,
+                    width: colWidth,
+                    ...colStyle,
                     borderTopLeftRadius: isFirst ? 'calc(var(--radius) - 1px)' : undefined,
                     borderTopRightRadius: isLast ? 'calc(var(--radius) - 1px)' : undefined,
                   }}
                 >
-                  {typeof h === 'string' ? label : (
+                  {typeof h === 'string' || !h.help ? label : (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {label}
                       <HelpHint label={`What ${label} means`} testId={h.testId}>{h.help}</HelpHint>

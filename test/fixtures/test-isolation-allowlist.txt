@@ -59,6 +59,12 @@ test/sltm-ingest-reload-ratelimit.bats:TMP:/tmp/gomodcache  # overridable: ${GOM
 test/sltm-ingest-chain.bats:TMP:/tmp/go  # overridable: ${GOPATH:-/tmp/go}
 test/sltm-ingest-chain.bats:TMP:/tmp/go-cache  # overridable: ${GOCACHE:-/tmp/go-cache}
 test/sltm-ingest-chain.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/federation-bao-role-glob.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
+test/federation-bao-role-glob.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/federation-bao-role-glob.bats:TMP:/tmp/gopath  # overridable: ${GOPATH:-/tmp/gopath}
+test/tombstone-mutation-check.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
+test/tombstone-mutation-check.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+d2-signalloom/test/netassert-gitops.bats:PORT:18082  # static assertion: grep for scan URL in runner script
 
 # --- Go: fleet-manager -----------------------------------------------------
 

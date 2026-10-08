@@ -34,13 +34,16 @@ REGISTRY_TOOL="${BATS_TEST_DIRNAME}/../scripts/ci/demo-surface-registry.py"
 STUB="${BATS_TEST_DIRNAME}/fixtures/user-surface-gate/stub-surface-server.py"
 
 setup() {
-  PORT=$(( 34000 + (RANDOM % 4000) ))
+  PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
   BASE="http://127.0.0.1:${PORT}"
   STUB_PID=""
 }
 
 teardown() {
-  [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null
+  if [ -n "$STUB_PID" ]; then
+    kill "$STUB_PID" 2>/dev/null || true
+    wait "$STUB_PID" 2>/dev/null || true
+  fi
   return 0
 }
 
@@ -272,7 +275,7 @@ run_gate() {
     "${BATS_TEST_DIRNAME}/../d2-signalloom/apps/dashboard-signalloom/src/api"
   [ "$status" -eq 0 ]
   [[ "$output" == *"supercred"*$'\t'"/demo-api"* ]]
-  [[ "$output" == *"signalfusion"*$'\t'"/api/demo/signalfusion"* ]]
+  [[ "$output" == *"signalfusion"*$'\t'"/demo-api/signalfusion"* ]]
 }
 
 # Regression: the client↔demo linkage must not depend on a COMMENT.

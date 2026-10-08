@@ -43,7 +43,7 @@ case " $* " in
   # failure introducing a loud one. `-p` is the precise test: in the real
   # pipeline stdin is a pipe, and a direct call from a test is not.
   *" -f - "*)
-    if [ -p /dev/stdin ]; then cat >/dev/null 2>&1 || true; fi
+    if [ -p /dev/stdin ]; then timeout 1s cat >/dev/null 2>&1 || true; fi
     ;;
 esac
 

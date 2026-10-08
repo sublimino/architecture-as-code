@@ -69,6 +69,8 @@ manifest_with() {
 }
 
 @test "p1 preflight: kernel config that could not be read is reported as unknown" {
+  [ -r /sys/kernel/btf/vmlinux ] || skip "host has no readable /sys/kernel/btf/vmlinux"
+  cat /sys/fs/cgroup/cgroup.controllers >/dev/null 2>&1 || skip "host has no readable /sys/fs/cgroup/cgroup.controllers"
   run env KERNEL_CONFIG=/nonexistent/config bash "$SCRIPT"
   # An unreadable CONFIG_FILE falls back to inferring CONFIG_DEBUG_INFO_BTF from
   # /sys/kernel/btf/vmlinux, which proves only that one option -- config_bpf and

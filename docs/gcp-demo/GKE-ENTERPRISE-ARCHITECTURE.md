@@ -1,4 +1,3 @@
-<!-- docs-lint: off -->
 # Enterprise Architecture Specification: GCP / GKE Deployment Environment
 **Platform:** OSRAMP & Signal Loom Enterprise Platform  
 **Target Environment:** Google Cloud Platform (GCP) & Google Kubernetes Engine (GKE)  

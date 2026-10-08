@@ -68,6 +68,8 @@ const EVENT_TYPES = [
   'invite.created', 'invite.redeemed',
   // Weave promotion through the superadmin-gated proxy (migration 055).
   'actor.promote_requested',
+  // Cross-tenant read access logged by cross_tenant_audit (migration 056).
+  'audit.cross_tenant_read',
   'api_key.created', 'api_key.rotated',
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
@@ -128,6 +130,7 @@ const EVENT_COLORS: Record<string, string> = {
   'invite.redeemed': 'var(--cyan)',
   // A promotion is a change the product then acts on: violet, like a policy bundle.
   'actor.promote_requested': 'var(--violet)',
+  'audit.cross_tenant_read': 'var(--amber)',
   'api_key.created': 'var(--teal)',
   'api_key.rotated': 'var(--cyan)',
   'nhi.enrolled': 'var(--teal)',

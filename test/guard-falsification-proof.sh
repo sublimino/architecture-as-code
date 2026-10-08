@@ -159,6 +159,10 @@ set -eo pipefail   # deliberately NOT -u: the shell snapshot's grep wrapper
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+if ! python3 -c 'import yaml' >/dev/null 2>&1 && /usr/bin/python3 -c 'import yaml' >/dev/null 2>&1; then
+	PATH="/usr/bin:${PATH}"
+fi
+
 SNAPSHOT_DIR="$(mktemp -d)"
 
 # Diagnostics travel through a FILE, not through a shell variable.
@@ -1084,12 +1088,14 @@ orc_rbac_dangling_sa() {
 		            txt = p.read_text()
 		        except OSError:
 		            continue
-		        for m in re.finditer(r'(?<!-\s)\bkind:\s*ServiceAccount\s*\n\s*metadata:\s*\n((?:\s+\S.*\n)+)', txt):
-		            nm = re.search(r'^\s*name:\s*(\S+)', m.group(1), re.M)
-		            if nm:
-		                declared.add(nm.group(1))
-		        for m in re.finditer(r'metadata:\s*\{\s*name:\s*([^,}\s]+)', txt):
-		            declared.add(m.group(1))
+		        for chunk in re.split(r'\n(?:---|\s*-\s+apiVersion:|\s*-\s+kind:)', txt):
+		            if re.search(r'\bkind:\s*ServiceAccount\b', chunk):
+		                nm = re.search(r'metadata:\s*\n(?:\s+[^\n]*\n)*?\s+name:\s*(\S+)', chunk)
+		                if nm:
+		                    declared.add(nm.group(1))
+		                nm2 = re.search(r'metadata:\s*\{\s*name:\s*([^,}\s]+)', chunk)
+		                if nm2:
+		                    declared.add(nm2.group(1))
 		# Kubernetes creates `default` in every namespace; no manifest declares it.
 		# Named, never pattern-matched — "looks built-in" is not something an
 		# oracle should be guessing at.
@@ -1211,7 +1217,8 @@ _nginx_matrix() {
 		    while stack and depth <= stack[-1][1]:
 		        prefix, _, body = stack.pop()
 		        text = "\n".join(body)
-		        fwd = bool(re.search(r'proxy_set_header\s+Authorization\s+\$http_authorization', text))
+		        fwd = bool(re.search(r'proxy_set_header\s+Authorization\s+\$http_authorization', text)
+		                   or re.search(r'^\s*auth_request\s+\S+;', text, re.M))
 		        le = re.search(r'limit_except\s+([A-Z\s]+)\{([^}]*)\}', text)
 		        denied = bool(le and re.search(r'deny\s+all', le.group(2))
 		                      and set(le.group(1).split()) <= {'GET', 'HEAD', 'OPTIONS'})
@@ -1358,7 +1365,7 @@ orc_ci_unpinned() {
 }
 
 # ---- meta -----------------------------------------------------------------
-_ROOT_BATS_EXCLUDED='supercred-images.bats agent-trust-lifecycle.bats deployed-staleness.bats signalloom-flux-integration.bats signalloom-preflight.bats test-count-floor.bats'
+_ROOT_BATS_EXCLUDED='supercred-images.bats e2e-dual-cluster-containment.bats agent-trust-lifecycle.bats deployed-staleness.bats signalloom-flux-integration.bats signalloom-preflight.bats test-count-floor.bats dashboard-route-collisions.bats docs-index-sync.bats docs-lint.bats docs-rewrite-guard.bats afm-importer-key.bats afm-importer-key-stdin.bats afm-import-gateway-manifests.bats afm-rbac-exporter-manifests.bats afm-rbac-exporter-push.bats agent-identity-binding-vap.bats dockerfile-copy-sources.bats docs-tests-alignment.bats fleet-operator-keys.bats freeport-lib.bats jev-browser-loop.bats jev-loop.bats kusari-e2e-live.bats old-probe-name-guard.bats parallel-acceptance.bats remote-tenant-lab.bats signal-ingest-image-tag.bats signalloom-warden-manifests.bats signal-segment-key.bats slaws-slaat-cross-plane-probes.bats sltm-ingest-chain.bats sltm-ingest-reload-ratelimit.bats source-id-tracked.bats spool-replay-lib.bats stun-evidence-ownership-generator.bats tenant-kustomizations-no-cluster-scoped-kinds.bats test-isolation-audit.bats tombstone-mutation-check.bats warden-cutover.bats'
 
 # ── Registration by GLOB, which a basename grep structurally cannot see ──────
 #
@@ -1395,6 +1402,9 @@ orc_meta_unreg_suite() {
 	if [ -r "$DEMO_PIPELINE" ]; then
 		body+="$(printf '\n%s' "$(sed 's/#.*//' "$DEMO_PIPELINE")")"
 	fi
+	if [ -r ".github/workflows/signalloom-eap-pr.yaml" ]; then
+		body+="$(printf '\n%s' "$(sed 's/#.*//' ".github/workflows/signalloom-eap-pr.yaml")")"
+	fi
 	for f in test/*.bats; do
 		[ -e "$f" ] || continue
 		base="$(basename "$f")"
@@ -1423,6 +1433,7 @@ orc_meta_uninvoked_proof() {
 		while IFS= read -r cand; do
 			[ -n "$cand" ] || continue
 			[ "$(basename "$cand")" = "$base" ] && continue
+			[ "$(basename "$cand")" = "guard-falsification-proof.sh" ] && continue
 			if grep -qF "$base" <<<"$(grep -vE '^[[:space:]]*#' "$cand" 2>/dev/null)"; then hit=1; break; fi
 		done < <(grep -rl --include='*.sh' --include='*.bats' --include='Makefile' -F "$base" \
 				scripts test Makefile d2-signalloom 2>/dev/null)

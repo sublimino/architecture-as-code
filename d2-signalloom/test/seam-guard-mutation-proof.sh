@@ -60,14 +60,17 @@ CHECKS=0
 # uv, so an ad-hoc local run still works.
 pytest_cmd() {
 	if command -v uv >/dev/null 2>&1; then
-		printf 'uv run --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest'
+		printf 'uv run --python 3.12 --with pytest --with pytest-asyncio --with-requirements ../requirements.txt --with respx --quiet python -m pytest'
 	else
 		printf 'python3 -m pytest'
 	fi
 }
 
 run_test() {
-	(cd "$TESTS_DIR" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+	(cd "$TESTS_DIR" && \
+		UV_CONFIG_FILE=/dev/null \
+		UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" \
+		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 		$(pytest_cmd) "$1" -p no:cacheprovider -o addopts="" -q -k "$2" 2>&1)
 }
 
@@ -140,7 +143,7 @@ echo "=== seam guard mutation proof ==============================="
 # ── audit vocabulary guard ─────────────────────────────────────────────
 prove "emitted type with no filter option is caught" \
 	"$AUDIT_TRAIL" "$AUDIT_GUARD" "test_every_emitted_event_type_is_filterable" \
-	"sed -i \"s/^  'agent.created', 'agent.transitioned', 'agent.stunned',\$/  'agent.transitioned', 'agent.stunned',/\" '$AUDIT_TRAIL'"
+	"sed -i \"s/'agent.created', //\" '$AUDIT_TRAIL'"
 
 prove "filter option matching nothing emitted is caught" \
 	"$AUDIT_TRAIL" "$AUDIT_GUARD" "test_every_filter_option_matches_something_the_api_emits" \
@@ -160,7 +163,7 @@ prove "unreadable EVENT_TYPES fails instead of reporting agreement" \
 
 prove "agent-scoped type missing from the timeline is caught" \
 	"$AGENT_DETAIL" "$AUDIT_GUARD" "test_agent_detail_timeline_filters_match_emitted_types" \
-	"sed -i \"s/^  'agent.created', 'agent.transitioned', 'agent.stunned',\$/  'agent.transitioned', 'agent.stunned',/\" '$AGENT_DETAIL'"
+	"sed -i \"s/'agent.created', //\" '$AGENT_DETAIL'"
 
 # ── lifecycle vocabulary guard ─────────────────────────────────────────
 prove "written state the constraint forbids is caught" \
@@ -169,7 +172,7 @@ prove "written state the constraint forbids is caught" \
 
 prove "written state with no filter option is caught" \
 	"$AGENTS_PAGE" "$LIFECYCLE_GUARD" "test_every_state_the_api_writes_is_filterable" \
-	"sed -i \"s/^const LIFECYCLE_OPTIONS = \\['all', 'registered', /const LIFECYCLE_OPTIONS = ['all', /\" '$AGENTS_PAGE'"
+	"sed -i \"s/'Governed', //\" '$AGENTS_PAGE'"
 
 prove "transition target the constraint forbids is caught" \
 	"$AGENT_DETAIL" "$LIFECYCLE_GUARD" "test_every_offered_transition_target_is_permitted" \
@@ -177,7 +180,7 @@ prove "transition target the constraint forbids is caught" \
 
 prove "dead lifecycle filter option is caught" \
 	"$AGENTS_PAGE" "$LIFECYCLE_GUARD" "test_no_dead_lifecycle_filter_options" \
-	"sed -i \"s/^const LIFECYCLE_OPTIONS = \\['all', /const LIFECYCLE_OPTIONS = ['all', 'mothballed', /\" '$AGENTS_PAGE'"
+	"sed -i \"s/\\['all', /['all', 'mothballed', /\" '$AGENTS_PAGE'"
 
 prove "stale unfiltered-state allowlist entry is caught" \
 	"$LIFECYCLE_GUARD" "$LIFECYCLE_GUARD" "test_no_stale_unfiltered_state" \

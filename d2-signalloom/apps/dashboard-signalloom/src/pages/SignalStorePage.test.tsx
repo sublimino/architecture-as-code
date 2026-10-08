@@ -126,6 +126,15 @@ describe('SignalStorePage', () => {
     expect(screen.getByText('opa-audit-log')).toBeInTheDocument()
   })
 
+  it('renders observations table with fixed layout and wrapped cells for long IDs', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('obs-net-001')).toBeInTheDocument()
+    })
+    const idCell = screen.getByText('obs-net-001')
+    expect(idCell).toHaveStyle({ wordBreak: 'break-all', whiteSpace: 'normal' })
+  })
+
   it('renders fidelity breakdown', async () => {
     renderPage()
     await waitFor(() => {

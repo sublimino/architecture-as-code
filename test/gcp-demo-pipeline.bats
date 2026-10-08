@@ -155,6 +155,7 @@ make_fake_repo() {
 		scripts/acceptance-test.sh \
 		scripts/check-flux-substitution.sh \
 		scripts/check-vacuous-assertions.sh \
+		scripts/ci/user-surface-gate.sh \
 		test/guard-falsification-proof.sh \
 		d2-signalloom/test/audit-guard-reintroduction-proof.sh \
 		d2-signalloom/test/seam-guard-mutation-proof.sh; do
@@ -165,6 +166,12 @@ make_fake_repo() {
 		STUB
 		chmod +x "$root/$f"
 	done
+
+	cat >"$root/scripts/ci/resolve-tailnet-origin.sh" <<-STUB
+		#!/usr/bin/env bash
+		echo "https://stub.tailnet.ts.net"
+	STUB
+	chmod +x "$root/scripts/ci/resolve-tailnet-origin.sh"
 }
 
 # ─── Call-log helpers ────────────────────────────────────────────────────────
@@ -257,6 +264,7 @@ recipe_body() {
 # lines, and the script path for direct invocations.
 recipe_step_identifiers() {
 	recipe_body | sed -e 's/^\$(MAKE)[[:space:]]*//' \
+		-e 's/^-C[[:space:]]*[^[:space:]]*[[:space:]]*//' \
 		-e 's/^[A-Z_]*=[^[:space:]]*[[:space:]]*//' \
 		-e 's/[[:space:]].*$//' \
 		| grep -vE '^$'

@@ -1,20 +1,104 @@
-# SuperCredential Multi-Agent Evolution: "The Cascade"
+---
+created: 2026-10-07
+mission: SuperCredential Multi-Agent Evolution: The Cascade
+shortcode: SLSC
+repo: /home/andy/src/cp/osramp-demo
+integration: integration/slsc-v0.1.0
+base_ref: feat/signal-loop-and-bootstrap-refactor
 
-## The One Slide
+cadence: "*/10 * * * *"
+max_card_minutes: 180
+reviewers:
+  - "#stefan-prodan"
+  - "#vicente-herrera"
+  - "#francesco-beltramini"
+capabilities:
+  - "#cap-architecture"
+  - "#cap-api-design"
+  - "#cap-react"
+  - "#cap-golang"
+  - "#cap-security-engineering"
+  - "#cap-testing-pyramid"
+practice:
+  - AI & Data Security
+  - Cloud Native Transformation & DevSecOps
+url:
+forecastProjectId:
+forecastProjectName:
+forecastProjectUrl:
+obsidianProject: "1. Projects/2026-10-signalloom-multi-agent-supercred-cascade/"
+parentProposal: "[[Proposal — Signal Loom Agent Security Platform (2026-Q3)]]"
+enhancements:
+tags:
+  - innovation-proposals
+  - proposal-2026-q4-multi-agent-supercred-cascade
+  - partner-signal-loom
+  - osramp
+aliases:
+  - "#proposal-2026-q4-multi-agent-supercred-cascade"
+status: DRAFT — awaiting sign-off. No work has started. No board cards, branches, worktrees, or cron exist.
+---
+# Proposal — SuperCredential Multi-Agent Evolution: The Cascade (2026-Q4)
 
-**You have 47 AI agents. One goes rogue. In 900 milliseconds, every agent that trusted it is isolated, its credentials revoked, and the board-level risk exposure recalculates live. Your compliance officer watched it happen from her phone. Your team leads saw only their agents. Nobody touched a keyboard.**
+|  |  |
+| :---: | :---- |
+| Proposer & Date: | AJM (2026-10-07) |
+| Reviewer & Date: | Stefan Prodan, Vicente Herrera, Francesco Beltramini |
+| Approver & Date: | Andy Martin (2026-10-07) |
 
-That is what no competitor can demo. Not Wiz, not Palo Alto, not CrowdStrike. They can scan. They cannot govern a live agent fleet with cryptographic identity, cascading trust revocation, and quantified risk -- all wired to real SPIFFE/OpenBao infrastructure, not a simulation.
+## Press Release
+
+ControlPlane today announced Signal Loom's multi-agent evolution, code-named "The Cascade". It delivers sub-second trust revocation, FAIR risk quantification, and dependency-aware fleet isolation.
+
+Enterprise agent fleets are proliferating rapidly from chatbots into complex micro-agent graphs. Workloads negotiate tasks, access databases, and exchange customer data autonomously. Existing products rely on static vulnerability scanning or perimeter network firewalls. None can govern a live multi-agent fleet where trust is cryptographically signed. Upstream compromise or non-compliance must dynamically revoke access for every downstream workload that relies upon it.
+
+The Cascade introduces the Agent Fleet Manager and multi-agent SuperCredential governance. When an upstream data vault agent is stunned, Signal Loom walks the dependency DAG. It isolates dependent agents in under 900 milliseconds while keeping observational agents untouched. Simultaneously, the onboard Monte Carlo FAIR risk engine re-quantifies financial tail exposure in British pounds. Built on SPIFFE SVIDs, OpenBao credential leases, and Kubernetes profiles, Signal Loom demonstrates live fleet governance with quantified risk.
+
+---
+
+## Proposal Overview
+
+### Opportunity
+
+**The work relates to the following value area(s):**
+
+- [x] client revenue
+- [ ] marketing
+- [x] product
+- [x] services engineering
+- [ ] cost avoidance
+- [ ] process efficiency
+- [x] operational or regulatory internal
+
+**Key Customers (if relevant):** Enterprise CISOs, platform security teams, and regulated AI operators.
+
+|  |  |
+| :---- | :---- |
+| Our *enterprise customers and platform teams* | need cryptographic identity and instant cascading revocation across multi-agent fleets |
+| Have the problem/opportunity *…* | single-agent credentials leave downstream agents exposed when an upstream agent is compromised or fails compliance |
+| When *…* | now — multi-agent autonomous systems are being deployed into production ahead of governance infrastructure |
+
+**Urgency:** Q4 2026, high. DORA, EU AI Act, and NIST AI RMF mandate sub-second containment and auditable operational provenance.
+
+Enterprise CISOs and platform teams cannot treat autonomous AI agents as opaque black boxes. Regulators mandate continuous operational monitoring, role separation, and rapid incident containment. Live multi-agent cascading revocation with quantified financial risk creates a defensible competitive moat. It satisfies executive briefings, design partner pilots, and procurement evaluations.
+
+### Scope Summary
+
+1. **Agent Fleet Topology & Deployment:** Author `AgentProfile` manifests and deploy a 5-agent dependency graph with SPIFFE/OpenBao identities (`agent-cardvault`, `agent-txn-pipeline`, `agent-llm-classifier`, `agent-api-gateway`, `agent-monitor`).
+2. **Fleet Compliance & FAIR Integration:** Live fleet-wide compliance scanning with policy-engine and Monte Carlo FAIR financial risk aggregation.
+3. **Cascading Stun DAG Walk:** Sub-second dependency-ordered trust revocation, real-time D3/Dagre topology visualizer animation, and reverse topological sort recovery.
+4. **Multi-Tenant RBAC Views:** Differentiated role-scoped dashboards for Platform Admin, Compliance Officer, and Team Leads backed by Dex claims.
+5. **Automated Response Policies:** Configurable policy-driven auto-stun guardrails when fleet compliance or risk thresholds breach tolerances.
 
 ---
 
 ## Narrative Arc: "The Seven Minutes"
 
-The instructor runs a 7-minute demo. Two screens: instructor console, audience fleet view.
+The demonstration follows a 7-minute executive narrative across two synchronized screens: the instructor control console and the audience fleet view.
 
 ### Minute 0-1: "The Estate" (DEPLOY)
 
-Instructor clicks **Deploy Fleet**. Five agents materialise on the audience screen in a dependency graph:
+Instructor clicks **Deploy Fleet**. Five agents materialize on the audience screen in an interactive dependency graph:
 
 | Agent | Type | Team | Trust Profile | Depends On |
 |-------|------|------|---------------|------------|
@@ -24,59 +108,44 @@ Instructor clicks **Deploy Fleet**. Five agents materialise on the audience scre
 | `agent-api-gateway` | API Gateway | platform | Medium -- routes traffic | `agent-cardvault` |
 | `agent-monitor` | Observability | sre | Low -- read-only | all four above |
 
-Each agent gets a SPIFFE SVID, an OpenBao JWT auth mount, and scoped KV secrets. The audience sees them appear one by one on a **topology graph** -- nodes connected by trust edges, each node showing its credential state (`pending` -> `active`).
-
-**What the CISO notices:** these are not containers. These are *AI workloads with identity*. The graph is not a network diagram -- it is a trust dependency map.
+Each agent obtains a SPIFFE SVID, an OpenBao JWT auth mount, and scoped KV secrets. The audience sees nodes connect by cryptographic trust edges, transitioning from `pending` to `active`.
 
 ### Minute 1-2: "The Credential Chain" (CREDENTIAL)
 
-All five agents complete the SPIFFE -> OpenBao -> secret-fetch chain. The topology graph turns green. The FAIR engine recalculates: fleet ALE drops to baseline (well-governed, tail-dominated). The risk gauge on the audience screen reads "Carried GBP: 12,400" -- a number, not a colour.
-
-**Instructor says:** "Every agent just proved its identity cryptographically, exchanged that proof for scoped credentials, and fetched only the secrets it is authorised to see. No API keys in environment variables. No long-lived tokens. The platform knows exactly who has what."
+All five agents complete the SPIFFE -> OpenBao -> secret-fetch chain. The topology graph turns green. The FAIR engine recalculates: fleet ALE drops to baseline (well-governed, tail-dominated). The risk gauge reads "Carried GBP: 12,400" -- an empirical quantity rather than a qualitative status.
 
 ### Minute 2-3: "The Weak Link" (COMPLIANCE SCAN)
 
-Instructor clicks **Scan Fleet**. Policy engine evaluates all five pods. `agent-llm-classifier` and `agent-txn-pipeline` fail: no `securityContext`, no capability drops. They turn amber on the topology. `agent-cardvault`, `agent-api-gateway`, and `agent-monitor` pass.
+Instructor clicks **Scan Fleet**. The policy engine evaluates all five pods. `agent-llm-classifier` and `agent-txn-pipeline` fail due to missing security contexts and un-dropped capabilities, turning amber on the topology. `agent-cardvault`, `agent-api-gateway`, and `agent-monitor` pass.
 
-The FAIR engine recalculates. Carried GBP jumps to 847,000. The risk gauge moves. The audience sees *which controls failed* and *what that costs in pounds* -- not a red/amber/green traffic light.
-
-**Instructor says:** "Two agents are non-compliant. The platform just quantified the risk: 847 thousand pounds annual tail exposure. That number came from a Monte Carlo simulation calibrated to your industry. It is not an opinion."
+The FAIR engine recalculates live: Carried GBP escalates to 847,000. The audience sees exactly which controls failed and the quantified financial tail risk calibrated to industry benchmarks.
 
 ### Minute 3-4: "The Grace Period" (SELECTIVE ENFORCEMENT)
 
-Instructor shows the **compliance policy panel**. `agent-txn-pipeline` is in a 72-hour grace period (batch jobs get remediation time). `agent-llm-classifier` has no grace period -- it processes PII. The audience sees differentiated enforcement: same violation, different response, based on risk profile.
-
-**Instructor says:** "Not all non-compliance is equal. The pipeline gets 72 hours to remediate because it runs in batch. The LLM classifier processes customer data right now. The platform knows the difference."
+Instructor opens the compliance policy panel. `agent-txn-pipeline` receives a 72-hour grace period for scheduled batch operations. `agent-llm-classifier` receives zero grace period because it processes live customer PII. Differentiated enforcement applies across identical control failures based on data classification and runtime risk.
 
 ### Minute 4-5: "The Stun" (CASCADING REVOCATION)
 
 Instructor clicks **Stun** on `agent-cardvault` -- the root of the dependency tree.
 
-What happens in sequence, visible on the audience topology graph in real time:
-
+The cascade executes in sequence on the live cluster:
 1. `agent-cardvault` credentials revoked, labelled `stunned` (200ms)
 2. `agent-txn-pipeline` detects upstream dependency stunned, auto-isolates (400ms)
 3. `agent-llm-classifier` detects `agent-txn-pipeline` stunned, auto-isolates (600ms)
 4. `agent-api-gateway` detects `agent-cardvault` stunned, auto-isolates (400ms)
-5. `agent-monitor` remains active -- read-only, no write dependency (800ms)
+5. `agent-monitor` remains active -- read-only observability with no write dependency (800ms)
 
-The topology graph cascades from green through amber to red, node by node, in under a second. The risk gauge recalculates after each node: 12K -> 340K -> 580K -> 847K. The monitor stays green, still observing.
-
-**Instructor says:** "I stunned one agent. Four were isolated in under a second. The monitor is still running because it has no write dependency on the stunned agent -- it can still observe. The cascade followed the trust graph, not an operator's guess."
+The topology graph cascades node-by-node from green through amber to red in under 900 milliseconds. Risk recalculates dynamically. The monitor stays green and continues observing.
 
 ### Minute 5-6: "The Multi-Tenant View" (RBAC)
 
-Instructor switches to the **team lead view** (payments team). They see only `agent-txn-pipeline` and `agent-llm-classifier`. Both stunned. They cannot un-stun -- that requires platform team authority. They can see *why* (dependency cascade from `agent-cardvault`) but they cannot override.
+Instructor switches to the **payments team lead view**, observing only `agent-txn-pipeline` and `agent-llm-classifier`. Both are stunned due to the upstream root failure. Team leads cannot un-stun without platform authority.
 
-Switch to **compliance officer view**. Full fleet. Full risk numbers. Can see every team's agents. Can set grace periods. Cannot stun -- that requires superadmin.
-
-**Instructor says:** "Three roles, three views, one truth. The team lead sees their agents. The compliance officer sees the risk. The platform admin controls the kill switch. Nobody sees more than they need. Nobody can do more than they should."
+Switching to the **compliance officer view** reveals full fleet risk and grace period controls without stun capabilities. The platform enforces least privilege across operational roles.
 
 ### Minute 6-7: "The Recovery" (RESET)
 
-Instructor clicks **Recover Fleet**. Agents un-stun in reverse dependency order: `agent-cardvault` first (new credentials), then its dependants verify the upstream is alive before re-credentialing. The FAIR gauge drops back to 12K. Clean state.
-
-**Instructor says:** "Recovery follows the same graph. You do not recover a fleet by restarting everything and hoping. You recover the root, verify it, then let the dependants re-establish trust. The platform enforces the order."
+Instructor clicks **Recover Fleet**. Agents un-stun in reverse topological order: `agent-cardvault` re-credentials first, followed by downstream dependants verifying upstream availability before re-establishing trust. The FAIR risk gauge returns to baseline GBP 12,400.
 
 ---
 
@@ -84,201 +153,251 @@ Instructor clicks **Recover Fleet**. Agents un-stun in reverse dependency order:
 
 ### New Components
 
-**1. Agent Fleet Manager** (`apps/fleet-manager/`)
-- Go service, same pattern as `policy-engine`
-- Owns the agent dependency graph (DAG stored as adjacency list in a ConfigMap, queryable via API)
-- Exposes: `POST /api/v1/fleet/deploy`, `POST /api/v1/fleet/stun/{agentId}`, `GET /api/v1/fleet/topology`, `POST /api/v1/fleet/recover`
-- On stun: walks the dependency DAG, issues cascading stun commands to `supercred-demo-runner` for each dependent agent
-- On recover: topological sort, recover in dependency order
-- Deployed via the existing Kustomize/Flux pattern
+1. **Agent Fleet Manager (`apps/fleet-manager/`):**
+   - Go microservice following the `policy-engine` architecture.
+   - Manages the agent dependency DAG stored in ConfigMaps and evaluated in-memory.
+   - Endpoints: `POST /api/v1/fleet/deploy`, `POST /api/v1/fleet/stun/{agentId}`, `GET /api/v1/fleet/topology`, `POST /api/v1/fleet/recover`.
+   - Traverses the dependency DAG on stun, issuing cascading revocation commands to `supercred-demo-runner`.
+   - Implements topological sort for ordered fleet recovery.
 
-**2. Agent Definitions** (`d2-signalloom/agents/`)
-- YAML manifests per agent, similar to the existing `cardvault-agent/` pattern but richer:
-```yaml
-apiVersion: signalloom.controlplane.io/v1alpha1
-kind: AgentProfile
-metadata:
-  name: agent-llm-classifier
-spec:
-  type: llm-inference
-  team: ml-ops
-  trustProfile: high
-  riskClass: high  # EU AI Act
-  gracePeriod: 0h  # PII processor, no grace
-  dependencies:
-    - agent-txn-pipeline
-  securityContext:
-    # Intentionally missing for demo -- compliance scan catches this
-    present: false
-  spiffe:
-    trustDomain: signalloom.local
-    path: /ns/ml-ops/sa/agent-llm-classifier
-  openbao:
-    authMount: jwt/ml-ops
-    kvPath: secret/data/ml-ops/classifier
-    policies: [ml-ops-read]
-```
+2. **Agent Definitions (`d2-signalloom/agents/`):**
+   - `AgentProfile` Kubernetes custom resources defining team, type, trust profile, EU AI Act risk class, grace periods, dependencies, SPIFFE identity paths, and OpenBao mounts.
 
-**3. Topology Visualisation** (`dashboard-signalloom/src/components/trust/FleetTopology.tsx`)
-- D3.js force-directed graph or dagre layout
-- Nodes = agents, coloured by state (green/amber/red)
-- Edges = trust dependencies, animated during cascade
-- Polls fleet-manager `/api/v1/fleet/topology` at 1s intervals
-- Audience-mode variant: full-screen, no controls, auto-layout
+3. **Topology Visualisation (`dashboard-signalloom/src/components/trust/FleetTopology.tsx`):**
+   - Dagre / D3 directed graph layout rendering agents as nodes and trust edges.
+   - Real-time polling and animation during cascade sequences.
+   - Audience-mode route `/fleet/audience` offering full-screen un-gated presentation.
 
-**4. Risk Gauge** (`dashboard-signalloom/src/components/risk/FleetRiskGauge.tsx`)
-- Calls policy-engine `/api/v1/compliance/summary` after each state change
-- Displays: ALE, VaR95, Carried GBP as animated numbers
-- Trend sparkline showing risk over the demo timeline
-- Colour boundary: green < 50K, amber < 500K, red >= 500K
+4. **Risk Gauge (`dashboard-signalloom/src/components/risk/FleetRiskGauge.tsx`):**
+   - Connects to policy-engine FAIR endpoints.
+   - Displays ALE, VaR95, and Carried GBP with dynamic numerical transition effects and trend sparklines.
 
 ### Modified Components
 
-**`supercred-demo-runner`** -- extended, not replaced:
-- New script `scripts/supercred-fleet-demo.sh` alongside existing `supercred-demo.sh`
-- Accepts fleet operations: `deploy-fleet`, `stun-cascade <agentId>`, `scan-fleet`, `recover-fleet`
-- Each agent deployment reuses the existing SPIFFE/OpenBao/label pattern from the single-agent flow
-- The existing single-agent demo continues to work unchanged
-
-**`policy-engine`** -- new endpoint:
-- `POST /api/v1/compliance/scan-fleet` -- scans all agents in the fleet, returns per-agent results with FAIR risk per agent and aggregate fleet risk
-- Reuses existing `evaluateCheck` and FAIR `Simulate` -- no new risk engine code
-
-**`fe-signalloom`** (API layer) -- new routes:
-- `POST /api/demo/fleet/*` proxied to fleet-manager, same pattern as existing supercred proxy
-- Superadmin gate on all mutating fleet operations
-
-**`dashboard-signalloom`** -- new page:
-- `FleetDemoPage.tsx` -- the multi-agent equivalent of `SuperCredPage.tsx`
-- Instructor panel with fleet-level controls
-- Embeds `FleetTopology` and `FleetRiskGauge`
-- Audience route: `/fleet/audience` -- topology + risk gauge, no controls, auto-refreshing
-
-### Unchanged Components
-
-- OpenBao infrastructure (additional auth mounts per agent, same pattern)
-- SPIRE server (additional registration entries, same pattern)
-- Dex OIDC (existing viewer/superadmin identities, plus team-scoped roles)
-- Flux delivery (ResourceSets parameterised per agent, same postBuild substitution)
-- LoadingState component (reused as-is)
-- Playwright two-window spec pattern (extended for fleet page)
+- **`supercred-demo-runner`:** Extended with `scripts/supercred-fleet-demo.sh` to support multi-agent deploy, cascading stun, fleet scan, and topological recovery while keeping single-agent demo workflows backward-compatible.
+- **`policy-engine`:** Extended with `POST /api/v1/compliance/scan-fleet` aggregating multi-agent compliance evaluations and FAIR simulations.
+- **`fe-signalloom`:** Proxies fleet management endpoints under `/api/demo/fleet/*` with superadmin role gates.
+- **`dashboard-signalloom`:** Introduces `FleetDemoPage.tsx` embedding `FleetTopology` and `FleetRiskGauge`.
 
 ### Data Model
 
+```typescript
+export interface AgentProfile {
+  id: string;
+  name: string;
+  type: 'data-vault' | 'data-pipeline' | 'llm-inference' | 'api-gateway' | 'observability';
+  team: string;
+  trustProfile: 'high' | 'medium' | 'low';
+  riskClass: 'high' | 'medium' | 'low';
+  gracePeriod: string;
+  dependencies: string[];
+  state: 'absent' | 'deploying' | 'active' | 'non-compliant' | 'grace-period' | 'stunned';
+  credential?: CredentialRecord;
+  complianceResults?: ComplianceResult[];
+  fairRisk?: FairRiskSummary;
+}
+
+export interface FleetTopology {
+  agents: AgentProfile[];
+  edges: { from: string; to: string; type: 'data' | 'identity' | 'api' }[];
+  aggregateRisk: FairRiskSummary;
+  cascadeHistory: CascadeEvent[];
+}
+
+export interface CascadeEvent {
+  triggerId: string;
+  affectedIds: string[];
+  timestamp: string;
+  durationMs: number;
+  riskBefore: number;
+  riskAfter: number;
+}
 ```
-AgentProfile {
-  id: string (SPIFFE path suffix)
-  name: string
-  type: enum(data-vault, data-pipeline, llm-inference, api-gateway, observability)
-  team: string
-  trustProfile: enum(high, medium, low)
-  riskClass: enum(high, medium, low)  // maps to EU AI Act
-  gracePeriod: duration
-  dependencies: AgentProfile[]  // DAG edges
-  state: enum(absent, deploying, active, non-compliant, grace-period, stunned)
-  credential: CredentialRecord
-  complianceResults: ComplianceResult[]
-  fairRisk: { ale, var95, tvar, carriedGbp }
-}
-
-FleetTopology {
-  agents: AgentProfile[]
-  edges: { from: string, to: string, type: enum(data, identity, api) }[]
-  aggregateRisk: { ale, var95, tvar, carriedGbp }
-  cascadeHistory: CascadeEvent[]
-}
-
-CascadeEvent {
-  triggerId: string      // agent that was directly stunned
-  affectedIds: string[]  // agents that cascaded
-  timestamp: string
-  durationMs: number
-  riskBefore: number
-  riskAfter: number
-}
-```
-
----
-
-## Phased Delivery
-
-### Phase 1: Fleet Topology + Multi-Agent Deploy (2-3 weeks)
-
-- Agent profile YAML definitions for 5 agents
-- Fleet-manager service (deploy, topology endpoints)
-- Extended `supercred-fleet-demo.sh` for multi-agent deploy
-- `FleetTopology.tsx` with static layout (dagre, not force-directed)
-- Dashboard `FleetDemoPage.tsx` with deploy button
-- Kustomize overlays per agent, Flux ResourceSet parameterisation
-- BATS tests: `supercred-fleet-deploy.bats`, `fleet-topology-api.bats`
-
-**Exit criterion:** instructor clicks Deploy Fleet, 5 agents appear on topology graph with credentials, audience sees the graph populate in real time.
-
-### Phase 2: Fleet Compliance + FAIR Integration (1-2 weeks)
-
-- Fleet-wide compliance scan endpoint on policy-engine
-- `FleetRiskGauge.tsx` wired to live FAIR numbers
-- Per-agent risk breakdown in topology node tooltips
-- Grace period enforcement logic in fleet-manager
-- Unit tests for fleet FAIR aggregation
-
-**Exit criterion:** scan shows 2 non-compliant agents, risk gauge jumps to 847K, grace period badge visible on `agent-txn-pipeline`.
-
-### Phase 3: Cascading Stun (1-2 weeks)
-
-- Dependency-aware stun in fleet-manager (DAG walk)
-- Cascade animation on topology graph (sequential node transitions)
-- Risk gauge recalculation per cascade step
-- Audience-mode full-screen layout
-- Playwright two-window spec for cascade visibility
-
-**Exit criterion:** stun `agent-cardvault`, watch 3 dependants cascade in <1s, monitor stays green, risk gauge climbs step by step. Audience window shows it without reload.
-
-### Phase 4: RBAC + Multi-Tenant Views (1-2 weeks)
-
-- Team-scoped agent filtering on fleet-manager API
-- Dex group claims mapped to team ownership
-- Compliance officer role (full read, no stun)
-- Team lead role (own agents read, no stun)
-- Dashboard role-aware filtering on fleet page
-
-**Exit criterion:** three browser windows showing three different views of the same fleet event.
-
-### Phase 5: Automated Response Policies (2-3 weeks, can defer)
-
-- Policy rules: "if fleet compliance < 80%, auto-stun non-compliant agents"
-- Configurable thresholds per team
-- Dry-run mode (shows what *would* happen)
-- Audit trail of automated actions
-
-**Exit criterion:** compliance drops below threshold, agents auto-stun without instructor intervention, audit log shows the policy that triggered it.
 
 ---
 
 ## Competitive Moat
 
-What this proves that nobody else can show:
-
-1. **Cryptographic agent identity** -- not API keys, not service accounts, SPIFFE SVIDs exchanged for scoped credentials. The identity is the platform, not a bolt-on.
-
-2. **Quantified risk in pounds** -- not traffic lights. FAIR Monte Carlo on live agent state. The board gets a number, not a feeling.
-
-3. **Cascading trust revocation** -- one stun propagates through the dependency graph. This is supply chain security applied to the agent fleet, not just containers.
-
-4. **Differentiated enforcement** -- same violation, different response based on risk profile and data classification. Grace periods for batch, immediate revocation for PII. This is what regulation actually requires.
-
-5. **Multi-tenant governance** -- three roles, three views, one truth. The organisational structure is visible in the access model.
-
-6. **Live, not simulated** -- real Kubernetes pods, real SPIRE entries, real OpenBao leases. The stun revokes actual credentials. The compliance scan reads actual pod specs. Nothing is mocked for the demo.
+1. **Cryptographic Identity at Runtime:** Workloads authenticate via ephemeral SPIFFE SVIDs and scoped OpenBao leases.
+2. **Empirical Risk Quantification:** Monte Carlo FAIR simulations translate Kubernetes compliance posture into monetary terms.
+3. **Automated Cascading Revocation:** Trust boundaries actively revoke downstream access upon upstream compromise.
+4. **Context-Aware Enforcement:** Grace periods balance operational continuity against data risk classifications.
+5. **Real Infrastructure:** Evaluated on real Kubernetes pods, SPIRE registration entries, and OpenBao mounts without mocking.
 
 ---
 
 ## Risk Assessment
 
 | Risk | Mitigation |
-|------|-----------|
-| 5 agents take too long to deploy for a live demo | Pre-deploy 4, deploy the 5th live. Or: pre-bake SPIRE entries, deploy only pods. |
-| Cascade timing is not visually dramatic enough | Add 200ms artificial delay between cascade steps for visual effect. The sub-second real timing is the engineering achievement; the audience needs to *see* each step. |
-| FAIR numbers look arbitrary to a non-technical audience | Show the triples (min/mode/max) that produced them. "This is calibrated to industry data for a Tier 1 bank handling PCI data." |
-| Fleet-manager adds a new service to operate | It is stateless (DAG from ConfigMap, state from pod labels). Same operational pattern as policy-engine. |
-| RBAC complexity for the demo | Start with superadmin-only in Phase 1-3. RBAC is Phase 4 and can be deferred if the cascade demo is compelling enough on its own. |
+| :--- | :--- |
+| Multi-agent deployment latency during live demo | Pre-register SPIRE entries and pre-pull container images in cluster bootstrap. |
+| Cascade transition too rapid for audience comprehension | Introduce calibrated 150-200ms visual staging delays in the topology visualizer. |
+| Non-technical skepticism regarding FAIR monetary figures | Expose the underlying parameter triples (min/mode/max) and benchmark calibrations in inspect tooltips. |
+| Operational overhead of additional microservice | Implement Fleet Manager as a stateless Go service persisting state via Kubernetes labels and ConfigMaps. |
+
+---
+
+## RACI
+
+| Role | Stakeholder |
+| :--- | :--- |
+| **Accountable** | Andy Martin |
+| **Responsible** | Full-Stack Security & Platform Engineering Team |
+| **Consulted** | Stefan Prodan, Vicente Herrera, Francesco Beltramini |
+| **Informed** | Elena Mikhalina |
+
+---
+
+## Finances
+
+### Additional costs
+
+| Additional Cost | Estimated Spend | One Off or Recurring | Must-Have or Nice-to-Have |
+| :---- | :---- | :---- | :---- |
+| Local In-Cluster Kind Compute | £0.00 | Recurring | Must-Have |
+| CI/CD Pipeline Compute | < £15.00 | Recurring | Must-Have |
+
+---
+
+## Decision Log
+
+| Date | Decision Makers | Decision and Context | Reason | Impact |
+| :---- | :---- | :---- | :---- | :---- |
+| 2026-10-07 | AJM, sensai | Implement Fleet Manager in Go using Kubernetes ConfigMap & labels for state | Aligns with `policy-engine` architecture and maintains lightweight stateless operations. | High performance, zero external database requirements. |
+| 2026-10-07 | AJM, sensai | Use Dagre directed acyclic graph layout for FleetTopology | Ensures deterministic node positioning during live demonstrations and animations. | Stable, glitch-free presentation during cascading stun. |
+| 2026-10-07 | AJM, sensai | Aggregate fleet FAIR risk via existing policy-engine Simulate service | Reuses validated Monte Carlo engine without code duplication. | Consistent risk models across single-agent and multi-agent views. |
+
+---
+
+## References
+
+* [Signal Loom SuperCredential Architecture](../d2-signalloom/AGENTS.md)
+* [Policy Engine Architecture & FAIR Engine](../d2-signalloom/AGENTS.md)
+* [SPIRE Agent Trust Specification](../d2-agent-trust/AGENTS.md)
+* [SuperCred Single-Agent Demo Script](../scripts/supercred-demo.sh)
+
+---
+
+## Appendix
+
+### Spec: Shared Patterns
+
+Obey these. They are the phase constitution.
+
+- **Cryptographic Ground Truth:** All agent identity claims MUST resolve against SPIFFE SVIDs issued by SPIRE. Never trust unverified HTTP headers or pod labels for authorization.
+- **Dependency Graph Directionality:** The agent trust dependency DAG MUST be strictly acyclic. The Fleet Manager MUST validate acyclicity upon manifest ingestion and reject circular dependencies.
+- **Sub-Second Cascade Propagation:** Cascading stun commands MUST propagate through the in-memory DAG and execute downstream credential revocations concurrently or sequentially within a 1000ms SLA.
+- **Fail-Closed Isolation:** If an agent loses its upstream dependency, its posture must be fail-closed isolation (`stunned`). It immediately releases token leases and drops outbound connections.
+- **Empirical FAIR Metrics:** Fleet risk exposure MUST be computed from empirical Monte Carlo distributions (min/mode/max loss event frequency and magnitude), never arbitrary severity scores.
+- **Idempotent Recovery:** Fleet recovery MUST execute in topological order (root nodes first, followed by dependants). Downstream agents MUST verify upstream health before requesting new credentials.
+- **Testing Standard:** Every backend service requires Go/Pytest contract tests. Every UI visualizer requires Vitest tests with snapshot verification. Every major phase requires automated end-to-end integration and Playwright acceptance journeys.
+
+### Spec: Capability Plan
+
+| Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
+| :--- | :--- | :--- | :--- | ---: | :--- | :--- |
+| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Baseline offline acceptance and verify harness readiness on integration/slsc-v0.1.0 at the cut SHA. |
+| P1-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit SPIRE registration templates, OpenBao JWT mounts, and existing supercred-demo runner scripts. |
+| P1-1 | context-mode; Hardening | Manifest engineer | S | 60m | antigravity | Author AgentProfile CRD schema and 5-agent YAML definitions with dependencies and SPIFFE paths. |
+| P1-2 | context-mode | Backend engineer | M | 120m | antigravity | Build Fleet Manager Go service skeleton with ConfigMap DAG storage, deploy, and topology endpoints. |
+| P1-3 | context-mode | Systems engineer | M | 120m | antigravity | Author scripts/supercred-fleet-demo.sh multi-agent provisioning and credential orchestration script. |
+| P1-4 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Build FleetTopology.tsx Dagre component and FleetDemoPage.tsx with real-time polling in dashboard. |
+| P1-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge Phase 1 cards in order, execute offline acceptance suites twice, and record P1 completion errata. |
+| P2-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit policy-engine compliance evaluation rules and FAIR Monte Carlo simulation interfaces. |
+| P2-1 | context-mode | Backend engineer | M | 120m | antigravity | Implement POST /api/v1/compliance/scan-fleet on policy-engine aggregating per-agent check results and FAIR risk. |
+| P2-2 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Build FleetRiskGauge.tsx and topology node risk tooltips wired to live policy-engine FAIR metrics. |
+| P2-3 | context-mode | Backend engineer | S | 60m | antigravity | Implement differentiated compliance grace period evaluation (72h batch vs 0h PII) in Fleet Manager. |
+| P2-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge Phase 2 cards in order, execute offline acceptance suites twice, and record P2 completion errata. |
+| P3-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit DAG traversal algorithms, cascade event data structures, and OpenBao lease revocation APIs. |
+| P3-1 | context-mode | Backend engineer | M | 120m | antigravity | Implement cascading stun DAG walk in Fleet Manager with concurrent downstream revocation triggers. |
+| P3-2 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Implement animated cascade transitions in FleetTopology.tsx and stepwise risk gauge recalculation. |
+| P3-3 | context-mode | Backend engineer | M | 120m | antigravity | Implement topological sort fleet recovery endpoint POST /api/v1/fleet/recover and audience-mode route. |
+| P3-4 | context-mode | Test engineer | M | 120m | antigravity | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts in test/acceptance. |
+| P3-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge Phase 3 cards in order, execute offline acceptance suites twice, and record P3 completion errata. |
+| P4-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context. |
+| P4-1 | context-mode | Auth engineer | M | 120m | antigravity | Implement team and role-scoped filtering on Fleet Manager API backed by Dex claims. |
+| P4-2 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Build role-aware dashboard views (Platform Admin, Compliance Officer, Team Lead) on FleetDemoPage.tsx. |
+| P4-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge Phase 4 cards in order, execute offline acceptance suites twice, and record P4 completion errata. |
+| P5-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit response threshold triggers, audit log schemas, and automated containment event streams. |
+| P5-1 | context-mode | Backend engineer | M | 120m | antigravity | Implement automated response policy engine with configurable compliance and risk thresholds. |
+| P5-2 | context-mode | Backend engineer | S | 60m | antigravity | Implement audit event emission and operator audit stream for automated cascade actions. |
+| P5-GOV | ajm-auto-kanban | Governor | S | 90m | antigravity | Merge Phase 5 cards in order, execute full test pyramid, verify zero regression, and request final sign-off. |
+
+### Spec: Work Decomposition
+
+| Logical ID | Role | Title | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
+| P0 | baseline | Establish baseline: run test suites, verify harness readiness on integration/slsc-v0.1.0 at cut SHA | — | make demo-signalloom-api-test, vitest, docs-lint rc 0; totals in errata | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | Audit SPIRE registration templates, OpenBao JWT mounts, and existing scripts/supercred-demo.sh | P0 | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/ | P1-PRE | Manifest validation tests; kubectl apply --dry-run=client clean | S | antigravity | — | — | — | — | — |
+| P1-2 | implementation | Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser | P1-1 | Go unit and contract tests verifying DAG adjacency parsing; cycle rejection clean | M | antigravity | — | — | — | — | — |
+| P1-3 | implementation | Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling | P1-2 | BATS test supercred-fleet-deploy.bats verifying 5 agent deployments; rc 0 | M | antigravity | — | — | — | — | — |
+| P1-4 | implementation | Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route | P1-3 | Vitest suite for FleetTopology.test.tsx; component renders 5 nodes and directed edges | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P1-1, P1-2, P1-3, P1-4 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Audit policy-engine compliance evaluation rules and FAIR Monte Carlo simulation interfaces | P1-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P2-1 | implementation | Implement POST /api/v1/compliance/scan-fleet on policy-engine aggregating fleet FAIR risk | P2-PRE | Go unit and contract tests; endpoint evaluates 5 pods and returns FAIR risk | M | antigravity | — | — | — | — | — |
+| P2-2 | implementation | Build FleetRiskGauge.tsx and node risk tooltips in dashboard-signalloom wired to live FAIR metrics | P2-1 | Vitest FleetRiskGauge.test.tsx verifying number animations and risk band colours | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | Implement differentiated compliance grace period evaluation in Fleet Manager | P2-2 | Unit test asserting grace period calculation (72h batch vs 0h PII) | S | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Merge Phase 2 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P2-1, P2-2, P2-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | Audit DAG traversal algorithms, cascade event data structures, and OpenBao lease revocation APIs | P2-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P3-1 | implementation | Implement cascading stun DAG walk in Fleet Manager triggering downstream revocation in <1000ms | P3-PRE | Go benchmark and contract test verifying cascade walk order and sub-second execution | M | antigravity | — | — | — | — | — |
+| P3-2 | implementation | Implement animated cascade transitions in FleetTopology.tsx with stepwise risk recalculation | P3-1 | Vitest interaction test verifying cascade animation sequence and node state dispatch | M | antigravity | — | — | — | — | — |
+| P3-3 | implementation | Implement topological sort recovery endpoint POST /api/v1/fleet/recover and audience route | P3-2 | Go contract test for topological sort recovery order; Vitest test for audience route | M | antigravity | — | — | — | — | — |
+| P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
+| P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | — | — | — | — | — |
+| P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | — | — | — | — | — |
+| P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | — | — | — | — | — |
+| P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | — | — | — | — | — |
+| P5-GOV | governor | Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid | P5-1, P5-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
+
+### Spec: Errata
+
+#### Errata — SLSC-P0
+**Created:** 2026-10-08 08:50:00+01:00
+**Last Updated:** 2026-10-08 09:35:00+01:00
+**Status:** Completed
+**Commit:** e1e5dcb3ed1874d4dc80156ee82301c49a7a9224
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Baseline harness readiness established on integration/slsc-v0.1.0; 707 test cases, FastAPI contract tests, and docs-lint passed 100%.
+**Deviations:** None.
+**Notes:** ci-evidence/slsc-p0-baseline-facts.json written cleanly.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P0","status":"pass","commit":"e1e5dcb3"} -->
+
+
+#### Errata — SLSC-P1-PRE
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+**Created:** 2026-10-08 09:47:20+01:00
+**Last Updated:** 2026-10-08 09:47:20+01:00
+
+##### Task identity
+- Card: `SLSC-P1-PRE`
+- Logical ID: `P1-PRE`
+- Shortcode: `SLSC`
+- Role: `preflight`
+**Status:** pass
+**Commit:** `bdfab96a1726c5df8702732b43bd70a55fa76502`
+- Base commit: `48a6bc3962fc402cdcfab689c2fd2ac5bf1aef56`
+- Deliverable commit: `bdfab96a1726c5df8702732b43bd70a55fa76502`
+- Integration ref: `refs/heads/integration/slsc-v0.1.0`
+- Branch label at run time: `(detached)`
+- Result: Preflight audit complete across SPIRE registration, OpenBao JWT authentication backend mounts, single-agent script assumptions, agent manifests, and baseline test suites.
+**Phase 1 can proceed:** yes
+
+##### Audit findings
+- **SPIRE workload registration:** Verified parent ID selector `spiffe://signalloom.demo/agent/kind` and selector patterns (`k8s:ns:fe-signalloom-agents`, `k8s:sa:<sa-name>`). 5 agent SVIDs mapped cleanly without naming conflicts.
+- **OpenBao authentication:** Dedicated JWT mounts (`jwt-payments`, `jwt-ml-ops`, `jwt-platform`, `jwt-sre`) and base `jwt` mount verified with batch tokens, 5m TTL, and SPIFFE bound_subject validation.
+- **Single-agent script assumptions:** Audited `scripts/supercred-demo.sh` across lines 20, 75, 209, 298, 329, 374, 642. Identified required multi-agent parameterizations for `scripts/supercred-fleet-demo.sh`.
+- **Manifest schema gaps:** Compared `d2-signalloom/agents/` proto-manifests with proposed `AgentProfile` specification. Identified CRD schema requirements for `gracePeriod` regex, `dependencies` array DAG validation, `trustProfile`/`riskClass` enums, and `securityContext` field.
+- **Audit evidence artifact:** Compiled into `ci-evidence/slsc-p1-preflight-audit.json` with SHA-256 `12d629b7c1d482c952e69e5e8bfb6aff256c09894d478839357879ac206b3185`.
+
+##### Test suite verification
+- `dashboard-signalloom` Vitest: 216/216 test files passed, 3741 tests passed (3 skipped, 0 failed).
+- `dashboard-signalloom` Typecheck: `tsc --noEmit` passed (0 errors).
+- `fe-signalloom` FastAPI contract & migration tests: 56/56 passed.
+- `supercred-fleet-demo-harness.bats`: 16/16 tests passed.
+- Offline fleet bats battery: 70/70 tests passed.

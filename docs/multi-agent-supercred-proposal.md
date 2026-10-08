@@ -350,7 +350,7 @@ Obey these. They are the phase constitution.
 | P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | pass — delivered: 54abb56c (see Errata — SLSC-P4-2) | — | — | — | — |
 | P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | pass: delivered: fafa2b51 (see Errata - SLSC-P4-GOV) | — | — | — | — |
 | P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | pass: delivered: 942fe950 (see Errata: SLSC-P5-PRE) | — | — | — | — |
-| P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | — | — | — | — | — |
+| P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | pass: delivered: 8b4f98f2 (see Errata: SLSC-P5-1) | — | — | — | — |
 | P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | — | — | — | — | — |
 | P5-GOV | governor | Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid | P5-1, P5-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
 
@@ -653,3 +653,15 @@ Obey these. They are the phase constitution.
 **Notes:** Phase 5 preflight passed. Implementation cards SLSC-P5-1 and SLSC-P5-2 are unblocked.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P5-PRE","status":"pass","commit":"942fe950"} -->
+
+#### Errata — SLSC-P5-1 Implement automated response policy engine in Fleet Manager with configurable compliance thresholds
+**Created:** 2026-10-08 17:15:00+01:00
+**Last Updated:** 2026-10-08 17:15:00+01:00
+**Status:** Completed
+**Commit:** 8b4f98f2
+**Governor merge:** pending merge into integration/slsc-v0.1.0
+**Decisions:** Implemented automated response policy engine in Fleet Manager under policy_engine.go. Supported condition types RiskThreshold, ComplianceFailure, and GracePeriodExpiry. Implemented action types CascadeStun, StunTarget, and Alert. Supported dry-run simulation mode and active enforcement mode. Added debouncing to skip containment if target agent is already stunned. Registered three canonical baseline policies pol-risk-500k, pol-pii-compliance, and pol-grace-expiry. Exposed GET /api/v1/fleet/policies and POST /api/v1/fleet/policies/evaluate endpoints. Enforced admin role requirement for active policy evaluation. Documented policy schema specification in docs/signalloom/evidence/slsc-p5-1-policy-schema.md. Authored unit and contract tests in policy_engine_test.go.
+**Deviations:** None.
+**Notes:** Go unit tests pass 100% in 0.008s with zero vet findings. Docs lint passed with 0 errors. Zero em-dashes verified.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P5-1","status":"pass","commit":"8b4f98f2"} -->

@@ -337,7 +337,7 @@ Obey these. They are the phase constitution.
 | P3-3 | implementation | Build `InviteUserModal.tsx` and `EditUserModal.tsx` for inviting new platform operators and editing roles / tenant assignments; include email validation, role selection dropdown, and confirmation prompts. | P3-2 | Vitest tests for modal forms; interaction tests for role selection and submission | M | antigravity | pass — delivered: eec630e0fae1fa485dc50dc2909565b8cb13ad5b (see Errata — SLFA-P3-3) | — | — | — | — |
 | P3-GOV | governor | Merge P3-1..P3-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P3 completion errata. | P3-1, P3-2, P3-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
 | P4-PRE | preflight | Audit Kusari pilot profile in live tfvars and seed data; verify test environment configuration; record audit table in errata. | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — audited: Kusari tenant ID/hash, seed conventions & Playwright test environment (see Errata — SLFA-P4-PRE) | — | — | — | — |
-| P4-1 | implementation | Provision migration `011_seed_design_partner_presets.sql` with default flag configuration for Kusari tenant (`core_governance=true`, `audit=true`, `compliance=true`, `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`); seed initial superadmin user. | P4-PRE | Database seed verification test; flags verified for Kusari tenant vs default tenant | S | antigravity | — | — | — | — | — |
+| P4-1 | implementation | Provision migration `011_seed_design_partner_presets.sql` (sequenced as `060_seed_design_partner_presets.sql`) with default flag configuration for Kusari tenant (`core_governance=true`, `audit=true`, `compliance=true`, `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`); seed initial superadmin user. | P4-PRE | Database seed verification test; flags verified for Kusari tenant vs default tenant | S | antigravity | pass — delivered: fc890894 (see Errata — SLFA-P4-1) | — | — | — | — |
 | P4-2 | implementation | Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts` testing superadmin login → user invite → role reassignment → tenant feature flag suppression verification in the dashboard UI. | P4-1 | Playwright spec passes in acceptance test run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
 | P4-GOV | governor | Merge P4-1..P4-2 in order into `integration/slfa-v0.1.0`; execute full test pyramid (`make test-all-offline` and `make acceptance-test`); verify zero regression; request final AJM sign-off. | P4-1, P4-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
 
@@ -690,5 +690,39 @@ _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing
 **Deviations:** Migration numbered `060_seed_design_partner_presets.sql` (sequenced after 059) to prevent duplicate version conflict with existing migration 011 (`011_agent_stunned_event_type.sql`).
 **Notes:** Preflight readiness certified. Ready for P4-1 (provision migration `060_seed_design_partner_presets.sql` and superadmin bootstrap).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P4-1 SLFA-P4-1: Provision migration 060_seed_design_partner_presets.sql and initial superadmin user
+**Created:** 2026-10-08 04:06:00+01:00
+**Last Updated:** 2026-10-08 04:06:00+01:00
+**Status:** Completed
+**Commit:** fc890894
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Provisioned forward-only idempotent migration `d2-signalloom/apps/fe-signalloom/src/db/migrations/060_seed_design_partner_presets.sql`:
+  - Seeded default feature flags for design partner tenant `kusari`:
+    - Enabled: `core_governance=true`, `audit=true`, `compliance=true`.
+    - Disabled: `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`.
+    - Uses `ON CONFLICT (tenant_id, flag_key) DO UPDATE` to guarantee strict forward-only idempotency and deterministic re-application.
+  - Seeded initial platform superadmin users in `public.platform_users`:
+    - `admin@kusari.demo` (`is_superadmin=true`, `role='admin'`, `status='active'`, `tenant_id='kusari'`, `display_name='Kusari Admin'`).
+    - `demo-user@signalloom.local` (`is_superadmin=true`, `role='admin'`, `status='active'`, `tenant_id='tenant-demo'`, `display_name='Platform Superadmin'`).
+    - Uses deterministic UUIDs and `ON CONFLICT (tenant_id, email) DO UPDATE` with role and superadmin status elevation.
+- Authored dedicated pytest test suite `d2-signalloom/apps/fe-signalloom/src/tests/test_seed_presets.py` (8 tests):
+  - Verified migration discovery and sequential ordering after `059_user_admin_audit_event_types.sql`.
+  - Verified transaction boundaries (`BEGIN`/`COMMIT`) and idempotency conflict handlers.
+  - Verified Kusari flag key coverage and boolean values against expected specification.
+  - Verified superadmin user attributes and role elevation.
+  - Verified `FeatureFlagRepository` evaluation and listing for Kusari presets vs default system fallbacks.
+  - Verified `Principal` access control and tenant resolution for superadmin vs standard tenant users.
+- Added design partner preset verification tests to `d2-signalloom/apps/fe-signalloom/src/tests/test_feature_flags.py` (Kusari tenant retrieval vs default system fallbacks).
+- Updated `d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py` to classify admin user routes and filter auth-lookup queries in path mismatch assertion.
+- Verified test suites:
+  - 231 tests passing across `test_seed_presets.py`, `test_feature_flags.py`, `test_migrations.py`, `test_admin_users_api.py`, and `test_tenant_isolation.py`.
+  - 56 contract and migration tests passing via `./scripts/signalloom-api-test.sh contract` and `make demo-signalloom-api-test`.
+**Deviations:**
+- Migration numbered `060_seed_design_partner_presets.sql` instead of `011_seed_design_partner_presets.sql` because migrations 001–059 already existed in the repository (011 is `011_agent_stunned_event_type.sql`). This forward-only ordering was identified in `SLFA-P4-PRE` and maintains schema migration linearity.
+**Notes:** Phase 4-1 complete. Handing off to P4-2 (Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts`).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 
 

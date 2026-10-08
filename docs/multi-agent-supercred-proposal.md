@@ -349,7 +349,7 @@ Obey these. They are the phase constitution.
 | P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | pass — delivered: ca41b3b0 (see Errata — SLSC-P4-1) | — | — | — | — |
 | P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | pass — delivered: 54abb56c (see Errata — SLSC-P4-2) | — | — | — | — |
 | P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | pass: delivered: fafa2b51 (see Errata - SLSC-P4-GOV) | — | — | — | — |
-| P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | pass: delivered: 942fe950 (see Errata: SLSC-P5-PRE) | — | — | — | — |
 | P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | — | — | — | — | — |
 | P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | — | — | — | — | — |
 | P5-GOV | governor | Merge Phase 5 cards in order into integration/slsc-v0.1.0; execute full test pyramid | P5-1, P5-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
@@ -641,3 +641,15 @@ Obey these. They are the phase constitution.
 **Notes:** Phase 4 integration certified. Both offline verification passes passed cleanly with 0 failures across the full pyramid. Facts written to ci-evidence/slsc-p4-governor-facts.json.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P4-GOV","status":"pass","commit":"fafa2b51"} -->
+
+#### Errata — SLSC-P5-PRE Audit response threshold triggers, audit log schemas, and automated containment event streams
+**Created:** 2026-10-08 17:05:00+01:00
+**Last Updated:** 2026-10-08 17:05:00+01:00
+**Status:** Completed
+**Commit:** 942fe950
+**Governor merge:** Phase 5 preflight verified on integration/slsc-v0.1.0
+**Decisions:** Audited automated response policy condition evaluation rules under d2-signalloom/apps/fleet-manager/. Established trigger parameters for financial risk threshold (£500,000 Carried GBP) and critical compliance failure (PII workload zero-grace enforcement). Traced the containment invocation path directly to CascadeOrchestrator.Stun for sub-second downstream revocation. Audited structured audit event schemas defining 13 mandatory metadata fields. Fields include eventId, timestamp, actionType, policyName, triggerCondition, targetAgentId, affectedAgents, durationMs, riskBefore, riskAfter, riskDelta, actor, and operatorSignature. Defined SSE event streaming endpoint GET /api/v1/fleet/audit/stream with bounded in-memory ring buffer storage. Verified baseline Go unit tests (1.6s) and dashboard Vitest suites (82/82 passed, 0 typecheck errors). Authored ci-evidence/slsc-p5-preflight-audit.json with SHA-256 04d04bca36925a921c7fa254589bd5a95a8acdcda51b71a4c6b9c2c0e4c9850a.
+**Deviations:** None.
+**Notes:** Phase 5 preflight passed. Implementation cards SLSC-P5-1 and SLSC-P5-2 are unblocked.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P5-PRE","status":"pass","commit":"942fe950"} -->

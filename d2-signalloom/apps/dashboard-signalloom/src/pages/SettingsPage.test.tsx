@@ -92,9 +92,9 @@ const appCtxValue = {
   setSuperadmin: () => undefined,
 }
 
-function renderSettingsPage() {
+function renderSettingsPage(initialEntries: string[] = ['/settings']) {
   return render(
-    <MemoryRouter initialEntries={['/settings']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <AppContext.Provider value={appCtxValue}>
         <SettingsPage />
       </AppContext.Provider>
@@ -122,16 +122,26 @@ describe('SettingsPage: Integration & Reconciliation', () => {
     ])
   })
 
-  it('renders Settings heading, Service Connectors, and Policy-as-Code cards', async () => {
+  it('renders Settings heading and tabs, allowing navigation between Connectors and Policy cards', async () => {
     renderSettingsPage()
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByText('Service Connectors')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'General' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'API & Access' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Connectors & Discovery' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Governance & Policy' })).toBeInTheDocument()
+
+    // Switch to Connectors & Discovery
+    await userEvent.click(screen.getByRole('tab', { name: 'Connectors & Discovery' }))
+    expect(await screen.findByText('Service Connectors')).toBeInTheDocument()
     expect(screen.getByText('AWS IAM')).toBeInTheDocument()
-    expect(screen.getByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
+
+    // Switch to Governance & Policy
+    await userEvent.click(screen.getByRole('tab', { name: 'Governance & Policy' }))
+    expect(await screen.findByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
   })
 
   it('navigates to /policies when clicking the CEL policy editor button', async () => {
-    renderSettingsPage()
+    renderSettingsPage(['/settings?tab=governance'])
     const policyBtn = await screen.findByTestId('settings-goto-policies-btn')
     expect(policyBtn).toBeInTheDocument()
     await userEvent.click(policyBtn)
@@ -139,7 +149,7 @@ describe('SettingsPage: Integration & Reconciliation', () => {
   })
 
   it('renders configured connectors and allows toggling disconnect confirm', async () => {
-    renderSettingsPage()
+    renderSettingsPage(['/settings?tab=connectors'])
     expect(await screen.findByText('Connected · Last tested 29 Sept 2026, 11:00')).toBeInTheDocument()
     const switches = screen.getAllByRole('switch')
     expect(switches[0]).toHaveAttribute('aria-checked', 'true')

@@ -331,7 +331,7 @@ Obey these. They are the phase constitution.
 | P2-2 | implementation | Update `authenticated_principal` in `fe-signalloom` to dynamically resolve user record, tenant assignment, role, status (`active`/`suspended`), and `is_superadmin` from `public.platform_users` by normalized email from validated Dex JWT. | P2-1 | Pytest auth tests verifying email lookup, role extraction, suspended user rejection (403), and superadmin flag resolution | M | antigravity | pass — delivered: 68c06f1175f592c07a067b48e53fde5dd4c4a72b (see Errata — SLFA-P2-2) | — | — | — | — |
 | P2-3 | implementation | Implement `/api/v1/admin/users` CRUD endpoints (`GET /`, `POST /invite`, `PATCH /{user_id}`, `DELETE /{user_id}`) guarded by `require_admin_or_superadmin`; tenant admins manage only their tenant; superadmins manage all tenants; record audit event for each user state mutation. | P2-2 | Pytest contract and authorization tests: viewer cannot call endpoints (403), tenant admin cannot edit other tenant (403), superadmin can manage across tenants; audit event emission verified | M | antigravity | pass — delivered: ccd7436e030b25502932ee21b6e3a75b1d1f57fb (see Errata — SLFA-P2-3) | — | — | — | — |
 | P2-GOV | governor | Merge P2-1..P2-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P2 completion errata. | P2-1, P2-2, P2-3 | Two identical acceptance runs; errata complete | M | antigravity | pass — merged: ccd7436e030b25502932ee21b6e3a75b1d1f57fb (see Errata — SLFA-P2-GOV) | — | — | — | — |
-| P3-PRE | preflight | Audit modal patterns (`ClaimModal.tsx`, `ConfirmDialog.tsx`) and API client structure in `dashboard-signalloom`; map UI routes and components for User Management; record audit table in errata. | P2-GOV | Component audit map in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P3-PRE | preflight | Audit modal patterns (`ClaimModal.tsx`, `ConfirmDialog.tsx`) and API client structure in `dashboard-signalloom`; map UI routes and components for User Management; record audit table in errata. | P2-GOV | Component audit map in errata; no code changes | S | antigravity | pass — audited: modal patterns, usersApi structure & /admin/users route plan (see Errata — SLFA-P3-PRE) | — | — | — | — |
 | P3-1 | implementation | Add typed API client methods in `dashboard-signalloom/src/api/usersApi.ts` (`listUsers`, `inviteUser`, `updateUser`, `deactivateUser`) with error handling and React Query hooks. | P3-PRE | Vitest contract tests for `usersApi.ts` with mock server; typecheck clean | S | antigravity | — | — | — | — | — |
 | P3-2 | implementation | Build `UsersPage.tsx` and `UserTable.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/` with search, tenant filter (for superadmins), role badges (`admin`, `editor`, `viewer`), status toggle (`active`/`suspended`), and action buttons; gate route behind `requireAdmin` or `superadmin`. | P3-1 | Vitest tests for `UserTable.test.tsx` and `UsersPage.test.tsx`; accessibility checks pass | M | antigravity | — | — | — | — | — |
 | P3-3 | implementation | Build `InviteUserModal.tsx` and `EditUserModal.tsx` for inviting new platform operators and editing roles / tenant assignments; include email validation, role selection dropdown, and confirmation prompts. | P3-2 | Vitest tests for modal forms; interaction tests for role selection and submission | M | antigravity | — | — | — | — | — |
@@ -517,3 +517,41 @@ _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing
 **Deviations:** None.
 **Notes:** Phase 2 complete. Ready to proceed to Phase 3 (P3-PRE frontend user administration audit).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P3-PRE SLFA-P3-PRE: Audit modal patterns and API client structure in dashboard-signalloom
+**Created:** 2026-10-08 02:45:06+01:00
+**Last Updated:** 2026-10-08 02:45:06+01:00
+**Status:** Completed
+**Commit:** 6433ba2f1407de632d7301267ac41cde1b105785
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Audited modal components in `dashboard-signalloom` for accessibility, focus trapping, and styling conventions.
+- Identified standard modal pattern in `ClaimModal.tsx` (`d2-signalloom/apps/dashboard-signalloom/src/components/agents/ClaimModal.tsx` L128-L200) with `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, and `aria-describedby` generated via React `useId()`.
+- Identified confirmation dialog pattern in `ConfirmDialog.tsx` (`d2-signalloom/apps/dashboard-signalloom/src/components/ConfirmDialog.tsx` L21-L50) for destructive actions (`btn-danger`, `btn-secondary`).
+- Audited REST API client architecture in `dashboard-signalloom/src/api/` (`client.ts` L78-L359, `featuresApi.ts` L1-L46).
+- Confirmed Axios wrapper architecture with Bearer token injection, 401 reauthentication throttling, and request cancellation via `AbortSignal`.
+- Mapped planned `usersApi.ts` client layer for Phase 3-1:
+  - Query key factory: `USERS_QUERY_KEY = (tenantId?, search?) => ['adminUsers', tenantId ?? 'all', search ?? ''] as const`.
+  - API methods: `fetchUsers`, `inviteUser`, `updateUser`, `deactivateUser` targeting `/api/v1/admin/users`.
+  - React Query hooks: `useUsersQuery`, `useInviteUserMutation`, `useUpdateUserMutation`, `useDeactivateUserMutation`.
+- Mapped `/admin/users` route structure in `App.tsx` (L415-L466) with `SuperadminRoute` / role-based authorization guard and `EXTRA_ROUTE_LABELS`.
+- Audited design tokens for user roles (Superadmin: `#C084FC`, Admin: `#38BDF8`, Editor: `#4ADE80`, Viewer: `#94A3B8`) and user statuses (Active: `#22C55E`, Suspended: `#EF4444`, Invited: `#F59E0B`).
+- Verified baseline test suite: 221 test files (3,789 tests) passed cleanly in 16.97s.
+- Verified dashboard build: TypeScript typecheck and Vite build succeeded with 0 errors in 3.90s.
+- Confirmed zero modifications to frontend code during preflight audit.
+
+| File Path | Lines | Architectural Purpose & Finding |
+| :--- | :--- | :--- |
+| `d2-signalloom/apps/dashboard-signalloom/src/components/agents/ClaimModal.tsx` | L128–L200 | Dialog pattern with `role="dialog"`, `aria-modal="true"`, `useId()`, backdrop blur, and submit spinner. |
+| `d2-signalloom/apps/dashboard-signalloom/src/components/ConfirmDialog.tsx` | L21–L50 | Confirmation dialog with `role="dialog"` and `btn-danger` actions for destructive operations. |
+| `d2-signalloom/apps/dashboard-signalloom/src/components/ApiKeyRevealModal.tsx` | L20–L78 | One-time key presentation with monospace styling and copy-to-clipboard feedback. |
+| `d2-signalloom/apps/dashboard-signalloom/src/components/ApiKeyRotateModal.tsx` | L72–L174 | Two-phase modal workflow (`confirm` to `reveal`) with status handling. |
+| `d2-signalloom/apps/dashboard-signalloom/src/api/client.ts` | L78–L359 | Authenticated Axios client, 401 reauth throttle, GET coalescing, and AbortSignal support. |
+| `d2-signalloom/apps/dashboard-signalloom/src/api/featuresApi.ts` | L1–L46 | Query key pattern and fallback handling for tenant features. |
+| `d2-signalloom/apps/dashboard-signalloom/src/App.tsx` | L415–L466 | Route registration, `SuperadminRoute` guard, and `EXTRA_ROUTE_LABELS` loading text mapping. |
+| `d2-signalloom/apps/dashboard-signalloom/src/styles/tokens.ts` | L1–L50 | Color token palette for badges, surfaces, borders, and status indicators. |
+
+**Deviations:** None.
+**Notes:** Phase 3 preflight complete. Ready for P3-1 (usersApi.ts implementation).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+

@@ -1,24 +1,30 @@
 """Tenant-scoped feature flag repository and domain models for Signal Loom.
 
 This module provides typed data models and asyncpg repository operations for
-tenant-isolated feature flags with JSONB configuration payloads.
+tenant-isolated feature flags with JSONB configuration payloads, in-memory evaluation
+caching, and the server-side `require_feature` route-gating dependency.
 
 Architecture & Invariants:
 - Strict Multi-Tenant Isolation: Every query filters by `tenant_id = $1`.
 - Forward-Only & Idempotent Migrations: Backed by migration 057 (tenant_feature_flags).
 - Robust JSONB Support: Arbitrary config payloads parse cleanly and round-trip.
 - Default Fallbacks: Graceful evaluation when flags are not explicitly configured.
+- Route Gating: `require_feature` raises 404 for disabled/absent flags (no info leak).
 """
 from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
+from api_compat import Principal, authenticated_principal
+from fastapi import Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from superadmin import is_superadmin
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,23 @@ DEFAULT_SYSTEM_FLAGS: dict[str, bool] = {
     "rbac_analysis": False,
     "collusion_access": False,
 }
+
+#: In-memory evaluation cache: (tenant_id, flag_key) -> (enabled, config, timestamp)
+_FLAG_CACHE_TTL_SECONDS = 10.0
+_flag_cache: dict[tuple[str, str], tuple[bool, dict[str, Any], float]] = {}
+
+
+def invalidate_flag_cache(tenant_id: str | None = None, flag_key: str | None = None) -> None:
+    """Invalidate in-memory flag evaluation cache."""
+    global _flag_cache
+    if tenant_id is None and flag_key is None:
+        _flag_cache.clear()
+    elif tenant_id is not None and flag_key is not None:
+        _flag_cache.pop((tenant_id, flag_key), None)
+    elif tenant_id is not None:
+        _flag_cache = {k: v for k, v in _flag_cache.items() if k[0] != tenant_id}
+    elif flag_key is not None:
+        _flag_cache = {k: v for k, v in _flag_cache.items() if k[1] != flag_key}
 
 
 class FeatureFlagConfig(BaseModel):
@@ -53,6 +76,23 @@ class TenantFeatureFlag(BaseModel):
     updated_at: datetime | None = Field(default=None, description="Last update timestamp")
 
 
+class FeatureFlagDetail(BaseModel):
+    """Detailed feature flag evaluation state including configuration."""
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = Field(..., description="Flag boolean enablement state")
+    config: dict[str, Any] = Field(default_factory=dict, description="JSONB configuration payload")
+
+
+class FeaturesResponse(BaseModel):
+    """Structured payload returned by GET /api/v1/features."""
+    model_config = ConfigDict(extra="allow")
+
+    tenant_id: str = Field(..., description="Tenant identifier")
+    flags: dict[str, bool] = Field(default_factory=dict, description="Flag key to boolean mapping")
+    details: dict[str, FeatureFlagDetail] = Field(default_factory=dict, description="Flag key to detail configuration mapping")
+
+
 class FlagEvaluationResult(BaseModel):
     """Result of evaluating a feature flag for a tenant."""
     model_config = ConfigDict(from_attributes=True)
@@ -62,6 +102,34 @@ class FlagEvaluationResult(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict, description="Associated configuration payload")
     tenant_id: str | None = Field(default=None, description="Evaluated tenant identifier")
     reason: str = Field(default="default", description="Evaluation decision reason")
+
+
+def _resolve_db_pool(pool: Any = None, request: Request | None = None) -> Any:
+    """Resolve database pool from explicit argument, db.connection, request state, or api_compat."""
+    if pool is not None and (hasattr(pool, "fetch") or hasattr(pool, "acquire")):
+        return pool
+
+    try:
+        from db.connection import get_pool
+        p = get_pool()
+        if p is not None and (hasattr(p, "fetch") or hasattr(p, "acquire")):
+            return p
+    except (RuntimeError, ImportError, AttributeError):
+        pass
+
+    if request is not None:
+        p = getattr(request.app.state, "pool", None)
+        if p is not None and (hasattr(p, "fetch") or hasattr(p, "acquire")):
+            return p
+
+    try:
+        from api_compat import _pool
+        if _pool is not None and (hasattr(_pool, "fetch") or hasattr(_pool, "acquire")):
+            return _pool
+    except (ImportError, AttributeError):
+        pass
+
+    return None
 
 
 @asynccontextmanager
@@ -266,6 +334,7 @@ class FeatureFlagRepository:
                 bool(enabled),
                 json_str,
             )
+            invalidate_flag_cache(tenant_id, flag_key)
             return _parse_row(row)
 
     @classmethod
@@ -287,6 +356,7 @@ class FeatureFlagRepository:
                 tenant_id,
                 flag_key,
             )
+            invalidate_flag_cache(tenant_id, flag_key)
             if isinstance(result, str) and result.startswith("DELETE "):
                 try:
                     count = int(result.split(" ")[1])
@@ -394,3 +464,60 @@ class FeatureFlagRepository:
             )
             results.append(saved)
         return results
+
+
+async def is_feature_enabled(
+    pool_or_conn: Any,
+    tenant_id: str,
+    flag_key: str,
+    use_cache: bool = True,
+) -> bool:
+    """Evaluate whether a feature flag is enabled for a tenant, using caching when available."""
+    if not tenant_id or not flag_key:
+        return False
+
+    if use_cache:
+        now = time.time()
+        cached = _flag_cache.get((tenant_id, flag_key))
+        if cached is not None:
+            enabled, _, cached_at = cached
+            if now - cached_at < _FLAG_CACHE_TTL_SECONDS:
+                return enabled
+
+    eval_result = await FeatureFlagRepository.evaluate_flag(pool_or_conn, tenant_id, flag_key)
+    _flag_cache[(tenant_id, flag_key)] = (eval_result.enabled, eval_result.config, time.time())
+    return eval_result.enabled
+
+
+def require_feature(
+    flag_key: str,
+    *,
+    allow_superadmin_override: bool = True,
+) -> Any:
+    """FastAPI dependency callable factory enforcing that a feature flag is enabled for the request tenant.
+
+    Checks if `flag_key` is enabled for the request tenant.
+    Raises HTTPException(status_code=404, detail="Feature not found or disabled") when the flag is absent or disabled.
+    Supports optional superadmin override query parameter `superadmin_override=true` when principal is superadmin.
+    """
+    async def _feature_gate(
+        request: Request,
+        principal: Annotated[Principal, Depends(authenticated_principal)],
+        superadmin_override: bool = Query(
+            default=False,
+            description="Optional superadmin override to bypass feature flag gating",
+        ),
+    ) -> bool:
+        if allow_superadmin_override and superadmin_override and is_superadmin(principal):
+            return True
+
+        pool = _resolve_db_pool(request=request)
+        enabled = await is_feature_enabled(pool, principal.tenant, flag_key)
+        if not enabled:
+            raise HTTPException(
+                status_code=404,
+                detail="Feature not found or disabled",
+            )
+        return True
+
+    return _feature_gate

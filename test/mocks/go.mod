@@ -2,22 +2,42 @@ module github.com/controlplaneio-in-toto/osramp-demo/test/mocks
 
 go 1.27.0
 
-// Standalone module, following the d2-signalloom/test/dex-templates pattern.
-// It is deliberately NOT part of the signal-ingest module: a `package main`
-// binary living under apps/signal-ingest would be picked up by `go build ./...`
-// and shipped in the production image, and a mock Tetragon server is the last
-// thing that should be reachable from a release artifact.
-//
-// The replace directive points at the working tree rather than a published
-// version so the mock can never drift from the collector it is mocking.
-require github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest v0.0.0
-
-require github.com/cilium/tetragon/api v1.1.0
+require (
+	github.com/cilium/tetragon/api v1.1.0
+	// Standalone module, following the d2-signalloom/test/dex-templates pattern.
+	// It is deliberately NOT part of the signal-ingest module: a `package main`
+	// binary living under apps/signal-ingest would be picked up by `go build ./...`
+	// and shipped in the production image, and a mock Tetragon server is the last
+	// thing that should be reachable from a release artifact.
+	//
+	// The replace directive points at the working tree rather than a published
+	// version so the mock can never drift from the collector it is mocking.
+	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest v0.0.0
+)
 
 require (
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/apache/arrow-go/v18 v18.2.0 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.47.1 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.33.6 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.6 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.1 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.10.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
+	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/benbjohnson/immutable v0.4.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect

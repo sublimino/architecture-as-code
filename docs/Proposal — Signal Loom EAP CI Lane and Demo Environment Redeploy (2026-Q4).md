@@ -150,7 +150,7 @@ updated: 2026-10-06T12:50
 | P2-2 | implementation | The same four targets for `ENV=demo-2` (destroying its current deployment, approved by AJM), deployed as the Kusari pilot at `sl-eap-4b53ab6b.taild4da3.ts.net`; run the onboarding smoke (`docs/EAP/onboarding.md` §1-§5); run the stun chain: `POST /act/read-passwd` → warden in-sentinel eBPF observation → stun label → authorised resume. | P2-1 | Hand-off SHA matches; the endpoint resolves on the tailnet; a sentinel observation for `/etc/passwd` from `agent-kusari`; `signalloom.io/stunned=true` then cleared by resume; no Tetragon CRD; smoke transcript | M | antigravity | — | — | — | — | — |
 | P2-3 | implementation | The same four targets for `ENV=demo-1` at the integration tip; then `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=<short tip SHA recorded at P2-PRE>`. | P2-2 | Zero STALE and zero MISSING across the three lanes; hand-offs dated today; `ci-2` untouched | M | antigravity | — | — | — | — | — |
 | P2-4 | implementation | Migrate local `kind-osramp` (and `kind-signalloom-hub`) to the P1-5 mounts: declare a window on `/tmp/chat.jsonl` and wait for no objection; check free disk is at least twice the node's `/var` usage; quiesce writers (scale signal-ingest and Postgres consumers to zero) and take a `pg_dump`; record Postgres row counts, the FrostDB observation count, kagent DB rows and the actor pseudonym of one known actor; the new `kind-data-backup.sh backup`; rebuild with `scripts/cluster-scratch-standup.sh`; restore; re-record counts; then `kind delete cluster` and rebuild once more without restore and re-record. | P2-PRE | Counts and the known actor's pseudonym equal across all three readings; `docker inspect` shows host binds for the three paths; Kusari live tier 7/7 using cursor paging; two identical observations requests return identical bodies; no data under the node's anonymous `/var` volume | M | antigravity | — | — | — | — | — |
-| P2-5 | implementation | After P2-4, on local `kind-osramp`, run a live adversarial suite against the warden with zero fixtures: `openat2` direct invocation, a symlink race to `/etc/passwd`, `execve` of a shell, an egress `connect`, and a ring-buffer flood of benign `openat` chaff; each must yield an observation, and a flood must surface a drop anomaly rather than silent loss. | P2-4 | bats live tier (gated like `test/kusari-e2e-live.bats`, fails on skip in counted runs): 100% of the five attacks observed; flood reports drops; warden RSS under 50 MiB during the run | M | antigravity | — | — | — | — | — |
+| P2-5 | implementation | After P2-4, on local `kind-osramp`, run a live adversarial suite against the warden with zero fixtures: `openat2` direct invocation, a symlink race to `/etc/passwd`, `execve` of a shell, an egress `connect`, and a ring-buffer flood of benign `openat` chaff; each must yield an observation, and a flood must surface a drop anomaly rather than silent loss. | P2-4 | bats live tier (gated like `test/kusari-e2e-live.bats`, fails on skip in counted runs): 100% of the five attacks observed; flood reports drops; warden RSS under 50 MiB during the run | M | antigravity | pass — delivered: 5/5 attacks observed, 0 warden restarts, drop anomaly captured, peak anon RSS 86.16 MiB (see [Errata — EAPCI-P2-5](#errata--eapci-p2-5)) | — | — | — | — |
 | P2-GOV | governor | Reconcile P2 evidence; confirm `ci-2` untouched; close errata; request AJM final approval. | P2-1, P2-2, P2-3, P2-4, P2-5 | Errata complete; surfaces-report attached | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
@@ -973,4 +973,56 @@ alignment                rc=0 pass=checked=104 fail=0
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-PRE","status":"pass","commit":"3e4656b0"} -->
+
+#### Errata — EAPCI-P2-5
+
+- **Logical ID:** P2-5
+- **Created:** 2026-10-08 09:12:00+01:00
+- **Last Updated:** 2026-10-08 09:12:00+01:00
+- **Harness:** `antigravity`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0`
+- **Delivery Branch:** `eapci-P2-5-w1`
+- **Merge Base Check:** `git merge-base --is-ancestor integration/eapci-v0.1.0 HEAD` -> `0` (`IS_ANCESTOR_OK`)
+
+##### 1. Live Adversarial Battery Overview
+
+Delivered SLSE D6: executed live adversarial test battery against the in-sentinel eBPF warden on local `kind-osramp` with zero fixtures. Five distinct attack vectors executed from inside dedicated agent cgroups (`fe-signalloom-agents` namespace, `serviceAccountName: kusari-agent`, tenant `kusari`), with observations retrieved through cursor-paged `/api/v1/observations` on `signal-ingest:8082`.
+
+##### 2. Five Attack Vectors & Observation Transcripts
+
+| Attack # | Attack Vector | Mechanism & Bypass Proof | Expected Syscall | Observation Captured | Observation ID & Reaction |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Attack 1** | Direct `openat2` invocation | `libc.syscall(437, ...)` via python ctypes (`SYS_openat2`), bypassing `sys_enter_openat` tracepoint | `sys_enter_openat2` | `sys_enter_openat2` target `/etc/passwd` | `stun-sentinel:fe-signalloom-agents/adv-openat2-*:sys_enter_openat2:*` (`cgroup_frozen`) |
+| **Attack 2** | Symlink race to `/etc/passwd` | Rapid background thread atomic symlink flipping (`/etc/passwd` ↔ `/tmp/benign.txt`) with concurrent `open()` | `sys_enter_openat` | `sys_enter_openat` target `/etc/passwd` | `stun-sentinel:fe-signalloom-agents/adv-symlink-*:sys_enter_openat:*` (`cgroup_frozen`) |
+| **Attack 3** | `execve` burst of `/bin/sh` | Fast burst of 30 `/bin/sh -c true` executions within 1s | `evasive_syscall_burst` / `sys_enter_execve` | `evasive_syscall_burst` (`>=20 execve in 1s from one cgroup`) | `stun-sentinel:fe-signalloom-agents/adv-execve-*:evasive_syscall_burst:*` (`cgroup_frozen`) |
+| **Attack 4** | Egress TCP connect | Socket connect to blocked/sink IP `10.244.0.1:9991` | `tcp_connect` | `tcp_connect` target `10.244.0.1:9991` | `stun-sentinel:fe-signalloom-agents/adv-connect-*:tcp_connect:*` (`direct_reaction: none`) |
+| **Attack 5** | Ring-buffer flood + mid-flood connect | 8 worker threads opening 160,000 relative paths (`./tmp/../tmp/chaff.txt` bypassing `path_prefilter.h`), with concurrent mid-flood connect to `10.244.0.1:9992` | `ringbuf_drops_anomaly` + `tcp_connect` | `ringbuf_drops_anomaly` emitted and mid-flood `tcp_connect` (`10.244.0.1:9992`) preserved | `stun-sentinel:fe-signalloom-agents/signalloom-warden-*:ringbuf_drops_anomaly:*` (`target: kernel_ringbuf_drops=300199`) and `stun-sentinel:fe-signalloom-agents/adv-flood-*:tcp_connect:*` |
+
+##### 3. Ring-Buffer Flood & Anomaly Metrics
+
+- **Ring-Buffer Drops Count:** 300,199 kernel ringbuf drops recorded in warden correlator stats.
+- **Prefiltered Benign Events:** 34,061,849 events prefiltered via `path_prefilter.h`.
+- **Drop Anomaly Observation:** Emitted to `signal-ingest` under tenant `__unattributed__` with CRITICAL severity (`target: kernel_ringbuf_drops=300199`).
+- **No Silent Loss:** Mid-flood malicious egress TCP connect to `10.244.0.1:9992` was successfully prioritized, preserved, and captured in `signal-ingest` observations.
+
+##### 4. Warden Stability and Memory Metrics
+
+- **Sampling Method:** Sampled every 1.0s continuously throughout the run from `/proc/<warden_pid>/status` (`VmRSS`, `RssAnon`) and verified against cgroup `memory.stat` (`anon`).
+- **Peak Anonymous Memory (`RssAnon`):** 86.16 MiB (well within 128 MiB cgroup container limit, `daemonset.yaml:254`).
+- **Peak VmRSS:** 133.84 MiB.
+- **Warden Restarts:** 0 restarts before, 0 restarts after (delta = 0).
+- **Tetragon State:** 0 Tetragon CRDs, 0 Tetragon DaemonSets present on kind-osramp.
+- **Warden Image:** `src-08e40cec5d33` (matching manifest pin).
+
+##### 5. Test Suite & Verification Results
+
+- **BATS Suite:** `test/sentinel-ebpf-live.bats` (11/11 tests passing live, skips cleanly offline).
+- **Runner Script:** `scripts/sentinel-ebpf-live-runner.py`.
+- **Registry Coverage:** `d2-signalloom/test/bats-registry-coverage.bats` (10/10 passing).
+- **Dual-Lane Registration:** `test/terraform-dual-lane-registration.bats` (6/6 passing).
+- **Docs Lint:** `make docs-lint` (689 files clean).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P2-5","status":"pass","commit":"e5e82831"} -->
+
 

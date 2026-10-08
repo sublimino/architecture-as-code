@@ -529,3 +529,52 @@ async def test_invalid_arguments_raise(fake_pool: FakePool) -> None:
 
     with pytest.raises(ValueError, match="flag_key must be a non-empty string"):
         await FeatureFlagRepository.delete_feature_flag(fake_pool, "tenant-1", "")
+
+
+# ===========================================================================
+# 8. Design Partner Presets (Kusari Pilot Profile)
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_kusari_design_partner_presets_evaluation(fake_pool: FakePool) -> None:
+    """Verify Kusari design partner tenant retrieves expected preset flags."""
+    kusari_presets = {
+        "core_governance": True,
+        "audit": True,
+        "compliance": True,
+        "demos_fleet": False,
+        "supercred": False,
+        "rbac_analysis": False,
+        "collusion_access": False,
+    }
+
+    # Seed Kusari presets into fake database
+    for flag_key, enabled in kusari_presets.items():
+        await FeatureFlagRepository.set_feature_flag(
+            fake_pool,
+            tenant_id="kusari",
+            flag_key=flag_key,
+            enabled=enabled,
+            config_json={"preset": "kusari_pilot"},
+        )
+
+    # 1. Verify Kusari tenant retrieves all expected flags
+    flags = await FeatureFlagRepository.get_tenant_flags(fake_pool, "kusari")
+    for key, expected_val in kusari_presets.items():
+        assert flags.get(key) is expected_val, f"Kusari flag {key} mismatch"
+
+    # 2. Verify individual evaluations return tenant_override reason
+    for key, expected_val in kusari_presets.items():
+        eval_res = await FeatureFlagRepository.evaluate_flag(fake_pool, "kusari", key)
+        assert eval_res.enabled is expected_val
+        assert eval_res.reason == "tenant_override"
+
+    # 3. Verify unseeded/default tenant falls back to system defaults
+    unseeded_eval = await FeatureFlagRepository.evaluate_flag(fake_pool, "unseeded-tenant", "core_governance")
+    assert unseeded_eval.enabled is True
+    assert unseeded_eval.reason == "system_default"
+
+    unseeded_demos = await FeatureFlagRepository.evaluate_flag(fake_pool, "unseeded-tenant", "demos_fleet")
+    assert unseeded_demos.enabled is False
+    assert unseeded_demos.reason == "system_default"
+

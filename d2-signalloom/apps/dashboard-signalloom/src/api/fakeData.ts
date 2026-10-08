@@ -286,8 +286,33 @@ function listAgents(): AgentListResponse {
 }
 
 function readAgent(path: string): AgentResponse | undefined {
-  const record = findDemoAgent(readAgentId(path))
-  return record ? cloneAgent(record.agent) : undefined
+  const agentId = readAgentId(path)
+  if (!agentId) return undefined
+  const record = findDemoAgent(agentId)
+  if (record) return cloneAgent(record.agent)
+  return {
+    id: agentId,
+    name: agentId,
+    type: 'Signal Loom Built',
+    owner: 'demo-user',
+    tenant_id: TENANT,
+    lifecycle_state: 'active',
+    last_transition_at: null,
+    eu_ai_act_risk_class: 'limited',
+    compliance_summary: { total_controls: 10, passing: 8, failing: 2, pending: 0, posture_score: 80 },
+    created_at: nowIso(),
+    service_account: `${agentId}-sa`,
+    namespace: 'default',
+    record_class: 'registered',
+    is_registry_linked: true,
+    runtime: {
+      cluster_id: 'osramp-control-plane',
+      namespace: 'default',
+      service_account: `${agentId}-sa`,
+      pod_name: `${agentId}-pod`,
+      pod_uid: `uid-${agentId}`,
+    },
+  }
 }
 
 function agentTelemetryFixture(path: string): AgentTelemetryResponse | undefined {

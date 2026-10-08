@@ -1008,6 +1008,7 @@ function GovernedTab({
 }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { getAccessTokenSilently } = useAuth0()
 
   const resolveInitialSearch = () => {
     const s = searchParams.get('search')
@@ -1072,15 +1073,34 @@ function GovernedTab({
   // Auto-open drawer if ?drawer=<id> or ?agent=<id> is in URL
   useEffect(() => {
     const drawerId = searchParams.get('drawer') || searchParams.get('agent')
-    if (drawerId && agents.length > 0) {
-      const match = agents.find(a => a.id === drawerId || a.name === drawerId)
-      if (match) {
-        setSelectedAgent(match)
+    if (drawerId) {
+      if (agents.length > 0) {
+        const match = agents.find(a => a.id === drawerId || a.name === drawerId)
+        if (match) {
+          setSelectedAgent(match)
+          return
+        }
+      }
+      // If not found in current loaded list (e.g. filtered, paged, or direct deep-link), fetch directly by ID
+      let cancelled = false
+      void (async () => {
+        try {
+          const token = await getAccessTokenSilently()
+          const direct = await api.agents.get(token, drawerId)
+          if (!cancelled && direct) {
+            setSelectedAgent(direct)
+          }
+        } catch {
+          // Genuinely not found or network error
+        }
+      })()
+      return () => {
+        cancelled = true
       }
     } else if (!drawerId && selectedAgent) {
       setSelectedAgent(null)
     }
-  }, [searchParams, agents])
+  }, [searchParams, agents, getAccessTokenSilently])
 
   const handleSearchChange = (val: string) => {
     setSearch(val)

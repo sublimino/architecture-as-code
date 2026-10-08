@@ -105,17 +105,92 @@ interface FleetNodeData {
   [key: string]: unknown
 }
 
+export interface CalibratedNodeRisk {
+  failures: string[]
+  triple: { min: number; mode: number; max: number }
+}
+
+export const CALIBRATED_NODE_RISKS: Record<string, CalibratedNodeRisk> = {
+  'agent-cardvault': {
+    failures: [],
+    triple: { min: 10000, mode: 50000, max: 200000 },
+  },
+  'agent-txn-pipeline': {
+    failures: ['Missing security context (runAsNonRoot)', 'Un-dropped Linux capabilities (CAP_NET_RAW)'],
+    triple: { min: 40000, mode: 180000, max: 1200000 },
+  },
+  'agent-pipeline': {
+    failures: ['Missing security context (runAsNonRoot)', 'Un-dropped Linux capabilities (CAP_NET_RAW)'],
+    triple: { min: 40000, mode: 180000, max: 1200000 },
+  },
+  'agent-llm-classifier': {
+    failures: ['Missing security context (allowPrivilegeEscalation)', 'Un-dropped Linux capabilities (CAP_SYS_ADMIN)'],
+    triple: { min: 120000, mode: 500000, max: 4000000 },
+  },
+  'agent-llm': {
+    failures: ['Missing security context (allowPrivilegeEscalation)', 'Un-dropped Linux capabilities (CAP_SYS_ADMIN)'],
+    triple: { min: 120000, mode: 500000, max: 4000000 },
+  },
+  'agent-api-gateway': {
+    failures: [],
+    triple: { min: 20000, mode: 90000, max: 500000 },
+  },
+  'agent-gateway': {
+    failures: [],
+    triple: { min: 20000, mode: 90000, max: 500000 },
+  },
+  'agent-monitor': {
+    failures: [],
+    triple: { min: 1000, mode: 5000, max: 20000 },
+  },
+  'agent-auth': {
+    failures: [],
+    triple: { min: 15000, mode: 60000, max: 300000 },
+  },
+  'agent-storage': {
+    failures: [],
+    triple: { min: 10000, mode: 50000, max: 200000 },
+  },
+}
+
+export function getNodeRisk(agent: AgentState): CalibratedNodeRisk {
+  const fallback = CALIBRATED_NODE_RISKS[agent.id] ?? {
+    failures: agent.state === 'non-compliant' ? ['Security context compliance drift'] : [],
+    triple: { min: 5000, mode: 25000, max: 100000 },
+  }
+
+  const failures = agent.controlFailures !== undefined
+    ? agent.controlFailures
+    : (agent.state === 'non-compliant' && fallback.failures.length > 0)
+      ? fallback.failures
+      : agent.state === 'non-compliant'
+        ? ['Security context compliance drift']
+        : fallback.failures
+
+  const triple = agent.parameterTriple ?? agent.calibratedTriple ?? fallback.triple
+
+  return { failures, triple }
+}
+
 const nodeTypes = { fleet: FleetNode }
 
 function FleetNode({ data }: { data: FleetNodeData }) {
   const { agent, cascadeActive } = data
   const bg = stateColour(agent.state)
   const inRouter = useInRouterContext()
+  const [tooltipOpen, setTooltipOpen] = useState(false)
+  const nodeRisk = getNodeRisk(agent)
 
   return (
     <div
       data-testid={`fleet-node-${agent.id}`}
       data-agent-state={agent.state}
+      tabIndex={0}
+      onMouseEnter={() => setTooltipOpen(true)}
+      onMouseLeave={() => setTooltipOpen(false)}
+      onFocus={() => setTooltipOpen(true)}
+      onBlur={() => setTooltipOpen(false)}
+      aria-describedby={tooltipOpen ? `fleet-node-tooltip-${agent.id}` : undefined}
       style={{
         width: NODE_W,
         height: NODE_H,
@@ -127,7 +202,7 @@ function FleetNode({ data }: { data: FleetNodeData }) {
         justifyContent: 'center',
         padding: '8px 12px',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
         transition: cascadeActive ? 'border-color 0.3s, box-shadow 0.3s' : 'none',
         boxShadow: agent.state === 'stunned' ? `0 0 12px ${bg}` : 'none',
       }}
@@ -215,9 +290,70 @@ function FleetNode({ data }: { data: FleetNodeData }) {
           background: bg,
         }}
       />
+
+      {/* Interactive Tooltip: Control Failures and Calibrated Parameter Triples */}
+      {tooltipOpen && (
+        <div
+          id={`fleet-node-tooltip-${agent.id}`}
+          data-testid={`fleet-node-tooltip-${agent.id}`}
+          role="tooltip"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 8px)',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+            width: 280,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+            color: 'var(--text)',
+            fontSize: 12,
+            lineHeight: 1.4,
+            pointerEvents: 'auto',
+            textAlign: 'left',
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: 'var(--cyan)' }}>
+            {agent.name} ({agent.id})
+          </div>
+
+          {/* Control Failures */}
+          <div data-testid={`fleet-node-failures-${agent.id}`} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+              Control Failures:
+            </div>
+            {nodeRisk.failures.length > 0 ? (
+              <ul style={{ margin: 0, paddingLeft: 16, color: 'var(--error)' }}>
+                {nodeRisk.failures.map((f, idx) => (
+                  <li key={idx} style={{ marginTop: 2 }}>{f}</li>
+                ))}
+              </ul>
+            ) : (
+              <div style={{ color: 'var(--teal)', fontSize: 11, fontWeight: 500 }}>
+                None: all controls passing
+              </div>
+            )}
+          </div>
+
+          {/* Calibrated Parameter Triple */}
+          <div data-testid={`fleet-node-triple-${agent.id}`}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+              Calibrated Parameter Triple (min/mode/max):
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+              Min: £{nodeRisk.triple.min.toLocaleString('en-GB')}, Mode: £{nodeRisk.triple.mode.toLocaleString('en-GB')}, Max: £{nodeRisk.triple.max.toLocaleString('en-GB')}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 // ── Edge rendering via ViewportPortal ───────────────────────────────────────
 

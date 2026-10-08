@@ -17,7 +17,7 @@ describe('FleetRiskGauge', () => {
   it('renders the ALE number formatted as GBP', () => {
     render(<FleetRiskGauge ale={847000} var95={1200000} trend="up" />)
     const aleEl = screen.getByTestId('fleet-risk-ale')
-    // Formatted as currency — the exact locale formatting may vary but should
+    // Formatted as currency -- the exact locale formatting may vary but should
     // contain the value. With 847000, formatGBP produces "\u00A3847,000".
     expect(aleEl.textContent).toContain('847')
   })
@@ -120,15 +120,15 @@ describe('FleetRiskGauge', () => {
   // This assertion used to read `toContain('2.5M')`, with a capital M, and it
   // passed for a reason that had nothing to do with the component: jsdom
   // reports navigator.language as en-US, and compact notation is uppercase in
-  // American English but LOWERCASE in British English — en-GB renders £2.5m,
+  // American English but LOWERCASE in British English -- en-GB renders £2.5m,
   // and de-DE renders "2,5 Mio.". The suite was therefore asserting one
   // locale's spelling while the product's users are British, and would have
   // gone red on an ICU update or the day the test environment reported a
   // different locale, with nothing wrong in the component.
   //
   // Fixed the way the money tests already assert: against Intl's own output,
-  // and against the PROPERTY that matters — the figure is abbreviated rather
-  // than grouped in full — instead of against a spelling.
+  // and against the PROPERTY that matters -- the figure is abbreviated rather
+  // than grouped in full -- instead of against a spelling.
   it('abbreviates millions rather than grouping them in full', () => {
     render(<FleetRiskGauge ale={2500000} var95={4000000} trend="up" />)
     const shown = screen.getByTestId('fleet-risk-ale').textContent ?? ''
@@ -192,5 +192,77 @@ describe('FleetRiskGauge explains its own jargon', () => {
     // whole explanation out a second time on top of aria-describedby.
     const muted = screen.getByTestId('fleet-risk-help').closest('[aria-live]')
     expect(muted?.getAttribute('aria-live')).toBe('off')
+  })
+})
+
+describe("SLSC-P2-2 FleetRiskGauge radial gauge, Carried GBP, and risk transitions", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  it("renders SVG radial gauge with colour-coded risk bands and needle", () => {
+    render(<FleetRiskGauge ale={12400} var95={58000} trend="stable" carriedGbp={12400} />)
+    const gaugeSvg = screen.getByTestId("fleet-radial-gauge")
+    expect(gaugeSvg).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-gauge-band-low")).toHaveAttribute("stroke", "var(--teal)")
+    expect(screen.getByTestId("fleet-gauge-band-medium")).toHaveAttribute("stroke", "var(--amber)")
+    expect(screen.getByTestId("fleet-gauge-band-high")).toHaveAttribute("stroke", "var(--error)")
+    expect(screen.getByTestId("fleet-gauge-needle")).toBeInTheDocument()
+  })
+
+  it("renders Carried GBP metric and risk band badge", () => {
+    render(<FleetRiskGauge ale={12400} var95={58000} trend="stable" carriedGbp={12400} />)
+    const carriedEl = screen.getByTestId("fleet-risk-carried")
+    expect(carriedEl).toBeInTheDocument()
+    expect(carriedEl.textContent).toContain("Carried GBP:")
+    expect(carriedEl.textContent).toContain("12,400")
+    const bandEl = screen.getByTestId("fleet-risk-band")
+    expect(bandEl).toBeInTheDocument()
+    expect(bandEl.textContent).toBe("Low Risk")
+  })
+
+  it("in baseline state: displays £12,400 with green risk band", () => {
+    render(<FleetRiskGauge ale={12400} var95={58000} trend="stable" carriedGbp={12400} />)
+    const aleEl = screen.getByTestId("fleet-risk-ale")
+    expect(aleEl.textContent).toContain("12,400")
+    expect(aleEl.style.color).toBe("var(--teal)")
+    const carriedEl = screen.getByTestId("fleet-risk-carried")
+    expect(carriedEl.textContent).toContain("12,400")
+  })
+
+  it("in escalated state: displays £847,000 with red risk band", () => {
+    render(<FleetRiskGauge ale={847000} var95={1200000} trend="up" carriedGbp={847000} />)
+    const aleEl = screen.getByTestId("fleet-risk-ale")
+    expect(aleEl.textContent).toContain("847,000")
+    expect(aleEl.style.color).toBe("var(--error)")
+    const carriedEl = screen.getByTestId("fleet-risk-carried")
+    expect(carriedEl.textContent).toContain("847,000")
+    const bandEl = screen.getByTestId("fleet-risk-band")
+    expect(bandEl.textContent).toBe("High Risk")
+    expect(bandEl.style.color).toBe("var(--error)")
+  })
+
+  it("animates transition between baseline £12,400 and escalated £847,000", () => {
+    const { rerender } = render(<FleetRiskGauge ale={12400} var95={58000} trend="stable" carriedGbp={12400} />)
+    const aleEl = screen.getByTestId("fleet-risk-ale")
+    expect(aleEl.textContent).toContain("12,400")
+
+    rerender(<FleetRiskGauge ale={847000} var95={1200000} trend="up" carriedGbp={847000} />)
+
+    // Advance part-way
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(aleEl.textContent).not.toContain("12,400")
+
+    // Advance to end
+    act(() => { vi.advanceTimersByTime(600) })
+    expect(aleEl.textContent).toContain("847,000")
+  })
+
+  it("contains zero em-dashes across rendered text", () => {
+    const { container } = render(<FleetRiskGauge ale={12400} var95={58000} trend="stable" carriedGbp={12400} />)
+    expect(container.textContent).not.toMatch(/\u2014/)
   })
 })

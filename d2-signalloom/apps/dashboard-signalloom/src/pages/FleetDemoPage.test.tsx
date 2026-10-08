@@ -1110,3 +1110,71 @@ describe('live cluster telemetry streaming & demo fallback', () => {
   })
 })
 
+
+describe("SLSC-P2-2 FleetDemoPage risk scan wiring", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+    mockScanFleet.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("displays baseline risk £12,400 on initial load", async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
+    })
+    const aleEls = screen.getAllByTestId("fleet-risk-ale")
+    expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
+    const carriedEls = screen.getAllByTestId("fleet-risk-carried")
+    expect(carriedEls[0]).toHaveTextContent(/12[,.]?400/)
+  })
+
+  it("wires Scan Fleet button to update risk metrics from baseline £12,400 to escalated £847,000", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
+    })
+
+    // Baseline: £12,400
+    const aleEl = screen.getAllByTestId("fleet-risk-ale")[0]
+    expect(aleEl).toHaveTextContent(/12[,.]?400/)
+
+    // Click Scan Fleet
+    await user.click(screen.getByTestId("fleet-scan-btn"))
+    await waitFor(() => {
+      expect(mockScanFleet).toHaveBeenCalledWith("test-token")
+    })
+
+    // Advance animation timers
+    act(() => { vi.advanceTimersByTime(700) })
+
+    // Escalated: £847,000
+    await waitFor(() => {
+      expect(screen.getAllByTestId("fleet-risk-ale")[0]).toHaveTextContent(/847[,.]?000/)
+    })
+    const carriedEl = screen.getAllByTestId("fleet-risk-carried")[0]
+    expect(carriedEl).toHaveTextContent(/847[,.]?000/)
+  })
+
+  it("transitions non-compliant agents on scan and updates risk band", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByTestId("fleet-scan-btn"))
+    act(() => { vi.advanceTimersByTime(700) })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("fleet-risk-band")[0]).toHaveTextContent("High Risk")
+    })
+  })
+})

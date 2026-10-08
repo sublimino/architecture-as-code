@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import FleetTopology from './FleetTopology'
 import type { AgentState } from '../../api/fleetApi'
 
@@ -326,3 +326,97 @@ describe('FleetTopology agent drill-down links', () => {
   })
 })
 
+
+describe("SLSC-P2-2 FleetTopology interactive node risk tooltips", () => {
+  it("displays tooltip on node mouse hover and hides on mouse leave", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    expect(screen.queryByTestId("fleet-node-tooltip-agent-cardvault")).not.toBeInTheDocument()
+
+    fireEvent.mouseEnter(node)
+    expect(screen.getByTestId("fleet-node-tooltip-agent-cardvault")).toBeInTheDocument()
+
+    fireEvent.mouseLeave(node)
+    expect(screen.queryByTestId("fleet-node-tooltip-agent-cardvault")).not.toBeInTheDocument()
+  })
+
+  it("displays tooltip on node focus and hides on blur", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    fireEvent.focus(node)
+    expect(screen.getByTestId("fleet-node-tooltip-agent-cardvault")).toBeInTheDocument()
+
+    fireEvent.blur(node)
+    expect(screen.queryByTestId("fleet-node-tooltip-agent-cardvault")).not.toBeInTheDocument()
+  })
+
+  it("displays passing control status for compliant agents", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    fireEvent.mouseEnter(node)
+    const failuresEl = screen.getByTestId("fleet-node-failures-agent-cardvault")
+    expect(failuresEl).toHaveTextContent(/None: all controls passing/i)
+  })
+
+  it("displays per-agent control failures for non-compliant agents", () => {
+    const nonCompliantAgents = FIVE_AGENTS.map(a =>
+      a.id === "agent-pipeline" ? { ...a, state: "non-compliant" as const } : a
+    )
+    render(<FleetTopology agents={nonCompliantAgents} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-pipeline")
+
+    fireEvent.mouseEnter(node)
+    const failuresEl = screen.getByTestId("fleet-node-failures-agent-pipeline")
+    expect(failuresEl).toHaveTextContent(/Missing security context/i)
+    expect(failuresEl).toHaveTextContent(/Un-dropped Linux capabilities/i)
+  })
+
+  it("displays calibrated parameter triples with min/mode/max values", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    fireEvent.mouseEnter(node)
+    const tripleEl = screen.getByTestId("fleet-node-triple-agent-cardvault")
+    expect(tripleEl).toHaveTextContent(/Calibrated Parameter Triple \(min\/mode\/max\):/i)
+    expect(tripleEl).toHaveTextContent(/Min:\s*£10,000/)
+    expect(tripleEl).toHaveTextContent(/Mode:\s*£50,000/)
+    expect(tripleEl).toHaveTextContent(/Max:\s*£200,000/)
+  })
+
+  it("supports explicit per-agent control failures and parameter triples from props", () => {
+    const customAgents: AgentState[] = [
+      makeAgent({
+        id: "agent-custom",
+        name: "Custom Agent",
+        controlFailures: ["Custom auth context failure", "Missing egress filter"],
+        parameterTriple: { min: 30000, mode: 75000, max: 350000 },
+      }),
+    ]
+    render(<FleetTopology agents={customAgents} edges={[]} />)
+    const node = screen.getByTestId("fleet-node-agent-custom")
+
+    fireEvent.mouseEnter(node)
+    const failuresEl = screen.getByTestId("fleet-node-failures-agent-custom")
+    expect(failuresEl).toHaveTextContent("Custom auth context failure")
+    expect(failuresEl).toHaveTextContent("Missing egress filter")
+
+    const tripleEl = screen.getByTestId("fleet-node-triple-agent-custom")
+    expect(tripleEl).toHaveTextContent(/Min:\s*£30,000/)
+    expect(tripleEl).toHaveTextContent(/Mode:\s*£75,000/)
+    expect(tripleEl).toHaveTextContent(/Max:\s*£350,000/)
+  })
+
+  it("contains zero em-dashes in tooltip text and labels", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    for (const agent of FIVE_AGENTS) {
+      const node = screen.getByTestId(`fleet-node-${agent.id}`)
+      fireEvent.mouseEnter(node)
+      const tooltip = screen.getByTestId(`fleet-node-tooltip-${agent.id}`)
+      expect(tooltip.textContent).not.toMatch(/\u2014/)
+      fireEvent.mouseLeave(node)
+    }
+  })
+})

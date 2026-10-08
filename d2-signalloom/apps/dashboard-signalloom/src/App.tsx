@@ -457,6 +457,7 @@ export default function App() {
                 <Route path="/network-tests" element={<ProtectedRoute><NetworkTestsPage /></ProtectedRoute>} />
                 <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><SuperCredPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/demos/fleet" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetAudiencePage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/demos/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetAudiencePage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />

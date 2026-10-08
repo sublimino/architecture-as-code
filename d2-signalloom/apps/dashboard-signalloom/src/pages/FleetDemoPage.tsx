@@ -280,6 +280,20 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       setConnectionStatus('connected')
       setLastHeartbeat(new Date())
       setTopologyLoaded(true)
+      const stunnedAgents = (data.agents ?? []).filter(a => a.state === 'stunned').map(a => a.id)
+      if (audience) {
+        if (stunnedAgents.length > 0) {
+          setCascadeInProgress(prev => {
+            if (prev.length > 0) return prev
+            const order = ['agent-cardvault', 'agent-txn-pipeline', 'agent-llm-classifier', 'agent-api-gateway']
+            const cascadeOrder = order.filter(id => stunnedAgents.includes(id))
+            return cascadeOrder.length > 0 ? cascadeOrder : stunnedAgents
+          })
+        } else {
+          setCascadeInProgress([])
+          setStunnedCascadeNodes([])
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load fleet topology'
       setError(msg)
@@ -428,7 +442,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     if (topology && rawAgents.length === 0) {
       return { ale: 0, var95: 0, trend: 'stable', carriedGbp: 0 }
     }
-
     // Stepwise cascade in progress: recalculate risk as each node cascades into stunned state
     const cascadeTargets = cascadeInProgress.filter(id => id !== 'agent-monitor')
     if (cascadeTargets.length > 0 && stunnedCascadeNodes.length > 0) {
@@ -451,11 +464,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       }
     }
 
-    if (isScanned) {
+    if (isScanned || stunnedCount > 0) {
       return ESCALATED_RISK
     }
     return BASELINE_RISK
-  }, [topology, rawAgents.length, isScanned, cascadeInProgress, stunnedCascadeNodes])
+  }, [topology, rawAgents.length, isScanned, cascadeInProgress, stunnedCascadeNodes, stunnedCount])
 
   const showControls = superadmin && !audience
 

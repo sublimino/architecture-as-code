@@ -48,8 +48,8 @@ const baseAgent: AgentResponse = {
 
 describe('resolveAgentPod', () => {
   const pods: TelemetrySample[] = [
-    { podName: 'agent-cardvault-1d5f7', ts: '2026-08-01T12:00:00Z', cpuMillicores: 10, memoryRssMiB: 20, frozen: false },
-    { podName: 'sentinel-bot', ts: '2026-08-01T12:00:00Z', cpuMillicores: 0, memoryRssMiB: 30, frozen: false },
+    { podName: 'agent-cardvault-1d5f7', ts: 1722513600000, cpuMillicores: 10, memoryRssMiB: 20, frozen: false },
+    { podName: 'sentinel-bot', ts: 1722513600000, cpuMillicores: 0, memoryRssMiB: 30, frozen: false },
   ]
 
   it('returns null for null or undefined agent', () => {

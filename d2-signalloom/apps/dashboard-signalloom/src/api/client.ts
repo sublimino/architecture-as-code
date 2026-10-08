@@ -60,6 +60,7 @@ import type {
   FederationEvent,
   FederationSummaryResponse,
 } from '../types/api'
+import type { FeaturesResponse } from '../types/features'
 import type {
   ComplianceCheck,
   ComplianceScanRequest,
@@ -897,6 +898,13 @@ export const api = {
       req<SpiffeIdentity[]>('/v1/federation/identities', token, { signal }),
     events: (token: string, signal?: AbortSignal) =>
       req<FederationEvent[]>('/v1/federation/events', token, { signal }),
+  },
+
+  features: {
+    get: (token: string, tenantId?: string, signal?: AbortSignal) => {
+      const qs = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
+      return req<FeaturesResponse>(`/api/v1/features${qs}`, token, { signal })
+    },
   },
 }
 

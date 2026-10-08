@@ -336,7 +336,7 @@ Obey these. They are the phase constitution.
 | P3-2 | implementation | Build `UsersPage.tsx` and `UserTable.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/` with search, tenant filter (for superadmins), role badges (`admin`, `editor`, `viewer`), status toggle (`active`/`suspended`), and action buttons; gate route behind `requireAdmin` or `superadmin`. | P3-1 | Vitest tests for `UserTable.test.tsx` and `UsersPage.test.tsx`; accessibility checks pass | M | antigravity | pass — delivered: d3ea9eac77429bed08528971dc1ee6812a1ae64c (see Errata — SLFA-P3-2) | — | — | — | — |
 | P3-3 | implementation | Build `InviteUserModal.tsx` and `EditUserModal.tsx` for inviting new platform operators and editing roles / tenant assignments; include email validation, role selection dropdown, and confirmation prompts. | P3-2 | Vitest tests for modal forms; interaction tests for role selection and submission | M | antigravity | pass — delivered: eec630e0fae1fa485dc50dc2909565b8cb13ad5b (see Errata — SLFA-P3-3) | — | — | — | — |
 | P3-GOV | governor | Merge P3-1..P3-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P3 completion errata. | P3-1, P3-2, P3-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
-| P4-PRE | preflight | Audit Kusari pilot profile in live tfvars and seed data; verify test environment configuration; record audit table in errata. | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
+| P4-PRE | preflight | Audit Kusari pilot profile in live tfvars and seed data; verify test environment configuration; record audit table in errata. | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — audited: Kusari tenant ID/hash, seed conventions & Playwright test environment (see Errata — SLFA-P4-PRE) | — | — | — | — |
 | P4-1 | implementation | Provision migration `011_seed_design_partner_presets.sql` with default flag configuration for Kusari tenant (`core_governance=true`, `audit=true`, `compliance=true`, `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`); seed initial superadmin user. | P4-PRE | Database seed verification test; flags verified for Kusari tenant vs default tenant | S | antigravity | — | — | — | — | — |
 | P4-2 | implementation | Author Playwright acceptance journey spec `test/acceptance/user-admin-and-flags.spec.ts` testing superadmin login → user invite → role reassignment → tenant feature flag suppression verification in the dashboard UI. | P4-1 | Playwright spec passes in acceptance test run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
 | P4-GOV | governor | Merge P4-1..P4-2 in order into `integration/slfa-v0.1.0`; execute full test pyramid (`make test-all-offline` and `make acceptance-test`); verify zero regression; request final AJM sign-off. | P4-1, P4-2 | Full test pass, final errata recorded, proposal sign-off complete | S | antigravity | — | — | — | — | — |
@@ -636,4 +636,59 @@ _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing
 **Deviations:** None.
 **Notes:** Phase 3 implementation complete. Handing off to P3-GOV (Phase 3 Governor reconciliation).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P4-PRE SLFA-P4-PRE: Audit Kusari pilot profile in live tfvars and seed data
+**Created:** 2026-10-08 03:49:21+01:00
+**Last Updated:** 2026-10-08 03:49:21+01:00
+**Status:** Completed
+**Commit:** bc43e2447f6d00d22a6bb0c8211c85a3039676d7
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Audited Kusari tenant identifiers across configuration, routing, and workload manifests:
+  - Canonical tenant ID: `kusari` (`deploy/kusari-agent-workload.yaml` L54, `deploy/eap-tenant-httproute.yaml` L10).
+  - Salted domain hash: `4b53ab6b` derived from `kusari` with salt `signalloom-eap-salt-2026-q3` (`test/fixtures/tenant/hash-vectors.json` L5-L6, `deploy/eap-tenant-httproute.yaml` L11).
+  - Route hostnames: `sl-eap-4b53ab6b.ts.net` and `sl-eap-4b53ab6b.demo.signalloom.io` (`deploy/eap-tenant-httproute.yaml` L19-L20).
+- Audited Kusari pilot profile feature flag configuration:
+  - Enabled flags: `core_governance=true`, `audit=true`, `compliance=true`.
+  - Disabled flags: `demos_fleet=false`, `supercred=false`, `rbac_analysis=false`, `collusion_access=false`.
+  - Confirmed UI gating in `Sidebar.tsx` (L105-L144): demo groups and advanced analytics are dynamically suppressed, providing a clean, uncluttered governance experience for Kusari operators.
+- Audited database schema migrations and seed patterns in `fe-signalloom/src/db/`:
+  - `057_tenant_feature_flags.sql`: `public.tenant_feature_flags` table with composite primary key `(tenant_id, flag_key)` and JSONB config.
+  - `058_platform_users_superadmin.sql`: `is_superadmin` boolean column and partial index `idx_platform_users_superadmin`.
+  - `059_user_admin_audit_event_types.sql`: User administration audit event type vocabulary constraint.
+  - Sequenced next migration for P4-1 as `060_seed_design_partner_presets.sql` following sequential forward-only ordering.
+- Audited Playwright test environment in `test/acceptance/`:
+  - `playwright.config.ts`: Configures `launchOptions.args` with host resolver rule for `dashboard.osramp.acme.local` and worker serialization (`workers: 1`).
+  - `auth.setup.ts`: Authenticates Dex user `demo-user@signalloom.local`, capturing `.auth-state.json` and `.auth-session.json`.
+  - `fixtures.ts` and `helpers.ts`: Session storage restoration, test diagnostics listener, and `login()` helper with `sl_demo_mode` and `signalloom.superadmin` toggles.
+  - `SPEC-REGISTRY.tsv`: 47 specs verified against `acceptance-spec-coverage.bats` (7/7 tests pass).
+- Verified full test suites:
+  - Python API & migrations test suite: 56 contract and migration tests passing.
+  - Dashboard Vitest suite: 226 test files (3,869 tests) passing cleanly.
+  - Spec registry coverage: 7/7 BATS tests passing.
+- Confirmed zero modifications to codebase files during preflight audit.
+
+| File Path | Lines | Architectural Purpose & Finding |
+| :--- | :--- | :--- |
+| `deploy/eap-tenant-httproute.yaml` | L10–L20 | HTTPRoute manifest for Kusari tenant (`tenant: "kusari"`, `tenant-hash: "4b53ab6b"`, `sl-eap-4b53ab6b.ts.net`). |
+| `deploy/kusari-agent-workload.yaml` | L30–L55 | Kusari agent deployment with `signalloom.ai/tenant: "kusari"` and `signalloom.ai/project: "kusari-pilot"`. |
+| `test/fixtures/tenant/hash-vectors.json` | L5–L6 | Test vectors verifying canonical Kusari tenant hash `4b53ab6b`. |
+| `d2-signalloom/apps/fe-signalloom/src/environment_routing.py` | L73–L138 | Cryptographic hashing via `derive_customer_hash` using OpenBao/env salt. |
+| `d2-signalloom/apps/fe-signalloom/src/feature_flags.py` | L32–L40 | `DEFAULT_SYSTEM_FLAGS` definition matching enterprise pilot defaults. |
+| `d2-signalloom/apps/dashboard-signalloom/src/types/features.ts` | L21–L39 | TypeScript feature flag dictionary and `DEFAULT_SYSTEM_FLAGS` definition. |
+| `d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar.tsx` | L105–L144 | Navigation items with `flag` and `superadminOnly` gating predicates. |
+| `d2-signalloom/apps/fe-signalloom/src/db/migrations/057_tenant_feature_flags.sql` | L11–L22 | `public.tenant_feature_flags` schema with JSONB config payload support. |
+| `d2-signalloom/apps/fe-signalloom/src/db/migrations/058_platform_users_superadmin.sql` | L11–L16 | `public.platform_users.is_superadmin` column and partial index. |
+| `d2-signalloom/apps/fe-signalloom/src/db/migrations/059_user_admin_audit_event_types.sql` | L1–L60 | User management audit event types registration. |
+| `d2-signalloom/apps/fe-signalloom/src/db/data-mock.sql` | L34–L91 | Platform users, roles, and demo tenant data seeding patterns. |
+| `test/acceptance/playwright.config.ts` | L17–L79 | Playwright configuration, host resolver rules, and setup project wiring. |
+| `test/acceptance/auth.setup.ts` | L23–L100 | Dex authentication setup, onboarding skip dismissal, and session capture. |
+| `test/acceptance/fixtures.ts` | L12–L40 | SessionStorage restoration in browser context and diagnostics capturing. |
+| `test/acceptance/helpers.ts` | L29–L260 | Shared `login()` helper, deployment guards, and demo mode initialization. |
+| `test/acceptance/SPEC-REGISTRY.tsv` | L60–L105 | Spec coverage registry validated by `test/acceptance-spec-coverage.bats`. |
+
+**Deviations:** Migration numbered `060_seed_design_partner_presets.sql` (sequenced after 059) to prevent duplicate version conflict with existing migration 011 (`011_agent_stunned_event_type.sql`).
+**Notes:** Preflight readiness certified. Ready for P4-1 (provision migration `060_seed_design_partner_presets.sql` and superadmin bootstrap).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 

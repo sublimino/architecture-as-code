@@ -402,6 +402,7 @@ Obey these. They are the phase constitution.
 - `supercred-fleet-demo-harness.bats`: 16/16 tests passed.
 - Offline fleet bats battery: 70/70 tests passed.
 
+<<<<<<< HEAD
 
 #### Errata — SLSC-P1-1 Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/
 **Created:** 2026-10-08 09:55:22+01:00
@@ -414,3 +415,16 @@ Obey these. They are the phase constitution.
 **Notes:** Validated 100% clean with kubectl apply --dry-run=client, bats d2-signalloom/test/fleet-agents-contract.bats (21/21 passed), and bash test/agentprofile-manifest-validation.sh (16/16 passed).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+=======
+#### Errata — SLSC-P1-2 Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser
+**Created:** 2026-10-08 10:11:00+01:00
+**Last Updated:** 2026-10-08 10:11:00+01:00
+**Status:** Completed
+**Commit:** e0927ff804e84ae31bf9bb29d20c5c367adbb934
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Built DAG data structures in topology.go with recursive DFS cycle detector, Kahn's topological sort, and reverse-BFS cascade targets resolution. Added ConfigMap parser in k8sclient.go. Exposed POST /api/v1/fleet/deploy, GET /api/v1/fleet/topology, and health endpoints in main.go. Added comprehensive unit tests in dag_parser_test.go and contract tests in fleet_topology_contract_test.go.
+**Deviations:** None.
+**Notes:** 100% of unit and contract tests passed under go test -v ./....
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P1-2","status":"pass","commit":"e0927ff804e84ae31bf9bb29d20c5c367adbb934"} -->
+>>>>>>> 71dc35b6 (docs(SLSC-P1-2): record errata block for Fleet Manager Go service)

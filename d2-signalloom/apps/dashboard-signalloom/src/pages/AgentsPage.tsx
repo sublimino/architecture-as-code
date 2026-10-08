@@ -277,12 +277,13 @@ interface ClaimNotification {
 }
 
 function buildClaimRequest(agent: AgentResponse): AgentClaimRequest {
-  const podName = agent.runtime?.pod_name || agent.name
+  const podName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || podName
 
   return {
     pod_name: podName,
+    display_name: agent.name,
     namespace,
     spiffe_id: agent.identity?.spiffe_id || `spiffe://cluster.local/ns/${namespace}/sa/${serviceAccount}`,
     harness: agent.runtime?.framework || agent.framework || agent.type || 'unknown',
@@ -914,7 +915,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                   data-agent-id={agent.id}
                   disabled={claiming}
                   aria-busy={claiming}
-                  aria-label={`${claiming ? 'Claiming' : 'Auto-Claim'} ${agentName} into governance`}
+                  aria-label={`${claiming ? 'Claiming' : 'Claim'} ${agentName} into governance`}
                   title={`Enroll ${agentName} into Signal Loom governance`}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -938,7 +939,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                       </path>
                     </svg>
                   )}
-                  {claiming ? 'Claiming…' : 'Auto-Claim'}
+                  {claiming ? 'Claiming…' : 'Claim'}
                 </button>
               )}
               <Link
@@ -1622,7 +1623,7 @@ export default function AgentsPage() {
       const token = await getAccessTokenSilently()
       const result = await claimDiscoveredAgent(token, agent.id, buildClaimRequest(agent))
       if (result.status !== 'granted') {
-        throw new Error(`Auto-claim was ${result.status}.`)
+        throw new Error(`Claim was ${result.status}.`)
       }
 
       mutationRevisionRef.current += 1
@@ -1655,18 +1656,19 @@ export default function AgentsPage() {
       setAgents(current => current.map(item => item.id === agent.id ? resolvedAgent : item))
       setClaimNotification({
         kind: 'success',
-        message: `${agent.name} enrolled into governance successfully.`,
+        message: `${agent.name} claimed into governance successfully.`,
       })
+      await loadAgents()
     } catch (error) {
       setClaimNotification({
         kind: 'error',
-        message: `Could not auto-claim ${agent.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Could not claim ${agent.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       })
     } finally {
       claimingIdsRef.current.delete(agent.id)
       setClaimingAgentIds(new Set(claimingIdsRef.current))
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, loadAgents])
 
   const handleComplianceScan = useCallback(async () => {
     setScanning(true)

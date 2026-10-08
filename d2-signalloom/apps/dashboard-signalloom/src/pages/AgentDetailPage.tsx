@@ -53,12 +53,13 @@ function fmtRelativeMinutes(iso: string | null) {
 }
 
 function buildDossierClaimRequest(agent: AgentResponse): AgentClaimRequest {
-  const podName = agent.runtime?.pod_name || agent.name
+  const podName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || podName
 
   return {
     pod_name: podName,
+    display_name: agent.name,
     namespace,
     spiffe_id: agent.identity?.spiffe_id || `spiffe://cluster.local/ns/${namespace}/sa/${serviceAccount}`,
     harness: agent.runtime?.framework || agent.framework || agent.type || 'unknown',
@@ -768,7 +769,7 @@ function DossierHeader({
                 style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
                 onClick={onOpenClaim}
               >
-                Claim Agent
+                Claim
               </button>
             )}
             {(agent.lifecycle_state === 'enrolled' || agent.lifecycle_state === 'active') && (

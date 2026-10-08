@@ -264,10 +264,221 @@ class PlatformUserRepository:
                 )
             return [platform_user_from_row(row) for row in rows]
 
+    @classmethod
+    async def create_user(
+        cls,
+        pool_or_conn: Any,
+        tenant_id: str,
+        email: str,
+        display_name: str,
+        role: Literal["admin", "editor", "viewer"] = "viewer",
+        status: Literal["active", "invited", "suspended", "deactivated"] = "active",
+        is_superadmin: bool = False,
+        avatar_url: str | None = None,
+        department: str | None = None,
+        title: str | None = None,
+    ) -> PlatformUser:
+        """Create and persist a new platform user."""
+        normalized = _normalize_email(email)
+        user_id = uuid.uuid4()
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(
+                f"""
+                INSERT INTO public.platform_users (
+                    id, tenant_id, email, display_name, role, status,
+                    is_superadmin, avatar_url, department, title
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING {_PLATFORM_USER_COLUMNS}
+                """,
+                user_id,
+                tenant_id,
+                normalized,
+                display_name,
+                role,
+                status,
+                is_superadmin,
+                avatar_url,
+                department,
+                title,
+            )
+            return platform_user_from_row(row)
+
+    @classmethod
+    async def update_user(
+        cls,
+        pool_or_conn: Any,
+        user_id: uuid.UUID | str,
+        tenant_id: str | None = None,
+        email: str | None = None,
+        display_name: str | None = None,
+        role: Literal["admin", "editor", "viewer"] | None = None,
+        status: Literal["active", "invited", "suspended", "deactivated"] | None = None,
+        is_superadmin: bool | None = None,
+        avatar_url: str | None = None,
+        department: str | None = None,
+        title: str | None = None,
+    ) -> PlatformUser | None:
+        """Update fields on an existing platform user record."""
+        uid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+        set_clauses: list[str] = []
+        params: list[Any] = [uid]
+        param_idx = 2
+
+        if email is not None:
+            set_clauses.append(f"email = ${param_idx}")
+            params.append(_normalize_email(email))
+            param_idx += 1
+
+        if display_name is not None:
+            set_clauses.append(f"display_name = ${param_idx}")
+            params.append(display_name)
+            param_idx += 1
+
+        if role is not None:
+            set_clauses.append(f"role = ${param_idx}")
+            params.append(role)
+            param_idx += 1
+
+        if status is not None:
+            set_clauses.append(f"status = ${param_idx}")
+            params.append(status)
+            param_idx += 1
+
+        if is_superadmin is not None:
+            set_clauses.append(f"is_superadmin = ${param_idx}")
+            params.append(is_superadmin)
+            param_idx += 1
+
+        if avatar_url is not None:
+            set_clauses.append(f"avatar_url = ${param_idx}")
+            params.append(avatar_url)
+            param_idx += 1
+
+        if department is not None:
+            set_clauses.append(f"department = ${param_idx}")
+            params.append(department)
+            param_idx += 1
+
+        if title is not None:
+            set_clauses.append(f"title = ${param_idx}")
+            params.append(title)
+            param_idx += 1
+
+        if not set_clauses:
+            return await cls.get_by_id(pool_or_conn, uid, tenant_id=tenant_id)
+
+        set_clauses.append("updated_at = NOW()")
+        where_clause = "WHERE id = $1"
+        if tenant_id is not None:
+            where_clause += f" AND tenant_id = ${param_idx}"
+            params.append(tenant_id)
+            param_idx += 1
+
+        query = f"""
+            UPDATE public.platform_users
+               SET {', '.join(set_clauses)}
+            {where_clause}
+            RETURNING {_PLATFORM_USER_COLUMNS}
+        """
+
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(query, *params)
+            return platform_user_from_row(row) if row is not None else None
+
+    @classmethod
+    async def delete_user(
+        cls,
+        pool_or_conn: Any,
+        user_id: uuid.UUID | str,
+        tenant_id: str | None = None,
+        soft: bool = True,
+    ) -> PlatformUser | None:
+        """Deactivate (soft delete) or remove a platform user."""
+        uid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+        async with _acquire_connection(pool_or_conn) as conn:
+            if soft:
+                if tenant_id is not None:
+                    row = await conn.fetchrow(
+                        f"""
+                        UPDATE public.platform_users
+                           SET status = 'deactivated', updated_at = NOW()
+                         WHERE id = $1 AND tenant_id = $2
+                        RETURNING {_PLATFORM_USER_COLUMNS}
+                        """,
+                        uid,
+                        tenant_id,
+                    )
+                else:
+                    row = await conn.fetchrow(
+                        f"""
+                        UPDATE public.platform_users
+                           SET status = 'deactivated', updated_at = NOW()
+                         WHERE id = $1
+                        RETURNING {_PLATFORM_USER_COLUMNS}
+                        """,
+                        uid,
+                    )
+            else:
+                if tenant_id is not None:
+                    row = await conn.fetchrow(
+                        f"""
+                        DELETE FROM public.platform_users
+                         WHERE id = $1 AND tenant_id = $2
+                        RETURNING {_PLATFORM_USER_COLUMNS}
+                        """,
+                        uid,
+                        tenant_id,
+                    )
+                else:
+                    row = await conn.fetchrow(
+                        f"""
+                        DELETE FROM public.platform_users
+                         WHERE id = $1
+                        RETURNING {_PLATFORM_USER_COLUMNS}
+                        """,
+                        uid,
+                    )
+            return platform_user_from_row(row) if row is not None else None
+
+    @classmethod
+    async def count_active_superadmins(
+        cls,
+        pool_or_conn: Any,
+        exclude_user_id: uuid.UUID | str | None = None,
+    ) -> int:
+        """Count active platform superadmins, optionally excluding one user ID."""
+        async with _acquire_connection(pool_or_conn) as conn:
+            if exclude_user_id is not None:
+                uid = uuid.UUID(str(exclude_user_id)) if not isinstance(exclude_user_id, uuid.UUID) else exclude_user_id
+                count = await conn.fetchval(
+                    """
+                    SELECT COUNT(*)::int
+                      FROM public.platform_users
+                     WHERE is_superadmin = TRUE
+                       AND status = 'active'
+                       AND id != $1
+                    """,
+                    uid,
+                )
+            else:
+                count = await conn.fetchval(
+                    """
+                    SELECT COUNT(*)::int
+                      FROM public.platform_users
+                     WHERE is_superadmin = TRUE
+                       AND status = 'active'
+                    """
+                )
+            return int(count or 0)
+
 
 get_platform_user_by_email = PlatformUserRepository.get_by_email
 get_platform_user_by_id = PlatformUserRepository.get_by_id
 list_platform_users = PlatformUserRepository.list_users
+create_platform_user = PlatformUserRepository.create_user
+update_platform_user = PlatformUserRepository.update_user
+delete_platform_user = PlatformUserRepository.delete_user
+count_active_superadmins = PlatformUserRepository.count_active_superadmins
 
 __all__ = [
     "AUTHORIZATION_MATRIX",
@@ -282,7 +493,10 @@ __all__ = [
     "PlatformUserRepository",
     "PlatformUserResponse",
     "PlatformUsersResponse",
+    "count_active_superadmins",
     "create_operator_identity",
+    "create_platform_user",
+    "delete_platform_user",
     "enforce_strict_operator_tenant",
     "ensure_active_operator",
     "get_platform_user_by_email",
@@ -294,4 +508,5 @@ __all__ = [
     "platform_user_from_row",
     "remove_operator_identity",
     "router",
+    "update_platform_user",
 ]

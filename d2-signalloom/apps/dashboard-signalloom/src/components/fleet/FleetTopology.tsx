@@ -32,11 +32,63 @@ export interface FleetTopologyProps {
   onRecover?: () => void
   /** Audience mode: no controls, auto-layout, full-screen. */
   audience?: boolean
+  /** Optional callback fired when each node transitions during cascade */
+  onCascadeStep?: (stunnedAgentId: string, stepIndex: number, currentStunned: string[]) => void
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const CASCADE_STAGGER_MS = 200
+
+export const FLEET_CASCADE_CSS = `
+@keyframes sl-cascade-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    border-color: var(--cyan);
+  }
+  50% {
+    box-shadow: 0 0 18px 4px rgba(239, 68, 68, 0.85);
+    border-color: var(--error);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 12px 1px rgba(239, 68, 68, 0.6);
+    border-color: var(--error);
+    transform: scale(1);
+  }
+}
+
+@keyframes sl-dot-cascade-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 1;
+    box-shadow: 0 0 8px var(--error);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.sl-node-cascade-pulse {
+  animation: sl-cascade-pulse 0.6s ease-in-out;
+}
+
+.sl-dot-cascade-pulse {
+  animation: sl-dot-cascade-pulse 0.6s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-node-cascade-pulse,
+  .sl-dot-cascade-pulse {
+    animation: none !important;
+  }
+}
+`;
 
 /** Stroke per link class. Broken wins over both of the others. */
 const EDGE_STROKE: Record<EdgeKind | 'broken', string> = {
@@ -102,6 +154,7 @@ function trustBadgeColour(profile: AgentState['trustProfile']): string {
 interface FleetNodeData {
   agent: AgentState
   cascadeActive: boolean
+  isCascadingStun?: boolean
   [key: string]: unknown
 }
 
@@ -175,16 +228,23 @@ export function getNodeRisk(agent: AgentState): CalibratedNodeRisk {
 const nodeTypes = { fleet: FleetNode }
 
 function FleetNode({ data }: { data: FleetNodeData }) {
-  const { agent, cascadeActive } = data
-  const bg = stateColour(agent.state)
+  const { agent, cascadeActive, isCascadingStun } = data
+  const isMonitor = agent.id === 'agent-monitor' || agent.type === 'observability'
+  const effectiveState = isMonitor && agent.state === 'stunned' ? 'active' : agent.state
+  const bg = stateColour(effectiveState)
   const inRouter = useInRouterContext()
   const [tooltipOpen, setTooltipOpen] = useState(false)
   const nodeRisk = getNodeRisk(agent)
 
+  const isStunned = effectiveState === 'stunned'
+  const isPulsing = Boolean(isCascadingStun && !isMonitor)
+
   return (
     <div
       data-testid={`fleet-node-${agent.id}`}
-      data-agent-state={agent.state}
+      data-agent-state={effectiveState}
+      data-cascading={isPulsing ? 'true' : undefined}
+      className={isPulsing ? 'sl-node-cascade-pulse' : undefined}
       tabIndex={0}
       onMouseEnter={() => setTooltipOpen(true)}
       onMouseLeave={() => setTooltipOpen(false)}
@@ -203,8 +263,8 @@ function FleetNode({ data }: { data: FleetNodeData }) {
         padding: '8px 12px',
         position: 'relative',
         overflow: 'visible',
-        transition: cascadeActive ? 'border-color 0.3s, box-shadow 0.3s' : 'none',
-        boxShadow: agent.state === 'stunned' ? `0 0 12px ${bg}` : 'none',
+        transition: cascadeActive ? 'border-color 0.4s ease, box-shadow 0.4s ease, transform 0.3s ease' : 'none',
+        boxShadow: isStunned ? `0 0 14px ${bg}` : 'none',
       }}
     >
       {/* Header: icon + name */}
@@ -280,6 +340,7 @@ function FleetNode({ data }: { data: FleetNodeData }) {
       {/* State indicator dot (top-right) */}
       <div
         data-testid={`fleet-state-dot-${agent.id}`}
+        className={isPulsing ? 'sl-dot-cascade-pulse' : undefined}
         style={{
           position: 'absolute',
           top: 8,
@@ -288,6 +349,8 @@ function FleetNode({ data }: { data: FleetNodeData }) {
           height: 8,
           borderRadius: '50%',
           background: bg,
+          boxShadow: isStunned ? `0 0 6px ${bg}` : 'none',
+          transition: cascadeActive ? 'background-color 0.4s ease, transform 0.3s ease, box-shadow 0.4s ease' : 'none',
         }}
       />
 
@@ -484,7 +547,7 @@ function FleetLegend() {
 
 // ── Main canvas ─────────────────────────────────────────────────────────────
 
-function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyProps) {
+function Canvas({ agents, edges, cascadeInProgress, audience, onCascadeStep }: FleetTopologyProps) {
   const { fitView } = useReactFlow()
   // SVG marker ids are document-global, so two canvases on one page would
   // otherwise share arrowheads. useId's output contains colons, which are not
@@ -493,13 +556,22 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
   const [cascadeState, setCascadeState] = useState<Set<string>>(new Set())
   const cascadeTimers = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  // Run the cascade animation when cascadeInProgress changes.
+  // Exclude agent-monitor and observability agents from cascade stun animations
+  const cascadeTargets = useMemo(() => {
+    if (!cascadeInProgress) return []
+    return cascadeInProgress.filter(id => {
+      const agent = agents.find(a => a.id === id)
+      return id !== 'agent-monitor' && agent?.type !== 'observability'
+    })
+  }, [cascadeInProgress, agents])
+
+  // Run the cascade animation when cascadeTargets changes.
   useEffect(() => {
     // Clean up previous timers.
     cascadeTimers.current.forEach(t => clearTimeout(t))
     cascadeTimers.current = []
 
-    if (!cascadeInProgress || cascadeInProgress.length === 0) {
+    if (cascadeTargets.length === 0) {
       setCascadeState(new Set())
       return
     }
@@ -511,16 +583,18 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
     } catch { /* jsdom */ }
 
     if (reducedMotion) {
-      setCascadeState(new Set(cascadeInProgress))
+      setCascadeState(new Set(cascadeTargets))
+      onCascadeStep?.(cascadeTargets[cascadeTargets.length - 1], cascadeTargets.length - 1, cascadeTargets)
       return
     }
 
     // Animate each node in sequence with a stagger.
     const building = new Set<string>()
-    cascadeInProgress.forEach((id, i) => {
+    cascadeTargets.forEach((id, i) => {
       const timer = setTimeout(() => {
         building.add(id)
         setCascadeState(new Set(building))
+        onCascadeStep?.(id, i, Array.from(building))
       }, i * CASCADE_STAGGER_MS)
       cascadeTimers.current.push(timer)
     })
@@ -528,7 +602,7 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
     return () => {
       cascadeTimers.current.forEach(t => clearTimeout(t))
     }
-  }, [cascadeInProgress])
+  }, [cascadeTargets, onCascadeStep])
 
   // Compute layout positions.
   const layout = useMemo(() => layoutFleet(agents, edges), [agents, edges])
@@ -538,15 +612,21 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
   const flowNodes: Node<FleetNodeData>[] = useMemo(() => {
     return agents.map(agent => {
       const pos = positions.get(agent.id) ?? { x: 0, y: 0 }
-      // During cascade, override the agent state to stunned for visualisation.
-      const effectiveAgent = cascadeState.has(agent.id)
+      const isMonitor = agent.id === 'agent-monitor' || agent.type === 'observability'
+      // During cascade, override the agent state to stunned for visualisation (excluding monitor).
+      const isCascadeStunned = cascadeState.has(agent.id) && !isMonitor
+      const effectiveAgent = isCascadeStunned
         ? { ...agent, state: 'stunned' as const }
         : agent
       return {
         id: agent.id,
         type: 'fleet',
         position: pos,
-        data: { agent: effectiveAgent, cascadeActive: cascadeState.size > 0 },
+        data: {
+          agent: effectiveAgent,
+          cascadeActive: cascadeState.size > 0,
+          isCascadingStun: isCascadeStunned,
+        },
         draggable: false,
       }
     })
@@ -557,7 +637,12 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
   // currently carrying a failure.
   const drawnEdges: DrawnEdge[] = useMemo(() => {
     const agentMap = new Map(agents.map(a => [a.id, a]))
-    const stunned = (id: string) => cascadeState.has(id) || agentMap.get(id)?.state === 'stunned'
+    const stunned = (id: string) => {
+      if (id === 'agent-monitor') return false
+      const a = agentMap.get(id)
+      if (a?.type === 'observability') return false
+      return cascadeState.has(id) || a?.state === 'stunned'
+    }
     return routeFleetEdges(agents, edges, layout).map(edge => ({
       ...edge,
       broken: stunned(edge.dependency) || stunned(edge.dependent),
@@ -573,6 +658,7 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
 
   return (
     <div data-testid="fleet-topology" style={{ width: '100%', height: '100%', minHeight: 400, position: 'relative' }}>
+      <style>{FLEET_CASCADE_CSS}</style>
       <ReactFlow
         nodes={flowNodes}
         edges={[]}

@@ -420,3 +420,117 @@ describe("SLSC-P2-2 FleetTopology interactive node risk tooltips", () => {
     }
   })
 })
+
+describe('SLSC-P3-2 FleetTopology cascade animation and pulse transitions', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('excludes agent-monitor from stun even if explicitly listed in cascadeInProgress', async () => {
+    const agents = [
+      makeAgent({ id: 'agent-cardvault', state: 'active' }),
+      makeAgent({ id: 'agent-monitor', type: 'observability', state: 'active' }),
+    ]
+    const edges = [{ from: 'agent-cardvault', to: 'agent-monitor' }]
+    const onCascadeStep = vi.fn()
+
+    render(
+      <FleetTopology
+        agents={agents}
+        edges={edges}
+        cascadeInProgress={['agent-cardvault', 'agent-monitor']}
+        onCascadeStep={onCascadeStep}
+      />
+    )
+
+    await act(async () => { vi.advanceTimersByTime(50) })
+
+    expect(screen.getByTestId('fleet-node-agent-cardvault')).toHaveAttribute('data-agent-state', 'stunned')
+    expect(screen.getByTestId('fleet-node-agent-cardvault')).toHaveAttribute('data-cascading', 'true')
+
+    const monitorNode = screen.getByTestId('fleet-node-agent-monitor')
+    expect(monitorNode).toHaveAttribute('data-agent-state', 'active')
+    expect(monitorNode).not.toHaveAttribute('data-cascading')
+    expect(monitorNode.className).not.toContain('sl-node-cascade-pulse')
+
+    await act(async () => { vi.advanceTimersByTime(400) })
+
+    expect(monitorNode).toHaveAttribute('data-agent-state', 'active')
+    expect(screen.getByTestId('fleet-state-dot-agent-monitor').style.background).toBe('var(--cyan)')
+    expect(onCascadeStep).not.toHaveBeenCalledWith('agent-monitor', expect.anything(), expect.anything())
+  })
+
+  it('applies pulse animation class and colour transition to cascading nodes', async () => {
+    const agents = [
+      makeAgent({ id: 'a1', state: 'active' }),
+      makeAgent({ id: 'a2', state: 'active' }),
+    ]
+    const edges = [{ from: 'a1', to: 'a2' }]
+
+    const { rerender } = render(
+      <FleetTopology agents={agents} edges={edges} cascadeInProgress={[]} />
+    )
+
+    rerender(
+      <FleetTopology agents={agents} edges={edges} cascadeInProgress={['a1', 'a2']} />
+    )
+
+    await act(async () => { vi.advanceTimersByTime(50) })
+
+    const nodeA1 = screen.getByTestId('fleet-node-a1')
+    expect(nodeA1).toHaveAttribute('data-agent-state', 'stunned')
+    expect(nodeA1).toHaveAttribute('data-cascading', 'true')
+    expect(nodeA1.className).toContain('sl-node-cascade-pulse')
+
+    const dotA1 = screen.getByTestId('fleet-state-dot-a1')
+    expect(dotA1.className).toContain('sl-dot-cascade-pulse')
+    expect(dotA1.style.background).toBe('var(--error)')
+
+    const nodeA2 = screen.getByTestId('fleet-node-a2')
+    expect(nodeA2).toHaveAttribute('data-agent-state', 'active')
+    expect(nodeA2).not.toHaveAttribute('data-cascading')
+
+    await act(async () => { vi.advanceTimersByTime(200) })
+
+    expect(screen.getByTestId('fleet-node-a2')).toHaveAttribute('data-agent-state', 'stunned')
+    expect(screen.getByTestId('fleet-node-a2')).toHaveAttribute('data-cascading', 'true')
+  })
+
+  it('invokes onCascadeStep callback as each node transitions', async () => {
+    const agents = [
+      makeAgent({ id: 'a1', state: 'active' }),
+      makeAgent({ id: 'a2', state: 'active' }),
+    ]
+    const edges = [{ from: 'a1', to: 'a2' }]
+    const onCascadeStep = vi.fn()
+
+    render(
+      <FleetTopology
+        agents={agents}
+        edges={edges}
+        cascadeInProgress={['a1', 'a2']}
+        onCascadeStep={onCascadeStep}
+      />
+    )
+
+    await act(async () => { vi.advanceTimersByTime(50) })
+    expect(onCascadeStep).toHaveBeenCalledTimes(1)
+    expect(onCascadeStep).toHaveBeenCalledWith('a1', 0, ['a1'])
+
+    await act(async () => { vi.advanceTimersByTime(200) })
+    expect(onCascadeStep).toHaveBeenCalledTimes(2)
+    expect(onCascadeStep).toHaveBeenCalledWith('a2', 1, ['a1', 'a2'])
+  })
+
+  it('contains zero em-dashes across cascade animation elements and legend', () => {
+    const { container } = render(
+      <FleetTopology agents={FIVE_AGENTS} edges={EDGES} cascadeInProgress={['agent-cardvault']} />
+    )
+    expect(container.textContent).not.toMatch(/\u2014/)
+    expect(container.textContent).not.toMatch(/\u2013/)
+  })
+})

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
@@ -15,6 +15,20 @@ import CurrencySetting from '../components/CurrencySetting'
 import { useAppContext } from '../App'
 
 const POLL_MS = 15 * 60 * 1000
+
+export type SettingsTabId = 'general' | 'access' | 'connectors' | 'governance'
+
+export interface SettingsTab {
+  id: SettingsTabId
+  label: string
+}
+
+export const SETTINGS_TABS: SettingsTab[] = [
+  { id: 'general', label: 'General' },
+  { id: 'access', label: 'API & Access' },
+  { id: 'connectors', label: 'Connectors & Discovery' },
+  { id: 'governance', label: 'Governance & Policy' },
+]
 
 function Field({ label, value, mono }: { label: string; value: string | number | null | undefined; mono?: boolean }) {
   return (
@@ -90,6 +104,7 @@ function ApiKeyStatus({ status }: { status: string | null | undefined }) {
 export default function Settings() {
   const { getAccessTokenSilently, user } = useAuth0()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { apiKeyReveal, setApiKeyReveal, refreshOnboardingState } = useAppContext()
   const [settings, setSettings] = useState<TenantSettingsResponse | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkResponse[]>([])
@@ -119,6 +134,24 @@ export default function Settings() {
   // hooks and above the early returns below, or the hook order changes between
   // the loading and loaded renders.
   const loadTimes = useLoadTimes()
+
+  // Tab State: synchronized with ?tab= search param, defaulting to 'general'
+  const tabParam = searchParams.get('tab') as SettingsTabId | null
+  const activeTab: SettingsTabId =
+    tabParam && SETTINGS_TABS.some((t) => t.id === tabParam)
+      ? tabParam
+      : 'general'
+
+  const handleSelectTab = useCallback(
+    (tabId: SettingsTabId) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('tab', tabId)
+        return next
+      })
+    },
+    [setSearchParams],
+  )
 
   const load = useCallback(async () => {
     try {
@@ -247,428 +280,528 @@ export default function Settings() {
 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 32 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 24 }}>Settings</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Settings</h1>
 
-      {/* Organization */}
-      <SectionCard title="Organization">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <Field label="Organization Name" value={settings?.org_name || 'Unnamed'} />
-          <Field label="Tenant ID" value={settings?.tenant_id} mono />
-          <Field label="Plan Tier" value={settings?.plan_tier} />
-          <Field label="Billing Tier" value={settings?.billing_tier} />
-          <Field label="Enrolled Agents" value={settings?.agent_count} />
-        </div>
-      </SectionCard>
-
-      {/* API Access */}
-      <SectionCard title="API Access">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>API Key Status</div>
-            <ApiKeyStatus status={settings?.api_key_status} />
-          </div>
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
-          API keys grant programmatic access to the Signal Loom agent registry. Keys are scoped to your tenant.
-        </p>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-          We never store your key in plaintext, so it can only be shown once. If you haven't seen it yet,
-          reveal it below; if you have, revealing it again requires rotating: your old key is revoked
-          immediately and a new one takes its place.
-        </p>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            className="btn btn-primary"
-            style={{ fontSize: 12, padding: '6px 14px' }}
-            onClick={handleRevealApiKey}
-            disabled={revealing}
-          >
-            {revealing ? 'Revealing…' : 'Reveal my API key'}
-          </button>
-          <button
-            className="btn btn-secondary"
-            style={{ fontSize: 12, padding: '6px 14px' }}
-            onClick={() => { setRevealAlreadyUsed(false); setRotateModalOpen(true) }}
-          >
-            Rotate API Key
-          </button>
-        </div>
-        {revealAlreadyUsed && (
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-            Your key was already revealed once and cannot be shown again: rotate to get a new one.
-          </p>
-        )}
-        {rotateModalOpen && settings && (
-          <ApiKeyRotateModal
-            currentPrefixHint={apiKeyReveal?.prefix_hint ?? 'sl_live_'}
-            doRotate={async () => {
-              const token = await getAccessTokenSilently()
-              return api.apiKeys.rotate(token, settings.tenant_id)
-            }}
-            onRotated={(result) => setApiKeyReveal({ key: result.key, prefix_hint: result.prefix_hint })}
-            onClose={() => setRotateModalOpen(false)}
-          />
-        )}
-      </SectionCard>
-
-      {/* Service Connectors */}
-      <SectionCard title="Service Connectors">
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          Enable or disable third-party identity providers and AI service connectors.
-          Disabling a connected provider stops future scans but preserves discovered records.
-        </p>
-        {providers.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>No providers available.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {providers.map((p) => {
-              const connector = connectors.find((c) => c.provider_id === p.provider_id && c.status === 'connected')
-              const isConnected = !!connector
-              return (
-                <div
-                  key={p.provider_id}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <ProviderLogo providerId={p.provider_id} displayName={p.display_name} size={32} />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.display_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                        {isConnected
-                          ? connector.last_tested_at ? `Connected · Last tested ${fmtTs(connector.last_tested_at)}` : 'Connected'
-                          : 'Not configured'}
-                      </div>
-                    </div>
-                  </div>
-                  <FrameworkToggle
-                    active={isConnected}
-                    onToggle={() => {
-                      if (isConnected) {
-                        setDisconnectTarget(connector)
-                      } else {
-                        navigate('/onboarding')
-                      }
-                    }}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        )}
-        {disconnectTarget && (
-          <ConfirmDialog
-            title="Disconnect provider?"
-            body={`This stops future scans from ${disconnectTarget.display_name || disconnectTarget.provider_id}. Previously discovered NHI records stay in your history, marked as source-disconnected, and nothing is deleted.`}
-            confirmLabel="Disconnect"
-            loading={disconnecting}
-            onConfirm={handleConfirmDisconnect}
-            onCancel={() => setDisconnectTarget(null)}
-          />
-        )}
-      </SectionCard>
-
-      {/* Compliance Frameworks */}
-      <SectionCard title="Compliance Frameworks">
-        {toastError && (
-          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 6, fontSize: 12, color: 'var(--error)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {toastError}
-            <button onClick={() => setToastError(null)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', marginLeft: 8, fontSize: 14, lineHeight: 1 }}>✕</button>
-          </div>
-        )}
-        {frameworks.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>No frameworks available for this plan tier.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {frameworks.map(fw => {
-              const active = selectedFrameworks.includes(fw.id)
-              return (
-                <div
-                  key={fw.id}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
-                >
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fw.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {[fw.version && `v${fw.version}`, fw.regulatory_body, `${fw.control_count} controls`].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                  <FrameworkToggle
-                    active={active}
-                    onToggle={async () => {
-                      const prev = selectedFrameworks
-                      const next = active
-                        ? prev.filter(id => id !== fw.id)
-                        : [...prev, fw.id]
-                      setSelectedFrameworks(next)
-                      setToastError(null)
-                      try {
-                        const token = await getAccessTokenSilently()
-                        const updated = await api.patchFrameworks(token, next)
-                        setSelectedFrameworks(updated.selected_frameworks ?? next)
-                      } catch {
-                        setSelectedFrameworks(prev)
-                        setToastError('Failed to update framework selection. Please try again.')
-                      }
-                    }}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </SectionCard>
-
-      {/* Scan Preferences (Slice 1b, 86cajpvar QA item 4) */}
-      <SectionCard title="Scan Preferences">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-              Scan Cadence
-            </div>
-            <select
-              value={cadenceHours}
-              onChange={(e) => setCadenceHours(Number(e.target.value))}
-              style={{ width: '100%' }}
+      {/* Tab Navigation Bar */}
+      <div
+        role="tablist"
+        aria-label="Settings tabs"
+        style={{
+          display: 'flex',
+          gap: 8,
+          borderBottom: '1px solid var(--border)',
+          marginBottom: 24,
+          overflowX: 'auto',
+        }}
+      >
+        {SETTINGS_TABS.map((tab) => {
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`settings-tab-${tab.id}`}
+              aria-selected={isActive}
+              aria-controls={`settings-tabpanel-${tab.id}`}
+              data-testid={`settings-tab-${tab.id}`}
+              onClick={() => handleSelectTab(tab.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: isActive ? '2px solid var(--cyan)' : '2px solid transparent',
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: isActive ? 600 : 400,
+                color: isActive ? 'var(--text)' : 'var(--muted)',
+                cursor: 'pointer',
+                transition: 'color 0.15s, border-color 0.15s',
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) e.currentTarget.style.color = 'var(--text)'
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) e.currentTarget.style.color = 'var(--muted)'
+              }}
             >
-              <option value={24}>Daily</option>
-              <option value={168}>Weekly</option>
-            </select>
-            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-              Applies to providers you connect from here on.
-            </p>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-              Alert Email
-            </div>
-            <input
-              type="email"
-              value={alertEmail}
-              onChange={(e) => setAlertEmail(e.target.value)}
-              placeholder="you@company.com"
-              style={{ width: '100%' }}
-            />
-            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-              Leave blank to use your account's contact email.
-            </p>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-              Alert Threshold
-            </div>
-            <input
-              type="number"
-              min={1}
-              value={alertThreshold}
-              onChange={(e) => setAlertThreshold(Math.max(1, Number(e.target.value) || 1))}
-              style={{ width: '100%' }}
-            />
-            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-              At-risk accounts found in a scan before we email you.
-            </p>
-          </div>
-        </div>
-        {preferencesError && (
-          <p style={{ fontSize: 12, color: 'var(--error)', marginBottom: 12 }}>{preferencesError}</p>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            className="btn btn-secondary"
-            style={{ fontSize: 12, padding: '6px 14px' }}
-            onClick={handleSavePreferences}
-            disabled={preferencesSaving}
-          >
-            {preferencesSaving ? 'Saving…' : 'Save Preferences'}
-          </button>
-          {preferencesSaved && (
-            <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>Saved</span>
-          )}
-        </div>
-      </SectionCard>
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
 
-      {/* NHI Discovery */}
-      <SectionCard title="NHI Discovery">
-        {lastScan ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Last Scan</div>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: scanStatusColor[lastScan.status] ?? 'var(--muted)' }} />
-                <span style={{ color: scanStatusColor[lastScan.status] ?? 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>{lastScan.status}</span>
-              </span>
+      {/* Tab 1: General & Account */}
+      {activeTab === 'general' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-general"
+          aria-labelledby="settings-tab-general"
+          data-testid="settings-tabpanel-general"
+        >
+          {/* Organization */}
+          <SectionCard title="Organization">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <Field label="Organization Name" value={settings?.org_name || 'Unnamed'} />
+              <Field label="Tenant ID" value={settings?.tenant_id} mono />
+              <Field label="Plan Tier" value={settings?.plan_tier} />
+              <Field label="Billing Tier" value={settings?.billing_tier} />
+              <Field label="Enrolled Agents" value={settings?.agent_count} />
             </div>
-            <Field label="Scan Source" value={lastScan.scan_source} />
-            <Field label="Started" value={fmtTs(lastScan.started_at)} />
-            <Field label="Completed" value={fmtTs(lastScan.completed_at)} />
-            <Field label="Entries Scanned" value={lastScan.total_entries_scanned} />
-            <Field label="Service Accounts Found" value={lastScan.service_accounts_found} />
-            {lastScan.total_at_risk != null && (
+          </SectionCard>
+
+          {/* Account */}
+          <SectionCard title="Account">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <Field label="Email" value={user?.email} />
+              <Field label="Name" value={user?.name} />
+            </div>
+          </SectionCard>
+
+          {/* Currency */}
+          <SectionCard title="Currency">
+            <CurrencySetting />
+          </SectionCard>
+
+          {/* Display */}
+          <SectionCard title="Display">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>At Risk</div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: lastScan.total_at_risk > 0 ? 'var(--error)' : 'var(--teal)' }}>
-                  {lastScan.total_at_risk}
-                </span>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Load Times
+                </div>
+                <select
+                  data-testid="settings-load-times"
+                  aria-label="Load times"
+                  value={loadTimes}
+                  onChange={(e) => setLoadTimes(e.target.value as LoadTimesSetting)}
+                  style={{ width: '100%' }}
+                >
+                  {LOAD_TIMES_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {LOAD_TIMES_OPTIONS.map((option) => (
+                    <p
+                      key={option.value}
+                      data-testid={`settings-load-times-hint-${option.value}`}
+                      style={{
+                        fontSize: 11,
+                        margin: 0,
+                        color: option.value === loadTimes ? 'var(--text)' : 'var(--muted)',
+                      }}
+                    >
+                      <span style={{ fontWeight: 600 }}>{option.label}:</span> {option.hint}
+                    </p>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
-        ) : (
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>No scans recorded. Connect an identity provider to begin discovering non-human identities in your environment.</p>
-        )}
-        <div style={{ marginTop: 14, display: 'flex', gap: 16 }}>
-          <a href="/onboarding" style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none' }}>
-            Connect a provider →
-          </a>
-          <a href="/agents?tab=discovered" style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none' }}>
-            View discovered accounts →
-          </a>
+              <div>
+                <p data-testid="settings-load-times-note" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 24 }}>
+                  This controls the elapsed figure only. The wording next to the spinner, naming what is
+                  running, is always shown.
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                  Applies immediately, everywhere in the dashboard, and is remembered on this browser.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
         </div>
-      </SectionCard>
-
-      {/* Team */}
-      {teamMembers.length > 0 && (
-        <SectionCard title="Team">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {teamMembers.map((m) => (
-              <div
-                key={m.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '28px 1fr auto',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '10px 0',
-                  borderBottom: '1px solid var(--border)',
-                }}
-              >
-                <div style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  background: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 700, color: 'var(--on-accent)', flexShrink: 0,
-                }}>
-                  {m.display_name.charAt(0).toUpperCase()}
-                </div>
-                <div style={{ overflow: 'hidden', minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {m.display_name}
-                    {m.title && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {m.title}</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    {m.email}{m.department ? ` · ${m.department}` : ''}
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  padding: '2px 8px',
-                  borderRadius: 99,
-                  color: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--muted)',
-                  background: m.role === 'admin' ? 'rgba(167,139,250,0.12)' : m.role === 'editor' ? 'rgba(6,182,212,0.10)' : 'rgba(148,163,184,0.10)',
-                }}>
-                  {m.role}
-                </span>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
       )}
 
-      {/* Policy-as-Code & CEL Rules */}
-      <SectionCard title="Policy-as-Code & CEL Rules">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
-            Configure and author Common Expression Language (CEL) policy bundles for EU AI Act, NIST SP 800-53, CRA, and FINOS AIGF with client-side syntax diagnostics and authoritative Go policy evaluation.
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--text)' }}>
-              Manage versioned regulatory rules, syntax checking, and one-click rollbacks.
-            </span>
-            <button
-              data-testid="settings-goto-policies-btn"
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => navigate('/policies')}
-              style={{ fontSize: 12, padding: '6px 14px' }}
-            >
-              Open CEL Policy Editor
-            </button>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* Display
-          Deliberately its own card rather than a fourth field inside Scan
-          Preferences. Everything in that card is tenant state behind a Save
-          Preferences button; this is a browser-local preference that applies
-          the instant it changes, and sitting it under that button would
-          promise a save that never happens. */}
-      <SectionCard title="Display">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-              Load Times
+      {/* Tab 2: API & Access */}
+      {activeTab === 'access' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-access"
+          aria-labelledby="settings-tab-access"
+          data-testid="settings-tabpanel-access"
+        >
+          {/* API Access */}
+          <SectionCard title="API Access">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>API Key Status</div>
+                <ApiKeyStatus status={settings?.api_key_status} />
+              </div>
             </div>
-            <select
-              data-testid="settings-load-times"
-              aria-label="Load times"
-              value={loadTimes}
-              onChange={(e) => setLoadTimes(e.target.value as LoadTimesSetting)}
-              style={{ width: '100%' }}
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+              API keys grant programmatic access to the Signal Loom agent registry. Keys are scoped to your tenant.
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              We never store your key in plaintext, so it can only be shown once. If you haven't seen it yet,
+              reveal it below; if you have, revealing it again requires rotating: your old key is revoked
+              immediately and a new one takes its place.
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: 12, padding: '6px 14px' }}
+                onClick={handleRevealApiKey}
+                disabled={revealing}
+              >
+                {revealing ? 'Revealing…' : 'Reveal my API key'}
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 12, padding: '6px 14px' }}
+                onClick={() => { setRevealAlreadyUsed(false); setRotateModalOpen(true) }}
+              >
+                Rotate API Key
+              </button>
+            </div>
+            {revealAlreadyUsed && (
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                Your key was already revealed once and cannot be shown again: rotate to get a new one.
+              </p>
+            )}
+            {rotateModalOpen && settings && (
+              <ApiKeyRotateModal
+                currentPrefixHint={apiKeyReveal?.prefix_hint ?? 'sl_live_'}
+                doRotate={async () => {
+                  const token = await getAccessTokenSilently()
+                  return api.apiKeys.rotate(token, settings.tenant_id)
+                }}
+                onRotated={(result) => setApiKeyReveal({ key: result.key, prefix_hint: result.prefix_hint })}
+                onClose={() => setRotateModalOpen(false)}
+              />
+            )}
+          </SectionCard>
+
+          {/* Team */}
+          <SectionCard title="Team">
+            <div
+              data-testid="settings-team-callout"
+              style={{
+                padding: '10px 14px',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                marginBottom: 16,
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
             >
-              {LOAD_TIMES_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            {/* All three explained at once, rather than one line that changes
-                as you scroll the select. Choosing between three values you
-                cannot see the meaning of is not a choice. */}
-            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {LOAD_TIMES_OPTIONS.map((option) => (
-                <p
-                  key={option.value}
-                  data-testid={`settings-load-times-hint-${option.value}`}
-                  style={{
-                    fontSize: 11,
-                    margin: 0,
-                    color: option.value === loadTimes ? 'var(--text)' : 'var(--muted)',
-                  }}
+              <Link
+                to="/users"
+                data-testid="settings-team-users-link"
+                style={{ color: 'var(--cyan)', textDecoration: 'none' }}
+              >
+                Manage permissions and human identities on the Users &amp; Permissions page → /users
+              </Link>
+            </div>
+            {teamMembers.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                {teamMembers.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '28px 1fr auto',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 0',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--border)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12, fontWeight: 700, color: 'var(--on-accent)', flexShrink: 0,
+                    }}>
+                      {m.display_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ overflow: 'hidden', minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {m.display_name}
+                        {m.title && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {m.title}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {m.email}{m.department ? ` · ${m.department}` : ''}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      padding: '2px 8px',
+                      borderRadius: 99,
+                      color: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--muted)',
+                      background: m.role === 'admin' ? 'rgba(167,139,250,0.12)' : m.role === 'editor' ? 'rgba(6,182,212,0.10)' : 'rgba(148,163,184,0.10)',
+                    }}>
+                      {m.role}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>No team members found.</p>
+            )}
+          </SectionCard>
+        </div>
+      )}
+
+      {/* Tab 3: Connectors & Discovery */}
+      {activeTab === 'connectors' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-connectors"
+          aria-labelledby="settings-tab-connectors"
+          data-testid="settings-tabpanel-connectors"
+        >
+          {/* Service Connectors */}
+          <SectionCard title="Service Connectors">
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Enable or disable third-party identity providers and AI service connectors.
+              Disabling a connected provider stops future scans but preserves discovered records.
+            </p>
+            {providers.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>No providers available.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {providers.map((p) => {
+                  const connector = connectors.find((c) => c.provider_id === p.provider_id && c.status === 'connected')
+                  const isConnected = !!connector
+                  return (
+                    <div
+                      key={p.provider_id}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <ProviderLogo providerId={p.provider_id} displayName={p.display_name} size={32} />
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.display_name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                            {isConnected
+                              ? connector.last_tested_at ? `Connected · Last tested ${fmtTs(connector.last_tested_at)}` : 'Connected'
+                              : 'Not configured'}
+                          </div>
+                        </div>
+                      </div>
+                      <FrameworkToggle
+                        active={isConnected}
+                        onToggle={() => {
+                          if (isConnected) {
+                            setDisconnectTarget(connector)
+                          } else {
+                            navigate('/onboarding')
+                          }
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {disconnectTarget && (
+              <ConfirmDialog
+                title="Disconnect provider?"
+                body={`This stops future scans from ${disconnectTarget.display_name || disconnectTarget.provider_id}. Previously discovered NHI records stay in your history, marked as source-disconnected, and nothing is deleted.`}
+                confirmLabel="Disconnect"
+                loading={disconnecting}
+                onConfirm={handleConfirmDisconnect}
+                onCancel={() => setDisconnectTarget(null)}
+              />
+            )}
+          </SectionCard>
+
+          {/* NHI Discovery */}
+          <SectionCard title="NHI Discovery">
+            {lastScan ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Last Scan</div>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: scanStatusColor[lastScan.status] ?? 'var(--muted)' }} />
+                    <span style={{ color: scanStatusColor[lastScan.status] ?? 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>{lastScan.status}</span>
+                  </span>
+                </div>
+                <Field label="Scan Source" value={lastScan.scan_source} />
+                <Field label="Started" value={fmtTs(lastScan.started_at)} />
+                <Field label="Completed" value={fmtTs(lastScan.completed_at)} />
+                <Field label="Entries Scanned" value={lastScan.total_entries_scanned} />
+                <Field label="Service Accounts Found" value={lastScan.service_accounts_found} />
+                {lastScan.total_at_risk != null && (
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>At Risk</div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: lastScan.total_at_risk > 0 ? 'var(--error)' : 'var(--teal)' }}>
+                      {lastScan.total_at_risk}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>No scans recorded. Connect an identity provider to begin discovering non-human identities in your environment.</p>
+            )}
+            <div style={{ marginTop: 14, display: 'flex', gap: 16 }}>
+              <a href="/onboarding" style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none' }}>
+                Connect a provider →
+              </a>
+              <a href="/agents?tab=discovered" style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none' }}>
+                View discovered accounts →
+              </a>
+            </div>
+          </SectionCard>
+
+          {/* Scan Preferences (Slice 1b, 86cajpvar QA item 4) */}
+          <SectionCard title="Scan Preferences">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Scan Cadence
+                </div>
+                <select
+                  value={cadenceHours}
+                  onChange={(e) => setCadenceHours(Number(e.target.value))}
+                  style={{ width: '100%' }}
                 >
-                  <span style={{ fontWeight: 600 }}>{option.label}:</span> {option.hint}
+                  <option value={24}>Daily</option>
+                  <option value={168}>Weekly</option>
+                </select>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  Applies to providers you connect from here on.
                 </p>
-              ))}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Alert Email
+                </div>
+                <input
+                  type="email"
+                  value={alertEmail}
+                  onChange={(e) => setAlertEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  style={{ width: '100%' }}
+                />
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  Leave blank to use your account's contact email.
+                </p>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Alert Threshold
+                </div>
+                <input
+                  type="number"
+                  min={1}
+                  value={alertThreshold}
+                  onChange={(e) => setAlertThreshold(Math.max(1, Number(e.target.value) || 1))}
+                  style={{ width: '100%' }}
+                />
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  At-risk accounts found in a scan before we email you.
+                </p>
+              </div>
             </div>
-          </div>
-          <div>
-            <p data-testid="settings-load-times-note" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 24 }}>
-              This controls the elapsed figure only. The wording next to the spinner, naming what is
-              running, is always shown.
-            </p>
-            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-              Applies immediately, everywhere in the dashboard, and is remembered on this browser.
-            </p>
-          </div>
+            {preferencesError && (
+              <p style={{ fontSize: 12, color: 'var(--error)', marginBottom: 12 }}>{preferencesError}</p>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 12, padding: '6px 14px' }}
+                onClick={handleSavePreferences}
+                disabled={preferencesSaving}
+              >
+                {preferencesSaving ? 'Saving…' : 'Save Preferences'}
+              </button>
+              {preferencesSaved && (
+                <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>Saved</span>
+              )}
+            </div>
+          </SectionCard>
         </div>
-      </SectionCard>
+      )}
 
-      {/* Currency
-          Separate from Display above because the durability differs: Load
-          Times is browser-local, this is saved against the user and audited.
-          One heading over both would imply the same of each. */}
-      <SectionCard title="Currency">
-        <CurrencySetting />
-      </SectionCard>
+      {/* Tab 4: Governance & Policy */}
+      {activeTab === 'governance' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-governance"
+          aria-labelledby="settings-tab-governance"
+          data-testid="settings-tabpanel-governance"
+        >
+          {/* Compliance Frameworks */}
+          <SectionCard title="Compliance Frameworks">
+            {toastError && (
+              <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 6, fontSize: 12, color: 'var(--error)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {toastError}
+                <button onClick={() => setToastError(null)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', marginLeft: 8, fontSize: 14, lineHeight: 1 }}>✕</button>
+              </div>
+            )}
+            {frameworks.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>No frameworks available for this plan tier.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {frameworks.map(fw => {
+                  const active = selectedFrameworks.includes(fw.id)
+                  return (
+                    <div
+                      key={fw.id}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fw.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                          {[fw.version && `v${fw.version}`, fw.regulatory_body, `${fw.control_count} controls`].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <FrameworkToggle
+                        active={active}
+                        onToggle={async () => {
+                          const prev = selectedFrameworks
+                          const next = active
+                            ? prev.filter(id => id !== fw.id)
+                            : [...prev, fw.id]
+                          setSelectedFrameworks(next)
+                          setToastError(null)
+                          try {
+                            const token = await getAccessTokenSilently()
+                            const updated = await api.patchFrameworks(token, next)
+                            setSelectedFrameworks(updated.selected_frameworks ?? next)
+                          } catch {
+                            setSelectedFrameworks(prev)
+                            setToastError('Failed to update framework selection. Please try again.')
+                          }
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </SectionCard>
 
-      {/* Account */}
-      <SectionCard title="Account">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <Field label="Email" value={user?.email} />
-          <Field label="Name" value={user?.name} />
+          {/* Policy-as-Code & CEL Rules */}
+          <SectionCard title="Policy-as-Code & CEL Rules">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+                Configure and author Common Expression Language (CEL) policy bundles for EU AI Act, NIST SP 800-53, CRA, and FINOS AIGF with client-side syntax diagnostics and authoritative Go policy evaluation.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
+                <span style={{ fontSize: 12, color: 'var(--text)' }}>
+                  Manage versioned regulatory rules, syntax checking, and one-click rollbacks.
+                </span>
+                <button
+                  data-testid="settings-goto-policies-btn"
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => navigate('/policies')}
+                  style={{ fontSize: 12, padding: '6px 14px' }}
+                >
+                  Open CEL Policy Editor
+                </button>
+              </div>
+            </div>
+          </SectionCard>
         </div>
-      </SectionCard>
+      )}
 
-      <p style={{ marginTop: 4, color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>
+      <p style={{ marginTop: 16, color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>
         For billing or plan changes contact{' '}
         <a href="mailto:support@signal-loom.ai" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>support@signal-loom.ai</a>.
       </p>

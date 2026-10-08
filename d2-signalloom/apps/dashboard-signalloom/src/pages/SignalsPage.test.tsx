@@ -614,4 +614,78 @@ describe('SignalsPage', () => {
     expect(mockWeaveApi.createObservationsStream).not.toHaveBeenCalled()
     expect(screen.getByTestId('stream-status')).toHaveTextContent('Fixtures')
   })
+
+  it('filters live signal feed when clicking a layer in the ingest rate chart and resets on clear', async () => {
+    const user = userEvent.setup()
+    await renderLoaded()
+
+    // Click network_egress layer chip on chart
+    const layerChip = screen.getByTestId('rate-layer-chip-network_egress')
+    await user.click(layerChip)
+
+    // Indicator renders
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-layer-indicator')).toBeInTheDocument()
+      expect(screen.getByTestId('selected-layer-indicator')).toHaveTextContent('Network/Egress')
+    })
+
+    // Fetch was called with layer parameter
+    expect(mockWeaveApi.getObservations).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({ layer: 'network_egress' })
+    )
+
+    // Reset filter
+    const clearBtn = screen.getByTestId('clear-layer-filter-btn')
+    await user.click(clearBtn)
+    await waitFor(() => {
+      expect(screen.queryByTestId('selected-layer-indicator')).not.toBeInTheDocument()
+    })
+  })
+
+  it('filters live signal feed using Super DataTable controls and sentinel noise toggle', async () => {
+    const user = userEvent.setup()
+    await renderLoaded()
+
+    // Initially both observations shown
+    expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
+
+    // Toggle exclude sentinel noise (obs-1 has source 'ebpf-socket-sentinel')
+    const sentinelToggle = screen.getByTestId('feed-exclude-sentinel-toggle')
+    await user.click(sentinelToggle)
+
+    // Only obs-2 (tetragon) survives
+    await waitFor(() => {
+      const items = screen.getAllByTestId('observation-item')
+      expect(items).toHaveLength(1)
+      expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent('tetragon')
+    })
+
+    // Search input
+    const searchInput = screen.getByTestId('feed-toolbar-search')
+    await user.clear(searchInput)
+    await user.type(searchInput, 'tetragon')
+    expect(screen.getAllByTestId('observation-item')).toHaveLength(1)
+
+    // Clear filters
+    const clearBtn = screen.getByTestId('feed-toolbar-clear')
+    await user.click(clearBtn)
+    await waitFor(() => {
+      expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
+    })
+  })
+
+  it('initializes filters and window from URL deep-link search parameters', async () => {
+    render(
+      <MemoryRouter initialEntries={['/signals?layer=endpoint_host&window=30m&excludeSentinel=true']}>
+        <SignalsPage />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('signals-page')).toBeInTheDocument())
+
+    expect(screen.getByTestId('selected-layer-indicator')).toBeInTheDocument()
+    expect(screen.getByTestId('selected-layer-indicator')).toHaveTextContent('Endpoint/Host')
+    expect(screen.getByTestId('feed-exclude-sentinel-toggle')).toHaveAttribute('aria-pressed', 'true')
+  })
 })

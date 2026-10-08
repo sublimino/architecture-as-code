@@ -270,3 +270,25 @@ describe('FeedsExplorerPage Ingestion Density Historical Time-Travel', () => {
     })
   })
 })
+
+describe('FeedsExplorerPage Deep Linking and URL Sync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetStoreStats.mockResolvedValue(STATS)
+    mockGetObservations.mockResolvedValue(TEST_OBS)
+  })
+
+  it('initializes filters from URL search parameters', async () => {
+    render(
+      <MemoryRouter initialEntries={['/feeds?layer=network_egress&fidelity=strong&q=auth.internal']}>
+        <FeedsExplorerPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Outbound mTLS connection to auth.internal')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Kernel tracepoint sys_enter_execve')).not.toBeInTheDocument()
+    expect(screen.getByTestId('feeds-stream-count')).toHaveTextContent('1 of 2 observations shown')
+  })
+})

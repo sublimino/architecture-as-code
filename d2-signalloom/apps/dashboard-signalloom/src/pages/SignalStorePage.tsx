@@ -1,8 +1,20 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { colors } from '../styles/tokens'
-import { StatCard, Section, Table, td } from '../components/DashKit'
+import { StatCard, Section, td } from '../components/DashKit'
 import LoadingState, { loadPhase } from '../components/LoadingState'
+import DataTable, { type Column } from '../components/DataTable'
+import {
+  DataTableToolbar,
+  ToolbarSearch,
+  ToolbarFacet,
+  ToolbarSelect,
+  ToolbarClear,
+  ToolbarCount,
+  type ToolbarOption,
+} from '../components/DataTableToolbar'
+import EmptyState from '../components/EmptyState'
 import { weaveApi } from '../api/weaveApi'
 import type { StoreStats, SignalObservation, FidelityTier } from '../api/weaveApi'
 
@@ -34,6 +46,16 @@ function formatTimestamp(ts: string | null): string {
 
 export default function SignalStorePage() {
   const { getAccessTokenSilently } = useAuth0()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const initialLayer = searchParams.get('layer') || 'all'
+  const initialFidelity = searchParams.get('fidelity') || 'all'
+  const initialQ = searchParams.get('q') || ''
+
+  const [selectedLayer, setSelectedLayer] = useState<string>(initialLayer)
+  const [selectedFidelity, setSelectedFidelity] = useState<string>(initialFidelity)
+  const [searchQuery, setSearchQuery] = useState<string>(initialQ)
+
   const [stats, setStats] = useState<StoreStats | null>(null)
   const [observations, setObservations] = useState<SignalObservation[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -41,13 +63,33 @@ export default function SignalStorePage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [actionResult, setActionResult] = useState<string | null>(null)
 
+  // Sync state to URL search parameters
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams)
+    if (selectedLayer && selectedLayer !== 'all') params.set('layer', selectedLayer)
+    else params.delete('layer')
+
+    if (selectedFidelity && selectedFidelity !== 'all') params.set('fidelity', selectedFidelity)
+    else params.delete('fidelity')
+
+    if (searchQuery.trim()) params.set('q', searchQuery.trim())
+    else params.delete('q')
+
+    if (params.toString() !== searchParams.toString()) {
+      setSearchParams(params, { replace: true })
+    }
+  }, [selectedLayer, selectedFidelity, searchQuery, searchParams, setSearchParams])
+
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const token = await getAccessTokenSilently()
       const [statsResult, obsResult] = await Promise.all([
         weaveApi.getStoreStats(token),
-        weaveApi.getObservations(token, { limit: 50 }),
+        weaveApi.getObservations(token, {
+          limit: 50,
+          layer: selectedLayer && selectedLayer !== 'all' ? selectedLayer : undefined,
+        }),
       ])
       setStats(statsResult)
       setObservations(Array.isArray(obsResult) ? obsResult : [])
@@ -57,9 +99,9 @@ export default function SignalStorePage() {
     } finally {
       setLoading(false)
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, selectedLayer])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => { void loadData() }, [loadData])
 
   async function handleAction(action: 'correlate' | 'seed') {
     setActionLoading(action)
@@ -91,6 +133,182 @@ export default function SignalStorePage() {
         .filter(f => (stats.observations_by_fidelity[f] ?? 0) > 0)
         .map(f => [f, stats.observations_by_fidelity[f]] as [string, number])
     : []
+  const filteredObservations = useMemo(() => {
+    return observations.filter((obs) => {
+      if (selectedLayer !== 'all' && obs.layer !== selectedLayer) {
+        return false
+      }
+      if (selectedFidelity !== 'all' && obs.fidelity !== selectedFidelity) {
+        return false
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        const text = `${obs.id} ${obs.description} ${obs.source} ${obs.layer} ${obs.fidelity} ${obs.actor_hint || ''}`.toLowerCase()
+        if (!text.includes(q)) return false
+      }
+      return true
+    })
+  }, [observations, selectedLayer, selectedFidelity, searchQuery])
+
+  const layerCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const obs of observations) {
+      map[obs.layer] = (map[obs.layer] || 0) + 1
+    }
+    return map
+  }, [observations])
+
+  const layerOptions: ToolbarOption[] = useMemo(() => {
+    const opts: ToolbarOption[] = [
+      { value: 'all', label: 'All Layers', count: stats?.total_observations ?? observations.length },
+    ]
+    const allLayers = stats?.observations_by_layer
+      ? Object.keys(stats.observations_by_layer)
+      : Array.from(new Set(observations.map((o) => o.layer)))
+    for (const layer of allLayers) {
+      opts.push({
+        value: layer,
+        label: LAYER_LABELS[layer] ?? layer,
+        count: stats?.observations_by_layer?.[layer] ?? (layerCounts[layer] || 0),
+      })
+    }
+    return opts
+  }, [stats, observations, layerCounts])
+
+  const fidelityCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const obs of observations) {
+      map[obs.fidelity] = (map[obs.fidelity] || 0) + 1
+    }
+    return map
+  }, [observations])
+
+  const fidelityOptions: ToolbarOption[] = useMemo(() => {
+    const tiers: FidelityTier[] = ['definitive', 'strong', 'suggestive', 'circumstantial']
+    return [
+      { value: 'all', label: 'All Fidelities', count: stats?.total_observations ?? observations.length },
+      ...tiers.map((tier) => ({
+        value: tier,
+        label: tier.charAt(0).toUpperCase() + tier.slice(1),
+        count: stats?.observations_by_fidelity?.[tier] ?? (fidelityCounts[tier] || 0),
+      })),
+    ]
+  }, [stats, observations.length, fidelityCounts])
+
+  const hasFilters = selectedLayer !== 'all' || selectedFidelity !== 'all' || searchQuery.trim() !== ''
+
+  const handleClearFilters = () => {
+    setSelectedLayer('all')
+    setSelectedFidelity('all')
+    setSearchQuery('')
+  }
+
+  const observationColumns: Column<SignalObservation>[] = [
+    {
+      key: 'id',
+      label: 'ID',
+      sortable: true,
+      accessor: (o) => o.id,
+    },
+    {
+      key: 'timestamp',
+      label: 'Timestamp',
+      sortable: true,
+      accessor: (o) => (o.timestamp ? new Date(o.timestamp).getTime() : 0),
+    },
+    {
+      key: 'layer',
+      label: 'Layer',
+      sortable: true,
+      accessor: (o) => o.layer,
+    },
+    {
+      key: 'fidelity',
+      label: 'Fidelity',
+      sortable: true,
+      accessor: (o) => o.fidelity,
+    },
+    {
+      key: 'source',
+      label: 'Source',
+      sortable: true,
+      accessor: (o) => o.source,
+    },
+    {
+      key: 'confidence',
+      label: 'Confidence',
+      sortable: true,
+      accessor: (o) => o.confidence,
+    },
+    {
+      key: 'description',
+      label: 'Description',
+    },
+  ]
+
+  const toolbar = (
+    <DataTableToolbar label="Filter store observations">
+      <ToolbarSearch
+        label="Search store observations"
+        placeholder="Filter ID, description, source, layer..."
+        value={searchQuery}
+        onChange={setSearchQuery}
+        testId="store-obs-search"
+      />
+      <ToolbarFacet
+        label="Filter by layer"
+        value={selectedLayer}
+        options={layerOptions}
+        onChange={setSelectedLayer}
+        testIdPrefix="store-obs-layer"
+      />
+      <ToolbarSelect
+        label="Fidelity"
+        subject="observations"
+        value={selectedFidelity}
+        options={fidelityOptions}
+        onChange={setSelectedFidelity}
+        testId="store-obs-fidelity"
+      />
+      <ToolbarClear
+        active={hasFilters}
+        onClear={handleClearFilters}
+        testId="store-obs-clear"
+      />
+      <ToolbarCount
+        shown={filteredObservations.length}
+        total={observations.length}
+        noun="observations"
+        testId="store-obs-count"
+      />
+    </DataTableToolbar>
+  )
+
+  const emptyState = (
+    <div data-testid="store-obs-empty">
+      <EmptyState
+        kicker="No matching observations"
+        body={
+          observations.length === 0
+            ? 'No observations recorded in the store yet.'
+            : `All ${observations.length} observations are retained in the store: the search query, layer facet, or fidelity select is hiding them.`
+        }
+      />
+      {hasFilters && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: -34, marginBottom: 12 }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleClearFilters}
+            data-testid="store-obs-empty-clear"
+            style={{ fontSize: 12, padding: '5px 12px' }}
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div>
@@ -144,7 +362,36 @@ export default function SignalStorePage() {
 
       {/* Observations by Layer */}
       {stats && sortedLayers.length > 0 && (
-        <Section title="Observations by Layer" hint="Distribution across signal observation layers">
+        <Section title="Observations by Layer" hint="Distribution across signal observation layers — click a row to filter table below">
+          {selectedLayer !== 'all' && (
+            <div
+              data-testid="store-active-layer-banner"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                marginBottom: 12,
+                borderRadius: 6,
+                background: 'rgba(45, 212, 191, 0.1)',
+                border: '1px solid rgba(45, 212, 191, 0.3)',
+                fontSize: 12,
+              }}
+            >
+              <span>
+                Filtered by layer: <strong>{LAYER_LABELS[selectedLayer] ?? selectedLayer}</strong> ({stats.observations_by_layer[selectedLayer] ?? 0} observations in store)
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                data-testid="store-clear-layer-filter"
+                onClick={() => setSelectedLayer('all')}
+                style={{ fontSize: 11, padding: '2px 8px' }}
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -152,14 +399,50 @@ export default function SignalStorePage() {
                   <th style={{ padding: '9px 14px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Layer</th>
                   <th style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 80 }}>Count</th>
                   <th style={{ padding: '9px 14px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Distribution</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 140 }}>Explore</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedLayers.map(([layer, count]) => {
                   const pct = stats.total_observations > 0 ? (count / stats.total_observations) * 100 : 0
+                  const isSelected = selectedLayer === layer
                   return (
-                    <tr key={layer} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...td }}>{LAYER_LABELS[layer] ?? layer}</td>
+                    <tr
+                      key={layer}
+                      data-testid={`store-layer-row-${layer}`}
+                      onClick={() => setSelectedLayer(isSelected ? 'all' : layer)}
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        cursor: 'pointer',
+                        background: isSelected ? 'rgba(45, 212, 191, 0.08)' : undefined,
+                        transition: 'background 0.15s',
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedLayer(isSelected ? 'all' : layer)
+                        }
+                      }}
+                    >
+                      <td style={{ ...td }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {isSelected && (
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                background: colors.tealLoom,
+                              }}
+                            />
+                          )}
+                          <span style={{ fontWeight: isSelected ? 600 : 400 }}>
+                            {LAYER_LABELS[layer] ?? layer}
+                          </span>
+                        </div>
+                      </td>
                       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{count}</td>
                       <td style={{ ...td, paddingRight: 24 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -167,6 +450,25 @@ export default function SignalStorePage() {
                             <div style={{ width: `${pct}%`, height: '100%', background: colors.tealLoom, borderRadius: 3 }} />
                           </div>
                           <span style={{ fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', minWidth: 36, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                      <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'inline-flex', gap: 8, fontSize: 11 }}>
+                          <Link
+                            to={`/signals?layer=${encodeURIComponent(layer)}`}
+                            style={{ color: colors.tealLoom, textDecoration: 'none' }}
+                            title={`View ${LAYER_LABELS[layer] ?? layer} in Live Signals`}
+                          >
+                            Live Signals
+                          </Link>
+                          <span style={{ color: 'var(--border)' }}>|</span>
+                          <Link
+                            to={`/feeds?layer=${encodeURIComponent(layer)}`}
+                            style={{ color: colors.tealLoom, textDecoration: 'none' }}
+                            title={`View ${LAYER_LABELS[layer] ?? layer} in Feeds Explorer`}
+                          >
+                            Feeds
+                          </Link>
                         </div>
                       </td>
                     </tr>
@@ -223,40 +525,58 @@ export default function SignalStorePage() {
       {/* Raw Observations Browser */}
       {observations.length > 0 && (
         <Section title="Raw Observations" hint={`Last ${observations.length} observations from the store`}>
-          <Table
-            tableStyle={{ tableLayout: 'fixed' }}
-            headers={[
-              { label: 'ID', width: 220 },
-              { label: 'Timestamp', width: 140 },
-              { label: 'Layer', width: 130 },
-              { label: 'Fidelity', width: 110 },
-              { label: 'Source', width: 160 },
-              { label: 'Confidence', width: 95 },
-              { label: 'Description' },
-            ]}
-          >
-            {observations.map((o) => (
-              <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', whiteSpace: 'normal', lineHeight: 1.35 }}>{o.id}</td>
-                <td style={{ ...td, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(o.timestamp)}</td>
-                <td style={{ ...td }}>{LAYER_LABELS[o.layer] ?? o.layer}</td>
-                <td style={{ ...td }}>
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <span style={{
-                      width: 6, height: 6, borderRadius: '50%',
-                      background: FIDELITY_COLORS[o.fidelity] ?? colors.muted,
-                    }} />
-                    {o.fidelity}
-                  </span>
-                </td>
-                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', whiteSpace: 'normal' }}>{o.source}</td>
-                <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{(o.confidence * 100).toFixed(0)}%</td>
-                <td style={{ ...td, whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>{o.description}</td>
-              </tr>
-            ))}
-          </Table>
+          <div className="card" data-testid="raw-observations-super-table" style={{ padding: 14 }}>
+            <DataTable
+              columns={observationColumns}
+              data={filteredObservations}
+              pageSize={10}
+              toolbar={toolbar}
+              emptyState={emptyState}
+              renderRow={(o) => (
+                <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td
+                    style={{
+                      ...DataTable.td,
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      wordBreak: 'break-all',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.35,
+                      maxWidth: 220,
+                    }}
+                  >
+                    {o.id}
+                  </td>
+                  <td style={{ ...DataTable.td, fontSize: 12, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {formatTimestamp(o.timestamp)}
+                  </td>
+                  <td style={{ ...DataTable.td, whiteSpace: 'nowrap' }}>{LAYER_LABELS[o.layer] ?? o.layer}</td>
+                  <td style={{ ...DataTable.td, whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: FIDELITY_COLORS[o.fidelity] ?? colors.muted,
+                        }}
+                      />
+                      {o.fidelity}
+                    </span>
+                  </td>
+                  <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', whiteSpace: 'normal' }}>
+                    {o.source}
+                  </td>
+                  <td style={{ ...DataTable.td, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {(o.confidence * 100).toFixed(0)}%
+                  </td>
+                  <td style={{ ...DataTable.td, whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
+                    {o.description}
+                  </td>
+                </tr>
+              )}
+            />
+          </div>
         </Section>
       )}
 

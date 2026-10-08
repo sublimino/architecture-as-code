@@ -347,6 +347,8 @@ export default function AuditTrail() {
   const initialFrom = searchParams.get('from') || searchParams.get('fromDate') || ''
   const initialTo = searchParams.get('to') || searchParams.get('toDate') || ''
   const initialType = searchParams.get('type') || searchParams.get('eventType') || ''
+  const initialClass = (searchParams.get('class') as EventClass) || 'all'
+  const initialQ = searchParams.get('q') || ''
 
   const [events, setEvents] = useState<AuditEventResponse[]>([])
   const [total, setTotal] = useState(0)
@@ -365,8 +367,10 @@ export default function AuditTrail() {
   // The two client-side controls. They narrow the rows ALREADY LOADED and never
   // reach the server, which is why they sit below the rule in the strip and why
   // the count beside them counts loaded events rather than the audit record.
-  const [search, setSearch] = useState('')
-  const [eventClass, setEventClass] = useState<EventClass>('all')
+  const [search, setSearch] = useState(initialQ)
+  const [eventClass, setEventClass] = useState<EventClass>(
+    EVENT_CLASSES.includes(initialClass) ? initialClass : 'all'
+  )
   const [selectedEvent, setSelectedEvent] = useState<AuditEventResponse | null>(null)
   const triggerRefMap = useRef<Record<string, HTMLButtonElement | null>>({})
 
@@ -457,6 +461,34 @@ export default function AuditTrail() {
     setApplied(next)
   }
 
+  useEffect(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      let changed = false
+      if (search.trim()) {
+        if (next.get('q') !== search.trim()) {
+          next.set('q', search.trim())
+          changed = true
+        }
+      } else if (next.has('q')) {
+        next.delete('q')
+        changed = true
+      }
+
+      if (eventClass && eventClass !== 'all') {
+        if (next.get('class') !== eventClass) {
+          next.set('class', eventClass)
+          changed = true
+        }
+      } else if (next.has('class')) {
+        next.delete('class')
+        changed = true
+      }
+
+      return changed ? next : prev
+    }, { replace: true })
+  }, [search, eventClass, setSearchParams])
+
   const syncUrl = useCallback((q: AuditQuery) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -491,7 +523,7 @@ export default function AuditTrail() {
     setSearch('')
     setEventClass('all')
     commit(NO_FILTERS)
-    syncUrl(NO_FILTERS)
+    setSearchParams(new URLSearchParams(), { replace: true })
     setEvents([])
     fetchPage(1, true)
   }

@@ -576,8 +576,8 @@ export default function AgentActivityTab({
           padding: '14px 18px',
           marginBottom: 16,
           background: secProfile.profile === 'nono-sandboxed'
-            ? 'linear-gradient(90deg, rgba(34, 197, 94, 0.08) 0%, rgba(22, 26, 35, 0.95) 100%)'
-            : 'linear-gradient(90deg, rgba(56, 189, 248, 0.08) 0%, rgba(22, 26, 35, 0.95) 100%)',
+            ? 'linear-gradient(90deg, rgba(34, 197, 94, 0.08) 0%, transparent 100%), var(--surface)'
+            : 'linear-gradient(90deg, rgba(56, 189, 248, 0.08) 0%, transparent 100%), var(--surface)',
           borderLeft: `3px solid ${secProfile.profile === 'nono-sandboxed' ? colors.tealLoom : colors.cyanLoom}`,
           borderTop: '1px solid var(--border)',
           borderRight: '1px solid var(--border)',

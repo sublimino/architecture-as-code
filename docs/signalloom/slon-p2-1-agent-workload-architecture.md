@@ -93,3 +93,24 @@ The `fake-integration-proxy` service discovers all pods in `fe-signalloom-agents
   }
 ]
 ```
+
+---
+
+## 4. Telemetry Destinations and Runtime Behavior
+
+The runtime environment determines how `agent-nono-evidenced` emits telemetry:
+
+| Destination | Active in demo deployment | Details |
+| :--- | :--- | :--- |
+| Container stdout (`kubectl logs`) | Yes | Emits startup `nono_probe` and 10s JSON heartbeats. |
+| Local volume (`/var/log/audit`) | No | Stays empty when the `nono` binary is not present in the image. |
+| Signal Store (`/api/signals/observations`) | Partial | Receives external eBPF flow signals from `stun-sentinel`. Emits no internal Landlock audit records without `nono`. |
+| Audit session store (`/api/audit/sessions`) | No | Emits no signed session payloads in fallback mode. |
+| Agent governance API (`/api/agents`) | Yes | Discovers the pod by label, maps SPIFFE identity, and tracks claim state. |
+
+### 4.1 Substrate Capability Fallback (SP-5)
+
+The container runs `docker.io/bitnamilegacy/kubectl:1.31`. It runs `command -v nono` at startup.
+
+When `nono` is not installed, the container logs `nono_capability_available: false`. It runs unconfined without crashing or blocking pod scheduling.
+

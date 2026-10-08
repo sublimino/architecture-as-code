@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { WhoAuthorizedPanel } from './WhoAuthorizedPanel'
-import type { AuthorizationChain } from '../api/weaveApi'
+import { weaveApi, type AuthorizationChain } from '../api/weaveApi'
 
 // Mock useAuth0
 vi.mock('../auth/oidc', () => ({
@@ -265,5 +265,21 @@ describe('WhoAuthorizedPanel', () => {
     expect(alert).toBeInTheDocument()
     expect(screen.getByTestId('cycle-detected-badge')).toHaveTextContent('CYCLE BLOCKED')
     expect(screen.getByTestId('cycle-detected-message')).toHaveTextContent(/circular delegation cycle detected/i)
+  })
+
+  it('handles 404 gracefully when agent has no attested chain instead of showing raw error', async () => {
+    vi.spyOn(weaveApi, 'getActorAuthorization').mockRejectedValue(new Error('Request failed with status code 404'))
+    vi.spyOn(weaveApi, 'getAuthorizationChains').mockResolvedValue({
+      chains: [],
+      total: 0,
+      complete_count: 0,
+      kpi_fraction: 0,
+    })
+
+    render(<WhoAuthorizedPanel agentId="agent-cardvault" />)
+
+    expect(await screen.findByTestId('who-authorized-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('who-authorized-error')).not.toBeInTheDocument()
+    expect(screen.getByText(/No attested authorization chain recorded for agent "agent-cardvault"/i)).toBeInTheDocument()
   })
 })

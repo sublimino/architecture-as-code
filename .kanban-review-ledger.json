@@ -228,7 +228,7 @@
     "reviewed_at": "2026-09-15T06:21:11.474963Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50\u00b5s), and defined forensic ledger schema and Go types"
   },
   "71511": {
     "task_id": "71511",
@@ -2417,7 +2417,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -4755,5 +4755,12 @@
     "verdict": "pass",
     "model": "claude-opus-5-5",
     "reason": "Hold lifted 2026-10-03 12:07:22 +0100: reconciled on sldc2/p3-merge 92a9c395, merged as 4582d863; offline 712 ok, mutation proof 43/43, warden pin src-8cc590761ea0 matches a fresh checkout."
+  },
+  "3db30": {
+    "task_id": "3db30",
+    "reviewed_at": "2026-10-08T09:41:11Z",
+    "reviewer": "antigravity",
+    "verdict": "REJECTED",
+    "reason": "Stage 6eap5 sldc-offline timeout (319s); 5 of 6 EAP stages pass"
   }
 }

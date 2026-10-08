@@ -224,9 +224,18 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agents := s.dag.AllAgents()
+	caller := ExtractCallerContext(r)
+	filterByTeam := caller.Role == "team-lead" && caller.Team != ""
+
+	var agents []*Agent
+	if filterByTeam {
+		agents = s.dag.FilterAgentsByTeam(caller.Team)
+	} else {
+		agents = s.dag.AllAgents()
+	}
+
 	resp := TopologyResponse{
-		Agents:        make([]Agent, len(agents)),
+		Agents:        make([]Agent, 0, len(agents)),
 		Edges:         make([]Edge, 0),
 		AggregateRisk: s.dag.AggregateRisk(),
 		// make(), not nil: a nil slice marshals to `null`, and the client maps
@@ -236,7 +245,8 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	evaluator := NewGracePeriodEvaluator()
-	for i, a := range agents {
+	visibleIDs := make(map[string]bool, len(agents))
+	for _, a := range agents {
 		agentCopy := *a
 		if agentCopy.State == AgentStateGracePeriod && agentCopy.GracePeriodExpiry == "" {
 			res := evaluator.EvaluateState(&agentCopy, false, time.Now().UTC(), time.Now().UTC())
@@ -251,9 +261,15 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		resp.Agents[i] = agentCopy
+		resp.Agents = append(resp.Agents, agentCopy)
+		visibleIDs[agentCopy.ID] = true
+	}
+
+	for _, a := range resp.Agents {
 		for _, dep := range a.Dependencies {
-			resp.Edges = append(resp.Edges, Edge{From: a.ID, To: dep})
+			if !filterByTeam || visibleIDs[dep] {
+				resp.Edges = append(resp.Edges, Edge{From: a.ID, To: dep})
+			}
 		}
 	}
 
@@ -264,6 +280,12 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	caller := ExtractCallerContext(r)
+	if caller.Role != "" && caller.Role != "admin" {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("caller role %q is forbidden from action: requires admin", caller.Role))
 		return
 	}
 
@@ -351,6 +373,12 @@ func writeCascadeResult(w http.ResponseWriter, result *CascadeResult) {
 func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	caller := ExtractCallerContext(r)
+	if caller.Role != "" && caller.Role != "admin" {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("caller role %q is forbidden from action: requires admin", caller.Role))
 		return
 	}
 

@@ -531,3 +531,38 @@ func (d *DAG) SetAgentCompliance(id string, compliant bool, detectedAt, now time
 	evaluator.ApplyEvaluation(a, compliant, detectedAt, now)
 	return nil
 }
+
+
+// FilterAgentsByTeam returns all agents belonging to the specified team in insertion order.
+// If team is empty, all agents are returned.
+func (d *DAG) FilterAgentsByTeam(team string) []*Agent {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if team == "" {
+		result := make([]*Agent, 0, len(d.order))
+		for _, id := range d.order {
+			result = append(result, d.agents[id])
+		}
+		return result
+	}
+	var result []*Agent
+	for _, id := range d.order {
+		if strings.EqualFold(d.agents[id].Team, team) {
+			result = append(result, d.agents[id])
+		}
+	}
+	return result
+}
+
+// FilterEdgesBetween returns only edges where both source and destination agents are present in visibleIDs.
+func (d *DAG) FilterEdgesBetween(visibleIDs map[string]bool) []Edge {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	var result []Edge
+	for _, edge := range d.edges {
+		if visibleIDs[edge.From] && visibleIDs[edge.To] {
+			result = append(result, edge)
+		}
+	}
+	return result
+}

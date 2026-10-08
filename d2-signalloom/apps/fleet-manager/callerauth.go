@@ -25,6 +25,8 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -253,4 +255,165 @@ func (c *callerKeys) requireAny(scopes []callerScope, next http.HandlerFunc) htt
 		slog.Info("fleet route authorised", "path", r.URL.Path, "scope", scopeAttr, "caller", caller.name)
 		next(w, r)
 	}
+}
+
+
+// CallerContext holds the role and team attributes of an authenticated caller.
+type CallerContext struct {
+	Role string
+	Team string
+}
+
+// IsAnonymous returns true if the caller has no authenticated role or is explicitly anonymous.
+func (c CallerContext) IsAnonymous() bool {
+	return c.Role == "" || c.Role == "anonymous"
+}
+
+// IsAdmin returns true if the caller role is admin.
+func (c CallerContext) IsAdmin() bool {
+	return c.Role == "admin"
+}
+
+// ExtractCallerContext extracts user role and team from HTTP request headers or JWT claims.
+// It checks headers X-User-Role (e.g. "admin", "compliance", "team-lead") and
+// X-User-Team (e.g. "payments", "platform", "ml-ops", "sre") first.
+// If headers are absent and Authorization contains a Bearer JWT, claims are extracted.
+// Defaults to unauthenticated (empty role and team) if absent.
+func ExtractCallerContext(r *http.Request) CallerContext {
+	if r == nil {
+		return CallerContext{}
+	}
+
+	role := strings.TrimSpace(r.Header.Get("X-User-Role"))
+	team := strings.TrimSpace(r.Header.Get("X-User-Team"))
+
+	if role == "" || team == "" {
+		jwtRole, jwtTeam := extractJWTClaims(r.Header.Get("Authorization"))
+		if role == "" {
+			role = jwtRole
+		}
+		if team == "" {
+			team = jwtTeam
+		}
+	}
+
+	role = strings.ToLower(role)
+	if role == "team_lead" {
+		role = "team-lead"
+	}
+	team = strings.ToLower(team)
+
+	return CallerContext{
+		Role: role,
+		Team: team,
+	}
+}
+
+// extractJWTClaims parses a Bearer JWT token payload to extract role and team claims.
+func extractJWTClaims(authHeader string) (string, string) {
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", ""
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", ""
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		payloadBytes, err = base64.URLEncoding.DecodeString(parts[1])
+		if err != nil {
+			return "", ""
+		}
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return "", ""
+	}
+
+	var role, team string
+
+	if rVal, ok := claims["role"].(string); ok && rVal != "" {
+		role = rVal
+	} else if rVal, ok := claims["user_role"].(string); ok && rVal != "" {
+		role = rVal
+	} else if rVal, ok := claims["x-user-role"].(string); ok && rVal != "" {
+		role = rVal
+	}
+
+	if tVal, ok := claims["team"].(string); ok && tVal != "" {
+		team = tVal
+	} else if tVal, ok := claims["user_team"].(string); ok && tVal != "" {
+		team = tVal
+	} else if tVal, ok := claims["x-user-team"].(string); ok && tVal != "" {
+		team = tVal
+	}
+
+	var groups []string
+	switch g := claims["groups"].(type) {
+	case []any:
+		for _, item := range g {
+			if s, ok := item.(string); ok {
+				groups = append(groups, s)
+			}
+		}
+	case []string:
+		groups = append(groups, g...)
+	case string:
+		groups = append(groups, g)
+	}
+
+	if rList, ok := claims["roles"].([]any); ok {
+		for _, item := range rList {
+			if s, ok := item.(string); ok && role == "" {
+				role = s
+			}
+		}
+	}
+
+	hasAdmin := false
+	hasCompliance := false
+	var teamFromGroup string
+
+	for _, g := range groups {
+		gClean := strings.TrimSpace(g)
+		gLower := strings.ToLower(gClean)
+		if gLower == "admin" {
+			hasAdmin = true
+		} else if gLower == "compliance" {
+			hasCompliance = true
+		} else if strings.HasPrefix(gLower, "team:") {
+			if teamFromGroup == "" {
+				teamFromGroup = strings.TrimPrefix(gClean, "team:")
+				if teamFromGroup == "" {
+					teamFromGroup = strings.TrimPrefix(gLower, "team:")
+				}
+			}
+		} else if strings.HasPrefix(gLower, "team-") {
+			if teamFromGroup == "" {
+				teamFromGroup = strings.TrimPrefix(gClean, "team-")
+				if teamFromGroup == "" {
+					teamFromGroup = strings.TrimPrefix(gLower, "team-")
+				}
+			}
+		}
+	}
+
+	if role == "" {
+		if hasAdmin {
+			role = "admin"
+		} else if hasCompliance {
+			role = "compliance"
+		} else if teamFromGroup != "" {
+			role = "team-lead"
+		}
+	}
+
+	if team == "" && teamFromGroup != "" {
+		team = teamFromGroup
+	}
+
+	return role, team
 }

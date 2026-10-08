@@ -274,6 +274,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       setConnectionStatus('connected')
       setLastHeartbeat(new Date())
       setTopologyLoaded(true)
+      const stunnedAgents = (data.agents ?? []).filter(a => a.state === 'stunned').map(a => a.id)
+      if (stunnedAgents.length > 0) {
+        const order = ['agent-cardvault', 'agent-txn-pipeline', 'agent-llm-classifier', 'agent-api-gateway']
+        const cascadeOrder = order.filter(id => stunnedAgents.includes(id))
+        setCascadeInProgress(cascadeOrder.length > 0 ? cascadeOrder : stunnedAgents)
+      } else {
+        setCascadeInProgress([])
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load fleet topology'
       setError(msg)
@@ -415,11 +423,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     if (topology && rawAgents.length === 0) {
       return { ale: 0, var95: 0, trend: 'stable', carriedGbp: 0 }
     }
-    if (isScanned) {
+    if (isScanned || stunnedCount > 0) {
       return ESCALATED_RISK
     }
     return BASELINE_RISK
-  }, [topology, rawAgents.length, isScanned])
+  }, [topology, rawAgents.length, isScanned, stunnedCount])
 
   const showControls = superadmin && !audience
 

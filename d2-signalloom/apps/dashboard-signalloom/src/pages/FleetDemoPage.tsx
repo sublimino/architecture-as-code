@@ -5,6 +5,7 @@ import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { useServerSuperadmin } from '../auth/superadmin'
 import FleetTopology from '../components/fleet/FleetTopology'
+import RoleViewSelector, { type FleetRole } from '../components/fleet/RoleViewSelector'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
 import FleetBadge, { stateToken, trustToken } from '../components/fleet/FleetBadge'
 import HelpHint from '../components/HelpHint'
@@ -196,6 +197,17 @@ const ESCALATED_RISK: RiskSummary = {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
+const PAYMENTS_AGENT_IDS = new Set([
+  'agent-txn-pipeline',
+  'agent-llm-classifier',
+  'agent-pipeline',
+  'agent-llm',
+])
+
+function isPaymentsAgent(agent: AgentState): boolean {
+  return PAYMENTS_AGENT_IDS.has(agent.id) || agent.team === 'payments'
+}
+
 interface FleetDemoPageProps {
   audience?: boolean
 }
@@ -206,6 +218,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   // The server's verdict, not the sidebar toggle: Recover is break-glass and
   // the toggle is a visibility control the browser owns.
   const { superadmin: serverSuperadmin } = useServerSuperadmin(user, getAccessTokenSilently)
+
+  // Role view state.
+  const [activeRole, setActiveRole] = useState<FleetRole>('admin')
 
   // Connection mode and heartbeat state.
   const [sourceMode, setSourceMode] = useState<'live' | 'demo'>('live')
@@ -433,10 +448,38 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     })
   }, [rawAgents, isScanned])
 
+  const displayedAgents = useMemo(() => {
+    if (activeRole === 'team-lead') {
+      return agents.filter(isPaymentsAgent)
+    }
+    return agents
+  }, [agents, activeRole])
+
+  const displayedEdges = useMemo(() => {
+    const rawEdges = topology?.edges ?? []
+    if (activeRole === 'team-lead') {
+      const visibleAgentIds = new Set(displayedAgents.map(a => a.id))
+      return rawEdges.filter(e => visibleAgentIds.has(e.from) && visibleAgentIds.has(e.to))
+    }
+    return rawEdges
+  }, [topology?.edges, activeRole, displayedAgents])
+
+  const isRoleActionDisabled = activeRole !== 'admin'
+
+  const roleActionTooltip = useMemo(() => {
+    if (activeRole === 'team-lead') {
+      return 'Team leads cannot execute stun or recover actions.'
+    }
+    if (activeRole === 'compliance') {
+      return 'Compliance officers have read-only audit permissions.'
+    }
+    return undefined
+  }, [activeRole])
+
   const activeCount = agents.filter(a => a.state === 'active').length
   const stunnedCount = agents.filter(a => a.state === 'stunned').length
   const nonCompliantCount = agents.filter(a => a.state === 'non-compliant').length
-  const stunnableAgents = agents.filter(a => a.type !== 'observability')
+  const stunnableAgents = displayedAgents.filter(a => a.type !== 'observability')
 
   const risk: RiskSummary = useMemo(() => {
     if (topology && rawAgents.length === 0) {
@@ -586,8 +629,8 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       <div data-testid="fleet-demo-page" style={{ display: 'flex', height: '100vh', gap: 0 }}>
         <div style={{ flex: 1, position: 'relative' }}>
           <FleetTopology
-            agents={agents}
-            edges={topology?.edges ?? []}
+            agents={displayedAgents}
+            edges={displayedEdges}
             cascadeInProgress={cascadeInProgress}
             onCascadeStep={handleCascadeStep}
             audience
@@ -629,7 +672,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
           Fleet Demo
         </h1>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <RoleViewSelector activeRole={activeRole} onRoleChange={setActiveRole} />
+
           {/* Pulsing heartbeat status indicator */}
           <div
             data-testid="fleet-heartbeat-indicator"
@@ -777,12 +822,12 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             overflow: 'hidden',
           }}>
             <FleetTopology
-              agents={agents}
-              edges={topology?.edges ?? []}
+              agents={displayedAgents}
+              edges={displayedEdges}
               cascadeInProgress={cascadeInProgress}
               onCascadeStep={handleCascadeStep}
-              onStun={showControls ? requestStun : undefined}
-              onRecover={showControls ? handleRecover : undefined}
+              onStun={showControls && !isRoleActionDisabled ? requestStun : undefined}
+              onRecover={showControls && !isRoleActionDisabled ? handleRecover : undefined}
             />
           </div>
         </div>
@@ -918,6 +963,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   data-testid="fleet-stun-select"
                   value={stunTarget}
                   onChange={e => setStunTarget(e.target.value)}
+                  disabled={isRoleActionDisabled}
                   style={{ flex: 1, minWidth: 0 }}
                 >
                   {stunnableAgents.map(a => (
@@ -930,7 +976,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 <button
                   data-testid="fleet-stun-btn"
                   onClick={() => requestStun()}
-                  disabled={stunLoading}
+                  disabled={stunLoading || isRoleActionDisabled}
+                  title={roleActionTooltip}
+                  data-tooltip={roleActionTooltip}
                   className="btn btn-danger"
                   style={{ minWidth: STUN_BUTTON_W, whiteSpace: 'nowrap', justifyContent: 'center' }}
                 >
@@ -981,7 +1029,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   // the real gate is require_superadmin on
                   // POST /api/v1/fleet/recover, and this keeps the button from
                   // promising an action the server will refuse.
-                  disabled={recoverLoading || !serverSuperadmin}
+                  disabled={recoverLoading || !serverSuperadmin || isRoleActionDisabled}
+                  title={roleActionTooltip}
+                  data-tooltip={roleActionTooltip}
                   style={FILL_COLUMN}
                 >
                   {recoverLoading ? <ButtonWait testId="fleet-recover-loader" label="Recovering" /> : 'Recover Fleet'}

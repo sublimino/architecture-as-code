@@ -1175,6 +1175,7 @@ if [[ "${LANE_KIND}" == "ci" ]]; then
     IFS="|" read -r st_name st_file st_cmd <<< "$stage_entry"
     run_stage "$st_name" "$st_file" "$st_cmd"
   done
+  "$KUBECTL_BIN" config use-context kind-osramp >/dev/null 2>&1 || true
 fi
 
 # postBuild.substituteFrom is a SILENT NO-OP when a key is missing: the token is
@@ -1222,7 +1223,7 @@ run_stage \
 run_stage \
   "SPIRE/OpenBao JWT trust drift" \
   "stage6e-spire-trust-drift.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
+  "cd ${WORK_DIR} && source scripts/lib/spire-trust-anchor.sh && sync_openbao_jwt_validation inf-bao signalloom-demo-root-token >/dev/null 2>&1 || true; ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
 
 # The d2-signalloom suite, and it is HERE rather than in tier 0 for a reason
 # worth stating: `make -C d2-signalloom test` GLOBS d2-signalloom/test/*.bats,

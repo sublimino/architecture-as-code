@@ -2768,7 +2768,7 @@ RUN_USER="\$(id -un)"
 # service, which reads as a broken cluster; and a unit that restarts always
 # turns that into an INFINITE LOOP reported as \`active\`, with the health gate
 # timing out two minutes later having named nothing at all.
-if ! "\$KUBECTL" get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
+if ! "\$KUBECTL" --context "${GCP_TF_DEMO_KUBECTL_CONTEXT:-kind-osramp}" get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
   echo "NO_DASHBOARD_SERVICE ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}" >&2
   exit 5
 fi
@@ -2786,7 +2786,7 @@ Wants=network-online.target
 Type=simple
 User=\${RUN_USER}
 Environment=KUBECONFIG=\${KUBECONFIG_PATH}
-ExecStart=\${KUBECTL} port-forward --namespace ${DASHBOARD_NAMESPACE} svc/${DASHBOARD_SERVICE} --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT}
+ExecStart=\${KUBECTL} --context ${GCP_TF_DEMO_KUBECTL_CONTEXT:-kind-osramp} port-forward --namespace ${DASHBOARD_NAMESPACE} svc/${DASHBOARD_SERVICE} --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT}
 # always, not on-failure: a port-forward that loses its pod exits ZERO, so
 # on-failure would leave the demo dead with the unit reported cleanly finished.
 Restart=always

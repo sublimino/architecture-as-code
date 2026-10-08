@@ -434,6 +434,7 @@ load_warden_image() {
 	img="$($KUBECTL kustomize "$OVERLAY_DIR" 2>/dev/null | grep -o 'ghcr.io/[^ "]*signalloom-warden:[^ "]*' | head -1)"
 	[ -n "$img" ] || { fail "5 overlay" "could not read the warden image from $OVERLAY_DIR"; return 1; }
 	name="${REMOTE_CTX#kind-}"
+	docker exec "${name}-control-plane" crictl rmi "$img" >/dev/null 2>&1 || true
 	if [ -x "${SCRIPT_DIR}/kind-load-verified.sh" ]; then
 		run_or_echo "kind-load-verified $img into $name" -- env CLUSTER_NAME="$name" "${SCRIPT_DIR}/kind-load-verified.sh" "$img" >/dev/null || {
 			fail "5 overlay" "kind-load-verified.sh $img into $name failed"; return 1; }

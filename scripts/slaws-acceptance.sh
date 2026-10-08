@@ -8,6 +8,10 @@
 set -u
 out="${1:?outdir}"; mkdir -p "$out"
 root="$(cd "$(dirname "$0")/.." && pwd)"; cd "$root"
+export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/local/go/bin:/usr/bin:/bin:${PATH:-}"
+export CGO_ENABLED="${CGO_ENABLED:-0}"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
 export KUBECONFIG=/dev/null
 run() {
   local name="$1"; shift

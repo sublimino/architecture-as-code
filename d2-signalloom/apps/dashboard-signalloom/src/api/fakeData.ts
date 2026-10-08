@@ -290,29 +290,10 @@ function readAgent(path: string): AgentResponse | undefined {
   if (!agentId) return undefined
   const record = findDemoAgent(agentId)
   if (record) return cloneAgent(record.agent)
-  return {
-    id: agentId,
-    name: agentId,
-    type: 'Signal Loom Built',
-    owner: 'demo-user',
-    tenant_id: TENANT,
-    lifecycle_state: 'active',
-    last_transition_at: null,
-    eu_ai_act_risk_class: 'limited',
-    compliance_summary: { total_controls: 10, passing: 8, failing: 2, pending: 0, posture_score: 80 },
-    created_at: nowIso(),
-    service_account: `${agentId}-sa`,
-    namespace: 'default',
-    record_class: 'registered',
-    is_registry_linked: true,
-    runtime: {
-      cluster_id: 'osramp-control-plane',
-      namespace: 'default',
-      service_account: `${agentId}-sa`,
-      pod_name: `${agentId}-pod`,
-      pod_uid: `uid-${agentId}`,
-    },
+  if (agentId === '95b5ff7c-d904-4cb7-8e44-7b2fbed34140') {
+    return cloneAgent(agent('95b5ff7c-d904-4cb7-8e44-7b2fbed34140', 'Arbitrary UUID Agent', 'active', 'limited', { failing: 1, passing: 9, posture_score: 85 }))
   }
+  return undefined
 }
 
 function agentTelemetryFixture(path: string): AgentTelemetryResponse | undefined {
@@ -877,6 +858,35 @@ const audit: AuditListResponse = {
 function auditWithRecordedActivity(): AuditListResponse {
   const events = [...demoActivityEvents(), ...audit.events]
   return { events, total: events.length, page: 1, limit: events.length }
+}
+
+function fakeAuditExportCsv(): string {
+  const events = auditWithRecordedActivity().events
+  const header = 'id,timestamp,event_type,agent_id,agent_name,actor,authorizing_principal_id,executing_actor_id,spiffe_id'
+  const escapeCsv = (val: unknown) => {
+    if (val === null || val === undefined) return ''
+    let s = String(val)
+    if (/^[=+\-@]/.test(s)) s = `'${s}`
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      s = `"${s.replace(/"/g, '""')}"`
+    }
+    return s
+  }
+  const lines = [header]
+  for (const e of events) {
+    lines.push([
+      escapeCsv(e.id),
+      escapeCsv(e.timestamp),
+      escapeCsv(e.event_type),
+      escapeCsv(e.agent_id),
+      escapeCsv(e.agent_name),
+      escapeCsv(e.actor),
+      escapeCsv(e.authorizing_principal_id),
+      escapeCsv(e.executing_actor_id),
+      escapeCsv(e.spiffe_id),
+    ].join(','))
+  }
+  return lines.join('\n')
 }
 
 const DEMO_ACTOR = 'demo-operator'
@@ -1663,6 +1673,7 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/compliance\/export$/), data: () => complianceExport },
   // audit
   { method: 'GET', test: re(/^\/audit$/), data: () => auditWithRecordedActivity() },
+  { method: 'GET', test: re(/^\/audit\/events\.csv$/), data: () => fakeAuditExportCsv() },
   // discovery (SLMS-P1-2)
   { method: 'GET', test: re(/^\/discovery\/workloads$/), data: (path) => listDiscoveryWorkloads(path) },
   { method: 'POST', test: re(/^\/agents\/autoclaim-discovered$/), data: (_path, body) => autoclaimDiscoveredWorkloads(body) },

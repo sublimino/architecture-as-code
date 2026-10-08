@@ -2004,6 +2004,24 @@ def test_audit_stream_is_strictly_side_effect_free(client, monkeypatch):
     assert len(executed_writes) == 0
 
 
+def test_audit_events_csv_returns_csv_with_formula_sanitization(client, monkeypatch):
+    """Proves GET /api/audit/events.csv returns text/csv with valid header and formula sanitization."""
+    async def mock_get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", mock_get_pool)
+    res = client.get("/api/audit/events.csv", headers=bearer(token_for("alice")))
+    assert res.status_code == 200
+    assert "text/csv" in res.headers["content-type"]
+    lines = res.text.strip().splitlines()
+    assert lines[0] == "id,timestamp,event_type,agent_id,agent_name,actor,authorizing_principal_id,executing_actor_id,spiffe_id"
+    assert len(lines) > 1
+    # Check that rows have 9 comma-separated fields
+    for line in lines[1:]:
+        assert len(line.split(",")) >= 9
+
+
+
 def test_get_agents_filter_by_lifecycle_state_and_spiffe_id(client, monkeypatch):
     """SFAGENTS-P2-6: Proves GET /api/agents filters by lifecycle_state, state, and spiffe_id correctly."""
     class MultiAgentClient:

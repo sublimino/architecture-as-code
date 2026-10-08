@@ -133,7 +133,7 @@ if (http.interceptors?.response?.use) {
 // cancellation path below has to clear this timer rather than let it fire.
 const DEMO_LATENCY_MS = 120
 
-const LIVE_RUNTIME_AGENT_DETAIL = /^\/?(?:api\/)?agents\/(?:agent-cardvault|kagent-.*)(?:\?.*)?$/
+const LIVE_RUNTIME_AGENT_DETAIL = /^\/?(?:api\/)?agents\/(?:(?:supercred:)?agent-cardvault|kagent-.*)(?:\?.*)?$/
 
 function requiresLiveAgentDetail(method: string, path: string): boolean {
   return method.toUpperCase() === 'GET' && LIVE_RUNTIME_AGENT_DETAIL.test(path)
@@ -309,6 +309,12 @@ export async function req<T>(
       const settled = await delayedFixture(fake as T, signal)
       return applyDemoProjection(method, path, settled)
     }
+    if (isSuperCredEnabled() && affectsDemo(method, path)) {
+      const projected = await applyDemoProjection(method, path, null)
+      if (projected !== null && projected !== undefined) {
+        return projected as T
+      }
+    }
     const status = hasFakeRoute(method, path) ? 404 : 501
     throw demoModeError(
       hasFakeRoute(method, path)
@@ -331,6 +337,15 @@ export async function req<T>(
         signal: requestSignal,
       })
       .then((res) => res.data)
+      .catch(async (err) => {
+        if (err?.response?.status === 404 && isSuperCredEnabled() && affectsDemo(method, path)) {
+          const projected = await applyDemoProjection(method, path, null)
+          if (projected !== null && projected !== undefined) {
+            return projected as T
+          }
+        }
+        throw err
+      })
 
   // Not coalesced, so this caller owns the request outright and its signal can
   // go straight to axios.

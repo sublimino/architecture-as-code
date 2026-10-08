@@ -18,7 +18,7 @@ from ingest_client import ingest_headers
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/telemetry/coding-agents", tags=["coding-agent-telemetry"])
+router = APIRouter(tags=["coding-agent-telemetry"])
 
 _SIGNAL_INGEST_URL = os.getenv("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 _TIMEOUT = 10.0
@@ -131,4 +131,5 @@ async def evaluate_coding_agent_ordering(
 
 def install_coding_agent_telemetry_api(app: Any) -> None:
     """Mount the coding agent telemetry router on the FastAPI app."""
-    app.include_router(router)
+    app.include_router(router, prefix="/api/v1/telemetry/coding-agents")
+    app.include_router(router, prefix="/v1/telemetry/coding-agents")

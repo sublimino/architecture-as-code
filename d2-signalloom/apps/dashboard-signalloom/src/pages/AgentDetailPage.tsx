@@ -53,7 +53,8 @@ function fmtRelativeMinutes(iso: string | null) {
 }
 
 function buildDossierClaimRequest(agent: AgentResponse): AgentClaimRequest {
-  const podName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
+  const normalizedId = agent.id?.includes(':') ? agent.id.split(':').pop()! : agent.id
+  const podName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? normalizedId : (agent.name || normalizedId))
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || podName
 
@@ -889,7 +890,8 @@ export default function AgentDetailPage() {
       if (auditData.status === 'fulfilled') setAuditEvents(auditData.value.events)
       if (violationsData.status === 'fulfilled') setViolations(violationsData.value.violations)
       if (postureData.status === 'fulfilled') {
-        const match = postureData.value?.agents?.find(a => a.agent_id === id)
+        const canonicalId = id.replace(/^supercred:/, '')
+        const match = postureData.value?.agents?.find(a => a.agent_id === id || a.agent_id === canonicalId)
         setComplianceResults(match?.results ?? [])
       }
       if (telemetryData.status === 'fulfilled') {

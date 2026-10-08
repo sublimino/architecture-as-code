@@ -116,6 +116,7 @@ install_invites_api(app)
 app.add_middleware(IdentityHeaderStripMiddleware)
 
 
+@app.get("/api/health")
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Existing backwards-compatible health endpoint."""

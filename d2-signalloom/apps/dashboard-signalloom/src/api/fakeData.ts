@@ -268,11 +268,15 @@ function nowIso(): string {
 }
 
 function findDemoAgent(id: string): DemoAgentRecord | undefined {
+  const canonical = id.replace(/^supercred:/, '')
   return demoAgents.find(
     (record) =>
       record.agent.id === id ||
+      record.agent.id === canonical ||
       record.agent.id === `${TENANT}:${id}` ||
-      record.agent.id.replace(`${TENANT}:`, '') === id,
+      record.agent.id === `${TENANT}:${canonical}` ||
+      record.agent.id.replace(`${TENANT}:`, '') === id ||
+      record.agent.id.replace(`${TENANT}:`, '') === canonical,
   )
 }
 

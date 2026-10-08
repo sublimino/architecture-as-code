@@ -348,7 +348,7 @@ Obey these. They are the phase constitution.
 | P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 480d5a54 (see Errata — SLSC-P4-PRE) | — | — | — | — |
 | P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | pass — delivered: ca41b3b0 (see Errata — SLSC-P4-1) | — | — | — | — |
 | P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | pass — delivered: 54abb56c (see Errata — SLSC-P4-2) | — | — | — | — |
-| P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | pass: delivered: fafa2b51 (see Errata - SLSC-P4-GOV) | — | — | — | — |
 | P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
 | P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | — | — | — | — | — |
 | P5-2 | implementation | Implement audit event emission and operator audit stream for automated cascade actions | P5-1 | Contract test verifying audit event generation, payload structure, and query endpoints | S | antigravity | — | — | — | — | — |
@@ -629,3 +629,15 @@ Obey these. They are the phase constitution.
 **Notes:** Vitest suites (5/5 in selector, 77/77 in fleet page), TypeScript typecheck, and ESLint pass 100%. Zero em-dashes verified across all files.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P4-2","status":"pass","commit":"54abb56c"} -->
+
+#### Errata — SLSC-P4-GOV Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice
+**Created:** 2026-10-08 17:00:00+01:00
+**Last Updated:** 2026-10-08 17:00:00+01:00
+**Status:** Completed
+**Commit:** fafa2b51
+**Governor merge:** Phase 4 integration clean on integration/slsc-v0.1.0
+**Decisions:** Validated sequential merge of Phase 4 deliverables. P4-1 delivered Fleet Manager API role and team filtering (ca41b3b0 / 9b773d63). P4-2 delivered role-aware views and RoleViewSelector on FleetDemoPage (54abb56c / ff79aade). Executed the double offline test pyramid. Pass 1 verified test/test-count-floor.bats with 10 of 10 tests passed. Pass 2 verified make test-all-offline across all five stages with zero failures. Reconciled regressions and verified zero em-dashes rule across all files. Tagged integration tip integration/slsc-v0.1.0-p4 at commit fafa2b51.
+**Deviations:** None.
+**Notes:** Phase 4 integration certified. Both offline verification passes passed cleanly with 0 failures across the full pyramid. Facts written to ci-evidence/slsc-p4-governor-facts.json.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P4-GOV","status":"pass","commit":"fafa2b51"} -->

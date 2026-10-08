@@ -174,7 +174,8 @@ status without a linked record is "No completion record".
 | [AWS Telemetry Ingest & Multilayer Policy Engine Beta](Proposal%20—%20Signal%20Loom%20AWS%20Telemetry%20Ingest%20&%20Multilayer%20Policy%20Engine%20Beta%20%282026-Q3%29.md) | SLAWS | Bootstrap, awaiting sign-off: `collectors/awslogs` scaffold (`899d2609`), 17 cards, offline acceptance `make test-signal-ingest` |
 | [Exhaustive System Security and Vulnerability Audit](Proposal%20—%20Exhaustive%20System%20Security%20and%20Vulnerability%20Audit%20%282026-Q3%29.md) |  -  | No completion record |
 | [First User and Privileged-User Onboarding (precursor)](FIRST-USER-ONBOARDING-PROPOSAL.md) |  -  | Evidence analysis. SLON and AMXO build on it. |
-| [SuperCredential Multi-Agent Evolution](multi-agent-supercred-proposal.md) |  -  | No completion record |
+| [SuperCredential Multi-Agent Evolution: The Cascade](multi-agent-supercred-proposal.md) | SLSC | Proposed: multi-agent cascading trust revocation and live FAIR risk quantification |
+| [SLAWS & SLAAT Retest Plan](signalloom/retest-plan-slaws-slaat-permutations.md) | SLRT | Active: one-shot permutation matrix validating AWS telemetry ingest and adversarial defenses |
 | [Agent trust project proposal](agent-trust-project-proposal.md) |  -  | Delivered: [completion audit](agent-trust-completion-audit.md) and [adversarial review](agent-trust-adversarial-review.md) |
 | [Next-Phase Proposals  -  Adversarial Critique](Signal%20Loom%20—%20Next-Phase%20Proposals%20—%20Adversarial%20Critique%20%282026-Q3%29.md) |  -  | Critique of the SLER, SLCD, and AMXD proposals |
 
@@ -233,6 +234,8 @@ author wrote it.
 | [`appendix-credential-architecture.md`](appendix-credential-architecture.md) | Credential architecture of the Signal Loom agent swarm (appendix of 2026-08-28) |
 | [`appendix-ebpf-kernel-enforcement.md`](appendix-ebpf-kernel-enforcement.md) | eBPF and kernel-level containment of AI agents (appendix of 2026-08-28) |
 | [`policy-as-versioned-code/`](policy-as-versioned-code/) | Policy as versioned code: [integration](policy-as-versioned-code/INTEGRATION.md) and the [worktree merge plan](policy-as-versioned-code/WORKTREE-INTEGRATION.md) |
+| [`aws-eks-architecture-specification.md`](aws-eks-architecture-specification.md) | AWS EKS enterprise deployment architecture and multi-cloud specification |
+| [`azure-aks-architecture-specification.md`](azure-aks-architecture-specification.md) | Azure AKS enterprise deployment architecture and multi-cloud specification |
 | [`../terraform/notes/README.md`](../terraform/notes/README.md) | Index of the Terraform design notes |
 
 ### Records at the repository root

@@ -230,6 +230,10 @@ bootstrap-drift: ## Regenerate bootstrap SQL and compare it with the committed c
 netassert-config-drift: ## Compare the committed netassert config against its ConfigMap-generator copy.
 	bash ./test/check-netassert-config-drift.sh
 
+.PHONY: test-openbao-agent-role-lab
+test-openbao-agent-role-lab: ## Behavioural proof of the agent-swarm OpenBao generic role.
+	bash ./test/openbao-agent-generic-role-lab.sh
+
 # --- Swarm interactive agent images ---
 
 swarm-zulip-image: ## Build zulip-chat-agent image

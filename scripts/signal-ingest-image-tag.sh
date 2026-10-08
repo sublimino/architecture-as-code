@@ -4,6 +4,12 @@
 # $(MAKE), so `make -n demo-signalloom-up` stays a dry run: make executes any
 # recipe line that names $(MAKE) even under -n, which ran a real docker build.
 set -euo pipefail
+if [ "${GOPATH:-}" = "/usr/local/src/gocode" ] || [ -z "${GOPATH:-}" ]; then
+    export GOPATH=/tmp/gopath
+fi
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export GONOSUMDB="*"
 cd "$(dirname "$0")/../d2-signalloom/apps/signal-ingest"
 inputs="$(go run ./cmd/image-tag -inputs)"
 # The tag hashes only the TRACKED inputs (internal/imagetag.TrackedInputs), so anything else

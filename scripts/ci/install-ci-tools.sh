@@ -581,6 +581,6 @@ for t in go kind kubectl kustomize helm flux crane cosign syft grype vexctl ngro
   # stdout and *then* exits non-zero (kubectl version, which also tries to
   # reach a cluster) both reports its version and falls through to `echo "?"`,
   # appending a spurious "?" line for a tool that installed perfectly.
-  ver=$($t version 2>/dev/null || $t --version 2>/dev/null || echo "?")
+  ver=$($t --version 2>/dev/null || $t version 2>/dev/null || echo "?")
   printf "  %-12s %s\n" "$t" "$(printf '%s' "$ver" | head -1)"
 done

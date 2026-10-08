@@ -4,6 +4,17 @@ import { weaveApi } from '../api/weaveApi'
 import type { StoreStats, SignalObservation, FidelityTier } from '../api/weaveApi'
 import { colors } from '../styles/tokens'
 import LoadingState, { loadPhase } from '../components/LoadingState'
+import DataTable, { type Column } from '../components/DataTable'
+import {
+  DataTableToolbar,
+  ToolbarSearch,
+  ToolbarFacet,
+  ToolbarSelect,
+  ToolbarClear,
+  ToolbarCount,
+} from '../components/DataTableToolbar'
+import EmptyState from '../components/EmptyState'
+import HelpHint from '../components/HelpHint'
 
 const SIGNAL_LAYERS = [
   { id: 'endpoint_host', title: 'L1 Host / eBPF', code: 'L1', description: 'Kernel tracepoints & Tetragon eBPF telemetry' },
@@ -31,6 +42,87 @@ const LAYER_COLORS: Record<string, string> = {
   protocol: 'var(--teal)',
   cloud_control_plane: 'var(--amber)',
 }
+
+export function getTodayIsoDate(): string {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function shiftIsoDate(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + days)
+  const year = dt.getFullYear()
+  const month = String(dt.getMonth() + 1).padStart(2, '0')
+  const day = String(dt.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function formatDisplayDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  return dt.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+export const SUPER_COLUMNS: Column<SignalObservation>[] = [
+  {
+    key: 'timestamp',
+    label: 'Timestamp',
+    sortable: true,
+    accessor: (o) => (o.timestamp ? new Date(o.timestamp).getTime() : 0),
+    help: 'Time when observation was ingested or recorded',
+    helpTestId: 'feeds-col-timestamp-help',
+  },
+  {
+    key: 'layer',
+    label: 'Layer',
+    sortable: true,
+    accessor: (o) => o.layer,
+    help: 'Signal taxonomy layer (L1 Host to L6 Cloud)',
+    helpTestId: 'feeds-col-layer-help',
+  },
+  {
+    key: 'fidelity',
+    label: 'Fidelity',
+    sortable: true,
+    accessor: (o) => o.fidelity,
+    help: 'Evidence certainty tier (definitive, strong, suggestive, circumstantial)',
+    helpTestId: 'feeds-col-fidelity-help',
+  },
+  {
+    key: 'source',
+    label: 'Source',
+    sortable: true,
+    accessor: (o) => o.source,
+  },
+  {
+    key: 'actor_hint',
+    label: 'Actor',
+    sortable: true,
+    accessor: (o) => o.actor_hint || '',
+  },
+  {
+    key: 'confidence',
+    label: 'Conf',
+    sortable: true,
+    accessor: (o) => o.confidence,
+  },
+  {
+    key: 'description',
+    label: 'Description',
+  },
+  {
+    key: 'raw_evidence_ref',
+    label: 'Proof / Ref',
+  },
+  {
+    key: 'action',
+    label: 'Action',
+  },
+]
 
 // ─── Pushdown Telemetry & Code Preview Helpers ────────────────────────────────
 
@@ -182,6 +274,14 @@ export function FeedsExplorerPage() {
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
 
+  // Historical Time-Travel State
+  const [historicalDate, setHistoricalDate] = useState<string | null>(null)
+  const [historicalObservations, setHistoricalObservations] = useState<SignalObservation[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+
+  const activeObservations = historicalDate ? historicalObservations : observations
+
   // Slicing & Dicing filters
   const [selectedLayer, setSelectedLayer] = useState<string>('all')
   const [selectedFidelity, setSelectedFidelity] = useState<string>('all')
@@ -238,9 +338,63 @@ export function FeedsExplorerPage() {
     loadInitialObservations()
   }, [fetchStats, loadInitialObservations])
 
-  // Setup SSE stream with bounded 500-item ring buffer
+  // Load historical observations when historicalDate changes
+  const loadHistoricalObservations = useCallback(async (dateStr: string) => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const token = await getAccessTokenSilently()
+      const [y, m, d] = dateStr.split('-').map(Number)
+      const startDate = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0))
+      const endDate = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999))
+      const hist = await weaveApi.getObservations(token, {
+        after: startDate.toISOString(),
+        before: endDate.toISOString(),
+        limit: 500,
+      })
+      setHistoricalObservations(Array.isArray(hist) ? hist : [])
+    } catch (err: any) {
+      setHistoryError(describeIngestError(err, 'Failed to fetch historical observations'))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [getAccessTokenSilently])
+
   useEffect(() => {
-    if (!streamingActive) {
+    if (historicalDate) {
+      loadHistoricalObservations(historicalDate)
+    }
+  }, [historicalDate, loadHistoricalObservations])
+
+  const todayIso = useMemo(() => getTodayIsoDate(), [])
+
+  const handleNavigateDay = (delta: number) => {
+    setSelectedBucket(null)
+    const base = historicalDate || todayIso
+    const next = shiftIsoDate(base, delta)
+    if (next > todayIso) {
+      setHistoricalDate(null)
+    } else {
+      setHistoricalDate(next)
+    }
+  }
+
+  const handleDateSelect = (val: string) => {
+    if (!val) return
+    setSelectedBucket(null)
+    if (val > todayIso) return
+    setHistoricalDate(val)
+  }
+
+  const handleReturnToLive = () => {
+    setHistoricalDate(null)
+    setSelectedBucket(null)
+    setHistoryError(null)
+  }
+
+  // Setup SSE stream with bounded 500-item ring buffer (paused when viewing historical archive)
+  useEffect(() => {
+    if (!streamingActive || historicalDate !== null) {
       if (disconnectRef.current) {
         disconnectRef.current()
         disconnectRef.current = null
@@ -285,7 +439,7 @@ export function FeedsExplorerPage() {
         disconnectRef.current = null
       }
     }
-  }, [streamingActive, selectedLayer, actorFilter, getAccessTokenSilently])
+  }, [streamingActive, historicalDate, selectedLayer, actorFilter, getAccessTokenSilently])
 
   const handleCorrelate = async () => {
     setActionLoading(true)
@@ -316,7 +470,7 @@ export function FeedsExplorerPage() {
     }
   }
 
-  // 24-bucket Histogram Calculation
+  // 24-bucket Histogram Calculation from active observations
   const histogramBuckets = useMemo(() => {
     const buckets = Array.from({ length: 24 }, (_, i) => ({
       hour: i,
@@ -324,7 +478,7 @@ export function FeedsExplorerPage() {
       count: 0,
     }))
 
-    observations.forEach((obs) => {
+    activeObservations.forEach((obs) => {
       if (!obs.timestamp) return
       const d = new Date(obs.timestamp)
       const h = d.getHours()
@@ -335,11 +489,11 @@ export function FeedsExplorerPage() {
 
     const max = Math.max(1, ...buckets.map((b) => b.count))
     return { buckets, max }
-  }, [observations])
+  }, [activeObservations])
 
   // Filter observations based on controls
   const filteredObservations = useMemo(() => {
-    return observations.filter((obs) => {
+    return activeObservations.filter((obs) => {
       if (selectedLayer !== 'all' && obs.layer !== selectedLayer) return false
       if (selectedFidelity !== 'all' && obs.fidelity !== selectedFidelity) return false
       if (actorFilter.trim()) {
@@ -352,7 +506,8 @@ export function FeedsExplorerPage() {
         const desc = (obs.description || '').toLowerCase()
         const src = (obs.source || '').toLowerCase()
         const id = (obs.id || '').toLowerCase()
-        if (!desc.includes(query) && !src.includes(query) && !id.includes(query)) {
+        const actor = (obs.actor_hint || '').toLowerCase()
+        if (!desc.includes(query) && !src.includes(query) && !id.includes(query) && !actor.includes(query)) {
           return false
         }
       }
@@ -362,7 +517,49 @@ export function FeedsExplorerPage() {
       }
       return true
     })
-  }, [observations, selectedLayer, selectedFidelity, actorFilter, searchQuery, selectedBucket])
+  }, [activeObservations, selectedLayer, selectedFidelity, actorFilter, searchQuery, selectedBucket])
+
+  // Count maps for Super-Table facets across whole active set
+  const layerCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: activeObservations.length }
+    SIGNAL_LAYERS.forEach((l) => {
+      counts[l.id] = 0
+    })
+    activeObservations.forEach((o) => {
+      if (counts[o.layer] !== undefined) {
+        counts[o.layer] += 1
+      }
+    })
+    return counts
+  }, [activeObservations])
+
+  const fidelityCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: activeObservations.length }
+    FIDELITIES.forEach((f) => {
+      counts[f] = 0
+    })
+    activeObservations.forEach((o) => {
+      if (counts[o.fidelity] !== undefined) {
+        counts[o.fidelity] += 1
+      }
+    })
+    return counts
+  }, [activeObservations])
+
+  const isTableNarrowed =
+    searchQuery.trim() !== '' ||
+    selectedLayer !== 'all' ||
+    selectedFidelity !== 'all' ||
+    selectedBucket !== null ||
+    actorFilter.trim() !== ''
+
+  const clearTableFilters = () => {
+    setSearchQuery('')
+    setSelectedLayer('all')
+    setSelectedFidelity('all')
+    setSelectedBucket(null)
+    setActorFilter('')
+  }
 
   // Efficiency estimation
   const pruningEstimate = useMemo(() => {
@@ -509,7 +706,7 @@ export function FeedsExplorerPage() {
         })}
       </div>
 
-      {/* ─── Slicing & Dicing Controls & Ingestion Density Histogram ────────── */}
+      {/* ─── Ingestion Density & Historical Archive ────────── */}
       <div
         style={{
           background: 'var(--surface)',
@@ -519,152 +716,103 @@ export function FeedsExplorerPage() {
           marginBottom: 24,
         }}
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginBottom: 16 }}>
-          {/* Layer Filter Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginRight: 4 }}>Layer:</span>
-            <button
-              className="btn"
-              onClick={() => setSelectedLayer('all')}
-              style={{
-                fontSize: 11,
-                padding: '3px 10px',
-                borderRadius: 14,
-                background: selectedLayer === 'all' ? 'var(--cyan)' : 'var(--surface2)',
-                color: selectedLayer === 'all' ? 'var(--on-accent)' : 'var(--text)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              All
-            </button>
-            {SIGNAL_LAYERS.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => setSelectedLayer(l.id)}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                Ingestion Density (24-Hour Distribution)
+              </span>
+              <span
                 style={{
-                  fontSize: 11,
-                  padding: '3px 10px',
-                  borderRadius: 14,
-                  background: selectedLayer === l.id ? 'var(--cyan)' : 'var(--surface2)',
-                  color: selectedLayer === l.id ? 'var(--on-accent)' : 'var(--text)',
-                  border: '1px solid var(--border)',
-                  cursor: 'pointer',
+                  fontSize: 10.5,
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  fontWeight: 600,
+                  background: historicalDate ? 'rgba(245, 158, 11, 0.15)' : 'rgba(45, 212, 191, 0.15)',
+                  color: historicalDate ? 'var(--amber)' : 'var(--teal)',
                 }}
               >
-                {l.code}
-              </button>
-            ))}
+                {historicalDate ? `📅 Historical Archive (${historicalDate})` : '● Live Stream Window'}
+              </span>
+              {historyLoading && (
+                <span style={{ fontSize: 11, color: 'var(--cyan)' }}>Loading archive…</span>
+              )}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+              {historicalDate
+                ? `Exploring FrostDB table partition for ${formatDisplayDate(historicalDate)}`
+                : 'Real-time observation frequency across 24 hourly buckets'}
+            </div>
           </div>
 
-          {/* Fidelity Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Fidelity:</span>
-            <select
-              value={selectedFidelity}
-              onChange={(e) => setSelectedFidelity(e.target.value)}
-              style={{
-                background: 'var(--surface2)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                padding: '4px 8px',
-                fontSize: 12,
-              }}
+          {/* Historical Time Travel Navigation */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => handleNavigateDay(-1)}
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              title="Go back one day"
+              data-testid="feeds-density-prev-day"
             >
-              <option value="all">All Tiers</option>
-              {FIDELITIES.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
-            </select>
-          </div>
+              ← Prev Day
+            </button>
 
-          {/* Time Window */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Window:</span>
-            <select
-              value={timeWindow}
-              onChange={(e) => setTimeWindow(e.target.value)}
+            <input
+              type="date"
+              value={historicalDate || todayIso}
+              max={todayIso}
+              onChange={(e) => handleDateSelect(e.target.value)}
               style={{
+                fontSize: 11.5,
+                padding: '4px 8px',
                 background: 'var(--surface2)',
                 color: 'var(--text)',
                 border: '1px solid var(--border)',
-                borderRadius: 6,
-                padding: '4px 8px',
-                fontSize: 12,
+                borderRadius: 4,
+                fontFamily: 'inherit',
               }}
+              data-testid="feeds-density-date-picker"
+            />
+
+            <button
+              className="btn btn-secondary"
+              onClick={() => handleNavigateDay(1)}
+              disabled={!historicalDate || historicalDate >= todayIso}
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              title="Go forward one day"
+              data-testid="feeds-density-next-day"
             >
-              <option value="15m">Last 15m</option>
-              <option value="1h">Last 1h</option>
-              <option value="6h">Last 6h</option>
-              <option value="24h">Last 24h</option>
-              <option value="all">All Available</option>
-            </select>
-          </div>
+              Next Day →
+            </button>
 
-          {/* Actor Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Actor:</span>
-            <input
-              type="text"
-              placeholder="e.g. agent-1, alice"
-              value={actorFilter}
-              onChange={(e) => setActorFilter(e.target.value)}
-              style={{
-                background: 'var(--surface2)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                padding: '4px 8px',
-                fontSize: 12,
-                width: 140,
-              }}
-            />
-          </div>
-
-          {/* Free Text Search */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-            <input
-              type="text"
-              placeholder="Search observations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                background: 'var(--surface2)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                padding: '4px 10px',
-                fontSize: 12,
-                width: 200,
-              }}
-            />
-            {(selectedLayer !== 'all' || selectedFidelity !== 'all' || actorFilter || searchQuery || selectedBucket !== null) && (
-              <button
-                className="btn"
-                onClick={() => {
-                  setSelectedLayer('all')
-                  setSelectedFidelity('all')
-                  setActorFilter('')
-                  setSearchQuery('')
-                  setSelectedBucket(null)
-                }}
-                style={{ fontSize: 11, padding: '4px 8px' }}
-              >
-                Reset
-              </button>
-            )}
+            <button
+              className={`btn ${!historicalDate ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={handleReturnToLive}
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              data-testid="feeds-density-live-btn"
+            >
+              Live / Today
+            </button>
           </div>
         </div>
+
+        {historyError && (
+          <div style={{ color: 'var(--error)', fontSize: 11.5, marginBottom: 10, background: 'rgba(239, 68, 68, 0.1)', padding: '6px 10px', borderRadius: 4 }}>
+            {historyError}
+          </div>
+        )}
 
         {/* 24-Bucket Ingestion Density Histogram */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-              Ingestion Density (24-Hour Distribution)
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {historicalDate
+                ? `${historicalObservations.length} observations in ${historicalDate} partition`
+                : `${activeObservations.length} observations buffered in live ring`}
             </span>
             {selectedBucket !== null && (
               <span style={{ fontSize: 11, color: 'var(--cyan)' }}>
-                Filtering bucket {String(selectedBucket).padStart(2, '0')}:00–{String(selectedBucket + 1).padStart(2, '0')}:00{' '}
+                Filtering bucket {String(selectedBucket).padStart(2, '0')}:00–{String(selectedBucket + 1).padStart(2, '0')}:00 ({histogramBuckets.buckets[selectedBucket]?.count || 0} observations){' '}
                 <button
                   onClick={() => setSelectedBucket(null)}
                   style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', marginLeft: 4 }}
@@ -744,37 +892,83 @@ export function FeedsExplorerPage() {
           </div>
         </div>
 
-        {/* Projection Checkbox Pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Projections:</span>
-          {['*', 'timestamp', 'layer', 'fidelity', 'source', 'actor_hint', 'description', 'raw_evidence_ref', 'labels.*'].map((col) => {
-            const checked = selectedProjections.includes(col)
-            return (
-              <label
-                key={col}
-                style={{
-                  fontSize: 11,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  background: checked ? 'rgba(56, 189, 248, 0.12)' : 'var(--surface2)',
-                  border: checked ? '1px solid var(--cyan)' : '1px solid var(--border)',
-                  borderRadius: 4,
-                  padding: '2px 8px',
-                  cursor: 'pointer',
-                  color: checked ? 'var(--cyan)' : 'var(--text)',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleProjection(col)}
-                  style={{ display: 'none' }}
-                />
-                {col}
-              </label>
-            )
-          })}
+        {/* Workbench Filter Controls & Projections */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          {/* Time Window */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>Window:</span>
+            <select
+              value={timeWindow}
+              onChange={(e) => setTimeWindow(e.target.value)}
+              style={{
+                background: 'var(--surface2)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontSize: 11.5,
+              }}
+            >
+              <option value="15m">Last 15m</option>
+              <option value="1h">Last 1h</option>
+              <option value="6h">Last 6h</option>
+              <option value="24h">Last 24h</option>
+              <option value="all">All Available</option>
+            </select>
+          </div>
+
+          {/* Actor Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>Actor:</span>
+            <input
+              type="text"
+              placeholder="e.g. agent-1, alice"
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value)}
+              style={{
+                background: 'var(--surface2)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontSize: 11.5,
+                width: 130,
+              }}
+            />
+          </div>
+
+          {/* Projection Checkbox Pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>Projections:</span>
+            {['*', 'timestamp', 'layer', 'fidelity', 'source', 'actor_hint', 'description', 'raw_evidence_ref', 'labels.*'].map((col) => {
+              const checked = selectedProjections.includes(col)
+              return (
+                <label
+                  key={col}
+                  style={{
+                    fontSize: 11,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: checked ? 'rgba(56, 189, 248, 0.12)' : 'var(--surface2)',
+                    border: checked ? '1px solid var(--cyan)' : '1px solid var(--border)',
+                    borderRadius: 4,
+                    padding: '2px 8px',
+                    cursor: 'pointer',
+                    color: checked ? 'var(--cyan)' : 'var(--text)',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleProjection(col)}
+                    style={{ display: 'none' }}
+                  />
+                  {col}
+                </label>
+              )
+            })}
+          </div>
         </div>
 
         {/* Pruning Efficiency Telemetry Badges */}
@@ -834,7 +1028,7 @@ export function FeedsExplorerPage() {
         </pre>
       </div>
 
-      {/* ─── Live SSE Stream & Observation Table ─────────────────────────────── */}
+      {/* ─── Real-Time / Historical Observation Super-Table ─────────────────────────── */}
       <div
         style={{
           background: 'var(--surface)',
@@ -843,136 +1037,227 @@ export function FeedsExplorerPage() {
           padding: 16,
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
-              Real-Time Observation Stream
+              {historicalDate ? 'Historical Observation Stream' : 'Real-Time Observation Stream'}
             </span>
             <span
               style={{
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 12,
-                background: streamingActive ? 'rgba(45, 212, 191, 0.15)' : 'var(--surface2)',
-                color: streamingActive ? 'var(--teal)' : 'var(--muted)',
+                background: historicalDate
+                  ? 'rgba(245, 158, 11, 0.15)'
+                  : streamingActive
+                  ? 'rgba(45, 212, 191, 0.15)'
+                  : 'var(--surface2)',
+                color: historicalDate
+                  ? 'var(--amber)'
+                  : streamingActive
+                  ? 'var(--teal)'
+                  : 'var(--muted)',
                 fontWeight: 600,
               }}
             >
-              {streamingActive ? '● Streaming Active' : '⏸ Paused'}
+              {historicalDate
+                ? `⏸ Historical Snapshot (${historicalDate})`
+                : streamingActive
+                ? '● Streaming Active'
+                : '⏸ Paused'}
             </span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              ({bufferedCount}/500 buffered ring, {filteredObservations.length} match filters)
+              ({activeObservations.length} in buffer, {filteredObservations.length} match filters)
             </span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              className="btn"
-              onClick={() => setStreamingActive((v) => !v)}
-              style={{ fontSize: 12, padding: '4px 12px' }}
-            >
-              {streamingActive ? 'Pause Stream' : 'Resume Stream'}
-            </button>
+            {!historicalDate ? (
+              <button
+                className="btn btn-secondary"
+                onClick={() => setStreamingActive((v) => !v)}
+                style={{ fontSize: 11.5, padding: '4px 12px' }}
+                data-testid="feeds-stream-toggle"
+              >
+                {streamingActive ? 'Pause Stream' : 'Resume Stream'}
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                onClick={handleReturnToLive}
+                style={{ fontSize: 11.5, padding: '4px 12px' }}
+              >
+                Return to Live Stream
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Table */}
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--muted)', textAlign: 'left' }}>
-                <th style={{ padding: '8px 10px' }}>Timestamp</th>
-                <th style={{ padding: '8px 10px' }}>Layer</th>
-                <th style={{ padding: '8px 10px' }}>Fidelity</th>
-                <th style={{ padding: '8px 10px' }}>Source</th>
-                <th style={{ padding: '8px 10px' }}>Actor</th>
-                <th style={{ padding: '8px 10px' }}>Description</th>
-                <th style={{ padding: '8px 10px' }}>Proof / Ref</th>
-                <th style={{ padding: '8px 10px', textAlign: 'right' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredObservations.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>
-                    No observations matching the active slicing filters.
-                  </td>
-                </tr>
-              ) : (
-                filteredObservations.slice(0, 50).map((obs) => (
-                  <tr
-                    key={obs.id}
-                    style={{
-                      borderBottom: '1px solid var(--border)',
-                      cursor: 'pointer',
-                      background: selectedObs?.id === obs.id ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
-                    }}
-                    onClick={() => setSelectedObs(obs)}
-                  >
-                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                      {obs.timestamp ? new Date(obs.timestamp).toLocaleTimeString() : 'N/A'}
-                    </td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          background: 'var(--surface2)',
-                          color: LAYER_COLORS[obs.layer] || 'var(--text)',
-                        }}
-                      >
-                        {obs.layer}
-                      </span>
-                    </td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: FIDELITY_COLORS[obs.fidelity] || 'var(--muted)',
-                          textTransform: 'capitalize',
-                        }}
-                      >
-                        {obs.fidelity}
-                      </span>
-                    </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--muted)' }}>
-                      {obs.source}
-                    </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--text)', fontWeight: 500 }}>
-                      {obs.actor_hint || '-'}
-                    </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--text)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {obs.description}
-                    </td>
-                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 10, color: 'var(--cyan)' }}>
-                      {obs.raw_evidence_ref ? obs.raw_evidence_ref.slice(0, 16) + '...' : 'none'}
-                    </td>
-                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                      <button
-                        className="btn"
-                        style={{ fontSize: 10, padding: '2px 8px' }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedObs(obs)
-                        }}
-                      >
-                        Inspect
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          {filteredObservations.length > 50 && (
-            <div style={{ textAlign: 'center', padding: '10px 0', fontSize: 11, color: 'var(--muted)' }}>
-              Showing first 50 of {filteredObservations.length} observations
+        {/* Super-Table: DataTable with DataTableToolbar */}
+        <DataTable
+          columns={SUPER_COLUMNS}
+          data={filteredObservations}
+          pageSize={15}
+          testIdPrefix="feeds-stream"
+          toolbar={
+            <DataTableToolbar label="Filter the observation stream">
+              <ToolbarSearch
+                label="Search observations"
+                placeholder="Search description, source, actor, or ID…"
+                value={searchQuery}
+                onChange={setSearchQuery}
+                testId="feeds-stream-search"
+              />
+              <ToolbarFacet
+                label="Filter observations by layer"
+                value={selectedLayer}
+                options={[
+                  { value: 'all', label: 'All Layers', count: layerCounts['all'] },
+                  ...SIGNAL_LAYERS.map((l) => ({
+                    value: l.id,
+                    label: l.code,
+                    count: layerCounts[l.id],
+                  })),
+                ]}
+                onChange={setSelectedLayer}
+                testIdPrefix="feeds-stream-layer"
+              />
+              <ToolbarSelect
+                label="Fidelity"
+                subject="the observation stream"
+                value={selectedFidelity}
+                options={[
+                  { value: 'all', label: 'all fidelities', count: fidelityCounts['all'] },
+                  ...FIDELITIES.map((f) => ({
+                    value: f,
+                    label: f,
+                    count: fidelityCounts[f],
+                  })),
+                ]}
+                onChange={setSelectedFidelity}
+                testId="feeds-stream-fidelity"
+              />
+              <ToolbarClear
+                active={isTableNarrowed}
+                onClear={clearTableFilters}
+                testId="feeds-stream-clear"
+              />
+              <ToolbarCount
+                shown={filteredObservations.length}
+                total={activeObservations.length}
+                noun="observations"
+                testId="feeds-stream-count"
+              />
+              <HelpHint label="What the observation stream filters do" testId="feeds-stream-help">
+                Filter observations in real time by free-text, signal taxonomy layer (L1 to L6), or fidelity tier. Selecting a bucket in the Ingestion Density histogram above also narrows this table to that specific hour. Click any row or &ldquo;Inspect&rdquo; to examine the full evidence payload, Arrow schema, and proof chain in the drawer.
+              </HelpHint>
+            </DataTableToolbar>
+          }
+          emptyState={
+            <div data-testid="feeds-stream-empty">
+              <EmptyState
+                kicker="No observations match these filters"
+                body={`All ${activeObservations.length} observations are still retained in the buffer: the search query, layer facet, fidelity select, or histogram bucket is hiding them.`}
+              />
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: -34, marginBottom: 12 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={clearTableFilters}
+                  data-testid="feeds-stream-empty-clear"
+                  style={{ fontSize: 12, padding: '5px 12px' }}
+                >
+                  Clear filters
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+          }
+          renderRow={(obs: SignalObservation, i: number) => {
+            const isSelected = selectedObs?.id === obs.id
+            return (
+              <tr
+                key={obs.id || `${obs.source}-${i}`}
+                data-testid="feeds-stream-row"
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  background: isSelected ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
+                  transition: 'background 0.1s ease',
+                }}
+                onClick={() => setSelectedObs(obs)}
+              >
+                <td style={{ ...DataTable.td, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>
+                  {obs.timestamp ? new Date(obs.timestamp).toLocaleTimeString() : 'N/A'}
+                </td>
+                <td style={DataTable.td}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: 'var(--surface2)',
+                      color: LAYER_COLORS[obs.layer] || 'var(--text)',
+                    }}
+                  >
+                    {obs.layer}
+                  </span>
+                </td>
+                <td style={DataTable.td}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: FIDELITY_COLORS[obs.fidelity] || 'var(--muted)',
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    ● {obs.fidelity}
+                  </span>
+                </td>
+                <td style={{ ...DataTable.td, color: 'var(--muted)', fontSize: 11, fontFamily: 'monospace' }}>
+                  {obs.source}
+                </td>
+                <td style={{ ...DataTable.td, color: 'var(--text)', fontWeight: 500, fontSize: 12 }}>
+                  {obs.actor_hint || '—'}
+                </td>
+                <td style={{ ...DataTable.td, fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--teal)' }}>
+                  {(obs.confidence * 100).toFixed(0)}%
+                </td>
+                <td
+                  style={{
+                    ...DataTable.td,
+                    color: 'var(--text)',
+                    maxWidth: 320,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: 12,
+                  }}
+                  title={obs.description}
+                >
+                  {obs.description}
+                </td>
+                <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 10, color: 'var(--cyan)' }}>
+                  {obs.raw_evidence_ref ? obs.raw_evidence_ref.slice(0, 16) + '…' : 'none'}
+                </td>
+                <td style={{ ...DataTable.td, textAlign: 'right' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ fontSize: 10.5, padding: '2px 8px' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedObs(obs)
+                    }}
+                  >
+                    Inspect
+                  </button>
+                </td>
+              </tr>
+            )
+          }}
+        />
       </div>
 
       {/* ─── Slide-out Arrow Evidence Inspection Drawer ─────────────────────── */}

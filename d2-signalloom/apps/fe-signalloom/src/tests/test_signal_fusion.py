@@ -204,6 +204,18 @@ class TestSeedProxy:
         assert sent.method == "POST"
         assert sent.url.path == "/api/v1/collectors/seed"
 
+    def test_observations_forwards_after_and_before(self, client, ingest):
+        resp = client.get("/api/signals/observations?after=2026-10-06T00:00:00Z&before=2026-10-06T23:59:59Z&layer=network_egress&limit=50")
+        assert resp.status_code == 201
+        assert len(ingest["sent"]) == 1
+        req = ingest["sent"][0]
+        assert req.method == "GET"
+        assert "/api/v1/observations" in str(req.url)
+        assert req.url.params["after"] == "2026-10-06T00:00:00Z"
+        assert req.url.params["before"] == "2026-10-06T23:59:59Z"
+        assert req.url.params["layer"] == "network_egress"
+        assert req.url.params["limit"] == "50"
+
     def test_seed_failure_status_and_body_pass_through(self, client, ingest):
         """The live defect (ingest 500 "failed to seed fixtures") reaches the browser as itself."""
         ingest["status"] = 500

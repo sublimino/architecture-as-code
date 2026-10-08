@@ -44,6 +44,14 @@ describe('weaveApi live-mode endpoints', () => {
     expect(path).toContain('limit=50')
   })
 
+  it('getObservations appends after and before query params for historical time travel', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getObservations('tok', { after: '2026-10-06T00:00:00Z', before: '2026-10-06T23:59:59Z' })
+    const path = mockReq.mock.calls[0][0] as string
+    expect(path).toContain('after=2026-10-06T00%3A00%3A00Z')
+    expect(path).toContain('before=2026-10-06T23%3A59%3A59Z')
+  })
+
   it('getActors calls req with /signals/actors', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getActors('tok')

@@ -81,11 +81,17 @@ async def get_observations(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     layer: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
+    after: str | None = None,
+    before: str | None = None,
 ) -> JSONResponse:
     """List signal observations from the columnar store."""
     params: dict[str, Any] = {"limit": limit}
     if layer:
         params["layer"] = layer
+    if after:
+        params["after"] = after
+    if before:
+        params["before"] = before
     return await _proxy("GET", "/api/v1/observations", principal, params=params)
 
 

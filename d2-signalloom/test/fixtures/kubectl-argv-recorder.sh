@@ -16,11 +16,16 @@
 
 printf '%s\n' "$*" >>"${KUBECTL_ARGV_LOG:-/dev/null}"
 
-# `apply -f -` and friends read a manifest on stdin. Draining unconditionally
-# (when stdin is not a terminal) keeps the producer side of the pipe happy.
-if [ ! -t 0 ]; then
-  cat >/dev/null 2>&1 || true
-fi
+# `apply -f -` and friends read a manifest on stdin. Draining only when -f -
+# is present and stdin is a pipe keeps the producer side happy without hanging
+# non-interactive test harnesses.
+case " $* " in
+  *" -f - "*|*"-f -"*)
+    if [ -p /dev/stdin ] || [ ! -t 0 ]; then
+      timeout 1s cat >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
 
 case " $* " in
   # A minimal manifest, so a downstream `apply -f -` has something to consume.

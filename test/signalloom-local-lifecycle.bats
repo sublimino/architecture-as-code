@@ -17,6 +17,12 @@ elif [[ "$*" == *'entry create'* ]]; then
   printf 'entry created\n'
 elif [[ "$*" == *'bundle show -format spiffe'* ]]; then
   printf '{"keys":[{"use":"jwt-svid","kty":"EC","crv":"P-256","x":"Sm_8qNnrAGgIreZrJYZoxYSBoLnQrIR5wuvRXpM-moM","y":"Bw4Nxy8aEwIlVQZxjoHr2qAXCpbQ2J2-syBUYOXkYzA"}]}'
+elif [[ "$*" == *'conditions'* ]]; then
+  printf 'Complete=True\n'
+elif [[ "$*" == *'containerStatuses'* ]]; then
+  printf 'openbao-spire-bootstrap=0\n'
+elif [[ "$*" == *logs* && "$*" == *spire-agent* ]]; then
+  printf 'level=info msg="Starting Workload and SDS APIs" address=/run/spire/sockets/agent.sock\n'
 fi
 SCRIPT
   cat >"$bin/flux" <<'SCRIPT'

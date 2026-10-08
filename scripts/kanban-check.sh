@@ -6,7 +6,13 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="${REPO_ROOT}/scripts/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin"
-UPSTREAM_CHECK="/home/andy/.andy_sync/confExt/skills/ajm-cline-kanban/Tools/kanban-check.sh"
+if [[ -f "/home/andy/.andy_sync/confExt/skills/ajm-auto-kanban/Tools/kanban-check.sh" ]]; then
+  UPSTREAM_CHECK="/home/andy/.andy_sync/confExt/skills/ajm-auto-kanban/Tools/kanban-check.sh"
+elif [[ -f "/home/andy/.andy_sync/confExt/skills/ajm-cline-kanban/Tools/kanban-check.sh" ]]; then
+  UPSTREAM_CHECK="/home/andy/.andy_sync/confExt/skills/ajm-cline-kanban/Tools/kanban-check.sh"
+else
+  UPSTREAM_CHECK="$(command -v kanban-check.sh 2>/dev/null || true)"
+fi
 LEDGER_FILE="${REPO_ROOT}/.kanban-review-ledger.json"
 
 MIN_DURATION_SEC=5.0

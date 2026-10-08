@@ -14,6 +14,7 @@ import { useMoney } from '../money/CurrencyContext'
 import { scaleMoney } from '../money/money'
 import { MONEY_UNAVAILABLE } from '../money/format'
 import ConversionNote from '../components/ConversionNote'
+import AgentDeepLink from '../components/AgentDeepLink'
 
 const DEFAULT_VERSIONS: FrameworkVersion[] = [
   { frameworkId: 'eu-ai-act', name: 'EU AI Act', version: 'v2.1', status: 'active', isDefault: true },
@@ -609,15 +610,43 @@ export default function RiskExposurePage() {
             },
           ]}
           renderRow={(agent) => {
-            const agentName = agent.name || agent.id || 'Unnamed'
+            const agentId = agent.id || agent.agent_id || ''
+            const agentName = agent.name || agent.agent_name || agentId || 'Unnamed'
             const state = agent.lifecycle_state || 'Governed'
             const failing = agent.compliance_summary?.failing ?? 0
             const exposureAmt = failing * 12000
             return (
               <tr key={agent.id} style={{ borderBottom: '1px solid var(--border)' }} data-testid={`fair-agent-row-${agent.id}`}>
                 <td style={td}>
-                  <div style={{ fontWeight: 600, color: 'var(--text)' }}>{agentName}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>{agent.id}</div>
+                  {agentId ? (
+                    <>
+                      <div>
+                        <AgentDeepLink
+                          target={{ kind: 'agent', agentId }}
+                          label={agentName}
+                          dataTestId={`risk-agent-link-${agent.id}`}
+                          title={`View agent dossier for ${agentName}`}
+                          className="hover:underline"
+                        />
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 2 }}>
+                        <AgentDeepLink
+                          target={{ kind: 'agent', agentId }}
+                          variant="subtle"
+                          dataTestId={`risk-agent-id-link-${agent.id}`}
+                          title={`View agent dossier for ${agent.id}`}
+                          className="hover:underline hover:text-[var(--cyan)]"
+                        >
+                          <span style={{ fontSize: 11, fontFamily: 'monospace' }}>{agent.id}</span>
+                        </AgentDeepLink>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>{agentName}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>{agent.id}</div>
+                    </>
+                  )}
                 </td>
                 <td style={td}>
                   <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{agent.namespace || 'default'}</span>

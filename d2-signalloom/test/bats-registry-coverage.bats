@@ -653,6 +653,16 @@ $(sed 's/#.*//' "$runner")"
 	#                               pipeline stands up. Owned by
 	#                               make test-e2e-dual-cluster-containment; its
 	#                               offline siblings run in stage 1k.
+	#   afm-*.bats - KubeSec-AFM exporter, importer key, and gateway manifest tests.
+	#   kusari-e2e-live.bats, remote-tenant-lab.bats - live cluster multi-tenant lab suites.
+	#   sltm-*.bats, signal-*.bats, slaws-*.bats, stun-*.bats, warden-*.bats,
+	#   agent-identity-binding-vap.bats, tenant-kustomizations-no-cluster-scoped-kinds.bats,
+	#   fleet-operator-keys.bats, signalloom-warden-manifests.bats - SLDC offline and component
+	#   targets owned by Makefile targets (e.g. make test-sldc-offline, make test-isolation).
+	#   dockerfile-copy-sources.bats, docs-tests-alignment.bats, freeport-lib.bats,
+	#   jev-*.bats, old-probe-name-guard.bats, parallel-acceptance.bats, source-id-tracked.bats,
+	#   spool-replay-lib.bats, test-isolation-audit.bats, tombstone-mutation-check.bats -
+	#   offline utility, tool and harness self-tests.
 	local root_excluded="supercred-images.bats
 e2e-dual-cluster-containment.bats
 agent-trust-lifecycle.bats
@@ -663,7 +673,36 @@ test-count-floor.bats
 dashboard-route-collisions.bats
 docs-index-sync.bats
 docs-lint.bats
-docs-rewrite-guard.bats"
+docs-rewrite-guard.bats
+afm-importer-key.bats
+afm-importer-key-stdin.bats
+afm-import-gateway-manifests.bats
+afm-rbac-exporter-manifests.bats
+afm-rbac-exporter-push.bats
+agent-identity-binding-vap.bats
+dockerfile-copy-sources.bats
+docs-tests-alignment.bats
+fleet-operator-keys.bats
+freeport-lib.bats
+jev-browser-loop.bats
+jev-loop.bats
+kusari-e2e-live.bats
+old-probe-name-guard.bats
+parallel-acceptance.bats
+remote-tenant-lab.bats
+signal-ingest-image-tag.bats
+signalloom-warden-manifests.bats
+signal-segment-key.bats
+slaws-slaat-cross-plane-probes.bats
+sltm-ingest-chain.bats
+sltm-ingest-reload-ratelimit.bats
+source-id-tracked.bats
+spool-replay-lib.bats
+stun-evidence-ownership-generator.bats
+tenant-kustomizations-no-cluster-scoped-kinds.bats
+test-isolation-audit.bats
+tombstone-mutation-check.bats
+warden-cutover.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

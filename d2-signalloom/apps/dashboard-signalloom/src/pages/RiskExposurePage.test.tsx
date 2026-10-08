@@ -273,4 +273,21 @@ describe('RiskExposurePage', () => {
     expect(await screen.findByText('Wire Framework')).toBeInTheDocument()
     expect(await screen.findByText('Carried Risk')).toBeInTheDocument()
   })
+
+  it('renders click-through links to agent dossiers in the assessed agents table', async () => {
+    renderPage()
+    const agentLink = await screen.findByTestId('risk-agent-link-agent-1')
+    expect(agentLink).toBeInTheDocument()
+    expect(agentLink).toHaveAttribute('href', '/agents/agent-1?tab=overview')
+    expect(agentLink).toHaveTextContent('Sentinel Alpha')
+
+    const agentIdLink = screen.getByTestId('risk-agent-id-link-agent-1')
+    expect(agentIdLink).toBeInTheDocument()
+    expect(agentIdLink).toHaveAttribute('href', '/agents/agent-1?tab=overview')
+    expect(agentIdLink).toHaveTextContent('agent-1')
+
+    const agent2Link = screen.getByTestId('risk-agent-link-agent-2')
+    expect(agent2Link).toHaveAttribute('href', '/agents/agent-2?tab=overview')
+    expect(agent2Link).toHaveTextContent('Sentinel Beta')
+  })
 })

@@ -223,10 +223,21 @@ export default function SignalStorePage() {
       {/* Raw Observations Browser */}
       {observations.length > 0 && (
         <Section title="Raw Observations" hint={`Last ${observations.length} observations from the store`}>
-          <Table headers={['ID', 'Timestamp', 'Layer', 'Fidelity', 'Source', 'Confidence', 'Description']}>
+          <Table
+            tableStyle={{ tableLayout: 'fixed' }}
+            headers={[
+              { label: 'ID', width: 220 },
+              { label: 'Timestamp', width: 140 },
+              { label: 'Layer', width: 130 },
+              { label: 'Fidelity', width: 110 },
+              { label: 'Source', width: 160 },
+              { label: 'Confidence', width: 95 },
+              { label: 'Description' },
+            ]}
+          >
             {observations.map((o) => (
               <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{o.id}</td>
+                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', whiteSpace: 'normal', lineHeight: 1.35 }}>{o.id}</td>
                 <td style={{ ...td, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(o.timestamp)}</td>
                 <td style={{ ...td }}>{LAYER_LABELS[o.layer] ?? o.layer}</td>
                 <td style={{ ...td }}>
@@ -240,9 +251,9 @@ export default function SignalStorePage() {
                     {o.fidelity}
                   </span>
                 </td>
-                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{o.source}</td>
+                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', whiteSpace: 'normal' }}>{o.source}</td>
                 <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{(o.confidence * 100).toFixed(0)}%</td>
-                <td style={{ ...td, whiteSpace: 'normal', maxWidth: 300, fontSize: 12 }}>{o.description}</td>
+                <td style={{ ...td, whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>{o.description}</td>
               </tr>
             ))}
           </Table>

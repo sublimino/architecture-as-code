@@ -1,0 +1,355 @@
+{
+  "contractVersion": "1.0.0",
+  "auditId": "SLSC-P1-PRE",
+  "timestamp": "2026-10-08T09:47:00+01:00",
+  "phase": 1,
+  "status": "pass",
+  "proceed": "yes",
+  "targetFleet": {
+    "size": 5,
+    "agents": [
+      {
+        "name": "agent-cardvault",
+        "type": "data-vault",
+        "team": "payments",
+        "trustProfile": "high",
+        "riskClass": "critical",
+        "gracePeriod": "0h",
+        "dependencies": [],
+        "spiffe": {
+          "trustDomain": "signalloom.demo",
+          "id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent",
+          "parentId": "spiffe://signalloom.demo/agent/kind",
+          "selectors": [
+            "k8s:ns:fe-signalloom-agents",
+            "k8s:sa:cardvault-agent"
+          ]
+        },
+        "openbao": {
+          "authMount": "jwt",
+          "role": "signalloom-cardvault-agent",
+          "policy": "signalloom-cardvault-agent",
+          "kvPath": "kv/signalloom/cardvault-agent",
+          "tokenTtl": "5m",
+          "tokenMaxTtl": "5m",
+          "tokenType": "batch"
+        }
+      },
+      {
+        "name": "agent-txn-pipeline",
+        "type": "data-pipeline",
+        "team": "payments",
+        "trustProfile": "medium",
+        "riskClass": "medium",
+        "gracePeriod": "72h",
+        "dependencies": [
+          "agent-cardvault"
+        ],
+        "spiffe": {
+          "trustDomain": "signalloom.demo",
+          "id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/txn-pipeline-agent",
+          "parentId": "spiffe://signalloom.demo/agent/kind",
+          "selectors": [
+            "k8s:ns:fe-signalloom-agents",
+            "k8s:sa:txn-pipeline-agent"
+          ]
+        },
+        "openbao": {
+          "authMount": "jwt-payments",
+          "role": "fleet-txn-pipeline",
+          "policy": "fleet-txn-pipeline",
+          "kvPath": "kv/payments/txn-pipeline",
+          "tokenTtl": "5m",
+          "tokenMaxTtl": "5m",
+          "tokenType": "batch"
+        }
+      },
+      {
+        "name": "agent-llm-classifier",
+        "type": "llm-inference",
+        "team": "ml-ops",
+        "trustProfile": "high",
+        "riskClass": "critical",
+        "gracePeriod": "0h",
+        "dependencies": [
+          "agent-txn-pipeline"
+        ],
+        "spiffe": {
+          "trustDomain": "signalloom.demo",
+          "id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/llm-classifier-agent",
+          "parentId": "spiffe://signalloom.demo/agent/kind",
+          "selectors": [
+            "k8s:ns:fe-signalloom-agents",
+            "k8s:sa:llm-classifier-agent"
+          ]
+        },
+        "openbao": {
+          "authMount": "jwt-ml-ops",
+          "role": "fleet-llm-classifier",
+          "policy": "fleet-llm-classifier",
+          "kvPath": "kv/ml-ops/llm-classifier",
+          "tokenTtl": "5m",
+          "tokenMaxTtl": "5m",
+          "tokenType": "batch"
+        }
+      },
+      {
+        "name": "agent-api-gateway",
+        "type": "api-gateway",
+        "team": "platform",
+        "trustProfile": "medium",
+        "riskClass": "low",
+        "gracePeriod": "168h",
+        "dependencies": [
+          "agent-cardvault"
+        ],
+        "spiffe": {
+          "trustDomain": "signalloom.demo",
+          "id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/api-gateway-agent",
+          "parentId": "spiffe://signalloom.demo/agent/kind",
+          "selectors": [
+            "k8s:ns:fe-signalloom-agents",
+            "k8s:sa:api-gateway-agent"
+          ]
+        },
+        "openbao": {
+          "authMount": "jwt-platform",
+          "role": "fleet-api-gateway",
+          "policy": "fleet-api-gateway",
+          "kvPath": "kv/platform/api-gateway",
+          "tokenTtl": "5m",
+          "tokenMaxTtl": "5m",
+          "tokenType": "batch"
+        }
+      },
+      {
+        "name": "agent-monitor",
+        "type": "observability",
+        "team": "sre",
+        "trustProfile": "low",
+        "riskClass": "low",
+        "gracePeriod": "168h",
+        "dependencies": [
+          "agent-cardvault",
+          "agent-txn-pipeline",
+          "agent-llm-classifier",
+          "agent-api-gateway"
+        ],
+        "spiffe": {
+          "trustDomain": "signalloom.demo",
+          "id": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/monitor-agent",
+          "parentId": "spiffe://signalloom.demo/agent/kind",
+          "selectors": [
+            "k8s:ns:fe-signalloom-agents",
+            "k8s:sa:monitor-agent"
+          ]
+        },
+        "openbao": {
+          "authMount": "jwt-sre",
+          "role": "fleet-monitor",
+          "policy": "fleet-monitor",
+          "kvPath": "kv/sre/monitor",
+          "tokenTtl": "5m",
+          "tokenMaxTtl": "5m",
+          "tokenType": "batch"
+        }
+      }
+    ]
+  },
+  "topology": {
+    "isAcyclic": true,
+    "roots": [
+      "agent-cardvault"
+    ],
+    "leaves": [
+      "agent-monitor"
+    ],
+    "topologicalOrder": [
+      "agent-cardvault",
+      "agent-api-gateway",
+      "agent-txn-pipeline",
+      "agent-llm-classifier",
+      "agent-monitor"
+    ],
+    "cascadeOrder": {
+      "stunRoot": "agent-cardvault",
+      "expectedCascadeSequence": [
+        {
+          "step": 1,
+          "agent": "agent-cardvault",
+          "trigger": "direct_operator_stun",
+          "expectedLatencyMs": 200
+        },
+        {
+          "step": 2,
+          "agent": "agent-txn-pipeline",
+          "trigger": "upstream_dependency_stunned",
+          "expectedLatencyMs": 400
+        },
+        {
+          "step": 3,
+          "agent": "agent-api-gateway",
+          "trigger": "upstream_dependency_stunned",
+          "expectedLatencyMs": 400
+        },
+        {
+          "step": 4,
+          "agent": "agent-llm-classifier",
+          "trigger": "upstream_dependency_stunned",
+          "expectedLatencyMs": 600
+        },
+        {
+          "step": 5,
+          "agent": "agent-monitor",
+          "trigger": "read_only_observer_survives",
+          "expectedLatencyMs": 800,
+          "remainsActive": true
+        }
+      ]
+    }
+  },
+  "spireAudit": {
+    "parentSelector": "spiffe://signalloom.demo/agent/kind",
+    "agentNamespace": "fe-signalloom-agents",
+    "registrationScript": "d2-signalloom/infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml",
+    "registrationMechanism": "kubectl exec into deployment/spire-server in inf-bao",
+    "selectorsAudited": {
+      "namespaceSelector": "k8s:ns:fe-signalloom-agents",
+      "serviceAccountSelectorPattern": "k8s:sa:<agent-sa-name>",
+      "podLabelSelectorPattern": "k8s:pod-label:signalloom.ai/agent:true"
+    },
+    "finding": "Fleet registration entries can be populated via openbao-fleet-bootstrap / supercred-fleet-demo.sh or added to spire-agent-swarm-entries ConfigMap."
+  },
+  "openbaoAudit": {
+    "backendType": "jwt",
+    "mountPointsAudited": [
+      "auth/jwt",
+      "auth/jwt-payments",
+      "auth/jwt-ml-ops",
+      "auth/jwt-platform",
+      "auth/jwt-sre"
+    ],
+    "kvEngine": "kv-v2",
+    "kvMount": "kv/",
+    "bootstrapJob": "d2-signalloom/infra/inf-bao/configs/base/openbao-fleet-bootstrap.yaml",
+    "tokenConfiguration": {
+      "tokenType": "batch",
+      "tokenTtl": "5m",
+      "tokenMaxTtl": "5m",
+      "userClaim": "sub",
+      "boundAudiences": [
+        "openbao"
+      ]
+    },
+    "finding": "OpenBao configuration supports dedicated JWT auth mounts per team with SPIFFE SVID bound_subject validation."
+  },
+  "scriptAudit": {
+    "file": "scripts/supercred-demo.sh",
+    "singleAgentAssumptions": [
+      {
+        "line": 20,
+        "assumption": "Hardcoded SPIFFE_ID for agent-cardvault",
+        "refactoring": "Extract to associative array SPIFFE_IDS indexed by agent ID"
+      },
+      {
+        "line": 75,
+        "assumption": "resolve_agent_pod_namespace checks only agent-cardvault",
+        "refactoring": "Parameterize resolve_agent_pod_namespace to accept agent name argument"
+      },
+      {
+        "line": 209,
+        "assumption": "demo_1 deploys only cardvault service, cardvault-agent SA and agent-cardvault pod",
+        "refactoring": "Implement deploy_agent loop over all 5 fleet agents in scripts/supercred-fleet-demo.sh"
+      },
+      {
+        "line": 298,
+        "assumption": "demo_2 runs single Job supercred-agent-run against agents-cardvault-job.yaml",
+        "refactoring": "Parameterize agent execution job templates per agent in fleet demo"
+      },
+      {
+        "line": 329,
+        "assumption": "demo_3 compliance scan evaluates only cardvault pod spec",
+        "refactoring": "Implement scan_fleet loop calling policy-engine /api/v1/compliance/scan-fleet"
+      },
+      {
+        "line": 374,
+        "assumption": "demo_4 revokes only BAO_SECRET_PATH and BAO_ROLE_PATH for cardvault-agent",
+        "refactoring": "Implement cascade DAG walk to revoke credentials across affected downstream agents"
+      },
+      {
+        "line": 642,
+        "assumption": "demo_5 deletes only cardvault resources and single SPIRE entry",
+        "refactoring": "Implement reset_fleet to sweep all 5 agents, SAs, SPIRE entries, and OpenBao credentials"
+      }
+    ]
+  },
+  "manifestGapAnalysis": {
+    "protoManifestDir": "d2-signalloom/agents/",
+    "manifestFiles": [
+      "agent-cardvault.yaml",
+      "agent-txn-pipeline.yaml",
+      "agent-llm-classifier.yaml",
+      "agent-api-gateway.yaml",
+      "agent-monitor.yaml"
+    ],
+    "crdGroup": "signalloom.controlplane.io",
+    "crdVersion": "v1alpha1",
+    "crdKind": "AgentProfile",
+    "schemaGaps": [
+      {
+        "field": "apiVersion/kind",
+        "status": "Present in manifests, missing formal CustomResourceDefinition in cluster",
+        "requiredAction": "Author and apply AgentProfile CRD in P1-1"
+      },
+      {
+        "field": "spec.gracePeriod",
+        "status": "Duration string (e.g. '0h', '72h', '168h')",
+        "requiredAction": "Add regex pattern validation '^[0-9]+(h|m|s)$' in CRD OpenAPI schema"
+      },
+      {
+        "field": "spec.dependencies",
+        "status": "Array of agent name strings",
+        "requiredAction": "Add CRD items validation and Fleet Manager DAG acyclicity validation"
+      },
+      {
+        "field": "spec.securityContext",
+        "status": "Optional container security context override for demo compliance scanning",
+        "requiredAction": "Include spec.securityContext.present boolean in CRD schema"
+      },
+      {
+        "field": "spec.trustProfile / spec.riskClass",
+        "status": "Enum strings",
+        "requiredAction": "Enforce enum values [high, medium, low] and [low, medium, high, critical] in OpenAPI schema"
+      }
+    ]
+  },
+  "testSuiteBaseline": {
+    "dashboardVitest": {
+      "filesPassed": 216,
+      "filesTotal": 216,
+      "testsPassed": 3741,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "status": "pass"
+    },
+    "dashboardTypecheck": {
+      "status": "pass",
+      "errorCount": 0
+    },
+    "signalloomApiPytest": {
+      "testsPassed": 56,
+      "testsFailed": 0,
+      "status": "pass"
+    },
+    "supercredFleetDemoHarnessBats": {
+      "testsPassed": 16,
+      "testsFailed": 0,
+      "status": "pass"
+    },
+    "offlineFleetBatsBattery": {
+      "testsPassed": 70,
+      "testsFailed": 0,
+      "status": "pass"
+    }
+  }
+}

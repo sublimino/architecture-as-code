@@ -907,7 +907,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       expect(outcome.channel.kind).toBe('live')
       expect(outcome.channel.transport).toBe('req')
       expect(outcome.stage).toBe('host_enrolled')
-      expect(outcome.httpStatus).toBe(201)
+      expect((outcome as any).httpStatus).toBe(201)
       if (outcome.status === 'ok') {
         expect(outcome.payload.hostId).toBe('test-host-id-42')
         expect(outcome.payload.status).toBe('enrolled')
@@ -930,7 +930,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       expect(outcome.channel.kind).toBe('live')
       expect(outcome.channel.transport).toBe('fetch')
       expect(outcome.stage).toBe('adversarial_tamper')
-      expect(outcome.httpStatus).toBe(200)
+      expect((outcome as any).httpStatus).toBe(200)
       expect(mockFetch).toHaveBeenCalledTimes(1)
     })
 
@@ -948,7 +948,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       expect(outcome.status).toBe('ok')
       expect(outcome.channelKind).toBe('live')
       expect(outcome.stage).toBe('revocation_denied')
-      expect(outcome.httpStatus).toBe(200)
+      expect((outcome as any).httpStatus).toBe(200)
       if (outcome.status === 'ok') {
         expect(outcome.payload.denialConfirmed).toBe(true)
       }
@@ -1001,7 +1001,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       await bridge.advance('adversarial_tamper')
 
       expect(mockFetch).toHaveBeenCalledTimes(1)
-      const [url, init] = mockFetch.mock.calls[0]
+      const [url, init] = (mockFetch.mock.calls as any)[0]
       expect(url).toBe(`/v1/external-agents/hosts/${REVOCATION_RACE_PRESET.host_id}/revoke`)
       expect(init?.headers).toEqual(
         expect.objectContaining({
@@ -1065,7 +1065,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
 
       expect(outcome.status).toBe('error')
       expect(outcome.channelKind).toBe('live')
-      expect(outcome.error.kind).toBe('application')
+      expect((outcome as any).error.kind).toBe('application')
       if (outcome.status === 'error' && outcome.error.kind === 'application') {
         expect(outcome.error.httpStatus).toBe(401)
         expect(outcome.error.message).toContain('401')
@@ -1084,7 +1084,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('host_enrolled')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('application')
+      expect((outcome as any).error.kind).toBe('application')
       if (outcome.status === 'error' && outcome.error.kind === 'application') {
         expect(outcome.error.httpStatus).toBe(401)
       }
@@ -1105,7 +1105,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('application')
+      expect((outcome as any).error.kind).toBe('application')
       if (outcome.status === 'error' && outcome.error.kind === 'application') {
         expect(outcome.error.httpStatus).toBe(403)
         expect(outcome.error.message).toContain('403')
@@ -1124,7 +1124,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('host_enrolled')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('application')
+      expect((outcome as any).error.kind).toBe('application')
       if (outcome.status === 'error' && outcome.error.kind === 'application') {
         expect(outcome.error.httpStatus).toBe(403)
         expect(outcome.error.message).toContain('host_revoked')
@@ -1145,7 +1145,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       })
       const outcomeFetch = await bridgeFetch.advance('adversarial_tamper')
       expect(outcomeFetch.status).toBe('error')
-      expect(outcomeFetch.error.kind).toBe('application')
+      expect((outcomeFetch as any).error.kind).toBe('application')
       if (outcomeFetch.status === 'error' && outcomeFetch.error.kind === 'application') {
         expect(outcomeFetch.error.httpStatus).toBe(409)
         expect(outcomeFetch.error.message).toContain('409')
@@ -1161,7 +1161,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       })
       const outcomeReq = await bridgeReq.advance('host_enrolled')
       expect(outcomeReq.status).toBe('error')
-      expect(outcomeReq.error.kind).toBe('application')
+      expect((outcomeReq as any).error.kind).toBe('application')
       if (outcomeReq.status === 'error' && outcomeReq.error.kind === 'application') {
         expect(outcomeReq.error.httpStatus).toBe(409)
       }
@@ -1176,7 +1176,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       })
       const outcomeFetch = await bridgeFetch.advance('adversarial_tamper')
       expect(outcomeFetch.status).toBe('error')
-      expect(outcomeFetch.error.kind).toBe('application')
+      expect((outcomeFetch as any).error.kind).toBe('application')
       if (outcomeFetch.status === 'error' && outcomeFetch.error.kind === 'application') {
         expect(outcomeFetch.error.httpStatus).toBe(502)
       }
@@ -1191,7 +1191,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       })
       const outcomeReq = await bridgeReq.advance('host_enrolled')
       expect(outcomeReq.status).toBe('error')
-      expect(outcomeReq.error.kind).toBe('application')
+      expect((outcomeReq as any).error.kind).toBe('application')
       if (outcomeReq.status === 'error' && outcomeReq.error.kind === 'application') {
         expect(outcomeReq.error.httpStatus).toBe(502)
       }
@@ -1206,7 +1206,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       })
       const outcomeFetch = await bridgeFetch.advance('adversarial_tamper')
       expect(outcomeFetch.status).toBe('error')
-      expect(outcomeFetch.error.kind).toBe('application')
+      expect((outcomeFetch as any).error.kind).toBe('application')
       if (outcomeFetch.status === 'error' && outcomeFetch.error.kind === 'application') {
         expect(outcomeFetch.error.httpStatus).toBe(504)
       }
@@ -1221,7 +1221,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       })
       const outcomeReq = await bridgeReq.advance('host_enrolled')
       expect(outcomeReq.status).toBe('error')
-      expect(outcomeReq.error.kind).toBe('application')
+      expect((outcomeReq as any).error.kind).toBe('application')
       if (outcomeReq.status === 'error' && outcomeReq.error.kind === 'application') {
         expect(outcomeReq.error.httpStatus).toBe(504)
       }
@@ -1241,7 +1241,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('network')
+      expect((outcome as any).error.kind).toBe('network')
       if (outcome.status === 'error' && outcome.error.kind === 'network') {
         expect(outcome.error.message).toContain('Failed to fetch')
         expect(outcome.error.cause).toBe('TypeError')
@@ -1262,7 +1262,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('network')
+      expect((outcome as any).error.kind).toBe('network')
       if (outcome.status === 'error' && outcome.error.kind === 'network') {
         expect(outcome.error.message).toContain('ECONNREFUSED')
       }
@@ -1279,7 +1279,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('network')
+      expect((outcome as any).error.kind).toBe('network')
     })
 
     it('handles timeout when direct fetch hangs beyond timeoutMs', async () => {
@@ -1292,7 +1292,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper', { timeoutMs: 25 })
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('network')
+      expect((outcome as any).error.kind).toBe('network')
     })
 
     it('handles timeout when transport req hangs beyond timeoutMs', async () => {
@@ -1305,7 +1305,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('host_enrolled', { timeoutMs: 25 })
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('network')
+      expect((outcome as any).error.kind).toBe('network')
     })
   })
 
@@ -1325,7 +1325,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('unsupported')
+      expect((outcome as any).error.kind).toBe('unsupported')
     })
 
     it('identifies 405 Method Not Allowed as unsupported routing gap on bare path', async () => {
@@ -1338,7 +1338,7 @@ describe('offline adversarial unit tests for createLiveBridge', () => {
       const outcome = await bridge.advance('adversarial_tamper')
 
       expect(outcome.status).toBe('error')
-      expect(outcome.error.kind).toBe('unsupported')
+      expect((outcome as any).error.kind).toBe('unsupported')
     })
   })
 })

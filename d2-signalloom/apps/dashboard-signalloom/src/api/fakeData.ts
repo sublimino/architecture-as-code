@@ -1503,7 +1503,7 @@ const ROUTES: Match[] = [
   // The onboarding wizard's scan-preferences step saves through this route;
   // without a fixture the wizard stays on step 3 under the demo toggle.
   { method: 'PATCH', test: re(/^\/tenant\/settings\/preferences$/), data: (_p, body) => {
-      const base = tenantSettings() as Record<string, unknown>
+      const base = (tenantSettings() as unknown) as Record<string, unknown>
       const patch = (body ?? {}) as Record<string, unknown>
       return { ...base, ...patch }
     } },

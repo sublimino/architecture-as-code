@@ -332,8 +332,8 @@ Obey these. They are the phase constitution.
 | P2-3 | implementation | Implement `/api/v1/admin/users` CRUD endpoints (`GET /`, `POST /invite`, `PATCH /{user_id}`, `DELETE /{user_id}`) guarded by `require_admin_or_superadmin`; tenant admins manage only their tenant; superadmins manage all tenants; record audit event for each user state mutation. | P2-2 | Pytest contract and authorization tests: viewer cannot call endpoints (403), tenant admin cannot edit other tenant (403), superadmin can manage across tenants; audit event emission verified | M | antigravity | pass — delivered: ccd7436e030b25502932ee21b6e3a75b1d1f57fb (see Errata — SLFA-P2-3) | — | — | — | — |
 | P2-GOV | governor | Merge P2-1..P2-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P2 completion errata. | P2-1, P2-2, P2-3 | Two identical acceptance runs; errata complete | M | antigravity | pass — merged: ccd7436e030b25502932ee21b6e3a75b1d1f57fb (see Errata — SLFA-P2-GOV) | — | — | — | — |
 | P3-PRE | preflight | Audit modal patterns (`ClaimModal.tsx`, `ConfirmDialog.tsx`) and API client structure in `dashboard-signalloom`; map UI routes and components for User Management; record audit table in errata. | P2-GOV | Component audit map in errata; no code changes | S | antigravity | pass — audited: modal patterns, usersApi structure & /admin/users route plan (see Errata — SLFA-P3-PRE) | — | — | — | — |
-| P3-1 | implementation | Add typed API client methods in `dashboard-signalloom/src/api/usersApi.ts` (`listUsers`, `inviteUser`, `updateUser`, `deactivateUser`) with error handling and React Query hooks. | P3-PRE | Vitest contract tests for `usersApi.ts` with mock server; typecheck clean | S | antigravity | — | — | — | — | — |
-| P3-2 | implementation | Build `UsersPage.tsx` and `UserTable.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/` with search, tenant filter (for superadmins), role badges (`admin`, `editor`, `viewer`), status toggle (`active`/`suspended`), and action buttons; gate route behind `requireAdmin` or `superadmin`. | P3-1 | Vitest tests for `UserTable.test.tsx` and `UsersPage.test.tsx`; accessibility checks pass | M | antigravity | — | — | — | — | — |
+| P3-1 | implementation | Add typed API client methods in `dashboard-signalloom/src/api/usersApi.ts` (`listUsers`, `inviteUser`, `updateUser`, `deactivateUser`) with error handling and React Query hooks. | P3-PRE | Vitest contract tests for `usersApi.ts` with mock server; typecheck clean | S | antigravity | pass — delivered: 0da09703f8da64c05296ca5dd6ef24a101f37e40 (see Errata — SLFA-P3-1) | — | — | — | — |
+| P3-2 | implementation | Build `UsersPage.tsx` and `UserTable.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/` with search, tenant filter (for superadmins), role badges (`admin`, `editor`, `viewer`), status toggle (`active`/`suspended`), and action buttons; gate route behind `requireAdmin` or `superadmin`. | P3-1 | Vitest tests for `UserTable.test.tsx` and `UsersPage.test.tsx`; accessibility checks pass | M | antigravity | pass — delivered: d3ea9eac77429bed08528971dc1ee6812a1ae64c (see Errata — SLFA-P3-2) | — | — | — | — |
 | P3-3 | implementation | Build `InviteUserModal.tsx` and `EditUserModal.tsx` for inviting new platform operators and editing roles / tenant assignments; include email validation, role selection dropdown, and confirmation prompts. | P3-2 | Vitest tests for modal forms; interaction tests for role selection and submission | M | antigravity | — | — | — | — | — |
 | P3-GOV | governor | Merge P3-1..P3-3 in order into `integration/slfa-v0.1.0`; run offline acceptance commands twice with identical totals; record P3 completion errata. | P3-1, P3-2, P3-3 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
 | P4-PRE | preflight | Audit Kusari pilot profile in live tfvars and seed data; verify test environment configuration; record audit table in errata. | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
@@ -553,5 +553,55 @@ _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing
 
 **Deviations:** None.
 **Notes:** Phase 3 preflight complete. Ready for P3-1 (usersApi.ts implementation).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P3-1 SLFA-P3-1: Add typed API client methods in usersApi.ts and React Query hooks
+**Created:** 2026-10-08 02:50:00+01:00
+**Last Updated:** 2026-10-08 02:50:00+01:00
+**Status:** Completed
+**Commit:** 0da09703f8da64c05296ca5dd6ef24a101f37e40
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Created `d2-signalloom/apps/dashboard-signalloom/src/api/usersApi.ts`:
+  - Implemented typed CRUD methods: `listUsers`, `inviteUser`, `updateUser`, `deactivateUser`.
+  - Added query key factory `USERS_QUERY_KEY(filter)`.
+  - Added React Query hooks `useUsers`, `useInviteUser`, `useUpdateUser`, `useDeactivateUser` with automatic query invalidation and optimistic error propagation.
+  - Implemented `UsersApiError` class with HTTP status code preservation.
+- Authored test suite in `d2-signalloom/apps/dashboard-signalloom/src/api/usersApi.test.ts`:
+  - 25 passing unit and integration vitest tests covering query params, error parsing, and mutation lifecycle.
+**Deviations:** None.
+**Notes:** Phase 3-1 complete.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P3-2 SLFA-P3-2: Build UsersPage and UserTable with admin authorization
+**Created:** 2026-10-08 03:07:00+01:00
+**Last Updated:** 2026-10-08 03:07:00+01:00
+**Status:** Completed
+**Commit:** d3ea9eac77429bed08528971dc1ee6812a1ae64c
+**Governor merge:** [pending Governor reconciliation]
+**Decisions:**
+- Built `UserTable.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/`:
+  - Accessible HTML `<table>` markup with semantic column sorting (`name`, `email`, `tenant`, `role`, `status`, `created`).
+  - Distinct role badges (`admin: var(--violet)`, `editor: var(--cyan)`, `viewer: var(--muted)`, `superadmin: ★ Superadmin with var(--amber)`).
+  - Status indicators (`active: var(--teal)`, `suspended: var(--error)`, `invited: var(--amber)`, `deactivated: var(--slate-gray)`).
+  - Status toggle component integrated with `ConfirmDialog` to prevent accidental suspensions and enable prompt reactivation.
+  - Client-side pagination with configurable page size (10, 25, 50 rows per page) and total count indicators.
+- Built `UsersPage.tsx` under `d2-signalloom/apps/dashboard-signalloom/src/pages/admin/`:
+  - Header with breadcrumbs, title, descriptive summary, and "Invite User" primary action button.
+  - KPI summary metric cards (Total Users, Active Users, Suspended Users, Administrators).
+  - Search input with clear button, role dropdown filter, status dropdown filter.
+  - Strict tenant dropdown filter rendered **only** when `isSuperadmin === true`, guaranteeing non-superadmin tenant isolation.
+  - Integration with `useUsers`, `useUpdateUser`, and `useDeactivateUser` query/mutation hooks.
+  - Loading skeleton rows, error state banner with retry action, and dismissible success/error toasts.
+- Registered `/admin/users` route in `App.tsx`:
+  - Created and exported `AdminRoute` guard verifying `superadmin` / admin authority.
+  - Lazy imported `UsersPage` with code splitting.
+  - Registered `/admin/users` mapping in `EXTRA_ROUTE_LABELS`.
+- Authored test suites in `UserTable.test.tsx` (14 tests) and `UsersPage.test.tsx` (11 tests):
+  - 100% pass across all 25 unit, interaction, filtering, and accessibility tests.
+  - Verified CSS custom property compliance via `cssVarUsage.test.ts`.
+  - Verified full TypeScript compilation and Vite build (`bun run build`).
+**Deviations:** None.
+**Notes:** Phase 3-2 complete. Handing off to P3-3 (InviteUserModal and EditUserModal).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

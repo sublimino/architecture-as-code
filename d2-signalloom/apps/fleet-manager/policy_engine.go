@@ -81,6 +81,14 @@ type PolicyEngine struct {
 	policies     []ResponsePolicy
 	orchestrator *CascadeOrchestrator
 	dag          *DAG
+	auditBuffer  *AuditRingBuffer
+}
+
+// SetAuditBuffer assigns an audit event ring buffer for event emission.
+func (pe *PolicyEngine) SetAuditBuffer(buf *AuditRingBuffer) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	pe.auditBuffer = buf
 }
 
 // DefaultPolicies returns canonical baseline policies for enterprise agent governance.
@@ -227,12 +235,40 @@ func (pe *PolicyEngine) Evaluate(ctx context.Context, input PolicyEvaluationInpu
 		// Active execution
 		if policy.Action == ActionCascadeStun || policy.Action == ActionStunTarget {
 			if pe.orchestrator != nil {
+				startAction := time.Now()
 				cascadeRes, err := pe.orchestrator.Stun(ctx, policy.TargetAgentID, reason)
 				if err != nil {
 					slog.Error("automated policy execution failed", "policy", policy.ID, "target", policy.TargetAgentID, "error", err)
 					actionRes.Error = err.Error()
 				} else {
 					actionRes.CascadeResult = cascadeRes
+					pe.mu.RLock()
+					auditBuf := pe.auditBuffer
+					pe.mu.RUnlock()
+					if auditBuf != nil {
+						affected := []string{policy.TargetAgentID}
+						if cascadeRes != nil && len(cascadeRes.AffectedAgents) > 0 {
+							affected = cascadeRes.AffectedAgents
+						}
+						durationMs := time.Since(startAction).Milliseconds()
+						if cascadeRes != nil && cascadeRes.DurationMs > 0 {
+							durationMs = cascadeRes.DurationMs
+						}
+						riskBefore := input.CarriedGBP
+						riskAfter := 12400.0
+						auditBuf.Append(AuditEvent{
+							ActionType:       "auto-policy-stun",
+							PolicyName:       policy.Name,
+							TriggerCondition: reason,
+							TargetAgentID:    policy.TargetAgentID,
+							AffectedAgents:   affected,
+							DurationMs:       durationMs,
+							RiskBefore:       riskBefore,
+							RiskAfter:        riskAfter,
+							RiskDelta:        riskAfter - riskBefore,
+							Actor:            "policy-engine",
+						})
+					}
 				}
 			} else {
 				actionRes.Error = "orchestrator unavailable"

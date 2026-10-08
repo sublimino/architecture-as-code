@@ -875,6 +875,8 @@ export interface CookiePreferencesResponse {
 
 // ─── Platform Users ─────────────────────────────────────────────────────────
 
+export type PlatformAccessLevel = 'observe' | 'govern' | 'attest'
+
 export interface PlatformUser {
   id: string
   email: string
@@ -885,6 +887,14 @@ export interface PlatformUser {
   title: string | null
   last_login_at: string | null
   created_at: string
+}
+
+export interface PlatformUserWithPermissions extends PlatformUser {
+  auth_methods: string[]
+  platform_level: PlatformAccessLevel[]
+  feature_flags: Record<string, boolean>
+  can_claim_agents: boolean
+  can_sign_attestations: boolean
 }
 
 export interface PlatformUsersResponse {

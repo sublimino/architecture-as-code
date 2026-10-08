@@ -410,6 +410,7 @@ class AgentClaimByIdRequest(BaseModel):
     token_budget_limit: int | None = None
     declared_tools: list[str] | None = None
     agent_id: str | None = None
+    display_name: str | None = None
 
 
 class AgentClaimRequest(BaseModel):
@@ -428,6 +429,7 @@ class AgentClaimRequest(BaseModel):
     operator_id: str | None = None
     capabilities: list[str] | None = None
     containment_claims: list[str] | None = None
+    display_name: str | None = None
 
 
 class AgentClaimResponse(BaseModel):
@@ -2354,7 +2356,11 @@ def _agent_response_from_row(
     if isinstance(compliance, dict):
         compliance = ComplianceSummaryInline(**compliance)
     row_id = str(row["id"])
-    name = str(row["name"])
+    name = str(
+        (discovered_overlay and discovered_overlay.get("name"))
+        or (row.get("display_name") if isinstance(row, dict) else (row["display_name"] if "display_name" in row else None))
+        or row["name"]
+    )
     origin = row.get("origin") if isinstance(row, dict) else (row["origin"] if "origin" in row else None)
     if origin is None and isinstance(row, dict):
         origin = row.get("type")
@@ -2395,7 +2401,7 @@ def _agent_response_from_row(
     runtime = RuntimeMetadata(
         cluster_id="kind-osramp",
         namespace=disc_ns,
-        pod_name=disc.get("id") if disc_ns else None,
+        pod_name=disc.get("id") or (str(row["name"]) if "name" in row else None),
         pod_uid=str(pod_uid) if pod_uid else None,
         service_account=sa,
         framework=framework,
@@ -3089,6 +3095,7 @@ def _make_agent(
     lifecycle_state: str,
     created_at: str,
     *,
+    display_name: str | None = None,
     last_transition_at: str | None = None,
     last_transition_by: str | None = None,
     eu_ai_act_risk_class: str | None = "limited",
@@ -3097,6 +3104,7 @@ def _make_agent(
     return {
         "id": agent_id,
         "name": name,
+        "display_name": display_name,
         "type": agent_type,
         "owner": owner,
         "tenant_id": tenant_id,
@@ -3800,44 +3808,106 @@ async def agents(
     pool = await _get_pool()
     stun_index = await _latest_stun_index(tenant_id, pool)
     if pool is None:
-        # Fixture mode: pure discovered workloads
-        for disc in raw_discovered:
-            all_records.append(
-                _agent_response_from_discovered(
-                    disc,
-                    tenant_id=tenant_id,
-                    record_class="discovered",
-                    is_registry_linked=False,
-                    stun_detail=_stun_detail_for(stun_index, disc.get("id"), disc.get("name")),
-                )
-            )
         with _STORE_LOCK:
-            existing_ids = {r.id for r in all_records}
-            for ag in _AGENTS.get(tenant_id, {}).values():
-                ag_id = str(ag.get("id"))
-                if ag_id not in existing_ids:
-                    all_records.append(
-                        _agent_response_from_discovered(
-                            ag,
-                            tenant_id=tenant_id,
-                            record_class=ag.get("record_class", "registered"),
-                            is_registry_linked=ag.get("is_registry_linked", True),
-                        )
-                    )
+            tenant_agents = _AGENTS.get(tenant_id, {})
+            tenant_claims = _CLAIMS.get(tenant_id, {})
+            claims_by_pod = {
+                str(c["pod_name"]): str(c["agent_id"])
+                for c in tenant_claims.values()
+                if c.get("pod_name") and c.get("agent_id") and c.get("released_at") is None
+            }
+            unmatched_db = dict(tenant_agents)
+            db_by_name = {str(r["name"]): r for r in tenant_agents.values() if r.get("name")}
+            db_by_display = {str(r["display_name"]): r for r in tenant_agents.values() if r.get("display_name")}
+
+            for disc in raw_discovered:
+                disc_id = str(disc["id"])
+                disc_name = str(disc.get("name"))
+                matched_row = None
+                matched_id = claims_by_pod.get(disc_id) or claims_by_pod.get(str(disc.get("pod_name", "")))
+                if matched_id:
+                    matched_row = unmatched_db.pop(matched_id, None)
+                if matched_row is None:
+                    matched_row = unmatched_db.pop(disc_id, None)
+                if matched_row is None and disc_id in db_by_name:
+                    cand = db_by_name[disc_id]
+                    cand_id = str(cand.get("id"))
+                    if cand_id in unmatched_db:
+                        matched_row = unmatched_db.pop(cand_id)
+                if matched_row is None and disc_name in db_by_name:
+                    cand = db_by_name[disc_name]
+                    cand_id = str(cand.get("id"))
+                    if cand_id in unmatched_db:
+                        matched_row = unmatched_db.pop(cand_id)
+                if matched_row is None and disc_name in db_by_display:
+                    cand = db_by_display[disc_name]
+                    cand_id = str(cand.get("id"))
+                    if cand_id in unmatched_db:
+                        matched_row = unmatched_db.pop(cand_id)
+                if matched_row is None and disc.get("agent_name") and str(disc.get("agent_name")) in db_by_name:
+                    cand = db_by_name[str(disc.get("agent_name"))]
+                    cand_id = str(cand.get("id"))
+                    if cand_id in unmatched_db:
+                        matched_row = unmatched_db.pop(cand_id)
+
+                if matched_row is not None:
+                    compliance = matched_row.get("compliance_summary") or _default_compliance_summary()
+                    all_records.append(_agent_response_from_row(
+                        matched_row, compliance, discovered_overlay=disc,
+                        stun_detail=_stun_detail_for(stun_index, matched_row.get("id"), matched_row.get("name"), disc_id, disc_name),
+                    ))
+                else:
+                    all_records.append(_agent_response_from_discovered(
+                        disc,
+                        tenant_id=tenant_id,
+                        record_class="discovered",
+                        is_registry_linked=False,
+                        stun_detail=_stun_detail_for(stun_index, disc_id, disc_name),
+                    ))
+
+            for row in unmatched_db.values():
+                compliance = row.get("compliance_summary") or _default_compliance_summary()
+                all_records.append(_agent_response_from_row(
+                    row, compliance, discovered_overlay=None,
+                    stun_detail=_stun_detail_for(stun_index, row.get("id"), row.get("name")),
+                ))
     else:
         db_rows = await pool.fetch(
             "SELECT * FROM agent_registry WHERE tenant_id = $1 ORDER BY created_at", tenant_id,
         )
+        claim_rows = await pool.fetch(
+            "SELECT agent_id, pod_name FROM agent_claims WHERE tenant_id = $1 AND released_at IS NULL",
+            tenant_id,
+        )
+        claims_by_pod = {str(r["pod_name"]): str(r["agent_id"]) for r in claim_rows}
         unmatched_db = {str(r["id"]): r for r in db_rows}
         db_by_name = {str(r["name"]): r for r in db_rows if r.get("name")}
+        db_by_display = {str(r["display_name"]): r for r in db_rows if r.get("display_name")}
 
         # Process discovered workloads first
         for disc in raw_discovered:
             disc_id = str(disc["id"])
             disc_name = str(disc.get("name"))
-            matched_row = unmatched_db.pop(disc_id, None)
+            matched_row = None
+            matched_id = claims_by_pod.get(disc_id) or claims_by_pod.get(str(disc.get("pod_name", "")))
+            if matched_id:
+                matched_row = unmatched_db.pop(matched_id, None)
+            if matched_row is None:
+                matched_row = unmatched_db.pop(disc_id, None)
+            if matched_row is None and disc_id in db_by_name:
+                cand = db_by_name[disc_id]
+                if str(cand["id"]) in unmatched_db:
+                    matched_row = unmatched_db.pop(str(cand["id"]))
             if matched_row is None and disc_name in db_by_name:
                 cand = db_by_name[disc_name]
+                if str(cand["id"]) in unmatched_db:
+                    matched_row = unmatched_db.pop(str(cand["id"]))
+            if matched_row is None and disc_name in db_by_display:
+                cand = db_by_display[disc_name]
+                if str(cand["id"]) in unmatched_db:
+                    matched_row = unmatched_db.pop(str(cand["id"]))
+            if matched_row is None and disc.get("agent_name") and str(disc.get("agent_name")) in db_by_name:
+                cand = db_by_name[str(disc.get("agent_name"))]
                 if str(cand["id"]) in unmatched_db:
                     matched_row = unmatched_db.pop(str(cand["id"]))
 
@@ -4508,7 +4578,7 @@ async def _execute_claim(
                 )
 
             agent_name = body.pod_name
-            display_name = body.pod_name.replace("-", " ").title()
+            display_name = getattr(body, "display_name", None) or body.pod_name.replace("-", " ").title()
             row = await conn.fetchrow(
                 """INSERT INTO public.agent_registry (
                     id, tenant_id, name, display_name, description, status, lifecycle_state,
@@ -4520,6 +4590,7 @@ async def _execute_claim(
                     NOW(), NOW(), NOW()
                 )
                 ON CONFLICT (tenant_id, name) DO UPDATE SET
+                    display_name = COALESCE(EXCLUDED.display_name, agent_registry.display_name),
                     lifecycle_state = 'active',
                     status = 'active',
                     compliance_posture = 83,
@@ -4694,6 +4765,7 @@ async def _execute_claim(
                     existing_agent = a
                     agent_id = a.get("id", agent_id)
                     break
+        display_name = getattr(body, "display_name", None) or body.pod_name.replace("-", " ").title()
         if existing_agent is None:
             new_agent = _make_agent(
                 tenant_id=tenant_id,
@@ -4705,6 +4777,7 @@ async def _execute_claim(
                 created_at=now,
                 last_transition_at=now,
                 model_name=body.model,
+                display_name=display_name,
             )
             new_agent["origin"] = "Signal Loom Built"
             new_agent["origin_verification"] = origin_verif
@@ -4722,6 +4795,8 @@ async def _execute_claim(
             existing_agent["is_registry_linked"] = True
             existing_agent["record_class"] = "resolved"
             existing_agent["namespace"] = body.namespace
+            if getattr(body, "display_name", None) or "display_name" not in existing_agent:
+                existing_agent["display_name"] = display_name
 
         tenant_claims = _CLAIMS.setdefault(tenant_id, {})
         claim_record = {
@@ -4995,7 +5070,8 @@ async def claim_agent_by_id(
             raise APIError(404, "not_found", f"Discovered agent '{agent_id}' not found") from None
         raise
 
-    pod_name = (body and body.pod_name) or agent_res.name or agent_id
+    pod_name = (body and body.pod_name) or (agent_res.runtime and agent_res.runtime.pod_name) or agent_id
+    display_name = (body and body.display_name) or agent_res.name or pod_name.replace("-", " ").title()
     namespace = (body and body.namespace) or agent_res.namespace or "fe-signalloom-agents"
     spiffe_id = (body and body.spiffe_id) or f"spiffe://signalloom.demo/ns/{namespace}/sa/{pod_name}"
     harness = (body and body.harness) or agent_res.framework or "claude-code"
@@ -5012,6 +5088,7 @@ async def claim_agent_by_id(
         declared_tools=declared_tools,
         token_budget_limit=token_budget,
         agent_id=agent_res.id,
+        display_name=display_name,
     )
     return await _execute_claim(tenant_id, principal.actor, claim_req, agent_id_override=agent_res.id)
 
@@ -5023,6 +5100,7 @@ async def get_agent(
 ) -> AgentResponse:
     # Try discovery correlation
     discovered_match: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             res = await client.get(AGENT_DISCOVERY_URL)
@@ -5056,6 +5134,18 @@ async def get_agent(
                         agent = a
                         break
         if agent is not None:
+            if discovered_match is None and isinstance(payload, dict):
+                a_name = agent.get("name")
+                a_disp = agent.get("display_name")
+                for d in payload.get("agents", []):
+                    if not isinstance(d, dict):
+                        continue
+                    d_id = str(d.get("id")) if d.get("id") is not None else None
+                    d_name = str(d.get("name")) if d.get("name") is not None else None
+                    if (d_id and d_id == a_name) or (d_name and a_disp and d_name == a_disp):
+                        discovered_match = d
+                        disc_keys = (d.get("id"), d.get("name"))
+                        break
             compliance = agent.get("compliance_summary") or _default_compliance_summary()
             return _agent_response_from_row(
                 agent, compliance, discovered_overlay=discovered_match,
@@ -5081,6 +5171,18 @@ async def get_agent(
             "SELECT * FROM agent_registry WHERE name = $1 AND tenant_id = $2", agent_id, tenant_id,
         )
     if row is not None:
+        if discovered_match is None and isinstance(payload, dict):
+            row_name = str(row["name"]) if "name" in row else None
+            row_disp = (row.get("display_name") if isinstance(row, dict) else (row["display_name"] if "display_name" in row else None))
+            for d in payload.get("agents", []):
+                if not isinstance(d, dict):
+                    continue
+                d_id = str(d.get("id")) if d.get("id") is not None else None
+                d_name = str(d.get("name")) if d.get("name") is not None else None
+                if (d_id and d_id == row_name) or (d_name and row_disp and d_name == row_disp):
+                    discovered_match = d
+                    disc_keys = (d.get("id"), d.get("name"))
+                    break
         compliance = await _compliance_summary_for_agent(pool, row["id"])
         return _agent_response_from_row(
             row, compliance, discovered_overlay=discovered_match,

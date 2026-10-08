@@ -589,6 +589,7 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
             "model": "claude-3-5-sonnet",
         },
     ),
+    ("GET", "/api/v1/features", None),
 ]
 
 
@@ -600,6 +601,7 @@ def recording(monkeypatch):
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    set_pool_for_testing(pool)
     # `onboarding` does `from api_compat import _get_pool`, which binds the
     # function object into its own namespace at import time. Patching only
     # `api_compat._get_pool` leaves its routes talking to the real (absent)
@@ -614,7 +616,10 @@ def recording(monkeypatch):
         assert not hasattr(module, "_get_pool"), (
             f"{module.__name__} binds its own _get_pool again; patch it here too"
         )
-    return pool
+    try:
+        yield pool
+    finally:
+        set_pool_for_testing(None)
 
 
 @pytest.mark.parametrize(

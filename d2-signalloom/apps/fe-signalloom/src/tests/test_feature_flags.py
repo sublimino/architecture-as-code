@@ -7,11 +7,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytest
-from pydantic import BaseModel
-
 from feature_flags import (
     DEFAULT_SYSTEM_FLAGS,
     FeatureFlagConfig,
@@ -19,6 +17,7 @@ from feature_flags import (
     FlagEvaluationResult,
     TenantFeatureFlag,
 )
+from pydantic import BaseModel
 
 
 class MockDatabase:
@@ -46,7 +45,7 @@ class MockDatabase:
         self.rows[key] = row
         return dict(row)
 
-    def select_one(self, tenant_id: str, flag_key: str) -> Optional[dict[str, Any]]:
+    def select_one(self, tenant_id: str, flag_key: str) -> dict[str, Any] | None:
         key = (tenant_id, flag_key)
         if key in self.rows:
             return dict(self.rows[key])
@@ -78,7 +77,7 @@ class FakeConnection:
             return self.db.select_all_for_tenant(tenant_id)
         raise NotImplementedError(f"Unhandled fetch query: {query}")
 
-    async def fetchrow(self, query: str, *args: Any) -> Optional[dict[str, Any]]:
+    async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
         if "INSERT INTO public.tenant_feature_flags" in query:
             tenant_id, flag_key, enabled, config_json_str = args[0], args[1], args[2], args[3]
             return self.db.insert_or_update(tenant_id, flag_key, enabled, config_json_str)
@@ -98,10 +97,10 @@ class FakeConnection:
 class FakePool:
     """Fake asyncpg Pool managing FakeConnection instances."""
 
-    def __init__(self, db: Optional[MockDatabase] = None) -> None:
+    def __init__(self, db: MockDatabase | None = None) -> None:
         self.db = db or MockDatabase()
 
-    def acquire(self) -> "_FakePoolContext":
+    def acquire(self) -> _FakePoolContext:
         return _FakePoolContext(FakeConnection(self.db))
 
 
@@ -112,7 +111,7 @@ class _FakePoolContext:
     async def __aenter__(self) -> FakeConnection:
         return self.conn
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         pass
 
 

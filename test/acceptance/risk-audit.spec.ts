@@ -200,8 +200,9 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     await page.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: /Settings/i })).toBeVisible({ timeout: 15_000 });
 
+    // Switch to Connectors & Discovery tab
+    await page.getByTestId("settings-tab-connectors").click();
     await expect(page.getByRole("heading", { name: /Service Connectors/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Compliance Frameworks/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Scan Preferences/i })).toBeVisible();
 
     const saveBtn = page.getByRole("button", { name: /Save Preferences/i });
@@ -209,6 +210,10 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
       await saveBtn.click();
       await expect(page.getByText(/Saved/i)).toBeVisible({ timeout: 10_000 });
     }
+
+    // Switch to Governance & Policy tab
+    await page.getByTestId("settings-tab-governance").click();
+    await expect(page.getByRole("heading", { name: /Compliance Frameworks/i })).toBeVisible();
   });
 });
 

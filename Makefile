@@ -1839,8 +1839,39 @@ test-bot-loop: ## Loop the Jev bot over every derived route. MODE=fetch|browser,
 	TURNS="$${TURNS:-4}" \
 	TIMEOUT="$${TIMEOUT:-10}" \
 	DEEP="$${DEEP:-}" \
+	CHAOS="$${CHAOS:-}" \
+	FUZZ_INPUTS="$${FUZZ_INPUTS:-}" \
+	CLICK_STORM="$${CLICK_STORM:-}" \
+	NETWORK_JITTER="$${NETWORK_JITTER:-}" \
+	MARKOV="$${MARKOV:-}" \
+	TEMPERATURE="$${TEMPERATURE:-}" \
+	SEED="$${SEED:-}" \
+	DURATION="$${DURATION:-}" \
 	DASHBOARD_MODE="$${DASHBOARD_MODE:-auto}" \
 	./scripts/jev-test-bot/loop.sh $(ARGS)
+
+.PHONY: test-bot-chaos
+test-bot-chaos: ## Run the full browser chaos monkey walk (stochastic fuzzing, jitter, click storming, markov). Pass DURATION=<sec>, MOCK=false, etc.
+	@$(MAKE) test-bot-loop MODE=browser CHAOS=true MOCK=$${MOCK:-false} URL="$${URL:-}" TURNS=$${TURNS:-4} TIMEOUT=$${TIMEOUT:-20} SEED="$${SEED:-}" TEMPERATURE="$${TEMPERATURE:-1.2}" DURATION="$${DURATION:-}"
+
+.PHONY: test-bot-jitter
+test-bot-jitter: ## Run the browser bot with network latency, rate limiting, and failure injection.
+	@$(MAKE) test-bot-loop MODE=browser NETWORK_JITTER=true MOCK=$${MOCK:-true} URL="$${URL:-https://ftna-signalloom.taild4da3.ts.net/}" TURNS=$${TURNS:-4} TIMEOUT=$${TIMEOUT:-25}
+
+.PHONY: test-bot-api-fuzz
+test-bot-api-fuzz: ## Run concurrent stochastic backend API fuzzer with zero-500 invariants. Pass URL=<url>, REQUESTS=<n>, CONCURRENCY=<n>, SEED=<n>.
+	@python3 scripts/jev-test-bot/fuzz_api.py \
+		--url "$${URL:-https://ftna-signalloom.taild4da3.ts.net/}" \
+		--requests "$${REQUESTS:-100}" \
+		--concurrency "$${CONCURRENCY:-8}" \
+		--timeout "$${TIMEOUT:-6.0}" \
+		$$( [ -n "$${SEED:-}" ] && echo "--seed $${SEED}" ) \
+		$$( [ "$${STOP_ON_500:-}" = "true" ] && echo "--stop-on-500" ) \
+		$$( [ -n "$${OUTPUT:-}" ] && echo "--output $${OUTPUT}" )
+
+.PHONY: test-bot-fuzz-unit
+test-bot-fuzz-unit: ## Run unit and property tests for Jev chaos and fuzzing engine.
+	@python3 -m pytest scripts/jev-test-bot/test_chaos_fuzzing.py -v
 
 .PHONY: test-bot-routes
 test-bot-routes: ## Print the dashboard route surface the loop derives from App.tsx.

@@ -57,6 +57,7 @@ Usage: loop.sh [options]
                                    `scripts/jev-test-bot/browser-runtime.sh
                                    --check` to find out which is missing.
   --iterations N       Iterations over the full surface (default: 1).
+  --duration SEC       Max total run duration in seconds.
   --turns N            Max bot turns per route (default: 4).
   --timeout SEC        Max bot seconds per route (default: 10).
   --mock               Force the calibrated simulator (no TypeSafe network).
@@ -66,12 +67,20 @@ Usage: loop.sh [options]
   --allow-partial      Permit a route list that does not cover the derived surface.
   --run-id ID          Name the run (default: jev-<timestamp>-<pid>).
   --reports-dir DIR    Report root (default: <repo>/reports/jev).
+  --chaos              Activate full chaos monkey (inputs, click storm, jitter, markov).
+  --fuzz-inputs        Stochastically fuzz inputs and textboxes with adversarial payloads.
+  --click-storm        Burst click stormable action buttons to trigger race conditions.
+  --network-jitter     Inject network latency (200-1000ms), 429 rate-limits, and aborts.
+  --markov             Stochastic Markov navigation: random history jumps and reloads.
+  --temperature T      Softmax exploration temperature (default: 1.0).
+  --seed N             Integer PRNG seed for deterministic walk reproducibility.
   --print-port         Print a free, non-reserved port and exit.
   --print-routes       Print the derived route surface and exit.
   -h, --help           This text.
 
 Environment equivalents, for the make wrapper: URL, N, MODE, MOCK, TURNS,
-TIMEOUT, DEEP, DASHBOARD_MODE, JEV_REPORTS_DIR.
+TIMEOUT, DEEP, DASHBOARD_MODE, JEV_REPORTS_DIR, CHAOS, FUZZ_INPUTS, CLICK_STORM,
+NETWORK_JITTER, MARKOV, TEMPERATURE, SEED.
 
 Exit codes: 0 pass · 1 defects found · 2 usage/setup · 3 dashboard would not
 start, or the browser runtime is unavailable in --mode browser · 4 the
@@ -291,6 +300,14 @@ main() {
   local mock="${MOCK:-}"
   local deep="${DEEP:-}"
   local dashboard_mode="${DASHBOARD_MODE:-auto}"
+  local chaos="${CHAOS:-false}"
+  local fuzz_inputs="${FUZZ_INPUTS:-false}"
+  local click_storm="${CLICK_STORM:-false}"
+  local network_jitter="${NETWORK_JITTER:-false}"
+  local markov="${MARKOV:-false}"
+  local temperature="${TEMPERATURE:-}"
+  local seed="${SEED:-}"
+  local duration_limit="${DURATION:-}"
   local routes_from=""
   local run_id=""
   local reports_root="${JEV_REPORTS_DIR:-${REPO_ROOT}/reports/jev}"
@@ -304,11 +321,19 @@ main() {
       --url) target_url="$2"; shift 2 ;;
       --mode) mode="$2"; shift 2 ;;
       --iterations) iterations="$2"; shift 2 ;;
+      --duration) duration_limit="$2"; shift 2 ;;
       --turns) turns="$2"; shift 2 ;;
       --timeout) timeout="$2"; shift 2 ;;
       --mock) mock="true"; shift ;;
       --deep) deep="true"; shift ;;
       --dashboard-mode) dashboard_mode="$2"; shift 2 ;;
+      --chaos) chaos="true"; shift ;;
+      --fuzz-inputs) fuzz_inputs="true"; shift ;;
+      --click-storm) click_storm="true"; shift ;;
+      --network-jitter) network_jitter="true"; shift ;;
+      --markov) markov="true"; shift ;;
+      --temperature) temperature="$2"; shift 2 ;;
+      --seed) seed="$2"; shift 2 ;;
       --routes-from) routes_from="$2"; shift 2 ;;
       --allow-partial) ALLOW_PARTIAL="true"; shift ;;
       --run-id) run_id="$2"; shift 2 ;;
@@ -361,8 +386,14 @@ main() {
   # cache. Without this, Playwright resolves its browsers path from the
   # redirected XDG_CACHE_HOME, finds nothing, and browser mode reports
   # "no Chromium build" on a machine that has one.
-  local shared_cache="${XDG_CACHE_HOME:-${HOME}/.cache}"
-  export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${shared_cache}/ms-playwright}"
+  if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" || ! -d "${PLAYWRIGHT_BROWSERS_PATH}" ]]; then
+    if [[ -d "${REPO_ROOT}/.cache/ms-playwright" ]]; then
+      export PLAYWRIGHT_BROWSERS_PATH="${REPO_ROOT}/.cache/ms-playwright"
+    else
+      local shared_cache="${XDG_CACHE_HOME:-${HOME}/.cache}"
+      export PLAYWRIGHT_BROWSERS_PATH="${shared_cache}/ms-playwright"
+    fi
+  fi
 
   export TMPDIR="${TMP_DIR}"
   export XDG_CACHE_HOME="${TMP_DIR}/cache"
@@ -426,6 +457,8 @@ main() {
   local bot_flags=()
   [[ "${mock}" == "true" ]] && bot_flags+=(--mock)
   [[ "${deep}" == "true" ]] && bot_flags+=(--deep)
+  [[ -n "${temperature}" ]] && bot_flags+=(--temperature "${temperature}")
+  [[ -n "${seed}" ]] && bot_flags+=(--seed "${seed}")
 
   local iteration iteration_reports=() worst_rc=0
   for (( iteration = 1; iteration <= iterations; iteration++ )); do
@@ -449,6 +482,14 @@ main() {
       # BACKEND_ABSENT rather than counted as defects. Against a supplied
       # --url the flag is absent and every same-origin 4xx/5xx counts.
       [[ "${started_locally}" == "true" ]] && driver_flags+=(--no-backend)
+      [[ "${chaos}" == "true" ]] && driver_flags+=(--chaos)
+      [[ "${fuzz_inputs}" == "true" ]] && driver_flags+=(--fuzz-inputs)
+      [[ "${click_storm}" == "true" ]] && driver_flags+=(--click-storm)
+      [[ "${network_jitter}" == "true" ]] && driver_flags+=(--network-jitter)
+      [[ "${markov}" == "true" ]] && driver_flags+=(--markov)
+      [[ -n "${temperature}" ]] && driver_flags+=(--temperature "${temperature}")
+      [[ -n "${seed}" ]] && driver_flags+=(--seed "${seed}")
+      [[ -n "${duration_limit}" ]] && driver_flags+=(--duration "${duration_limit}")
 
       local js_runtime
       js_runtime="$("${SCRIPT_DIR}/browser-runtime.sh" --runtime)" || return 3

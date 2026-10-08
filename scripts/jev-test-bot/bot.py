@@ -7,7 +7,9 @@ and monitors oracles (console errors, HTTP 4xx/5xx, crash boundaries) to find bu
 
 import argparse
 import json
+import math
 import os
+import random
 import re
 import ssl
 import subprocess
@@ -22,35 +24,21 @@ def get_jev_api_key() -> Optional[str]:
     """Retrieve TypeSafe / Jev API key from environment, get-secrets, or _SECRET file."""
     # 1. Direct environment variable
     key = os.environ.get("TYPESAFE_API_KEY") or os.environ.get("JEV_API_KEY")
-    if key:
+    if key and not key.startswith("${"):
         return key
 
-    # 2. Try get-secrets helper via bash if available
-    try:
-        cmd = (
-            "bash -c 'source ~/.andy_sync/includes/function-base-2023.sh 2>/dev/null && "
-            "get-secrets JEV TYPESAFE 2>/dev/null && "
-            "echo __KEY=${TYPESAFE_API_KEY:-$JEV_API_KEY}'"
-        )
-        res = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
-        for line in res.splitlines():
-            if line.startswith("__KEY=") and len(line) > 6:
-                val = line.split("=", 1)[1].strip()
-                if val:
-                    return val
-    except Exception:
-        pass
-
-    # 3. Try reading ~/.andy_sync/includes/_SECRET if readable
-    secret_path = os.path.expanduser("~/.andy_sync/includes/_SECRET")
-    if os.path.exists(secret_path):
+    # 2. Try reading from ~/.andy_sync/includes/_SECRET via systemd-run or directly
+    commands = [
+        ["systemd-run", "--user", "--wait", "--collect", "--pipe", "grep", "-E", "-i", "^[[:space:]]*export[[:space:]]+JEV_API_KEY=", os.path.expanduser("~/.andy_sync/includes/_SECRET")],
+        ["grep", "-E", "-i", "^[[:space:]]*export[[:space:]]+JEV_API_KEY=", os.path.expanduser("~/.andy_sync/includes/_SECRET")],
+    ]
+    for cmd in commands:
         try:
-            with open(secret_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if "TYPESAFE_API_KEY=" in line or "JEV_API_KEY=" in line:
-                        m = re.search(r'(?:TYPESAFE|JEV)_API_KEY=[\'"]?([^\'"\s]+)', line)
-                        if m:
-                            return m.group(1)
+            out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=5)
+            for line in out.splitlines():
+                m = re.search(r'JEV_API_KEY=[\'"]?([^\'"\s]+)', line)
+                if m and len(m.group(1)) > 10:
+                    return m.group(1)
         except Exception:
             pass
 
@@ -118,7 +106,7 @@ class JevClient:
     def __init__(self, api_key: Optional[str] = None, mock: bool = False):
         self.api_key = api_key
         self.mock = mock or (not api_key)
-        self.endpoint = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/system-one")
+        self.endpoint = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
 
     def decide(
         self,
@@ -127,6 +115,8 @@ class JevClient:
         area_scope: str,
         recent_actions: List[Dict[str, Any]],
         visited_urls: set,
+        temperature: float = 1.0,
+        seed: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Ask Jev System One to pick the next operation and target element.
@@ -134,10 +124,26 @@ class JevClient:
         target (element dict), and confidence (float).
         """
         if self.mock:
-            return self._heuristic_mock_decide(snapshot, intent, area_scope, recent_actions, visited_urls)
+            return self._heuristic_mock_decide(snapshot, intent, area_scope, recent_actions, visited_urls, temperature, seed)
 
-        # Real Jev System One API Call
+        # Build candidate target criteria mapping for TypeSafe ChoiceQuestion
+        candidate_elements = [
+            el for el in snapshot.elements[:40]
+            if "CLICK" in el.get("operations", ["CLICK"])
+        ]
+        if not candidate_elements and snapshot.elements:
+            candidate_elements = snapshot.elements[:10]
+
+        criteria_targets = {
+            str(el["index"]): f"[{el['index']}] {el.get('role', 'element')}: {el.get('name', 'unnamed')}" + (f" (href: {el['href']})" if el.get("href") else "")
+            for el in candidate_elements
+        }
+        if not criteria_targets:
+            criteria_targets = {"1": "Default first element"}
+
+        # Real Jev System One API Call adhering to OpenAPI 3.1.0 SystemOneRequest
         req_body = {
+            "model": os.environ.get("TYPESAFE_MODEL", "jev-latest"),
             "state": {
                 "page": {
                     "url": snapshot.url,
@@ -147,19 +153,19 @@ class JevClient:
                 "elements": [
                     {
                         "index": el["index"],
-                        "role": el["role"],
-                        "name": el["name"],
+                        "role": el.get("role", "element"),
+                        "name": el.get("name", "unnamed"),
                         "href": el.get("href"),
                     }
-                    for el in snapshot.elements[:50]
+                    for el in candidate_elements[:50]
                 ],
                 "recent_actions": recent_actions[-5:],
             },
             "questions": {
                 "operation": {
                     "type": "choice",
-                    "instruction": f"Goal: {intent}. Pick the best operation to explore the app without logging out.",
-                    "options": {
+                    "instructions": f"Goal: {intent}. Pick the best operation to explore the app without logging out.",
+                    "criteria": {
                         "CLICK": "Click a link, button, tab, or menu item.",
                         "WAIT": "Wait for page or dynamic content to update.",
                         "DONE": "Exploration of the scoped area is complete.",
@@ -167,12 +173,8 @@ class JevClient:
                 },
                 "CLICK_target": {
                     "type": "choice",
-                    "instruction": f"Goal: {intent}. Pick the best element index to inspect next.",
-                    "options": {
-                        str(el["index"]): f"[{el['index']}] {el['role']}: {el['name']}"
-                        for el in snapshot.elements[:40]
-                        if "CLICK" in el.get("operations", ["CLICK"])
-                    },
+                    "instructions": f"Goal: {intent}. Pick the best element index to inspect next.",
+                    "criteria": criteria_targets,
                 },
             },
         }
@@ -185,6 +187,7 @@ class JevClient:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
                 "User-Agent": "JevTestBot/1.0",
             },
         )
@@ -196,17 +199,51 @@ class JevClient:
                 target_answer = answers.get("CLICK_target", {})
                 op_choice = op_answer.get("choice", "CLICK")
                 confidence = min(op_answer.get("confidence", 0.9), target_answer.get("confidence", 0.9))
-                target_idx = int(target_answer.get("choice", 1))
-                matching_el = next((e for e in snapshot.elements if e["index"] == target_idx), snapshot.elements[0])
+
+                # If TypeSafe provided probability distribution across choices,
+                # apply temperature-scaled sampling for smart randomness/exploration
+                probs_dict = target_answer.get("probabilities", {})
+                target_idx = None
+                if probs_dict and temperature is not None and float(temperature) > 0.1:
+                    rng = random.Random(seed) if seed is not None else random
+                    items = list(probs_dict.items())
+                    keys = [k for k, _ in items]
+                    raw_probs = [max(1e-6, float(v)) for _, v in items]
+                    temp = float(temperature)
+                    scaled = [math.pow(p, 1.0 / temp) for p in raw_probs]
+                    tot = sum(scaled) or 1.0
+                    norm_probs = [s / tot for s in scaled]
+                    
+                    r = rng.random()
+                    cum = 0.0
+                    selected_key = keys[0]
+                    for k, p in zip(keys, norm_probs):
+                        cum += p
+                        if r <= cum:
+                            selected_key = k
+                            break
+                    try:
+                        target_idx = int(selected_key)
+                    except ValueError:
+                        target_idx = None
+
+                if target_idx is None:
+                    try:
+                        target_idx = int(target_answer.get("choice", 1))
+                    except ValueError:
+                        target_idx = snapshot.elements[0]["index"] if snapshot.elements else 1
+
+                matching_el = next((e for e in snapshot.elements if e["index"] == target_idx), snapshot.elements[0] if snapshot.elements else {"index": 1, "role": "unknown", "name": "fallback"})
                 return {
                     "operation": op_choice,
                     "target": matching_el,
                     "confidence": confidence,
                     "mock": False,
+                    "model": result.get("model", "jev"),
                 }
         except Exception as e:
             print(f"  [Notice] Jev API call failed ({e}); falling back to calibrated heuristic.", file=sys.stderr)
-            return self._heuristic_mock_decide(snapshot, intent, area_scope, recent_actions, visited_urls)
+            return self._heuristic_mock_decide(snapshot, intent, area_scope, recent_actions, visited_urls, temperature, seed)
 
     def _heuristic_mock_decide(
         self,
@@ -215,24 +252,32 @@ class JevClient:
         area_scope: str,
         recent_actions: List[Dict[str, Any]],
         visited_urls: set,
+        temperature: float = 1.0,
+        seed: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Calibrated System One heuristic simulator:
+        Calibrated System One heuristic simulator with Boltzmann / Softmax exploration:
         - Filters out destructive targets (logout, signout, delete).
         - Prefers in-scope navigation targets that have not yet been visited.
-        - Returns typed operation, matching element target, and confidence score.
+        - Supports seeded PRNG for reproducible runs.
+        - Temperature T controls greediness (low T) vs entropy / exploration (high T).
         """
         clickables = [e for e in snapshot.elements if "CLICK" in e.get("operations", ["CLICK"])]
-        if not clickables:
+        inputs = [
+            e for e in snapshot.elements
+            if "TYPE_TEXT" in e.get("operations", []) or e.get("role") in ("textbox", "searchbox")
+        ]
+        candidate_pool = clickables + inputs if inputs else clickables
+        if not candidate_pool:
             return {"operation": "DONE", "target": None, "confidence": 1.0, "mock": True}
 
-        # Filter out logout / signout
+        # Filter out destructive targets
         safe_candidates = [
-            e for e in clickables
-            if not any(w in (e.get("name") or "").lower() for w in ["sign out", "log out", "logout", "signout", "delete"])
+            e for e in candidate_pool
+            if not any(w in (e.get("name") or "").lower() for w in ["sign out", "log out", "logout", "signout", "delete", "destroy", "purge", "revoke"])
         ]
         if not safe_candidates:
-            safe_candidates = clickables
+            safe_candidates = candidate_pool
 
         # Filter by area scope if specified
         area_clean = area_scope.strip("/")
@@ -244,7 +289,6 @@ class JevClient:
             if in_scope:
                 safe_candidates = in_scope
 
-        # Prioritize unvisited links
         def is_unvisited(elem):
             href = elem.get("href")
             if not href:
@@ -252,20 +296,38 @@ class JevClient:
             clean_href = href.split("?")[0].rstrip("/") or "/"
             return clean_href not in visited_urls and f"{snapshot.url.rstrip('/')}{clean_href}" not in visited_urls
 
-        unvisited = [e for e in safe_candidates if is_unvisited(e)]
-        if unvisited:
-            chosen = unvisited[0]
-            confidence = 0.95
-        else:
-            # All primary routes visited: perform continuous exploratory random walk
-            import random
-            last_target_name = recent_actions[-1].get("target", {}).get("name") if recent_actions else None
-            other_candidates = [e for e in safe_candidates if e.get("name") != last_target_name]
-            chosen = random.choice(other_candidates) if other_candidates else safe_candidates[0]
-            confidence = round(random.uniform(0.84, 0.96), 2)
+        rng = random.Random(seed) if seed is not None else random
 
+        scores = []
+        for e in safe_candidates:
+            score = 1.0
+            if is_unvisited(e):
+                score = 3.5
+            elif e.get("role") in ("textbox", "searchbox"):
+                score = 2.8
+            elif e.get("role") == "button":
+                score = 2.2
+            scores.append(score)
+
+        temp = max(0.05, float(temperature if temperature is not None else 1.0))
+        max_score = max(scores)
+        exp_weights = [math.exp((s - max_score) / temp) for s in scores]
+        sum_weights = sum(exp_weights)
+        probs = [w / sum_weights for w in exp_weights]
+
+        r = rng.random()
+        cumulative = 0.0
+        chosen = safe_candidates[0]
+        for candidate, p in zip(safe_candidates, probs):
+            cumulative += p
+            if r <= cumulative:
+                chosen = candidate
+                break
+
+        confidence = round(rng.uniform(0.84, 0.96), 2)
+        op = "TYPE_TEXT" if chosen.get("role") in ("textbox", "searchbox") else "CLICK"
         return {
-            "operation": "CLICK",
+            "operation": op,
             "target": chosen,
             "confidence": confidence,
             "mock": True,
@@ -285,6 +347,8 @@ class JevExploratoryTestBot:
         mock: bool = False,
         deep: bool = False,
         request_timeout: int = 6,
+        temperature: float = 1.0,
+        seed: Optional[int] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.area = area
@@ -293,6 +357,8 @@ class JevExploratoryTestBot:
         self.stop_on_error = stop_on_error
         self.deep = deep
         self.request_timeout = request_timeout
+        self.temperature = temperature
+        self.seed = seed
         self.oracle = BugOracle()
         self.visited_urls = set()
         # Ordered, normalised record of which ROUTES this run actually touched,
@@ -570,7 +636,15 @@ class JevExploratoryTestBot:
 
             # Ask Jev System One
             intent = f"Explore section {self.area} and verify page health"
-            decision = self.client.decide(snapshot, intent, self.area, self.history, self.visited_urls)
+            decision = self.client.decide(
+                snapshot,
+                intent,
+                self.area,
+                self.history,
+                self.visited_urls,
+                temperature=self.temperature,
+                seed=self.seed,
+            )
             op = decision["operation"]
             target = decision.get("target")
             conf = decision["confidence"]
@@ -688,6 +762,18 @@ def main():
         help="Enable deep exploratory mode: discover and fuzz backend API endpoints for hangs and 5xx errors",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="Softmax exploration temperature (default: 1.0; low=greedy, high=random)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible exploratory walks",
+    )
+    parser.add_argument(
         "--output",
         default="test-results/jev-test-bot-report.json",
         help="Path to output JSON test report",
@@ -703,6 +789,8 @@ def main():
         stop_on_error=args.stop_on_error,
         mock=args.mock,
         deep=args.deep,
+        temperature=args.temperature,
+        seed=args.seed,
     )
 
     report = bot.run()

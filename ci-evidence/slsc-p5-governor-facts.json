@@ -1,0 +1,76 @@
+{
+  "schema": "slsc.phase5-governor-facts/v1",
+  "card": "SLSC-P5-GOV",
+  "logical_id": "P5-GOV",
+  "status": "pass",
+  "mission_complete": true,
+  "human_signoff_required": true,
+  "integration_head": "75dba5877",
+  "merged_cards": {
+    "SLSC-P5-PRE": {
+      "commit": "942fe950",
+      "title": "SLSC-P5-PRE: Audit response threshold triggers, audit log schemas, and automated containment event streams",
+      "merge_commit": "5f5078e9",
+      "status": "pass"
+    },
+    "SLSC-P5-1": {
+      "commit": "8b4f98f2",
+      "title": "SLSC-P5-1: Implement automated response policy engine in Fleet Manager with configurable compliance thresholds",
+      "merge_commit": "e9960b0c",
+      "status": "pass"
+    },
+    "SLSC-P5-2": {
+      "commit": "ac885519",
+      "title": "SLSC-P5-2: Implement structured audit event emission and operator audit stream for automated cascade actions",
+      "merge_commit": "75dba587",
+      "status": "pass"
+    }
+  },
+  "verification_passes": {
+    "floor_check": {
+      "command": "bats test/test-count-floor.bats",
+      "status": "pass",
+      "exit_code": 0,
+      "tests_total": 10,
+      "failures": 0,
+      "details": "pytest (>=500 collected/passed, 0 failures), vitest (>=1800 passed, >=90 files), riskctl Go (>=30 passed, 0 failures), signalloom bats (>=200 passed), audit proof (12/12 cases red), kpai (>=70 passed)"
+    },
+    "offline_pyramid_run_1": {
+      "command": "make test-all-offline",
+      "status": "pass",
+      "exit_code": 0,
+      "stages": [
+        "Go Unit Tests (29 modules + FrostDB correlation: ALL 29 PASSED)",
+        "Frontend Vitest Suites (218 test files passed)",
+        "Python Unit & Invariant Suites (3317 passed)",
+        "KPAI Probe & Contract Tests (76/76 passed)",
+        "Static Config, Manifests, Registries & API contract (all passed)"
+      ]
+    },
+    "offline_pyramid_run_2": {
+      "command": "make test-all-offline",
+      "status": "pass",
+      "exit_code": 0,
+      "stages": [
+        "Go Unit Tests (29 modules + FrostDB correlation: ALL 29 PASSED)",
+        "Frontend Vitest Suites (218 test files passed)",
+        "Python Unit & Invariant Suites (3317 passed)",
+        "KPAI Probe & Contract Tests (76/76 passed)",
+        "Static Config, Manifests, Registries & API contract (all passed)"
+      ]
+    }
+  },
+  "component_verification": {
+    "fleet_manager": "go test -v ./... && go vet ./...: PASS (1.8s)",
+    "policy_engine": "go test -v ./...: PASS",
+    "dashboard_signalloom": "bun run test -- --run: 12 test files passed, 210 tests passed; tsc --noEmit: 0 errors",
+    "fastapi_contract": "make demo-signalloom-api-test: 56/56 passed (1.38s)",
+    "policy_schema_evidence": "docs/signalloom/evidence/slsc-p5-1-policy-schema.md: docs-lint clean (0 findings)"
+  },
+  "reconciled_deliverables": [
+    "d2-signalloom/apps/fleet-manager/policy_engine.go: automated response policy engine with configurable thresholds (pol-risk-500k, pol-pii-compliance, pol-grace-expiry), simulation dry-run, and debouncing",
+    "d2-signalloom/apps/fleet-manager/audit_events.go: immutable structured audit events with 13 fields and bounded thread-safe ring buffer",
+    "d2-signalloom/apps/fleet-manager/main.go: GET /api/v1/fleet/audit/events and GET /api/v1/fleet/audit/stream (SSE) endpoints with non-blocking broadcasting",
+    "zero em-dashes rule: all documentation, comments, and schemas strictly use standard colons, commas, or parentheses"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "schema": "slsc.phase4-governor-facts/v1",
+  "card": "SLSC-P4-GOV",
+  "logical_id": "P4-GOV",
+  "status": "pass",
+  "proceed_to_phase5": true,
+  "human_signoff_required": false,
+  "integration_head": "8fc1df1cb3c76557b7ca2e4c9e55cda19be0a9ce",
+  "merged_cards": {
+    "SLSC-P4-PRE": {
+      "commit": "480d5a54",
+      "title": "SLSC-P4-PRE: Audit Dex group claims, fe-signalloom role proxies, and auth context",
+      "merge_commit": "61e4d30e",
+      "status": "pass"
+    },
+    "SLSC-P4-1": {
+      "commit": "ca41b3b0",
+      "title": "SLSC-P4-1: Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims",
+      "merge_commit": "9b773d63",
+      "status": "pass"
+    },
+    "SLSC-P4-2": {
+      "commit": "54abb56c",
+      "title": "SLSC-P4-2: Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls",
+      "merge_commit": "ff79aade",
+      "status": "pass"
+    }
+  },
+  "verification_passes": {
+    "pass_1": {
+      "command": "bats test/test-count-floor.bats",
+      "status": "pass",
+      "exit_code": 0,
+      "tests_total": 10,
+      "failures": 0,
+      "details": "pytest (>=500 collected/passed, 0 failures), vitest (>=1800 passed, >=90 files), riskctl Go (>=30 passed, 0 failures), signalloom bats (>=200 passed), audit proof (12/12 cases red), kpai (>=70 passed)"
+    },
+    "pass_2": {
+      "command": "make test-all-offline",
+      "status": "pass",
+      "exit_code": 0,
+      "stages": [
+        "Go Unit Tests (29 modules + FrostDB correlation)",
+        "Frontend Vitest Suites (218 files across dashboard, design-system, harness-dash)",
+        "Python Unit & Invariant Suites (fe-signalloom pytest, audit-guard proof 12/12 red, agent-trust, authz, sentinel, netassert, fake-proxy)",
+        "KPAI Probe & Contract Tests (76/76 passed)",
+        "Static Config, Manifests, Registries & Guards (acceptance-spec-coverage, bats-registry-coverage, sler-p6-3 multiplane, demo-signalloom-test-config)"
+      ]
+    }
+  },
+  "reconciled_regressions": [
+    "d2-signalloom/apps/fleet-manager/callerauth.go: implemented CallerContext with header/bearer token extraction",
+    "d2-signalloom/apps/fleet-manager/main.go: gated stun and recover handlers to admin-only with 403 Forbidden",
+    "d2-signalloom/apps/fleet-manager/topology.go: implemented team-scoped agent and edge filtering for non-admin team leads",
+    "d2-signalloom/apps/dashboard-signalloom/src/components/fleet/RoleViewSelector.tsx: implemented role switcher component",
+    "d2-signalloom/apps/dashboard-signalloom/src/pages/FleetDemoPage.tsx: wired role switching to filter topology and gate stun/recover actions with explanatory tooltips",
+    "zero em-dashes rule: all comments, tooltips, and documentation strictly use colons, commas, or parentheses"
+  ]
+}

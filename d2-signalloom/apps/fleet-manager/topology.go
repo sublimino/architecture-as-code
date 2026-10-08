@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -39,25 +40,32 @@ func IsValidAgentState(state string) bool {
 	}
 }
 
-// Agent represents a single agent in the fleet topology.
-type Agent struct {
+// AgentProfile represents a single agent in the fleet topology with identity,
+// governance, and trust boundary configuration.
+type AgentProfile struct {
 	ID string `json:"id" yaml:"id"`
 	// Name is the human label the topology graph renders (FleetTopology.tsx:145).
 	// Defaulted to ID by BuildDAG when the config omits it, because a blank here
 	// draws an unlabelled node rather than raising anything.
-	Name         string   `json:"name" yaml:"name"`
-	Type         string   `json:"type" yaml:"type"`
-	Team         string   `json:"team" yaml:"team"`
-	TrustProfile string   `json:"trustProfile" yaml:"trustProfile"`
-	RiskClass    string   `json:"riskClass" yaml:"riskClass"`
-	GracePeriod  string   `json:"gracePeriod" yaml:"gracePeriod"`
-	Dependencies []string `json:"dependencies" yaml:"dependencies"`
-	Namespace    string   `json:"namespace" yaml:"namespace"`
+	Name              string   `json:"name" yaml:"name"`
+	Type              string   `json:"type" yaml:"type"`
+	Team              string   `json:"team" yaml:"team"`
+	TrustProfile      string   `json:"trustProfile" yaml:"trustProfile"`
+	RiskClass         string   `json:"riskClass" yaml:"riskClass"`
+	GracePeriod       string   `json:"gracePeriod" yaml:"gracePeriod"`
+	Dependencies      []string `json:"dependencies" yaml:"dependencies"`
+	Namespace         string   `json:"namespace" yaml:"namespace"`
 	// No omitempty: the client requires this key to be present. With omitempty
 	// an unset state vanished from the wire entirely, which is how the Fleet
 	// page came to render agents with no state and counts of zero.
-	State string `json:"state" yaml:"state"`
+	State             string   `json:"state" yaml:"state"`
+	DataSensitivity   string   `json:"dataSensitivity,omitempty" yaml:"dataSensitivity,omitempty"`
+	GracePeriodExpiry string   `json:"gracePeriodExpiry,omitempty" yaml:"gracePeriodExpiry,omitempty"`
+	RemainingHours    float64  `json:"remainingHours,omitempty" yaml:"remainingHours,omitempty"`
 }
+
+// Agent is an alias for AgentProfile for compatibility across the codebase.
+type Agent = AgentProfile
 
 // RiskSummary is the aggregate fleet risk the dashboard renders as currency.
 // Mirrors the RiskSummary interface in fleetApi.ts.
@@ -468,5 +476,33 @@ func (d *DAG) SetAgentState(id, state string) error {
 		return fmt.Errorf("invalid agent state: %q", state)
 	}
 	a.State = state
+	return nil
+}
+
+// SetAgentGracePeriod updates the grace period expiry and remaining hours of a specific agent.
+func (d *DAG) SetAgentGracePeriod(id, expiry string, remainingHours float64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	a, exists := d.agents[id]
+	if !exists {
+		return fmt.Errorf("unknown agent: %s", id)
+	}
+	a.GracePeriodExpiry = expiry
+	a.RemainingHours = remainingHours
+	return nil
+}
+
+// SetAgentCompliance updates an agent state and grace period based on compliance evaluation.
+func (d *DAG) SetAgentCompliance(id string, compliant bool, detectedAt, now time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	a, exists := d.agents[id]
+	if !exists {
+		return fmt.Errorf("unknown agent: %s", id)
+	}
+	evaluator := NewGracePeriodEvaluator()
+	evaluator.ApplyEvaluation(a, compliant, detectedAt, now)
 	return nil
 }

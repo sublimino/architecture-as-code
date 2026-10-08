@@ -333,7 +333,7 @@ Obey these. They are the phase constitution.
 | P1-2 | implementation | Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser | P1-1 | Go unit and contract tests verifying DAG adjacency parsing; cycle rejection clean | M | antigravity | pass — delivered: e0927ff804e84ae31bf9bb29d20c5c367adbb934 (see Errata — SLSC-P1-2) | — | — | — | — |
 | P1-3 | implementation | Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling | P1-2 | BATS test supercred-fleet-deploy.bats verifying 5 agent deployments; rc 0 | M | antigravity | pass — delivered: 320052bd2a832fc181059f143717df3b8fe7b466 (see Errata — SLSC-P1-3) | — | — | — | — |
 | P1-4 | implementation | Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route | P1-3 | Vitest suite for FleetTopology.test.tsx; component renders 5 nodes and directed edges | M | antigravity | pass — delivered: ff84f867 (see Errata — SLSC-P1-4) | — | — | — | — |
-| P1-GOV | governor | Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P1-1, P1-2, P1-3, P1-4 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P1-1, P1-2, P1-3, P1-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: 036dd243 (see Errata — SLSC-P1-GOV) | — | — | — | — |
 | P2-PRE | preflight | Audit policy-engine compliance evaluation rules and FAIR Monte Carlo simulation interfaces | P1-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
 | P2-1 | implementation | Implement POST /api/v1/compliance/scan-fleet on policy-engine aggregating fleet FAIR risk | P2-PRE | Go unit and contract tests; endpoint evaluates 5 pods and returns FAIR risk | M | antigravity | — | — | — | — | — |
 | P2-2 | implementation | Build FleetRiskGauge.tsx and node risk tooltips in dashboard-signalloom wired to live FAIR metrics | P2-1 | Vitest FleetRiskGauge.test.tsx verifying number animations and risk band colours | M | antigravity | — | — | — | — | — |
@@ -450,3 +450,14 @@ Obey these. They are the phase constitution.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P1-4","status":"pass","commit":"f8ddbb41"} -->
 
+#### Errata — SLSC-P1-GOV Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice
+**Created:** 2026-10-08 11:15:00+01:00
+**Last Updated:** 2026-10-08 11:20:00+01:00
+**Status:** Completed
+**Commit:** 036dd243
+**Governor merge:** Phase 1 integration clean on integration/slsc-v0.1.0
+**Decisions:** Validated clean merge of all Phase 1 deliverables (AgentProfile CRDs, Fleet Manager Go service, provisioning scripts, and FleetTopology Dagre visualization). Successfully executed full offline test pyramid across Go unit tests (29 modules), Signal Ingest FrostDB parquet, Frontend Vitest suites (216 files, 3,750+ tests), Python invariant suites (fe-signalloom 583+ tests, audit-guard proof, agent-trust, olly-replica authz, sentinel 45 tests), KPAI probe & contract tests (76/76 passed), and Stage 5 static configs, manifests, registries, and guards (110/110 passed). Tagged integration tip integration/slsc-v0.1.0-p1.
+**Deviations:** None.
+**Notes:** Phase 1 integration certified. All unit, contract, and offline verification suites passed cleanly across full pyramid. Facts written to ci-evidence/slsc-p1-governor-facts.json.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P1-GOV","status":"pass","commit":"036dd243"} -->

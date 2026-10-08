@@ -278,6 +278,9 @@ seed_openbao_secrets() {
   log "seeding OpenBao supercred secrets"
   kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token sh -ec '
+    bao secrets enable -path=kv kv-v2 2>/dev/null || true
+    bao auth enable jwt 2>/dev/null || true
+    bao write auth/jwt/config jwks_url="http://spire-oidc.'"$NAMESPACE_BAO"'.svc.cluster.local:8008/keys" 2>/dev/null || true
     cat >/tmp/policy.hcl <<POLICY
 path "kv/data/signalloom/cardvault-agent" { capabilities = ["read"] }
 POLICY

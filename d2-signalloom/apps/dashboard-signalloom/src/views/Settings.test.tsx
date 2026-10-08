@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import Settings from './Settings'
+import Settings, { SETTINGS_TABS } from './Settings'
 import PixelLoader from '../components/PixelLoader'
 import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
@@ -98,15 +98,180 @@ const appCtxValue = {
   setSuperadmin: () => undefined,
 }
 
-function renderSettings() {
+function renderSettings(initialEntries: string[] = ['/settings']) {
   return render(
-    <MemoryRouter initialEntries={['/settings']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <AppContext.Provider value={appCtxValue}>
         <Settings />
       </AppContext.Provider>
     </MemoryRouter>,
   )
 }
+
+describe('Settings: Tabs Navigation & Section Distribution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    vi.mocked(api.compliance.frameworks).mockResolvedValue([
+      {
+        id: 'eu-ai-act',
+        name: 'EU AI Act',
+        version: '1.0',
+        regulatory_body: 'EU',
+        compliance_deadline: null,
+        control_count: 42,
+        controls: [],
+      },
+    ])
+    vi.mocked(api.nhi.scans).mockResolvedValue({
+      scans: [
+        {
+          id: 'scan-1',
+          tenant_id: 'tenant-1',
+          scan_source: 'okta',
+          status: 'completed',
+          started_at: '2026-10-01T10:00:00Z',
+          completed_at: '2026-10-01T10:05:00Z',
+          total_entries_scanned: 150,
+          service_accounts_found: 12,
+          total_at_risk: 1,
+        },
+      ],
+    })
+    vi.mocked(connectorsApi.listProviders).mockResolvedValue(MOCK_PROVIDERS)
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
+    vi.mocked(api.users).mockResolvedValue({
+      users: [
+        {
+          id: 'u1',
+          email: 'alice@acme.com',
+          display_name: 'Alice Smith',
+          role: 'admin',
+          status: 'active',
+          department: 'Security',
+          title: 'SecOps Lead',
+          last_login_at: '2026-10-01T09:00:00Z',
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    })
+  })
+
+  it('renders tab navigation bar with 4 tabs and correct accessible ARIA attributes', async () => {
+    renderSettings()
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+
+    const tablist = screen.getByRole('tablist', { name: /settings tabs/i })
+    expect(tablist).toBeInTheDocument()
+
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs).toHaveLength(4)
+
+    const expectedTabs = [
+      { id: 'general', label: 'General' },
+      { id: 'access', label: 'API & Access' },
+      { id: 'connectors', label: 'Connectors & Discovery' },
+      { id: 'governance', label: 'Governance & Policy' },
+    ]
+
+    expectedTabs.forEach((tab, index) => {
+      expect(tabs[index]).toHaveTextContent(tab.label)
+      expect(tabs[index]).toHaveAttribute('id', `settings-tab-${tab.id}`)
+      expect(tabs[index]).toHaveAttribute('aria-controls', `settings-tabpanel-${tab.id}`)
+    })
+
+    // Default tab is 'general'
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
+    expect(tabs[2]).toHaveAttribute('aria-selected', 'false')
+    expect(tabs[3]).toHaveAttribute('aria-selected', 'false')
+
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('id', 'settings-tabpanel-general')
+    expect(panel).toHaveAttribute('aria-labelledby', 'settings-tab-general')
+  })
+
+  it('defaults to General tab, displaying Organization, Account, Currency, and Display sections', async () => {
+    renderSettings()
+    expect(await screen.findByText('Organization')).toBeInTheDocument()
+    expect(screen.getByText('Account')).toBeInTheDocument()
+    expect(screen.getByText('Currency')).toBeInTheDocument()
+    expect(screen.getByText('Display')).toBeInTheDocument()
+
+    // Sections from other tabs should not be present
+    expect(screen.queryByText('API Access')).not.toBeInTheDocument()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
+    expect(screen.queryByText('Service Connectors')).not.toBeInTheDocument()
+    expect(screen.queryByText('NHI Discovery')).not.toBeInTheDocument()
+    expect(screen.queryByText('Scan Preferences')).not.toBeInTheDocument()
+    expect(screen.queryByText('Compliance Frameworks')).not.toBeInTheDocument()
+    expect(screen.queryByText('Policy-as-Code & CEL Rules')).not.toBeInTheDocument()
+  })
+
+  it('activates the Access tab via URL search param ?tab=access', async () => {
+    renderSettings(['/settings?tab=access'])
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+
+    const accessTab = screen.getByRole('tab', { name: 'API & Access' })
+    expect(accessTab).toHaveAttribute('aria-selected', 'true')
+
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('id', 'settings-tabpanel-access')
+
+    expect(screen.getByText('API Access')).toBeInTheDocument()
+    expect(screen.getByText('Team')).toBeInTheDocument()
+    expect(screen.queryByText('Organization')).not.toBeInTheDocument()
+  })
+
+  it('falls back to General tab when unknown ?tab= param is provided', async () => {
+    renderSettings(['/settings?tab=unknown-tab'])
+    expect(await screen.findByText('Organization')).toBeInTheDocument()
+    const generalTab = screen.getByRole('tab', { name: 'General' })
+    expect(generalTab).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('switches tabs and reveals corresponding sections across all 4 tabs', async () => {
+    renderSettings()
+    await screen.findByText('Organization')
+
+    // 1. Switch to 'API & Access'
+    await userEvent.click(screen.getByRole('tab', { name: 'API & Access' }))
+    expect(await screen.findByText('API Access')).toBeInTheDocument()
+    expect(screen.getByText('Team')).toBeInTheDocument()
+    // Verify callout and link to /users
+    const usersLink = screen.getByRole('link', {
+      name: /Manage permissions and human identities on the Users & Permissions page → \/users/i,
+    })
+    expect(usersLink).toBeInTheDocument()
+    expect(usersLink).toHaveAttribute('href', '/users')
+    // Verify team members displayed
+    expect(screen.getByText('Alice Smith')).toBeInTheDocument()
+    expect(screen.queryByText('Organization')).not.toBeInTheDocument()
+
+    // 2. Switch to 'Connectors & Discovery'
+    await userEvent.click(screen.getByRole('tab', { name: 'Connectors & Discovery' }))
+    expect(await screen.findByText('Service Connectors')).toBeInTheDocument()
+    expect(screen.getByText('NHI Discovery')).toBeInTheDocument()
+    expect(screen.getByText('Scan Preferences')).toBeInTheDocument()
+    expect(screen.queryByText('API Access')).not.toBeInTheDocument()
+
+    // 3. Switch to 'Governance & Policy'
+    await userEvent.click(screen.getByRole('tab', { name: 'Governance & Policy' }))
+    expect(await screen.findByText('Compliance Frameworks')).toBeInTheDocument()
+    expect(screen.getByText('EU AI Act')).toBeInTheDocument()
+    expect(screen.getByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
+    expect(screen.queryByText('Service Connectors')).not.toBeInTheDocument()
+
+    // 4. Switch back to 'General'
+    await userEvent.click(screen.getByRole('tab', { name: 'General' }))
+    expect(await screen.findByText('Organization')).toBeInTheDocument()
+    expect(screen.getByText('Account')).toBeInTheDocument()
+    expect(screen.getByText('Currency')).toBeInTheDocument()
+    expect(screen.getByText('Display')).toBeInTheDocument()
+    expect(screen.queryByText('Compliance Frameworks')).not.toBeInTheDocument()
+  })
+})
 
 describe('Settings: Service Connectors', () => {
   beforeEach(() => {
@@ -117,14 +282,14 @@ describe('Settings: Service Connectors', () => {
   })
 
   it('renders all providers from the API with their display names', async () => {
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     expect(await screen.findByText('Microsoft Entra ID')).toBeInTheDocument()
     expect(screen.getByText('Okta')).toBeInTheDocument()
     expect(screen.getByText('OpenAI')).toBeInTheDocument()
   })
 
   it('shows "Not configured" for providers without a connector', async () => {
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Microsoft Entra ID')
     const notConfigured = screen.getAllByText('Not configured')
     expect(notConfigured).toHaveLength(3)
@@ -134,7 +299,7 @@ describe('Settings: Service Connectors', () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
       { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     expect(await screen.findByText('Connected')).toBeInTheDocument()
     const notConfigured = screen.getAllByText('Not configured')
     expect(notConfigured).toHaveLength(2)
@@ -144,7 +309,7 @@ describe('Settings: Service Connectors', () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
       { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Service Connectors')
     // No framework toggles (mocked to []), so all switches belong to connectors
     const switches = screen.getAllByRole('switch')
@@ -156,7 +321,7 @@ describe('Settings: Service Connectors', () => {
   })
 
   it('navigates to /onboarding when toggling ON an unconfigured provider', async () => {
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Service Connectors')
     const switches = screen.getAllByRole('switch')
     // First switch is Entra (unconfigured)
@@ -168,7 +333,7 @@ describe('Settings: Service Connectors', () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
       { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Connected')
     const switches = screen.getAllByRole('switch')
     // Second switch is Okta (connected)
@@ -181,7 +346,7 @@ describe('Settings: Service Connectors', () => {
       { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
     vi.mocked(connectorsApi.deleteConnector).mockResolvedValue(undefined)
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Connected')
 
     const switches = screen.getAllByRole('switch')
@@ -199,7 +364,7 @@ describe('Settings: Service Connectors', () => {
 
   it('shows empty state when no providers are available', async () => {
     vi.mocked(connectorsApi.listProviders).mockResolvedValue([])
-    renderSettings()
+    renderSettings(['/settings?tab=connectors'])
     expect(await screen.findByText('No providers available.')).toBeInTheDocument()
   })
 })
@@ -338,7 +503,7 @@ describe('Settings: Policy-as-Code Navigation Card', () => {
   })
 
   it('renders the Policy-as-Code & CEL Rules card and navigates to /policies on button click', async () => {
-    renderSettings()
+    renderSettings(['/settings?tab=governance'])
     expect(await screen.findByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
     const policyBtn = screen.getByTestId('settings-goto-policies-btn')
     expect(policyBtn).toBeInTheDocument()
@@ -346,4 +511,3 @@ describe('Settings: Policy-as-Code Navigation Card', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/policies')
   })
 })
-

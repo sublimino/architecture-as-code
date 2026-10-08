@@ -54,6 +54,9 @@ def _normalize_email(email: str) -> str:
 
 
 def is_superadmin(principal: Principal) -> bool:
+    if getattr(principal, "_is_superadmin", False) is True:
+        return True
+
     email_allowlist = _configured_superadmin_emails()
     subject_allowlist = _configured_superadmin_subjects()
 

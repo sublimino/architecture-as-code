@@ -1433,8 +1433,9 @@ class CookiePrefsPatchRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class APIError(Exception):
+class APIError(HTTPException):
     def __init__(self, status_code: int, code: str, message: str):
+        super().__init__(status_code=status_code, detail=message)
         self.status_code = status_code
         self.code = code
         self.message = message
@@ -1608,33 +1609,91 @@ def validate_jwt(token: str) -> dict[str, Any]:
     return claims
 
 
-@dataclass(frozen=True)
+@dataclass
 class Principal:
-    """The authenticated caller, as far as the ID token actually tells us.
+    """The authenticated caller, resolved from validated ID token and platform directory.
 
-    ``tenant`` is the authorisation decision.  ``subject`` and ``email`` are the
-    *identity*, needed by every column that records who did a thing --
-    ``tenant_api_keys.revealed_by_email``, ``support_requests.submitted_by``.
-    Those columns are ``NOT NULL`` because an unattributable key reveal or
-    support request is worthless as evidence, so the value has to come from the
-    token rather than from a literal in the handler.
+    ``tenant`` is the authorisation boundary. ``subject`` and ``email`` are the
+    identity claims. ``role``, ``status``, and ``is_superadmin`` are resolved
+    dynamically from ``public.platform_users`` when available, or derived from
+    configuration mappings.
     """
 
     tenant: str
     subject: str
-    email: str | None
+    email: str | None = None
+    role: str = "viewer"
+    status: str = "active"
+    _is_superadmin: bool = False
+    user_id: str | None = None
+
+    def __init__(
+        self,
+        tenant: str,
+        subject: str,
+        email: str | None = None,
+        role: str = "viewer",
+        status: str = "active",
+        is_superadmin: bool = False,
+        _is_superadmin: bool | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        self.tenant = tenant
+        self.subject = subject
+        self.email = email
+        self.role = role
+        self.status = status
+        super_flag = is_superadmin if _is_superadmin is None else _is_superadmin
+        self._is_superadmin = bool(super_flag)
+        self.user_id = user_id
+
+    @property
+    def tenant_id(self) -> str:
+        """Alias for tenant identifier matching database column names."""
+        return self.tenant
 
     @property
     def actor(self) -> str:
-        """The best available human-facing identifier for this caller.
-
-        Dex issues an ``email`` claim when the ``email`` scope is granted, and
-        that is what the ``*_by_email`` columns are named for.  When the claim
-        is absent the subject is the only identity the token carries; recording
-        it is honest, whereas substituting a fixed address would put a
-        fabricated name in an audit column.
-        """
+        """The best available human-facing identifier for this caller."""
         return self.email or self.subject
+
+    def is_superadmin(self) -> bool:
+        """Return True if principal is a platform superadmin."""
+        if self._is_superadmin:
+            return True
+        import superadmin
+
+        return superadmin.is_superadmin(self)
+
+    def is_admin(self) -> bool:
+        """Return True if principal has admin privileges (superadmin or tenant admin)."""
+        return self.is_superadmin() or self.role == "admin"
+
+    def has_tenant_access(self, tenant_id: str) -> bool:
+        """Return True if principal is authorized to access tenant_id."""
+        if self.is_superadmin():
+            return True
+        return self.tenant == tenant_id
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Principal):
+            return False
+        return (
+            self.tenant == other.tenant
+            and self.subject == other.subject
+            and self.email == other.email
+            and self.role == other.role
+            and self.status == other.status
+            and self._is_superadmin == other._is_superadmin
+            and self.user_id == other.user_id
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"Principal(tenant={self.tenant!r}, subject={self.subject!r}, "
+            f"email={self.email!r}, role={self.role!r}, status={self.status!r}, "
+            f"is_superadmin={self._is_superadmin!r}, user_id={self.user_id!r})"
+        )
 
 
 def verified_bearer_claims(authorization: str | None) -> dict[str, Any]:
@@ -1724,10 +1783,10 @@ async def lookup_subject_binding(subject: str) -> str | None:
         row = await pool.fetchrow(
             "SELECT tenant FROM subject_tenants WHERE subject = $1", subject,
         )
+        tenant = row["tenant"] if row and "tenant" in row else None
     except Exception:  # noqa: BLE001 -- availability over a transient fault; see docstring
         logger.warning("subject binding lookup failed; falling back to API_SUBJECT_TENANTS", exc_info=True)
         return None
-    tenant = row["tenant"] if row else None
     if isinstance(tenant, str) and tenant.strip():
         tenant = tenant.strip()
     else:
@@ -1747,14 +1806,23 @@ def _subject_binding_pool() -> Any:
     lifespan and every pooled handler establish the pool for the ones after.
 
     Only a real ``asyncpg.Pool``, or a stand-in that declares
-    ``serves_subject_bindings``, is consulted. The suite's fakes stand in for
-    specific tables and raise on SQL they do not know; running the lookup
-    against them would turn every test's first request into a logged failure.
+    ``serves_subject_bindings`` or ``serves_platform_users``, is consulted.
     """
     pool = _pool
     if pool is None:
+        try:
+            import db.connection
+
+            pool = db.connection._pool
+        except Exception:  # noqa: BLE001
+            pool = None
+    if pool is None:
         return None
-    if isinstance(pool, asyncpg.Pool) or getattr(pool, "serves_subject_bindings", False):
+    if (
+        isinstance(pool, asyncpg.Pool)
+        or getattr(pool, "serves_subject_bindings", False)
+        or getattr(pool, "serves_platform_users", False)
+    ):
         return pool
     return None
 
@@ -1774,6 +1842,70 @@ def _unverified_subject(authorization: str | None) -> str | None:
         return None
     sub = claims.get("sub") if isinstance(claims, dict) else None
     return sub if isinstance(sub, str) and sub else None
+
+
+def _unverified_email(authorization: str | None) -> str | None:
+    """The ``email`` claim as written, with no verification. A cache key only."""
+    if not authorization:
+        return None
+    _scheme, _sep, token = authorization.partition(" ")
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (ValueError, TypeError):
+        return None
+    email = claims.get("email") if isinstance(claims, dict) else None
+    return email if isinstance(email, str) and email.strip() else None
+
+
+USER_RESOLUTION_TTL_SECONDS = 30.0
+_user_resolution_cache: dict[str, tuple[Any, float]] = {}
+PlatformUserHint = tuple[str, Any]
+
+
+def invalidate_user_resolution_cache(email: str | None = None) -> None:
+    """Forget a cached user resolution (one email, or all of them when ``None``)."""
+    if email is None:
+        _user_resolution_cache.clear()
+    else:
+        _user_resolution_cache.pop(email.strip().lower(), None)
+
+
+async def lookup_platform_user_by_email(email: str) -> Any:
+    """Query public.platform_users for matching user by normalized email."""
+    now = time.monotonic()
+    normalized = email.strip().lower()
+    cached = _user_resolution_cache.get(normalized)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+    pool = _subject_binding_pool()
+    if pool is None:
+        return None
+    user = None
+    try:
+        from platform_users import PlatformUserRepository
+
+        user = await PlatformUserRepository.get_by_email(pool, normalized)
+    except Exception:  # noqa: BLE001 -- fallback to legacy/token identity on db fault
+        logger.warning("platform user lookup failed; falling back to token claims", exc_info=True)
+        return None
+    _user_resolution_cache[normalized] = (user, now + USER_RESOLUTION_TTL_SECONDS)
+    return user
+
+
+async def user_resolution_hint(
+    authorization: Annotated[str | None, Header()] = None,
+) -> PlatformUserHint | None:
+    """Pre-resolve caller platform user record from unverified email claim."""
+    email = _unverified_email(authorization)
+    if email is None:
+        return None
+    normalized = email.strip().lower()
+    user = await lookup_platform_user_by_email(normalized)
+    return (normalized, user)
 
 
 async def subject_binding_hint(
@@ -1798,12 +1930,67 @@ def resolve_tenant(claims: dict[str, Any], binding: SubjectBinding | None) -> st
 def authenticated_principal(
     authorization: Annotated[str | None, Header()] = None,
     binding: Annotated[SubjectBinding | None, Depends(subject_binding_hint)] = None,
+    user_hint: Annotated[PlatformUserHint | None, Depends(user_resolution_hint)] = None,
 ) -> Principal:
     claims = verified_bearer_claims(authorization)
-    tenant = resolve_tenant(claims, binding)
-    if tenant is None:
-        raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
-    return Principal(tenant=tenant, subject=claims["sub"], email=_email_claim(claims))
+    email = _email_claim(claims)
+    normalized_email = email.strip().lower() if email else None
+
+    user_record = None
+    if normalized_email:
+        if user_hint is not None and user_hint[0] == normalized_email:
+            user_record = user_hint[1]
+        else:
+            cached = _user_resolution_cache.get(normalized_email)
+            if cached is not None and cached[1] > time.monotonic():
+                user_record = cached[0]
+
+    if user_record is not None:
+        if user_record.status == "suspended":
+            logger.warning(
+                "rejected suspended platform user: email=%s, user_id=%s, tenant=%s",
+                normalized_email,
+                user_record.id,
+                user_record.tenant_id,
+            )
+            raise APIError(403, "account_suspended", "User account is suspended")
+
+        tenant = user_record.tenant_id or resolve_tenant(claims, binding)
+        if tenant is None:
+            raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
+
+        principal = Principal(
+            tenant=tenant,
+            subject=claims["sub"],
+            email=email or user_record.email,
+            role=user_record.role,
+            status=user_record.status,
+            is_superadmin=user_record.is_superadmin,
+            user_id=str(user_record.id),
+        )
+    else:
+        tenant = resolve_tenant(claims, binding)
+        if tenant is None:
+            raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
+
+        principal = Principal(
+            tenant=tenant,
+            subject=claims["sub"],
+            email=email,
+            role="viewer",
+            status="active",
+            is_superadmin=False,
+            user_id=None,
+        )
+
+    logger.info(
+        "authenticated principal resolved: actor=%s, tenant=%s, role=%s, is_superadmin=%s",
+        principal.actor,
+        principal.tenant,
+        principal.role,
+        principal.is_superadmin(),
+    )
+    return principal
 
 
 def authenticated_tenant(

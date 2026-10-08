@@ -7,6 +7,7 @@ import { AppContext } from '../App'
 import { api } from '../api/client'
 import { installMemoryStorage } from '../test-utils/memoryStorage'
 import type { TenantSettingsResponse } from '../types/api'
+import { FeatureFlagProvider } from '../providers/FeatureFlagProvider'
 
 // The superadmin block only renders for a superadmin-eligible identity (see
 // auth/superadmin.ts), so the mocked OIDC user has to be swappable. Hoisted so
@@ -69,11 +70,24 @@ const appCtxValue = {
   setSuperadmin: () => undefined,
 }
 
-function renderSidebar(ctx: Partial<typeof appCtxValue> = {}) {
+function renderSidebar(
+  ctx: Partial<typeof appCtxValue> = {},
+  initialFlags: Record<string, boolean> = {
+    core_governance: true,
+    audit: true,
+    compliance: true,
+    demos_fleet: true,
+    supercred: true,
+    rbac_analysis: true,
+    collusion_access: true,
+  },
+) {
   return render(
     <MemoryRouter>
       <AppContext.Provider value={{ ...appCtxValue, ...ctx }}>
-        <Sidebar />
+        <FeatureFlagProvider initialFlags={initialFlags} disableAutoFetch>
+          <Sidebar />
+        </FeatureFlagProvider>
       </AppContext.Provider>
     </MemoryRouter>
   )
@@ -1051,11 +1065,25 @@ describe('Sidebar selection highlight', () => {
     return Array.from(new Set([...(boxed ? [boxed] : []), ...classed, ...current]))
   }
 
-  function renderAt(entry: string, ctx: Partial<typeof appCtxValue> = {}) {
+  function renderAt(
+    entry: string,
+    ctx: Partial<typeof appCtxValue> = {},
+    initialFlags: Record<string, boolean> = {
+      core_governance: true,
+      audit: true,
+      compliance: true,
+      demos_fleet: true,
+      supercred: true,
+      rbac_analysis: true,
+      collusion_access: true,
+    },
+  ) {
     return render(
       <MemoryRouter initialEntries={[entry]}>
         <AppContext.Provider value={{ ...appCtxValue, ...ctx }}>
-          <Sidebar />
+          <FeatureFlagProvider initialFlags={initialFlags} disableAutoFetch>
+            <Sidebar />
+          </FeatureFlagProvider>
         </AppContext.Provider>
       </MemoryRouter>
     )
@@ -1200,10 +1228,21 @@ describe('Sidebar selection highlight', () => {
   })
 
   it('seats the highlight when the superadmin block opens onto the active route', async () => {
+    const defaultFlags = {
+      core_governance: true,
+      audit: true,
+      compliance: true,
+      demos_fleet: true,
+      supercred: true,
+      rbac_analysis: true,
+      collusion_access: true,
+    }
     const { rerender } = render(
       <MemoryRouter initialEntries={['/cryptography']}>
         <AppContext.Provider value={{ ...appCtxValue, superadmin: false }}>
-          <Sidebar />
+          <FeatureFlagProvider initialFlags={defaultFlags} disableAutoFetch>
+            <Sidebar />
+          </FeatureFlagProvider>
         </AppContext.Provider>
       </MemoryRouter>
     )
@@ -1213,7 +1252,9 @@ describe('Sidebar selection highlight', () => {
     rerender(
       <MemoryRouter initialEntries={['/cryptography']}>
         <AppContext.Provider value={{ ...appCtxValue, superadmin: true }}>
-          <Sidebar />
+          <FeatureFlagProvider initialFlags={defaultFlags} disableAutoFetch>
+            <Sidebar />
+          </FeatureFlagProvider>
         </AppContext.Provider>
       </MemoryRouter>
     )
@@ -1245,4 +1286,92 @@ describe('Sidebar selection highlight', () => {
     expect(link('/agents').querySelector('.sl-sidebar__shortcut')).toHaveTextContent('2')
   })
 })
+
+describe('Sidebar OpenFeature flag gating', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  afterEach(() => {
+    authMock.user = { ...DEFAULT_USER }
+  })
+
+  it('hides collusion_access navigation item when collusion_access flag is false', async () => {
+    renderSidebar({}, { collusion_access: false, core_governance: true, audit: true, compliance: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.queryByRole('link', { name: /^Collusion & Access$/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Compliance$/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Audit Trail$/ })).toBeInTheDocument()
+  })
+
+  it('shows collusion_access navigation item when collusion_access flag is true', async () => {
+    renderSidebar({}, { collusion_access: true, core_governance: true, audit: true, compliance: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.getByRole('link', { name: /^Collusion & Access$/ })).toHaveAttribute('href', '/collusion-access')
+  })
+
+  it('hides rbac_analysis and rbac_explorer navigation items when rbac_analysis flag is false', async () => {
+    renderSidebar({ superadmin: true }, { rbac_analysis: false, demos_fleet: true, supercred: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.queryByRole('link', { name: 'RBAC Analysis' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'RBAC Explorer' })).not.toBeInTheDocument()
+  })
+
+  it('shows rbac_analysis and rbac_explorer navigation items when rbac_analysis flag is true', async () => {
+    renderSidebar({ superadmin: true }, { rbac_analysis: true, demos_fleet: true, supercred: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.getByRole('link', { name: 'RBAC Analysis' })).toHaveAttribute('href', '/rbac-analysis')
+    expect(screen.getByRole('link', { name: 'RBAC Explorer' })).toHaveAttribute('href', '/rbac-explorer')
+  })
+
+  it('hides fleet and fleet/audience demo links when demos_fleet flag is false', async () => {
+    renderSidebar({ superadmin: true }, { demos_fleet: false, supercred: true, rbac_analysis: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.queryByRole('link', { name: 'Fleet Demo' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Fleet Demo Audience' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'SuperCredential Demo' })).toBeInTheDocument()
+  })
+
+  it('shows fleet and fleet/audience demo links when demos_fleet flag is true', async () => {
+    renderSidebar({ superadmin: true }, { demos_fleet: true, supercred: true, rbac_analysis: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.getByRole('link', { name: 'Fleet Demo' })).toHaveAttribute('href', '/fleet')
+    expect(screen.getByRole('link', { name: 'Fleet Demo Audience' })).toHaveAttribute('href', '/fleet/audience')
+  })
+
+  it('hides supercred demo link when supercred flag is false', async () => {
+    renderSidebar({ superadmin: true }, { supercred: false, demos_fleet: true, rbac_analysis: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.queryByRole('link', { name: 'SuperCredential Demo' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Fleet Demo' })).toBeInTheDocument()
+  })
+
+  it('shows supercred demo link when supercred flag is true', async () => {
+    renderSidebar({ superadmin: true }, { supercred: true, demos_fleet: true, rbac_analysis: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.getByRole('link', { name: 'SuperCredential Demo' })).toHaveAttribute('href', '/supercred')
+  })
+
+  it('omits disabled demo items from quick search results', async () => {
+    renderSidebar({ superadmin: true }, { demos_fleet: false, supercred: true, rbac_analysis: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    const search = screen.getByPlaceholderText('Quick search')
+    fireEvent.change(search, { target: { value: 'fleet' } })
+
+    expect(screen.getByTestId('sidebar-no-matches')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Fleet/ })).not.toBeInTheDocument()
+  })
+})
+
 

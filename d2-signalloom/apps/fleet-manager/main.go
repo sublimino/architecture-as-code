@@ -235,8 +235,23 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		CascadeHistory: make([]CascadeEvent, 0),
 	}
 
+	evaluator := NewGracePeriodEvaluator()
 	for i, a := range agents {
-		resp.Agents[i] = *a
+		agentCopy := *a
+		if agentCopy.State == AgentStateGracePeriod && agentCopy.GracePeriodExpiry == "" {
+			res := evaluator.EvaluateState(&agentCopy, false, time.Now().UTC(), time.Now().UTC())
+			agentCopy.GracePeriodExpiry = res.GracePeriodExpiry
+			agentCopy.RemainingHours = res.RemainingHours
+		}
+		if agentCopy.GracePeriodExpiry != "" && agentCopy.RemainingHours == 0 {
+			if expiryTime, err := time.Parse(time.RFC3339, agentCopy.GracePeriodExpiry); err == nil {
+				rem := time.Until(expiryTime).Hours()
+				if rem > 0 {
+					agentCopy.RemainingHours = rem
+				}
+			}
+		}
+		resp.Agents[i] = agentCopy
 		for _, dep := range a.Dependencies {
 			resp.Edges = append(resp.Edges, Edge{From: a.ID, To: dep})
 		}

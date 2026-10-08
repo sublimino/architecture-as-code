@@ -554,6 +554,7 @@ class PlatformUserResponse(BaseModel):
     title: str | None
     last_login_at: str | None
     created_at: str
+    is_superadmin: bool = False
 
 
 class PlatformUsersResponse(BaseModel):
@@ -7834,7 +7835,7 @@ async def tenant_users(
 
     rows = await pool.fetch(
         """SELECT id, email, display_name, role, status, department, title,
-                  last_login_at, created_at
+                  last_login_at, created_at, is_superadmin
              FROM platform_users
             WHERE tenant_id = $1
             ORDER BY created_at ASC, id ASC""",
@@ -7851,6 +7852,7 @@ async def tenant_users(
             title=row["title"],
             last_login_at=_ts(row["last_login_at"]),
             created_at=_ts(row["created_at"]),
+            is_superadmin=bool(row["is_superadmin"]) if "is_superadmin" in row else False,
         )
         for row in rows
     ]

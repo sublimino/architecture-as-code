@@ -69,7 +69,8 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # 054 recreated it with 052's list plus invite.created and invite.redeemed (053 adds
 # the invites and subject_tenants tables and touches no constraint). 055 adds
 # actor.promote_requested on top of 054. 056 adds audit.cross_tenant_read on top of 055.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "056_cross_tenant_read_event_type.sql"
+# 059 adds user.invited, user.updated, user.role_updated, user.status_updated, user.deleted.
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "059_user_admin_audit_event_types.sql"
 
 
 EVENT_TYPE_POSITION = 2

@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 from adapters import load_adapter_selections
 from afm_import import install_afm_import_api
+from api.admin_users import install_admin_users_api
 from api.features import install_features_api
 from api_compat import install_compatibility_api
 from audit_ingest import install_audit_ingest_api
@@ -116,6 +117,7 @@ install_me_api(app)
 install_fleet_operator_api(app)
 install_invites_api(app)
 install_features_api(app)
+install_admin_users_api(app)
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,
 # dependency or handler can read them, for http and websocket scopes alike.

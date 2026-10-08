@@ -347,7 +347,7 @@ Obey these. They are the phase constitution.
 | P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: fcd1c077 (see Errata — SLSC-P3-GOV) | — | — | — | — |
 | P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 480d5a54 (see Errata — SLSC-P4-PRE) | — | — | — | — |
 | P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | pass — delivered: ca41b3b0 (see Errata — SLSC-P4-1) | — | — | — | — |
-| P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | — | — | — | — | — |
+| P4-2 | implementation | Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls | P4-1 | Vitest tests for role-based view rendering; Playwright multi-role acceptance test | M | antigravity | pass — delivered: 54abb56c (see Errata — SLSC-P4-2) | — | — | — | — |
 | P4-GOV | governor | Merge Phase 4 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P4-1, P4-2 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
 | P5-PRE | preflight | Audit response threshold triggers, audit log schemas, and automated containment event streams | P4-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
 | P5-1 | implementation | Implement automated response policy engine in Fleet Manager with configurable compliance thresholds | P5-PRE | Go unit tests for policy condition evaluation, threshold triggers, and dry-run mode | M | antigravity | — | — | — | — | — |
@@ -617,3 +617,15 @@ Obey these. They are the phase constitution.
 **Notes:** Unit, vet, and contract tests pass 100% (all fleet-manager tests green). Zero em-dashes verified across all files.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P4-1","status":"pass","commit":"ca41b3b0"} -->
+
+#### Errata — SLSC-P4-2 Build role-aware dashboard views on FleetDemoPage.tsx adapting navigation and controls
+**Created:** 2026-10-08 16:01:00+01:00
+**Last Updated:** 2026-10-08 16:01:00+01:00
+**Status:** Completed
+**Commit:** 54abb56c
+**Governor merge:** merged into integration/slsc-v0.1.0 at commit ff79aade
+**Decisions:** Created RoleViewSelector.tsx providing an accessible segmented control for switching between Platform Admin, Compliance Officer, and Payments Team Lead. Embedded RoleViewSelector in FleetDemoPage.tsx toolbar. Bound active role state to dynamically filter the topology to payments agents (agent-txn-pipeline and agent-llm-classifier) when Payments Team Lead is selected. Disabled Stun and Recover buttons with clear informational tooltips when Compliance Officer or Team Lead personas are active. Authored comprehensive Vitest test suites across RoleViewSelector.test.tsx and FleetDemoPage.test.tsx.
+**Deviations:** None.
+**Notes:** Vitest suites (5/5 in selector, 77/77 in fleet page), TypeScript typecheck, and ESLint pass 100%. Zero em-dashes verified across all files.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P4-2","status":"pass","commit":"54abb56c"} -->

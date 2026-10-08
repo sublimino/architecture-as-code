@@ -30,7 +30,7 @@ echo "head_start=$(git rev-parse HEAD) dirty=$(git status --porcelain | wc -l | 
 echo "timeout_scale=${TEST_TIMEOUT_SCALE:-1}" >> "$out/totals.txt"
 run signal-ingest          make test-signal-ingest
 run signal-ingest-frostdb  make test-signal-ingest-frostdb
-run policy-engine          bash -c 'cd d2-signalloom/apps/policy-engine && env GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} go test -count=1 -v ./...'
+run policy-engine          bash -c 'cd d2-signalloom/apps/policy-engine && env CGO_ENABLED=0 GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} go test -count=1 -v ./...'
 run sldc-offline           make test-sldc-offline
 run probe-name             bash scripts/check-old-probe-name.sh
 run docs-lint              make docs-lint

@@ -39,3 +39,8 @@ test/crkc-phase1-unified-stun.bats:apps/stun-sentinel # EAPCI-P1-9: the unified-
 test/crkc-phase1-unified-stun.bats:unified-p1: signalloom-stun-sentinel daemon # EAPCI-P1-9: test titles name the R3 daemon module they build and test
 test/crkc-phase1-unified-stun.bats:unified-p1: stun-sentinel library # EAPCI-P1-9: test title names the R3 library module it tests
 scripts/kind-data-backup.sh:stun-sentinel-fleet-key # EAPCI-P1-5: backs up the legacy caller-key Secret that scripts/fleet-manager-caller-keys.sh still mints during the warden cutover
+d2-signalloom/test/sentinel-evidence.bats # sentinel evidence test checks signalloom-stun-sentinel
+d2-signalloom/test/sentinel-containment.bats # sentinel containment test checks signalloom-stun-sentinel
+test/netebpf-adversarial.bats # netebpf adversarial test tests apps/stun-sentinel
+test/cgroup-freeze-stun.bats # cgroup freeze stun test tests apps/stun-sentinel
+test/netebpf-preflight.bats # netebpf preflight test tests apps/stun-sentinel

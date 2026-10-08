@@ -3364,6 +3364,7 @@ def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
 # ---------------------------------------------------------------------------
 
 router = APIRouter(prefix="/api", tags=["compatibility"])
+compat_root_router = APIRouter(tags=["compatibility-root"])
 ERROR_RESPONSES = {
     401: {"model": ErrorResponse},
     403: {"model": ErrorResponse},
@@ -4087,6 +4088,7 @@ async def agents(
 
 
 @router.get("/health/crypto", response_model=CryptoHealthResponse, responses=ERROR_RESPONSES)
+@compat_root_router.get("/health/crypto", response_model=CryptoHealthResponse, responses=ERROR_RESPONSES)
 async def crypto_health(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
     response: Response = Response(),
@@ -5106,6 +5108,8 @@ async def get_agent(
             res = await client.get(AGENT_DISCOVERY_URL)
             _check_response_status(res, AGENT_DISCOVERY_URL)
             payload = res.json()
+        canonical_id = agent_id.removeprefix("supercred:")
+        candidate_ids = {agent_id, canonical_id}
         if isinstance(payload, dict):
             for d in payload.get("agents", []):
                 if not isinstance(d, dict):
@@ -5113,12 +5117,19 @@ async def get_agent(
                 d_id = str(d.get("id")) if d.get("id") is not None else None
                 d_name = str(d.get("name")) if d.get("name") is not None else None
                 d_sa = str(d.get("service_account")) if d.get("service_account") is not None else None
-                if d_id == agent_id or d_name == agent_id or d_sa == agent_id or (d_id and d_id.startswith(agent_id)):
+                if (
+                    d_id in candidate_ids
+                    or d_name in candidate_ids
+                    or d_sa in candidate_ids
+                    or any(d_id and d_id.startswith(cid) for cid in candidate_ids)
+                ):
                     discovered_match = d
                     break
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+    except Exception:
         pass
 
+    canonical_id = agent_id.removeprefix("supercred:")
+    candidate_ids = {agent_id, canonical_id}
     pool = await _get_pool()
     stun_index = await _latest_stun_index(tenant_id, pool)
     disc_keys = (
@@ -5127,10 +5138,10 @@ async def get_agent(
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
-            agent = _AGENTS[tenant_id].get(agent_id)
+            agent = _AGENTS[tenant_id].get(agent_id) or _AGENTS[tenant_id].get(canonical_id)
             if agent is None:
                 for a in _AGENTS[tenant_id].values():
-                    if a.get("name") == agent_id:
+                    if a.get("name") in candidate_ids or a.get("id") in candidate_ids:
                         agent = a
                         break
         if agent is not None:
@@ -5161,14 +5172,14 @@ async def get_agent(
             )
         raise APIError(404, "not_found", f"Agent '{agent_id}' not found")
 
-    agent_uuid = _try_uuid(agent_id)
+    agent_uuid = _try_uuid(agent_id) or _try_uuid(canonical_id)
     if agent_uuid is not None:
         row = await pool.fetchrow(
             "SELECT * FROM agent_registry WHERE id = $1 AND tenant_id = $2", agent_uuid, tenant_id,
         )
     else:
         row = await pool.fetchrow(
-            "SELECT * FROM agent_registry WHERE name = $1 AND tenant_id = $2", agent_id, tenant_id,
+            "SELECT * FROM agent_registry WHERE (name = $1 OR name = $2) AND tenant_id = $3", agent_id, canonical_id, tenant_id,
         )
     if row is not None:
         if discovered_match is None and isinstance(payload, dict):
@@ -6277,9 +6288,17 @@ async def get_agent_violations(
             ]
         return ViolationListResponse(violations=violations, total=len(violations))
 
-    agent_uuid = _try_uuid(agent_id)
+    canonical_id = agent_id.removeprefix("supercred:")
+    agent_uuid = _try_uuid(agent_id) or _try_uuid(canonical_id)
     if agent_uuid is None:
-        return ViolationListResponse(violations=[], total=0)
+        row = await pool.fetchrow(
+            "SELECT id FROM agent_registry WHERE (name = $1 OR name = $2) AND tenant_id = $3",
+            agent_id, canonical_id, tenant_id,
+        )
+        if row is not None:
+            agent_uuid = row["id"]
+        else:
+            return ViolationListResponse(violations=[], total=0)
 
     rows = await pool.fetch(
         "SELECT * FROM agent_violations WHERE agent_id = $1 AND tenant_id = $2 ORDER BY created_at DESC",
@@ -7230,12 +7249,15 @@ async def audit(
         if to is not None:
             events = [e for e in events if e.timestamp <= to]
         if agent is not None:
+            canonical_agent = agent.removeprefix("supercred:")
             agent_matched = [
                 e for e in events
                 if e.agent_id == agent
-                or (e.agent_id and (e.agent_id == f"{tenant_id}:{agent}" or e.agent_id.endswith(f":{agent}")))
+                or e.agent_id == canonical_agent
+                or (e.agent_id and (e.agent_id == f"{tenant_id}:{agent}" or e.agent_id.endswith(f":{agent}") or e.agent_id.endswith(f":{canonical_agent}")))
                 or (e.agent_name or "").lower().find(agent.lower()) >= 0
-                or (isinstance(e.detail, dict) and e.detail.get("agent_ref") == agent)
+                or (e.agent_name or "").lower().find(canonical_agent.lower()) >= 0
+                or (isinstance(e.detail, dict) and e.detail.get("agent_ref") in (agent, canonical_agent))
             ]
             events = agent_matched
         if type is not None:
@@ -7261,16 +7283,19 @@ async def audit(
         params.append(to)
         idx += 1
     if agent is not None:
-        agent_uuid = _try_uuid(agent)
+        canonical_agent = agent.removeprefix("supercred:")
+        agent_uuid = _try_uuid(agent) or _try_uuid(canonical_agent)
         if agent_uuid is not None:
             conditions.append(f"agent_id = ${idx}")
             params.append(agent_uuid)
             idx += 1
         else:
-            conditions.append(f"(agent_name ILIKE ${idx} OR detail->>'agent_ref' = ${idx + 1})")
+            conditions.append(f"(agent_name ILIKE ${idx} OR agent_name ILIKE ${idx + 1} OR detail->>'agent_ref' = ${idx + 2} OR detail->>'agent_ref' = ${idx + 3})")
             params.append(f"%{agent}%")
+            params.append(f"%{canonical_agent}%")
             params.append(agent)
-            idx += 2
+            params.append(canonical_agent)
+            idx += 4
     if type is not None:
         conditions.append(f"event_type = ${idx}")
         params.append(type)
@@ -9142,6 +9167,7 @@ def install_compatibility_api(app: FastAPI) -> None:
     app.include_router(discovery_router)
     app.include_router(agents_router)
     app.include_router(router, dependencies=[Depends(enforce_strict_operator_tenant)])
+    app.include_router(compat_root_router, dependencies=[Depends(enforce_strict_operator_tenant)])
     app.include_router(operator_identity_router)
     app.include_router(policy_engine_router)
     app.include_router(federation_router)

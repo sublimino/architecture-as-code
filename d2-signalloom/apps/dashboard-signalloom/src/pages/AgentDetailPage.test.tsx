@@ -946,4 +946,21 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
     expect(await screen.findByTestId('active-target-instance-banner')).toBeInTheDocument()
     expect(screen.getByTestId('target-instance-value')).toHaveTextContent('k8s:sa:sa-invoice-bot')
   })
+
+  it('renders overview tab for composite supercred agent identifier without 404', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        id: 'supercred:agent-cardvault',
+        name: 'Cardvault Agent',
+        type: 'Signal Loom Built',
+        owner: 'platform-security',
+        tenant_id: 'supercred',
+      }),
+    )
+    renderPage('/agents/supercred:agent-cardvault?tab=overview')
+
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Cardvault Agent')
+    expect(screen.queryByText(/failed to load agent/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('overview-deeplink-audit')).toHaveAttribute('href', '/audit?agent=supercred%3Aagent-cardvault')
+  })
 })

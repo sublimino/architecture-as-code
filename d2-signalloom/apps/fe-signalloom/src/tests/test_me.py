@@ -111,3 +111,17 @@ def test_identity_is_never_taken_from_a_header_the_client_can_author(monkeypatch
                 "email": None,
                 "superadmin": False,
             }, extra
+
+
+def test_v1_and_api_aliases_report_identical_identity(monkeypatch):
+    """Assert /v1/me and /api/me aliases produce identical verified identity and 401 when anonymous."""
+    with client_for(monkeypatch, _NoDiscovery) as client:
+        token = bearer(token_for("alice"))
+        canonical = client.get("/api/v1/me", headers=token).json()
+        assert client.get("/v1/me", headers=token).json() == canonical
+        assert client.get("/api/me", headers=token).json() == canonical
+
+        # Anonymous caller is refused with 401 on all aliases
+        assert client.get("/api/v1/me").status_code == 401
+        assert client.get("/v1/me").status_code == 401
+        assert client.get("/api/me").status_code == 401

@@ -136,9 +136,12 @@ def test_crypto_health_maps_proxy_payload_to_compat_response(monkeypatch):
 
     with client_for(monkeypatch, FakeAsyncClient) as client:
         response = client.get("/api/health/crypto", headers=bearer(token_for()))
+        alias_response = client.get("/health/crypto", headers=bearer(token_for()))
 
-    assert requested_urls == [api_compat.CRYPTO_HEALTH_URL]
+    assert requested_urls == [api_compat.CRYPTO_HEALTH_URL, api_compat.CRYPTO_HEALTH_URL]
     assert response.status_code == 200
+    assert alias_response.status_code == 200
+    assert alias_response.json() == response.json()
     body = response.json()
     assert body["tenant_id"] == "tenant-a"
     assert len(body["proofs"]) == 2

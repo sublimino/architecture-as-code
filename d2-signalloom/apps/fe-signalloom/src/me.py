@@ -45,6 +45,8 @@ class MeResponse(BaseModel):
 
 
 @router.get("/api/v1/me", response_model=MeResponse, responses=ERROR_RESPONSES)
+@router.get("/v1/me", response_model=MeResponse, responses=ERROR_RESPONSES)
+@router.get("/api/me", response_model=MeResponse, responses=ERROR_RESPONSES)
 async def me(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> MeResponse:

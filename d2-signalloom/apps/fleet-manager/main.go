@@ -147,6 +147,7 @@ type server struct {
 	// unregistered, which is exactly today's behaviour for callers (mostly
 	// tests) that construct a server without wiring one.
 	identityMap *AgentIdentityMap
+	policyEngine *PolicyEngine
 }
 
 // degradedReporter is implemented by the clients that keep a fail-closed
@@ -659,6 +660,53 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 // cross-cluster tenant placement, while the remaining read-only routes stay
 // open. The two workload patterns are exact: neither ends in a slash, so the
 // list route cannot become a prefix handler that shadows the report route.
+func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.policyEngine == nil {
+		s.policyEngine = NewPolicyEngine(s.dag, s.orchestrator, nil)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"policies": s.policyEngine.Policies(),
+		"count":    len(s.policyEngine.Policies()),
+	})
+}
+
+func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	callerCtx := ExtractCallerContext(r)
+	var input PolicyEvaluationInput
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err == nil && len(bytes.TrimSpace(bodyBytes)) > 0 {
+			_ = json.Unmarshal(bodyBytes, &input)
+		}
+	}
+	if !input.DryRun && callerCtx.Role != "" && callerCtx.Role != "admin" {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("caller role %q is forbidden from action: requires admin", callerCtx.Role))
+		return
+	}
+	if s.policyEngine == nil {
+		s.policyEngine = NewPolicyEngine(s.dag, s.orchestrator, nil)
+	}
+	ctx, cancel := cascadeContext(r)
+	defer cancel()
+
+	res, err := s.policyEngine.Evaluate(ctx, input)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("policy evaluation failed: %v", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
@@ -678,6 +726,8 @@ func (s *server) routes() http.Handler {
 	// dashboard and operator (read) watch it. The ack stays report-only.
 	mux.HandleFunc("/api/v1/fleet/stun-state", s.callerKeys.requireAny([]callerScope{scopeRead, scopeReport}, s.handleRemoteStunState))
 	mux.HandleFunc("/api/v1/fleet/stun-state/ack", s.callerKeys.require(scopeReport, s.handleRemoteStunAck))
+	mux.HandleFunc("/api/v1/fleet/policies", s.handlePolicies)
+	mux.HandleFunc("/api/v1/fleet/policies/evaluate", s.handlePolicyEvaluate)
 	registerConsistencyRoutes(mux, s)
 	return mux
 }
@@ -881,7 +931,9 @@ func main() {
 	workloads := NewWorkloadRegistry(reportInterval, time.Now)
 
 	remoteStuns := NewRemoteStunStore(nil, nil)
+	policyEngine := NewPolicyEngine(dag, orchestrator, nil)
 	s := &server{
+		policyEngine:      policyEngine,
 		dag:               dag,
 		orchestrator:      orchestrator,
 		enforcement:       &selection,

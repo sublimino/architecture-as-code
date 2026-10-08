@@ -143,7 +143,7 @@ export function StatusIndicator({ status }: { status: UserStatus | string }) {
 }
 
 function formatDate(dateStr?: string | null): string {
-  if (!dateStr) return '—'
+  if (!dateStr) return '-'
   try {
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) return dateStr

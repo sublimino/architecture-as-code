@@ -12,6 +12,8 @@ import {
   type UsersApiError,
 } from '../../api/usersApi'
 import UserTable from './UserTable'
+import InviteUserModal from '../../components/admin/InviteUserModal'
+import EditUserModal from '../../components/admin/EditUserModal'
 import LoadingState, { loadPhase } from '../../components/LoadingState'
 import ErrorState from '../../components/ErrorState'
 import EmptyState from '../../components/EmptyState'
@@ -39,6 +41,8 @@ export default function UsersPage({
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [actionError, setActionError] = useState<string | null>(null)
   const [successToast, setSuccessToast] = useState<string | null>(null)
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<PlatformUser | null>(null)
 
   // Fetch token
   useEffect(() => {
@@ -171,6 +175,22 @@ export default function UsersPage({
     }
   }, [successToast])
 
+  const handleOpenInvite = () => {
+    if (onInviteUser) {
+      onInviteUser()
+    } else {
+      setInviteModalOpen(true)
+    }
+  }
+
+  const handleOpenEdit = (targetUser: PlatformUser) => {
+    if (onEditUser) {
+      onEditUser(targetUser)
+    } else {
+      setEditingUser(targetUser)
+    }
+  }
+
   return (
     <div data-testid={testId} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Breadcrumb Navigation */}
@@ -222,7 +242,7 @@ export default function UsersPage({
           <button
             type="button"
             className="btn btn-primary"
-            onClick={onInviteUser}
+            onClick={handleOpenInvite}
             data-testid="invite-user-btn"
             aria-label="Invite new user"
             style={{
@@ -520,12 +540,44 @@ export default function UsersPage({
         <UserTable
           users={users}
           isLoading={isFetching}
-          onEditUser={onEditUser}
+          onEditUser={handleOpenEdit}
           onDeactivateUser={handleDeactivateUser}
           onStatusChange={handleStatusChange}
           currentUserEmail={user?.email as string | undefined}
           isSuperadmin={Boolean(isSuperadmin)}
           testId="admin-user-table"
+        />
+      )}
+
+      {/* Invite User Modal */}
+      {inviteModalOpen && (
+        <InviteUserModal
+          isOpen={inviteModalOpen}
+          onClose={() => setInviteModalOpen(false)}
+          onSuccess={(newUser) => {
+            setInviteModalOpen(false)
+            setSuccessToast(`Invitation dispatched to ${newUser.email}`)
+          }}
+          token={token}
+          isSuperadmin={Boolean(isSuperadmin)}
+          availableTenants={tenantOptions}
+          currentTenantId={users[0]?.tenant_id || undefined}
+        />
+      )}
+
+      {/* Edit User Modal */}
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          isOpen={Boolean(editingUser)}
+          onClose={() => setEditingUser(null)}
+          onSuccess={(updatedUser) => {
+            setEditingUser(null)
+            setSuccessToast(`User "${updatedUser.display_name || updatedUser.email}" updated successfully.`)
+          }}
+          token={token}
+          isSuperadmin={Boolean(isSuperadmin)}
+          availableTenants={tenantOptions}
         />
       )}
     </div>

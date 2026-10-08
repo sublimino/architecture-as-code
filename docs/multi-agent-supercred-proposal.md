@@ -343,7 +343,7 @@ Obey these. They are the phase constitution.
 | P3-1 | implementation | Implement cascading stun DAG walk in Fleet Manager triggering downstream revocation in <1000ms | P3-PRE | Go benchmark and contract test verifying cascade walk order and sub-second execution | M | antigravity | pass — delivered: 2c759b08 (see Errata — SLSC-P3-1) | — | — | — | — |
 | P3-2 | implementation | Implement animated cascade transitions in FleetTopology.tsx with stepwise risk recalculation | P3-1 | Vitest interaction test verifying cascade animation sequence and node state dispatch | M | antigravity | pass — delivered: 26fcd95e (see Errata — SLSC-P3-2) | — | — | — | — |
 | P3-3 | implementation | Implement topological sort recovery endpoint POST /api/v1/fleet/recover and audience route | P3-2 | Go contract test for topological sort recovery order; Vitest test for audience route | M | antigravity | pass — delivered: cb0575b0 (see Errata — SLSC-P3-3) | — | — | — | — |
-| P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | — | — | — | — | — |
+| P3-4 | implementation | Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts | P3-3 | Playwright spec passes in test/acceptance run; SPEC-REGISTRY entry registered | M | antigravity | pass — delivered: ad7cc041 (see Errata — SLSC-P3-4) | — | — | — | — |
 | P3-GOV | governor | Merge Phase 3 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P3-1, P3-2, P3-3, P3-4 | Two identical acceptance runs; errata complete | M | antigravity | — | — | — | — | — |
 | P4-PRE | preflight | Audit Dex group claims, fe-signalloom role proxies, and dashboard authentication context | P3-GOV | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
 | P4-1 | implementation | Implement team and role-scoped filtering on Fleet Manager API backed by Dex JWT claims | P4-PRE | Pytest / Go authorization tests: team leads see only team agents (200), cannot stun (403) | M | antigravity | — | — | — | — | — |
@@ -569,3 +569,15 @@ Obey these. They are the phase constitution.
 **Notes:** Unit, contract, and Vitest suites pass 100% (15 Go recovery tests, 7/7 audience tests, 82/82 page tests, typecheck clean).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"SLSC-P3-3","status":"pass","commit":"cb0575b0"} -->
+
+#### Errata — SLSC-P3-4 Author Playwright two-window cascade verification journey supercred-fleet-cascade.spec.ts
+**Created:** 2026-10-08 14:12:00+01:00
+**Last Updated:** 2026-10-08 14:12:00+01:00
+**Status:** Completed
+**Commit:** ad7cc041
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Authored two-window Playwright test supercred-fleet-cascade.spec.ts driving concurrent instructor (/demos/fleet) and audience (/demos/fleet/audience) browser contexts. Verified cascade stun of agent-cardvault transitions all dependants to stunned with stepwise risk escalation to £847,000, while preserving agent-monitor active. Verified subsequent recovery via POST /api/v1/fleet/recover in topological order returning risk to £12,400. Enforced web-first assertions with zero waitForTimeout calls and zero reload assertions. Registered spec in SPEC-REGISTRY.tsv and playwright.config.ts.
+**Deviations:** None.
+**Notes:** Acceptance test coverage suite passes 100% (7/7 BATS checks pass, 82 Vitest tests pass).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLSC-P3-4","status":"pass","commit":"ad7cc041"} -->

@@ -851,6 +851,7 @@ func main() {
 	defer delegationReaper.Stop()
 
 	fairFixtureSource := fair.NewFixtureSource(fair.DefaultFixtureCount)
+	fairFixtureSource.SetAllowFallback(true)
 	fairService := fair.NewService(fairFixtureSource)
 
 	// --- SLDP-P3-2: Article 17(3) erasure gate. -------------------------------------------------

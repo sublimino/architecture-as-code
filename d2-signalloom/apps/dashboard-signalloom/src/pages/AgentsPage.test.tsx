@@ -903,7 +903,7 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
     expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
     expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Risk Evaluated Agent')
 
-    // Quantitative Risk panel renders
+    // Quantitative Risk panel renders (or graceful non-crashing error state without mock network)
     await waitFor(() => {
       expect(
         screen.queryByTestId('drawer-section-risk') || screen.queryByTestId('drawer-section-risk-error')

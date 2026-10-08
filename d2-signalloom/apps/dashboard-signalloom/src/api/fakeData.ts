@@ -292,8 +292,7 @@ function readAgent(path: string): AgentResponse | undefined {
 
 function agentTelemetryFixture(path: string): AgentTelemetryResponse | undefined {
   const agentId = readAgentId(path)
-  const record = findDemoAgent(agentId)
-  if (!record && agentId !== 'agent-cardvault' && !agentId.startsWith('agent-') && !agentId.startsWith('kagent-')) {
+  if (!agentId) {
     return undefined
   }
   return {

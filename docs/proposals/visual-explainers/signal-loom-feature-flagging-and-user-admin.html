@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Signal Loom · Visual Explainer: Feature Flagging & Superadmin User Administration</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-elevated: #1a2234;
+      --surface-hover: #222d42;
+      --border: #283548;
+      --border-accent: #3b82f6;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.15);
+      --violet: #8b5cf6;
+      --violet-glow: rgba(139, 92, 246, 0.15);
+      --teal: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --blue: #3b82f6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.5;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    /* Layout */
+    .app-container {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+    }
+
+    /* Top Navigation Header */
+    header {
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .badge-sl {
+      background: linear-gradient(135deg, var(--cyan), var(--violet));
+      color: #fff;
+      font-weight: 800;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .title-group h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .title-group p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 6px;
+      background: var(--surface);
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .nav-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-btn:hover {
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+    .nav-btn.active {
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Main Content Area */
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      width: 100%;
+    }
+
+    .tab-pane {
+      display: none;
+      animation: fadeIn 0.2s ease-in-out;
+    }
+    .tab-pane.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Grid & Cards */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card-elevated {
+      background: var(--surface-elevated);
+      border-color: #334155;
+    }
+
+    .card h2 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--cyan);
+      margin-bottom: 8px;
+    }
+
+    /* KPI Highlights */
+    .kpi-num {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      margin: 8px 0;
+    }
+    .kpi-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+    }
+    .kpi-sub {
+      font-size: 12px;
+      color: var(--teal);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Architecture Visual Canvas */
+    .arch-diagram {
+      background: #0b0f19;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      position: relative;
+    }
+    .arch-flow {
+      display: grid;
+      grid-template-columns: 1.2fr 0.3fr 1.2fr 0.3fr 1.2fr;
+      align-items: center;
+      gap: 12px;
+    }
+    .arch-node {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      transition: all 0.2s;
+    }
+    .arch-node:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 0 16px var(--cyan-glow);
+      transform: translateY(-2px);
+    }
+    .arch-node.highlight {
+      border-color: var(--violet);
+      box-shadow: 0 0 20px var(--violet-glow);
+    }
+    .node-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .node-body {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .node-tag {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: 8px;
+      font-family: monospace;
+    }
+    .tag-react { background: #0e374e; color: #38bdf8; }
+    .tag-python { background: #2e3418; color: #a3e635; }
+    .tag-postgres { background: #262c49; color: #818cf8; }
+    .tag-openfeature { background: #3b1b4d; color: #e879f9; }
+
+    .arch-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: var(--text-dim);
+      font-size: 11px;
+      text-align: center;
+    }
+    .arrow-line {
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, var(--border), var(--cyan), var(--border));
+      position: relative;
+      margin: 6px 0;
+    }
+    .arrow-line::after {
+      content: '▶';
+      position: absolute;
+      right: 0;
+      top: -6px;
+      font-size: 10px;
+      color: var(--cyan);
+    }
+
+    /* Simulator Interactive Playground */
+    .simulator-box {
+      background: #0d121f;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+    }
+    .sim-controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .flag-toggle-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .flag-toggle-item:last-child { border-bottom: none; }
+    .flag-info .flag-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .flag-info .flag-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* Toggle Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 22px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #374151; transition: .2s; border-radius: 22px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+      background-color: white; transition: .2s; border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--teal); }
+    input:checked + .slider:before { transform: translateX(18px); }
+
+    /* Simulated Dashboard UI Frame */
+    .sim-preview {
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: 380px;
+    }
+    .sim-sidebar {
+      background: #0f172a;
+      border-right: 1px solid #1e293b;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sim-nav-header {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #64748b;
+      margin: 12px 8px 4px;
+    }
+    .sim-nav-link {
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.15s;
+    }
+    .sim-nav-link.active {
+      background: #1e293b;
+      color: #38bdf8;
+      font-weight: 600;
+    }
+    .sim-badge-demo {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .sim-viewport {
+      padding: 24px;
+      background: #090d16;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .sim-url-bar {
+      background: #1e293b;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-family: monospace;
+      font-size: 11px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sim-page-content {
+      flex: 1;
+      border: 1px dashed #334155;
+      border-radius: 6px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    /* Scorecard & Phase Decomposition */
+    .timeline-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    .timeline-table th {
+      text-align: left;
+      padding: 10px 12px;
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+    }
+    .timeline-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+    .timeline-table tr:hover {
+      background: var(--surface-hover);
+    }
+    .badge-pass {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .commit-sha {
+      font-family: monospace;
+      font-size: 11px;
+      background: rgba(255,255,255,0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--cyan);
+    }
+
+    /* Role Matrix Table */
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .matrix-table th, .matrix-table td {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+    .matrix-table th:first-child, .matrix-table td:first-child {
+      text-align: left;
+      font-weight: 600;
+    }
+    .matrix-table th {
+      background: var(--surface-elevated);
+    }
+    .check-yes { color: var(--teal); font-weight: bold; }
+    .check-no { color: var(--text-dim); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 16px 24px;
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <header>
+      <div class="brand">
+        <span class="badge-sl">SLFA</span>
+        <div class="title-group">
+          <h1>Signal Loom · Feature Flagging & User Administration</h1>
+          <p>Visual Explainer · 2026-Q4 Delivery Walk-Through</p>
+        </div>
+      </div>
+      <nav class="nav-tabs">
+        <button class="nav-btn active" onclick="switchTab('overview')">📌 Overview</button>
+        <button class="nav-btn" onclick="switchTab('architecture')">⚡ Architecture</button>
+        <button class="nav-btn" onclick="switchTab('simulator')">🎛️ Live Simulator</button>
+        <button class="nav-btn" onclick="switchTab('scorecard')">📊 Delivery Scorecard</button>
+        <button class="nav-btn" onclick="switchTab('roles')">🛡️ Roles & Security</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- TAB 1: OVERVIEW -->
+      <section id="tab-overview" class="tab-pane active">
+        <div class="grid-4" style="margin-bottom: 24px;">
+          <div class="card card-elevated">
+            <div class="kpi-label">Phase Progress</div>
+            <div class="kpi-num" style="color: var(--teal);">100%</div>
+            <div class="kpi-sub">✓ P1, P2 & P3 Complete</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-label">Vitest Test Suites</div>
+            <div class="kpi-num" style="color: var(--cyan);">3,869</div>
+            <div class="kpi-sub">✓ 226 Files Passing (0 fails)</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-label">FastAPI Contract Tests</div>
+            <div class="kpi-num" style="color: var(--violet);">142</div>
+            <div class="kpi-sub">✓ Multi-tenant isolated</div>
+          </div>
+          <div class="card card-elevated">
+            <div class="kpi-label">Infrastructure Footprint</div>
+            <div class="kpi-num" style="color: var(--amber);">£0.00</div>
+            <div class="kpi-sub">✓ Zero SaaS dependencies</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h2>🎯 The Problem We Solved</h2>
+            <p style="color: var(--text-muted); margin-bottom: 14px;">
+              As Signal Loom onboards enterprise design partners (e.g. Kusari), customer requirements bifurcate:
+            </p>
+            <ul style="padding-left: 20px; color: var(--text-muted); line-height: 1.8; font-size: 13px;">
+              <li><strong style="color: var(--text);">Navigation Clutter:</strong> Enterprise pilots need focused agent telemetry and containment. Experimental demo routes (SuperCred, RBAC Analysis, Collusion) must not distract operators.</li>
+              <li><strong style="color: var(--text);">Static Identity Bottleneck:</strong> User administration previously relied on static configuration maps or direct database inserts rather than a web console.</li>
+              <li><strong style="color: var(--text);">SaaS Sprawl Trap:</strong> Commercial flagging tools (LaunchDarkly, Unleash daemons) add costly egress, latency, and operational attack surfaces.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h2>✨ The Solution Architecture</h2>
+            <p style="color: var(--text-muted); margin-bottom: 14px;">
+              A CNCF OpenFeature-compliant architecture running directly on our PostgreSQL + FastAPI foundation:
+            </p>
+            <ul style="padding-left: 20px; color: var(--text-muted); line-height: 1.8; font-size: 13px;">
+              <li><strong style="color: var(--text);">OpenFeature React SDK:</strong> Declarative <code>&lt;FeatureGate&gt;</code> wrappers prevent layout shifts (CLS) and gate routes seamlessly.</li>
+              <li><strong style="color: var(--text);">Dynamic OIDC Authority:</strong> Normalized Dex JWT claims resolve live against <code>platform_users</code>, rejecting suspended accounts immediately with 403.</li>
+              <li><strong style="color: var(--text);">Superadmin User Console:</strong> Complete user lifecycle UI in Settings with role assignment, invitation modals, and multi-tenant isolation.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: ARCHITECTURE & DATA FLOW -->
+      <section id="tab-architecture" class="tab-pane">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>⚡ Multi-Tier Architecture & Request Pipeline</h2>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px;">
+            End-to-end data flow: from Dex OIDC token evaluation through FastAPI tenant gates down to PostgreSQL storage.
+          </p>
+
+          <div class="arch-diagram">
+            <div class="arch-flow">
+              <!-- Tier 1: Frontend -->
+              <div class="arch-node highlight">
+                <div class="node-header">
+                  <span>💻</span>
+                  <span>React Dashboard</span>
+                </div>
+                <div class="node-body">
+                  • <code>@openfeature/react-sdk</code><br/>
+                  • <code>&lt;FeatureGate&gt;</code> component<br/>
+                  • Dynamic <code>Sidebar.tsx</code> gating<br/>
+                  • <code>UsersPage</code> & <code>UserTable</code>
+                </div>
+                <span class="node-tag tag-openfeature">OpenFeature SDK</span>
+                <span class="node-tag tag-react">Vite / React 19</span>
+              </div>
+
+              <!-- Arrow 1 -->
+              <div class="arch-arrow">
+                <span>Bearer JWT</span>
+                <div class="arrow-line"></div>
+                <span>JSON-RPC / REST</span>
+              </div>
+
+              <!-- Tier 2: Backend -->
+              <div class="arch-node">
+                <div class="node-header">
+                  <span>🛡️</span>
+                  <span>FastAPI Backend</span>
+                </div>
+                <div class="node-body">
+                  • <code>authenticated_principal</code><br/>
+                  • <code>require_feature</code> dependency<br/>
+                  • <code>require_admin_or_superadmin</code><br/>
+                  • Structured audit event emitter
+                </div>
+                <span class="node-tag tag-python">FastAPI / AsyncPG</span>
+              </div>
+
+              <!-- Arrow 2 -->
+              <div class="arch-arrow">
+                <span>WHERE tenant=$1</span>
+                <div class="arrow-line"></div>
+                <span>Connection Pool</span>
+              </div>
+
+              <!-- Tier 3: Database -->
+              <div class="arch-node">
+                <div class="node-header">
+                  <span>🗄️</span>
+                  <span>PostgreSQL</span>
+                </div>
+                <div class="node-body">
+                  • <code>057_tenant_feature_flags</code><br/>
+                  • <code>058_platform_users_superadmin</code><br/>
+                  • <code>059_user_admin_audit_types</code><br/>
+                  • Partial index on <code>is_superadmin</code>
+                </div>
+                <span class="node-tag tag-postgres">PostgreSQL 16</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card card-elevated">
+            <h3>🔒 Strict Tenant Isolation</h3>
+            <p style="font-size: 12px; color: var(--text-muted);">
+              All database queries strictly filter by <code>tenant_id</code>. Superadmins can query across tenants, while Tenant Admins are restricted solely to their partition.
+            </p>
+          </div>
+          <div class="card card-elevated">
+            <h3>⚡ Zero Layout Shift (CLS)</h3>
+            <p style="font-size: 12px; color: var(--text-muted);">
+              <code>&lt;FeatureGate&gt;</code> features 60-second stale-while-revalidate client caching, skeleton placeholders, and error boundaries to prevent rendering flash.
+            </p>
+          </div>
+          <div class="card card-elevated">
+            <h3>📜 Immutable Audit Trail</h3>
+            <p style="font-size: 12px; color: var(--text-muted);">
+              Every user invite, role change, and status toggle emits structured events (<code>user.invited</code>, <code>user.role_changed</code>) linked to actor IDs.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: LIVE SIMULATOR -->
+      <section id="tab-simulator" class="tab-pane">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>🎛️ Interactive Feature Flagging & Route Suppression Playground</h2>
+          <p style="color: var(--text-muted); font-size: 13px;">
+            Toggle tenant feature flags below to witness how the navigation bar, routes, and user experience adapt in real-time without refreshing.
+          </p>
+        </div>
+
+        <div class="simulator-box">
+          <!-- Simulator Controls -->
+          <div class="sim-controls">
+            <h3 style="margin-bottom: 12px; color: var(--text);">Tenant Feature Flags</h3>
+            
+            <div class="flag-toggle-item">
+              <div class="flag-info">
+                <div class="flag-name">Core Governance</div>
+                <div class="flag-desc">Agents, telemetries, policies</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="flag-core" checked disabled>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="flag-toggle-item">
+              <div class="flag-info">
+                <div class="flag-name">demos_fleet</div>
+                <div class="flag-desc">Fleet Manager & Audience Demo</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="flag-fleet" checked onchange="updateSimulator()">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="flag-toggle-item">
+              <div class="flag-info">
+                <div class="flag-name">supercred</div>
+                <div class="flag-desc">SuperCred Evidence & Graph</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="flag-supercred" checked onchange="updateSimulator()">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="flag-toggle-item">
+              <div class="flag-info">
+                <div class="flag-name">rbac_analysis</div>
+                <div class="flag-desc">KubeSec-AFM Formal RBAC</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="flag-rbac" onchange="updateSimulator()">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="flag-toggle-item">
+              <div class="flag-info">
+                <div class="flag-name">collusion_access</div>
+                <div class="flag-desc">Multi-Agent Collusion Hunter</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="flag-collusion" onchange="updateSimulator()">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+              <button class="nav-btn" style="width: 100%; justify-content: center; background: #1f2937;" onclick="presetKusari()">
+                💼 Apply Kusari Enterprise Preset
+              </button>
+            </div>
+          </div>
+
+          <!-- Simulator Live Preview -->
+          <div class="sim-preview">
+            <!-- Simulated Sidebar -->
+            <div class="sim-sidebar">
+              <div style="font-weight: 700; font-size: 13px; color: #fff; padding: 4px 8px; margin-bottom: 8px;">
+                Signal Loom
+              </div>
+              
+              <div class="sim-nav-header">Governance</div>
+              <div class="sim-nav-link active" onclick="setSimRoute('/agents', 'Agents Overview')">🤖 Agents</div>
+              <div class="sim-nav-link" onclick="setSimRoute('/audit', 'Audit Ledger')">📜 Audit Ledger</div>
+
+              <div class="sim-nav-header" id="sim-section-demos">Labs & Demos</div>
+              <div class="sim-nav-link" id="sim-link-fleet" onclick="setSimRoute('/fleet', 'Fleet Manager')">
+                <span>🚢 Fleet Manager</span>
+                <span class="sim-badge-demo">DEMO</span>
+              </div>
+              <div class="sim-nav-link" id="sim-link-supercred" onclick="setSimRoute('/supercred', 'SuperCred Graph')">
+                <span>🔐 SuperCred</span>
+                <span class="sim-badge-demo">DEMO</span>
+              </div>
+              <div class="sim-nav-link" id="sim-link-rbac" onclick="setSimRoute('/rbac-analysis', 'RBAC Analysis')">
+                <span>📐 RBAC Analysis</span>
+                <span class="sim-badge-demo">DEMO</span>
+              </div>
+              <div class="sim-nav-link" id="sim-link-collusion" onclick="setSimRoute('/collusion-access', 'Collusion Hunter')">
+                <span>🕵️ Collusion</span>
+                <span class="sim-badge-demo">DEMO</span>
+              </div>
+
+              <div class="sim-nav-header">System</div>
+              <div class="sim-nav-link" onclick="setSimRoute('/admin/users', 'Users & Permissions')">👥 Users & Perms</div>
+              <div class="sim-nav-link" onclick="setSimRoute('/settings', 'Platform Settings')">⚙️ Settings</div>
+            </div>
+
+            <!-- Simulated Viewport -->
+            <div class="sim-viewport">
+              <div class="sim-url-bar">
+                <span>🔒 https://signalloom.internal</span>
+                <span id="sim-url-text" style="color: #38bdf8;">/agents</span>
+              </div>
+              <div class="sim-page-content" id="sim-page-display">
+                <h3 style="color: #fff; margin-bottom: 8px;">🤖 Active Agents Governance</h3>
+                <p style="color: var(--text-muted); font-size: 13px;">Displaying 8 sandboxed autonomous agents with real-time Landlock LSM telemetry.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: SCORECARD & WORK DECOMPOSITION -->
+      <section id="tab-scorecard" class="tab-pane">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>📊 Phase Delivery Scorecard & Verification Ledger</h2>
+          <p style="color: var(--text-muted); font-size: 13px;">
+            Record of all atomic engineering tasks executed across Phase 1, Phase 2, and Phase 3 under PAI Algorithm Mode.
+          </p>
+
+          <table class="timeline-table">
+            <thead>
+              <tr>
+                <th>Phase ID</th>
+                <th>Task Description</th>
+                <th>Commit SHA</th>
+                <th>Verification Test</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>SLFA-P1-1</strong></td>
+                <td>Migration <code>057_tenant_feature_flags.sql</code> and asyncpg repository</td>
+                <td><span class="commit-sha">5aa51ffa</span></td>
+                <td>Pytest DB repository CRUD suite</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P1-2</strong></td>
+                <td>FastAPI <code>/api/v1/features</code> and <code>require_feature</code> dependency</td>
+                <td><span class="commit-sha">8c2f007d</span></td>
+                <td>Route gating contract tests (404/403)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P1-3</strong></td>
+                <td>OpenFeature React SDK, <code>&lt;FeatureGate&gt;</code>, and <code>useFeatureFlag</code></td>
+                <td><span class="commit-sha">3aea2294</span></td>
+                <td>Vitest provider & component test suite (29 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P1-4</strong></td>
+                <td>Sidebar demo items and App route suppression with <code>NotFoundPage</code></td>
+                <td><span class="commit-sha">6dfb8ecd</span></td>
+                <td>Vitest Sidebar & App suite (3,789 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P1-GOV</strong></td>
+                <td>Governor reconciliation: merge P1 chain & verify offline suites</td>
+                <td><span class="commit-sha">92cf5fa5</span></td>
+                <td>Deterministic dual-run acceptance check</td>
+                <td><span class="badge-pass">MERGED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P2-1</strong></td>
+                <td>Migration <code>058_platform_users_superadmin.sql</code> and Pydantic models</td>
+                <td><span class="commit-sha">e3c6845f</span></td>
+                <td>Unit test model defaults & query filters</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P2-2</strong></td>
+                <td>Dynamic <code>authenticated_principal</code> resolution & suspended rejection</td>
+                <td><span class="commit-sha">68c06f11</span></td>
+                <td>Pytest auth principal tests (12 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P2-3</strong></td>
+                <td><code>/api/v1/admin/users</code> CRUD endpoints & audit event emission</td>
+                <td><span class="commit-sha">ccd7436e</span></td>
+                <td>Admin API authorization suite (22 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P2-GOV</strong></td>
+                <td>Governor reconciliation: merge P2 chain & verify offline suites</td>
+                <td><span class="commit-sha">6433ba2f</span></td>
+                <td>Deterministic dual-run acceptance check</td>
+                <td><span class="badge-pass">MERGED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P3-1</strong></td>
+                <td>Typed API client in <code>usersApi.ts</code> with React Query hooks</td>
+                <td><span class="commit-sha">0da09703</span></td>
+                <td>Vitest API contract suite (25 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P3-2</strong></td>
+                <td><code>UsersPage.tsx</code> and <code>UserTable.tsx</code> with Super Data Table</td>
+                <td><span class="commit-sha">d3ea9eac</span></td>
+                <td>Vitest table & page suites (25 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+              <tr>
+                <td><strong>SLFA-P3-3</strong></td>
+                <td><code>InviteUserModal</code> & <code>EditUserModal</code> with focus traps</td>
+                <td><span class="commit-sha">eec630e0</span></td>
+                <td>Vitest modal interaction suites (41 tests)</td>
+                <td><span class="badge-pass">PASSED</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- TAB 5: ROLES & SECURITY -->
+      <section id="tab-roles" class="tab-pane">
+        <div class="card" style="margin-bottom: 20px;">
+          <h2>🛡️ Role-Based Access Control & Authority Matrix</h2>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+            Granular access boundaries enforced jointly by FastAPI dependencies and React client guards:
+          </p>
+
+          <table class="matrix-table">
+            <thead>
+              <tr>
+                <th>Capability / Action</th>
+                <th>★ Superadmin</th>
+                <th>Tenant Admin</th>
+                <th>Editor</th>
+                <th>Viewer</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>View Own Tenant Users</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+              </tr>
+              <tr>
+                <td>Manage Users in Own Tenant</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+                <td class="check-no">—</td>
+                <td class="check-no">—</td>
+              </tr>
+              <tr>
+                <td>Manage Users Across All Tenants</td>
+                <td class="check-yes">✓ (Unrestricted)</td>
+                <td class="check-no">—</td>
+                <td class="check-no">—</td>
+                <td class="check-no">—</td>
+              </tr>
+              <tr>
+                <td>Grant Superadmin Status</td>
+                <td class="check-yes">✓</td>
+                <td class="check-no">—</td>
+                <td class="check-no">—</td>
+                <td class="check-no">—</td>
+              </tr>
+              <tr>
+                <td>Toggle Tenant Feature Flags</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+                <td class="check-no">—</td>
+                <td class="check-no">—</td>
+              </tr>
+              <tr>
+                <td>Mutate Agent Policies & Guardrails</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+                <td class="check-yes">✓</td>
+                <td class="check-no">—</td>
+              </tr>
+              <tr>
+                <td>Audit Log Inspection</td>
+                <td class="check-yes">✓ (Global)</td>
+                <td class="check-yes">✓ (Tenant)</td>
+                <td class="check-yes">✓ (Tenant)</td>
+                <td class="check-yes">✓ (Tenant)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>🚫 Suspended Account Defense</h3>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+              When an operator status is toggled to <code>suspended</code> in <code>platform_users</code>, <code>authenticated_principal</code> immediately aborts token evaluation with HTTP 403 (<code>account_suspended</code>). There is zero delay or caching lag.
+            </p>
+          </div>
+          <div class="card">
+            <h3>⚡ Client Fallback Containment</h3>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+              If a non-admin directly loads <code>/admin/users</code> in their browser, <code>AdminRoute</code> blocks rendering and redirects. If a non-admin bypasses the client and hits <code>/api/v1/admin/users</code>, FastAPI returns HTTP 403 Forbidden.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Signal Loom Visual Explainer · Proposal SLFA</span>
+      <span>Artifact ID: <code>2026-10-signalloom-feature-flagging-and-user-admin</code></span>
+    </footer>
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+      
+      const targetPane = document.getElementById('tab-' + tabId);
+      if (targetPane) targetPane.classList.add('active');
+
+      const activeBtn = Array.from(document.querySelectorAll('.nav-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (activeBtn) activeBtn.classList.add('active');
+    }
+
+    let currentRoute = '/agents';
+
+    function updateSimulator() {
+      const fleet = document.getElementById('flag-fleet').checked;
+      const supercred = document.getElementById('flag-supercred').checked;
+      const rbac = document.getElementById('flag-rbac').checked;
+      const collusion = document.getElementById('flag-collusion').checked;
+
+      document.getElementById('sim-link-fleet').style.display = fleet ? 'flex' : 'none';
+      document.getElementById('sim-link-supercred').style.display = supercred ? 'flex' : 'none';
+      document.getElementById('sim-link-rbac').style.display = rbac ? 'flex' : 'none';
+      document.getElementById('sim-link-collusion').style.display = collusion ? 'flex' : 'none';
+
+      const anyDemoVisible = fleet || supercred || rbac || collusion;
+      document.getElementById('sim-section-demos').style.display = anyDemoVisible ? 'block' : 'none';
+
+      // Check current route validity
+      renderSimRoute(currentRoute);
+    }
+
+    function setSimRoute(route, label) {
+      currentRoute = route;
+      document.getElementById('sim-url-text').textContent = route;
+      document.querySelectorAll('.sim-nav-link').forEach(el => el.classList.remove('active'));
+      
+      renderSimRoute(route);
+    }
+
+    function renderSimRoute(route) {
+      const display = document.getElementById('sim-page-display');
+      const fleet = document.getElementById('flag-fleet').checked;
+      const supercred = document.getElementById('flag-supercred').checked;
+      const rbac = document.getElementById('flag-rbac').checked;
+      const collusion = document.getElementById('flag-collusion').checked;
+
+      if ((route === '/fleet' && !fleet) ||
+          (route === '/supercred' && !supercred) ||
+          (route === '/rbac-analysis' && !rbac) ||
+          (route === '/collusion-access' && !collusion)) {
+        display.innerHTML = `
+          <div style="color: #ef4444; font-size: 36px; margin-bottom: 8px;">⚠️ 404</div>
+          <h3 style="color: #fff; margin-bottom: 6px;">Feature Disabled / Page Not Found</h3>
+          <p style="color: #94a3b8; font-size: 13px; max-width: 400px;">
+            The requested route <code>${route}</code> has been suppressed by the tenant feature flag gate.
+          </p>
+          <button class="nav-btn" style="background: #1e293b; margin-top: 12px;" onclick="setSimRoute('/agents', 'Agents')">
+            Return to Agents
+          </button>
+        `;
+        return;
+      }
+
+      if (route === '/admin/users') {
+        display.innerHTML = `
+          <h3 style="color: #fff; margin-bottom: 8px;">👥 Users & Permissions Console</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+            Super Data Table displaying platform operators, role badges, and status toggle controls.
+          </p>
+          <div style="background: #111827; border: 1px solid #374151; border-radius: 6px; padding: 12px; width: 100%; text-align: left; font-size: 12px;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #374151; padding-bottom: 8px; margin-bottom: 8px; color: #94a3b8;">
+              <span>OPERATOR</span><span>ROLE</span><span>STATUS</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span>andy@controlplane.com</span><span style="color: #c084fc;">★ Superadmin</span><span style="color: #22c55e;">● Active</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span>elena@controlplane.com</span><span style="color: #38bdf8;">Admin</span><span style="color: #22c55e;">● Active</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>pilot-user@kusari.io</span><span style="color: #94a3b8;">Viewer</span><span style="color: #f59e0b;">● Invited</span>
+            </div>
+          </div>
+        `;
+      } else if (route === '/agents') {
+        display.innerHTML = `
+          <h3 style="color: #fff; margin-bottom: 8px;">🤖 Active Agents Governance</h3>
+          <p style="color: var(--text-muted); font-size: 13px;">Displaying 8 sandboxed autonomous agents with real-time Landlock LSM telemetry.</p>
+        `;
+      } else {
+        display.innerHTML = `
+          <h3 style="color: #fff; margin-bottom: 8px;">Active Page: ${route}</h3>
+          <p style="color: var(--text-muted); font-size: 13px;">Route is active and allowed under current tenant feature configuration.</p>
+        `;
+      }
+    }
+
+    function presetKusari() {
+      document.getElementById('flag-fleet').checked = false;
+      document.getElementById('flag-supercred').checked = false;
+      document.getElementById('flag-rbac').checked = false;
+      document.getElementById('flag-collusion').checked = false;
+      updateSimulator();
+    }
+
+    // Initial run
+    updateSimulator();
+  </script>
+</body>
+</html>

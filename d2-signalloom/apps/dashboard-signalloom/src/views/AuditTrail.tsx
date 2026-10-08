@@ -91,6 +91,9 @@ const EVENT_TYPES = [
   'eap_environment.ttl_extended', 'eap_environment.teardown_requested',
   'eap_environment.webhook_triggered', 'eap_scenario.executed',
   'eap_tenant.isolation_provisioned', 'eap_tenant.isolation_torn_down',
+  // User administration and cross-tenant audit access
+  'audit.cross_tenant_read', 'user.invited', 'user.updated',
+  'user.role_updated', 'user.status_updated', 'user.deleted',
   // Legacy vocabulary from migration 007. No call site emits these, but rows
   // using them may exist in long-lived environments, so they stay filterable.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
@@ -166,6 +169,12 @@ const EVENT_COLORS: Record<string, string> = {
   'eap_scenario.executed': 'var(--violet)',
   'eap_tenant.isolation_provisioned': 'var(--teal)',
   'eap_tenant.isolation_torn_down': 'var(--amber)',
+  'audit.cross_tenant_read': 'var(--amber)',
+  'user.invited': 'var(--teal)',
+  'user.updated': 'var(--violet)',
+  'user.role_updated': 'var(--violet)',
+  'user.status_updated': 'var(--amber)',
+  'user.deleted': 'var(--error)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',

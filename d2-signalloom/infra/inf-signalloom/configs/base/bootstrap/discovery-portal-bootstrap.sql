@@ -3915,3 +3915,420 @@ END $body$;
 
 COMMIT;
 -- END 051_batch_chain_event_type.sql
+
+-- BEGIN 052_fleet_operator_event_types.sql
+-- 052 — admit 'fleet.recover_requested' and 'fleet.resume_requested'
+--
+-- recover and resume belong to fleet-manager's 'operator' break-glass caller key
+-- alone, so the dashboard could not call them and the Fleet page's Recover
+-- button answered 403 for everyone. fe-signalloom now proxies both behind
+-- require_superadmin and presents the operator key server-side
+-- (src/fleet_operator.py), recording the outbound request before forwarding it:
+-- 'fleet.recover_requested' and 'fleet.resume_requested'. The events name a
+-- request, not an outcome; the outcome belongs to fleet-manager. Replaces
+-- audit_events_event_type_check with 050's vocabulary plus these two.
+
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+          )) NOT LIKE '%fleet.recover_requested%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%fleet.recover_requested%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'afm.cluster_import_requested',
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stun_failed',
+        'agent.stun_simulated',
+        'agent.stunned',
+        'agent.transition_failed',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'fleet.recover_requested',
+        'fleet.resume_requested',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'policy.bundle_submitted',
+        'policy.rollback_requested',
+        'rbac.scan_requested',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 052_fleet_operator_event_types.sql
+
+-- BEGIN 053_invites_and_subject_tenants.sql
+-- 053 — self-service invites and a server-side subject-to-tenant binding
+--
+-- Until now the only way a Dex subject reached a tenant was the
+-- API_SUBJECT_TENANTS environment variable of the fe-signalloom Deployment: a
+-- new pilot user was a Dex config edit plus a subject-map edit plus a rollout.
+-- These two tables give the portal a data path for the second edit.
+--
+-- invites: one row per invitation a superadmin issued. Only the sha256 of the
+-- one-time token is stored; the token itself is shown once in the response to
+-- POST /api/v1/invites and never again. A row is spent when redeemed_at is set
+-- and dead when expires_at has passed.
+--
+-- subject_tenants: the binding authenticated_principal consults BEFORE the
+-- environment map. The column is named `tenant`, not `tenant_id`, on purpose:
+-- tests/test_tenant_isolation.py derives its tenant-owned table set from
+-- `tenant_id` columns and requires every statement against such a table to be
+-- bound to the caller's tenant. Neither table is reachable by tenant: a subject
+-- lookup is keyed by subject, an invite by its token hash, and the superadmin
+-- who lists or creates invites is acting across tenants by design. Access is
+-- gated by require_superadmin (create, list) and by the verified token subject
+-- (redeem), never by a tenant predicate.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.invites (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash      TEXT        NOT NULL UNIQUE CHECK (btrim(token_hash) <> ''),
+    email           TEXT        NOT NULL CHECK (btrim(email) <> ''),
+    tenant          TEXT        NOT NULL CHECK (btrim(tenant) <> ''),
+    created_by      TEXT        NOT NULL CHECK (btrim(created_by) <> ''),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    redeemed_by     TEXT,
+    redeemed_at     TIMESTAMPTZ,
+    CONSTRAINT invites_redeemed_together CHECK (
+        (redeemed_by IS NULL AND redeemed_at IS NULL)
+        OR (redeemed_by IS NOT NULL AND redeemed_at IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS invites_tenant_created_at_idx
+    ON public.invites (tenant, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.subject_tenants (
+    subject         TEXT        PRIMARY KEY CHECK (btrim(subject) <> ''),
+    tenant          TEXT        NOT NULL CHECK (btrim(tenant) <> ''),
+    bound_via       TEXT        NOT NULL CHECK (bound_via IN ('invite', 'operator')),
+    bound_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMIT;
+-- END 053_invites_and_subject_tenants.sql
+
+-- BEGIN 054_invite_event_types.sql
+-- 054 — admit 'invite.created' and 'invite.redeemed'
+--
+-- Migration 053 added self-service invites. A superadmin issuing an invite and
+-- a subject redeeming one are both authorisation changes, so each is audited:
+-- 'invite.created' is filed under the invite's tenant by the issuing
+-- superadmin, 'invite.redeemed' under the tenant the subject is now bound to.
+-- Replaces audit_events_event_type_check with 052's vocabulary plus these two,
+-- on 052's pattern: drop the constraint only if it lacks the new type, recreate
+-- it only if absent.
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+          )) NOT LIKE '%fleet.recover_requested%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%fleet.recover_requested%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'afm.cluster_import_requested',
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stun_failed',
+        'agent.stun_simulated',
+        'agent.stunned',
+        'agent.transition_failed',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'fleet.recover_requested',
+        'fleet.resume_requested',
+        'invite.created',
+        'invite.redeemed',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'policy.bundle_submitted',
+        'policy.rollback_requested',
+        'rbac.scan_requested',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 054_invite_event_types.sql
+
+-- BEGIN 055_actor_promote_event_type.sql
+-- 055 — admit 'actor.promote_requested'
+--
+-- The Weave page's Promote button now reaches signal-ingest's
+-- POST /api/v1/actors/{id}/promote through fe-signalloom's existing proxy
+-- (src/signal_fusion.py promote_actor), now superadmin-gated, with the gateway
+-- key presented server-side. The request is
+-- recorded before it is forwarded, under the caller's own tenant, on the
+-- pattern of 'fleet.recover_requested': the event names a request, not an
+-- outcome; the outcome ('actor_promoted') belongs to signal-ingest's own
+-- audit trail. Replaces audit_events_event_type_check with 054's vocabulary
+-- plus this type, on 052's pattern.
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+          )) NOT LIKE '%fleet.recover_requested%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%fleet.recover_requested%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'afm.cluster_import_requested',
+        'actor.promote_requested',
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stun_failed',
+        'agent.stun_simulated',
+        'agent.stunned',
+        'agent.transition_failed',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'fleet.recover_requested',
+        'fleet.resume_requested',
+        'invite.created',
+        'invite.redeemed',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'policy.bundle_submitted',
+        'policy.rollback_requested',
+        'rbac.scan_requested',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 055_actor_promote_event_type.sql

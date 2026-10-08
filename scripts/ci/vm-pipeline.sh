@@ -219,7 +219,7 @@ echo "==> Installing Playwright ffmpeg helper (pinned to test/acceptance)..."
   [[ -d node_modules/@playwright ]] \
     || bun install --frozen-lockfile 2>/dev/null \
     || bun install
-  bunx playwright install ffmpeg
+  PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/tmp/ms-playwright}" bunx playwright install chromium ffmpeg
 )
 
 # ── Tear down any existing cluster ───────────────────────────────────

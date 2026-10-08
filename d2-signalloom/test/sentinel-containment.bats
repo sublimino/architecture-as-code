@@ -13,7 +13,7 @@ setup() {
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
   export CGO_ENABLED="${CGO_ENABLED:-0}"
-  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
+  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel"
   DAEMONSET_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml"
   RBAC_MANIFEST="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/rbac.yaml"
   CARDVAULT_MANIFEST="${REPO_ROOT}/d2-signalloom/apps/cardvault/base/deployment.yaml"

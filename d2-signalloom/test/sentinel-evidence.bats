@@ -6,7 +6,10 @@
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
-  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export CGO_ENABLED="${CGO_ENABLED:-0}"
+  SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel"
   BIN_DIR="${BATS_TEST_TMPDIR}/bin"
   mkdir -p "$BIN_DIR"
   SENTINEL_BIN="${BIN_DIR}/signalloom-warden"

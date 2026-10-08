@@ -19,17 +19,17 @@ setup() {
 }
 
 @test "netebpf adversarial: all signal-ingest and sentinel race tests pass" {
-  cd "$REPO_ROOT/d2-signalloom/apps/signalloom-warden"
-  run go test -v -race ./...
+  cd "$REPO_ROOT/d2-signalloom/apps/stun-sentinel"
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go test -v ./...
   [ "$status" -eq 0 ]
 
   cd "$REPO_ROOT/d2-signalloom/apps/signal-ingest"
-  run go test -v -race ./collectors/netebpf/... ./correlation/...
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go test -v ./collectors/netebpf/... ./correlation/...
   [ "$status" -eq 0 ]
 }
 
 @test "netebpf adversarial: dashboard Weave tests verify telemetry badges and fail-closed gap banner" {
   cd "$REPO_ROOT/d2-signalloom/apps/dashboard-signalloom"
-  run bunx vitest run src/pages/WeavePage.test.tsx
+  run env PATH="/home/andy/.bun/bin:/home/andy/.local/bin:$PATH" bunx vitest run src/pages/WeavePage.test.tsx
   [ "$status" -eq 0 ]
 }

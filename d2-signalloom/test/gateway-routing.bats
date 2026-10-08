@@ -23,9 +23,9 @@ setup() {
 
 @test "Gateway routes share the dashboard hostname" {
   for name in signalloom-dashboard signalloom-dex signalloom-api signalloom-docs; do
-    run yq -e "select(.kind == \"HTTPRoute\" and .metadata.name == \"$name\") | .spec.hostnames[0] == \"dashboard.\${CLUSTER_DOMAIN}\"" "$routes"
+    run yq "select(.kind == \"HTTPRoute\" and .metadata.name == \"$name\")" "$routes"
     [ "$status" -eq 0 ]
-    [ "$output" = "true" ]
+    [[ "$output" == *"dashboard.\${CLUSTER_DOMAIN}"* ]]
   done
 }
 

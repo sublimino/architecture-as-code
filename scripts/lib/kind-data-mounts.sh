@@ -102,16 +102,22 @@ prepare_node_data_mounts() {
   "$DOCKER_BIN" exec "$node" chmod 0777 /var/local-path-provisioner
 }
 
-# Configure rancher.io/local-path provisioner with pathPattern
+# Configure rancher.io/local-path provisioner with pathPattern and install minimal Kind CRDs
 configure_local_path_provisioner() {
   local cluster="${1:-osramp}"
   local ctx="kind-${cluster}"
   local manifest_dir
   manifest_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../infra/kind" && pwd 2>/dev/null || true)"
   local config_file="$manifest_dir/local-path-config.yaml"
+  local cilium_crds="$manifest_dir/cilium-crds.yaml"
 
-  if [ -f "$config_file" ] && command -v "$KUBECTL_BIN" >/dev/null 2>&1; then
-    "$KUBECTL_BIN" --context "$ctx" apply -f "$config_file" >/dev/null 2>&1 || true
+  if command -v "$KUBECTL_BIN" >/dev/null 2>&1; then
+    if [ -f "$config_file" ]; then
+      "$KUBECTL_BIN" --context "$ctx" apply -f "$config_file" >/dev/null 2>&1 || true
+    fi
+    if [ -f "$cilium_crds" ]; then
+      "$KUBECTL_BIN" --context "$ctx" apply -f "$cilium_crds" >/dev/null 2>&1 || true
+    fi
   fi
 }
 

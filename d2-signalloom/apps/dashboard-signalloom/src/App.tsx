@@ -66,6 +66,7 @@ const SignalsPage = lazy(() => import('./pages/SignalsPage'))
 const SignalFusionPage = lazy(() => import('./pages/SignalFusionPage'))
 const DistanceLatencyPage = lazy(() => import('./pages/DistanceLatencyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
+const FleetAudiencePage = lazy(() => import('./pages/FleetAudiencePage'))
 const AgentMaxxingDemoPage = lazy(() => import('./pages/AgentMaxxingDemoPage'))
 const SignalStorePage = lazy(() => import('./pages/SignalStorePage'))
 const FeedsExplorerPage = lazy(() => import('./pages/FeedsExplorerPage'))
@@ -168,6 +169,7 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/federated-services': 'Federated Services',
   '/collusion-access': 'Collusion & Access',
   '/fleet/audience': 'Fleet Demo Audience',
+  '/demos/fleet/audience': 'Fleet Demo Audience',
   '/onboarding': 'Setup',
   '/help/connectors/:provider': 'Connector Help',
   '/redeem-invite': 'Invite',
@@ -455,7 +457,8 @@ export default function App() {
                 <Route path="/network-tests" element={<ProtectedRoute><NetworkTestsPage /></ProtectedRoute>} />
                 <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><SuperCredPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage /></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage audience /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetAudiencePage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/demos/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetAudiencePage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />

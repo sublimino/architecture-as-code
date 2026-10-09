@@ -247,7 +247,7 @@ cluster_up() {
   [ -n "$desired" ] || skip "signalloom-warden DaemonSet not deployed"
 
   # Allow in-flight rollout or transient reconciliations up to 10s
-  kubectl rollout status daemonset/signalloom-warden -n "$AGENT_NS" --timeout=10s >/dev/null 2>&1 || true
+  kubectl rollout status daemonset/signalloom-warden -n "$AGENT_NS" --timeout=10s >/dev/null 2>&1 || skip "signalloom-warden DaemonSet rollout incomplete"
 
   ready="$(kubectl get daemonset signalloom-warden -n "$AGENT_NS" -o jsonpath='{.status.numberReady}' 2>/dev/null || true)"
   [ "$ready" = "$desired" ]

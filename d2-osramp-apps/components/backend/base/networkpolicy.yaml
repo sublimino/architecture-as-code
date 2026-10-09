@@ -113,6 +113,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: fe-signalloom
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: frontend
+          podSelector:
+            matchLabels:
+              app: osramp-multipurpose
       ports:
         - protocol: TCP
           port: 8082

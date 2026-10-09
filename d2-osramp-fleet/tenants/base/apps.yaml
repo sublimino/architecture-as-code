@@ -38,10 +38,10 @@ metadata:
     fluxcd.controlplane.io/reconcile: disabled
 spec:
   dependsOn:
-    - apiVersion: kustomize.toolkit.fluxcd.io/v1
-      kind: Kustomization
-      name: infra-configs
-      namespace: monitoring
+    - apiVersion: fluxcd.controlplane.io/v1
+      kind: ResourceSet
+      name: infra
+      namespace: flux-system
       ready: true
       readyExpr: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
   # The OSRAMP demo starts only through `make demo-osramp-up`.

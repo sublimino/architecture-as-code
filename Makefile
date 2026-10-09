@@ -627,7 +627,7 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 # Fusion, and weaveApi test files.
 
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render test-kusari-e2e
-.PHONY: test-sentinel-ebpf
+.PHONY: test-sentinel-ebpf test-sentinel-ebpf-live
 .PHONY: test-signal-segment-verifier verify-signal-segments
 .PHONY: test-identity-rls-live
 
@@ -705,6 +705,9 @@ test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 
 test-sentinel-ebpf: ## Run in-sentinel eBPF probe and correlator unit suites (offline, no cluster).
 	cd d2-signalloom/apps/stun-sentinel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... ./pkg/correlator/... -v -count=1
+
+test-sentinel-ebpf-live: ## Run live in-sentinel eBPF adversarial suite against local kind-osramp (SENTINEL_EBPF_LIVE=1).
+	SENTINEL_EBPF_LIVE=1 bats test/sentinel-ebpf-live.bats
 
 test-signalfusion-bats: ## Run Signal Fusion structural BATS tests (no cluster required).
 	bats test/signalfusion-demo.bats

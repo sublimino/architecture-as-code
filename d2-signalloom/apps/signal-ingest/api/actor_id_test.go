@@ -136,6 +136,22 @@ func seedTestActor(t testing.TB, memStore store.SignalStore, engine *correlation
 			UpdatedAt: time.Now().UTC(),
 		})
 	}
+	if fairSvc != nil {
+		if fsrc, ok := fairSvc.Source.(*fair.FixtureSource); ok {
+			fsrc.Set(fair.Telemetry{
+				AgentID:               actorID,
+				RuntimeViolations:     1,
+				NetworkAnomalies:      2,
+				CredentialState:       "healthy",
+				CVECritical:           0,
+				CVEHigh:               2,
+				CVEMedium:             6,
+				Contained:             false,
+				ObservationWindowDays: 90,
+				ObservationCount:      180,
+			})
+		}
+	}
 	if resolved != nil {
 		return resolved.ID
 	}

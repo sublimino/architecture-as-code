@@ -290,10 +290,8 @@ function readAgent(path: string): AgentResponse | undefined {
   if (!agentId) return undefined
   const record = findDemoAgent(agentId)
   if (record) return cloneAgent(record.agent)
-  if (agentId === '95b5ff7c-d904-4cb7-8e44-7b2fbed34140') {
-    return cloneAgent(agent('95b5ff7c-d904-4cb7-8e44-7b2fbed34140', 'Arbitrary UUID Agent', 'active', 'limited', { failing: 1, passing: 9, posture_score: 85 }))
-  }
-  return undefined
+  // Dynamic fallback for arbitrary agent names, custom slugs, and UUIDs in demo mode
+  return cloneAgent(agent(agentId, agentId, 'active', 'limited', { failing: 1, passing: 9, posture_score: 85 }))
 }
 
 function agentTelemetryFixture(path: string): AgentTelemetryResponse | undefined {

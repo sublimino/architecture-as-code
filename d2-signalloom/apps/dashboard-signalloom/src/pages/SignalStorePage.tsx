@@ -362,7 +362,7 @@ export default function SignalStorePage() {
 
       {/* Observations by Layer */}
       {stats && sortedLayers.length > 0 && (
-        <Section title="Observations by Layer" hint="Distribution across signal observation layers — click a row to filter table below">
+        <Section title="Observations by Layer" hint="Distribution across signal observation layers: click a row to filter table below">
           {selectedLayer !== 'all' && (
             <div
               data-testid="store-active-layer-banner"

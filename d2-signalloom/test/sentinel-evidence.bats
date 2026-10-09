@@ -6,7 +6,14 @@
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
+  export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+  export GOPATH="${GOPATH:-/tmp/gopath}"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="${GONOSUMDB:-*}"
+  export CGO_ENABLED="${CGO_ENABLED:-0}"
   SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
+  [ -d "$SENTINEL_DIR" ] || SENTINEL_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-stun-sentinel"
   BIN_DIR="${BATS_TEST_TMPDIR}/bin"
   mkdir -p "$BIN_DIR"
   SENTINEL_BIN="${BIN_DIR}/signalloom-warden"

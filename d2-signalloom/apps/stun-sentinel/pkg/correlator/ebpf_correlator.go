@@ -252,6 +252,13 @@ func WithSelf(self filter.Self) Option {
 	}
 }
 
+// WithDNSCache sets the DNS resolution cache for egress correlation (SLWD Phase 2).
+func WithDNSCache(cache *DNSCache) Option {
+	return func(m *SentinelProbeManager) {
+		m.dnsCache = cache
+	}
+}
+
 // fromSelf drops, and counts, a record from this sentinel's own pod.
 func (m *SentinelProbeManager) fromSelf(pod *corev1.Pod) bool {
 	if !m.self.Is(pod) {
@@ -356,6 +363,9 @@ type SentinelProbeManager struct {
 	containerdConfigs []string
 	// bundleRoots hold each container's OCI bundle (runtime_hooks.go).
 	bundleRoots []string
+
+	// dnsCache holds the in-memory DNS resolution cache for egress correlation (SLWD Phase 2).
+	dnsCache *DNSCache
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.

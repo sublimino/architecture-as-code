@@ -699,6 +699,7 @@ sltm-ingest-reload-ratelimit.bats
 source-id-tracked.bats
 spool-replay-lib.bats
 stun-evidence-ownership-generator.bats
+supercred-fleet-deploy.bats
 tenant-kustomizations-no-cluster-scoped-kinds.bats
 test-isolation-audit.bats
 tombstone-mutation-check.bats

@@ -110,6 +110,7 @@ setup() {
   export ANTHROPIC_API_KEY="sk-ant-x"
   run "$SCRIPT" seed
   [ "$status" -ne 0 ]
+  [[ "$output" == *"short"* ]] || [[ "$output" == *"key"* ]] || [[ "$output" == *"implausibly"* ]]
 }
 
 # ─── The leak contract ────────────────────────────────────────────────────────
@@ -122,6 +123,7 @@ setup() {
 @test "kagent-credentials: the key never reaches argv of any executed command" {
   export ANTHROPIC_API_KEY="$FAKE_KEY"
   run "$SCRIPT" seed
+  [ "$status" -eq 0 ]
   [ -f "$KUBECTL_ARGV_LOG" ]
   leaked="$(grep -F "$FAKE_KEY" "$KUBECTL_ARGV_LOG" || true)"
   [ -z "$leaked" ]
@@ -132,6 +134,7 @@ setup() {
   # script never transmitted the key at all. It asserts the transport exists.
   export ANTHROPIC_API_KEY="$FAKE_KEY"
   run "$SCRIPT" seed
+  [ "$status" -eq 0 ]
   [ -f "$KUBECTL_STDIN_LOG" ]
   carried="$(grep -F "$FAKE_KEY" "$KUBECTL_STDIN_LOG" || true)"
   [ -n "$carried" ]
@@ -230,6 +233,7 @@ _placeholder_hits() {
 @test "kagent-credentials: the OpenBao path is scoped by the agent's own SPIFFE path" {
   export ANTHROPIC_API_KEY="$FAKE_KEY"
   run "$SCRIPT" seed
+  [ "$status" -eq 0 ]
   [ -f "$KUBECTL_ARGV_LOG" ]
   # ns/<namespace>/sa/<serviceaccount> is the SPIFFE ID's path component. A flat
   # path would let any agent's token read any other agent's credential.
@@ -241,6 +245,7 @@ _placeholder_hits() {
 @test "kagent-credentials: seed writes a JWT role bound to the agent's exact SPIFFE ID" {
   export ANTHROPIC_API_KEY="$FAKE_KEY"
   run "$SCRIPT" seed
+  [ "$status" -eq 0 ]
   bound="$(grep -F 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-k8s-reader' \
              "$KUBECTL_ARGV_LOG" || true)"
   [ -n "$bound" ]
@@ -284,6 +289,7 @@ _placeholder_hits() {
 @test "kagent-credentials: sync does not put the key in argv" {
   export KUBECTL_STUB_BAO_VALUE="$FAKE_KEY"
   run "$SCRIPT" sync
+  [ "$status" -eq 0 ]
   leaked="$(grep -F "$FAKE_KEY" "$KUBECTL_ARGV_LOG" || true)"
   [ -z "$leaked" ]
 }
@@ -302,6 +308,7 @@ _placeholder_hits() {
 @test "kagent-credentials: sync keeps the Secret name and key the chart consumes" {
   export KUBECTL_STUB_BAO_VALUE="$FAKE_KEY"
   run "$SCRIPT" sync
+  [ "$status" -eq 0 ]
   named="$(grep -F 'create secret generic kagent-anthropic-key' "$KUBECTL_ARGV_LOG" || true)"
   [ -n "$named" ]
   keyed="$(grep -F 'ANTHROPIC_API_KEY=' "$KUBECTL_ARGV_LOG" || true)"
@@ -311,6 +318,7 @@ _placeholder_hits() {
 @test "kagent-credentials: sync leaves no plaintext key on disk after it exits" {
   export KUBECTL_STUB_BAO_VALUE="$FAKE_KEY"
   run "$SCRIPT" sync
+  [ "$status" -eq 0 ]
   # The staging file is how the key avoids argv; it must not outlive the run.
   residue="$(grep -rlF "$FAKE_KEY" "${BATS_TEST_TMPDIR}" 2>/dev/null \
                | grep -v 'kubectl.stdin' || true)"
@@ -370,6 +378,7 @@ _placeholder_hits() {
 @test "kagent-credentials: sync creates exactly one key, the one the ModelConfig asks for" {
   export KUBECTL_STUB_BAO_VALUE="$FAKE_KEY"
   run "$SCRIPT" sync
+  [ "$status" -eq 0 ]
   # One --from-file per namespace, and every one of them names SECRET_KEY.
   froms="$(grep -oE '\-\-from-file=[A-Za-z0-9_-]+=' "$KUBECTL_ARGV_LOG" | sort -u || true)"
   [ "$(printf '%s\n' "$froms" | grep -c .)" = "1" ] || {

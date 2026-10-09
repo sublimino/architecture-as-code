@@ -148,7 +148,7 @@ updated: 2026-10-06T12:50
 | P2-PRE | preflight | Gate: `gcloud --version` loads; impersonation check (`gcp_tf_require_impersonation`); `tailscale status` up; state bucket readable; `TF_STATE_BUCKET` and `GCP_TF_VAR_FILE` set; the operator's live tfvars has the `demo-2` pilot profile. Stop and report on any failure. | P1-GOV | Six checks recorded in errata | S | antigravity | Six checks passed (gcloud 578.0.0, SA token minted, tailnet up, 4 lane prefixes readable, env vars set, bats 6/6) | — | — | — | — |
 | P2-1 | implementation | `make gcp-tf-up ENV=ci-1`, `make gcp-tf-demo-up ENV=ci-1 GCP_TF_DEMO_REF=integration/eapci-v0.1.0`, `make doctor-node ENV=ci-1`, `make gcp-tf-test-both ENV=ci-1`; collect the P1-3 stage results. | P2-PRE | Hand-off `source_sha` equals the integration tip short SHA; all six EAP stages rc 0 with zero skips; tailnet receipt present | M | antigravity | — | — | — | — | — |
 | P2-2 | implementation | The same four targets for `ENV=demo-2` (destroying its current deployment, approved by AJM), deployed as the Kusari pilot at `sl-eap-4b53ab6b.taild4da3.ts.net`; run the onboarding smoke (`docs/EAP/onboarding.md` §1-§5); run the stun chain: `POST /act/read-passwd` → warden in-sentinel eBPF observation → stun label → authorised resume. | P2-1 | Hand-off SHA matches; the endpoint resolves on the tailnet; a sentinel observation for `/etc/passwd` from `agent-kusari`; `signalloom.io/stunned=true` then cleared by resume; no Tetragon CRD; smoke transcript | M | antigravity | pass (26/26 doctor-node, 7/7 tailnet, Kusari onboarding smoke §1-§5, /act stun and token-signed thaw verified, zero Tetragon CRDs; see Errata - EAPCI-P2-2) | — | — | — | — |
-| P2-3 | implementation | The same four targets for `ENV=demo-1` at the integration tip; then `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=<short tip SHA recorded at P2-PRE>`. | P2-2 | Zero STALE and zero MISSING across the three lanes; hand-offs dated today; `ci-2` untouched | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | The same four targets for `ENV=demo-1` at the integration tip; then `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=<short tip SHA recorded at P2-PRE>`. | P2-2 | Zero STALE and zero MISSING across the three lanes; hand-offs dated today; `ci-2` untouched | M | antigravity | pass (26/26 doctor-node, 7/7 tailnet, dual surfaces verified, surfaces report clean: zero STALE, zero MISSING across ci-1, demo-2, demo-1; see Errata — EAPCI-P2-3) | — | — | — | — |
 | P2-4 | implementation | Migrate local `kind-osramp` (and `kind-signalloom-hub`) to the P1-5 mounts: declare a window on `/tmp/chat.jsonl` and wait for no objection; check free disk is at least twice the node's `/var` usage; quiesce writers (scale signal-ingest and Postgres consumers to zero) and take a `pg_dump`; record Postgres row counts, the FrostDB observation count, kagent DB rows and the actor pseudonym of one known actor; the new `kind-data-backup.sh backup`; rebuild with `scripts/cluster-scratch-standup.sh`; restore; re-record counts; then `kind delete cluster` and rebuild once more without restore and re-record. | P2-PRE | Counts and the known actor's pseudonym equal across all three readings; `docker inspect` shows host binds for the three paths; Kusari live tier 7/7 using cursor paging; two identical observations requests return identical bodies; no data under the node's anonymous `/var` volume | M | antigravity | PASS (3 readings identical: PG 46 tables, kagent 13 tables, FrostDB 139 obs; host binds verified; Kusari live tier 7/7; obs cmp identical; dynamic PVC adoption resolved) | — | — | — | — |
 | P2-5 | implementation | After P2-4, on local `kind-osramp`, run a live adversarial suite against the warden with zero fixtures: `openat2` direct invocation, a symlink race to `/etc/passwd`, `execve` of a shell, an egress `connect`, and a ring-buffer flood of benign `openat` chaff; each must yield an observation, and a flood must surface a drop anomaly rather than silent loss. | P2-4 | bats live tier (gated like `test/kusari-e2e-live.bats`, fails on skip in counted runs): 100% of the five attacks observed; flood reports drops; warden RSS under 50 MiB during the run | M | antigravity | — | — | — | — | — |
 | P2-GOV | governor | Reconcile P2 evidence; confirm `ci-2` untouched; close errata; request AJM final approval. | P2-1, P2-2, P2-3, P2-4, P2-5 | Errata complete; surfaces-report attached | S | antigravity | — | — | — | — | — |
@@ -1143,3 +1143,35 @@ All three readings (Reading 1: Baseline; Reading 2: After Scratch Rebuild + Rest
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-2","status":"pass","commit":"9c26da6b"} -->
+
+#### Errata — EAPCI-P2-3
+
+- **Logical ID:** P2-3
+- **Created:** 2026-10-09 11:20:00+01:00
+- **Last Updated:** 2026-10-09 11:20:00+01:00
+- **Harness:** `antigravity`
+- **Delivery Status:** `pass`
+- **Commit:** `db10332b`
+- **Base Ref:** `refs/heads/integration/eapci-v0.1.0`
+
+##### 1. Execution Summary
+- **Lane:** `demo-1` (`sl-demo-1-vm` in zone `us-east4-a`, project `sl-port-over-sandbox`, Tailnet hostname `sl-demo-1.taild4da3.ts.net` at `100.93.225.74`).
+- **Target Execution & Diagnostics:**
+  - `make gcp-tf-up ENV=demo-1`: Reconciled terraform resources against remote state bucket `sl-port-over-sandbox-osramp-tfstate`, refreshed hand-off `deploy/gcp/demo-1.handoff.json`.
+  - `make gcp-tf-demo-up ENV=demo-1`: Re-packaged and delivered checkout at pinned tip, verified pipeline stages and published dashboard at `http://127.0.0.1:30754` with Dex origin `https://sl-demo-1.taild4da3.ts.net`.
+  - `make doctor-node ENV=demo-1`: Verified node and cluster health with 26/26 checks passing (`pass=26 fail=0 warn=0 unknown=0 degraded=0`).
+  - `make gcp-tf-ts-test ENV=demo-1`: Verified remote tailnet surface against `https://sl-demo-1.taild4da3.ts.net` (7/7 checks passing in 2.306s, receipt filed at `demo-surfaces/demo-1.tailnet.json`).
+  - `make gcp-tf-test-surfaces ENV=demo-1`: Verified both on-vm and tailnet test surfaces passed for `demo-1`.
+- **Surfaces Report Across Owned Lanes:**
+  - Executed `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=4884c2e0`:
+    - `ci-1`: on-vm PASS (0m, 4884c2e0), tailnet PASS (0m, 4884c2e0)
+    - `demo-2`: on-vm PASS (0m, 4884c2e0), tailnet PASS (0m, 4884c2e0)
+    - `demo-1`: on-vm PASS (0m, 4884c2e0), tailnet PASS (0m, 4884c2e0)
+    - Verdict: Zero STALE, zero MISSING across the three owned lanes; `ci-2` left completely untouched.
+- **Bug Fixes:**
+  - `d2-signalloom/test/fixtures/kubectl-stub.sh`: Guarded stdin drain in `*-f -*` case with `timeout 0.5s cat >/dev/null 2>&1 || true` to prevent bats hanging when reading unclosed inherited stdin pipes while preserving create/replace pipelines.
+  - `d2-signalloom/test/kagent-credentials.bats` & `d2-signalloom/test/olly-secret-argv.bats`: Added explicit non-vacuous status and output assertions (`[ "$status" -eq 0 ]`).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P2-3","status":"pass","commit":"db10332b"} -->
+

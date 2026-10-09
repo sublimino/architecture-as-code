@@ -188,7 +188,7 @@ test_sentinel() {
 	GO_CACHE_DIR="${GO_CACHE_DIR}-root"
 	run_in_toolchain --privileged -e SENTINEL_REQUIRE_LIVE_BPF=1 -w /src -- \
 		bash -c 'mountpoint -q /sys/kernel/tracing || mount -t tracefs tracefs /sys/kernel/tracing
-			exec go test -count=1 -v '"${STUN_TEST_ARGS:-}"' ./bpf/tests/... ./pkg/ebpf/...'
+			exec go test -count=1 -v '"${STUN_TEST_ARGS:-}"' ./bpf/tests/... ./pkg/ebpf/... ./pkg/tc/...'
 }
 
 main() {

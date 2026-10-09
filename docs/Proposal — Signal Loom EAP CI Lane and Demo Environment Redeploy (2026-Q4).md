@@ -1099,6 +1099,8 @@ All three readings (Reading 1: Baseline; Reading 2: After Scratch Rebuild + Rest
 - **Created:** 2026-10-08 09:12:00+01:00
 - **Last Updated:** 2026-10-08 09:12:00+01:00
 - **Harness:** `antigravity`
+- **Delivery Status:** `pass`
+- **Commit:** `5963a7ff`
 - **Integration Branch:** `refs/heads/integration/eapci-v0.1.0`
 - **Delivery Branch:** `eapci-P2-5-w1`
 - **Merge Base Check:** `git merge-base --is-ancestor integration/eapci-v0.1.0 HEAD` -> `0` (`IS_ANCESTOR_OK`)
@@ -1221,6 +1223,7 @@ Delivered SLSE D6: executed live adversarial test battery against the in-sentine
 - **Last Updated:** 2026-10-09 11:45:00+01:00
 - **Harness:** `antigravity`
 - **Delivery Status:** `pass`
+- **Commit:** `f9a47aa0`
 - **Integration Branch:** `refs/heads/integration/eapci-v0.1.0`
 - **Merge Base Check:** `IS_ANCESTOR_OK`
 

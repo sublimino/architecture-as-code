@@ -718,7 +718,7 @@ Verified @openfeature/react-sdk compatibility with Vite and React 18.
 **Created:** 2026-10-08 03:49:21+01:00
 **Last Updated:** 2026-10-08 03:49:21+01:00
 **Status:** Completed
-**Commit:** bc43e2447f6d00d22a6bb0c8211c85a3039676d7
+**Commit:** ccdf4069b6f3106a68fec46d2bd6c0b194f18ef4
 **Governor merge:** [pending Governor reconciliation]
 **Decisions:**
 - Audited Kusari tenant identifiers across configuration, routing, and workload manifests:
@@ -772,7 +772,7 @@ Verified @openfeature/react-sdk compatibility with Vite and React 18.
 **Created:** 2026-10-08 04:06:00+01:00
 **Last Updated:** 2026-10-08 04:06:00+01:00
 **Status:** Completed
-**Commit:** fc890894
+**Commit:** f58ed239
 **Governor merge:** [pending Governor reconciliation]
 **Decisions:**
 - Provisioned forward-only idempotent migration `d2-signalloom/apps/fe-signalloom/src/db/migrations/060_seed_design_partner_presets.sql`:

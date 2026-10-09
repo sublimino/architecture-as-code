@@ -187,11 +187,20 @@ func (r *Resolver) HostVethForPID(pid int) (string, error) {
 
 // HostVethForCgroup resolves via any live process beneath a pod cgroup.
 func (r *Resolver) HostVethForCgroup(cgroupPath string) (string, error) {
-	pid, err := tc.LivePIDFromCgroup(cgroupPath)
+	res, err := r.ResolveCgroup(context.Background(), cgroupPath)
 	if err != nil {
 		return "", err
 	}
-	return r.HostVethForPID(pid)
+	return res.HostName, nil
+}
+
+// ResolveCgroup resolves via any live process beneath a pod cgroup, returning the full Result.
+func (r *Resolver) ResolveCgroup(ctx context.Context, cgroupPath string) (Result, error) {
+	pid, err := tc.LivePIDFromCgroup(cgroupPath)
+	if err != nil {
+		return Result{}, err
+	}
+	return r.Resolve(ctx, pid)
 }
 
 // Resolve maps pid to its host veth, retrying only on "not there yet"

@@ -72,6 +72,7 @@ type TelemetryObservation struct {
 	Namespace      string            `json:"namespace"`
 	Syscall        string            `json:"syscall"`
 	Target         string            `json:"target"`
+	Domain         string            `json:"domain,omitempty"`
 	Severity       string            `json:"severity"`
 	Labels         map[string]string `json:"labels"`
 	DirectReaction string            `json:"direct_reaction"`

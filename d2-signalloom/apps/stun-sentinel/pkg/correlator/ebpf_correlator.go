@@ -25,6 +25,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/cgroup"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/filter"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/netlink"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
 )
@@ -259,6 +260,22 @@ func WithDNSCache(cache *DNSCache) Option {
 	}
 }
 
+// WithNetlinkResolver sets the netlink veth resolver for ifindex-to-pod correlation (SLWD Phase 2).
+func WithNetlinkResolver(r *netlink.Resolver) Option {
+	return func(m *SentinelProbeManager) {
+		m.netlinkResolver = r
+	}
+}
+
+// ifindexEntry stores the pod identity mapped from a host veth interface index.
+type ifindexEntry struct {
+	PodUID     string
+	PodName    string
+	Namespace  string
+	CgroupPath string
+	IndexedAt  time.Time
+}
+
 // fromSelf drops, and counts, a record from this sentinel's own pod.
 func (m *SentinelProbeManager) fromSelf(pod *corev1.Pod) bool {
 	if !m.self.Is(pod) {
@@ -366,6 +383,11 @@ type SentinelProbeManager struct {
 
 	// dnsCache holds the in-memory DNS resolution cache for egress correlation (SLWD Phase 2).
 	dnsCache *DNSCache
+
+	// netlinkResolver resolves container host veth interfaces for ifindex attribution (SLWD Phase 2).
+	netlinkResolver *netlink.Resolver
+	ifindexMap      map[uint32]ifindexEntry // host ifindex -> pod & cgroup
+	ifindexMu       sync.RWMutex
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -381,6 +403,7 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 		freezeManager:     fm,
 		procRoot:          DefaultProcRoot,
 		podMap:            make(map[string]*corev1.Pod),
+		ifindexMap:        make(map[uint32]ifindexEntry),
 		queue:             make(chan TelemetryObservation, DefaultQueueSize),
 		workers:           1,
 		rateLim:           make(chan struct{}, DefaultRateCapacity),
@@ -447,6 +470,155 @@ func (m *SentinelProbeManager) initInformer() {
 	})
 }
 
+// podKey formats a pod's namespace/name identifier, falling back to name or UID.
+func podKey(pod *corev1.Pod) string {
+	if pod == nil {
+		return ""
+	}
+	if pod.Namespace != "" && pod.Name != "" {
+		return pod.Namespace + "/" + pod.Name
+	}
+	if pod.Name != "" {
+		return pod.Name
+	}
+	return string(pod.UID)
+}
+
+// SetIfindexMapping binds a host interface index to a pod and cgroup path.
+func (m *SentinelProbeManager) SetIfindexMapping(ifindex uint32, pod *corev1.Pod, cgroupPath string) {
+	if ifindex == 0 || pod == nil {
+		return
+	}
+	m.ifindexMu.Lock()
+	defer m.ifindexMu.Unlock()
+
+	m.ifindexMap[ifindex] = ifindexEntry{
+		PodUID:     string(pod.UID),
+		PodName:    pod.Name,
+		Namespace:  pod.Namespace,
+		CgroupPath: cgroupPath,
+		IndexedAt:  m.clock.Now(),
+	}
+}
+
+// LookupPodByIfindex returns the pod and cgroup path mapped to ifindex.
+// Returns (nil, "", false) if unmapped or if the pod has been deleted.
+func (m *SentinelProbeManager) LookupPodByIfindex(ifindex uint32) (*corev1.Pod, string, bool) {
+	if ifindex == 0 {
+		return nil, "", false
+	}
+	m.ifindexMu.RLock()
+	entry, ok := m.ifindexMap[ifindex]
+	m.ifindexMu.RUnlock()
+	if !ok {
+		return nil, "", false
+	}
+
+	// Verify pod still exists in podMap (has not been deleted)
+	pod := m.podByUID(entry.PodUID)
+	if pod == nil && entry.Namespace != "" && entry.PodName != "" {
+		m.mu.RLock()
+		for _, p := range m.podMap {
+			if p.Namespace == entry.Namespace && p.Name == entry.PodName {
+				pod = p
+				break
+			}
+		}
+		m.mu.RUnlock()
+	}
+	if pod == nil {
+		return nil, "", false
+	}
+
+	return pod, entry.CgroupPath, true
+}
+
+// ResolveIfindex resolves an ifindex to pod, pod key (namespace/name), and cgroup path.
+func (m *SentinelProbeManager) ResolveIfindex(ifindex uint32) (*corev1.Pod, string, string, bool) {
+	pod, cgroupPath, ok := m.LookupPodByIfindex(ifindex)
+	if !ok || pod == nil {
+		return nil, "", "", false
+	}
+	return pod, podKey(pod), cgroupPath, true
+}
+
+// findPIDForContainer scans /proc to find a PID belonging to containerID.
+func (m *SentinelProbeManager) findPIDForContainer(containerID string) int {
+	if containerID == "" || m.procRoot == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(m.procRoot)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		cgroupFile := filepath.Join(m.procRoot, entry.Name(), "cgroup")
+		data, err := os.ReadFile(cgroupFile)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), containerID) {
+			return pid
+		}
+	}
+	return 0
+}
+
+// indexPodIfindex resolves the host veth ifindex for pod via the netlink resolver and updates the ifindex map.
+func (m *SentinelProbeManager) indexPodIfindex(pod *corev1.Pod) {
+	if m.netlinkResolver == nil || pod == nil {
+		return
+	}
+
+	// 1. Try resolving via cgroup path
+	var cgroupPath string
+	if m.cgroupRoot != "" {
+		m.cgMu.Lock()
+		uid := string(pod.UID)
+		dashedUID := strings.ReplaceAll(uid, "_", "-")
+		for _, p := range m.cgroupPaths {
+			if strings.Contains(p, dashedUID) || strings.Contains(p, uid) {
+				cgroupPath = p
+				break
+			}
+		}
+		m.cgMu.Unlock()
+	}
+
+	if cgroupPath != "" {
+		fullCgPath := filepath.Join(m.cgroupRoot, strings.TrimPrefix(cgroupPath, "/"))
+		if res, err := m.netlinkResolver.ResolveCgroup(context.Background(), fullCgPath); err == nil && res.HostIndex > 0 {
+			m.SetIfindexMapping(uint32(res.HostIndex), pod, cgroupPath)
+			return
+		}
+	}
+
+	// 2. Try resolving via container PIDs in /proc
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.ContainerID == "" {
+			continue
+		}
+		parts := strings.Split(cs.ContainerID, "://")
+		cid := cs.ContainerID
+		if len(parts) == 2 {
+			cid = parts[1]
+		}
+		if pid := m.findPIDForContainer(cid); pid > 0 {
+			if res, err := m.netlinkResolver.Resolve(context.Background(), pid); err == nil && res.HostIndex > 0 {
+				m.SetIfindexMapping(uint32(res.HostIndex), pod, cgroupPath)
+				return
+			}
+		}
+	}
+}
+
 // indexPod adds a pod to the internal lookup index.
 func (m *SentinelProbeManager) indexPod(pod *corev1.Pod) {
 	if pod == nil {
@@ -468,6 +640,10 @@ func (m *SentinelProbeManager) indexPod(pod *corev1.Pod) {
 				m.podMap[parts[1]] = pod
 			}
 		}
+	}
+
+	if m.netlinkResolver != nil {
+		m.indexPodIfindex(pod)
 	}
 }
 
@@ -493,6 +669,16 @@ func (m *SentinelProbeManager) removePod(pod *corev1.Pod) {
 			}
 		}
 	}
+
+	// Evict ifindex mappings for this pod to prevent misattribution on kernel ifindex reuse
+	m.ifindexMu.Lock()
+	for ifindex, entry := range m.ifindexMap {
+		if (uid != "" && entry.PodUID == uid) ||
+			(pod.Name != "" && entry.PodName == pod.Name && entry.Namespace == pod.Namespace) {
+			delete(m.ifindexMap, ifindex)
+		}
+	}
+	m.ifindexMu.Unlock()
 }
 
 // IsSensitivePath reports whether an absolute path, once lexically cleaned,
@@ -851,6 +1037,25 @@ func (m *SentinelProbeManager) reportConnect(raw SyscallEvent, ev *ebpf.SyscallE
 	obs := m.NormalizeObservation(raw, pod)
 	obs.CgroupPath = m.cgroupPathFor(ev.CgroupID, ev.PID)
 	obs.Opener = &OpenerIdentity{Comm: ev.Comm, TGID: ev.TGID, UID: ev.UID, ExeIno: ev.ExeIno, ExeSize: ev.ExeSize}
+
+	// Enrich with domain from DNSCache if available (SLWD Phase 2)
+	if m.dnsCache != nil && len(raw.DestAddr) > 0 {
+		destIP := ipToString(raw.DestAddr)
+		if destIP != "" {
+			podIdentifier := podKey(pod)
+			domain, found := m.dnsCache.Lookup(podIdentifier, destIP)
+			if !found && string(pod.UID) != "" && string(pod.UID) != podIdentifier {
+				domain, found = m.dnsCache.Lookup(string(pod.UID), destIP)
+			}
+			if !found && obs.CgroupPath != "" {
+				domain, found = m.dnsCache.Lookup(obs.CgroupPath, destIP)
+			}
+			if found && domain != "" {
+				obs.Domain = domain
+			}
+		}
+	}
+
 	return obs, true
 }
 

@@ -329,9 +329,9 @@ Obey these. They are the phase constitution.
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | baseline | Establish baseline: run test suites, verify harness readiness on integration/slsc-v0.1.0 at cut SHA | — | make demo-signalloom-api-test, vitest, docs-lint rc 0; totals in errata | S | antigravity | — | — | — | — | — |
 | P1-PRE | preflight | Audit SPIRE registration templates, OpenBao JWT mounts, and existing scripts/supercred-demo.sh | P0 | Audit table in errata; no code changes | S | antigravity | — | — | — | — | — |
-| P1-1 | implementation | Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/ | P1-PRE | Manifest validation tests; kubectl apply --dry-run=client clean | S | antigravity | pass — delivered: 0f53d980bc2551e136210e2168784ad81c943e00 (see Errata — SLSC-P1-1) | — | — | — | — |
-| P1-2 | implementation | Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser | P1-1 | Go unit and contract tests verifying DAG adjacency parsing; cycle rejection clean | M | antigravity | pass — delivered: e0927ff804e84ae31bf9bb29d20c5c367adbb934 (see Errata — SLSC-P1-2) | — | — | — | — |
-| P1-3 | implementation | Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling | P1-2 | BATS test supercred-fleet-deploy.bats verifying 5 agent deployments; rc 0 | M | antigravity | pass — delivered: 320052bd2a832fc181059f143717df3b8fe7b466 (see Errata — SLSC-P1-3) | — | — | — | — |
+| P1-1 | implementation | Define AgentProfile CRD schema and author 5 YAML agent manifests under d2-signalloom/agents/ | P1-PRE | Manifest validation tests; kubectl apply --dry-run=client clean | S | antigravity | pass — delivered: d084583f (see Errata — SLSC-P1-1) | — | — | — | — |
+| P1-2 | implementation | Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser | P1-1 | Go unit and contract tests verifying DAG adjacency parsing; cycle rejection clean | M | antigravity | pass — delivered: 6c78e059 (see Errata — SLSC-P1-2) | — | — | — | — |
+| P1-3 | implementation | Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling | P1-2 | BATS test supercred-fleet-deploy.bats verifying 5 agent deployments; rc 0 | M | antigravity | pass — delivered: d6ea13b9 (see Errata — SLSC-P1-3) | — | — | — | — |
 | P1-4 | implementation | Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route | P1-3 | Vitest suite for FleetTopology.test.tsx; component renders 5 nodes and directed edges | M | antigravity | pass — delivered: ff84f867 (see Errata — SLSC-P1-4) | — | — | — | — |
 | P1-GOV | governor | Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice | P1-1, P1-2, P1-3, P1-4 | Two identical acceptance runs; errata complete | M | antigravity | pass — delivered: 036dd243 (see Errata — SLSC-P1-GOV) | — | — | — | — |
 | P2-PRE | preflight | Audit policy-engine compliance evaluation rules and FAIR Monte Carlo simulation interfaces | P1-GOV | Audit table in errata; no code changes | S | antigravity | pass — delivered: 61d0eda4 (see Errata — SLSC-P2-PRE) | — | — | — | — |
@@ -360,13 +360,13 @@ Obey these. They are the phase constitution.
 **Created:** 2026-10-08 08:50:00+01:00
 **Last Updated:** 2026-10-08 09:35:00+01:00
 **Status:** Completed
-**Commit:** e1e5dcb3ed1874d4dc80156ee82301c49a7a9224
+**Commit:** 6c150fe865a58f64b0f6c0e35e80c100ae277963
 **Governor merge:** pending Governor reconciliation
 **Decisions:** Baseline harness readiness established on integration/slsc-v0.1.0; 707 test cases, FastAPI contract tests, and docs-lint passed 100%.
 **Deviations:** None.
 **Notes:** ci-evidence/slsc-p0-baseline-facts.json written cleanly.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-<!-- kanban-check: {"card":"SLSC-P0","status":"pass","commit":"e1e5dcb3"} -->
+<!-- kanban-check: {"card":"SLSC-P0","status":"pass","commit":"6c150fe8"} -->
 
 
 #### Errata — SLSC-P1-PRE
@@ -406,49 +406,49 @@ Obey these. They are the phase constitution.
 **Created:** 2026-10-08 09:55:22+01:00
 **Last Updated:** 2026-10-08 09:55:22+01:00
 **Status:** Completed
-**Commit:** 0f53d980bc2551e136210e2168784ad81c943e00
+**Commit:** d084583f0729b9ee69ad128f937277cfb7ac61e9
 **Governor merge:** pending Governor reconciliation
 **Decisions:** Authored OpenAPI v3 CustomResourceDefinition in signalloom.controlplane.io/v1alpha1 with structural schema for id, name, type, team, trustProfile, riskClass, gracePeriod, dependencies, spiffePath, openbaoMount, spiffe, openbao, securityContext, and state. Updated all 5 demonstration agent manifests and fleet-config.yaml to form the approved 5-node acyclic DAG.
 **Deviations:** None.
 **Notes:** Validated 100% clean with kubectl apply --dry-run=client, bats d2-signalloom/test/fleet-agents-contract.bats (21/21 passed), and bash test/agentprofile-manifest-validation.sh (16/16 passed).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-<!-- kanban-check: {"card":"SLSC-P1-1","status":"pass","commit":"0f53d980bc2551e136210e2168784ad81c943e00"} -->
+<!-- kanban-check: {"card":"SLSC-P1-1","status":"pass","commit":"d084583f"} -->
 
 #### Errata — SLSC-P1-2 Build Fleet Manager Go service under d2-signalloom/apps/fleet-manager/ with DAG ConfigMap parser
 **Created:** 2026-10-08 10:11:00+01:00
 **Last Updated:** 2026-10-08 10:11:00+01:00
 **Status:** Completed
-**Commit:** e0927ff804e84ae31bf9bb29d20c5c367adbb934
+**Commit:** 6c78e059be6fdc5ee8d57b2dff8338a0234e6522
 **Governor merge:** pending Governor reconciliation
 **Decisions:** Built DAG data structures in topology.go with recursive DFS cycle detector, Kahn's topological sort, and reverse-BFS cascade targets resolution. Added ConfigMap parser in k8sclient.go. Exposed POST /api/v1/fleet/deploy, GET /api/v1/fleet/topology, and health endpoints in main.go. Added comprehensive unit tests in dag_parser_test.go and contract tests in fleet_topology_contract_test.go.
 **Deviations:** None.
 **Notes:** 100% of unit and contract tests passed under go test -v ./....
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-<!-- kanban-check: {"card":"SLSC-P1-2","status":"pass","commit":"e0927ff804e84ae31bf9bb29d20c5c367adbb934"} -->
+<!-- kanban-check: {"card":"SLSC-P1-2","status":"pass","commit":"6c78e059"} -->
 
 #### Errata — SLSC-P1-3 Create scripts/supercred-fleet-demo.sh orchestrating multi-agent provisioning and credential polling
 **Created:** 2026-10-08 10:27:00+01:00
 **Last Updated:** 2026-10-08 10:27:00+01:00
 **Status:** Completed
-**Commit:** 320052bd2a832fc181059f143717df3b8fe7b466
+**Commit:** d6ea13b9a60384c29e6d19a5dbd77320afadc602
 **Governor merge:** pending Governor reconciliation
 **Decisions:** Validated scripts/supercred-fleet-demo.sh orchestration across all 5 agents (cardvault, txn-pipeline, llm-classifier, api-gateway, monitor), verifying dry-run namespace creation, cardvault SA/deployment manifests, fleet-agents kustomize directory, SPIRE workload registrations, and OpenBao JWT policy/role/secret seeding. Authored test/supercred-fleet-deploy.bats covering static definitions, subcommands, and mocked cluster execution.
 **Deviations:** None.
 **Notes:** 100% of tests passed under bats test/supercred-fleet-deploy.bats (12/12) and bats test/supercred-fleet-demo-harness.bats (16/16).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-<!-- kanban-check: {"card":"SLSC-P1-3","status":"pass","commit":"320052bd2a832fc181059f143717df3b8fe7b466"} -->
+<!-- kanban-check: {"card":"SLSC-P1-3","status":"pass","commit":"d6ea13b9"} -->
 
 #### Errata — SLSC-P1-4 Build FleetTopology.tsx with Dagre layout in dashboard-signalloom and FleetDemoPage.tsx route
 **Created:** 2026-10-08 10:31:00+01:00
 **Last Updated:** 2026-10-08 10:31:00+01:00
 **Status:** Completed
-**Commit:** f8ddbb41
+**Commit:** ff84f86721340c457d3a8717d4370abdd97d5095
 **Governor merge:** pending Governor reconciliation
 **Decisions:** Built FleetTopology.tsx visualizer component and FleetDemoPage.tsx route in dashboard-signalloom presenting the 5-agent dependency graph with deterministic Dagre directed layout. Rendered node status badges (active, non-compliant, grace-period, stunned, absent), directed trust edges, agent inspector drawer, and toolbar controls (Deploy, Scan, Stun, Recover). Connected to live Fleet Manager GET /api/v1/fleet/topology polling.
 **Deviations:** None.
 **Notes:** 137/137 Vitest tests across 6 test suites passed cleanly with bun run test -- --run. tsc --noEmit and eslint passed with 0 errors. Zero em-dashes across modified frontend source files.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-<!-- kanban-check: {"card":"SLSC-P1-4","status":"pass","commit":"f8ddbb41"} -->
+<!-- kanban-check: {"card":"SLSC-P1-4","status":"pass","commit":"ff84f867"} -->
 
 #### Errata — SLSC-P1-GOV Merge Phase 1 cards in order into integration/slsc-v0.1.0; run offline acceptance twice
 **Created:** 2026-10-08 11:15:00+01:00

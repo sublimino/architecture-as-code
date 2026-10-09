@@ -155,8 +155,8 @@ func makeSampleDNSEventRaw() []byte {
 	buf[offDNSParseStatus] = DNS_PARSE_OK
 	buf[offDNSIsIPv6] = 0
 
-	// resolver 10.96.0.10
-	copy(buf[offDNSResolverAddr:], []byte{10, 96, 0, 10})
+	// resolver 10.43.0.10
+	copy(buf[offDNSResolverAddr:], []byte{10, 43, 0, 10})
 
 	// answer 0: 93.184.216.34, TTL 300
 	copy(buf[offDNSAnswers+0*16:], []byte{93, 184, 216, 34})
@@ -219,8 +219,8 @@ func TestDecodeDNSEvent(t *testing.T) {
 	}
 
 	resIP := ev.ResolverIP()
-	if !resIP.Equal(net.IPv4(10, 96, 0, 10)) {
-		t.Errorf("ResolverIP = %v, want 10.96.0.10", resIP)
+	if !resIP.Equal(net.IPv4(10, 43, 0, 10)) {
+		t.Errorf("ResolverIP = %v, want 10.43.0.10", resIP)
 	}
 
 	ans0 := ev.AnswerIP(0)

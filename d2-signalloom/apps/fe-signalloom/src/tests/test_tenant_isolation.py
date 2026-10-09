@@ -729,6 +729,10 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     # Identity of the caller, from the validated token plus process config:
     # there is no table to scope. Covered by test_me.py.
     ("GET", "/api/v1/me"),
+    ("GET", "/api/me"),
+    ("GET", "/api/health"),
+    ("GET", "/api/audit/events.csv"),
+    ("POST", "/api/discovery/claim"),
     # Break-glass thaw, proxied to fleet-manager with its operator key behind
     # require_superadmin (fleet_operator.py). Both audit through
     # _audit_outbound_request, which files under the caller's own tenant, and

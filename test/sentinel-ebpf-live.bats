@@ -3,8 +3,8 @@
 # Copyright 2026 ControlPlane Security Authors
 #
 # @id      sentinel-ebpf-live
-# @target  d2-signalloom/apps/stun-sentinel
-# @doc     docs/Proposal — Signal Loom EAP CI Lane and Demo Environment Redeploy (2026-Q4).md
+# @target  scripts/sentinel-ebpf-live-runner.py
+# @doc     docs/Proposal : Signal Loom EAP CI Lane and Demo Environment Redeploy (2026-Q4).md
 # @spec    SLSE D6 -- Live adversarial eBPF warden verification on kind-osramp
 #
 # The LIVE adversarial tier of the in-sentinel eBPF warden suite.

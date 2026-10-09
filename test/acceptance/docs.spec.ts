@@ -87,3 +87,67 @@ test.describe("SLON-P3-1 documentation pages render", () => {
     }
   });
 });
+
+// The architecture diagrams page is asserted separately from PAGES because it
+// carries no Mermaid fence: its diagrams are published Draw.io assets served
+// from public/diagrams/, so the PAGES loop's mermaid assertion would fail on it.
+//
+// The caution assertion is the point of this block. The page is served by an
+// unauthenticated nginx location (see the TECH DEBT comment above
+// `location /docs` in dashboard-signalloom/nginx.conf), and the plan of
+// record is to gate it behind the superadmin check before production
+// go-live. Pinning the notice means the debt cannot be dropped silently: a
+// deletion of the warning fails this suite, and the correct way to make it
+// pass is to gate the page and then delete this test with the warning.
+const DIAGRAMS = [
+  "osramp-kind-sovereign-airgap",
+  "osramp-aws-multitenant-saas",
+  "osramp-gcp-multitenant-saas",
+  "osramp-azure-multitenant-saas",
+] as const;
+
+test.describe("architecture diagrams page", () => {
+  const slug = "reference/architecture-diagrams";
+
+  test("renders its heading, sidebar entry, and the known-limitation notice", async ({ page }) => {
+    const response = await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+
+    expect(response, "no HTTP response for the architecture diagrams page").not.toBeNull();
+    expect(response!.status()).toBe(200);
+
+    await expect(page.locator("h1").first()).toHaveText("Architecture diagrams");
+    await expect(page.locator(`a[href$="/${slug}/"]`).first()).toHaveCount(1);
+
+    // TECH DEBT marker. Delete this assertion only together with the fix.
+    const body = page.locator("body");
+    await expect(body).toContainText("not access-controlled");
+    await expect(body).toContainText("before production go-live");
+  });
+
+  test("every inline diagram actually loads its asset", async ({ page }) => {
+    await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
+
+    // naturalWidth separates "the <img> tag is in the markup" from "the
+    // browser fetched and decoded the file". A broken path reports 0.
+    for (const name of DIAGRAMS) {
+      const img = page.locator(`img[src$="/diagrams/${name}.svg"]`).first();
+      await expect(img, `no <img> for ${name}`).toHaveCount(1);
+      const width = await img.evaluate(el => (el as HTMLImageElement).naturalWidth);
+      expect(width, `${name}.svg did not load`).toBeGreaterThan(0);
+    }
+  });
+
+  test("every download link resolves to a served file", async ({ page, request }) => {
+    await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+
+    const hrefs = await page.locator('a[href*="/diagrams/"]').evaluateAll(els =>
+      els.map(el => (el as HTMLAnchorElement).href),
+    );
+    expect(hrefs.length, "no diagram download links on the page").toBeGreaterThan(0);
+
+    for (const href of hrefs) {
+      const head = await request.get(href);
+      expect(head.status(), `unexpected status for ${href}`).toBe(200);
+    }
+  });
+});

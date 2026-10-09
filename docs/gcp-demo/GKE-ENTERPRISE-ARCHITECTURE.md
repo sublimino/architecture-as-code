@@ -15,8 +15,8 @@ The deployment models a sovereign, multi-tenant governance control plane that ho
 
 The deployment stamp diagram models active-active multi-region deployment across paired Google Cloud regions.
 
-![GCP Multi-Tenant SaaS Architecture](../diagrams/osramp-gcp-multitenant-saas.svg)
+![GCP Multi-Tenant SaaS Architecture](../../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-gcp-multitenant-saas.svg)
 
-- Editable vector SVG: [osramp-gcp-multitenant-saas.drawio.svg](../diagrams/osramp-gcp-multitenant-saas.drawio.svg)
-- Native Draw.io XML: [osramp-gcp-multitenant-saas.drawio](../diagrams/osramp-gcp-multitenant-saas.drawio)
-- High-resolution raster PNG: [osramp-gcp-multitenant-saas.png](../diagrams/osramp-gcp-multitenant-saas.png)
+- Editable vector SVG: [osramp-gcp-multitenant-saas.drawio.svg](../../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-gcp-multitenant-saas.drawio.svg)
+- Native Draw.io XML: [osramp-gcp-multitenant-saas.drawio](../../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-gcp-multitenant-saas.drawio)
+- High-resolution raster PNG: [osramp-gcp-multitenant-saas.png](../../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-gcp-multitenant-saas.png)

@@ -53,11 +53,11 @@ flowchart LR
 
 The deployment stamp diagram models active-active multi-region deployment across paired AWS regions.
 
-![AWS Multi-Tenant SaaS Architecture](diagrams/osramp-aws-multitenant-saas.svg)
+![AWS Multi-Tenant SaaS Architecture](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-aws-multitenant-saas.svg)
 
-- Editable vector SVG: [osramp-aws-multitenant-saas.drawio.svg](diagrams/osramp-aws-multitenant-saas.drawio.svg)
-- Native Draw.io XML: [osramp-aws-multitenant-saas.drawio](diagrams/osramp-aws-multitenant-saas.drawio)
-- High-resolution raster PNG: [osramp-aws-multitenant-saas.png](diagrams/osramp-aws-multitenant-saas.png)
+- Editable vector SVG: [osramp-aws-multitenant-saas.drawio.svg](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-aws-multitenant-saas.drawio.svg)
+- Native Draw.io XML: [osramp-aws-multitenant-saas.drawio](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-aws-multitenant-saas.drawio)
+- High-resolution raster PNG: [osramp-aws-multitenant-saas.png](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-aws-multitenant-saas.png)
 
 ### 2.2 In-Cluster Service & Subnet Topology (Mermaid)
 

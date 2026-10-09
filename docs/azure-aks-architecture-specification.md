@@ -41,11 +41,11 @@ The architecture is partitioned into five distinct operational domains:
 
 The deployment stamp diagram follows Microsoft Learn reference architecture patterns. It models active-active multi-region deployment across paired Azure regions.
 
-![Azure Multi-Tenant SaaS Architecture](diagrams/osramp-azure-multitenant-saas.svg)
+![Azure Multi-Tenant SaaS Architecture](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-azure-multitenant-saas.svg)
 
-- Editable vector SVG: [osramp-azure-multitenant-saas.drawio.svg](diagrams/osramp-azure-multitenant-saas.drawio.svg)
-- Native Draw.io XML: [osramp-azure-multitenant-saas.drawio](diagrams/osramp-azure-multitenant-saas.drawio)
-- High-resolution raster PNG: [osramp-azure-multitenant-saas.png](diagrams/osramp-azure-multitenant-saas.png)
+- Editable vector SVG: [osramp-azure-multitenant-saas.drawio.svg](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-azure-multitenant-saas.drawio.svg)
+- Native Draw.io XML: [osramp-azure-multitenant-saas.drawio](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-azure-multitenant-saas.drawio)
+- High-resolution raster PNG: [osramp-azure-multitenant-saas.png](../d2-signalloom/apps/docs-signalloom/public/diagrams/osramp-azure-multitenant-saas.png)
 
 ### 1.2 In-Cluster Service & Namespace Topology (Mermaid)
 

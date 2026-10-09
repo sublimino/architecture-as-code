@@ -36,6 +36,9 @@ description: Separate verified demonstration behaviour from planned platform beh
 - **EU Jurisdiction Geo-Guard**: Automated feature flag suppressing employee monitoring in Germany, France, and the Netherlands (`SL-EP-10`).
 - **Cluster Preflight Tooling**: `signalloom-preflight` CLI auditing target cluster CNI, node privileges, and kernel compatibility prior to installation (`SL-EP-12`).
 
+### Known Technical Debt (must close before go-live)
+- **Gate the architecture diagrams**: [Architecture diagrams](/docs/reference/architecture-diagrams/) and its assets under `/docs/diagrams/` are served to any caller that reaches the documentation portal, including callers on the public tunnel. Place the page and the asset path behind the superadmin check, using the `auth_request` subrequest to `GET /api/v1/auth/check` that `/fleet-api/` and `/dashboard/` already use in `d2-signalloom/apps/dashboard-signalloom/nginx.conf`. The documentation portal has no authentication of its own today, so this needs either a gated asset location in the dashboard proxy or a move of the page into the authenticated dashboard.
+
 ---
 
 ## Phase 2: Q1 2027 Multi-Cloud & Enterprise Governance

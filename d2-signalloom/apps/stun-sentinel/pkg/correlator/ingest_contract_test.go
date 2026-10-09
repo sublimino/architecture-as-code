@@ -138,8 +138,11 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	o := sampleObservation()
 	o.Labels = map[string]string{"syscall": "forged", "tenant_id": "other-tenant", "evil": "x"}
 	got := o.toIngest().Labels
-	want := map[string]bool{"syscall": true, "target": true, "pod_name": true, "namespace": true,
-		"tenant_id": true, "severity": true, "direct_reaction": true, "cgroup_path": true}
+	want := map[string]bool{
+		"syscall": true, "target": true, "pod_name": true, "namespace": true,
+		"tenant_id": true, "severity": true, "direct_reaction": true, "cgroup_path": true,
+		"domain": true,
+	}
 	for k := range got {
 		if !want[k] {
 			t.Fatalf("wire label %q is not a sentinel key; pod labels must not reach signal-ingest (%v)", k, got)

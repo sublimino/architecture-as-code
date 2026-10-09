@@ -206,6 +206,11 @@ func normalizeIPStr(raw string) string {
 	return raw
 }
 
+// CanonicalIPStr normalizes an IP string representation.
+func CanonicalIPStr(raw string) string {
+	return normalizeIPStr(raw)
+}
+
 // ipToString converts a net.IP to canonical IPv4 or IPv6 string.
 func ipToString(ip net.IP) string {
 	if ip == nil {
@@ -215,6 +220,11 @@ func ipToString(ip net.IP) string {
 		return v4.String()
 	}
 	return ip.String()
+}
+
+// CanonicalIP converts a net.IP to canonical IPv4 or IPv6 string.
+func CanonicalIP(ip net.IP) string {
+	return ipToString(ip)
 }
 
 // resolveCanonicalLocked resolves the final canonical name following CNAME aliases.

@@ -23,6 +23,9 @@ CLANG_MIN_MAJOR := 14
 SRC := sentinel_probe.c
 OBJ := sentinel_probe.o
 
+SRC2 := tc_monitor.bpf.c
+OBJ2 := tc_monitor.bpf.o
+
 # -g is mandatory: it emits .BTF/.BTF.ext, which CO-RE relocation and bpf2go
 # -type both depend on. -Werror: a warning in code the verifier polices is a
 # warning worth stopping on.
@@ -36,9 +39,15 @@ REQUIRED_SECTIONS := \
 	tracepoint/syscalls/sys_enter_connect \
 	.maps .BTF .BTF.ext license
 
-.PHONY: all check-clang probe verify generate clean
+REQUIRED_SECTIONS2 := \
+	classifier/monitor \
+	classifier/monitor_ingress \
+	classifier/monitor_egress \
+	.maps .BTF .BTF.ext license
 
-all: probe generate
+.PHONY: all check-clang probe monitor verify verify-monitor generate clean
+
+all: probe monitor generate
 
 check-clang:
 	@command -v $(CLANG) >/dev/null 2>&1 || { echo "FATAL: $(CLANG) not found" >&2; exit 1; }
@@ -61,9 +70,22 @@ verify: $(OBJ)
 	done
 	@echo "$(OBJ) sections OK; sha256 $$(sha256sum $(OBJ) | cut -d' ' -f1)"
 
-# bpf2go reads its flags from ../pkg/ebpf/gen.go; this target only runs it.
+$(OBJ2): $(SRC2) dns_event.h headers/vmlinux.h | check-clang
+	$(CLANG) -target bpf $(BPF_CFLAGS) $(BPF_INCLUDES) -c $(SRC2) -o $(OBJ2)
+
+monitor: $(OBJ2) verify-monitor
+
+verify-monitor: $(OBJ2)
+	@$(LLVM_READELF) -h $(OBJ2) | grep -q EM_BPF || { echo "FATAL: $(OBJ2) is not EM_BPF" >&2; exit 1; }
+	@for s in $(REQUIRED_SECTIONS2); do \
+		$(LLVM_READELF) -S $(OBJ2) | grep -qF " $$s " || { echo "FATAL: missing section $$s" >&2; exit 1; }; \
+	done
+	@echo "$(OBJ2) sections OK; sha256 $$(sha256sum $(OBJ2) | cut -d' ' -f1)"
+
+# bpf2go reads its flags from ../pkg/ebpf/gen.go for probe, and directly for monitor.
 generate: check-clang
 	cd ../pkg/ebpf && $(GO) generate ./...
+	cd ../pkg/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -go-package ebpf -cc $(CLANG) -cflags "$(BPF_CFLAGS)" -target bpfel,bpfeb -type dns_event_t -type tls_sni_event_t monitor ../../bpf/tc_monitor.bpf.c -- -I../../bpf/headers -I/usr/include/x86_64-linux-gnu
 
 clean:
-	rm -f $(OBJ)
+	rm -f $(OBJ) $(OBJ2)

@@ -222,6 +222,7 @@ class AgentResponse(BaseModel):
 
     id: str
     name: str
+    display_name: str | None = None
     type: str | None
     origin: str | None = None
     origin_verification: OriginVerificationMetadata | None = None

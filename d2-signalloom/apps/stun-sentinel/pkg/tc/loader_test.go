@@ -64,6 +64,7 @@ func (f *fakeLink) Type() string              { return "veth" }
 
 type fakeNetlink struct {
 	links       map[string]int
+	qdiscs      map[int]bool
 	qdiscAdds   int
 	filterAdds  []netlink.Filter
 	filterDels  []netlink.Filter
@@ -85,6 +86,14 @@ func (f *fakeNetlink) qdiscAdd(q netlink.Qdisc) error {
 	if f.qdiscErr != nil {
 		return f.qdiscErr
 	}
+	idx := q.Attrs().LinkIndex
+	if f.qdiscs == nil {
+		f.qdiscs = make(map[int]bool)
+	}
+	if f.qdiscs[idx] {
+		return syscall.EEXIST
+	}
+	f.qdiscs[idx] = true
 	f.qdiscAdds++
 	return nil
 }
@@ -120,6 +129,18 @@ func wireFake(fn *fakeNetlink) *Loader {
 	l.objs = &Objects{}
 	l.flushConn = func(net.IP) (int, error) { return 0, ErrNoConntrackEntries }
 	return l
+}
+
+// wireMonitorFake builds a MonitorLoader with kernel boundaries replaced, and a non-nil objs
+// so Attach proceeds past its Load check. objs.Program stays nil; MonitorLoader.progFD returns -1.
+func wireMonitorFake(fn *fakeNetlink) *MonitorLoader {
+	ml := NewMonitorLoader()
+	ml.linkByName = fn.linkByName
+	ml.qdiscAdd = fn.qdiscAdd
+	ml.filterAdd = fn.filterAdd
+	ml.filterDel = fn.filterDel
+	ml.objs = &MonitorObjects{}
+	return ml
 }
 
 func TestAttachAddsQdiscAndBothFilters(t *testing.T) {

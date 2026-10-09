@@ -1121,6 +1121,10 @@ test-workspace-acceptance: ## Run the complete Workspace Agentic Identity Stream
 	bats test/workspace-identity-streaming.bats
 	(cd d2-signalloom/apps/workspace-connector && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)
 
+.PHONY: test-agentprofile-manifest-validation
+test-agentprofile-manifest-validation: ## Validate AgentProfile CRD and manifests.
+	bash test/agentprofile-manifest-validation.sh
+
 .PHONY: test-sler-multiplane-acceptance
 test-sler-multiplane-acceptance: ## SLER-P6-3: end-to-end multi-plane containment acceptance suite (offline, no cluster).
 	@# The Go half drives one containment decision across all five enforcement

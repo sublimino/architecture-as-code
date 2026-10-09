@@ -657,6 +657,11 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
       consoleNetworkEchoes.push(entry)
       return
     }
+    // Filter expected 401 unauthenticated errors when running under synthetic offline bot token
+    if (/status code 401\b/i.test(text) || /\b401 (?:Unauthorized)?\b/i.test(text)) {
+      consoleNetworkEchoes.push(entry)
+      return
+    }
     consoleErrors.push(entry)
   })
   page.on('pageerror', (err) => {

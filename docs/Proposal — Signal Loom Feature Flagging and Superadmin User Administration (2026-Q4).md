@@ -345,6 +345,61 @@ Obey these. They are the phase constitution.
 
 _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing has run._
 
+#### Errata — SLFA-P0
+
+- **Created:** 2026-10-08 00:22:00+01:00
+- **Last Updated:** 2026-10-08 00:22:00+01:00
+- **Logical ID:** P0
+- **Role:** baseline
+- **Harness:** antigravity
+- **Integration Branch:** refs/heads/integration/slfa-v0.1.0
+- **Base Commit SHA:** 48a6bc3962fc402cdcfab689c2fd2ac5bf1aef56
+- **Baseline Fix Commit SHA:** 8aec64da251147a4fcf3755b76d05fcaea12dbfa
+- **Status:** status=pass
+
+##### Summary of Baseline Fixes
+1. Isolated Node Modules: Replaced invalid cross-worktree symlink for node_modules in d2-signalloom/apps/dashboard-signalloom with a clean local bun install (450 packages installed).
+2. Simplified Technical English (STE) Compliance: Fixed sentence length, prose styling, and semicolon violations across platform documentation files.
+3. Docs Correctness & Path Resolution: Fixed osramp-processor directory path reference in docs/azure-aks-architecture-specification.md.
+4. Documentation Index Synchronization: Registered cloud architecture specifications and root project records into scripts/docs-lint.sh and synchronized docs/README.md.
+
+##### Baseline Gate Metrics (100% Green, rc 0)
+- make demo-signalloom-api-test: 56 passed in 1.33s (rc 0).
+- pytest d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py: 12 passed in 0.36s (route sweep: 164 passed in 48.08s, rc 0).
+- bun run test -- --run (dashboard-signalloom): 216 test files passed, 3741 tests passed (rc 0).
+- make docs-lint: 201 files clean / 699 files clean (rc 0).
+- make docs-lint-test: 82 tests passed, 0 failures (rc 0).
+- kanban-check.sh doctor: Baseline worktree environment clean and isolated.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"SLFA-P0","status":"pass","commit":"8aec64da251147a4fcf3755b76d05fcaea12dbfa"} -->
+
+#### Errata — SLFA-P1-PRE
+
+- **Status:** pass
+- **Created:** 2026-10-08 00:37:40+01:00
+- **Last Updated:** 2026-10-08 00:37:40+01:00
+- **Agent:** antigravity (pre-flight analyst)
+- **Base Ref / Head SHA:** 48a6bc3962fc402cdcfab689c2fd2ac5bf1aef56 (on refs/heads/integration/slfa-v0.1.0)
+- **Worktree:** /home/andy/src/.worktrees/530a5/osramp-demo (clean, verified ancestor)
+
+##### 1. Database Schema Migrations Audit (d2-signalloom/apps/fe-signalloom/src/db/migrations/)
+Migrations directory contains 41 SQL files spanning versions 001 through 056. Verified idempotency and numbering sequence.
+
+##### 2. FastAPI Route Catalogue & Feature Gating Map (fe-signalloom)
+Audited route map, require_feature dependency pattern, and tenant feature gating architecture.
+
+##### 3. Frontend Dependency & SDK Compatibility Assessment (dashboard-signalloom)
+Verified @openfeature/react-sdk compatibility with Vite and React 18.
+
+##### 4. Test Suite Baseline Execution & Verification
+- fe-signalloom API Contracts: 56 passed (rc 0).
+- Migration Runner Tests: 17 passed (rc 0).
+- dashboard-signalloom Vitest: 216 passed files (3741 passed, rc 0).
+- Working Tree Cleanliness: Clean.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 #### Errata — SLFA-P1-1 SLFA-P1-1: Add migration 009_tenant_feature_flags.sql and tenant flag repository
 **Created:** 2026-10-08 00:44:00+01:00
 **Last Updated:** 2026-10-08 00:47:00+01:00
@@ -635,6 +690,28 @@ _Cards append `#### Errata — SLFA-<ID>` blocks here in delivery order. Nothing
   - ESLint clean (0 errors, 0 warnings); `cssVarUsage.test.ts` clean; TypeScript typecheck and Vite build clean.
 **Deviations:** None.
 **Notes:** Phase 3 implementation complete. Handing off to P3-GOV (Phase 3 Governor reconciliation).
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLFA-P3-GOV SLFA-P3-GOV: Phase 3 Governor: merge P3-1..P3-3 and verify acceptance
+**Created:** 2026-10-08 03:36:56+01:00
+**Last Updated:** 2026-10-08 03:36:56+01:00
+**Status:** Completed
+**Commit:** e1ce23a9466e6bf6c3f4e400f0702dedf3ce95e6
+**Governor merge:** integration/slfa-v0.1.0 at e1ce23a9466e6bf6c3f4e400f0702dedf3ce95e6
+**Decisions:**
+- Reconciled and verified Phase 3 implementation chain on integration/slfa-v0.1.0 in sequential order:
+  1. SLFA-P3-PRE (8a6c773710cd8f37d5c71e5290f5e9e62af72901): Audit of modal patterns, user table layout, and API client structure in dashboard-signalloom.
+  2. SLFA-P3-1 (0da09703cb54dd3926bf26303bd3b5d94c625266): Typed API client in src/api/usersApi.ts (listUsers, inviteUser, updateUser, deactivateUser) with React Query hooks.
+  3. SLFA-P3-2 (d3ea9eac77429bed08528971dc1ee6812a1ae64c): Built UsersPage.tsx and UserTable.tsx under pages/admin/ with role badges, search/filter, status toggle, and route registration in App.tsx.
+  4. SLFA-P3-3 (eec630e0fae1fa485dc50dc2909565b8cb13ad5b): Built InviteUserModal.tsx and EditUserModal.tsx with email validation, role assignment, tenant scoping, and useFocusTrap hook.
+- Executed offline acceptance verification twice under identical conditions to confirm test repeatability and determinism:
+  - make demo-signalloom-api-test: 56 passed in 1.58s / 56 passed in 1.61s
+  - Full Backend API & auth test suite: 160 passed in 2.82s
+  - Dashboard Vitest test suite: 226 test files passed, 3,869 passed (3 skipped) in 17.55s / 17.08s
+  - kanban-check.sh proposal-check: all 5 sections present and compliant with 0 errors.
+- All Phase 3 deliverables certified complete with 0 regressions.
+**Deviations:** None.
+**Notes:** Phase 3 complete. Certified ready to proceed to Phase 4 (P4-PRE Kusari pilot profile audit and design partner presets).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 #### Errata — SLFA-P4-PRE SLFA-P4-PRE: Audit Kusari pilot profile in live tfvars and seed data

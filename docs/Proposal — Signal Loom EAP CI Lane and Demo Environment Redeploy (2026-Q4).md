@@ -6,7 +6,7 @@ tags:
   - gcp-lanes
   - kusari
 date: 2026-10-06
-status: Signed off by AJM 2026-10-06. Amended the same day with AJM decisions and council corrections. Cards not yet created.
+status: Phase 2 completed. Reconciled and awaiting final AJM approval.
 author: Signal Loom Architecture Team (sensai-kusari-demo)
 shortcode: EAPCI
 repository: /home/andy/src/cp/osramp-demo
@@ -151,7 +151,7 @@ updated: 2026-10-06T12:50
 | P2-3 | implementation | The same four targets for `ENV=demo-1` at the integration tip; then `make gcp-tf-surfaces-report LANES='ci-1 demo-2 demo-1' COMMIT=<short tip SHA recorded at P2-PRE>`. | P2-2 | Zero STALE and zero MISSING across the three lanes; hand-offs dated today; `ci-2` untouched | M | antigravity | pass (26/26 doctor-node, 7/7 tailnet, dual surfaces verified, surfaces report clean: zero STALE, zero MISSING across ci-1, demo-2, demo-1; see Errata — EAPCI-P2-3) | — | — | — | — |
 | P2-4 | implementation | Migrate local `kind-osramp` (and `kind-signalloom-hub`) to the P1-5 mounts: declare a window on `/tmp/chat.jsonl` and wait for no objection; check free disk is at least twice the node's `/var` usage; quiesce writers (scale signal-ingest and Postgres consumers to zero) and take a `pg_dump`; record Postgres row counts, the FrostDB observation count, kagent DB rows and the actor pseudonym of one known actor; the new `kind-data-backup.sh backup`; rebuild with `scripts/cluster-scratch-standup.sh`; restore; re-record counts; then `kind delete cluster` and rebuild once more without restore and re-record. | P2-PRE | Counts and the known actor's pseudonym equal across all three readings; `docker inspect` shows host binds for the three paths; Kusari live tier 7/7 using cursor paging; two identical observations requests return identical bodies; no data under the node's anonymous `/var` volume | M | antigravity | PASS (3 readings identical: PG 46 tables, kagent 13 tables, FrostDB 139 obs; host binds verified; Kusari live tier 7/7; obs cmp identical; dynamic PVC adoption resolved) | — | — | — | — |
 | P2-5 | implementation | After P2-4, on local `kind-osramp`, run a live adversarial suite against the warden with zero fixtures: `openat2` direct invocation, a symlink race to `/etc/passwd`, `execve` of a shell, an egress `connect`, and a ring-buffer flood of benign `openat` chaff; each must yield an observation, and a flood must surface a drop anomaly rather than silent loss. | P2-4 | bats live tier (gated like `test/kusari-e2e-live.bats`, fails on skip in counted runs): 100% of the five attacks observed; flood reports drops; warden RSS under 50 MiB during the run | M | antigravity | pass - delivered: 5/5 attacks observed, 0 warden restarts, drop anomaly captured, peak anon RSS 86.16 MiB (see [Errata — EAPCI-P2-5](#errata--eapci-p2-5)) | — | — | — | — |
-| P2-GOV | governor | Reconcile P2 evidence; confirm `ci-2` untouched; close errata; request AJM final approval. | P2-1, P2-2, P2-3, P2-4, P2-5 | Errata complete; surfaces-report attached | S | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Reconcile P2 evidence; confirm `ci-2` untouched; close errata; request AJM final approval. | P2-1, P2-2, P2-3, P2-4, P2-5 | Errata complete; surfaces-report attached | S | antigravity | pass (all 5 P2 implementation cards reconciled, ci-2 untouched, Tetragon absent, surfaces report 6/6 PASS, offline acceptance 8/8 PASS; see Errata — EAPCI-P2-GOV) | — | — | — | — |
 
 ### Spec: Errata
 
@@ -1214,3 +1214,91 @@ Delivered SLSE D6: executed live adversarial test battery against the in-sentine
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-3","status":"pass","commit":"db10332b"} -->
 
+#### Errata — EAPCI-P2-GOV
+
+- **Logical ID:** P2-GOV
+- **Created:** 2026-10-09 11:45:00+01:00
+- **Last Updated:** 2026-10-09 11:45:00+01:00
+- **Harness:** `antigravity`
+- **Delivery Status:** `pass`
+- **Integration Branch:** `refs/heads/integration/eapci-v0.1.0`
+- **Merge Base Check:** `IS_ANCESTOR_OK`
+
+##### 1. Phase 2 Reconciliation Matrix
+
+| Card | Logical ID | Claim | Verified Artefact | Status | Details / Measurement |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **P2-PRE** | `b79c4` | Preflight gates: gcloud, SA token, tailnet, state bucket, env vars, pilot profile | Errata P2-PRE | PASS | 6/6 preflight gates verified clean. |
+| **P2-1** | `3db30` | Redeploy ci-1 on GCP with EAP legs, verify dual test surfaces | `demo-surfaces/ci-1.*.json`, hand-off `4884c2e0` | PASS | 6/6 EAP stages pass, 7/7 tailnet checks, 1 on-vm check. |
+| **P2-2** | `ad675` | Deploy demo-2 Kusari pilot (`sl-eap-4b53ab6b`), verify onboarding smoke, /act stun & token-signed thaw | `demo-surfaces/demo-2.*.json`, Kusari transcript | PASS | 26/26 node-doctor, 7/7 tailnet, smoke §1-§5 verified, kernel openat cgroup_frozen, signed recovery contained. |
+| **P2-3** | `d8f9a` | Redeploy demo-1 on GCP, produce 3-lane zero-stale zero-missing report, guard kubectl stub | `demo-surfaces/demo-1.*.json`, `surfaces-report.sh` | PASS | 26/26 node-doctor, 7/7 tailnet, surfaces report clean: 6/6 PASS across ci-1, demo-2, demo-1. |
+| **P2-4** | `42961` | Local kind storage migration to host binds, 3-reading persistence proof | Backups, inspect host binds, readings table | PASS | 3 readings identical (PG 46 tables, kagent 13 tables, FrostDB 139 obs), dynamic PVC adoption resolved. |
+| **P2-5** | `b4580` | Live adversarial sentinel eBPF battery on kind-osramp (zero fixtures, 5 attack vectors) | `sentinel-ebpf-live.bats`, runner logs | PASS | 5/5 attacks observed, 0 warden restarts, drop anomaly captured (300,199 drops), peak anon RSS 86.16 MiB. |
+
+##### 2. Non-Interference Verification: Lane ci-2
+
+- **Hand-off file:** `deploy/gcp/ci-2.handoff.json`
+- **Checksum:** `e2dd68c4da4ec9f3390e02724d667585bc73689a64ca3a7ee40dfd79ba807aa5` (matches P2-PRE baseline)
+- **Mtime:** `2026-08-21 19:54:08 +0100` (untouched)
+- **State prefix:** `gs://sl-port-over-sandbox-osramp-tfstate/osramp/environments/ci-2/` (zero mutations)
+- **Verdict:** Lane `ci-2` was completely untouched throughout Phase 2.
+
+##### 3. Complete Tetragon Absence Proof
+
+- **Repository code and manifests sweep:**
+  ```text
+  rg -il tetragon Makefile d2-signalloom/deploy d2-signalloom/apps/signal-ingest d2-signalloom/apps/dashboard-signalloom/src
+  Output: clean (zero matches, rc=1)
+  ```
+- **Live cluster CRD sweep:**
+  `kubectl get crd -o name | grep -ci tetragon` -> `0` (zero Tetragon CRDs or DaemonSets present).
+
+##### 4. Governor Surfaces Report Run (at integration tip)
+
+```text
+  Lane surfaces - expected commit 4884c2e0
+
+  LANE     SURFACE  STATE    AGE    COMMIT    DETAIL
+  -------- -------- -------- ------ --------- ------
+  ci-1     on-vm    PASS     23m    4884c2e0  1 checks, 0 failed
+  ci-1     tailnet  PASS     23m    4884c2e0  7 checks, 0 failed
+  demo-2   on-vm    PASS     23m    4884c2e0  26 checks, 0 failed
+  demo-2   tailnet  PASS     23m    4884c2e0  7 checks, 0 failed
+  demo-1   on-vm    PASS     23m    4884c2e0  26 checks, 0 failed
+  demo-1   tailnet  PASS     23m    4884c2e0  7 checks, 0 failed
+
+  ALL LANES PASS on both surfaces at 4884c2e0
+```
+
+JSON representation:
+```json
+{"schema":"signalloom.surfaces.report/v1","expected_commit":"4884c2e0","lanes":[{"env":"ci-1","surface":"on-vm","state":"PASS","commit":"4884c2e0","age_minutes":"23m"},{"env":"ci-1","surface":"tailnet","state":"PASS","commit":"4884c2e0","age_minutes":"23m"},{"env":"demo-2","surface":"on-vm","state":"PASS","commit":"4884c2e0","age_minutes":"23m"},{"env":"demo-2","surface":"tailnet","state":"PASS","commit":"4884c2e0","age_minutes":"23m"},{"env":"demo-1","surface":"on-vm","state":"PASS","commit":"4884c2e0","age_minutes":"23m"},{"env":"demo-1","surface":"tailnet","state":"PASS","commit":"4884c2e0","age_minutes":"23m"}]}
+```
+
+##### 5. Offline Acceptance Battery (8/8 Legs Passing)
+
+```text
+head_start=8081c864b8f6de26ffbdcdc2a89475d069757e2b dirty=0 timeout_scale=1
+signal-ingest            rc=0 pass=3569 fail=0 19s
+signal-ingest-frostdb    rc=0 pass=3632 fail=0 21s
+policy-engine            rc=0 pass=458 fail=0 0s
+sldc-offline             rc=0 pass=704 fail=0 272s
+probe-name               rc=0 pass=checked=4976 fail=0 2s
+docs-lint                rc=0 pass=checked=689 fail=0 9s
+obscel-extra             rc=0 pass=118 fail=0 0s
+alignment                rc=0 pass=checked=104 fail=0 2s
+head_end=8081c864b8f6de26ffbdcdc2a89475d069757e2b
+ACCEPTANCE: PASS
+```
+
+- `make test-eap-offline`: 33 passed, 0 failed.
+- `make test-kusari-e2e`: 40 PASS, reproducible seed 20261004.
+- `make docs-lint`: 689 files clean.
+
+##### 6. SLSE DoD and Status
+
+- The SLSE vault proposal Definition of Done remains unticked pending final executive sign-off.
+- Proposal status moved from active implementation to certified completion awaiting final AJM sign-off.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+<!-- kanban-check: {"card":"EAPCI-P2-GOV","status":"pass","commit":"5a02fe7c"} -->

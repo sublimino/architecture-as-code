@@ -3751,6 +3751,7 @@ async def agents(
     framework: str | None = None,
     owner: str | None = None,
     attention: str | None = None,
+    attention_required: bool | str | None = None,
     record_class: str | None = None,
     lifecycle_state: str | None = None,
     state: str | None = None,
@@ -3853,7 +3854,19 @@ async def agents(
                         matched_row = unmatched_db.pop(cand_id)
 
                 if matched_row is not None:
-                    compliance = matched_row.get("compliance_summary") or _default_compliance_summary()
+                    if matched_row.get("compliance_summary") is not None:
+                        compliance = matched_row["compliance_summary"]
+                    elif isinstance(matched_row, dict) and "findings_count" in matched_row:
+                        fc = int(matched_row.get("findings_count", 0))
+                        compliance = {
+                            "total_controls": 6,
+                            "passing": max(6 - fc, 0),
+                            "failing": fc,
+                            "pending": 0,
+                            "posture_score": float(matched_row.get("compliance_posture", 100)) / 100.0,
+                        }
+                    else:
+                        compliance = _default_compliance_summary()
                     all_records.append(_agent_response_from_row(
                         matched_row, compliance, discovered_overlay=disc,
                         stun_detail=_stun_detail_for(stun_index, matched_row.get("id"), matched_row.get("name"), disc_id, disc_name),
@@ -3868,7 +3881,19 @@ async def agents(
                     ))
 
             for row in unmatched_db.values():
-                compliance = row.get("compliance_summary") or _default_compliance_summary()
+                if row.get("compliance_summary") is not None:
+                    compliance = row["compliance_summary"]
+                elif isinstance(row, dict) and "findings_count" in row:
+                    fc = int(row.get("findings_count", 0))
+                    compliance = {
+                        "total_controls": 6,
+                        "passing": max(6 - fc, 0),
+                        "failing": fc,
+                        "pending": 0,
+                        "posture_score": float(row.get("compliance_posture", 100)) / 100.0,
+                    }
+                else:
+                    compliance = _default_compliance_summary()
                 all_records.append(_agent_response_from_row(
                     row, compliance, discovered_overlay=None,
                     stun_detail=_stun_detail_for(stun_index, row.get("id"), row.get("name")),
@@ -4011,6 +4036,18 @@ async def agents(
     if attention:
         att = attention.strip().lower()
         filtered = [a for a in filtered if a.attention and a.attention.level.lower() == att]
+    if attention_required is not None:
+        req_bool = (
+            attention_required is True
+            or (isinstance(attention_required, str) and attention_required.lower() in ("true", "1", "yes"))
+        )
+        if req_bool:
+            filtered = [
+                a for a in filtered
+                if (a.lifecycle_state and a.lifecycle_state.lower() in ("suspended", "quarantined", "revoked", "isolated"))
+                or (a.compliance_summary and (getattr(a.compliance_summary, "findings_count", 0) > 0 or getattr(a.compliance_summary, "critical_findings", 0) > 0 or getattr(a.compliance_summary, "high_findings", 0) > 0))
+                or (getattr(a, "attention", None) and getattr(a.attention, "level", "").lower() in ("warning", "critical", "danger", "attention_required"))
+            ]
     if record_class:
         rc = record_class.strip().lower()
         filtered = [a for a in filtered if a.record_class.lower() == rc]
@@ -7291,12 +7328,18 @@ async def audit(
             params.append(agent_uuid)
             idx += 1
         else:
-            conditions.append(f"(agent_name ILIKE ${idx} OR agent_name ILIKE ${idx + 1} OR detail->>'agent_ref' = ${idx + 2} OR detail->>'agent_ref' = ${idx + 3})")
-            params.append(f"%{agent}%")
-            params.append(f"%{canonical_agent}%")
-            params.append(agent)
-            params.append(canonical_agent)
-            idx += 4
+            if canonical_agent != agent:
+                conditions.append(f"(agent_name ILIKE ${idx} OR agent_name ILIKE ${idx + 1} OR detail->>'agent_ref' = ${idx + 2} OR detail->>'agent_ref' = ${idx + 3})")
+                params.append(f"%{agent}%")
+                params.append(f"%{canonical_agent}%")
+                params.append(agent)
+                params.append(canonical_agent)
+                idx += 4
+            else:
+                conditions.append(f"(agent_name ILIKE ${idx} OR detail->>'agent_ref' = ${idx + 1})")
+                params.append(f"%{agent}%")
+                params.append(agent)
+                idx += 2
     if type is not None:
         conditions.append(f"event_type = ${idx}")
         params.append(type)

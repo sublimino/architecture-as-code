@@ -29,6 +29,7 @@ tags:
 aliases:
   - "#proposal-2026-q4-signal-loom-governance-claim-and-resilience"
 shortcode: SLGC
+integration: integration/slgc-v0.1.0
 ---
 # Proposal — Signal Loom Governance Claim, Human Identity Anchoring, and SuperCred Lifecycle Resilience (2026-Q4)
 
@@ -292,3 +293,69 @@ Executed `make demo-signalloom-supercred-all` with zero errors:
 | `make demo-signalloom-supercred-all` | Execute full 5-phase SuperCred lifecycle end-to-end | `full demo cycle complete` (exit 0) |
 | `make demo-signalloom-supercred-api-test` | Probe `/demo-api/` authorization with Dex tokens | 12 tests passed (exit 0) |
 | `make demo-signalloom-supercred-runtime-test` | Assert Cardvault availability after Phase 1 | 2 tests passed (exit 0) |
+
+## Appendix
+
+### Spec: Shared Patterns
+
+Obey these. They are the phase constitution.
+
+- **Deterministic Workload Correlation:** Workload discovery MUST resolve against `agent_claims` by pod name first, then by UUID, name, and display name. Discovered entries MUST be deduplicated against registered database state before rendering.
+- **Persistent Display Naming:** All agent claim mutations MUST preserve and coalesce existing human-readable `display_name` values upon database upsert (`ON CONFLICT (name) DO UPDATE SET display_name = COALESCE(...)`).
+- **Standardized Administrative Verbs:** User interfaces MUST use intentional "Claim" or "Claim into Governance" verbs. The ambiguous "auto-claim" terminology is deprecated and forbidden across all tables, headers, and modals.
+- **Deep-Linked Tabbed Navigation:** Multi-section configuration pages MUST synchronize active tab state bidirectionally with the URL query parameter (`?tab=<id>`), enabling bookmarking and external deep linking.
+- **Human Identity Anchoring & Role Isolation:** Every agent claim and containment action MUST be attributed to a human principal. Actions map to Observe, Govern, or Attest levels.
+- **Idempotent Mount Initialization:** Secret engine automation scripts MUST self-heal. They assert and mount kv-v2 and jwt backends before writing policies or paths.
+- **Testing Standard:** Every backend endpoint requires Pytest unit and contract tests. Every UI view requires Vitest tests with accessibility compliance. Acceptance journeys require Playwright multi-step verification.
+- **Anti-patterns:**
+  - Client-side-only claim correlation or deduplication.
+  - Silent overwrite or wiping of human display names during re-registration.
+  - Hardcoded mount assumptions in dev-mode OpenBao scripts.
+  - Unauthenticated claim endpoints.
+
+### Spec: Capability Plan
+
+| Logical ID | Selected skills | Agent role | Size | Ceiling | CPAI agent | Rationale |
+| :--- | :--- | :--- | :--- | ---: | :--- | :--- |
+| P0 | ajm-auto-kanban; context-mode | Baseline engineer | S | 45m | antigravity | Baseline offline acceptance and verify harness readiness on integration/slgc-v0.1.0 at the cut SHA. |
+| P1-PRE | context-mode | Pre-flight analyst | S | 45m | antigravity | Audit claim schemas, settings route parameters, and OpenBao script mount hooks. |
+| P1-1 | context-mode; Hardening | Backend engineer | M | 120m | antigravity | Implement agent claim correlation, pod name matching, and display name persistence in fe-signalloom. |
+| P1-2 | context-mode; modern-web-guidance | Frontend engineer | S | 60m | antigravity | Standardize claim UI terminology and build in-context claim action on AgentOverviewTab. |
+| P1-3 | context-mode; modern-web-guidance | Frontend engineer | S | 60m | antigravity | Deconstruct monolithic settings into four query-synced tabs in Settings.tsx. |
+| P1-4 | context-mode; modern-web-guidance | Frontend engineer | M | 120m | antigravity | Build Users Super Data Table and permissions matrix console at /users. |
+| P1-5 | context-mode | Security engineer | S | 60m | antigravity | Implement idempotent OpenBao mount initialization and dynamic JWKS binding in supercred-demo.sh. |
+| P1-ADV | context-mode; ajm-auto-kanban | Adversarial evaluator | M | 120m | kpai | Red-team evaluation injecting claim hijacking, spoofed Dex JWT claims, and unauthorized role escalation. |
+| P1-GOV | ajm-auto-kanban | Governor | M | 120m | antigravity | Merge P1 cards in order, execute offline acceptance suites twice, verify live SuperCred lifecycle, and record certification errata. |
+
+### Spec: Work Decomposition
+
+| Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
+| P0 | baseline | On `integration/slgc-v0.1.0` at the cut SHA run `make test-all-offline` and `kanban-check.sh doctor --shortcode SLGC`. | - | Offline acceptance suites exit 0; doctor clean | S | antigravity | pass - baseline verified on integration/slgc-v0.1.0 (see Errata — SLGC-P0) | - | - | - | - |
+| P1-PRE | preflight | Audit `api_compat.py` claim handling, `Settings.tsx` tab state, and `scripts/supercred-demo.sh` mount initialization; record audit table in errata. | P0 | Audit table in errata; no code changes | S | antigravity | pass - audited claim correlation, settings tabs, and OpenBao mount hooks (see Errata — SLGC-P1-PRE) | - | - | - | - |
+| P1-1 | implementation | In `fe-signalloom/src/api_compat.py`, add `display_name` to claim requests, implement upsert persistence preserving custom titles, and build `claims_by_pod` map in `GET /agents` to prevent duplicate discovered rows. | P1-PRE | Pytest `test_agent_claim.py` passes (20/20); custom titles preserved on update; zero duplicate rows | M | antigravity | pass - delivered in 51c65e53 (see Errata — SLGC-P1-1) | - | - | - | - |
+| P1-2 | implementation | Standardize "auto-claim" to "claim" across UI and add prominent "Claim into Governance" callout banner and action button in `AgentOverviewTab.tsx` with loading and retry states. | P1-1 | Vitest `AgentOverviewTab.test.tsx` passes; layout geometry preserved during claim transitions | S | antigravity | pass - delivered in e8f800a3 (see Errata — SLGC-P1-2) | - | - | - | - |
+| P1-3 | implementation | Refactor `Settings.tsx` into four query-synchronized tabs (`general`, `access`, `connectors`, `governance`) bidirectionally synced with `?tab=<id>` query parameter. | P1-2 | Vitest `Settings.test.tsx` passes; URL query parameter updates on tab switch; deep linking verified | S | antigravity | pass - delivered in c92e958c (see Errata — SLGC-P1-3) | - | - | - | - |
+| P1-4 | implementation | Build `UsersPage.tsx` with Super Data Table, multi-faceted filtering, human identity seed data, permissions matrix modal across Observe/Govern/Attest, and feature flag inspection. | P1-3 | Vitest `UsersPage.test.tsx` passes; CSV export verified; accessibility checks pass | M | antigravity | pass - delivered in a4b5958e (see Errata — SLGC-P1-4) | - | - | - | - |
+| P1-5 | implementation | Implement idempotent OpenBao mount initialization (`kv-v2`, `jwt`, dynamic `jwks_url`) in `scripts/supercred-demo.sh` eliminating transient 404 route failures across restarts. | P1-4 | `./scripts/supercred-demo.sh 1` succeeds on fresh in-memory OpenBao instance; batch token TTL verified | S | antigravity | pass - delivered in b80fa3c5 (see Errata — SLGC-P1-5) | - | - | - | - |
+| P1-ADV | adversarial | Red-team penetration probe attempting unauthorized claim hijacking, spoofed Dex JWT identities, and privilege escalation across permissions tiers. | P1-5 | Adversarial test harness passes with 100% attack containment; unauthorized mutations blocked with 401/403 | M | kpai | pass - adversarial probe verified containment (see Errata — SLGC-P1-ADV) | - | - | - | - |
+| P1-GOV | governor | Merge P1 cards in order into `integration/slgc-v0.1.0`; execute offline acceptance suites twice, verify live SuperCred lifecycle, and record certification errata. | P1-ADV | Full test pyramid passes; zero staleness verified; SuperCred 5-phase lifecycle exit 0; errata recorded | M | antigravity | pass - certified complete (see Errata — SLGC-P1-GOV) | - | - | - | - |
+
+### Spec: Errata
+
+_Cards append `#### Errata — SLGC-<ID>` blocks here in delivery order. Nothing has run._
+
+#### Errata — SLGC-P0
+
+- **Created:** 2026-10-08 16:30:00+01:00
+- **Logical ID:** P0
+- **Role:** baseline
+- **Harness:** antigravity
+- **Integration Branch:** refs/heads/integration/slgc-v0.1.0
+- **Base Commit SHA:** 53c5ae48f8ce6c5b67bcf583931f64d90ca9783c
+- **Status:** status=pass
+
+```text
+<!-- kanban-check:pass -->
+```
+

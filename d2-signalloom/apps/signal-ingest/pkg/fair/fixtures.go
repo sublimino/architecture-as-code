@@ -173,8 +173,8 @@ func (s *FixtureSource) AgentTelemetry(id string) (Telemetry, bool) {
 		return t, true
 	}
 
-	// Dynamic fallback for any agent when fallback is enabled.
-	// NOTE: Deliberately no prefix checks (e.g. "agent-", "kagent-") or regexes.
+	// Dynamic fallback for arbitrary agents when fallback is enabled.
+	// Deliberately no prefix checks (e.g. "agent-", "kagent-") or regexes.
 	// Agents can have arbitrary names, custom slugs, or UUIDs across diverse runtimes.
 	if s.allowFallback && strings.TrimSpace(id) != "" {
 		return Telemetry{

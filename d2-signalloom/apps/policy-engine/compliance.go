@@ -23,16 +23,31 @@ type ComplianceScanRequest struct {
 	PolicyVersion string         `json:"policyVersion"`
 	Frameworks    []string       `json:"frameworks"`
 	Manifest      map[string]any `json:"manifest"`
+	// Object is the Pod-shaped workload; it wins over Manifest when both are
+	// sent. Agent and Request are the other two CEL inputs. The binding
+	// contract is policy/frameworks/CONFORMANCE.md.
+	Object  map[string]any `json:"object"`
+	Agent   map[string]any `json:"agent"`
+	Request map[string]any `json:"request"`
+}
+
+// workload returns the object every check reads as `object` (and `manifest`).
+func (req ComplianceScanRequest) workload() map[string]any {
+	if req.Object != nil {
+		return req.Object
+	}
+	return req.Manifest
 }
 
 // reportingCurrency denominates every figure this service reports.
 const reportingCurrency money.Currency = "GBP"
 
 type ComplianceScanResult struct {
-	Framework         string  `json:"framework"`
-	ControlSet        string  `json:"controlSet"`
-	Control           string  `json:"control"`
-	Check             string  `json:"check"`
+	Framework  string `json:"framework"`
+	ControlSet string `json:"controlSet"`
+	Control    string `json:"control"`
+	Check      string `json:"check"`
+	// Passed is true iff Status is pass. Kept for clients that predate Status.
 	Passed            bool    `json:"passed"`
 	PolicyVersion     string  `json:"policyVersion"`
 	ALE               float64 `json:"ale"`
@@ -46,12 +61,22 @@ type ComplianceScanResult struct {
 	Currency money.Currency `json:"currency"`
 	// Carried is CarriedGBP with its denomination attached. Same number, self-describing.
 	Carried money.Money `json:"carried"`
+
+	// Status is the three-valued verdict: pass, fail or error. An expression
+	// that cannot evaluate is error, never fail.
+	Status Verdict `json:"status"`
+	// Error is the CEL error text when Status is error.
+	Error            string `json:"error,omitempty"`
+	ControlID        string `json:"controlId"`
+	FrameworkVersion string `json:"frameworkVersion"`
+	CheckName        string `json:"checkName"`
 }
 
 type ComplianceSummary struct {
 	TotalControls int     `json:"totalControls"`
 	Passed        int     `json:"passed"`
 	Failed        int     `json:"failed"`
+	Errored       int     `json:"errored"`
 	TotalExposure float64 `json:"totalExposureGbp"`
 	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
 
@@ -138,10 +163,7 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
-	inputMap := map[string]any{
-		"object":   req.Manifest,
-		"manifest": req.Manifest,
-	}
+	inputMap := celBindings(req.workload(), req.Agent, req.Request)
 
 	for _, fwID := range req.Frameworks {
 		versions, ok := available[fwID]
@@ -157,11 +179,12 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 
-			checks := frameworks.ChecksForVersion(fw, req.PolicyVersion)
-			for _, cwc := range checks {
+			for _, cwc := range checksWithControlIDs(fw, req.PolicyVersion) {
 				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
+				status := verdictOf(passed, err)
+				var errText string
 				if err != nil {
-					passed = false
+					errText = err.Error()
 				}
 
 				seed := checkSeed(cwc.Check.ID)
@@ -172,7 +195,12 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 					ControlSet:        cwc.ControlSet,
 					Control:           cwc.Control,
 					Check:             cwc.Check.ID,
-					Passed:            passed,
+					Passed:            status == VerdictPass,
+					Status:            status,
+					Error:             errText,
+					ControlID:         cwc.controlID,
+					FrameworkVersion:  fw.Version,
+					CheckName:         cwc.Check.Name,
 					PolicyVersion:     req.PolicyVersion,
 					ALE:               roundMoney(risk.ALE, reportingCurrency),
 					VaR95:             roundMoney(risk.VaR95, reportingCurrency),
@@ -246,12 +274,17 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 		summary.ScanTimestamp = results[0].ScanTimestamp
 		for _, r := range results {
 			summary.TotalControls++
-			if r.Passed {
+			switch r.Status {
+			case VerdictPass:
 				summary.Passed++
-			} else {
+				continue
+			case VerdictError:
+				summary.Errored++
+			default:
 				summary.Failed++
-				summary.TotalExposure += r.CarriedGBP
 			}
+			// Exposure is conservative: an unevaluated control is not assumed safe.
+			summary.TotalExposure += r.CarriedGBP
 		}
 	}
 	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: reportingCurrency}
@@ -281,6 +314,27 @@ func evaluateCEL(expr string, manifest map[string]any) bool {
 		return false
 	}
 	return passed
+}
+
+type scanCheck struct {
+	frameworks.CheckWithContext
+	controlID string
+}
+
+// checksWithControlIDs is frameworks.ChecksForVersion with each check's control
+// ID attached, which CheckWithContext does not carry. Filtering is delegated
+// control by control so version semantics stay in one place.
+func checksWithControlIDs(fw *frameworks.Framework, policyVersion string) []scanCheck {
+	var out []scanCheck
+	for _, cs := range fw.ControlSets {
+		for _, ctrl := range cs.Controls {
+			one := &frameworks.Framework{ID: fw.ID, ControlSets: []frameworks.ControlSet{{Name: cs.Name, Controls: []frameworks.Control{ctrl}}}}
+			for _, cwc := range frameworks.ChecksForVersion(one, policyVersion) {
+				out = append(out, scanCheck{CheckWithContext: cwc, controlID: ctrl.ID})
+			}
+		}
+	}
+	return out
 }
 
 func checkSeed(id string) uint64 {

@@ -52,7 +52,7 @@ relies on a `kubernetes.io/os` nodeSelector is evaluated as Linux
 Per-container checks pass vacuously because nothing runs; pod-level checks
 still evaluate (fixture `empty-containers-vacuous`).
 
-**Missing `spec`.** Not a pod. Checks return `error`, never `fail`.
+**Missing `spec`.** Not a pod. Every spec-reading check fails closed (`has(object.spec)` guard), never `error`.
 
 **Numbers.** JSON numbers reach CEL as `double`. `runAsUser > 0`, `hostPort != 0`
 compare int literals against doubles correctly (fixtures `root-container-uid-0`,

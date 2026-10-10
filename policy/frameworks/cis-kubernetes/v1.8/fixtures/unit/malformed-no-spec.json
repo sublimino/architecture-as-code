@@ -1,7 +1,7 @@
 {
   "name": "malformed-no-spec",
   "level": "unit",
-  "description": "Deliberately malformed: a Pod with metadata but no spec. Every spec-reading check must return error (not fail, not pass); only the metadata-only namespace check evaluates.",
+  "description": "Malformed: a Pod with metadata but no spec. Every spec-reading check fails closed (an absent spec evidences nothing); only the metadata-only namespace check passes.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -15,22 +15,22 @@
     "request": {}
   },
   "expect": {
-    "sa-token-automount-disabled": "error",
-    "no-privileged-containers": "error",
-    "no-host-pid": "error",
-    "no-host-ipc": "error",
-    "no-host-network": "error",
-    "no-privilege-escalation": "error",
-    "no-root-containers": "error",
-    "no-net-raw": "error",
-    "no-added-capabilities": "error",
-    "capabilities-dropped-all": "error",
-    "no-windows-hostprocess": "error",
-    "no-hostpath-volumes": "error",
-    "no-host-ports": "error",
-    "no-secrets-in-env": "error",
-    "seccomp-runtime-default": "error",
-    "security-context-applied": "error",
+    "sa-token-automount-disabled": "fail",
+    "no-privileged-containers": "fail",
+    "no-host-pid": "fail",
+    "no-host-ipc": "fail",
+    "no-host-network": "fail",
+    "no-privilege-escalation": "fail",
+    "no-root-containers": "fail",
+    "no-net-raw": "fail",
+    "no-added-capabilities": "fail",
+    "capabilities-dropped-all": "fail",
+    "no-windows-hostprocess": "fail",
+    "no-hostpath-volumes": "fail",
+    "no-host-ports": "fail",
+    "no-secrets-in-env": "fail",
+    "seccomp-runtime-default": "fail",
+    "security-context-applied": "fail",
     "no-default-namespace": "pass"
   }
 }

@@ -41,6 +41,17 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@set -e; mods=$$(find apps/policy-engine -mindepth 2 -name go.mod -not -path '*/node_modules/*' | sort); \
 	  [ -n "$$mods" ] || { echo "nested policy-engine modules: none found -- the glob is broken, not the tree"; exit 2; }; \
 	  for m in $$mods; do echo "==> $$(dirname $$m)"; (cd $$(dirname $$m) && go test ./... -count=1); done
+	@# GLOB again, same reason. The policy packs carry their own anchoring gates --
+	@# scripts that hold a pack's control identifiers against the PUBLISHER's
+	@# machine-readable text (NIST's OSCAL catalogue, the Publications Office
+	@# Cellar XHTML for the EU regulations) and its pricing against a
+	@# declare-or-calibrate rule. They are plain sh+jq, need no cluster and run in
+	@# about a second, and until now nothing automated ran them at all: a
+	@# fabricated control ID or a silently unpriced check would ship green. Found
+	@# by the worker that wrote the second one, 2026-10-10.
+	@set -e; gates=$$(find ../policy/frameworks -name run-tests.sh -path '*/catalogue/*' | sort); \
+	  [ -n "$$gates" ] || { echo "policy-pack catalogue gates: none found -- the glob is broken, not the tree"; exit 2; }; \
+	  for g in $$gates; do echo "==> $$g"; (cd $$(dirname $$g)/.. && sh catalogue/run-tests.sh); done
 	cd apps/cardvault-agent && go test ./...
 	cd apps/cpai-engineer && go test ./...
 	cd apps/signalloom-stun-sentinel && go test ./...

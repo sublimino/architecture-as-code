@@ -81,14 +81,43 @@ Every shipped pack is a single `framework.json`; no pack carries a
 1. Create `policy/frameworks/<framework-id>/v1.0/framework.json` in the shape
    of an existing `framework.json`: `id`, `name`, `version`, then
    `controlSets` containing `controls` with `checks`.
-2. Give every check a `celExpression` and a `riskTriple`.
-3. If a check reads `agent` or `request`, list each path it reads in
+2. Give every check a `celExpression`, a `riskTriple` **and a `freqTriple`**.
+   A check with no frequency triple, or an all-zero one, prices at £0.00 however
+   often it fails, because `fair.Simulate` multiplies magnitude by frequency.
+   This step used to say "a `celExpression` and a `riskTriple`" and that omission
+   is how 64 of 127 checks came to report zero exposure silently: four pack
+   versions were authored exactly as instructed. If the frequency genuinely is
+   not calibrated yet, **declare the check unpriced** rather than leaving the
+   zero implicit — see `nist-800-53/catalogue/{unpriced.tsv,pricing-test.sh}`
+   for the pattern, which fails a check that is neither priced nor declared, a
+   declaration whose check has since been calibrated, and a declaration for a
+   check that does not exist. Never invent a triple to make a number appear.
+3. **Cite the primary source.** Give every control the article, annex point or
+   recommendation number it implements, verbatim from the publisher, and record
+   the URL you read. Four EU AI Act paragraph citations were wrong and three
+   packs carried none at all; a mis-cited article is the defect a customer
+   repeats to a regulator. Anchor it mechanically where the publisher offers
+   machine-readable text (`nist-800-53/catalogue/` against the NIST OSCAL
+   catalogue, `cra/catalogue/` against the Publications Office Cellar XHTML).
+4. **Guard container types.** Write `type(x) == map` before reaching into any
+   `agent`/`request` object. Without it a container arriving as a JSON **list**
+   makes the check `error` rather than `fail`, and an errored check is neither
+   passed nor failed and carries no exposure, so a critical control vanishes
+   instead of failing. Note the trap: string, number and null all fail
+   correctly, so only the list form exposes it. This bit the FINOS AIGF and CRA
+   packs.
+5. **Say what a check cannot see.** If the obligation is a process a scan cannot
+   observe, state in the check `description` that it is a proxy. Do not let a
+   check ID promise more than the expression tests: `immutable-audit-sink` reads
+   a logging-enabled boolean, so a report line saying it passed will be read as
+   an immutability guarantee nobody tested.
+6. If a check reads `agent` or `request`, list each path it reads in
    `<version>/AGENT-CONTEXT.md`. Shipped paths are frozen: extend, never
    rename.
-4. Add fixtures under `<version>/fixtures/{unit,integration}/` as
+7. Add fixtures under `<version>/fixtures/{unit,integration}/` as
    [CONFORMANCE.md](CONFORMANCE.md) describes: every non-placeholder check
    needs at least one passing and one failing fixture.
-5. Run `cd d2-signalloom/apps/policy-engine && go test ./... -count=1`.
+8. Run `cd d2-signalloom/apps/policy-engine && go test ./... -count=1`.
 
 ## CEL Expression Conventions
 

@@ -520,6 +520,17 @@ func TestLoad_RejectsCheckWithoutID(t *testing.T) {
 	}
 }
 
+// Results are keyed by check id, so a second check with the same id would
+// overwrite or shadow the first.
+func TestLoad_RejectsDuplicateCheckID(t *testing.T) {
+	dup := `{"id":"ok","name":"dup","celExpression":"false","riskTriple":{"min":1,"mode":2,"max":3},"freqTriple":{"min":0.1,"mode":0.2,"max":0.3},"policyVersions":["v1.0.0"]}`
+	body := strings.Replace(canonicalJSON, `"policyVersions":["v1.0.0"]}]`, `"policyVersions":["v1.0.0"]},`+dup+`]`, 1)
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), `duplicate check id "ok"`) {
+		t.Fatalf("want duplicate check id error, got %v", err)
+	}
+}
+
 // A misspelt key would otherwise decode to a zero value (empty expression,
 // zero risk) without a word.
 func TestLoad_RejectsUnknownJSONField(t *testing.T) {

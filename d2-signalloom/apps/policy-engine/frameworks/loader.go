@@ -79,14 +79,20 @@ func decodeYAML(data []byte, fw *Framework) error {
 }
 
 // validate rejects a pack that would evaluate checks it cannot run: a check
-// with no id cannot be reported, and an empty expression can only ever error.
+// with no id cannot be reported, a duplicate id shadows another check's
+// result, and an empty expression can only ever error.
 func validate(fw *Framework) error {
+	seen := map[string]string{}
 	for _, cs := range fw.ControlSets {
 		for _, ctrl := range cs.Controls {
 			for i, chk := range ctrl.Checks {
 				if strings.TrimSpace(chk.ID) == "" {
 					return fmt.Errorf("control %q check #%d has no id", ctrl.ID, i)
 				}
+				if prev, dup := seen[chk.ID]; dup {
+					return fmt.Errorf("duplicate check id %q in controls %q and %q", chk.ID, prev, ctrl.ID)
+				}
+				seen[chk.ID] = ctrl.ID
 				if strings.TrimSpace(chk.CELExpression) == "" {
 					return fmt.Errorf("control %q check %q has empty celExpression", ctrl.ID, chk.ID)
 				}

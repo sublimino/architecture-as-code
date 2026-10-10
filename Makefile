@@ -3555,18 +3555,49 @@ verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s),
 verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
 	$(VERIFY_CEL) db
 
-.PHONY: verify-cel-money verify-cel-money-golden verify-cel-money-independent
+.PHONY: verify-cel-money verify-cel-money-golden verify-cel-money-golden-acknowledged verify-cel-money-independent
 
 # The priced figures (ale, var95, tvar, carriedGbp) are pinned by one golden
 # file per pack under d2-signalloom/apps/policy-engine/testdata/money-golden/ and
 # anchored to a closed-form beta-PERT oracle. The assertions run inside the
 # conformance tier (they are TestConformance_Money*), so `verify-cel` already
 # covers them; these targets are for working on the money alone.
+#
+# WHAT THE ORACLES ACTUALLY COVER, stated plainly because the difference matters:
+#
+#   ale     — pinned by a CLOSED FORM independent of fair.go (E[freq]*E[loss]
+#             from the beta-PERT moments, to within 5 standard errors of the
+#             engine's own estimator) AND by the golden.
+#   var95   — pinned by the GOLDEN, by the closed-form support bounds, and by
+#   tvar      the ordering identities. There is no closed form for a quantile of
+#   carried   a product of two beta-PERT variates, and the only independent
+#             numerical treatment available (verify-cel-money-independent) is
+#             bounded by the engine's OWN 10,000-iteration quantile noise, which
+#             is several per cent — the same order as a one-rank percentile error.
+#             So for three of the four figures the product quotes, the
+#             deterministic golden is the gate, and the guard on how a golden may
+#             be rewritten (below) is what makes that gate worth anything.
 verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 127 pinned checks).
 	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
 
-verify-cel-money-golden: ## REGENERATE the per-pack money golden files, then verify them. Review the diff: it is every price the product quotes.
+# Pins a NEW check's figures in one command. REFUSES to rewrite an
+# already-pinned figure — it prints a per-figure delta table and writes nothing,
+# because `MONEY_GOLDEN=update` used to absorb an engine regression and turn the
+# whole suite green (one character in fair.go moved 64 figures across 5 packs by
+# 4-5%). Use verify-cel-money-golden-acknowledged for a deliberate movement.
+verify-cel-money-golden: ## REGENERATE the money goldens for NEW checks, then verify. Refuses to move an existing price; prints the deltas.
 	cd d2-signalloom/apps/policy-engine && MONEY_GOLDEN=update go test -count=1 -v -run TestWriteMoneyGolden .
+	@$(MAKE) --no-print-directory verify-cel-money
+
+# Target-specific exports rather than inline assignments, so a REASON
+# containing spaces, quotes or a shell metacharacter reaches the test verbatim.
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN = update
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN_MOVE_REASON = $(REASON)
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN_MOVE_CHECKS = $(CHECKS)
+verify-cel-money-golden-acknowledged: ## Move already-pinned prices deliberately: make ... REASON="why" CHECKS=<n>. Both are recorded into each golden's lastMovement and land in the commit.
+	@[ -n "$(REASON)" ] || { echo 'verify-cel-money-golden-acknowledged: REASON="<why these prices moved>" is required'; exit 2; }
+	@[ -n "$(CHECKS)" ] || { echo 'verify-cel-money-golden-acknowledged: CHECKS=<exact number of checks expected to move> is required; run verify-cel-money-golden to see the table'; exit 2; }
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run TestWriteMoneyGolden .
 	@$(MAKE) --no-print-directory verify-cel-money
 
 verify-cel-money-independent: ## Cross-check the priced figures against an independent NumPy derivation (needs NumPy; not part of verify-cel).

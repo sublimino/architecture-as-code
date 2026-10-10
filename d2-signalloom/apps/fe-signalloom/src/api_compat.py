@@ -1073,6 +1073,10 @@ class PolicySummaryResponse(BaseModel):
     frameworks: list[PolicyFrameworkSummaryResponse]
     # Checks that could not evaluate. Counted in neither ``passed`` nor ``failed``.
     errored: int = 0
+    # Placeholder checks the engine did not evaluate. Neither passed nor failed.
+    # Scan responses only: stored rows record these as pending, so the persisted
+    # summary (GET /compliance/policy/summary) counts them in totalChecks only.
+    notEvaluated: int = 0
 
 
 class PolicyScanRequest(BaseModel):
@@ -1110,7 +1114,7 @@ class PolicyComplianceCheck(BaseModel):
     agentId: str | None = None
     agentName: str | None = None
     # pass / fail / error. ``error`` (could not evaluate) is neither a pass nor a fail.
-    status: Literal["pass", "fail", "error"] | None = None
+    status: Literal["pass", "fail", "error", "not_evaluated"] | None = None
     error: str | None = None
     # The governance_controls row this check maps to by
     # (policy_framework_id, policy_check_id); None when no control maps it.
@@ -7051,6 +7055,7 @@ def _policy_scan_summary(
         passed=count(checks, "pass"),
         failed=count(checks, "fail"),
         errored=count(checks, "error"),
+        notEvaluated=count(checks, "not_evaluated"),
         totalAle=total_ale,
         totalVar95=total_var95,
         totalTvar=total_tvar,
@@ -7237,7 +7242,7 @@ async def _db_policy_scan(
                 tenant_id,
                 agent_id,
                 control_id,
-                verdict,
+                policy_scan.stored_status(verdict),
                 evidence,
             )
 
@@ -7252,6 +7257,7 @@ async def _db_policy_scan(
                 "controls_passed": stored.count("pass"),
                 "controls_failed": stored.count("fail"),
                 "controls_errored": stored.count("error"),
+                "controls_not_evaluated": stored.count("not_evaluated"),
                 "checks_returned": len(checks),
                 "checks_unmapped": unmapped,
                 "agents_scanned": agents_scanned,

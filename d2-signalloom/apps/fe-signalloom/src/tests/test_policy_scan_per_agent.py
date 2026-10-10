@@ -335,6 +335,53 @@ async def test_status_is_authoritative_and_error_is_stored_as_error(db):
 
 
 @pytest.mark.asyncio
+async def test_not_evaluated_is_carried_through_and_stored_as_pending(db):
+    """A placeholder check is not assessed: neither a pass nor a fail."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    fake.results[(AGENT_A, CTRL_ROOT)] = {"tenant_id": EAP_TENANT_A, "status": "pass", "evidence_ref": "old"}
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering([
+            item("cis-kubernetes", "no-root-containers", "not_evaluated"),
+            item("cis-kubernetes", "no-privileged-containers", "pass"),
+        ]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    assert fake.results[(AGENT_A, CTRL_ROOT)]["status"] == "pending"
+    assert fake.results[(AGENT_A, CTRL_PRIV)]["status"] == "pass"
+    data = resp.json()
+    assert [(c["check"], c["status"], c["passed"]) for c in data["checks"]] == [
+        ("no-root-containers", "not_evaluated", False),
+        ("no-privileged-containers", "pass", True),
+    ]
+    assert (data["summary"]["passed"], data["summary"]["failed"], data["summary"]["errored"],
+            data["summary"]["notEvaluated"]) == (1, 0, 0, 1)
+    detail = fake.audit[0]["detail"]
+    assert (detail["controls_passed"], detail["controls_failed"], detail["controls_not_evaluated"]) == (1, 0, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,body", [
+    (400, {"error": "no_checks_for_framework", "framework": "finos-aigf"}),
+    (500, {"error": "pack failed to load"}),
+])
+async def test_engine_refusal_for_one_pack_is_a_failed_agent_not_an_empty_pass(db, status, body):
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+
+    def refuse_aigf(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["frameworks"] == ["finos-aigf"]:
+            return httpx.Response(status, json=body)
+        return answering([item("cis-kubernetes", "no-privileged-containers", "pass")])(request)
+
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=refuse_aigf)
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert (data["engineInvoked"], data["checks"], data["agentsFailed"]) == (False, [], [str(AGENT_A)])
+    assert fake.results == {}
+
+
+@pytest.mark.asyncio
 async def test_unmapped_checks_are_reported_but_never_stored(db):
     fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
     with respx.mock() as mock:

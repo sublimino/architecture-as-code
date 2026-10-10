@@ -250,23 +250,13 @@ func inheritCells() []string {
 // This is the finding the whole leg was built to produce, and it is the
 // opposite of what a transcription of Kubernetes prose would have asserted.
 var inheritExceptions = []oracleException{
-	{
-		Case: "probe-inherit-runasnonroot-pod-false-ctr-true", Group: "runAsNonRoot",
-		OursPass: true, PSAAllow: false,
-		Reason: "FINDING, PACK IS LAXER THAN PSA (E2 inheritance matrix, 2026-10-10). " +
-			"spec.securityContext.runAsNonRoot: false with the container overriding to true. " +
-			"no-root-containers resolves the field by effective-value precedence — `has(c.securityContext.runAsNonRoot) " +
-			"? c... : pod...` — so the container's true wins and the pack passes. PSA restricted does NOT " +
-			"resolve by precedence: its runAsNonRoot rule forbids an explicit false at EITHER level " +
-			"(detail: \"pod must not set securityContext.runAsNonRoot=false\"), so the API server rejects " +
-			"this pod while the pack admits it. A workload the pack calls compliant cannot be deployed to a " +
-			"restricted namespace. Pack defect, reported to the pack owner; pack semantics are not this " +
-			"worker's to change. No fixture in the pack sets runAsNonRoot false at pod level and true at " +
-			"container level, which is why only this matrix sees it. It also refutes the relation this leg " +
-			"was first going to assert from prose (\"the verdict depends only on the effective value\"): " +
-			"for an explicit false, Kubernetes is stricter than precedence, and an oracle-free matrix would " +
-			"have pinned the pack's behaviour as correct.",
-	},
+	// EMPTY, and that is the point. The one entry here recorded a real pack defect:
+	// an explicit runAsNonRoot: false at pod level with a container override to true,
+	// which the pack passed by effective-value precedence and PSA restricted rejects
+	// outright. The lead fixed the pack (an explicit false is now fatal at either
+	// level), the divergence disappeared, and the stale rule then REQUIRED this entry
+	// to be retired rather than left as dead reasoning. The matrix cell stays
+	// registered, so a regression reopens the divergence instead of slipping through.
 }
 
 func init() {

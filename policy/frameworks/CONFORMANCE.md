@@ -212,6 +212,15 @@ Observed there: the Go oracle's algebra agrees with a 1 000 000-sample estimate
 to **0.19 %**; `var95` to **2.58 %** and `tvar` to **2.89 %**, which is the
 expected quantile noise at the engine's 10 000 iterations.
 
+**Known blind spot of the analytic tier**, found by mutation: it cannot see
+frequency and magnitude **transposed**, because `E[F]·E[M]` and the support
+product are both symmetric in their arguments. That mutation is caught by the
+golden files instead — the two triples are consumed in a fixed draw order, so
+`var95` and `tvar` move. The analytic tier conversely catches what a golden
+cannot: a sampler change whose author regenerates the golden. Mutating the PERT
+λ from 4 to 2 and regenerating leaves every golden green and moves the analytic
+anchor by **35–43 σ**. Neither tier is sufficient alone; that is why both exist.
+
 ### Properties, and one that is deliberately absent
 
 | Property | Where |

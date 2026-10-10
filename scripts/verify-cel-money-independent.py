@@ -16,8 +16,15 @@ estimate and the divergence is REPORTED as well as bounded. The engine runs
 10,000 iterations; a quantile at that sample size carries a few per cent of
 error, so a divergence of that order is the expected amount of noise, not a
 defect. The thresholds below are deliberately loose: this tier exists to catch
-an order-of-magnitude error, a transposed frequency and magnitude, a lost scale
-factor or a wrong triple binding -- not to re-derive the simulation.
+an order-of-magnitude error, a lost scale factor, a changed PERT lambda or a
+figure read from the wrong triple -- not to re-derive the simulation.
+
+KNOWN BLIND SPOT, found by mutation: neither this tier nor the Go closed form
+can see frequency and magnitude TRANSPOSED, because E[F]*E[M] and the support
+product are both symmetric in their arguments. That mutation is caught by the
+deterministic golden files instead (the two triples are consumed in a fixed
+draw order, so var95 and tvar move). Stated so nobody reads an analytic pass as
+a complete one.
 
 NOT part of `make verify-cel`: it needs NumPy, it is statistical rather than
 deterministic, and the deterministic golden files plus the Go closed form are

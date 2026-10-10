@@ -204,30 +204,6 @@ type oracleException struct {
 // green while the decision is outstanding, and they fail loudly if stale.
 var oracleExceptions = []oracleException{
 	{
-		Case: "drop-all-lowercase", Group: "capabilities", OursPass: true, PSAAllow: false,
-		Reason: "DEFECT CANDIDATE (A5/lead). drop: [all] lowercase. Our capabilities-dropped-all matches case-insensitively; PSA compares \"ALL\" exactly, so the API server would reject this pod under restricted. The check's own description claims \"exact, as Pod Security Standards compare it\", which the expression contradicts. The lenient reading is defensible for runtime effect (CRI compares case-insensitively) but then the description and the PSS claim are wrong.",
-	},
-	{
-		Case: "root-container-uid-1000-no-pod-identity", Group: "runAsNonRoot", OursPass: true, PSAAllow: false,
-		Reason: "DEFECT CANDIDATE (A5/lead). runAsUser: 1000 with runAsNonRoot unset anywhere. We treat a non-zero UID as sufficient; PSS restricted \"Running as Non-root\" requires runAsNonRoot: true explicitly, because the UID alone does not stop the image USER being overridden to root. PSA rejects.",
-	},
-	{
-		Case: "probe-seccomp-localhost-without-profile", Group: "seccompAPIValidation", OursPass: true, PSAAllow: false,
-		Reason: "DEFECT CANDIDATE (A5/lead). seccompProfile.type: Localhost with no localhostProfile. PSA's type-only check allows it, so the PSA leg cannot see this; the API server rejects the object outright (validateSeccompProfileField, cited above). The pack reports a compliant pod that cannot be submitted to a cluster. No fixture exercises this, which is why leg B exists.",
-	},
-	{
-		Case: "root-container-nonroot-false-uid-10001", Group: "runAsNonRoot", OursPass: true, PSAAllow: false,
-		Reason: "SEMANTICS DECISION (lead). Pod sets runAsNonRoot: true and runAsUser: 10001; the container sets runAsNonRoot: false. We read the effective UID (10001, non-root) and pass. PSS restricted forbids runAsNonRoot: false anywhere, so the API server rejects the pod under restricted. We are right about what the container runs as and wrong about what a restricted namespace will admit; a pack that reports compliance for an inadmissible pod is the more serious error of the two.",
-	},
-	{
-		Case: "root-pod-uid-0-container-uid-1000", Group: "runAsNonRoot", OursPass: true, PSAAllow: false,
-		Reason: "SEMANTICS DECISION (lead). Pod runAsUser: 0, container runAsUser: 1000. We read the per-container effective UID (1000) and pass; PSS forbids runAsUser: 0 at any level and also wants runAsNonRoot: true, so PSA rejects on both counts. Same shape as the fixture above: correct about runtime, lax about admissibility.",
-	},
-	{
-		Case: "seccomp-container-runtimedefault-overrides-pod-unconfined", Group: "seccompProfile", OursPass: true, PSAAllow: false,
-		Reason: "SEMANTICS DECISION (lead). Pod seccompProfile Unconfined, sole container RuntimeDefault. We read the per-container effective profile and pass. PSA rejects at BOTH baseline and restricted because pod-level Unconfined is forbidden outright, irrespective of container overrides. Our reading is right about this container and unsafe as a pattern: any container added later without an override inherits Unconfined.",
-	},
-	{
 		Case: "added-capability-net-bind-service", Group: "capabilities", OursPass: false, PSAAllow: true,
 		Reason: "DELIBERATELY STRICTER, defensible. PSS restricted permits adding NET_BIND_SERVICE; CIS 5.2.9 permits no added capability at all. Ours fails, PSA allows. Keep.",
 	},
@@ -236,12 +212,28 @@ var oracleExceptions = []oracleException{
 		Reason: "DELIBERATELY STRICTER, defensible. Same NET_BIND_SERVICE divergence as above, reached from a probe rather than a fixture.",
 	},
 	{
-		Case: "probe-drop-all-lowercase-minimal", Group: "capabilities", OursPass: true, PSAAllow: false,
-		Reason: "DEFECT CANDIDATE (A5/lead). The lowercase drop: [all] divergence again, on a minimal pod that is otherwise restricted-compliant, so nothing else can be mistaken for the cause.",
+		Case: "host-network-true-no-ports", Group: "hostPorts", OursPass: false, PSAAllow: true,
+		Reason: "ATTRIBUTION, NOT DISAGREEMENT (lead, 2026-10-10). PSA *does* reject this pod \u2014 see the recorded PSA detail: host namespaces (hostNetwork=true). It attributes that to hostNamespaces/hostProcess, while our no-host-ports carries it, because a hostNetwork pod binds host ports whether or not it declares them (A5 finding 7 made that documented rule reachable; it had been dead code nested inside c.ports.all). Both sides agree the pod is inadmissible, so this is a per-check attribution difference and the overlap with no-host-network is deliberate and visible.",
 	},
 	{
-		Case: "probe-runasuser-nonzero-without-runasnonroot", Group: "runAsNonRoot", OursPass: true, PSAAllow: false,
-		Reason: "DEFECT CANDIDATE (A5/lead). The bare runAsUser divergence again, on a minimal pod that is otherwise restricted-compliant, so nothing else can be mistaken for the cause.",
+		Case: "windows-hostprocess-container-level", Group: "hostPorts", OursPass: false, PSAAllow: true,
+		Reason: "ATTRIBUTION, NOT DISAGREEMENT (lead, 2026-10-10). PSA *does* reject this pod \u2014 see the recorded PSA detail: host namespaces (hostNetwork=true) plus hostProcess. It attributes that to hostNamespaces/hostProcess, while our no-host-ports carries it, because a hostNetwork pod binds host ports whether or not it declares them (A5 finding 7 made that documented rule reachable; it had been dead code nested inside c.ports.all). Both sides agree the pod is inadmissible, so this is a per-check attribution difference and the overlap with no-host-network is deliberate and visible.",
+	},
+	{
+		Case: "windows-hostprocess-pod-level", Group: "hostPorts", OursPass: false, PSAAllow: true,
+		Reason: "ATTRIBUTION, NOT DISAGREEMENT (lead, 2026-10-10). PSA *does* reject this pod \u2014 see the recorded PSA detail: host namespaces (hostNetwork=true) plus hostProcess. It attributes that to hostNamespaces/hostProcess, while our no-host-ports carries it, because a hostNetwork pod binds host ports whether or not it declares them (A5 finding 7 made that documented rule reachable; it had been dead code nested inside c.ports.all). Both sides agree the pod is inadmissible, so this is a per-check attribution difference and the overlap with no-host-network is deliberate and visible.",
+	},
+	{
+		Case: "seccomp-container-localhost-without-profile", Group: "seccompProfile", OursPass: false, PSAAllow: true,
+		Reason: "PACK IS RIGHT, PSA IS BLIND HERE (lead, 2026-10-10). seccompProfile.type: Localhost with no localhostProfile. PSA checks the profile *type* only and admits; the API server rejects the object outright (validateSeccompProfileField, cited in the secondary-oracle comment), so the pod cannot be submitted at all. A5 made the pack fail it, which is correct and stricter than the PSA leg can express \u2014 the necessary-only apiValidation oracle is what anchors this direction.",
+	},
+	{
+		Case: "seccomp-pod-localhost-without-profile", Group: "seccompProfile", OursPass: false, PSAAllow: true,
+		Reason: "PACK IS RIGHT, PSA IS BLIND HERE (lead, 2026-10-10). seccompProfile.type: Localhost with no localhostProfile. PSA checks the profile *type* only and admits; the API server rejects the object outright (validateSeccompProfileField, cited in the secondary-oracle comment), so the pod cannot be submitted at all. A5 made the pack fail it, which is correct and stricter than the PSA leg can express \u2014 the necessary-only apiValidation oracle is what anchors this direction.",
+	},
+	{
+		Case: "probe-seccomp-localhost-without-profile", Group: "seccompProfile", OursPass: false, PSAAllow: true,
+		Reason: "PACK IS RIGHT, PSA IS BLIND HERE (lead, 2026-10-10). seccompProfile.type: Localhost with no localhostProfile. PSA checks the profile *type* only and admits; the API server rejects the object outright (validateSeccompProfileField, cited in the secondary-oracle comment), so the pod cannot be submitted at all. A5 made the pack fail it, which is correct and stricter than the PSA leg can express \u2014 the necessary-only apiValidation oracle is what anchors this direction.",
 	},
 }
 
@@ -890,7 +882,11 @@ func TestPSAOracle_SeccompLocalhostNeedsProfile(t *testing.T) {
 		apiRejects bool
 	}
 	cases := map[string]want{
-		"probe-seccomp-localhost-without-profile": {VerdictPass, true},
+		// A5 fixed the pack to require localhostProfile, so the pack now agrees with
+		// API validation here. The case stays because the SECONDARY ORACLE is what
+		// anchors this direction: PSA checks the profile type only and admits, so
+		// without apiValidation nothing outside this repo would notice a regression.
+		"probe-seccomp-localhost-without-profile": {VerdictFail, true},
 		"probe-restricted-compliant":              {VerdictPass, false},
 	}
 	for _, c := range oracleProbeCases(t) {
@@ -917,7 +913,7 @@ func TestPSAOracle_SeccompLocalhostNeedsProfile(t *testing.T) {
 		if got != w.ourVerdict {
 			t.Errorf("%s: pack seccomp-runtime-default = %s, want %s", c.name, got, w.ourVerdict)
 		}
-		if w.apiRejects && got == VerdictPass {
+		if w.apiRejects && got == VerdictPass { //nolint:staticcheck // kept: fires if the pack ever regresses to accepting an unsubmittable pod
 			t.Logf("DIVERGENCE (API validation): %s — pack passes seccomp-runtime-default, "+
 				"the API server rejects the object: %s. Decision for the pack owner: a check that "+
 				"accepts an unsubmittable pod is reporting compliance for something that cannot run.",

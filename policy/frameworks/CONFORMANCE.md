@@ -18,12 +18,58 @@ may read any of them. Fixtures supply them under `input`.
 
 | Variable  | Shape | Source in production |
 |-----------|-------|----------------------|
-| `object`  | A Kubernetes **Pod-shaped** object: `{"apiVersion","kind","metadata":{...},"spec":{...}}`. Checks read `object.spec.*` and `object.metadata.*`. For a Deployment/Job, the scanner passes the pod template as `{"metadata": template.metadata, "spec": template.spec}`. The scanner **MUST** copy the workload's namespace into `object.metadata.namespace` (a pod template carries none of its own). Controller-level facts (`replicas`, update strategy, PDBs) are **not** in this object: a check that needs them is not evaluable from a pod and is marked `status: placeholder` in its pack (it reports `not_evaluated`). | The workload's pod spec. Scan field `object` (alias `manifest`). An empty `object` (`{}`) is treated as absent, so it never masks a non-empty `manifest`. |
+| `object`  | A Kubernetes **Pod-shaped** object: `{"apiVersion","kind","metadata":{...},"spec":{...}}`. Checks read `object.spec.*` and `object.metadata.*`. A caller may send a workload controller instead — **the engine normalises it itself** (see below) and copies the workload's namespace into `object.metadata.namespace`, because a pod template carries none of its own. Controller-level facts (`replicas`, update strategy, PDBs) are **not** in this object: a check that needs them is not evaluable from a pod and is marked `status: placeholder` in its pack (it reports `not_evaluated`). | The workload's pod spec. Scan field `object` (alias `manifest`). An empty `object` (`{}`) is treated as absent, so it never masks a non-empty `manifest`. |
 | `agent`   | The **agent context document**: governance facts about the AI agent the workload runs. Field paths are owned by the pack that reads them and documented in that pack's `AGENT-CONTEXT.md`. | Assembled by fe-signalloom from the agent registry. Scan field `agent`. |
 | `request` | A runtime request context (tool call, peer identity, network). | Scan field `request`. |
 
 `manifest` is bound to the same value as `object` for backward compatibility.
 Unbound variables are bound to an empty map, never left undeclared.
+
+### Input shape: a non-pod object is `error`, never `pass`
+
+Pack checks read containers as
+`(has(object.spec.containers) ? object.spec.containers : []) + initContainers + ephemeralContainers`,
+so an **absent** container list is the empty list and `.all()` over it is
+**vacuously true**. On a workload controller the containers live at
+`spec.template.spec`, so an unguarded engine would report `pass` on a hostile
+Deployment. Measured before the guard landed: a maximally hostile
+`kind: Deployment` scored 14 of 17 CIS checks `pass`.
+
+The engine therefore guards the shape of `object` at the scan boundary
+(`d2-signalloom/apps/policy-engine/workload_shape.go`), in this order:
+
+1. An **absent or empty** object stays absent. A scan with no object at all
+   (an agent-only AIGF scan) is unaffected.
+2. A supported **workload controller kind** is unwrapped by the engine to its
+   pod template: `Deployment`, `StatefulSet`, `DaemonSet`, `ReplicaSet`,
+   `ReplicationController`, `Job` (at `spec.template`) and `CronJob` (at
+   `spec.jobTemplate.spec.template`). `apiVersion`/`kind` are synthesised as
+   `v1`/`Pod` and the workload's `metadata.namespace` is copied into the pod's
+   metadata. A controller with no pod template, or a template with no `spec`
+   object, is refused. fe-signalloom unwraps the same kinds before calling
+   (`fe-signalloom/src/policy_scan.py`), so the two agree and a direct API
+   caller is judged the same way.
+3. Any **other `kind`** that is not `Pod` is refused. The engine has no
+   normalisation for it and must not pretend to judge it.
+4. `kind` absent or `Pod` is pod-shaped, **except** that a `spec` which is
+   PRESENT must be an object carrying a `containers` list — `spec.containers`
+   is required by the Pod schema, and a present spec without it is the shape
+   that makes every per-container check vacuously true. A **wholly absent**
+   `spec` is allowed: it evidences nothing, packs fail closed on it, and
+   `cis-kubernetes/fixtures/unit/malformed-no-spec.json` pins that (16 `fail`,
+   not 16 `error`). An empty `containers` list is a caller asserting there are
+   no containers, and is judged as such.
+
+A refused object makes every **object-reading** check report `error` with the
+shape message. Object-reading is decided by one helper, `readsObject`: an
+identifier match on `object` **or** `manifest` — both, because `manifest`
+aliases the same value. Agent-only and request-only checks are unaffected.
+
+**Controller-wrapping invariance is a tested property.** Every CIS fixture with
+a pod-shaped `input.object` is scanned bare and wrapped in each of the seven
+kinds, and the verdict vectors must be identical
+(`workload_shape_invariance_test.go`; 77 fixtures × 7 kinds). A pack author
+adding a fixture gets the property for free.
 
 Numbers arrive as JSON numbers decoded by Go's `encoding/json` (float64). Write
 numeric comparisons that hold for both int and double (`c.securityContext.runAsUser > 0`
@@ -35,7 +81,7 @@ is fine; test it with a fixture).
 |---------|---------|
 | `pass`  | The expression evaluated to `true`. |
 | `fail`  | The expression evaluated to `false`. |
-| `error` | The expression could not evaluate (missing key, type error, non-bool). |
+| `error` | The expression could not evaluate (missing key, type error, non-bool), **or** the check reads `object`/`manifest` and the input object is not pod-shaped (see above). |
 | `not_evaluated` | The check (or its framework) has `status: placeholder`. The expression is never run; `passed` is `false` and there is no `error`. The summary counts it in `totalControls` and `notEvaluated` only, never in `failed`, `errored` or exposure. |
 
 **`error` is never a `fail`.** A check that errors on an ordinary, valid input

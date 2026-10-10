@@ -118,7 +118,7 @@ else
 fi
 
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${REPO_ROOT}/.cache/ms-playwright}"
-export PW_CHANNEL="${PW_CHANNEL:-chrome}"
+export PW_CHANNEL="${PW_CHANNEL:-chromium}"
 export DASHBOARD_URL="https://dashboard.osramp.acme.local:${GATEWAY_PORT}"
 export GATEWAY_ADDRESS="127.0.0.1"
 export SIGNALLOOM_API_URL="http://127.0.0.1:18000"

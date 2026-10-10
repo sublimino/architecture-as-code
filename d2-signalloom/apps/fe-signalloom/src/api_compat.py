@@ -7237,12 +7237,14 @@ async def _db_policy_scan(
                     )
 
     stored = [verdict for verdict, _ in verdicts.values()]
+    assessed_now = datetime.now(timezone.utc)
     async with _write(pool) as conn:
         for (agent_id, control_id), (verdict, evidence) in verdicts.items():
+            status = policy_scan.stored_status(verdict)
             await conn.execute(
                 """INSERT INTO agent_compliance_results
-                       (tenant_id, agent_id, control_id, status, assessed_at, evidence_ref)
-                   VALUES ($1, $2, $3, $4, now(), $5)
+                       (tenant_id, agent_id, control_id, status, evidence_ref, assessed_at)
+                   VALUES ($1, $2, $3, $4, $5, $6)
                    ON CONFLICT (agent_id, control_id) DO UPDATE
                       SET status = EXCLUDED.status,
                           assessed_at = EXCLUDED.assessed_at,
@@ -7251,8 +7253,10 @@ async def _db_policy_scan(
                 tenant_id,
                 agent_id,
                 control_id,
-                policy_scan.stored_status(verdict),
+                status,
                 evidence,
+                # pending (not_evaluated) is not an assessment: no assessed_at.
+                None if status == "pending" else assessed_now,
             )
 
         summary = _policy_scan_summary(checks, request.policyVersion)

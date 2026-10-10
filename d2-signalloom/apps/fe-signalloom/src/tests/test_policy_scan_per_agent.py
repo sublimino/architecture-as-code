@@ -84,6 +84,8 @@ class FakeDB:
         self.results: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Any]] = {}
         self.audit: list[dict[str, Any]] = []
         self.result_writes = 0
+        #: (agent_id, control_id) -> the assessed_at the last write stored
+        self.assessed: dict[tuple[uuid.UUID, uuid.UUID], Any] = {}
 
     # -- connection protocol --------------------------------------------
     def acquire(self):
@@ -111,10 +113,13 @@ class FakeDB:
 
     async def execute(self, query: str, *args: Any) -> str:
         if "INSERT INTO agent_compliance_results" in query:
-            tenant, agent_id, control_id, status, evidence = args
+            tenant, agent_id, control_id, status, evidence = args[:5]
             self.results[(agent_id, control_id)] = {
                 "tenant_id": tenant, "status": status, "evidence_ref": evidence,
             }
+            # The statement's own assessed_at value: the bound parameter when it
+            # passes one, else the SQL text's (e.g. now()).
+            self.assessed[(agent_id, control_id)] = args[5] if len(args) > 5 else "sql:now()"
             self.result_writes += 1
             return "INSERT 0 1"
         if "INSERT INTO audit_events" in query:
@@ -348,6 +353,10 @@ async def test_not_evaluated_is_carried_through_and_stored_as_pending(db):
     assert resp.status_code == 200, resp.text
     assert fake.results[(AGENT_A, CTRL_ROOT)]["status"] == "pending"
     assert fake.results[(AGENT_A, CTRL_PRIV)]["status"] == "pass"
+    # L5: pending is not an assessment, so it carries no assessed_at; the
+    # pass that was assessed in this scan does.
+    assert fake.assessed[(AGENT_A, CTRL_ROOT)] is None
+    assert fake.assessed[(AGENT_A, CTRL_PRIV)] is not None
     data = resp.json()
     assert [(c["check"], c["status"], c["passed"]) for c in data["checks"]] == [
         ("no-root-containers", "not_evaluated", False),

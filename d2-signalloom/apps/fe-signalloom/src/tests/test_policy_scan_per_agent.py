@@ -531,6 +531,8 @@ async def test_a_scan_of_another_tenants_agents_scans_and_writes_nothing(db):
     assert fake.results == {} and fake.result_writes == 0
     detail = fake.audit[0]["detail"]
     assert (detail["agents_scanned"], detail["controls_assessed"]) == (0, 0)
+    # L2: and the response says which ids it found no agent for.
+    assert data["agentsNotFound"] == [str(FOREIGN_AGENT)]
     # And the caller's own agent is still scannable, so the filter is a tenant
     # filter and not a broken query.
     with respx.mock() as mock:
@@ -539,6 +541,54 @@ async def test_a_scan_of_another_tenants_agents_scans_and_writes_nothing(db):
     assert resp.status_code == 200, resp.text
     assert {c["agentId"] for c in resp.json()["checks"]} == {str(AGENT_A)}
     assert {agent for agent, _ in fake.results} == {AGENT_A}
+    assert resp.json()["agentsNotFound"] == []
+
+
+@pytest.mark.asyncio
+async def test_an_agent_id_that_matches_nothing_is_reported_not_a_silent_omission(db):
+    """L2: ``agentIds`` entries that match no agent of this tenant used to
+    vanish -- the caller asked about four agents, got verdicts for one and no
+    statement about the other three.  An id is also matched as a UUID rather
+    than as text: ``agent_registry.id::text`` renders lower case, so an id
+    typed in upper case matched nothing and the agent silently dropped out of
+    its own scan."""
+    fake = db(FakeDB(
+        agents=[agent_row(AGENT_A, "agent-a", workload=POD_A),
+                agent_row(FOREIGN_AGENT, "tenant-b-agent", workload=POD_A, tenant=EAP_TENANT_B)],
+        controls=[CONTROLS[0]],
+    ))
+    unknown = "aaaaaaaa-0000-0000-0000-00000000dead"
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering(EVERY_CHECK_PASSES))
+        resp = await scan({**SCAN, "agentIds": [
+            str(AGENT_A).upper(), unknown, str(FOREIGN_AGENT), "not-a-uuid"]})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # The upper-case id is the caller's own agent and is scanned.
+    assert {c["agentId"] for c in data["checks"]} == {str(AGENT_A)}
+    assert data["agentsScanned"] == 1
+    # Reported in the order the caller asked, exactly as the caller wrote them.
+    assert data["agentsNotFound"] == [unknown, str(FOREIGN_AGENT), "not-a-uuid"]
+    assert {agent for agent, _ in fake.results} == {AGENT_A}
+    assert fake.audit[0]["detail"]["agents_not_found"] == 3
+
+
+@pytest.mark.asyncio
+async def test_a_scan_of_only_unparseable_ids_scans_no_agent_at_all(db):
+    """The id filter is ``cardinality($2) = 0 OR ...``, so dropping every
+    unparseable id from the query would turn "scan these three" into "scan the
+    whole tenant"."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.post(ENGINE).mock(side_effect=answering(EVERY_CHECK_PASSES))
+        resp = await scan({**SCAN, "agentIds": ["not-a-uuid", "also-not-one"]})
+    assert resp.status_code == 200, resp.text
+    assert not route.called
+    data = resp.json()
+    assert (data["checks"], data["agentsScanned"]) == ([], 0)
+    assert data["agentsNotFound"] == ["not-a-uuid", "also-not-one"]
+    assert fake.result_writes == 0
 
 
 # --------------------------------------------------------------------------

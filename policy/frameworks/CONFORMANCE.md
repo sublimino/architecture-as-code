@@ -161,14 +161,64 @@ records the check ID, the seed, both triples, the four figures, the engine's
 Regenerate and re-verify:
 
 ```bash
-make verify-cel-money-golden      # rewrite the goldens, then assert them
+make verify-cel-money-golden      # pin NEW checks, then assert
 make verify-cel-money             # assert only (also runs inside verify-cel-conformance)
+
+# move an ALREADY-PINNED price deliberately:
+make verify-cel-money-golden-acknowledged REASON="recalibrated CRA-1.1 after the 2026 loss study" CHECKS=1
 ```
 
 A triple edit is then a reviewable diff of exactly the prices it moved. Change
 `riskTriple.mode` on one check, regenerate, and four figures plus one sigma move
 on that one row. **Review that diff.** It is every price the product quotes for
 that control.
+
+#### Update mode cannot absorb an engine regression
+
+`MONEY_GOLDEN=update` used to rewrite **every** row from whatever the engine
+currently produced, with no control but a comment saying "review the diff". An
+adversarial audit changed one character in `fair.go` —
+`percentile(annualLosses, 0.95)` to `0.94`, a plausible off-by-one — and the
+path was: the money test fails correctly, update mode absorbs it, **the full
+suite goes green**, and **64 priced figures across 5 packs have moved 4–5 %**.
+The goldens were regenerated three times in one session, which is exactly the
+condition under which a reviewer stops reading 64 numbers.
+
+So update mode is now split by whether a check is already pinned:
+
+| Case | Behaviour |
+|---|---|
+| check **absent** from the golden | pinned freely — one command, no ceremony |
+| check **gone** from the pack | row dropped freely, listed in the log |
+| check **already pinned**, figures identical | nothing to do |
+| check **already pinned**, any figure moved | **REFUSED**: delta table printed, **no file written at all** |
+
+A refused run writes nothing anywhere, so there is never a half-updated set. To
+move a pinned price you must state the movement:
+
+```
+MONEY_GOLDEN_MOVE_REASON="<why these prices moved>"
+MONEY_GOLDEN_MOVE_CHECKS=<exact number of checks expected to move>
+```
+
+The **count** is what defeats the attack: laundering that one-character change
+requires typing `64` beside a written reason, and both are recorded into each
+affected golden's `lastMovement` block, so the claim lands in the commit as a
+sentence rather than as drift buried in digits. A stale acknowledgement with
+nothing moving is also refused, so it cannot sit pre-authorising the next run.
+
+The run additionally separates movements whose **triples and seed are
+identical** — meaning the *engine* moved, with no pack edit in the diff to
+explain the new numbers — from movements that follow an input change.
+
+#### Delta tables
+
+Any movement, in update mode **or** on an assert failure, prints per figure:
+check, figure, old, new, percentage, closing with a median-and-range summary.
+The summary is the load-bearing part. A uniform drift across dozens of checks
+has a *tight* percentage range — the signature of an engine change — and that is
+exactly what a diff of 64 JSON rows hides. The audit's mutation prints as
+`64 numeric figure(s) moved; median -4.27%, range -5.24% .. -3.06%`.
 
 Comparison is **exact**. `fair.Simulate` is a seeded Monte Carlo over a PCG
 generator consumed in a fixed order. For a given `(triple, triple, seed)` it is
@@ -197,20 +247,48 @@ percentage pulled from the air. Worst observed across the estate: **2.71 σ**
 (1.87 % relative), `cis-kubernetes/v1.8 no-host-ports`. A line-by-line port of
 `fair.go` would have agreed by construction and anchored nothing.
 
-**`var95` and `tvar` are not analytically pinned**, because a quantile of a
-product of two Beta variates has no comparable closed form. They are held by
-(a) the golden diff, (b) the closed-form support `[min_f·min_l, max_f·max_l]`,
-which every figure must lie inside, and (c) the ordering properties below. The
-limitation is stated rather than hidden behind a loose tolerance. An optional
-non-gating tier compares them to an independent NumPy derivation:
+**`var95`, `tvar` and `carried` are NOT independently pinned. They are pinned
+only by the golden files**, plus the closed-form support
+`[min_f·min_l, max_f·max_l]` that every figure must lie inside and the ordering
+properties below. That is three of the four figures the product quotes, and it
+is an admitted gap rather than an assurance. The guard on *how* a golden may be
+rewritten (above) is what makes the remaining gate worth anything.
+
+The gap is not laziness, and it is **quantified**. An optional non-gating tier
+gives the quantiles the only independent treatment available:
 
 ```bash
 make verify-cel-money-independent   # needs NumPy; statistical, not part of verify-cel
 ```
 
-Observed there, the Go oracle's algebra agrees with a 1 000 000-sample estimate
-to **0.19 %**. `var95` agrees to **2.58 %** and `tvar` to **2.89 %**. That is
-the expected quantile noise at the engine's 10 000 iterations.
+It no longer uses a hand-picked relative tolerance. For `var95` the engine's
+figure is the order statistic at rank `ceil(0.95·10000) = 9500`; the probability
+level such an order statistic attains is `Beta(k, n−k+1)`-distributed — a
+distribution-free fact about sampling, true of **any** correct implementation —
+with standard deviation `sqrt(p(1−p)/n) = 0.00218`. A 4.5 σ window therefore
+spans levels **0.9402 – 0.9598**, and the admissible value window is that
+window mapped through the script's own independently-estimated quantile
+function. For `tvar` the figure is the mean of the 500 draws above that order
+statistic, so its standard error is the independently-estimated tail deviation
+over `sqrt(500)`, unioned with the tail means at both level bounds.
+
+Measured on this estate: the Go oracle's algebra agrees with a 1 000 000-sample
+estimate to **0.19 %**; `var95` sits within **2.58 %** of the independent point
+estimate and `tvar` within **2.89 %**; and the derived admissible window is up
+to **±5.42 %** for `var95` and **±4.09 %** for `tvar`.
+
+**That window is the honest limit, and it is wider than the defect.** The
+audit's one-rank percentile shift moves these figures by 3.06–5.24 %, which is
+the same order as the sampling noise any correct 10 000-iteration implementation
+must be allowed. It lands inside the statistical envelope, so **no point-estimate
+comparison at the engine's sample size can separate the two** — whether an
+individual check happens to trip is luck, not detection. Raising the sample
+count does not help, because the noise being absorbed is the *engine's*, not the
+oracle's. This tier catches an order-of-magnitude error, a lost scale factor, a
+changed PERT λ, a figure read from the wrong triple, or a quantile taken at the
+wrong end. It does **not** catch a one-rank percentile shift, and nothing
+statistical can. The deterministic goldens plus `TestWriteMoneyGolden`'s refusal
+are the only instruments that do.
 
 **Known blind spot of the analytic tier**, found by mutation. It cannot see
 frequency and magnitude **transposed**, because `E[F]·E[M]` and the support

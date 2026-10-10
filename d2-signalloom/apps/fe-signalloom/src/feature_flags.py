@@ -104,7 +104,7 @@ class FlagEvaluationResult(BaseModel):
     reason: str = Field(default="default", description="Evaluation decision reason")
 
 
-def _resolve_db_pool(pool: Any = None, request: Request | None = None) -> Any:
+async def _resolve_db_pool(pool: Any = None, request: Request | None = None) -> Any:
     """Resolve database pool from explicit argument, db.connection, request state, or api_compat."""
     if pool is not None and (hasattr(pool, "fetch") or hasattr(pool, "acquire")):
         return pool
@@ -123,10 +123,11 @@ def _resolve_db_pool(pool: Any = None, request: Request | None = None) -> Any:
             return p
 
     try:
-        from api_compat import _pool
-        if _pool is not None and (hasattr(_pool, "fetch") or hasattr(_pool, "acquire")):
-            return _pool
-    except (ImportError, AttributeError):
+        from api_compat import _get_pool
+        p = await _get_pool()
+        if p is not None and (hasattr(p, "fetch") or hasattr(p, "acquire")):
+            return p
+    except (ImportError, AttributeError, Exception):
         pass
 
     return None
@@ -511,7 +512,7 @@ def require_feature(
         if allow_superadmin_override and superadmin_override and is_superadmin(principal):
             return True
 
-        pool = _resolve_db_pool(request=request)
+        pool = await _resolve_db_pool(request=request)
         enabled = await is_feature_enabled(pool, principal.tenant, flag_key)
         if not enabled:
             raise HTTPException(

@@ -198,10 +198,12 @@ export function FeatureFlagProvider({
       setIsFetching(true)
       try {
         const data = await fetchFeatures(token, targetTenant)
-        flagCache.set(activeTenantKey, {
-          response: data,
-          timestamp: Date.now(),
-        })
+        if (data.tenant_id !== 'fallback') {
+          flagCache.set(activeTenantKey, {
+            response: data,
+            timestamp: Date.now(),
+          })
+        }
 
         setFlags(data.flags)
         if (data.details) {
@@ -232,9 +234,14 @@ export function FeatureFlagProvider({
       return
     }
 
+    // If authenticated via Auth0 but token is still resolving, defer fetch
+    if (auth?.isAuthenticated && !token) {
+      return
+    }
+
     setIsLoading(true)
 
-    performFetch().finally(() => {
+    performFetch(Boolean(token)).finally(() => {
       if (mounted) {
         setIsLoading(false)
       }
@@ -243,7 +250,7 @@ export function FeatureFlagProvider({
     return () => {
       mounted = false
     }
-  }, [disableAutoFetch, performFetch])
+  }, [auth?.isAuthenticated, disableAutoFetch, performFetch, token])
 
   const refetch = useCallback(async () => {
     await performFetch(true)

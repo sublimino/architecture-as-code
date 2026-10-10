@@ -31,7 +31,7 @@ logger = logging.getLogger("signalloom.admin_users")
 router = APIRouter(prefix="/api/v1/admin/users", tags=["admin-users"])
 
 
-def _resolve_db_pool(request: Request) -> Any:
+async def _resolve_db_pool(request: Request) -> Any:
     """Resolve active database pool from test context, app state, or api_compat."""
     # 1. Check test/runtime db.connection pool if set
     try:
@@ -47,12 +47,13 @@ def _resolve_db_pool(request: Request) -> Any:
     if pool is not None and (hasattr(pool, "fetch") or hasattr(pool, "acquire")):
         return pool
 
-    # 3. Check api_compat._pool
+    # 3. Check api_compat._get_pool()
     try:
-        from api_compat import _pool
-        if _pool is not None and (hasattr(_pool, "fetch") or hasattr(_pool, "acquire")):
-            return _pool
-    except (ImportError, AttributeError):
+        from api_compat import _get_pool
+        pool = await _get_pool()
+        if pool is not None and (hasattr(pool, "fetch") or hasattr(pool, "acquire")):
+            return pool
+    except (ImportError, AttributeError, Exception):
         pass
 
     return None
@@ -60,7 +61,7 @@ def _resolve_db_pool(request: Request) -> Any:
 
 async def _require_db_pool(request: Request, operation: str) -> Any:
     """Resolve database pool or raise 503 if unavailable."""
-    pool = _resolve_db_pool(request)
+    pool = await _resolve_db_pool(request)
     if pool is None:
         raise APIError(
             503,

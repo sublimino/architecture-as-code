@@ -1,0 +1,21 @@
+{
+  "name": "sbom-verified-provenance--sbom-is-null",
+  "level": "unit",
+  "description": "agent.sbom is JSON null, not a map. Every other field is compliant, so the only reason to fail is the container's type. Guarded by type(agent.sbom) == map: before that guard the list form returned error, not fail, which is a verdict a scan reports as neither passed nor failed.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": null,
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "sbom-verified-provenance": "fail"
+  }
+}

@@ -243,16 +243,51 @@ class RecordingPool:
 
     def __init__(self) -> None:
         self.statements: list[tuple[str, tuple[Any, ...]]] = []
+        self.serves_platform_users: bool = True
 
     def _record(self, query: str, args: tuple[Any, ...]) -> None:
         self.statements.append((query, args))
 
     async def fetch(self, query: str, *args: Any) -> list[Any]:
         self._record(query, args)
+        if "FROM public.platform_users" in query:
+            return [
+                {
+                    "id": uuid.UUID("a0000000-0000-0000-0000-000000000001"),
+                    "tenant_id": TENANT_A,
+                    "email": "alice@example.test",
+                    "display_name": "Alice",
+                    "role": "admin",
+                    "status": "active",
+                    "is_superadmin": False,
+                    "avatar_url": None,
+                    "department": None,
+                    "title": None,
+                    "last_login_at": None,
+                    "created_at": "2026-09-12T00:00:00Z",
+                    "updated_at": "2026-09-12T00:00:00Z",
+                }
+            ]
         return []
 
     async def fetchrow(self, query: str, *args: Any) -> None:
         self._record(query, args)
+        if "FROM public.platform_users" in query or "INSERT INTO public.platform_users" in query:
+            return {
+                "id": uuid.UUID("a0000000-0000-0000-0000-000000000001"),
+                "tenant_id": TENANT_A,
+                "email": "alice@example.test",
+                "display_name": "Alice",
+                "role": "admin",
+                "status": "active",
+                "is_superadmin": False,
+                "avatar_url": None,
+                "department": None,
+                "title": None,
+                "last_login_at": None,
+                "created_at": "2026-09-12T00:00:00Z",
+                "updated_at": "2026-09-12T00:00:00Z",
+            }
         if "FROM public.operator_identities oi" in query:
             return {
                 "identity_id": uuid.UUID("d0000000-0000-0000-0000-000000000001"),
@@ -598,6 +633,7 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
             "model": "claude-3-5-sonnet",
         },
     ),
+    ("GET", "/api/v1/features", None),
 ]
 
 
@@ -609,6 +645,7 @@ def recording(monkeypatch):
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    set_pool_for_testing(pool)
     # `onboarding` does `from api_compat import _get_pool`, which binds the
     # function object into its own namespace at import time. Patching only
     # `api_compat._get_pool` leaves its routes talking to the real (absent)
@@ -623,7 +660,10 @@ def recording(monkeypatch):
         assert not hasattr(module, "_get_pool"), (
             f"{module.__name__} binds its own _get_pool again; patch it here too"
         )
-    return pool
+    try:
+        yield pool
+    finally:
+        set_pool_for_testing(None)
 
 
 @pytest.mark.parametrize(
@@ -654,7 +694,11 @@ def test_every_database_statement_is_bound_to_the_callers_tenant(
     if path.startswith("/api/operator-identities"):
         monkeypatch.setattr(settings, "api_attributable_operator_tenants", {TENANT_A})
 
-    response = client.request(method, path, json=body, headers=bearer(ALICE))
+    req_headers = bearer(ALICE)
+    if path.startswith("/api/v1/admin/users"):
+        req_headers = bearer(token_for(ALICE, extra_claims={"email": "alice@example.test"}))
+
+    response = client.request(method, path, json=body, headers=req_headers)
 
     # Authentication must have succeeded, or the route never got far enough to
     # query anything and a green result would mean nothing.
@@ -759,6 +803,13 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     # authenticated route and is swept in DB_ROUTES.
     ("POST", "/api/v1/invites"),
     ("GET", "/api/v1/invites"),
+    # Platform user administration (admin_users.py, migration 008/058/059).
+    # Guarded by require_admin_or_superadmin; superadmin manages cross-tenant,
+    # tenant admin strictly scoped to caller tenant. Covered by test_admin_users_api.py.
+    ("GET", "/api/v1/admin/users"),
+    ("POST", "/api/v1/admin/users/invite"),
+    ("PATCH", "/api/v1/admin/users/{user_id}"),
+    ("DELETE", "/api/v1/admin/users/{user_id}"),
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results
@@ -1855,8 +1906,12 @@ def test_api_key_routes_ignore_the_tenant_named_in_their_own_path(client, record
     body = response.json()
     assert body["error"]["code"] == "tenant_mismatch"
 
-    # No SQL was issued -- the guard fires before any pool interaction.
-    assert not recording.statements
+    # No domain SQL was issued -- the guard fires before any pool interaction for api keys.
+    domain_statements = [
+        s for s in recording.statements
+        if "subject_tenants" not in s[0] and "platform_users" not in s[0]
+    ]
+    assert not domain_statements
 
 
 class GovernancePool(RecordingPool):

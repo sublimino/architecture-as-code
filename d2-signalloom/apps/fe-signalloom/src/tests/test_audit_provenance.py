@@ -561,6 +561,55 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
     ("tenant_isolation.py", "api_provision_tenant", "detail", "customer_hash"): (
         "EAP tenant provisioning parameter recorded in audit detail."
     ),
+    # ---- Platform User Administration (SLFA) ----------------------------
+    ("admin_users.py", "invite_user", "detail", "avatar_url"): (
+        "Platform user avatar URL persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "department"): (
+        "Platform user department persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "display_name"): (
+        "Platform user display name persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "email"): (
+        "Platform user email persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "is_superadmin"): (
+        "Platform user superadmin flag persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "role"): (
+        "Platform user role persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "tenant_id"): (
+        "Platform user tenant ID persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "invite_user", "detail", "title"): (
+        "Platform user title persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "avatar_url"): (
+        "Platform user avatar URL update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "department"): (
+        "Platform user department update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "display_name"): (
+        "Platform user display name update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "email"): (
+        "Platform user email update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "is_superadmin"): (
+        "Platform user superadmin flag update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "role"): (
+        "Platform user role update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "status"): (
+        "Platform user status update persisted to platform_users table via PlatformUserRepository."
+    ),
+    ("admin_users.py", "update_user", "detail", "title"): (
+        "Platform user title update persisted to platform_users table via PlatformUserRepository."
+    ),
 }
 
 
@@ -1306,6 +1355,18 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
     ),
     ("tenant_isolation.py", "api_tenant_decrypt"): (
         "LEGITIMATE. OpenBao transit decrypt recovers payload with tenant key; audit event is recorded durably."
+    ),
+    ("admin_users.py", "invite_user"): (
+        "LEGITIMATE. User invitation and creation is persisted to platform_users via PlatformUserRepository; "
+        "audit event is recorded durably."
+    ),
+    ("admin_users.py", "update_user"): (
+        "LEGITIMATE. User updates (profile, role, status) are persisted to platform_users via PlatformUserRepository; "
+        "audit event is recorded durably."
+    ),
+    ("admin_users.py", "delete_user"): (
+        "LEGITIMATE. User deletion is persisted to platform_users via PlatformUserRepository; "
+        "audit event is recorded durably."
     ),
 }
 

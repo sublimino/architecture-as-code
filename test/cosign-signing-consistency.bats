@@ -203,7 +203,7 @@ collect_sign_invocations() {
 @test "live: the local signing key is the key the cluster trusts" {
   kubectl -n flux-system get secret cosign-pub >/dev/null 2>&1 \
     || skip "no cluster, or no flux-system/cosign-pub secret"
-  [ -f .keys/cosign.pub ] || skip "no local .keys/cosign.pub in this checkout"
+  cat .keys/cosign.pub >/dev/null 2>&1 || skip "no readable local .keys/cosign.pub in this checkout"
 
   # Compared as files, not as $(...) captures: command substitution strips the
   # trailing newline, so the fingerprints printed on failure would not match what

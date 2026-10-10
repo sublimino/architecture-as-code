@@ -4,11 +4,13 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import App, { routeLoadingLabel, SuperadminRoute } from './App'
 import { NAV } from './components/Sidebar'
+import { FeatureFlagProvider, clearFeatureFlagCache } from './providers/FeatureFlagProvider'
 
 // The bug this file pins: clicking Compliance showed a rotating ring (App's
 // own private `Spinner`) while the route chunk downloaded, and only then the
 // Signal Loom loader once the page mounted. Two loading idioms back to back.
 // The Signal Loom mark is now the only one, at both of App's waits.
+
 
 const auth = vi.hoisted(() => ({
   isAuthenticated: true,
@@ -19,6 +21,25 @@ const auth = vi.hoisted(() => ({
   // and the tree under test stays exactly as rendered.
   getAccessTokenSilently: () => new Promise<string>(() => {}),
   loginWithRedirect: () => undefined,
+}))
+
+const featuresMock = vi.hoisted(() => ({
+  flags: {
+    core_governance: true,
+    audit: true,
+    compliance: true,
+    demos_fleet: false,
+    supercred: false,
+    rbac_analysis: false,
+    collusion_access: false,
+  } as Record<string, boolean>,
+}))
+
+vi.mock('./api/featuresApi', () => ({
+  fetchFeatures: vi.fn(async () => ({
+    tenant_id: 'test-tenant',
+    flags: { ...featuresMock.flags },
+  })),
 }))
 
 vi.mock('./auth/oidc', () => ({ useAuth0: () => auth }))
@@ -51,6 +72,11 @@ vi.mock('./pages/DiscoveryAccountDetailPage', () => new Promise<never>(() => {})
 // Settles, so the hand-over from fallback to page can be watched. Exactly one
 // test may use this route, for the caching reason above.
 vi.mock('./pages/AgentDetailPage', () => ({ default: () => <div>Agent detail page</div> }))
+vi.mock('./pages/FleetDemoPage', () => ({ default: () => <div data-testid="fleet-demo-page">Fleet Demo Page</div> }))
+vi.mock('./pages/SuperCredPage', () => ({ default: () => <div data-testid="supercred-page">SuperCred Page</div> }))
+vi.mock('./pages/RbacAnalysisPage', () => ({ default: () => <div data-testid="rbac-analysis-page">Rbac Analysis Page</div> }))
+vi.mock('./pages/RbacExplorerPage', () => ({ default: () => <div data-testid="rbac-explorer-page">Rbac Explorer Page</div> }))
+vi.mock('./pages/CollusionAccessPage', () => ({ default: () => <div data-testid="collusion-access-page">Collusion Access Page</div> }))
 
 /**
  * The markers of the ring that used to render here: its keyframe, and the
@@ -69,16 +95,29 @@ function liveRegions(): Element[] {
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
+    <FeatureFlagProvider initialFlags={featuresMock.flags} disableAutoFetch>
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
+    </FeatureFlagProvider>,
   )
 }
 
 beforeEach(() => {
+  clearFeatureFlagCache()
+  featuresMock.flags = {
+    core_governance: true,
+    audit: true,
+    compliance: true,
+    demos_fleet: false,
+    supercred: false,
+    rbac_analysis: false,
+    collusion_access: false,
+  }
   auth.isAuthenticated = true
   auth.isLoading = false
   auth.user = { name: 'Test User', email: 'test@acme.com' }
+  auth.getAccessTokenSilently = () => new Promise<string>(() => {})
 })
 
 describe('routeLoadingLabel', () => {
@@ -228,3 +267,96 @@ describe('SuperadminRoute route guards', () => {
     expect(screen.queryByText('Agents Fallback Page')).not.toBeInTheDocument()
   })
 })
+
+describe('FeatureGate route guards and NotFound fallback', () => {
+  it('renders NotFound (404) on direct navigation to /fleet when demos_fleet is disabled', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.demos_fleet = false
+
+    renderAt('/fleet')
+
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.getByText('404')).toBeInTheDocument()
+    expect(screen.getByText('Page Not Found')).toBeInTheDocument()
+    expect(screen.queryByTestId('fleet-demo-page')).toBeNull()
+  })
+
+  it('renders FleetDemoPage on direct navigation to /fleet when demos_fleet is enabled', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.demos_fleet = true
+
+    renderAt('/fleet')
+
+    await waitFor(() => expect(screen.getByTestId('fleet-demo-page')).toBeInTheDocument())
+    expect(screen.queryByTestId('not-found')).toBeNull()
+  })
+
+  it('renders NotFound (404) on direct navigation to /supercred when supercred is disabled', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.supercred = false
+
+    renderAt('/supercred')
+
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.queryByTestId('supercred-page')).toBeNull()
+  })
+
+  it('renders SuperCredPage on direct navigation to /supercred when supercred is enabled', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.supercred = true
+
+    renderAt('/supercred')
+
+    await waitFor(() => expect(screen.getByTestId('supercred-page')).toBeInTheDocument())
+    expect(screen.queryByTestId('not-found')).toBeNull()
+  })
+
+  it('renders NotFound (404) on direct navigation to /rbac-analysis when rbac_analysis is disabled', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.rbac_analysis = false
+
+    renderAt('/rbac-analysis')
+
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.queryByTestId('rbac-analysis-page')).toBeNull()
+  })
+
+  it('renders RbacAnalysisPage on direct navigation to /rbac-analysis when rbac_analysis is enabled', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.rbac_analysis = true
+
+    renderAt('/rbac-analysis')
+
+    await waitFor(() => expect(screen.getByTestId('rbac-analysis-page')).toBeInTheDocument())
+    expect(screen.queryByTestId('not-found')).toBeNull()
+  })
+
+  it('renders NotFound (404) on direct navigation to /collusion-access when collusion_access is disabled', async () => {
+    auth.user = { name: 'Standard User', email: 'user@acme.com' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.collusion_access = false
+
+    renderAt('/collusion-access')
+
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.queryByTestId('collusion-access-page')).toBeNull()
+  })
+
+  it('renders CollusionAccessPage on direct navigation to /collusion-access when collusion_access is enabled', async () => {
+    auth.user = { name: 'Standard User', email: 'user@acme.com' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.collusion_access = true
+
+    renderAt('/collusion-access')
+
+    await waitFor(() => expect(screen.getByTestId('collusion-access-page')).toBeInTheDocument())
+    expect(screen.queryByTestId('not-found')).toBeNull()
+  })
+})
+

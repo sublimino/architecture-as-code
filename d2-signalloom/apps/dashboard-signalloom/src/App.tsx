@@ -12,6 +12,8 @@ import { CurrencyProvider } from './money/CurrencyContext'
 import { api } from './api/client'
 import { connectorsApi } from './api/connectorsClient'
 import { onboardingApi } from './api/onboardingClient'
+import FeatureGate from './components/common/FeatureGate'
+import NotFoundPage from './pages/NotFoundPage'
 import type { CookiePreferences } from './types/api'
 
 // The server decides, with the client-side name match as the pre-flight answer
@@ -21,6 +23,15 @@ import type { CookiePreferences } from './types/api'
 // name match was the only answer, so the dashboard and the API could disagree
 // the moment API_SUPERADMIN_EMAILS named anyone other than the demo user.
 export function SuperadminRoute({ children }: { children: React.ReactNode }) {
+  const { user, getAccessTokenSilently } = useAuth0()
+  const { superadmin } = useServerSuperadmin(user, getAccessTokenSilently)
+  if (!superadmin) {
+    return <Navigate to="/agents" replace />
+  }
+  return <>{children}</>
+}
+
+export function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, getAccessTokenSilently } = useAuth0()
   const { superadmin } = useServerSuperadmin(user, getAccessTokenSilently)
   if (!superadmin) {
@@ -75,6 +86,7 @@ const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const CallbackPage = lazy(() => import('./pages/CallbackPage'))
+const AdminUsersPage = lazy(() => import('./pages/admin/UsersPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -176,6 +188,7 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/redeem-invite': 'Invite',
   '/login': 'Login',
   '/callback': 'Sign In',
+  '/admin/users': 'User Administration',
 }
 
 /**
@@ -439,7 +452,7 @@ export default function App() {
                 <Route path="/compliance/posture" element={<ProtectedRoute><AgentPosturePage /></ProtectedRoute>} />
                 <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FrameworkDetailPage /></ProtectedRoute>} />
                 <Route path="/approvals" element={<Navigate to="/collusion-access" replace />} />
-                <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
+                <Route path="/collusion-access" element={<ProtectedRoute><FeatureGate flag="collusion_access" fallback={<NotFoundPage />}><CollusionAccessPage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute><AuditTrailPage /></ProtectedRoute>} />
                 <Route path="/workspaces" element={<Navigate to="/discovery" replace />} />
@@ -447,8 +460,8 @@ export default function App() {
                 <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />
                 <Route path="/credential-inventory" element={<ProtectedRoute><CredentialInventoryPage /></ProtectedRoute>} />
-                <Route path="/rbac-analysis" element={<ProtectedRoute><RbacAnalysisPage /></ProtectedRoute>} />
-                <Route path="/rbac-explorer" element={<ProtectedRoute><RbacExplorerPage /></ProtectedRoute>} />
+                <Route path="/rbac-analysis" element={<ProtectedRoute><FeatureGate flag="rbac_analysis" fallback={<NotFoundPage />}><RbacAnalysisPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/rbac-explorer" element={<ProtectedRoute><FeatureGate flag="rbac_analysis" fallback={<NotFoundPage />}><RbacExplorerPage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/signal-fusion" element={<ProtectedRoute><SuperadminRoute><SignalFusionPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/distance-latency" element={<ProtectedRoute><SuperadminRoute><DistanceLatencyPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/signal-store" element={<ProtectedRoute><SignalStorePage /></ProtectedRoute>} />
@@ -457,15 +470,16 @@ export default function App() {
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />
                 <Route path="/network-tests" element={<ProtectedRoute><NetworkTestsPage /></ProtectedRoute>} />
-                <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><SuperCredPage /></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage /></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/demos/fleet" element={<ProtectedRoute><SuperadminRoute><FleetDemoPage /></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetAudiencePage /></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/demos/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FleetAudiencePage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="supercred" fallback={<NotFoundPage />}><SuperCredPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/demos/fleet" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetAudiencePage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/demos/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetAudiencePage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
                 <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><AgentMaxxingDemoPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/headers" element={<ProtectedRoute><SuperadminRoute><DesignSystemHeadersPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/admin/users" element={<ProtectedRoute><AdminRoute><AdminUsersPage /></AdminRoute></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

@@ -1,9 +1,9 @@
 ---
 title: Test Suites and Pipeline Guide
-description: Complete catalog of offline, integration, acceptance, soak, and adversarial test suites and their execution in GitHub Enterprise pipelines.
+description: Catalog of test suites and execution in GitHub Enterprise pipelines.
 ---
 
-Signal Loom maintains a comprehensive test suite hierarchy spanning fast offline linting and unit tests, ephemeral Kubernetes cluster integration tests, Playwright browser journeys, eBPF saturation floods, and autonomous soak-testing bots.
+Signal Loom maintains a comprehensive test suite hierarchy. The suites span fast offline linting, Kubernetes integration tests, Playwright browser journeys, eBPF saturation floods, and soak-testing bots.
 
 This guide catalogs every test suite, documents their isolation guarantees, and outlines how to structure them in a GitHub Enterprise Actions CI/CD pipeline.
 
@@ -11,18 +11,20 @@ This guide catalogs every test suite, documents their isolation guarantees, and 
 
 ## 1. Test Isolation and Independence
 
-A core design requirement is that **test suites must run independently without mutual interference**. Multiple CI jobs or local test runs can execute in parallel on the same runner or development workstation.
+A core design requirement is that **test suites must run independently without mutual interference**. Multiple CI jobs or local test runs can run in parallel on the same runner or workstation.
 
 ### Isolation Mechanisms
 
-- **Dynamic Port Selection**: Integration harnesses never bind hardcoded service ports. Services bind ephemeral free ports (discovered dynamically via Python/bash socket probes in ranges `41000–44999`), leaving default port ranges (e.g. `8080–8099`, `5001`, `8200`, `30754`) undisturbed.
+- **Dynamic Port Selection**: Integration harnesses never bind hardcoded service ports. Services bind ephemeral free ports (discovered dynamically through socket probes in ranges `41000–44999`), leaving default port ranges undisturbed.
 - **Strict Isolation Audit**: The test `test/test-isolation-audit.bats` scans all acceptance test definitions to enforce zero hardcoded ports or fixed global `/tmp` paths.
-- **Isolated Target Namespaces**: Adversarial and stress tests (such as `scripts/stress-agent-cgroups.sh`) deploy into dedicated, transient namespaces (such as `slaat-p1-4-cgroup-stress`) with ephemeral credentials, never mutating production or demonstration workloads.
+- **Isolated Target Namespaces**: Stress tests deploy into dedicated namespaces (such as `slaat-p1-4-cgroup-stress`). They use ephemeral credentials and do not change demonstration workloads.
 - **Zero-Staleness Gate**: `./scripts/check-deployed-staleness.sh` verifies that pods running in the target cluster match the exact source fingerprint (`source_id`) of the working tree. Tests never pass vacuously against outdated container builds.
 
 ---
 
 ## 2. Test Suite Catalog
+
+The diagram shows the four tiers of the test hierarchy, from offline checks to soak tests.
 
 ```mermaid
 flowchart TD
@@ -62,15 +64,15 @@ These suites require zero cloud or Kubernetes dependencies and run in seconds in
 
 | Target / Command | Scope | Description |
 | :--- | :--- | :--- |
-| `make docs-lint` | Documentation | Validates cross-document links, anchor integrity, diagrams, path references, and STE style rules. |
-| `make docs-render-check` | Documentation Portal | Builds the Starlight documentation site, executes the internal link audit, and render-checks pages in headless Chromium. |
-| `make test-count-floor` | Regression Guard | Asserts that total test counts have not decreased across releases. |
-| `make test-dashboard-weave` | Frontend UI | Vitest suites verifying the Weave, Signal Fusion, and WebSocket telemetry stream components. |
+| `make docs-lint` | Documentation | Checks links, anchor integrity, diagrams, path references, and STE style rules. |
+| `make docs-render-check` | Documentation Portal | Builds the Starlight site, audits internal links, and render-checks pages in headless Chromium. |
+| `bats test/test-count-floor.bats` | Regression Guard | Checks that total test counts do not decrease across releases. |
+| `make test-dashboard-weave` | Frontend UI | Vitest suites checking the Weave, Signal Fusion, and WebSocket telemetry stream components. |
 | `make demo-signalloom-coding-agent-topology` | Dashboard UI | Playwright test rendering the agent topology graph against an in-process mock server (`--port 0`). Needs no cluster. |
-| `make demo-signalloom-api-test` | FastAPI Gateway | Contract tests validating API routing, permissions, and request validation models. |
+| `make demo-signalloom-api-test` | FastAPI Gateway | Contract tests checking API routing, permissions, and request validation models. |
 | `make test-sldc-offline` | Governance & Fleet | Full offline verification covering BATS, Go (`fe-signalloom`, `kusari-agent`, `stun-sentinel`, `signal-ingest`), pytest, and bun. |
-| `go test -bench=BenchmarkAdversarialLoad` | Ingestion Engine | Sustained in-memory adversarial load benchmark enforcing a p99 latency SLA ceiling of 25ms under high throughput. |
-| `bats test/sltm-ingest-reload-ratelimit.bats` | Rate Limiter | Verifies atomic key rotations without restarts and asserts HTTP 429 `Retry-After` on traffic bursts. |
+| `go test -bench=BenchmarkAdversarialLoad` | Ingestion Engine | Sustained in-memory adversarial load benchmark checking a p99 latency ceiling of 25ms under high throughput. |
+| `bats test/sltm-ingest-reload-ratelimit.bats` | Rate Limiter | Checks atomic key rotations without restarts and asserts HTTP 429 `Retry-After` on traffic bursts. |
 
 ---
 
@@ -122,6 +124,8 @@ When migrating to GitHub Enterprise, structure your workflow stages into a gradu
 
 ### Workflow Stage Structure
 
+The sequence diagram shows the four pipeline stages from pull request to merge.
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -148,7 +152,7 @@ sequenceDiagram
 
 ### GitHub Enterprise Action Configuration Example
 
-Create `.github/workflows/ci.yaml`:
+Example workflow configuration for pull request validation:
 
 ```yaml
 name: CI / Verification Pipeline
@@ -240,7 +244,7 @@ jobs:
 
 ### Nightly Soak & Adversarial Matrix Workflow
 
-Create `.github/workflows/nightly-soak.yaml`:
+Example scheduled workflow configuration for nightly soak testing:
 
 ```yaml
 name: Nightly Soak & Adversarial Chaos
@@ -262,9 +266,9 @@ jobs:
           make demo-signalloom-up
       - name: Run 1-Hour JEV Autonomous Exploratory Soak
         run: ./scripts/jev-test-bot/loop.sh --duration 3600 --mode browser
-      - name: Execute Cgroup Freeze Adversarial Battery
+      - name: Run Cgroup Freeze Adversarial Battery
         run: ./scripts/stress-agent-cgroups.sh
-      - name: Execute eBPF TC Ringbuffer Saturation Flood
+      - name: Run eBPF TC Ringbuffer Saturation Flood
         run: |
           cd d2-signalloom/apps/stun-sentinel
           go test -v ./pkg/tc -run TestRingbufferFlood

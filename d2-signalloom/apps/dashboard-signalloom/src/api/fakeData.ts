@@ -21,6 +21,7 @@ import type {
   FrameworkResponse,
   InitialApiKeyResponse,
   IssueCredentialResponse,
+  NHIAccountDetail,
   NHIDiscoveredResponse,
   NHIScanListResponse,
   PlatformUsersResponse,
@@ -1361,6 +1362,60 @@ function dismissDiscoveredWorkload(path: string): { account_id: string; status: 
   return { account_id: accountId, status: 'dismissed' }
 }
 
+function getDiscoveredAccount(path: string): NHIAccountDetail | undefined {
+  const accountId = decodeURIComponent(path.split('/')[3] || '')
+  if (!accountId) return undefined
+
+  // 1. Look in nhiDiscovered.accounts
+  const existing = nhiDiscovered.accounts.find((a) => a.id === accountId)
+  if (existing) {
+    return {
+      id: existing.id,
+      scan_id: existing.scan_id,
+      account_name: existing.account_name,
+      directory_source: existing.directory_source,
+      owner_email: existing.owner_email,
+      last_rotated: existing.last_credential_rotation,
+      privilege_level: existing.privilege_level,
+      findings: existing.findings,
+      status: existing.status,
+      first_discovered_at: existing.first_discovered_at,
+      last_seen_at: existing.last_seen_at,
+      dismissed_at: existing.dismissed_at,
+      dismissed_by: existing.dismissed_by,
+      dismiss_reason: existing.previous_risk_flags?.join(', ') || null,
+      scan_count: existing.scan_count ?? 1,
+    }
+  }
+
+  // 2. Look in demoDiscoveryWorkloads
+  const workload = demoDiscoveryWorkloads.find(
+    (w) => w.id === accountId || w.id.endsWith(`:${accountId}`) || w.name === accountId,
+  )
+  if (workload) {
+    const meta = workload.metadata || {}
+    return {
+      id: workload.id,
+      scan_id: (meta.scan_id as string) || `${TENANT}:scan-1`,
+      account_name: workload.name,
+      directory_source: (meta.directory_source as string) || workload.source_label || workload.source,
+      owner_email: workload.owner || null,
+      last_rotated: null,
+      privilege_level: (meta.privilege_level as string) || 'standard',
+      findings: Array.isArray(meta.findings) ? (meta.findings as string[]) : [],
+      status: workload.status === 'ignored' ? 'dismissed' : workload.status === 'in_review' ? 'enrollment_requested' : workload.status,
+      first_discovered_at: workload.last_seen_at || NOW,
+      last_seen_at: workload.last_seen_at || NOW,
+      dismissed_at: null,
+      dismissed_by: null,
+      dismiss_reason: null,
+      scan_count: (meta.scan_count as number) || 1,
+    }
+  }
+
+  return undefined
+}
+
 // ─── Tenant / settings ─────────────────────────────────────────────────────────
 
 const COOKIE_PREFS = { strictly_necessary: true, analytics: false }
@@ -1680,6 +1735,7 @@ const ROUTES: Match[] = [
   // nhi
   { method: 'GET', test: re(/^\/nhi\/scans$/), data: () => nhiScans },
   { method: 'GET', test: re(/^\/nhi\/discovered$/), data: () => nhiDiscovered },
+  { method: 'GET', test: re(/^\/nhi\/discovered\/[^/]+$/), data: (p) => getDiscoveredAccount(p) },
   { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/enroll$/), data: (p) => enrollDiscoveredWorkload(p) },
   { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/dismiss$/), data: (p) => dismissDiscoveredWorkload(p) },
   { method: 'GET', test: re(/^\/nhi\/report\/json$/), data: () => nhiReport },

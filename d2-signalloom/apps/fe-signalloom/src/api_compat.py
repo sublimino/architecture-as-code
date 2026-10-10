@@ -4182,9 +4182,11 @@ async def agents(
     filtered = all_records
     if search:
         s = search.strip().lower()
+        s_space = s.replace("-", " ")
         filtered = [
             a for a in filtered
             if (s in a.name.lower())
+            or (s_space in a.name.lower())
             or (s in a.id.lower())
             or (a.namespace and s in a.namespace.lower())
             or (a.framework and s in a.framework.lower())
@@ -4192,6 +4194,7 @@ async def agents(
             or (a.model_name and s in a.model_name.lower())
             or (a.type and s in a.type.lower())
             or (a.service_account and s in a.service_account.lower())
+            or (a.runtime and a.runtime.pod_name and s in a.runtime.pod_name.lower())
         ]
     if namespace:
         ns = namespace.strip().lower()

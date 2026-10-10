@@ -56,6 +56,7 @@ metadata:
     signalloom.ai/model: ${model}
     signalloom.ai/state: idle
     signalloom.ai/agent-cohort: ephemeral
+    signalloom.ai/tenant: ${TENANT:-tenant-demo}
   annotations:
     signalloom.ai/agent-display-name: "${display}"
     signalloom.ai/model-full: "${model_full}"

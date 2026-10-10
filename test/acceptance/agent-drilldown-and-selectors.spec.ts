@@ -100,10 +100,24 @@ test.describe("Agent Drilldown, Topology Inspector & Query Selectors", () => {
     // Check Discovery page
     await page.goto(`${BASE}/discovery`);
     await expect(page.locator("h1, h2").filter({ hasText: /Non-Human Identities|Discovery/i }).first()).toBeVisible({ timeout: 15000 });
-    const discoveryAgentLink = page.locator('a[data-testid^="discovery-agent-dossier-btn-"]').first();
+    const discoveryAgentLink = page.locator('[data-testid^="discovery-agent-link-"]').first();
     if (await discoveryAgentLink.isVisible({ timeout: 4000 }).catch(() => false)) {
       const href = await discoveryAgentLink.getAttribute("href");
       expect(href).toMatch(/\/agents\//);
+    }
+
+    // Verify clicking workload name opens the in-context DiscoveredWorkloadDrawer
+    const workloadNameBtn = page.locator('[data-testid^="discovery-workload-name-"]').first();
+    if (await workloadNameBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+      await workloadNameBtn.click();
+      const drawer = page.locator('[data-testid="discovered-workload-drawer"]');
+      await expect(drawer).toBeVisible({ timeout: 5000 });
+      await expect(drawer.locator('[data-testid="drawer-workload-name"]')).toBeVisible();
+      await expect(drawer.locator('[data-testid="drawer-control-recommendations"]')).toBeVisible();
+
+      // Drawer close button should dismiss the drawer
+      await drawer.locator('[data-testid="drawer-close-btn"]').click();
+      await expect(drawer).not.toBeVisible();
     }
 
     // Check Audit Trail page

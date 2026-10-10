@@ -238,8 +238,6 @@ author wrote it.
 | [`aws-eks-architecture-specification.md`](aws-eks-architecture-specification.md) | AWS EKS enterprise deployment and multi-tenant reference architecture |
 | [`azure-aks-architecture-specification.md`](azure-aks-architecture-specification.md) | Azure AKS enterprise deployment and multi-tenant reference architecture |
 | [`policy-as-versioned-code/`](policy-as-versioned-code/) | Policy as versioned code: [integration](policy-as-versioned-code/INTEGRATION.md) and the [worktree merge plan](policy-as-versioned-code/WORKTREE-INTEGRATION.md) |
-| [`aws-eks-architecture-specification.md`](aws-eks-architecture-specification.md) | AWS EKS enterprise deployment architecture and multi-cloud specification |
-| [`azure-aks-architecture-specification.md`](azure-aks-architecture-specification.md) | Azure AKS enterprise deployment architecture and multi-cloud specification |
 | [`../terraform/notes/README.md`](../terraform/notes/README.md) | Index of the Terraform design notes |
 
 ### Records at the repository root

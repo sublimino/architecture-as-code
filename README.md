@@ -247,6 +247,8 @@ Local mode keeps this model without GitHub:
 | [`agent/`](agent/) | The phase 4 remediation harness and its [guardrails](agent/GUARDRAILS.md) |
 | [`terraform/`](terraform/) | The GCP estate: three Terraform roots (bootstrap, platform, environments). See [`terraform/README.md`](terraform/README.md) and [`terraform/CONTRACT.md`](terraform/CONTRACT.md). |
 | [`deploy/gcp/`](deploy/gcp/) | Project inputs and lane hand-off files. Most of its contents are gitignored. See [`deploy/gcp/README.md`](deploy/gcp/README.md). |
+| [`infra/kind/`](infra/kind/) | Kind cluster manifests: local `osramp` cluster, secondary hub cluster, and node probes |
+| [`schemas/`](schemas/) | Core JSON schemas: EAP evidence bundle contract |
 | [`docs/`](docs/) | All other documentation, indexed by [`docs/README.md`](docs/README.md) |
 | [`ci-evidence/`](ci-evidence/) | Evidence bundles from named CI runs (decision records) |
 | [`MEMORY/`](MEMORY/), [`Plans/`](Plans/) | Session records of earlier work (decision records) |

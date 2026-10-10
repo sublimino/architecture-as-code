@@ -21,6 +21,47 @@ Workload API and the OpenBao JWT authentication backend. The human guide is
 NOTE: A NetworkPolicy controls L3 and L4 reachability only. The receiving
 service enforces the application-level authorisation.
 
+## Architecture
+
+The diagram shows the multi-tenant trust boundaries, project workloads, and SPIFFE identity providers.
+
+```mermaid
+flowchart TB
+  subgraph INF_BAO["inf-bao (shared identity plane)"]
+    BAO["OpenBao (JWT auth backend)"]
+    SPIRE["SPIRE Server & Workload API"]
+  end
+
+  subgraph PLATFORM["agent-trust-platform"]
+    FLUX["Flux Kustomization"]
+  end
+
+  subgraph TENANT_ACME["Tenant: acme"]
+    ACME_CTRL["agent-trust-tenant-acme-control<br/>(NetworkPolicies & RBAC)"]
+    PAY["agent-trust-acme-payments<br/>(planner, triage)"]
+    RISK["agent-trust-acme-risk<br/>(risk-reader)"]
+  end
+
+  subgraph TENANT_NS["Tenant: northstar"]
+    NS_CTRL["agent-trust-tenant-northstar-control<br/>(NetworkPolicies & RBAC)"]
+    INV["agent-trust-northstar-investigations<br/>(investigator)"]
+  end
+
+  SPIRE --> PAY
+  SPIRE --> RISK
+  SPIRE --> INV
+  BAO --> PAY
+  PAY -. "A2A JWT" .-> RISK
+  PAY x-.-x INV
+
+  classDef idp fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c;
+  classDef acme fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+  classDef ns fill:#fff3e0,stroke:#f57c00,color:#e65100;
+  class BAO,SPIRE idp;
+  class ACME_CTRL,PAY,RISK acme;
+  class NS_CTRL,INV ns;
+```
+
 ## Namespaces
 
 The lifecycle script owns these six namespaces. The ResourceSet creates them,

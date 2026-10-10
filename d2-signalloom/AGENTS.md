@@ -133,6 +133,7 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/discovery/accounts/:accountId` | Account Detail | Workloads discovered within a single cloud account |
 | `/topology` | Agent Trust Topology | SPIFFE trust domain relationships and network graphs |
 | `/activity`, `/weave` | The Weave | Live message bus and inter-agent transaction stream |
+| `/signals` | Signals | Real-time security signals and detection events |
 | `/risk` | FAIR Risk Exposure | Quantitative financial loss exposure model |
 | `/policies` | Compliance Policies | Policy enforcement engine and rule evaluation |
 | `/compliance` | Compliance Overview | Multi-framework regulatory compliance posture |
@@ -142,6 +143,7 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/compliance/:frameworkId` | Framework Detail | Detailed control evaluation for one framework |
 | `/collusion-access` | Collusion & Access | Multi-agent privilege escalation analysis |
 | `/audit` | Audit Trail | Append-only immutable audit log from PostgreSQL |
+| `/users` | Users | User management, assigned roles, and invitations |
 | `/federated-services` | Federated Services | External federated service connectors |
 | `/cryptography` | Cryptography | OpenBao and SPIRE cryptographic proof verification |
 | `/credential-inventory` | Credential Inventory | Active credentials, expiration leases, and rotation status |
@@ -161,6 +163,7 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/demos/agentmaxxing` | AgentMaxxing Demo | Interactive console for multi-plane containment |
 | `/design-system` | Design System | Component palette and typography showcase |
 | `/design-system/headers` | Design System Headers | Standardised header hierarchy reference |
+| `/admin/users` | Admin Users | Superadmin tenant user administration |
 | `/redeem-invite` | Redeem Invite | User onboarding and invitation acceptance |
 
 `/docs` is not a React route. It is an nginx `location` in
@@ -203,6 +206,7 @@ All application source code resides under `apps/`:
 | `fleet-agents` | [`apps/fleet-agents/`](apps/fleet-agents/) | Synthetic agents representing remote cluster fleets. |
 | `fleet-manager` | [`apps/fleet-manager/`](apps/fleet-manager/) | Go controller managing multi-plane containment across mesh, admission, OpenBao, SPIRE, and freeze. |
 | `hosted-daytona-coder` | [`apps/hosted-daytona-coder/`](apps/hosted-daytona-coder/) | Hosted cloud development environment agent. |
+| `kusari-agent` | [`apps/kusari-agent/`](apps/kusari-agent/) | Stub agent workload for Kusari pilot exploration and hostile file write detection. |
 | `netassert-controller` | [`apps/netassert-controller/`](apps/netassert-controller/) | Kubernetes controller verifying NetworkPolicy connectivity. |
 | `node-capability-guard` | [`apps/node-capability-guard/`](apps/node-capability-guard/) | Node-level security capability monitor. |
 | `nono-containment-probe` | [`apps/nono-containment-probe/`](apps/nono-containment-probe/) | Kernel sandbox compliance and boundary verification probe. |

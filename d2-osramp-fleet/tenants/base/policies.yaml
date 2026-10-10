@@ -230,4 +230,8 @@ spec:
           name: fleet-config
           namespace: fe-signalloom
           parameterNotFoundAction: Deny
-        matchResources: {}
+        matchResources:
+          objectSelector:
+            matchExpressions:
+              - key: signalloom.ai/agent-name
+                operator: Exists

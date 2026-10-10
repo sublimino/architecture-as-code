@@ -10,6 +10,7 @@ These applications have their own README:
 - [`fe-signalloom`](fe-signalloom/README.md): API backend, endpoints, database, and test tiers
 - [`docs-signalloom`](docs-signalloom/README.md): Astro Starlight documentation service
 - [`agentmaxxing-host-sensor`](agentmaxxing-host-sensor/README.md): coding agent host sensor
+- [`kusari-agent`](kusari-agent/README.md): stub agent workload and hostile file write detection
 
 ## Agent deep linking
 

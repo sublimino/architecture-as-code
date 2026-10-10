@@ -14,6 +14,38 @@ guide is [`README.md`](README.md).
 | Terraform | Cloud fleet bootstrap | [`terraform/`](terraform/) |
 | Makefile | Registry and bootstrap targets | [`Makefile`](Makefile) |
 
+## Architecture
+
+The diagram shows how the in-cluster Zot registry supplies signed OCI artifacts to the Flux Operator ResourceSets.
+
+```mermaid
+flowchart TB
+  ZOT["In-cluster Zot Registry<br/>(:5000 / cache: .cache/zot)"]
+  FLUX["Flux Operator & Instance<br/>(flux-system)"]
+
+  subgraph RS["Flux Operator ResourceSets"]
+    R_POL["policies<br/>(admission & CEL)"]
+    R_INF["infra<br/>(cert-manager, ingress, monitoring)"]
+    R_AGT["agent-trust<br/>(SPIFFE trust domain)"]
+    R_SWARM["agent-swarm<br/>(fe-signalloom-agents)"]
+    R_SL["signalloom<br/>(governance platform)"]
+  end
+
+  ZOT -- "signed OCI artifacts" --> FLUX
+  FLUX --> R_POL
+  FLUX --> R_INF
+  FLUX --> R_AGT
+  FLUX --> R_SWARM
+  FLUX --> R_SL
+
+  classDef reg fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c;
+  classDef flux fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  classDef rs fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+  class ZOT reg;
+  class FLUX flux;
+  class R_POL,R_INF,R_AGT,R_SWARM,R_SL rs;
+```
+
 ## Key concepts
 
 - A ResourceSet tells Flux which D2 slices to deploy to which clusters and namespaces.

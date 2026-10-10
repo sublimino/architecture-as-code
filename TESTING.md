@@ -201,6 +201,7 @@ Run these suites from the repository root.
 | Offline umbrella | `make test-all-offline` | Not needed |
 | Documentation lint | `make docs-lint` | Not needed |
 | Documentation lint self-test | `make docs-lint-test` | Not needed |
+| Documentation portal render check | `make docs-render-check` | Not needed |
 | Deployed staleness guard (mock kubectl) | `make test-deployed-staleness` | Not needed |
 | Audit anchor unit suite | `make audit-anchor-test` | Not needed |
 | Audit anchor tamper proof | `make audit-anchor-tamper-demo` | Needed |
@@ -223,6 +224,8 @@ Run these suites from the repository root.
 | AgentMaxxing docs & diagram audit | `make demo-agentmaxxing-docs-test` | Not needed |
 | Weave and Signal Fusion suites | `make test-dashboard-weave` | Not needed |
 | Signal Loom API contracts | `make demo-signalloom-api-test` | Not needed |
+
+[`d2-signalloom/apps/docs-signalloom/src/content/docs/reference/test-suites.md`](d2-signalloom/apps/docs-signalloom/src/content/docs/reference/test-suites.md) lists the full hierarchy, isolation guarantees, and recommended GitHub Enterprise CI stages.
 
 NOTE: `make fx` is not a check. It writes `risk/fx/*.json` from `rates.yaml`.
 It also writes the dashboard copy with bun. After you run it, `git diff` shows

@@ -11,6 +11,27 @@ The four components and their contents are listed once, in
 [`README.md`](README.md#components). The Zot registry is not in this slice. It is in
 [`../d2-osramp-fleet/local/zot.yaml`](../d2-osramp-fleet/local/zot.yaml).
 
+## Architecture
+
+The diagram shows the four shared infrastructure add-ons and their roles in the cluster foundation.
+
+```mermaid
+flowchart TB
+  subgraph INFRA["Shared Infrastructure Add-ons (d2-infra)"]
+    CERT["cert-manager<br/>(ClusterIssuer: self-signed)"]
+    ING["Envoy Gateway<br/>(Gateway API & TLS termination)"]
+    MON["kube-prometheus-stack<br/>(Prometheus, Grafana, metrics-server)"]
+    TRIVY["Trivy Operator<br/>(runtime vulnerability scanner)"]
+  end
+
+  ING --> CERT
+  MON -. "scrapes metrics" .-> ING
+  MON -. "scrapes metrics" .-> TRIVY
+
+  classDef addon fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  class CERT,ING,MON,TRIVY addon;
+```
+
 ## Namespaces
 
 The `infra` ResourceSet declares one input per component. Each input becomes a

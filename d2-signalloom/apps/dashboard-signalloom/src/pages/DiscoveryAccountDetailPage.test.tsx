@@ -18,6 +18,11 @@ vi.mock('../api/client', () => ({
       enrollAccount: vi.fn().mockResolvedValue({ account_id: 'acct-1', status: 'enrollment_requested' }),
       dismissAccount: vi.fn().mockResolvedValue({ account_id: 'acct-1', status: 'dismissed' }),
     },
+    discovery: {
+      workloads: vi.fn().mockResolvedValue({ workloads: [] }),
+      enroll: vi.fn(),
+      dismiss: vi.fn(),
+    },
     agents: {
       list: vi.fn().mockResolvedValue({ agents: [] }),
     },
@@ -162,5 +167,39 @@ describe('DiscoveryAccountDetailPage', () => {
     const searchBtn = screen.getByTestId('search-agent-registry-btn')
     expect(searchBtn).toHaveAttribute('href', '/agents?search=unknown-cron-svc')
     expect(searchBtn).toHaveTextContent('Search Agent Registry ↗')
+  })
+
+  it('falls back to discovered workloads when api.nhi.getAccount fails with 404', async () => {
+    ;(api.nhi.getAccount as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('404 not_found'))
+    ;(api.discovery.workloads as ReturnType<typeof vi.fn>).mockResolvedValue({
+      workloads: [
+        {
+          id: 'acct-1',
+          name: 'kagent-k8s-reader',
+          source: 'local_k8s',
+          source_label: 'Local K8s',
+          namespace: 'fe-signalloom-agents',
+          status: 'discovered',
+          owner: 'secops@signalloom.test',
+          spiffe_id: null,
+          model: 'anthropic-claude',
+          last_seen_at: '2026-07-27T10:00:00Z',
+          metadata: {
+            privilege_level: 'standard',
+            findings: ['stale_credential'],
+            scan_count: 2,
+          },
+        },
+      ],
+      total: 1,
+    })
+
+    renderPage()
+    expect(await screen.findByText('kagent-k8s-reader')).toBeInTheDocument()
+    expect(screen.getByText('stale_credential')).toBeInTheDocument()
+    expect(screen.getByTestId('open-in-discovery-drawer-link')).toHaveAttribute(
+      'href',
+      '/discovery?workload=acct-1',
+    )
   })
 })

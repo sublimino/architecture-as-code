@@ -242,7 +242,10 @@ type checkOutcome struct {
 }
 
 func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) map[string]checkOutcome {
-	in := celBindings(f.Input.Object, f.Input.Agent, f.Input.Request)
+	// The same input-shape guard handleScan applies, so the two paths cannot
+	// disagree: a fixture whose object the engine refuses errors here too.
+	shaped := shapeWorkload(f.Input.Object)
+	in := celBindings(shaped.object, f.Input.Agent, f.Input.Request)
 	out := map[string]checkOutcome{}
 	for id := range f.Expect {
 		chk, ok := p.checks[id]
@@ -251,6 +254,10 @@ func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) m
 		}
 		if p.placeholder(id) {
 			out[id] = checkOutcome{verdict: VerdictNotEvaluated}
+			continue
+		}
+		if v, _, guarded := shaped.verdictFor(chk.CELExpression); guarded {
+			out[id] = checkOutcome{verdict: v, err: shaped.err}
 			continue
 		}
 		passed, _, err := eng.Evaluate(context.Background(), chk.CELExpression, in)

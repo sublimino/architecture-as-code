@@ -675,7 +675,7 @@ function workloadToClaimAgent(w: DiscoveryWorkload): AgentResponse {
     name: w.name,
     type: 'Discovered Workload',
     owner: w.owner || 'unassigned',
-    tenant_id: 'tenant-demo',
+    tenant_id: (w as any).tenant_id || 'tenant-demo',
     lifecycle_state: w.status === 'governed' ? 'governed' : 'discovered',
     last_transition_at: w.last_seen_at || new Date().toISOString(),
     last_transition_by: 'system',
@@ -722,7 +722,13 @@ export default function DiscoveryPage() {
   // Discovered Workload Drawer & Claim Modal state
   const selectedWorkloadId = searchParams.get('workload')
   const selectedWorkload = useMemo(
-    () => workloads.find((w) => w.id === selectedWorkloadId) || null,
+    () =>
+      workloads.find(
+        (w) =>
+          w.id === selectedWorkloadId ||
+          w.name === selectedWorkloadId ||
+          (selectedWorkloadId ? w.id.endsWith(`:${selectedWorkloadId}`) : false),
+      ) || null,
     [workloads, selectedWorkloadId],
   )
   const [claimWorkload, setClaimWorkload] = useState<DiscoveryWorkload | null>(null)
@@ -760,7 +766,7 @@ export default function DiscoveryPage() {
     try {
       const token = await getAccessTokenSilently()
       const [workloadsRes, scansData, agentsData] = await Promise.all([
-        api.discovery.workloads(token).catch(async () => {
+        api.discovery.workloads(token, { limit: 100 }).catch(async () => {
           // Fallback to demo fixture endpoint if live aggregate fails
           const nhiData = await api.nhi.discovered(token, 1, 100).catch(() => ({ accounts: [] }))
           const mapped: DiscoveryWorkload[] = nhiData.accounts.map((a) => ({

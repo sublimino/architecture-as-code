@@ -9395,6 +9395,7 @@ async def list_discovery_workloads(
         filtered = [
             w for w in filtered
             if s_lower in w.name.lower()
+            or (w.id and s_lower in w.id.lower())
             or (w.namespace and s_lower in w.namespace.lower())
             or (w.owner and s_lower in w.owner.lower())
             or s_lower in w.source_label.lower()

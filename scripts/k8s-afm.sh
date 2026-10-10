@@ -52,7 +52,7 @@ IMAGE="kubesec-afm:latest"
 
 cmd="${1:-up}"
 
-have_afm_source() { [ -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" ]; }
+have_afm_source() { [ -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" ] && ls "$AFM_SOURCE/AFM" >/dev/null 2>&1; }
 have_afm_archive() { [ -s "$AFM_IMAGE_ARCHIVE" ]; }
 
 # When neither mechanism is available, `docker build -f <missing>` fails with a

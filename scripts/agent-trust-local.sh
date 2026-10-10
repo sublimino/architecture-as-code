@@ -384,7 +384,7 @@ up() {
   activation_pending=true
   activate
   wait_flux_ready resourceset "$resource_set" -n "$flux_namespace" 600
-  flux reconcile kustomization agent-trust -n agent-trust-platform --with-source
+  flux reconcile kustomization agent-trust -n agent-trust-platform --with-source --timeout=5m
   if [[ "$a2a_keys_created" == true ]]; then
     kubectl -n agent-trust-acme-payments rollout restart deployment/agent-trust-planner deployment/agent-trust-triage
     wait_rollout agent-trust-planner -n agent-trust-acme-payments 300

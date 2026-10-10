@@ -202,4 +202,38 @@ describe('DiscoveryAccountDetailPage', () => {
       '/discovery?workload=acct-1',
     )
   })
+
+  it('falls back to secondary all-workloads query when targeted search returns empty', async () => {
+    ;(api.nhi.getAccount as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('404 not_found'))
+    // First call with search: 'acct-1' returns empty; second call without search returns the workload
+    ;(api.discovery.workloads as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ workloads: [], total: 0 })
+      .mockResolvedValueOnce({
+        workloads: [
+          {
+            id: 'tenant-demo:acct-1',
+            name: 'svc-billing-sync',
+            source: 'idp',
+            source_label: 'Entra ID',
+            namespace: 'identity-entra',
+            status: 'discovered',
+            owner: 'ops@signalloom.test',
+            spiffe_id: null,
+            model: null,
+            last_seen_at: '2026-07-27T10:00:00Z',
+            metadata: {
+              privilege_level: 'high',
+              findings: ['unrotated_secret'],
+              scan_count: 1,
+            },
+          },
+        ],
+        total: 1,
+      })
+
+    renderPage()
+    expect(await screen.findByText('svc-billing-sync')).toBeInTheDocument()
+    expect(screen.getByText('unrotated_secret')).toBeInTheDocument()
+    expect(screen.getByTestId('open-in-discovery-drawer-link')).toBeInTheDocument()
+  })
 })

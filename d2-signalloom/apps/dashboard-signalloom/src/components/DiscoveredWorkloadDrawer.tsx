@@ -259,6 +259,21 @@ export default function DiscoveredWorkloadDrawer({
                 >
                   {workload.source_label || workload.source}
                 </span>
+                {workload.namespace && (
+                  <span
+                    data-testid="drawer-workload-header-namespace"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      background: 'rgba(168, 85, 247, 0.15)',
+                      color: colors.purpleLoom || '#c084fc',
+                    }}
+                  >
+                    ns:{workload.namespace}
+                  </span>
+                )}
                 <span
                   data-testid="drawer-workload-status"
                   style={{

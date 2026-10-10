@@ -108,17 +108,16 @@ test.describe("Agent Drilldown, Topology Inspector & Query Selectors", () => {
 
     // Verify clicking workload name opens the in-context DiscoveredWorkloadDrawer
     const workloadNameBtn = page.locator('[data-testid^="discovery-workload-name-"]').first();
-    if (await workloadNameBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
-      await workloadNameBtn.click();
-      const drawer = page.locator('[data-testid="discovered-workload-drawer"]');
-      await expect(drawer).toBeVisible({ timeout: 5000 });
-      await expect(drawer.locator('[data-testid="drawer-workload-name"]')).toBeVisible();
-      await expect(drawer.locator('[data-testid="drawer-control-recommendations"]')).toBeVisible();
+    await expect(workloadNameBtn).toBeVisible({ timeout: 10000 });
+    await workloadNameBtn.click();
+    const drawer = page.locator('[data-testid="discovered-workload-drawer"]');
+    await expect(drawer).toBeVisible({ timeout: 5000 });
+    await expect(drawer.locator('[data-testid="drawer-workload-name"]')).toBeVisible();
+    await expect(drawer.locator('[data-testid="drawer-control-recommendations"]')).toBeVisible();
 
-      // Drawer close button should dismiss the drawer
-      await drawer.locator('[data-testid="drawer-close-btn"]').click();
-      await expect(drawer).not.toBeVisible();
-    }
+    // Drawer close button should dismiss the drawer
+    await drawer.locator('[data-testid="drawer-close-btn"]').click();
+    await expect(drawer).not.toBeVisible();
 
     // Check Audit Trail page
     await page.goto(`${BASE}/audit`);
@@ -137,6 +136,25 @@ test.describe("Agent Drilldown, Topology Inspector & Query Selectors", () => {
     await expect(page.locator('[data-testid="ds-agentdeeplink-chip"]')).toBeVisible();
     await expect(page.locator('[data-testid="ds-agentdeeplink-pill"]')).toBeVisible();
     await expect(page.locator('[data-testid="ds-agentdeeplink-subtle"]')).toBeVisible();
+  });
+
+  test("Discovery Account Detail route falls back gracefully without 404", async ({ page }) => {
+    // Navigate directly to the account detail URL mentioned in user report
+    await page.goto(`${BASE}/discovery/accounts/tenant-demo:nhi-1`);
+
+    // Page must NOT show unhandled error or 404
+    await expect(page.locator("text=Failed to load account details")).not.toBeVisible({ timeout: 10000 });
+
+    // Should display the discovery drawer fallback link and return button
+    const drawerLink = page.locator('[data-testid="open-in-discovery-drawer-link"]');
+    await expect(drawerLink).toBeVisible({ timeout: 10000 });
+    await expect(drawerLink).toHaveAttribute("href", /\/discovery\?workload=/);
+
+    // Clicking the link navigates to /discovery?workload=... and opens the drawer
+    await drawerLink.click();
+    await expect(page).toHaveURL(/\/discovery\?workload=/);
+    const drawer = page.locator('[data-testid="discovered-workload-drawer"]');
+    await expect(drawer).toBeVisible({ timeout: 5000 });
   });
 });
 

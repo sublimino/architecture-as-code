@@ -271,8 +271,8 @@
             {
               "id": "drop-all-capabilities",
               "name": "All capabilities dropped",
-              "description": "Strips Linux kernel capabilities to establish strict container isolation boundary.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$')))",
+              "description": "Strips Linux kernel capabilities to establish strict container isolation boundary. The ALL token is compared exactly, as Pod Security Admission compares it: a lowercase \"all\" is rejected by a restricted namespace, so it fails here.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
               "severity": "high",
               "remediation": "Add ALL to securityContext.capabilities.drop.",
               "riskTriple": {

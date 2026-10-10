@@ -1,0 +1,24 @@
+{
+  "name": "sbom-verified-provenance--verified-not-bool",
+  "level": "unit",
+  "description": "agent.sbom.verified is the string 'true', not a boolean: fails, not errors.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": "true"
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "sbom-verified-provenance": "fail"
+  }
+}

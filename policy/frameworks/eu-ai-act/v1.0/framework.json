@@ -2,11 +2,12 @@
   "id": "eu-ai-act",
   "name": "EU AI Act",
   "version": "v1.0.0",
-  "description": "Lax tier — bare minimum critical security for AI workloads",
+  "description": "Lax tier — bare minimum critical security for AI workloads. Citations are at article granularity only; the paragraph actually engaged, and every check that is a proxy rather than evidence, is named in each control set's description and in the citation table in ../README.md. Verified against CELEX 32024R1689.",
   "controlSets": [
     {
       "id": "art9-risk-mgmt",
-      "name": "Art. 9 — Risk Management System",
+      "name": "Art. 9(2)(d) — Risk Management Measures",
+      "description": "Article 9 requires a risk management system; 9(2)(d) requires 'the adoption of appropriate and targeted risk management measures'. It names no technical control, so every check in this set is a proxy for a documented measure. Container hardening is more directly an Article 15(5) cybersecurity measure, and a liveness probe is more directly an Article 15(4) resilience measure.",
       "controls": [
         {
           "id": "art9-1-non-root",
@@ -72,7 +73,8 @@
     },
     {
       "id": "art10-data-governance",
-      "name": "Art. 10 — Data Governance",
+      "name": "Art. 10 — Data and Data Governance",
+      "description": "Article 10 governs the quality and governance of TRAINING, VALIDATION and TESTING data sets (10(2)(a)-(h)). It does not regulate runtime handling or retention of operational data. `data-classification-label` is a weak proxy for 10(2)(a)/(e). `pii-handling-annotation` is MIS-ATTRIBUTED: Article 10's only personal-data provision is 10(5), which permits processing special categories strictly for bias detection and correction; runtime PII handling is a GDPR obligation. `data-retention-annotation` is MIS-ATTRIBUTED: Article 10 imposes no retention period (10(5)(e) requires deletion of special-category bias data only); log retention of at least six months is Article 26(6) and QMS data retention is Article 17(1)(f).",
       "controls": [
         {
           "id": "art10-1-data-classification",
@@ -99,6 +101,7 @@
     {
       "id": "art14-human-oversight",
       "name": "Art. 14 — Human Oversight",
+      "description": "Verified. Article 14(4)(d)-(e) requires that the oversight person be enabled to disregard, override or reverse the output and to interrupt the system, and 14(3)(b) allows measures the deployer implements. A declared oversight label, approval gate and override contact are declarations that such measures exist, not evidence of them.",
       "controls": [
         {
           "id": "art14-1-hitl-label",
@@ -124,7 +127,8 @@
     },
     {
       "id": "art15-accuracy-robustness",
-      "name": "Art. 15 — Accuracy, Robustness & Cybersecurity",
+      "name": "Art. 15(4) — Robustness and Resilience",
+      "description": "Verified against Article 15(4): resilience 'regarding errors, faults or inconsistencies', achievable 'through technical redundancy solutions, which may include backup or fail-safe plans'. Resource bounds, probes and a replica floor are redundancy and fail-safe measures. Note that CYBERSECURITY is Article 15(5), not 15(4); no check in this set evidences 15(5).",
       "controls": [
         {
           "id": "art15-1-resource-limits",
@@ -151,7 +155,8 @@
     },
     {
       "id": "art17-quality-mgmt",
-      "name": "Art. 17 — Quality Management System",
+      "name": "Art. 17(1) — Quality Management System",
+      "description": "Article 17(1) requires a documented quality management system; 17(1)(a) covers 'procedures for the management of modifications' and 17(1)(e) 'technical specifications ... to be applied'. Digest pinning, a trusted-registry allow-list and a policy-version label are proxies for those procedures: a pod spec cannot evidence that a QMS exists. Supply-chain integrity is also engaged by Article 15(5), which names 'pre-trained components used in training (model poisoning)'.",
       "controls": [
         {
           "id": "art17-1-image-digest",

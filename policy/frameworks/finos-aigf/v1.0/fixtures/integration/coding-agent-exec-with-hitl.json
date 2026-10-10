@@ -1,0 +1,97 @@
+{
+  "name": "coding-agent-exec-with-hitl",
+  "level": "integration",
+  "description": "Repo coding agent: shell and git-push tools are high impact and gated by human approval; no RAG (rag_enabled false, so the ingestion filter is not applicable and passes); no persistent stores ([]); GitHub MCP allow-listed. Gaps: spend alerting off and decision log not tamper-evident.",
+  "input": {
+    "object": {},
+    "agent": {
+      "name": "repo-coding-agent",
+      "owner": "platform-eng",
+      "status": "active",
+      "registry": {
+        "model_registered": true,
+        "model_version": "claude-opus-4-1-20250805"
+      },
+      "guardrails": {
+        "prompt_injection_filter": true,
+        "output_filter": true
+      },
+      "data": {
+        "rag_enabled": false,
+        "persistent_stores": []
+      },
+      "rate_limits": {
+        "requests_per_minute": 60
+      },
+      "access": {
+        "authentication_required": true,
+        "rbac_enforced": true
+      },
+      "tools": [
+        {
+          "name": "read_file",
+          "scopes": [
+            "repo:org/app:read"
+          ],
+          "impact": "low"
+        },
+        {
+          "name": "run_shell",
+          "scopes": [
+            "sandbox:exec"
+          ],
+          "impact": "high",
+          "requires_human_approval": true
+        },
+        {
+          "name": "git_push",
+          "scopes": [
+            "repo:org/app:write"
+          ],
+          "impact": "high",
+          "requires_human_approval": true
+        }
+      ],
+      "mcp_servers": [
+        {
+          "name": "github-mcp",
+          "allowlisted": true
+        }
+      ],
+      "credentials": {
+        "long_lived_secrets_exposed": false,
+        "delivery": "github-app-installation-token"
+      },
+      "observability": {
+        "audit_logging": true
+      },
+      "cost_controls": {
+        "budget_limit": 2500,
+        "spend_alerting": false
+      },
+      "governance": {
+        "decision_explainability": true,
+        "audit_log_tamper_evident": false
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "rag-ingestion-sensitive-data-filtered": "pass",
+    "prompt-injection-guardrail-active": "pass",
+    "output-leakage-filter-active": "pass",
+    "inference-rate-limit-configured": "pass",
+    "registered-model-registry-entry": "pass",
+    "model-version-pinned": "pass",
+    "user-authn-and-rbac-enforced": "pass",
+    "ai-data-encrypted-at-rest": "pass",
+    "tool-grants-least-privilege": "pass",
+    "mcp-servers-allowlisted": "pass",
+    "no-long-lived-credentials-exposed": "pass",
+    "high-impact-actions-human-approved": "pass",
+    "ai-interaction-audit-logging": "pass",
+    "spend-budget-alerting-configured": "fail",
+    "decision-explainability-metadata": "pass",
+    "decision-audit-tamper-evident": "fail"
+  }
+}

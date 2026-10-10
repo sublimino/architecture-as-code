@@ -34,6 +34,8 @@ class ComplianceSummaryInline(BaseModel):
     passing: int
     failing: int
     pending: int
+    # See AssessmentSummaryMetadata.errored_controls.
+    errored: int = 0
     posture_score: float | None
 
 
@@ -157,6 +159,9 @@ class AssessmentSummaryMetadata(BaseModel):
     passed_controls: int = 0
     failed_controls: int = 0
     pending_controls: int = 0
+    # Controls the assessment could not evaluate. Additive; pending_controls no
+    # longer carries them silently.
+    errored_controls: int = 0
     normalized_score: float | None = None
 
 
@@ -505,6 +510,9 @@ class ComplianceSummaryResponse(BaseModel):
     controls_passing: int
     controls_failing: int
     controls_pending: int
+    # Controls whose assessment could not evaluate. Additive, and excluded from
+    # controls_pending -- which used to fold them in and read as "not yet".
+    controls_errored: int = 0
     posture_score: float | None
 
 

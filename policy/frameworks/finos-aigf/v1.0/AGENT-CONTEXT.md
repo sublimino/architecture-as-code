@@ -30,12 +30,53 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
 - The checks ignore extra fields, such as `id`, `name`, `owner` and
   `knowledge_bases`.
 
+## Model pin forms
+
+`model-version-pinned` is built from vendor model-ID documentation, not from a
+regex. Every accepted form below is exercised by a fixture whose value is copied
+from the vendor's own docs, and every rejected form likewise.
+
+| Form | Example | Vendor source |
+|---|---|---|
+| ISO date snapshot | `gpt-4o-2024-08-06` | OpenAI dated snapshots, <https://developers.openai.com/api/docs/models> |
+| Compact `YYYYMMDD` snapshot | `claude-sonnet-4-5-20250929` | Anthropic dated model IDs, <https://platform.claude.com/docs/en/about-claude/models/overview> |
+| Four-digit `MMDD` snapshot | `gpt-3.5-turbo-0125` (and `gpt-3.5-turbo-1106`) | <https://developers.openai.com/api/docs/models/gpt-3.5-turbo> |
+| Four-digit `YYMM` snapshot | `mistral-large-2411` (and `mistral-medium-2508`, `mistral-small-2506`) | <https://docs.mistral.ai/getting-started/models/models_overview/> |
+| Three-digit stable version suffix | `gemini-1.5-pro-002`, `gemini-2.0-flash-001` | Google's versioned Gemini IDs; the alias semantics are documented at <https://ai.google.dev/gemini-api/docs/models> ("Model version name patterns") |
+| `sha256:` digest, 64 hex digits | `ollama/llama3@sha256:...` | OCI content digest |
+| `MAJOR.MINOR.PATCH` | `llama-3.1-8b-instruct:1.2.0` | AIR-PREV-010's own example ("semantic versioning like MAJOR.MINOR.PATCH") |
+
+Rejected: a floating channel segment — `latest`, `stable`, `nightly`, `canary`
+or `edge`, case-insensitive — anywhere other than the start of the string. It
+**vetoes a pin form that is also present**, because the tag is still re-pointed:
+`acme-v1.2.3-latest-canary` fails despite the semver. Google's
+`gemini-flash-latest` "will get hot-swapped with every new release of a specific
+model variation"
+(<https://ai.google.dev/gemini-api/docs/models>), which is exactly the thing
+AIR-PREV-010 forbids. A leading `latest` is part of a family name, not a
+channel, so `latest-gen-ft-2025-06-01` passes on its date.
+
+Also rejected: a dateless family ID with no version marker at all — `gpt-4o`,
+`gemini-1.5-pro`, `claude-sonnet-4-5`.
+
+**Known limitation, stated deliberately.** Anthropic now documents that "every
+Claude model ID is a pinned snapshot, including the dateless IDs used from the
+4.6 generation on", while "for models before the 4.6 generation, the alias is a
+convenience pointer that resolves to the dated ID"
+(<https://platform.claude.com/docs/en/about-claude/models/overview>). So a
+dateless ID is an alias on one generation and a pin on the next, and no rule
+over the string alone can tell them apart. This check fails both. That is a
+false positive on the newer IDs and it is the direction we want: AIR-PREV-010
+asks for a *recorded* specific fixed version, and a bare family ID does not
+evidence one on its face. Resolving it needs a vendor model table, not a
+sharper pattern.
+
 ## Fields
 
 | Path | Type | Meaning | Absent / wrong type | Read by |
 |---|---|---|---|---|
 | `registry.model_registered` | bool | The model is in the enterprise model inventory and is approved. | fail | `registered-model-registry-entry` (frozen) |
-| `registry.model_version` | string | The exact model version deployed. It must name an explicit pin: a dated snapshot (`YYYYMMDD` or `YYYY-MM-DD`, e.g. `gpt-4o-2024-08-06`, `claude-sonnet-4-5-20250929`), a `sha256:` digest of 64 hex digits, or a `MAJOR.MINOR.PATCH` version. Floating aliases (`gpt-4o`, `claude-sonnet-4-5`, `gemini-1.5-pro`) fail. Rule derived from AIR-PREV-010 ("a specific, fixed version ... rather than automatically adopting the latest available version"; suppliers should version "e.g., semantic versioning like MAJOR.MINOR.PATCH"). It must contain no whitespace. It must not end in a `latest` alias segment. The match is case-insensitive: `x-latest`, `x:latest`, `x@latest`, `x/latest`, `x.latest`, `x_latest` and bare `latest` all fail. A version that only contains `latest` elsewhere passes. | fail | `model-version-pinned` |
+| `registry.model_version` | string | The exact model version deployed. It must carry one of the pin forms vendors actually ship, and no floating channel segment. See [Model pin forms](#model-pin-forms) below for the vendor documentation each form is taken from. | fail | `model-version-pinned` |
 | `guardrails.prompt_injection_filter` | bool | Prompt-injection detection runs on input. | fail | `prompt-injection-guardrail-active` (frozen) |
 | `guardrails.output_filter` | bool | Model output is filtered for leakage and policy violations before release. | fail | `output-leakage-filter-active` |
 | `data.rag_enabled` | bool | The agent retrieves from knowledge bases (RAG). This is the applicability fact. | fail (unknown applicability) | `rag-ingestion-sensitive-data-filtered` |

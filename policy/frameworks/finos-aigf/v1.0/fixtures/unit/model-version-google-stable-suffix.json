@@ -1,0 +1,76 @@
+{
+  "name": "model-version-google-stable-suffix",
+  "level": "unit",
+  "description": "Google's stable versioned model ID: the three-digit suffix IS the pin, and the floating form is the -latest alias (ai.google.dev/gemini-api/docs/models, 'Model version name patterns': Latest 'will get hot-swapped with every new release'). Row copied from the vendor ID form, not from the regex.",
+  "input": {
+    "object": {},
+    "agent": {
+      "registry": {
+        "model_registered": true,
+        "model_version": "gemini-1.5-pro-002"
+      },
+      "guardrails": {
+        "prompt_injection_filter": true,
+        "output_filter": true
+      },
+      "data": {
+        "rag_enabled": true,
+        "ingestion_sensitive_data_filter": true,
+        "persistent_stores": [
+          {
+            "name": "vector-index",
+            "encrypted_at_rest": true
+          }
+        ]
+      },
+      "rate_limits": {
+        "requests_per_minute": 120
+      },
+      "access": {
+        "authentication_required": true,
+        "rbac_enforced": true
+      },
+      "tools": [
+        {
+          "name": "search_docs",
+          "scopes": [
+            "kb:read"
+          ],
+          "impact": "low"
+        },
+        {
+          "name": "submit_payment",
+          "scopes": [
+            "payments:write"
+          ],
+          "impact": "high",
+          "requires_human_approval": true
+        }
+      ],
+      "mcp_servers": [
+        {
+          "name": "docs-mcp",
+          "allowlisted": true
+        }
+      ],
+      "credentials": {
+        "long_lived_secrets_exposed": false
+      },
+      "observability": {
+        "audit_logging": true
+      },
+      "cost_controls": {
+        "budget_limit": 5000,
+        "spend_alerting": true
+      },
+      "governance": {
+        "decision_explainability": true,
+        "audit_log_tamper_evident": true
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "model-version-pinned": "pass"
+  }
+}

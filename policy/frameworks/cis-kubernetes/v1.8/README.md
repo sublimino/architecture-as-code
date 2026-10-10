@@ -60,7 +60,7 @@ this pack implements CIS (fixture `added-capability-net-bind-service`).
 | `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain the exact token `ALL`, as Pod Security Admission compares it. `"all"` in any other case is rejected by a `restricted` namespace: **fail**. Absent: **fail**. Windows exempt. |
 | `no-windows-hostprocess` | 5.2.11 | Minimize the admission of Windows HostProcess containers | Absent `windowsOptions.hostProcess` is `false`. Fails if the pod or any container sets `true` (the API rejects a pod/container mismatch, so either level is decisive). |
 | `no-hostpath-volumes` | 5.2.12 | Minimize the admission of HostPath volumes | Absent `volumes`: pass. |
-| `no-host-ports` | 5.2.13 | Minimize the admission of containers which use HostPorts | Absent or `0` `hostPort`: pass. With `hostNetwork: true` the API server defaults `hostPort` to `containerPort`, so any declared port on a hostNetwork pod **fails**. |
+| `no-host-ports` | 5.2.13 | Minimize the admission of containers which use HostPorts | Absent or `0` `hostPort`: pass. `hostNetwork: true` **fails whether or not any port is declared**: the pod shares the host network namespace, so every port its processes bind is a host port, and declaring a port is optional metadata rather than the thing that creates the exposure. The test is deliberately outside the `ports` loop — nested inside it, a hostNetwork pod with no ports short-circuited to pass and the documented rule was unreachable. This overlaps `no-host-network` by design; a Windows HostProcess pod fails here too, because HostProcess requires `hostNetwork: true`. |
 | `no-secrets-in-env` | 5.4.1 | Prefer using Secrets as files over Secrets as environment variables | Fails on `env[].valueFrom.secretKeyRef` or `envFrom[].secretRef`. Absent `env`/`envFrom`: pass. |
 | `seccomp-runtime-default` | 5.7.2 | Ensure that the seccomp profile is set to docker/default in your Pod definitions | As PSA decides it. A **pod-level** `Unconfined` **fails outright**, whatever the containers override it with: PSA forbids it at baseline as well as restricted, and a container added later without an override inherits it. Otherwise effective profile = container, else pod; type must be `RuntimeDefault`, or `Localhost` with a non-empty `localhostProfile` — `Localhost` with no `localhostProfile` is rejected by the API server itself ([`validateSeccompProfileField`](https://github.com/kubernetes/kubernetes/blob/master/pkg/apis/core/validation/validation.go)), so it **fails**. `Unconfined` fails; absent everywhere **fails** (kubelet default is Unconfined). The deprecated `seccomp.security.alpha.kubernetes.io/*` annotations are not read: since 1.19 the API server mirrors them into the field on create. Windows exempt. |
 | `security-context-applied` | 5.7.3 | Apply SecurityContext to your Pods and Containers | Pod `securityContext` present and non-empty, and every container's `securityContext` present and non-empty. `{}` counts as absent. |
@@ -101,8 +101,11 @@ These CIS v1.8.0 section 5 recommendations are not evaluable from one pod spec:
 The engine caps CEL cost at 10000 (`cel_eval.go`). Fixture `ten-container-cost`
 (4 init + 5 main + 1 ephemeral container, each with 25 env vars, 4 envFrom,
 5 ports) evaluates every check; the highest measured cost is
-`no-secrets-in-env` at 2178, which scales with containers × env entries.
-The longest expression is 743 bytes against the 4096-byte limit.
+`no-secrets-in-env` at 2178, which scales with containers × env entries
+(unchanged: this pass did not touch that check).
+The longest expression is now `seccomp-runtime-default` at 1320 bytes against
+the 4096-byte limit; `ten-container-cost` evaluates it, and every other check,
+without hitting the cost cap.
 
 ## Fixtures
 

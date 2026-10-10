@@ -36,6 +36,7 @@ from config import settings
 from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
 import claim_tenancy
 import fleet_workloads
+import policy_scan
 
 logger = logging.getLogger(__name__)
 
@@ -1070,6 +1071,8 @@ class PolicySummaryResponse(BaseModel):
     currency: str | None = None
     scanTimestamp: str
     frameworks: list[PolicyFrameworkSummaryResponse]
+    # Checks that could not evaluate. Counted in neither ``passed`` nor ``failed``.
+    errored: int = 0
 
 
 class PolicyScanRequest(BaseModel):
@@ -1077,7 +1080,11 @@ class PolicyScanRequest(BaseModel):
 
     namespace: str = Field(min_length=1, max_length=253)
     policyVersion: str = Field(min_length=1, max_length=64)
+    # Policy-engine pack ids (``cis-kubernetes``, ``finos-aigf``). Empty: every
+    # pack the tenant's governance_controls map to.
     frameworks: list[str] = Field(default_factory=list)
+    # Registry ids of the agents to scan. Empty: every agent in the tenant.
+    agentIds: list[str] = Field(default_factory=list, max_length=500)
 
 
 class PolicyComplianceCheck(BaseModel):
@@ -1099,6 +1106,15 @@ class PolicyComplianceCheck(BaseModel):
     currency: str | None = None
     scanTimestamp: str
     calibrationSource: str
+    # The agent this verdict is about. Each agent is scanned with its own subject.
+    agentId: str | None = None
+    agentName: str | None = None
+    # pass / fail / error. ``error`` (could not evaluate) is neither a pass nor a fail.
+    status: Literal["pass", "fail", "error"] | None = None
+    error: str | None = None
+    # The governance_controls row this check maps to by
+    # (policy_framework_id, policy_check_id); None when no control maps it.
+    controlId: str | None = None
 
 
 class PolicyScanResponse(BaseModel):
@@ -1106,6 +1122,12 @@ class PolicyScanResponse(BaseModel):
 
     checks: list[PolicyComplianceCheck]
     summary: PolicySummaryResponse
+    # False when no agent could be scanned (engine unreachable or failing, no
+    # agents, no mapped frameworks). Then ``checks`` is empty: nothing is invented.
+    engineInvoked: bool = False
+    agentsScanned: int = 0
+    # Registry ids of agents whose scan call failed. Their rows were not touched.
+    agentsFailed: list[str] = Field(default_factory=list)
 
 
 class ControlResponse(BaseModel):
@@ -6990,6 +7012,12 @@ async def _policy_framework_summaries(
     return summaries
 
 
+def _check_verdict(check: PolicyComplianceCheck) -> str:
+    if check.status is not None:
+        return check.status
+    return "pass" if check.passed else "fail"
+
+
 def _policy_scan_summary(
     checks: list[PolicyComplianceCheck],
     policy_version: str,
@@ -6998,14 +7026,17 @@ def _policy_scan_summary(
     for check in checks:
         checks_by_framework.setdefault((check.controlSet, check.framework), []).append(check)
 
+    def count(selected: list[PolicyComplianceCheck], verdict: str) -> int:
+        return sum(_check_verdict(check) == verdict for check in selected)
+
     frameworks = [
         PolicyFrameworkSummaryResponse(
             id=framework_id,
             name=framework_name,
             versions=[policy_version],
             totalControls=len(framework_checks),
-            passedControls=sum(check.passed for check in framework_checks),
-            failedControls=sum(not check.passed for check in framework_checks),
+            passedControls=count(framework_checks, "pass"),
+            failedControls=count(framework_checks, "fail"),
             totalExposureGbp=sum(check.carriedGbp for check in framework_checks),
             exposure=MoneyResponse(amount=sum(check.carriedGbp for check in framework_checks), currency=REPORTING_CURRENCY),
         )
@@ -7017,8 +7048,9 @@ def _policy_scan_summary(
     total_tvar = sum(check.tvar for check in checks)
     return PolicySummaryResponse(
         totalChecks=len(checks),
-        passed=sum(check.passed for check in checks),
-        failed=sum(not check.passed for check in checks),
+        passed=count(checks, "pass"),
+        failed=count(checks, "fail"),
+        errored=count(checks, "error"),
         totalAle=total_ale,
         totalVar95=total_var95,
         totalTvar=total_tvar,
@@ -7030,133 +7062,160 @@ def _policy_scan_summary(
     )
 
 
+async def _scan_one_agent(
+    client: httpx.AsyncClient,
+    url: str,
+    tenant_id: str,
+    body: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    """One agent's engine verdicts, or None when the engine gave no usable answer."""
+    try:
+        resp = await client.post(url, json=body, headers={"X-Tenant-ID": tenant_id})
+    except httpx.HTTPError as exc:
+        logger.warning("policy-engine scan unavailable: %s", exc)
+        return None
+    if resp.status_code != 200:
+        logger.warning("policy-engine scan returned HTTP %s", resp.status_code)
+        return None
+    try:
+        results = resp.json()
+    except ValueError:
+        logger.warning("policy-engine scan returned a non-JSON body")
+        return None
+    if not isinstance(results, list) or not all(isinstance(item, dict) for item in results):
+        logger.warning("policy-engine scan returned a non-list body")
+        return None
+    return results
+
+
 async def _db_policy_scan(
     pool: asyncpg.Pool,
     tenant_id: str,
     request: PolicyScanRequest,
     actor: str,
 ) -> PolicyScanResponse:
-    """Scan compliance policies using policy-engine and reconcile verdicts into PostgreSQL."""
-    manifest = {
-        "securityContext": {
-            "runAsNonRoot": True,
-            "runAsUser": 10001,
-            "capabilities": {"drop": ["ALL"]},
-        },
-        "containers": [
-            {
-                "name": "agent-runtime",
-                "securityContext": {
-                    "runAsNonRoot": True,
-                    "capabilities": {"drop": ["ALL"]},
-                },
-            }
-        ],
-        "agents": [
-            {
-                "id": "agent-default",
-                "name": "Primary Agent",
-                "capabilities": ["inference", "search"],
-            }
-        ],
+    """Scan every agent (or the requested ones) and reconcile per (agent, control).
+
+    Each agent is scanned with its own subject -- its recorded workload as
+    ``object`` and its governance facts as ``agent`` (see ``policy_scan``).  A
+    verdict is stored only on the ``agent_compliance_results`` row of the agent
+    it was computed for and of the control mapped to the check by
+    ``governance_controls (policy_framework_id, policy_check_id)``.  When the
+    engine gives no answer for an agent, that agent's rows are left as they
+    were: an unassessed control stays pending, it is never reported as passed.
+    """
+    async with _read(pool) as conn:
+        control_rows = await conn.fetch(
+            """SELECT c.id AS control_id, c.policy_framework_id, c.policy_check_id
+               FROM governance_controls c
+               JOIN governance_frameworks f ON c.framework_id = f.id
+               WHERE c.tenant_id = $1
+                 AND f.tenant_id = $1
+                 AND c.policy_framework_id IS NOT NULL
+                 AND c.policy_check_id IS NOT NULL
+                 AND (cardinality($2::text[]) = 0 OR c.policy_framework_id = ANY($2::text[]))""",
+            tenant_id,
+            request.frameworks,
+        )
+        agent_rows = await conn.fetch(
+            """SELECT id, name, model_approved,
+                      config -> 'policy_context' AS policy_context,
+                      workload_spec
+               FROM agent_registry
+               WHERE tenant_id = $1
+                 AND (cardinality($2::text[]) = 0 OR id::text = ANY($2::text[]))
+               ORDER BY created_at, id""",
+            tenant_id,
+            request.agentIds,
+        )
+
+    control_for: dict[tuple[str, str], uuid.UUID] = {
+        (row["policy_framework_id"], row["policy_check_id"]): row["control_id"]
+        for row in control_rows
     }
+    frameworks = list(request.frameworks) or sorted({framework for framework, _ in control_for})
 
-    scan_results = []
-    bundle_sha256 = ""
     policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
-    try:
+    scan_url = f"{policy_engine_url}/api/v1/compliance/scan"
+    checks: list[PolicyComplianceCheck] = []
+    # (agent_id, control_id) -> (verdict, evidence_ref): one stored row per pair.
+    verdicts: dict[tuple[Any, uuid.UUID], tuple[str, str]] = {}
+    agents_failed: list[str] = []
+    agents_scanned = 0
+    unmapped = 0
+
+    if frameworks and agent_rows:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            payload = {
-                "namespace": request.namespace or "default",
-                "policyVersion": request.policyVersion,
-                "frameworks": request.frameworks,
-                "manifest": manifest,
-            }
-            resp = await client.post(
-                f"{policy_engine_url}/api/v1/compliance/scan",
-                json=payload,
-                headers={"X-Tenant-ID": tenant_id},
-            )
-            if resp.status_code == 200:
-                scan_results = resp.json()
-    except Exception as exc:
-        logger.warning(f"policy-engine scan unavailable, falling back: {exc}")
-
-    if scan_results:
-        checks = [
-            PolicyComplianceCheck(
-                framework=item.get("framework", ""),
-                controlSet=item.get("controlSet", ""),
-                control=item.get("control", ""),
-                check=item.get("check", ""),
-                passed=bool(item.get("passed", False)),
-                policyVersion=item.get("policyVersion", request.policyVersion),
-                ale=float(item.get("ale", 0.0)),
-                var95=float(item.get("var95", 0.0)),
-                tvar=float(item.get("tvar", 0.0)),
-                carriedGbp=float(item.get("carriedGbp", 0.0)),
-                carried=MoneyResponse(amount=float(item.get("carriedGbp", 0.0)), currency=REPORTING_CURRENCY),
-                currency=REPORTING_CURRENCY,
-                scanTimestamp=item.get("scanTimestamp", _now_iso()),
-                calibrationSource=item.get("calibrationSource", "industry-indicative"),
-            )
-            for item in scan_results
-        ]
-    else:
-        async with _read(pool) as conn:
-            rows = await conn.fetch(
-                """SELECT f.id AS framework_id, f.name AS framework_name,
-                          c.id AS control_id, c.name AS control_name,
-                          bool_and(r.status = 'pass') AS passed,
-                          max(r.assessed_at) AS assessed_at
-                   FROM governance_controls c
-                   JOIN governance_frameworks f ON c.framework_id = f.id
-                   LEFT JOIN agent_compliance_results r ON r.control_id = c.id AND r.tenant_id = $1
-                   WHERE c.tenant_id = $1
-                     AND f.tenant_id = $1
-                     AND (cardinality($2::text[]) = 0 OR f.id::text = ANY($2::text[]) OR f.name = ANY($2::text[]))
-                   GROUP BY f.id, f.name, c.id, c.name, c.control_order
-                   ORDER BY f.name, c.control_order""",
-                tenant_id,
-                request.frameworks,
-            )
-            checks = [
-                PolicyComplianceCheck(
-                    framework=row["framework_name"],
-                    controlSet=str(row["framework_id"]),
-                    control=str(row["control_id"]),
-                    check=row["control_name"],
-                    passed=bool(row["passed"]) if row["passed"] is not None else True,
-                    policyVersion=request.policyVersion,
-                    ale=1200.0 if not row["passed"] else 0.0,
-                    var95=3500.0 if not row["passed"] else 0.0,
-                    tvar=4800.0 if not row["passed"] else 0.0,
-                    carriedGbp=1200.0 if not row["passed"] else 0.0,
-                    carried=MoneyResponse(amount=1200.0 if not row["passed"] else 0.0, currency=REPORTING_CURRENCY),
-                    currency=REPORTING_CURRENCY,
-                    scanTimestamp=_ts(row["assessed_at"]) or _now_iso(),
-                    calibrationSource="industry-indicative",
+            for agent_row in agent_rows:
+                body = policy_scan.scan_request_body(
+                    namespace=request.namespace,
+                    policy_version=request.policyVersion,
+                    frameworks=frameworks,
+                    obj=policy_scan.build_agent_object(agent_row),
+                    agent=policy_scan.build_agent_policy_context(agent_row),
                 )
-                for row in rows
-            ]
+                results = await _scan_one_agent(client, scan_url, tenant_id, body)
+                if results is None:
+                    agents_failed.append(str(agent_row["id"]))
+                    continue
+                agents_scanned += 1
+                for item in results:
+                    verdict = policy_scan.verdict_of(item)
+                    framework = str(item.get("framework", ""))
+                    check_id = str(item.get("check", ""))
+                    result_version = str(item.get("policyVersion") or request.policyVersion)
+                    control_id = control_for.get((framework, check_id))
+                    if control_id is None:
+                        unmapped += 1
+                    else:
+                        key = (agent_row["id"], control_id)
+                        previous = verdicts[key][0] if key in verdicts else None
+                        verdicts[key] = (
+                            policy_scan.worse(previous, verdict),
+                            policy_scan.evidence_ref(framework, check_id, result_version),
+                        )
+                    carried_gbp = float(item.get("carriedGbp", 0.0))
+                    checks.append(
+                        PolicyComplianceCheck(
+                            framework=framework,
+                            controlSet=str(item.get("controlSet", "")),
+                            control=str(item.get("control", "")),
+                            check=check_id,
+                            passed=verdict == "pass",
+                            policyVersion=result_version,
+                            ale=float(item.get("ale", 0.0)),
+                            var95=float(item.get("var95", 0.0)),
+                            tvar=float(item.get("tvar", 0.0)),
+                            carriedGbp=carried_gbp,
+                            carried=MoneyResponse(amount=carried_gbp, currency=REPORTING_CURRENCY),
+                            currency=REPORTING_CURRENCY,
+                            scanTimestamp=str(item.get("scanTimestamp") or _now_iso()),
+                            calibrationSource=str(item.get("calibrationSource") or "industry-indicative"),
+                            agentId=str(agent_row["id"]),
+                            agentName=agent_row["name"],
+                            status=verdict,
+                            error=item.get("error") if verdict == "error" else None,
+                            controlId=str(control_id) if control_id is not None else None,
+                        )
+                    )
 
+    stored = [verdict for verdict, _ in verdicts.values()]
     async with _write(pool) as conn:
-        for check in checks:
-            status_val = "pass" if check.passed else "fail"
+        for (agent_id, control_id), (verdict, evidence) in verdicts.items():
             await conn.execute(
-                """UPDATE agent_compliance_results r
-                   SET status = $2, assessed_at = now()
-                   FROM governance_controls c, governance_frameworks f
-                   WHERE r.control_id = c.id
-                     AND c.framework_id = f.id
-                     AND c.tenant_id = $1
-                     AND f.tenant_id = $1
-                     AND r.tenant_id = $1
-                     AND (c.name = $3 OR c.id::text = $4)""",
+                """INSERT INTO agent_compliance_results
+                       (tenant_id, agent_id, control_id, status, assessed_at, evidence_ref)
+                   VALUES ($1, $2, $3, $4, now(), $5)
+                   ON CONFLICT (agent_id, control_id) DO UPDATE
+                      SET status = EXCLUDED.status,
+                          assessed_at = EXCLUDED.assessed_at,
+                          evidence_ref = EXCLUDED.evidence_ref
+                    WHERE agent_compliance_results.tenant_id = EXCLUDED.tenant_id""",
                 tenant_id,
-                status_val,
-                check.check,
-                check.control,
+                agent_id,
+                control_id,
+                verdict,
+                evidence,
             )
 
         summary = _policy_scan_summary(checks, request.policyVersion)
@@ -7164,20 +7223,27 @@ async def _db_policy_scan(
         await _audit_log(
             conn, tenant_id, "compliance.scan_completed", None, None, actor,
             {
-                "frameworks": request.frameworks,
+                "frameworks": frameworks,
                 "policy_version": request.policyVersion,
-                "controls_assessed": len(checks),
-                "controls_passed": sum(check.passed for check in checks),
-                "controls_failed": sum(not check.passed for check in checks),
+                "controls_assessed": len(stored),
+                "controls_passed": stored.count("pass"),
+                "controls_failed": stored.count("fail"),
+                "controls_errored": stored.count("error"),
+                "checks_returned": len(checks),
+                "checks_unmapped": unmapped,
+                "agents_scanned": agents_scanned,
+                "agents_failed": len(agents_failed),
                 "total_exposure_gbp": summary.totalCarriedGbp,
-                "bundle_sha256": bundle_sha256,
-                "engine_invoked": bool(scan_results),
+                "engine_invoked": agents_scanned > 0,
             },
         )
 
     return PolicyScanResponse(
         checks=checks,
         summary=summary,
+        engineInvoked=agents_scanned > 0,
+        agentsScanned=agents_scanned,
+        agentsFailed=agents_failed,
     )
 
 

@@ -62,8 +62,17 @@
 #
 # test/verify-cel.bats proves the aggregator can go red: it plants a failing
 # test, a test file with no tests, a skip-only file, a fixture-free conformance
-# run, and a missing Docker binary, and requires a non-zero exit from each. A
-# green runner that cannot go red is worse than no runner.
+# run, an unready Postgres, and a missing Docker binary, and requires a non-zero
+# exit from each. A green runner that cannot go red is worse than no runner.
+# test/verify-cel-mutation-proof.sh then proves that file is not decoration, by
+# deleting each gate here and requiring the test that pins it to go red.
+# `make verify-cel-selftest` and `make verify-cel-mutation-proof`.
+#
+# The tier map and timings above ARE the documentation for this — deliberately
+# here rather than under docs/, so that the numbers sit next to the commands
+# that produce them and cannot drift out of sync with a doc nobody reruns. The
+# Makefile help text for verify-cel and the four per-tier targets carries the
+# same figures in one line each.
 #
 # Injection seams (all env, all used by that test file):
 #   VERIFY_CEL_GO, VERIFY_CEL_DOCKER, VERIFY_CEL_ENGINE_DIR, VERIFY_CEL_FE_SRC,

@@ -6,7 +6,8 @@
 --   9 platform users (admin, engineers, CISO, ops — matching audit actors)
 --   5 user_roles (tenant-scoped role assignments)
 --   5 agents (Monty Python theme — matches cluster pods, owner_id linked)
---   2 frameworks (EU AI Act, SOC 2) with 6 controls total
+--   4 frameworks: EU AI Act, SOC 2 (6 controls), CIS Kubernetes v1.8.0 (17) and
+--     FINOS AIGF v1.0.0 (16) -- the last two mapped to policy-engine checks
 --   30 agent compliance results (5 agents x 6 controls)
 --   12 audit events
 --   3 violations
@@ -364,25 +365,77 @@ INSERT INTO public.governance_frameworks (
 ) VALUES (
     'f0000000-0000-0000-0000-000000000004', 'tenant-demo',
     'FINOS AI Governance Framework', 'v1.0.0', 'FINOS',
-    3, 'admin@acme.co'
+    16, 'admin@acme.co'
 ) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
 
 INSERT INTO public.governance_controls (
     id, tenant_id, framework_id, name, description, control_order,
     policy_framework_id, policy_check_id
 ) VALUES
-('c0000000-0000-0000-0000-000000000024', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
- 'AIGF-1.1 -- Registered Enterprise Model Catalog',
- 'Agent model is registered and approved in the enterprise model catalog. Evaluated by finos-aigf/registered-model-registry-entry.',
- 1, 'finos-aigf', 'registered-model-registry-entry'),
+('c0000000-0000-0000-0000-000000000027', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-002 RAG ingestion filters sensitive data',
+ 'If the agent uses retrieval-augmented generation (agent.data.rag_enabled is true), sensitive-data filtering must be active on ingestion. Not applicable, and passes, when rag_enabled is false. Undeclared or non-boolean rag_enabled fails. Evaluated by finos-aigf/rag-ingestion-sensitive-data-filtered.',
+ 1, 'finos-aigf', 'rag-ingestion-sensitive-data-filtered'),
 ('c0000000-0000-0000-0000-000000000025', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
- 'AIGF -- Prompt Injection Guardrail Active',
- 'A prompt-injection filter is active for the agent. Evaluated by finos-aigf/prompt-injection-guardrail-active.',
+ 'AIR-PREV-003 Active prompt injection filter guardrail',
+ 'Enforces real-time input guardrails to detect adversarial prompt injection attacks (agent.guardrails.prompt_injection_filter is true). Evaluated by finos-aigf/prompt-injection-guardrail-active.',
  2, 'finos-aigf', 'prompt-injection-guardrail-active'),
+('c0000000-0000-0000-0000-000000000028', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-003 Model output filtered for leakage and harmful content',
+ 'Model responses are inspected for sensitive-data leakage and policy-violating content before they leave the system (agent.guardrails.output_filter is true). Evaluated by finos-aigf/output-leakage-filter-active.',
+ 3, 'finos-aigf', 'output-leakage-filter-active'),
+('c0000000-0000-0000-0000-000000000029', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-008 Inference request rate limit configured',
+ 'A positive per-minute request limit is enforced on the agent (agent.rate_limits.requests_per_minute is a JSON number > 0). Evaluated by finos-aigf/inference-rate-limit-configured.',
+ 4, 'finos-aigf', 'inference-rate-limit-configured'),
+('c0000000-0000-0000-0000-000000000024', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-010 Model catalog registration and approval',
+ 'Verifies AI agent model is registered and actively approved in the enterprise model inventory (agent.registry.model_registered is true). Evaluated by finos-aigf/registered-model-registry-entry.',
+ 5, 'finos-aigf', 'registered-model-registry-entry'),
+('c0000000-0000-0000-0000-000000000030', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-010 Model version pinned, not a floating alias',
+ 'agent.registry.model_version is a non-empty string without whitespace that does not end in a ''latest'' alias segment (case-insensitive, e.g. ''-latest'', '':latest'', or bare ''latest''). Evaluated by finos-aigf/model-version-pinned.',
+ 6, 'finos-aigf', 'model-version-pinned'),
+('c0000000-0000-0000-0000-000000000031', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-012 Caller authentication and RBAC enforced',
+ 'Callers must authenticate (agent.access.authentication_required is true) and role-based authorisation is enforced (agent.access.rbac_enforced is true). Evaluated by finos-aigf/user-authn-and-rbac-enforced.',
+ 7, 'finos-aigf', 'user-authn-and-rbac-enforced'),
+('c0000000-0000-0000-0000-000000000032', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-014 All persistent AI data stores encrypted at rest',
+ 'Every entry of agent.data.persistent_stores has encrypted_at_rest true. An empty list (the agent persists nothing) passes; an absent or non-list field fails. Evaluated by finos-aigf/ai-data-encrypted-at-rest.',
+ 8, 'finos-aigf', 'ai-data-encrypted-at-rest'),
+('c0000000-0000-0000-0000-000000000033', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-018 Tool grants are explicitly scoped, no wildcards',
+ 'Every entry of agent.tools declares a non-empty scopes list of non-empty strings, none ending in ''*'' (no ''*'' or prefix wildcards). An empty tools list passes; an absent or non-list field fails. Evaluated by finos-aigf/tool-grants-least-privilege.',
+ 9, 'finos-aigf', 'tool-grants-least-privilege'),
+('c0000000-0000-0000-0000-000000000034', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-020 Only allow-listed MCP servers connected',
+ 'Every entry of agent.mcp_servers has allowlisted true. An empty list (no MCP servers) passes; an absent or non-list field fails. Evaluated by finos-aigf/mcp-servers-allowlisted.',
+ 10, 'finos-aigf', 'mcp-servers-allowlisted'),
+('c0000000-0000-0000-0000-000000000035', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-023 No long-lived credentials exposed to the agent',
+ 'agent.credentials.long_lived_secrets_exposed is boolean false. Absent or non-boolean fails: lack of a finding is not evidence of protection. Evaluated by finos-aigf/no-long-lived-credentials-exposed.',
+ 11, 'finos-aigf', 'no-long-lived-credentials-exposed'),
+('c0000000-0000-0000-0000-000000000036', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-024 High-impact tools gated by human approval',
+ 'Every entry of agent.tools either declares impact ''low'' or ''medium'', or has requires_human_approval true. Tools with impact ''high'' or no impact classification are treated as high (fail-closed). Not applicable, and passes, when every tool is low/medium or the list is empty; an absent or non-list field fails. Evaluated by finos-aigf/high-impact-actions-human-approved.',
+ 12, 'finos-aigf', 'high-impact-actions-human-approved'),
+('c0000000-0000-0000-0000-000000000037', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-004 Agent interaction audit logging enabled',
+ 'agent.observability.audit_logging is true. Evaluated by finos-aigf/ai-interaction-audit-logging.',
+ 13, 'finos-aigf', 'ai-interaction-audit-logging'),
+('c0000000-0000-0000-0000-000000000038', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-009 Spend budget and alerting configured',
+ 'agent.cost_controls.budget_limit is a JSON number > 0 and agent.cost_controls.spend_alerting is true. Evaluated by finos-aigf/spend-budget-alerting-configured.',
+ 14, 'finos-aigf', 'spend-budget-alerting-configured'),
 ('c0000000-0000-0000-0000-000000000026', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
- 'AIGF -- Decision Explainability Metadata',
- 'Agent decisions carry explainability metadata. Evaluated by finos-aigf/decision-explainability-metadata.',
- 3, 'finos-aigf', 'decision-explainability-metadata')
+ 'AIR-DET-021 Decision explainability and reasoning trace',
+ 'Requires recorded reasoning traces and explainability metadata for compliance auditing (agent.governance.decision_explainability is true). Evaluated by finos-aigf/decision-explainability-metadata.',
+ 15, 'finos-aigf', 'decision-explainability-metadata'),
+('c0000000-0000-0000-0000-000000000039', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-021 Decision audit log is tamper-evident',
+ 'agent.governance.audit_log_tamper_evident is true (cryptographic integrity protection on the decision log). Evaluated by finos-aigf/decision-audit-tamper-evident.',
+ 16, 'finos-aigf', 'decision-audit-tamper-evident')
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     description = EXCLUDED.description,

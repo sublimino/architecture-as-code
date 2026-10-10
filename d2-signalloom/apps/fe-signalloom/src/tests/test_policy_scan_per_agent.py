@@ -134,8 +134,21 @@ def agent_row(agent_id, name, *, model_approved=None, context=None, workload=Non
     }
 
 
+#: The pack version each tenant framework is activated at (governance_frameworks.version).
+PACK_VERSION = {"cis-kubernetes": "v1.8.0", "finos-aigf": "v1.0.0"}
+
+
 def control(control_id, framework, check):
-    return {"control_id": control_id, "policy_framework_id": framework, "policy_check_id": check}
+    return {"control_id": control_id, "policy_framework_id": framework, "policy_check_id": check,
+            "framework_version": PACK_VERSION[framework]}
+
+
+def answering(results):
+    """Engine stand-in: answer each call with the results for the packs it asked about."""
+    def respond(request: httpx.Request) -> httpx.Response:
+        asked = json.loads(request.content)["frameworks"]
+        return httpx.Response(200, json=[r for r in results if r["framework"] in asked])
+    return respond
 
 
 CONTROLS = [
@@ -152,7 +165,7 @@ def item(framework, check, status=None, *, passed=None, error=None):
         "controlSet": "set",
         "control": f"{framework}/{check} control",
         "check": check,
-        "policyVersion": "v1.0.0",
+        "policyVersion": PACK_VERSION.get(framework, "v1.0.0"),
         "ale": 100.0,
         "var95": 200.0,
         "tvar": 300.0,
@@ -165,7 +178,7 @@ def item(framework, check, status=None, *, passed=None, error=None):
         out["passed"] = status == "pass"
         out["checkName"] = check
         out["controlId"] = f"{framework}:{check}"
-        out["frameworkVersion"] = "v1.0.0"
+        out["frameworkVersion"] = PACK_VERSION.get(framework, "v1.0.0")
     if passed is not None:
         out["passed"] = passed
     if error is not None:
@@ -252,24 +265,20 @@ async def test_request_body_per_agent_is_that_agents_context_and_object(db):
 
     assert resp.status_code == 200, resp.text
     bodies = [json.loads(call.request.content) for call in route.calls]
+    context_a = {"registry": {"model_registered": True}, "guardrails": {"prompt_injection_filter": True}}
+    # One call per pack version: the engine filters checks by policyVersion and
+    # the two packs are activated at different versions.
     assert bodies == [
-        {
-            "namespace": "agents",
-            "policyVersion": "v1.0.0",
-            "frameworks": ["cis-kubernetes", "finos-aigf"],
-            "object": POD_A,
-            "agent": {"registry": {"model_registered": True}, "guardrails": {"prompt_injection_filter": True}},
-            "request": {},
-        },
-        {
-            # No workload on record: no object is sent, so pod checks report
-            # what they make of nothing rather than judging a fictional pod.
-            "namespace": "agents",
-            "policyVersion": "v1.0.0",
-            "frameworks": ["cis-kubernetes", "finos-aigf"],
-            "agent": {},
-            "request": {},
-        },
+        {"namespace": "agents", "policyVersion": "v1.8.0", "frameworks": ["cis-kubernetes"],
+         "object": POD_A, "agent": context_a, "request": {}},
+        {"namespace": "agents", "policyVersion": "v1.0.0", "frameworks": ["finos-aigf"],
+         "object": POD_A, "agent": context_a, "request": {}},
+        # No workload on record: no object is sent, so pod checks report
+        # what they make of nothing rather than judging a fictional pod.
+        {"namespace": "agents", "policyVersion": "v1.8.0", "frameworks": ["cis-kubernetes"],
+         "agent": {}, "request": {}},
+        {"namespace": "agents", "policyVersion": "v1.0.0", "frameworks": ["finos-aigf"],
+         "agent": {}, "request": {}},
     ]
     for call in route.calls:
         assert call.request.headers["X-Tenant-ID"] == EAP_TENANT_A
@@ -292,15 +301,15 @@ async def test_status_is_authoritative_and_error_is_stored_as_error(db):
         item("finos-aigf", "prompt-injection-guardrail-active", "maybe"),
     ]
     with respx.mock() as mock:
-        mock.post(ENGINE).mock(return_value=httpx.Response(200, json=engine_results))
+        mock.post(ENGINE).mock(side_effect=answering(engine_results))
         resp = await scan(SCAN)
 
     assert resp.status_code == 200, resp.text
     assert fake.results == {
         (AGENT_A, CTRL_PRIV): {"tenant_id": EAP_TENANT_A, "status": "fail",
-                               "evidence_ref": "policy-engine:cis-kubernetes/no-privileged-containers@v1.0.0"},
+                               "evidence_ref": "policy-engine:cis-kubernetes/no-privileged-containers@v1.8.0"},
         (AGENT_A, CTRL_ROOT): {"tenant_id": EAP_TENANT_A, "status": "pass",
-                               "evidence_ref": "policy-engine:cis-kubernetes/no-root-containers@v1.0.0"},
+                               "evidence_ref": "policy-engine:cis-kubernetes/no-root-containers@v1.8.0"},
         (AGENT_A, CTRL_MODEL): {"tenant_id": EAP_TENANT_A, "status": "error",
                                 "evidence_ref": "policy-engine:finos-aigf/registered-model-registry-entry@v1.0.0"},
         (AGENT_A, CTRL_PI): {"tenant_id": EAP_TENANT_A, "status": "error",
@@ -329,7 +338,7 @@ async def test_status_is_authoritative_and_error_is_stored_as_error(db):
 async def test_unmapped_checks_are_reported_but_never_stored(db):
     fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
     with respx.mock() as mock:
-        mock.post(ENGINE).mock(return_value=httpx.Response(200, json=[
+        mock.post(ENGINE).mock(side_effect=answering([
             item("finos-aigf", "a-check-with-no-seed-row", "pass"),
         ]))
         resp = await scan(SCAN)
@@ -361,14 +370,14 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
     def by_agent(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         verdict = "fail" if "object" in body else "pass"
-        return httpx.Response(200, json=[item("cis-kubernetes", "no-privileged-containers", verdict)])
+        return answering([item("cis-kubernetes", "no-privileged-containers", verdict)])(request)
 
     with respx.mock() as mock:
         route = mock.post(ENGINE).mock(side_effect=by_agent)
         resp = await scan({**SCAN, "agentIds": [str(AGENT_A), str(AGENT_B)]})
 
     assert resp.status_code == 200, resp.text
-    assert route.call_count == 2
+    assert route.call_count == 4  # two agents x two packs; C is never asked about
     assert {key: row["status"] for key, row in fake.results.items()} == {
         (AGENT_A, CTRL_PRIV): "fail",
         (AGENT_B, CTRL_PRIV): "pass",
@@ -381,7 +390,7 @@ async def test_versions_that_disagree_resolve_to_the_worse_verdict(db):
     """The engine scans every version of a pack; one control, one stored row."""
     fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
     with respx.mock() as mock:
-        mock.post(ENGINE).mock(return_value=httpx.Response(200, json=[
+        mock.post(ENGINE).mock(side_effect=answering([
             item("cis-kubernetes", "no-privileged-containers", "pass"),
             item("cis-kubernetes", "no-privileged-containers", "fail"),
             item("cis-kubernetes", "no-root-containers", "pass"),
@@ -428,6 +437,34 @@ async def test_engine_unavailable_changes_no_rows_and_invents_no_checks(db, fail
     assert fake.result_writes == 0
     detail = fake.audit[0]["detail"]
     assert (detail["engine_invoked"], detail["controls_assessed"], detail["agents_failed"]) == (False, 0, 2)
+
+
+@pytest.mark.asyncio
+async def test_an_agent_with_one_failed_pack_call_keeps_all_its_rows(db):
+    """No partial reconcile: half an assessment would read as a complete one."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a"), agent_row(AGENT_B, "agent-b")], controls=CONTROLS))
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["frameworks"] == ["finos-aigf"] and body["agent"] == {}:
+            if not getattr(flaky, "failed", False):
+                flaky.failed = True  # A's AIGF call fails, B's succeeds
+                return httpx.Response(503)
+        return answering([item("cis-kubernetes", "no-privileged-containers", "pass"),
+                          item("finos-aigf", "prompt-injection-guardrail-active", "fail")])(request)
+
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=flaky)
+        resp = await scan(SCAN)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert (data["engineInvoked"], data["agentsScanned"], data["agentsFailed"]) == (True, 1, [str(AGENT_A)])
+    assert {key: row["status"] for key, row in fake.results.items()} == {
+        (AGENT_B, CTRL_PRIV): "pass",
+        (AGENT_B, CTRL_PI): "fail",
+    }
+    assert {c["agentId"] for c in data["checks"]} == {str(AGENT_B)}
 
 
 @pytest.mark.asyncio

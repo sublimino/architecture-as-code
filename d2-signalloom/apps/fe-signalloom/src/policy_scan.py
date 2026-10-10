@@ -17,13 +17,14 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-#: Verdicts the engine may return and the database stores.  ``error`` means the
-#: check could not evaluate; it is never a pass and never a fail.
-VERDICTS = ("pass", "fail", "error")
+#: Verdicts the engine may return.  ``error`` means the check could not
+#: evaluate; ``not_evaluated`` marks a placeholder check the engine did not run.
+#: Neither is ever a pass or a fail.
+VERDICTS = ("pass", "fail", "error", "not_evaluated")
 
-# When one control receives several verdicts in one scan (the engine scans
-# every version of a pack), the stored row is the least favourable one.
-_SEVERITY = {"pass": 0, "error": 1, "fail": 2}
+# When one control receives several verdicts in one scan, the stored row is
+# the least favourable one.
+_SEVERITY = {"pass": 0, "not_evaluated": 1, "error": 2, "fail": 3}
 
 
 def _document(value: Any) -> Any:
@@ -164,3 +165,11 @@ def worse(a: str | None, b: str) -> str:
 def evidence_ref(framework: str, check: str, policy_version: str) -> str:
     """Where a stored verdict came from.  Fits ``evidence_ref VARCHAR(255)``."""
     return f"policy-engine:{framework}/{check}@{policy_version}"[:255]
+
+
+def stored_status(verdict: str) -> str:
+    """The ``agent_compliance_results.status`` for a verdict.
+
+    ``not_evaluated`` is not an assessment, so the control stays ``pending``.
+    """
+    return "pending" if verdict == "not_evaluated" else verdict

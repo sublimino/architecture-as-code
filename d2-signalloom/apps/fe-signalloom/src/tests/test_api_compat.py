@@ -290,7 +290,7 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     assert set(summary.json()) == {
         "totalChecks", "passed", "failed", "totalAle", "totalVar95",
         "totalTvar", "totalCarriedGbp", "scanTimestamp", "frameworks",
-        "carried", "currency", "errored",
+        "carried", "currency", "errored", "notEvaluated",
     }
     assert summary.json()["frameworks"] == frameworks.json()
 

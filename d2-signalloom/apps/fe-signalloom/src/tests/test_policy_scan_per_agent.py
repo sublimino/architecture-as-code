@@ -62,7 +62,7 @@ POD_A = {
 DEPLOYMENT = {
     "apiVersion": "apps/v1",
     "kind": "Deployment",
-    "metadata": {"name": "agent-d"},
+    "metadata": {"name": "agent-d", "namespace": "agents"},
     "spec": {
         "template": {
             "metadata": {"labels": {"app": "d"}},
@@ -223,7 +223,9 @@ def test_context_maps_columns_and_declared_facts_and_never_defaults():
 def test_object_is_the_pod_or_the_pod_template_and_none_when_absent():
     assert build_agent_object(agent_row(AGENT_A, "a", workload=POD_A)) == POD_A
     assert build_agent_object(agent_row(AGENT_A, "a", workload=DEPLOYMENT)) == {
-        "metadata": {"labels": {"app": "d"}},
+        # no-default-namespace reads object.metadata.namespace: the workload's
+        # namespace travels with its pod template.
+        "metadata": {"labels": {"app": "d"}, "namespace": "agents"},
         "spec": {"containers": [{"name": "c", "image": "i"}]},
     }
     assert build_agent_object(agent_row(AGENT_A, "a")) is None

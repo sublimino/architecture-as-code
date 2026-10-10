@@ -91,8 +91,14 @@ VERDICTS: dict[str | None, dict[str, str]] = {
                "decision-explainability-metadata": "fail"},
     "black-knight": {**{c: ("pass" if i < 5 else "fail") for i, c in enumerate(CIS)},
                      **{c: "fail" for c in AIGF}},
-    None: {**{c: "error" for c in CIS}, **{c: "fail" for c in AIGF}},
+    # What the real engine answers with no object (verified against the binary:
+    # an absent object is bound to {}, and every CIS check FAILS on {}).  The
+    # scan must never ask it, and never store this: see H1 below.
+    None: {**{c: "fail" for c in CIS}, **{c: "fail" for c in AIGF}},
 }
+#: An agent with no workload on record: the scan does not ask the engine about
+#: an object-only pack, and stores those controls as pending with no assessed_at.
+NO_WORKLOAD = "pending"
 WORKLOAD = {LANCELOT: "lancelot", DENNIS: "dennis", BLACK_KNIGHT: "black-knight", PATSY: None, ROBIN: None}
 CONTEXT = {
     LANCELOT: {"guardrails": {"prompt_injection_filter": True}},
@@ -217,7 +223,13 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
             assert resp.status_code == 200, resp.text
             assert resp.json()["engineInvoked"] is True
             assert resp.json()["agentsScanned"] == 5
-            assert route.call_count == 10  # five agents x two pack versions
+            # Three agents with a workload x two packs, two without x AIGF only.
+            assert route.call_count == 8
+            assert all("object" in json.loads(c.request.content) for c in route.calls
+                       if json.loads(c.request.content)["frameworks"] == ["cis-kubernetes"])
+            gaps = resp.json()["controlGaps"]
+            assert sorted((g["agentId"], g["check"], g["reason"], g["stored"]) for g in gaps) == sorted(
+                (str(a), c, "no_workload", "pending") for a, w in WORKLOAD.items() if w is None for c in CIS)
 
             # The agent context each agent was scanned with came from ITS row.
             sent = {json.loads(c.request.content).get("object", {}).get("metadata", {}).get("name"):
@@ -235,7 +247,8 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     expected = dict(before)
     for agent_id, workload in WORKLOAD.items():
         for check, status in VERDICTS[workload].items():
-            expected[(agent_id, control_of[check])] = status
+            expected[(agent_id, control_of[check])] = (
+                NO_WORKLOAD if workload is None and check in CIS else status)
 
     stored = {(r["agent_id"], r["control_id"]): r["status"] for r in await seeded_pool.fetch(
         "SELECT agent_id, control_id, status FROM agent_compliance_results")}
@@ -257,7 +270,7 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
         len(expected), counts["pass"], counts["fail"])
     frameworks = {f["name"]: f for f in policy["frameworks"]}
     for name, checks in (("CIS Kubernetes Benchmark", CIS), ("FINOS AI Governance Framework", AIGF)):
-        per_control = {c: [VERDICTS[w][c] for w in WORKLOAD.values()] for c in checks}
+        per_control = {c: [expected[(a, control_of[c])] for a in WORKLOAD] for c in checks}
         assert frameworks[name]["totalControls"] == len(checks)
         assert frameworks[name]["passedControls"] == sum(all(s == "pass" for s in v) for v in per_control.values())
         assert frameworks[name]["failedControls"] == sum(any(s == "fail" for s in v) for v in per_control.values())
@@ -266,10 +279,15 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
         """SELECT detail FROM audit_events WHERE event_type = 'compliance.scan_completed'
             ORDER BY timestamp DESC LIMIT 1""")
     detail = json.loads(audit["detail"])
-    new = Counter(VERDICTS[w][c] for w in WORKLOAD.values() for c in CIS + AIGF)
+    new = Counter(expected[(a, control_of[c])] for a in WORKLOAD for c in CIS + AIGF)
     assert (detail["controls_assessed"], detail["controls_passed"], detail["controls_failed"],
-            detail["controls_errored"], detail["agents_scanned"]) == (
-        5 * (len(CIS) + len(AIGF)), new["pass"], new["fail"], new["error"], 5)
+            detail["controls_errored"], detail["controls_no_workload"], detail["agents_scanned"]) == (
+        5 * (len(CIS) + len(AIGF)), new["pass"], new["fail"], new["error"], 2 * len(CIS), 5)
+    # No assessment time on a control nobody assessed.
+    unassessed = await seeded_pool.fetch(
+        "SELECT assessed_at FROM agent_compliance_results WHERE agent_id = ANY($1::uuid[]) AND control_id = ANY($2::uuid[])",
+        [PATSY, ROBIN], [control_of[c] for c in CIS])
+    assert len(unassessed) == 2 * len(CIS) and all(r["assessed_at"] is None for r in unassessed)
 
 
 TENANT_B = "tenant-b-f3"

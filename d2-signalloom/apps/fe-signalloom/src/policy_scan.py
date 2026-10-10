@@ -82,30 +82,62 @@ def build_agent_policy_context(row: Mapping[str, Any]) -> dict[str, Any]:
     return _merge(context, columns)
 
 
+#: Controller kinds whose pod template is the scan subject.
+_TEMPLATE_KINDS = frozenset({"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job"})
+
+#: Pack versions none of whose checks reads ``agent`` or ``request``: every
+#: evaluated check reads only ``object``.  For an agent with no observed
+#: workload such a pack is NOT sent -- the engine binds an absent object to
+#: ``{}`` and the CIS checks then fail (or, on a spec with no containers,
+#: mostly pass), a verdict about a workload nobody observed.  Its mapped
+#: controls are stored ``pending`` and reported as gaps (``no_workload``).
+#: Mixed packs (some checks read ``agent``/``request``) are still sent; see
+#: ``tests/test_policy_scan_per_agent.py`` for the derivation from the packs.
+OBJECT_ONLY_PACKS = frozenset({
+    ("cis-kubernetes", "v1.8.0"),
+    ("eu-ai-act", "v1.0.0"),
+    ("eu-ai-act", "v2.0.0"),
+    ("nist-800-53", "v1.0.0"),
+    ("nist-800-53", "v2.0.0"),
+})
+
+
+def _has_containers(pod_spec: Any) -> bool:
+    if not isinstance(pod_spec, Mapping):
+        return False
+    containers = pod_spec.get("containers")
+    return isinstance(containers, list) and len(containers) > 0
+
+
 def build_agent_object(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """The ``object`` CEL binding: the agent's Pod-shaped workload, or ``None``.
 
-    Source: ``agent_registry.workload_spec``.  A Pod is sent as recorded; for a
-    Deployment/StatefulSet/DaemonSet/Job (``spec.template``) or CronJob
-    (``spec.jobTemplate.spec.template``) the pod template is sent as
-    ``{"metadata": template.metadata, "spec": template.spec}``, as
-    CONFORMANCE.md specifies.  Anything without a pod ``spec`` is not a
-    workload the CIS checks can judge, so nothing is sent.
+    Source: ``agent_registry.workload_spec``.  A ``kind: Pod`` is sent as
+    recorded; for a Deployment/StatefulSet/DaemonSet/ReplicaSet/Job
+    (``spec.template``) or CronJob (``spec.jobTemplate.spec.template``) the pod
+    template is sent as ``{"metadata": template.metadata, "spec": template.spec}``,
+    as CONFORMANCE.md specifies.  Anything else -- another kind, no kind, or a
+    pod spec without a non-empty ``containers`` list -- is not a workload the
+    CIS checks can judge, so nothing is sent (``None``).
     """
     workload = _document(row.get("workload_spec"))
     if not isinstance(workload, Mapping):
         return None
+    kind = workload.get("kind")
     spec = workload.get("spec")
     if not isinstance(spec, Mapping):
         return None
-    template = spec.get("template")
-    job_template = spec.get("jobTemplate")
-    if template is None and isinstance(job_template, Mapping):
-        inner = job_template.get("spec")
+    if kind == "Pod":
+        return dict(workload) if _has_containers(spec) else None
+    if kind in _TEMPLATE_KINDS:
+        template = spec.get("template")
+    elif kind == "CronJob":
+        job_template = spec.get("jobTemplate")
+        inner = job_template.get("spec") if isinstance(job_template, Mapping) else None
         template = inner.get("template") if isinstance(inner, Mapping) else None
-    if template is None:
-        return dict(workload)
-    if not isinstance(template, Mapping) or not isinstance(template.get("spec"), Mapping):
+    else:
+        return None
+    if not isinstance(template, Mapping) or not _has_containers(template.get("spec")):
         return None
     metadata = dict(template.get("metadata") or {})
     # A pod template carries no namespace; the pods run in the controller's,

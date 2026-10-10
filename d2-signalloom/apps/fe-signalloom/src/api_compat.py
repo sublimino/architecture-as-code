@@ -1121,6 +1121,22 @@ class PolicyComplianceCheck(BaseModel):
     controlId: str | None = None
 
 
+class PolicyControlGap(BaseModel):
+    """A mapped control this scan did not get a verdict for from the engine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agentId: str
+    framework: str
+    check: str
+    controlId: str
+    # What was stored for it: ``pending`` (not assessed) or ``error``.
+    stored: Literal["pending", "error"]
+    # ``no_workload``: the agent has no observed workload and the pack reads
+    # only ``object``, so the engine was not asked.
+    reason: Literal["no_workload", "missing_from_engine_response"]
+
+
 class PolicyScanResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1132,6 +1148,8 @@ class PolicyScanResponse(BaseModel):
     agentsScanned: int = 0
     # Registry ids of agents whose scan call failed. Their rows were not touched.
     agentsFailed: list[str] = Field(default_factory=list)
+    # Mapped controls of scanned agents that got no engine verdict, and why.
+    controlGaps: list[PolicyControlGap] = Field(default_factory=list)
 
 
 class ControlResponse(BaseModel):
@@ -7146,6 +7164,9 @@ async def _db_policy_scan(
         (row["policy_framework_id"], row["policy_check_id"]): row["control_id"]
         for row in control_rows
     }
+    mapped_checks: dict[str, list[str]] = {}
+    for framework, check in control_for:
+        mapped_checks.setdefault(framework, []).append(check)
     frameworks = list(request.frameworks) or sorted({framework for framework, _ in control_for})
     # The engine evaluates only checks listed for the request's policyVersion,
     # and each pack is activated at its own version (governance_frameworks.version),
@@ -7164,10 +7185,12 @@ async def _db_policy_scan(
     scan_url = f"{policy_engine_url}/api/v1/compliance/scan"
     checks: list[PolicyComplianceCheck] = []
     # (agent_id, control_id) -> (verdict, evidence_ref): one stored row per pair.
-    verdicts: dict[tuple[Any, uuid.UUID], tuple[str, str]] = {}
+    verdicts: dict[tuple[Any, uuid.UUID], tuple[str, str | None]] = {}
     agents_failed: list[str] = []
     agents_scanned = 0
+    engine_answers = 0
     unmapped = 0
+    gaps: list[PolicyControlGap] = []
 
     if frameworks and agent_rows:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -7175,11 +7198,21 @@ async def _db_policy_scan(
                 obj = policy_scan.build_agent_object(agent_row)
                 agent_context = policy_scan.build_agent_policy_context(agent_row)
                 results: list[dict[str, Any]] | None = []
+                # H1: with no observed workload, a pack whose checks read only
+                # ``object`` is not asked (the engine would judge ``{}``).
+                unobserved: list[str] = []
+                answered = 0
                 for version, version_frameworks in calls.items():
+                    send = list(version_frameworks)
+                    if obj is None:
+                        unobserved += [f for f in send if (f, version) in policy_scan.OBJECT_ONLY_PACKS]
+                        send = [f for f in send if (f, version) not in policy_scan.OBJECT_ONLY_PACKS]
+                    if not send:
+                        continue
                     body = policy_scan.scan_request_body(
                         namespace=request.namespace,
                         policy_version=version,
-                        frameworks=version_frameworks,
+                        frameworks=send,
                         obj=obj,
                         agent=agent_context,
                     )
@@ -7189,11 +7222,24 @@ async def _db_policy_scan(
                         # as a complete one.
                         results = None
                         break
+                    answered += 1
                     results.extend(answer)
                 if results is None:
                     agents_failed.append(str(agent_row["id"]))
                     continue
                 agents_scanned += 1
+                # Counted only for agents whose whole scan was usable.
+                engine_answers += answered
+                for framework in unobserved:
+                    for check_id in mapped_checks.get(framework, []):
+                        control_id = control_for[(framework, check_id)]
+                        # Stored pending, not left as it was: an earlier verdict
+                        # describes a workload this agent no longer has on record.
+                        verdicts[(agent_row["id"], control_id)] = ("not_evaluated", None)
+                        gaps.append(PolicyControlGap(
+                            agentId=str(agent_row["id"]), framework=framework, check=check_id,
+                            controlId=str(control_id), stored="pending", reason="no_workload",
+                        ))
                 for item in results:
                     verdict = policy_scan.verdict_of(item)
                     framework = str(item.get("framework", ""))
@@ -7275,17 +7321,19 @@ async def _db_policy_scan(
                 "checks_unmapped": unmapped,
                 "agents_scanned": agents_scanned,
                 "agents_failed": len(agents_failed),
+                "controls_no_workload": sum(g.reason == "no_workload" for g in gaps),
                 "total_exposure_gbp": summary.totalCarriedGbp,
-                "engine_invoked": agents_scanned > 0,
+                "engine_invoked": engine_answers > 0,
             },
         )
 
     return PolicyScanResponse(
         checks=checks,
         summary=summary,
-        engineInvoked=agents_scanned > 0,
+        engineInvoked=engine_answers > 0,
         agentsScanned=agents_scanned,
         agentsFailed=agents_failed,
+        controlGaps=gaps,
     )
 
 

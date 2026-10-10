@@ -1044,9 +1044,15 @@ class PolicyFrameworkSummaryResponse(BaseModel):
     id: str
     name: str
     versions: list[str]
+    #: Distinct controls, counted once however many agents and checks assessed
+    #: them. Not the number of rows -- that is ``totalResults``.
     totalControls: int
     passedControls: int
     failedControls: int
+    #: Assessment rows behind the counts above: one per (agent, check) in a scan
+    #: response. Zero on the persisted summary, which reports no per-agent rows.
+    #: Additive, so a consumer reading only totalControls is unaffected.
+    totalResults: int = 0
     totalExposureGbp: int
     # Denominated twin of totalExposureGbp. Additive on purpose: the *Gbp fields stay until every
     # consumer has migrated, because a breaking rename would take the dashboard down mid-flight.
@@ -7055,26 +7061,52 @@ def _policy_scan_summary(
     checks: list[PolicyComplianceCheck],
     policy_version: str,
 ) -> PolicySummaryResponse:
-    checks_by_framework: dict[tuple[str, str], list[PolicyComplianceCheck]] = {}
+    # One summary per framework.  Grouping on (controlSet, framework) turned a
+    # pack with four control sets into four "frameworks", each identified by a
+    # control set and named after the pack -- id and name the wrong way round
+    # for a response field pair that elsewhere carries a framework's own id and
+    # human name.  A control set is a subdivision inside a pack, not a
+    # framework, and the engine reports no human name, so the pack id is both.
+    checks_by_framework: dict[str, list[PolicyComplianceCheck]] = {}
     for check in checks:
-        checks_by_framework.setdefault((check.controlSet, check.framework), []).append(check)
+        checks_by_framework.setdefault(check.framework, []).append(check)
 
     def count(selected: list[PolicyComplianceCheck], verdict: str) -> int:
         return sum(_check_verdict(check) == verdict for check in selected)
 
-    frameworks = [
-        PolicyFrameworkSummaryResponse(
-            id=framework_id,
-            name=framework_name,
-            versions=[policy_version],
-            totalControls=len(framework_checks),
-            passedControls=count(framework_checks, "pass"),
-            failedControls=count(framework_checks, "fail"),
-            totalExposureGbp=sum(check.carriedGbp for check in framework_checks),
-            exposure=MoneyResponse(amount=sum(check.carriedGbp for check in framework_checks), currency=REPORTING_CURRENCY),
+    def by_control(selected: list[PolicyComplianceCheck]) -> dict[Any, list[str]]:
+        """Verdicts per control.  One control may be assessed several times in
+        one scan -- once per agent, and once per check when a control carries
+        more than one.  ``totalControls`` used to be the number of those rows,
+        so it grew with the fleet (17 CIS controls across 5 agents reported 85).
+        The control is the ``governance_controls`` row the check maps to, which
+        is what the persisted summary counts too; an unmapped check has no such
+        row and stands as its own control rather than vanishing."""
+        out: dict[Any, list[str]] = {}
+        for check in selected:
+            key = check.controlId or (check.controlSet, check.control, check.check)
+            out.setdefault(key, []).append(_check_verdict(check))
+        return out
+
+    frameworks = []
+    for framework_id, framework_checks in checks_by_framework.items():
+        controls = by_control(framework_checks)
+        exposure = sum(check.carriedGbp for check in framework_checks)
+        frameworks.append(
+            PolicyFrameworkSummaryResponse(
+                id=framework_id,
+                name=framework_id,
+                # The versions the checks were actually evaluated at: each pack
+                # is activated at its own version, so the request's is not it.
+                versions=sorted({check.policyVersion for check in framework_checks}),
+                totalControls=len(controls),
+                totalResults=len(framework_checks),
+                passedControls=sum(all(v == "pass" for v in verdicts) for verdicts in controls.values()),
+                failedControls=sum(any(v == "fail" for v in verdicts) for verdicts in controls.values()),
+                totalExposureGbp=exposure,
+                exposure=MoneyResponse(amount=exposure, currency=REPORTING_CURRENCY),
+            )
         )
-        for (framework_id, framework_name), framework_checks in checks_by_framework.items()
-    ]
     total_carried = sum(check.carriedGbp for check in checks)
     total_ale = sum(check.ale for check in checks)
     total_var95 = sum(check.var95 for check in checks)

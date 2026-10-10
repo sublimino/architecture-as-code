@@ -494,6 +494,72 @@ async def test_unmapped_checks_are_reported_but_never_stored(db):
 
 
 # --------------------------------------------------------------------------
+# The scan response's per-framework summary (M5)
+# --------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_framework_summaries_are_per_framework_and_count_controls_not_rows(db):
+    """M5: the scan summary used to group on ``(controlSet, framework)`` and
+    then label the row ``id=controlSet, name=framework`` -- so a pack with four
+    control sets produced four "frameworks", each named after the pack and
+    identified by a control set.  ``totalControls`` was the number of
+    agent x check rows, which grows with the fleet: 17 CIS controls scanned
+    across 5 agents reported 85 controls.  One row per framework; controls are
+    counted once however many agents and checks they were assessed by; the row
+    count is reported separately as ``totalResults``."""
+    fake = db(FakeDB(
+        agents=[agent_row(AGENT_A, "agent-a", workload=POD_A),
+                agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT)],
+        controls=CONTROLS,
+    ))
+
+    def by_agent(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        a = body.get("object", {}).get("metadata", {}).get("name") == "agent-a"
+        out = []
+        for ctrl in CONTROLS:
+            framework, check = ctrl["policy_framework_id"], ctrl["policy_check_id"]
+            # Only agent-b fails no-privileged-containers.
+            status = "pass" if a or check != "no-privileged-containers" else "fail"
+            result = item(framework, check, status)
+            # Distinct control sets within one pack must not split the summary.
+            result["controlSet"] = f"{framework}-set-{check[:4]}"
+            out.append(result)
+        # An unmapped check is still one control of its framework.
+        out.append(item("finos-aigf", "a-check-with-no-seed-row", "pass"))
+        return httpx.Response(200, json=[r for r in out if r["framework"] in body["frameworks"]])
+
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=by_agent)
+        resp = await scan(SCAN)
+
+    assert resp.status_code == 200, resp.text
+    summary = resp.json()["summary"]
+    frameworks = {f["id"]: f for f in summary["frameworks"]}
+    assert sorted(frameworks) == ["cis-kubernetes", "finos-aigf"]
+    # A framework is identified and named by its pack id: that is all the engine
+    # reports. The human name lives in governance_frameworks.
+    assert [f["name"] for f in summary["frameworks"]] == [f["id"] for f in summary["frameworks"]]
+    # The versions are the ones the checks were evaluated at, not the request's:
+    # each pack is activated at its own version.
+    assert frameworks["cis-kubernetes"]["versions"] == ["v1.8.0"]
+    assert frameworks["finos-aigf"]["versions"] == ["v1.0.0"]
+    # Two agents x two mapped checks = four rows, two controls.
+    assert (frameworks["cis-kubernetes"]["totalControls"],
+            frameworks["cis-kubernetes"]["totalResults"]) == (2, 4)
+    # A control passes only when every row for it passed; agent-b failed one.
+    assert (frameworks["cis-kubernetes"]["passedControls"],
+            frameworks["cis-kubernetes"]["failedControls"]) == (1, 1)
+    # Two mapped checks plus the unmapped one: three controls, six rows.
+    assert (frameworks["finos-aigf"]["totalControls"],
+            frameworks["finos-aigf"]["totalResults"]) == (3, 6)
+    assert (frameworks["finos-aigf"]["passedControls"],
+            frameworks["finos-aigf"]["failedControls"]) == (3, 0)
+    assert summary["totalChecks"] == 10
+    assert fake.audit[0]["detail"]["checks_unmapped"] == 2
+
+
+# --------------------------------------------------------------------------
 # A malformed engine result (M2)
 # --------------------------------------------------------------------------
 

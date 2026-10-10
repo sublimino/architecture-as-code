@@ -283,8 +283,11 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     # This assertion is deliberately an exact set rather than a subset check, so that any future
     # field lands here as a conscious contract decision rather than by accident. Removing a *Gbp
     # field IS a breaking change and must be coordinated with the dashboard.
+    # ``totalResults`` is likewise additive: ``totalControls`` used to be the
+    # number of (agent, check) assessment rows, which grows with the fleet, so
+    # it now counts distinct controls and the row count has a field of its own.
     assert set(frameworks.json()[0]) == {
-        "id", "name", "versions", "totalControls", "passedControls",
+        "id", "name", "versions", "totalControls", "totalResults", "passedControls",
         "failedControls", "totalExposureGbp", "exposure",
     }
     assert set(summary.json()) == {

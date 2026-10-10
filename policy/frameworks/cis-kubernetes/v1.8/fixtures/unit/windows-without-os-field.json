@@ -1,0 +1,56 @@
+{
+  "name": "windows-without-os-field",
+  "level": "unit",
+  "description": "The Windows baseline without spec.os.name: the Linux-only exemption is keyed on spec.os.name, so Linux checks apply and fail.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "windows-without-os-field",
+        "namespace": "win-apps"
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "windowsOptions": {
+            "runAsUserName": "ContainerUser"
+          }
+        },
+        "containers": [
+          {
+            "name": "iis",
+            "image": "mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2022",
+            "securityContext": {
+              "windowsOptions": {
+                "runAsUserName": "ContainerUser"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "fail",
+    "no-root-containers": "pass",
+    "no-net-raw": "fail",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "fail",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "fail",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

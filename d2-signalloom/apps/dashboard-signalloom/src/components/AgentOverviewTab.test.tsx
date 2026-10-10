@@ -463,4 +463,95 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
     const postureCard = screen.getByTestId('overview-card-posture')
     expect(postureCard.querySelector('[data-testid="overview-posture-drilldown"]')).toBeInTheDocument()
   })
+
+  it('renders CEL expressions, remediation, and official benchmark links for all hostile vector controls', () => {
+    const hostileFindings = [
+      {
+        agent_id: 'agent-hostile-root',
+        control_id: 'c0000000-0000-0000-0000-000000000007',
+        control_name: 'CIS 5.2.6 -- Non-Root Execution',
+        framework_name: 'CIS Kubernetes Benchmark',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+      {
+        agent_id: 'agent-hostile-root',
+        control_id: 'c0000000-0000-0000-0000-000000000008',
+        control_name: 'CIS 5.2.5 -- Privilege Escalation Disabled',
+        framework_name: 'CIS Kubernetes Benchmark',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+      {
+        agent_id: 'agent-hostile-hijacker',
+        control_id: 'c0000000-0000-0000-0000-000000000011',
+        control_name: 'CIS 5.2.2 -- Host Namespace Sharing Prohibited',
+        framework_name: 'CIS Kubernetes Benchmark',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+      {
+        agent_id: 'agent-hostile-syscall',
+        control_id: 'c0000000-0000-0000-0000-000000000009',
+        control_name: 'CIS 5.7.4 -- Seccomp RuntimeDefault',
+        framework_name: 'CIS Kubernetes Benchmark',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+      {
+        agent_id: 'agent-hostile-token',
+        control_id: 'c0000000-0000-0000-0000-000000000010',
+        control_name: 'CIS 5.7.1 -- Automount Service Account Token Disabled',
+        framework_name: 'CIS Kubernetes Benchmark',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+      {
+        agent_id: 'agent-hostile-ports',
+        control_id: 'c0000000-0000-0000-0000-000000000013',
+        control_name: 'CRA -- External Interface and Port Minimization',
+        framework_name: 'Cyber Resilience Act (CRA)',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+      {
+        agent_id: 'agent-hostile-rogue',
+        control_id: 'c0000000-0000-0000-0000-000000000004',
+        control_name: 'Art. 14 -- Human Oversight Authorization',
+        framework_name: 'EU AI Act',
+        status: 'fail',
+        assessed_at: '2026-10-10T12:00:00Z',
+      },
+    ]
+
+    const agent = createMockAgent()
+    renderTab(<AgentOverviewTab agent={agent} complianceResults={hostileFindings} />)
+
+    // Vector 1: CIS 5.2.6 & CIS 5.2.5
+    expect(screen.getByTestId('noncompliant-control-cis-5-2-6')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cis-5-2-6')).toHaveTextContent('runAsNonRoot')
+    expect(screen.getByTestId('compliance-docs-link-cis-5-2-6')).toHaveAttribute('href', expect.stringContaining('http'))
+
+    expect(screen.getByTestId('noncompliant-control-cis-5-2-5')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cis-5-2-5')).toHaveTextContent('allowPrivilegeEscalation')
+
+    // Vector 2: CIS 5.2.2
+    expect(screen.getByTestId('noncompliant-control-cis-5-2-2')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cis-5-2-2')).toHaveTextContent('hostPID')
+
+    // Vector 3: CIS 5.7.1 & CRA Port Minimization
+    expect(screen.getByTestId('noncompliant-control-cis-5-7-1')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cis-5-7-1')).toHaveTextContent('automountServiceAccountToken')
+
+    expect(screen.getByTestId('noncompliant-control-cra-external-interface-and-port-minimization')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cra-external-interface-and-port-minimization')).toHaveTextContent('containerPort')
+
+    // Vector 4: CIS 5.7.4
+    expect(screen.getByTestId('noncompliant-control-cis-5-7-4')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cis-5-7-4')).toHaveTextContent('seccompProfile')
+
+    // Vector 5: Art. 14
+    expect(screen.getByTestId('noncompliant-control-art-14-human-oversight-authorization')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-art-14-human-oversight-authorization')).toHaveTextContent('human_approval_svid')
+  })
 })

@@ -1,0 +1,349 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-hostile-root-breakout",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "hostile-agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/managed-by": "hostile-agents-suite",
+      "app.kubernetes.io/instance": "hostile-root-breakout",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "hostile-root-breakout",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "hostile",
+      "signalloom.ai/vector": "root-breakout",
+      "signalloom.ai/state": "active",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Hostile Agent: Root Breakout",
+      "signalloom.ai/description": "Adversarial root breakout vector with UID 0 and allowPrivilegeEscalation=true",
+      "signalloom.ai/target-cel-controls": "cis-5.2.6,cis-5.2.5"
+    }
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "securityContext": {
+          "runAsNonRoot": false,
+          "runAsUser": 0,
+          "allowPrivilegeEscalation": true
+        },
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-hostile-host-hijacker",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "hostile-agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/managed-by": "hostile-agents-suite",
+      "app.kubernetes.io/instance": "hostile-host-hijacker",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "hostile-host-hijacker",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "hostile",
+      "signalloom.ai/vector": "host-hijacker",
+      "signalloom.ai/state": "active",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Hostile Agent: Host Hijacker",
+      "signalloom.ai/description": "Shares host PID, IPC, and network namespaces to inspect host kernel and processes",
+      "signalloom.ai/target-cel-controls": "cis-5.2.2"
+    }
+  },
+  "spec": {
+    "hostPID": true,
+    "hostIPC": true,
+    "hostNetwork": true,
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "securityContext": {
+          "allowPrivilegeEscalation": false
+        },
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-hostile-token-harvester",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "hostile-agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/managed-by": "hostile-agents-suite",
+      "app.kubernetes.io/instance": "hostile-token-harvester",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "hostile-token-harvester",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "hostile",
+      "signalloom.ai/vector": "token-harvester",
+      "signalloom.ai/state": "active",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Hostile Agent: Token Harvester",
+      "signalloom.ai/description": "Mounts Kubernetes default SA token and opens unauthorized listener on port 4444",
+      "signalloom.ai/target-cel-controls": "cis-5.7.1,cra-ports"
+    }
+  },
+  "spec": {
+    "automountServiceAccountToken": true,
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "ports": [
+          {
+            "name": "backdoor",
+            "containerPort": 4444
+          }
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false
+        },
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-hostile-syscall-bypass",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "hostile-agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/managed-by": "hostile-agents-suite",
+      "app.kubernetes.io/instance": "hostile-syscall-bypass",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "hostile-syscall-bypass",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "hostile",
+      "signalloom.ai/vector": "syscall-bypass",
+      "signalloom.ai/state": "active",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Hostile Agent: Syscall Bypass",
+      "signalloom.ai/description": "Executes with Unconfined seccomp profile, disabling kernel syscall filtering",
+      "signalloom.ai/target-cel-controls": "cis-5.7.4"
+    }
+  },
+  "spec": {
+    "securityContext": {
+      "seccompProfile": {
+        "type": "Unconfined"
+      }
+    },
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "securityContext": {
+          "allowPrivilegeEscalation": false
+        },
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-hostile-rogue-telemetry",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "hostile-agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/managed-by": "hostile-agents-suite",
+      "app.kubernetes.io/instance": "hostile-rogue-telemetry",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "hostile-rogue-telemetry",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "hostile",
+      "signalloom.ai/vector": "rogue-telemetry",
+      "signalloom.ai/behavior": "active-loop",
+      "signalloom.ai/state": "active",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Hostile Agent: Rogue Telemetry & Tool Exec",
+      "signalloom.ai/description": "Rapid telemetry probing canary and invoking privileged modify_iam without human approval SVID",
+      "signalloom.ai/target-cel-controls": "art-14"
+    }
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      },
+      {
+        "name": "rogue-telemetry-loop",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "command": [
+          "/bin/sh",
+          "-c"
+        ],
+        "args": [
+          "while true; do now=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\"); curl -sS -X POST \"http://signal-ingest.fe-signalloom.svc.cluster.local:8082/api/v1/observations\" -H \"Content-Type: application/json\" -d \"{\\\"actor\\\": \\\"agent-hostile-rogue-telemetry\\\", \\\"layer\\\": \\\"activity_pulse\\\", \\\"action\\\": \\\"state_heartbeat\\\", \\\"timestamp\\\": \\\"${now}\\\", \\\"attributes\\\": {\\\"vector\\\": \\\"rogue-telemetry\\\", \\\"status\\\": \\\"probing\\\"}}\" 2>/dev/null || true; curl -sS --max-time 1 \"http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/api/v1/canary\" 2>/dev/null || true; sleep 2; done\n"
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-compliant-baseline",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/instance": "compliant-baseline",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "compliant-baseline",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "baseline",
+      "signalloom.ai/state": "idle",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Compliant Baseline Agent",
+      "signalloom.ai/description": "Fully compliant reference agent passing all CIS and governance controls"
+    }
+  },
+  "spec": {
+    "automountServiceAccountToken": false,
+    "hostPID": false,
+    "hostIPC": false,
+    "hostNetwork": false,
+    "nodeSelector": {
+      "node.signalloom.ai/cgroup-v2": "true",
+      "node.signalloom.ai/landlock": "true"
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "ports": [
+          {
+            "name": "http",
+            "containerPort": 8080
+          }
+        ],
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 65532,
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}

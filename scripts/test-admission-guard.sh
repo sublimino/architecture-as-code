@@ -13,6 +13,10 @@ echo "=== Testing node-capability-guard admission webhook ==="
 echo "Running Go unit test suite..."
 export GOROOT=/home/linuxbrew/.linuxbrew/opt/go/libexec
 export PATH=/home/linuxbrew/.linuxbrew/bin:$PATH
+export CGO_ENABLED="${CGO_ENABLED:-0}"
+export GOPATH=/tmp/gopath
+export GOCACHE=/tmp/go-cache
+export GOMODCACHE=/tmp/gopath/pkg/mod
 (cd "$REPO_ROOT/d2-signalloom/apps/node-capability-guard" && go test -v ./...)
 
 # 2. Build webhook binary
@@ -50,6 +54,21 @@ if [ "$ALLOWED_UNCONFINED" != "false" ] || [ "$CODE_UNCONFINED" != "403" ]; then
   echo "FAIL: expected unconfined agent pod to be rejected 403"
   exit 1
 fi
+
+# 4b. Probe hostile agent vectors (must be REJECTED 403)
+for vector_name in "root-breakout" "host-hijacker" "token-harvester" "syscall-bypass" "rogue-telemetry"; do
+  HOSTILE_REVIEW="{\"apiVersion\":\"admission.k8s.io/v1\",\"kind\":\"AdmissionReview\",\"request\":{\"uid\":\"probe-hostile-$vector_name\",\"object\":{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"metadata\":{\"name\":\"agent-hostile-$vector_name\",\"labels\":{\"signalloom.ai/agent\":\"true\"}},\"spec\":{\"containers\":[{\"name\":\"agent\",\"image\":\"alpine\"}]}}}}"
+  RESP_HOSTILE=$(curl -s -X POST "http://127.0.0.1:$PORT/validate" \
+    -H "Content-Type: application/json" \
+    -d "$HOSTILE_REVIEW")
+  ALLOWED_HOSTILE=$(echo "$RESP_HOSTILE" | jq -r '.response.allowed')
+  CODE_HOSTILE=$(echo "$RESP_HOSTILE" | jq -r '.response.status.code')
+  echo "Probe [hostile $vector_name]: allowed=$ALLOWED_HOSTILE code=$CODE_HOSTILE"
+  if [ "$ALLOWED_HOSTILE" != "false" ] || [ "$CODE_HOSTILE" != "403" ]; then
+    echo "FAIL: expected hostile agent pod to be rejected 403"
+    exit 1
+  fi
+done
 
 # 5. Probe compliant agent pod (must be ALLOWED 200)
 CONFINED_REVIEW='{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview","request":{"uid":"probe-confined-01","object":{"apiVersion":"v1","kind":"Pod","metadata":{"name":"agent-confined","labels":{"signalloom.ai/agent":"true"}},"spec":{"nodeSelector":{"node.signalloom.ai/cgroup-v2":"true","node.signalloom.ai/landlock":"true"},"containers":[{"name":"c","image":"alpine"}]}}}}'

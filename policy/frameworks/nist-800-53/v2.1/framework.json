@@ -356,7 +356,7 @@
               "id": "image-digest",
               "name": "Immutable container image digest",
               "description": "Ensures container images are pinned by immutable cryptographic SHA-256 digest.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.contains('@sha256:'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.matches('@sha256:[a-f0-9]{64}$'))",
               "severity": "high",
               "remediation": "Reference images by immutable sha256 digest.",
               "riskTriple": {

@@ -144,6 +144,77 @@ func TestReplay_EqualsLiveOnTheAWSFixtureCorpus(t *testing.T) {
 	}
 }
 
+// TestReplay_EqualsLiveWithDomainPseudonym proves that when domain_pseudonym labels are
+// present on ingested observations, the byte-for-byte replay equality guarantee holds across
+// two consecutive replay runs and matches the live projection exactly.
+func TestReplay_EqualsLiveWithDomainPseudonym(t *testing.T) {
+	bundlesDir := repoBundlesDir(t)
+	log := testLogger(t)
+	bundles, err := LoadBundles(bundlesDir, log, nil)
+	if err != nil {
+		t.Fatalf("LoadBundles: %v", err)
+	}
+
+	obs, err := awslogs.FixtureObservations("kusari", "us-east-1")
+	if err != nil {
+		t.Fatalf("FixtureObservations: %v", err)
+	}
+
+	// Extend observations with representative domain_pseudonym values
+	for i := range obs {
+		if obs[i].Labels == nil {
+			obs[i].Labels = make(map[string]string)
+		}
+		obs[i].Labels["domain_pseudonym"] = "4975aa30b0b9151963beacd82371a61e2ff27e8faaf786746c39c414c5ae1928"
+	}
+
+	st := store.NewMemoryStore()
+	liveLines := liveRun(t, st, bundles, obs)
+	if len(liveLines) == 0 {
+		t.Fatal("liveRun produced no findings over domain-bearing fixtures")
+	}
+
+	// First replay run
+	var replayed1 bytes.Buffer
+	nf1, nd1, err := Replay(context.Background(), st, ReplayOptions{
+		BundlesDir: bundlesDir,
+		From:       time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:         time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		Out:        &replayed1,
+		Log:        log,
+	})
+	if err != nil {
+		t.Fatalf("first Replay: %v", err)
+	}
+
+	// Second consecutive replay run
+	var replayed2 bytes.Buffer
+	nf2, nd2, err := Replay(context.Background(), st, ReplayOptions{
+		BundlesDir: bundlesDir,
+		From:       time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:         time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		Out:        &replayed2,
+		Log:        log,
+	})
+	if err != nil {
+		t.Fatalf("second Replay: %v", err)
+	}
+
+	wantOut := strings.Join(liveLines, "\n") + "\n"
+	if got1 := replayed1.String(); got1 != wantOut {
+		t.Errorf("first replay run != live\n--- live ---\n%s\n--- replay ---\n%s", wantOut, got1)
+	}
+	if got2 := replayed2.String(); got2 != wantOut {
+		t.Errorf("second replay run != live\n--- live ---\n%s\n--- replay ---\n%s", wantOut, got2)
+	}
+	if replayed1.String() != replayed2.String() {
+		t.Errorf("consecutive replay runs produced divergent output:\nrun 1:\n%s\nrun 2:\n%s", replayed1.String(), replayed2.String())
+	}
+	if nf1 != nf2 || nd1 != nd2 {
+		t.Errorf("findings/decisions mismatch across consecutive runs: (%d,%d) vs (%d,%d)", nf1, nd1, nf2, nd2)
+	}
+}
+
 // Replay must reproduce DECISIONS too, not just findings, so the corpus is one
 // that crosses a threshold.
 func TestReplay_EqualsLiveIncludingDecisions(t *testing.T) {

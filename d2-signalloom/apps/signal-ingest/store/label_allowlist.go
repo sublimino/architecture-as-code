@@ -184,8 +184,11 @@ var defaultLabelAllowList = map[string]struct{}{
 	// cgroup_path: the kubelet slice of the attributed pod (kubepods-…-pod<uid>.slice). It
 	// carries a pod UID, which is topology. The sentinel attributes events to pods only.
 	"cgroup_path": {},
-	// domain: the attributed canonical domain for an egress connect observation (SLWD Phase 2).
-	"domain": {},
+	// domain_pseudonym, sni_pseudonym: the keyed HMAC pseudonym of the attributed canonical
+	// domain / TLS SNI for an egress connect observation (SLWD Phase 3). Cleartext domain / SNI
+	// are strictly forbidden in immutable segments.
+	"domain_pseudonym": {},
+	"sni_pseudonym":    {},
 	// target: the file the workload opened. ADMITTED WITH A VALUE CONTROL, unlike every other
 	// key: a path is named by whoever owns the file system, and one under a home directory names
 	// an account (/home/alice/.ssh/id_rsa). The user component is replaced in Append by

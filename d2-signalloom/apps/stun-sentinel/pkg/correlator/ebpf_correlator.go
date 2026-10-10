@@ -282,6 +282,16 @@ func WithDNSHeuristicsEngine(engine *DNSHeuristicsEngine) Option {
 	}
 }
 
+// WithPseudonymiser sets the domain and SNI pseudonymiser (SLWD Phase 3).
+func WithPseudonymiser(p *Pseudonymiser) Option {
+	return func(m *SentinelProbeManager) {
+		m.pseudonymiser = p
+		if p != nil {
+			SetDefaultPseudonymiser(p)
+		}
+	}
+}
+
 // ifindexEntry stores the pod identity mapped from a host veth interface index.
 type ifindexEntry struct {
 	PodUID     string
@@ -409,6 +419,9 @@ type SentinelProbeManager struct {
 
 	// heuristicsEngine evaluates DNS and TLS anomaly heuristics (SLWD Phase 2).
 	heuristicsEngine *DNSHeuristicsEngine
+
+	// pseudonymiser converts domain and SNI values into keyed HMAC pseudonyms (SLWD Phase 3).
+	pseudonymiser *Pseudonymiser
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -453,6 +466,13 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 
 	for _, opt := range opts {
 		opt(m)
+	}
+
+	if m.pseudonymiser == nil {
+		if p, err := NewPseudonymiserFromEnv(); err == nil {
+			m.pseudonymiser = p
+			SetDefaultPseudonymiser(p)
+		}
 	}
 
 	// Initialize default presentation filter if none was provided via options

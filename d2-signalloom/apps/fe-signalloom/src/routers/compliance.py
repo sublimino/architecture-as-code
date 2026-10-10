@@ -44,7 +44,7 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
         "version": "v2.1.0",
         "regulatory_body": "NIST",
         "description": "Security and Privacy Controls for Information Systems and Organizations.",
-        "controls_count": 14,
+        "controls_count": 17,
     },
     "cra": {
         "id": "cra",

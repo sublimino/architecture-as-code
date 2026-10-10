@@ -408,7 +408,22 @@ const (
 )
 
 var apkExceptions = []apkException{
-	// --- class A: zero-container fixtures, one entry per pack --------------
+	{
+		Pack:     "nist-800-53@v2.0",
+		Groups:   []string{"seccompProfile"},
+		PSAAllow: true,
+		Cases: []string{
+			"seccomp-profile--container-localhost-without-profile",
+			"seccomp-profile--pod-localhost-without-profile",
+			"seccomp-profile--pod-localhost-profile-without-localhost-type",
+			"apk-probe-seccomp-localhost-without-profile",
+		},
+		Reason: "DELIBERATE, PACK IS RIGHT AND PSA IS BLIND HERE. seccompProfile.type Localhost with no " +
+			"localhostProfile (and the inverse, a profile path with the wrong type) is rejected " +
+			"by API validation, not by PSA, whose seccomp check reads the type alone. The pack " +
+			"failing these is stricter than the PSA leg can express; the apiValidation secondary " +
+			"oracle is what holds the direction.",
+	},
 	{
 		Pack:     "eu-ai-act@v1.0",
 		Groups:   []string{"privileged", "allowPrivilegeEscalation", "runAsNonRoot"},
@@ -451,134 +466,6 @@ var apkExceptions = []apkException{
 		Cases:    apkNoContainerFixturesNISTv21,
 		Reason:   apkReasonNoContainers,
 	},
-
-	// --- class B: the Windows exemption PSS has and the packs do not -------
-	{
-		Pack: "eu-ai-act@v1.0", Groups: []string{"allowPrivilegeEscalation"},
-		PSAAllow: true,
-		Cases:    []string{"apk-probe-windows-no-privilege-escalation-field"}, Reason: apkReasonWindowsField,
-	},
-	{
-		Pack: "eu-ai-act@v2.0", Groups: []string{"allowPrivilegeEscalation"},
-		PSAAllow: true,
-		Cases:    []string{"apk-probe-windows-no-privilege-escalation-field"}, Reason: apkReasonWindowsField,
-	},
-	{
-		Pack: "eu-ai-act@v2.1", Groups: []string{"allowPrivilegeEscalation"},
-		PSAAllow: true,
-		Cases:    []string{"apk-probe-windows-no-privilege-escalation-field"}, Reason: apkReasonWindowsField,
-	},
-	{
-		Pack: "nist-800-53@v1.0", Groups: []string{"allowPrivilegeEscalation"},
-		PSAAllow: true,
-		Cases:    []string{"apk-probe-windows-no-privilege-escalation-field"}, Reason: apkReasonWindowsField,
-	},
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"allowPrivilegeEscalation", "seccompProfile"},
-		PSAAllow: true,
-		Cases:    []string{"apk-probe-windows-no-privilege-escalation-field"}, Reason: apkReasonWindowsField,
-	},
-	{
-		Pack: "nist-800-53@v2.1", Groups: []string{"allowPrivilegeEscalation"},
-		PSAAllow: true,
-		Cases:    []string{"apk-probe-windows-no-privilege-escalation-field"}, Reason: apkReasonWindowsField,
-	},
-
-	// --- class C: runAsUser: 0 accepted alongside runAsNonRoot: true ------
-	{
-		Pack: "eu-ai-act@v1.0", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{
-			"apk-probe-runasuser-zero-with-runasnonroot-true",
-			"apk-probe-runasuser-zero-container-level",
-		},
-		Reason: apkReasonRunAsUserZero,
-	},
-	{
-		Pack: "eu-ai-act@v2.0", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{
-			"apk-probe-runasuser-zero-with-runasnonroot-true",
-			"apk-probe-runasuser-zero-container-level",
-		},
-		Reason: apkReasonRunAsUserZero,
-	},
-	{
-		Pack: "eu-ai-act@v2.1", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{
-			"apk-probe-runasuser-zero-with-runasnonroot-true",
-			"apk-probe-runasuser-zero-container-level",
-		},
-		Reason: apkReasonRunAsUserZero,
-	},
-	{
-		Pack: "nist-800-53@v1.0", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{
-			"apk-probe-runasuser-zero-with-runasnonroot-true",
-			"apk-probe-runasuser-zero-container-level",
-		},
-		Reason: apkReasonRunAsUserZero,
-	},
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{
-			"apk-probe-runasuser-zero-with-runasnonroot-true",
-			"apk-probe-runasuser-zero-container-level",
-		},
-		Reason: apkReasonRunAsUserZero,
-	},
-	{
-		Pack: "nist-800-53@v2.1", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{
-			"apk-probe-runasuser-zero-with-runasnonroot-true",
-			"apk-probe-runasuser-zero-container-level",
-		},
-		Reason: apkReasonRunAsUserZero,
-	},
-
-	// --- class D: drop ALL then add SYS_ADMIN ------------------------------
-	{
-		Pack: "eu-ai-act@v2.0", Groups: []string{"capabilities"}, OursPass: true,
-		Cases: []string{"apk-probe-drop-all-plus-add-sys-admin"}, Reason: apkReasonAddSysAdmin,
-	},
-	{
-		Pack: "eu-ai-act@v2.1", Groups: []string{"capabilities"}, OursPass: true,
-		Cases: []string{"apk-probe-drop-all-plus-add-sys-admin"}, Reason: apkReasonAddSysAdmin,
-	},
-	{
-		Pack: "nist-800-53@v1.0", Groups: []string{"capabilities"}, OursPass: true,
-		Cases: []string{"apk-probe-drop-all-plus-add-sys-admin"}, Reason: apkReasonAddSysAdmin,
-	},
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"capabilities"}, OursPass: true,
-		Cases: []string{"apk-probe-drop-all-plus-add-sys-admin"}, Reason: apkReasonAddSysAdmin,
-	},
-	{
-		Pack: "nist-800-53@v2.1", Groups: []string{"capabilities"}, OursPass: true,
-		Cases: []string{"apk-probe-drop-all-plus-add-sys-admin"}, Reason: apkReasonAddSysAdmin,
-	},
-
-	// --- class E: the third host namespace, uncovered ----------------------
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"hostNamespaces"}, OursPass: true,
-		Cases: []string{"apk-probe-host-ipc-only"},
-		Reason: "DEFECT CANDIDATE (medium). PSA judges hostNetwork, hostPID and hostIPC as ONE baseline " +
-			"check; this pack has no-host-network and no-host-pid but nothing for hostIPC, so a pod sharing " +
-			"the host IPC namespace (readable/writable shared memory and message queues of every other " +
-			"host process) is reported compliant. PSA is right: the pack needs a no-host-ipc check.",
-	},
-
-	// --- class F: seccomp Localhost with no localhostProfile ---------------
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"seccompAPIValidation"}, OursPass: true,
-		Cases: []string{"apk-probe-seccomp-localhost-without-profile"},
-		Reason: "DEFECT CANDIDATE (medium). seccomp-profile accepts type Localhost and stops; the API server " +
-			"rejects the object outright when localhostProfile is unset (validateSeccompProfileField, " +
-			"transcribed in oracleSeccompAPIValidation). The pack reports compliance for a pod that cannot " +
-			"be submitted. This is the SAME defect A5 already fixed in cis-kubernetes's " +
-			"seccomp-runtime-default — the fix did not travel to this pack. PSA cannot see this direction " +
-			"at all, which is why the necessary-only secondary oracle is what catches it.",
-	},
-
-	// --- class G: pod-security-context is strictly narrower than PSS -------
 	{
 		Pack: "nist-800-53@v2.0", Groups: []string{"podSecurityContext"}, PSAAllow: true,
 		Cases: []string{
@@ -594,8 +481,6 @@ var apkExceptions = []apkException{
 			"group exists precisely to make the stricter-than-PSS surface visible rather than implicit. " +
 			"Keep, unless the pack owner decides NIST AC-6 does not warrant exceeding PSS here.",
 	},
-
-	// --- class H: attribution, not disagreement ----------------------------
 	{
 		Pack: "nist-800-53@v2.0", Groups: []string{"podSecurityContext"}, OursPass: true,
 		Cases: []string{
@@ -608,27 +493,6 @@ var apkExceptions = []apkException{
 			"pod. The pack DOES reject these pods, through container-run-as-non-root: the runAsNonRoot group " +
 			"agrees with PSA on all three. Only the per-check attribution differs, and the overlap between " +
 			"the two pack checks is deliberate and visible.",
-	},
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"runAsNonRoot"}, OursPass: true,
-		Cases: []string{"pod-security-context--run-as-non-root-false"},
-		Reason: "DELIBERATE — ATTRIBUTION, NOT DISAGREEMENT. Pod-level runAsNonRoot is false with containers " +
-			"overriding to true, so container-run-as-non-root passes while PSA rejects an explicit pod-level " +
-			"false regardless of overrides. The pack DOES reject this pod, through pod-security-context: that " +
-			"group agrees with PSA here. Per-check attribution differs; both sides find the pod inadmissible.",
-	},
-
-	// --- class J: pod-level Unconfined masked by container overrides -------
-	{
-		Pack: "nist-800-53@v2.0", Groups: []string{"seccompProfile"}, OursPass: true,
-		Cases: []string{"seccomp-profile--containers-override-pod-unconfined"},
-		Reason: "DEFECT CANDIDATE (high). Pod-level seccompProfile.type is Unconfined and each container " +
-			"overrides it with RuntimeDefault. seccomp-profile's per-container ternary reads the container " +
-			"level and never looks at the pod level once it is set, so the pod passes; PSA rejects an " +
-			"explicit pod-level Unconfined outright, at baseline AND restricted. The known class again: the " +
-			"pack computes the EFFECTIVE profile where admission forbids the FIELD. It matters beyond " +
-			"attribution because any container added later without its own profile inherits Unconfined, and " +
-			"no other check in this pack fails the pod. PSA is right.",
 	},
 }
 
@@ -933,7 +797,9 @@ var apkProbePods = map[string]string{
       }}`,
 
 	// THE KNOWN CLASS, instance 3: the host namespace the pack does not cover.
-	// nist-800-53 v2.0 has no-host-network and no-host-pid but nothing for
+	// nist-800-53 v2.0 now has all three host-namespace checks (the lead added no-host-ipc,
+	// which V3 had proved but could not land); this guard pins the full membership so a
+	// silent narrowing back to a partial cover of one upstream control fails. Formerly
 	// hostIPC; PSA judges all three as one check.
 	"apk-probe-host-ipc-only": `{
       "apiVersion": "v1", "kind": "Pod",
@@ -1725,8 +1591,8 @@ func TestAllPacksNegative_GroupNarrowingCannotEmptyAGroup(t *testing.T) {
 		if g.name != "hostNamespaces" {
 			continue
 		}
-		if strings.Join(g.ours, ",") != "no-host-network,no-host-pid" {
-			t.Errorf("hostNamespaces group for nist-800-53@v2.0 is %v, want [no-host-network no-host-pid]", g.ours)
+		if strings.Join(g.ours, ",") != "no-host-network,no-host-pid,no-host-ipc" {
+			t.Errorf("hostNamespaces group for nist-800-53@v2.0 is %v, want [no-host-network no-host-pid no-host-ipc]", g.ours)
 		}
 	}
 }

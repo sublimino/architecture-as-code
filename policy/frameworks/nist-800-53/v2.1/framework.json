@@ -76,6 +76,50 @@
                 "v2.0.0",
                 "v2.1.0"
               ]
+            },
+            {
+              "id": "no-host-pid",
+              "name": "Host PID namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
+              "severity": "high",
+              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-host-network",
+              "name": "Host network namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
+              "severity": "high",
+              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
             }
           ]
         },

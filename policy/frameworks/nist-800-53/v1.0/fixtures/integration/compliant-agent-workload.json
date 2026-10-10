@@ -185,6 +185,8 @@
     "read-only-rootfs": "pass",
     "image-digest-required": "pass",
     "audit-label": "pass",
-    "no-host-ipc": "pass"
+    "no-host-ipc": "pass",
+    "no-host-pid": "pass",
+    "no-host-network": "pass"
   }
 }

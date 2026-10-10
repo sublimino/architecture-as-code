@@ -362,7 +362,7 @@
             {
               "id": "seccomp-profile",
               "name": "Seccomp profile set",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (!(has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)) || (has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'] && (object.spec.securityContext.seccompProfile.type == 'Localhost' ? (has(object.spec.securityContext.seccompProfile.localhostProfile) && object.spec.securityContext.seccompProfile.localhostProfile != '') : !has(object.spec.securityContext.seccompProfile.localhostProfile)))) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.seccompProfile)) ? (has(c.securityContext.seccompProfile.type) && c.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'] && (c.securityContext.seccompProfile.type == 'Localhost' ? (has(c.securityContext.seccompProfile.localhostProfile) && c.securityContext.seccompProfile.localhostProfile != '') : !has(c.securityContext.seccompProfile.localhostProfile))) : (has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost']))",
+              "celExpression": "(has(object.spec) && has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (!(has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)) || (has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'] && (object.spec.securityContext.seccompProfile.type == 'Localhost' ? (has(object.spec.securityContext.seccompProfile.localhostProfile) && object.spec.securityContext.seccompProfile.localhostProfile != '') : !has(object.spec.securityContext.seccompProfile.localhostProfile)))) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.seccompProfile)) ? (has(c.securityContext.seccompProfile.type) && c.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'] && (c.securityContext.seccompProfile.type == 'Localhost' ? (has(c.securityContext.seccompProfile.localhostProfile) && c.securityContext.seccompProfile.localhostProfile != '') : !has(c.securityContext.seccompProfile.localhostProfile))) : (has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'])))",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -370,7 +370,8 @@
               },
               "policyVersions": [
                 "v2.0.0"
-              ]
+              ],
+              "description": " Windows pods are exempt: the Pod Security Standards do not apply the seccomp rule to them and a Windows workload cannot set a seccomp profile, so requiring one makes a conformant pod unsatisfiable (the same class as the Windows allowPrivilegeEscalation exemption). Found by the external PSA oracle after V3 tightened this check."
             }
           ]
         },

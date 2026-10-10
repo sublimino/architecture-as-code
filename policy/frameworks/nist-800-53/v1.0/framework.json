@@ -39,6 +39,34 @@
                 "v1.0.0"
               ],
               "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names."
+            },
+            {
+              "id": "no-host-pid",
+              "name": "Host PID namespace not shared",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 12000,
+                "max": 50000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ],
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant."
+            },
+            {
+              "id": "no-host-network",
+              "name": "Host network namespace not shared",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 12000,
+                "max": 50000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ],
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant."
             }
           ]
         },

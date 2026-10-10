@@ -143,8 +143,8 @@
             {
               "id": "model-version-pinned",
               "name": "Model version pinned, not a floating alias",
-              "description": "agent.registry.model_version is a non-empty string without whitespace that does not end in a 'latest' alias segment (case-insensitive, e.g. '-latest', ':latest', or bare 'latest').",
-              "celExpression": "has(agent.registry) && type(agent.registry) == map && has(agent.registry.model_version) && type(agent.registry.model_version) == string && agent.registry.model_version.matches('^\\\\S+$') && !agent.registry.model_version.matches('(?i)(^|[-_.:@/])latest$')",
+              "description": "agent.registry.model_version names an explicitly pinned version: it contains a dated snapshot (YYYYMMDD or YYYY-MM-DD), a sha256 digest, or a MAJOR.MINOR.PATCH version; it has no whitespace and does not end in a 'latest' alias segment (case-insensitive). Floating aliases such as gpt-4o or claude-sonnet-4-5 fail. Derived from AIR-PREV-010: use 'a specific, fixed version ... rather than automatically adopting the latest available version'.",
+              "celExpression": "has(agent.registry) && type(agent.registry) == map && has(agent.registry.model_version) && type(agent.registry.model_version) == string && agent.registry.model_version.matches('^\\\\S+$') && !agent.registry.model_version.matches('(?i)(^|[-_.:@/])latest$') && agent.registry.model_version.matches('(^|[^0-9])(19|20)[0-9]{2}-?(0[1-9]|1[0-2])-?(0[1-9]|[12][0-9]|3[01])([^0-9]|$)|sha256:[a-f0-9]{64}|(^|[^0-9.])v?[0-9]+[.][0-9]+[.][0-9]+([^0-9.]|$)')",
               "severity": "medium",
               "remediation": "Pin the model to an explicit dated or digest version and record it in the registry; upgrade only through change control.",
               "riskTriple": {

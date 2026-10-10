@@ -1,0 +1,76 @@
+{
+  "name": "model-version-semver",
+  "level": "unit",
+  "description": "model_version is \"llama-3.1-8b-instruct:1.2.0\": an explicit MAJOR.MINOR.PATCH version, so it is pinned (pass).",
+  "input": {
+    "object": {},
+    "agent": {
+      "registry": {
+        "model_registered": true,
+        "model_version": "llama-3.1-8b-instruct:1.2.0"
+      },
+      "guardrails": {
+        "prompt_injection_filter": true,
+        "output_filter": true
+      },
+      "data": {
+        "rag_enabled": true,
+        "ingestion_sensitive_data_filter": true,
+        "persistent_stores": [
+          {
+            "name": "vector-index",
+            "encrypted_at_rest": true
+          }
+        ]
+      },
+      "rate_limits": {
+        "requests_per_minute": 120
+      },
+      "access": {
+        "authentication_required": true,
+        "rbac_enforced": true
+      },
+      "tools": [
+        {
+          "name": "search_docs",
+          "scopes": [
+            "kb:read"
+          ],
+          "impact": "low"
+        },
+        {
+          "name": "submit_payment",
+          "scopes": [
+            "payments:write"
+          ],
+          "impact": "high",
+          "requires_human_approval": true
+        }
+      ],
+      "mcp_servers": [
+        {
+          "name": "docs-mcp",
+          "allowlisted": true
+        }
+      ],
+      "credentials": {
+        "long_lived_secrets_exposed": false
+      },
+      "observability": {
+        "audit_logging": true
+      },
+      "cost_controls": {
+        "budget_limit": 5000,
+        "spend_alerting": true
+      },
+      "governance": {
+        "decision_explainability": true,
+        "audit_log_tamper_evident": true
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "model-version-pinned": "pass"
+  }
+}

@@ -729,7 +729,11 @@ test-signal-fusion: test-signal-ingest test-dashboard-weave test-signalfusion-ba
 
 .PHONY: test-kpai
 test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
-	bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts
+	@if [ "$$(awk '/^NoNewPrivs:/ {print $$2}' /proc/self/status 2>/dev/null)" = "1" ] && [ -n "$$NONO_CAP_FILE" ]; then \
+		bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts; \
+	else \
+		systemd-run --user --wait --collect --pipe -p NoNewPrivileges=yes --setenv=NONO_CAP_FILE="/tmp/.nono-test.json" bash -c 'export PATH=/home/linuxbrew/.linuxbrew/bin:$$PATH && touch /tmp/.nono-test.json && cd "$(CURDIR)" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts'; \
+	fi
 
 ##@ Composable demo lifecycle
 

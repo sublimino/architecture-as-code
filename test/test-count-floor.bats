@@ -252,7 +252,7 @@ setup() {
 
 @test "kpai runtime harness executes at least 70 tests" {
     local out rc=0
-    out="$(cd "$repo_root" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts 2>&1)" || rc=$?
+    out="$(make test-kpai 2>&1)" || rc=$?
     if [ "$rc" -ne 0 ]; then echo "kpai tests failed (exit $rc)"; echo "$out" | tail -15; false; fi
     local pass_count
     pass_count="$(echo "$out" | grep -oE '[0-9]+ pass' | grep -oE '^[0-9]+')"

@@ -142,7 +142,7 @@
             {
               "id": "data-classification-label",
               "name": "Data classification label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.data_classification)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.data_classification) && object.metadata.labels.data_classification != ''",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -162,7 +162,7 @@
             {
               "id": "pii-handling-annotation",
               "name": "PII handling declared",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/pii-handling' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/pii-handling' in object.metadata.annotations && object.metadata.annotations['osramp.io/pii-handling'] != ''",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -182,7 +182,7 @@
             {
               "id": "data-retention-annotation",
               "name": "Data retention policy declared",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/data-retention' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/data-retention' in object.metadata.annotations && object.metadata.annotations['osramp.io/data-retention'] != ''",
               "riskTriple": {
                 "min": 2000,
                 "mode": 12000,
@@ -208,7 +208,7 @@
             {
               "id": "hitl-label",
               "name": "HITL oversight label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.ai_human_oversight)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.ai_human_oversight) && object.metadata.labels.ai_human_oversight != ''",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -228,7 +228,7 @@
             {
               "id": "approval-gate-annotation",
               "name": "Approval gate annotation present",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/approval-gate' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/approval-gate' in object.metadata.annotations && object.metadata.annotations['osramp.io/approval-gate'] != ''",
               "riskTriple": {
                 "min": 8000,
                 "mode": 35000,
@@ -248,7 +248,7 @@
             {
               "id": "override-contact-annotation",
               "name": "Override contact declared",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/override-contact' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/override-contact' in object.metadata.annotations && object.metadata.annotations['osramp.io/override-contact'] != ''",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -403,7 +403,7 @@
             {
               "id": "policy-version-label",
               "name": "Policy version label present",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.policy_version)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.policy_version) && object.metadata.labels.policy_version != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,

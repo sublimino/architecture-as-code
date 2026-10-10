@@ -102,7 +102,7 @@
             {
               "id": "app-label",
               "name": "Application label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app) && object.metadata.labels.app != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -122,7 +122,7 @@
             {
               "id": "version-label",
               "name": "Version label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.version)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.version) && object.metadata.labels.version != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -240,7 +240,7 @@
             {
               "id": "audit-label",
               "name": "Audit logging label present",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.audit_logging)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.audit_logging) && object.metadata.labels.audit_logging != ''",
               "riskTriple": {
                 "min": 2000,
                 "mode": 8000,

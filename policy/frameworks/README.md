@@ -122,12 +122,14 @@ has(object.spec) && has(object.spec.automountServiceAccountToken) &&
 # Absent hostNetwork means false, so the check passes
 has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)
 
-# Label exists
-has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app)
+# Label exists with a non-empty value
+has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app) &&
+  object.metadata.labels.app != ''
 
-# Annotation exists
+# Annotation exists with a non-empty value
 has(object.metadata) && has(object.metadata.annotations) &&
-  'osramp.io/sbom-url' in object.metadata.annotations
+  'osramp.io/sbom-url' in object.metadata.annotations &&
+  object.metadata.annotations['osramp.io/sbom-url'] != ''
 
 # Agent governance flag
 has(agent.audit_config) && has(agent.audit_config.event_logging_enabled) &&

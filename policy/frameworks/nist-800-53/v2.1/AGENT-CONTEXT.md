@@ -17,7 +17,7 @@ check instead of erroring.
 |------|------|-------|
 | `request.peer.spiffe_id` | string | `spiffe-peer-authorization`: must start with `spiffe://signalloom.demo/ns/` |
 | `request.source.namespace` | string | `cross-namespace-egress-authorization` |
-| `request.destination.namespace` | string | `cross-namespace-egress-authorization`: passes when it equals the source namespace |
+| `request.destination.namespace` | string | `cross-namespace-egress-authorization`: passes when it is non-empty and equals the source namespace (or `context.egress_authorized` is true) |
 | `request.context.egress_authorized` | bool | `cross-namespace-egress-authorization`: passes a cross-namespace destination when `true` |
 | `request.auth.svid_presented` | bool | `mfa-spiffe-svid-required` |
 | `request.network_policy.ingress_isolated` | bool | `network-boundary-enforcement` |

@@ -144,6 +144,29 @@ identification), IA-2(1) (multifactor), and `spec.hostIPC` — v2.0 checks
 `hostNetwork` and `hostPID` but not `hostIPC`, and v2.1 checks none of the
 three.
 
+### 6. Not fixed: `hostIPC` is unchecked in every version
+
+PSS treats `hostNetwork`, `hostPID` and `hostIPC` as one Host Namespaces
+control. v2.0 checks two of the three; **`hostIPC: true` alone passes every
+version of this pack**, and v2.1 checks none of the three. Sharing the host IPC
+namespace exposes host shared memory and semaphores, and PSS baseline forbids
+it.
+
+The fix is a `no-host-ipc` check with
+`has(object.spec) && !(has(object.spec.hostIPC) && object.spec.hostIPC == true)`
+mirroring `no-host-pid`, plus `--set-true` / `--set-false` / `--field-absent`
+fixtures and an `unpriced.tsv` line. It was built and mutation-proved, then
+**reverted**, because it cannot land from inside this pack alone:
+
+- `frameworks/loader_test.go:705` asserts v2.0 has exactly 27 checks; a 28th
+  fails it, and Go code is outside this pack.
+- the PSA oracle's `hostNamespaces` group maps `no-host-network + no-host-pid`
+  by name, so it would not consult a new check and the
+  `apk-probe-host-ipc-only` divergence would persist regardless.
+
+Both are one-line changes for whoever owns those files. Until then the gap is
+real and recorded here rather than silently closed.
+
 ## Container-list scope
 
 Security checks evaluate `containers + initContainers + ephemeralContainers`,

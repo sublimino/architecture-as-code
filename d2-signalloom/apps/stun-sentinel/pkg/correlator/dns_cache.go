@@ -241,6 +241,29 @@ func (s *dnsCacheShard) resolveCanonicalLocked(podOrCgroup, name string) string 
 	return curr
 }
 
+// EffectiveTTL calculates the effective TTL for a raw TTL value in seconds,
+// enforcing the configured minTTL (floor: 30s) and maxTTL (ceiling: 3600s) bounds.
+func (c *DNSCache) EffectiveTTL(rawTTL uint32) time.Duration {
+	minTTL := MinDNSTTL
+	maxTTL := MaxDNSTTL
+	if c != nil {
+		if c.minTTL > 0 {
+			minTTL = c.minTTL
+		}
+		if c.maxTTL >= minTTL {
+			maxTTL = c.maxTTL
+		}
+	}
+	dur := time.Duration(rawTTL) * time.Second
+	if dur < minTTL {
+		return minTTL
+	}
+	if dur > maxTTL {
+		return maxTTL
+	}
+	return dur
+}
+
 // Insert caches all answer addresses from a DNS response with per-record TTLs,
 // resolving any CNAME alias chain to a canonical owning domain.
 //
@@ -284,12 +307,7 @@ func (c *DNSCache) Insert(podOrCgroup string, answers []net.IP, ttls []uint32, q
 		if i < len(ttls) {
 			rawTTL = ttls[i]
 		}
-		effectiveTTL := time.Duration(rawTTL) * time.Second
-		if effectiveTTL < c.minTTL {
-			effectiveTTL = c.minTTL
-		} else if effectiveTTL > c.maxTTL {
-			effectiveTTL = c.maxTTL
-		}
+		effectiveTTL := c.EffectiveTTL(rawTTL)
 		expiresAt := now.Add(effectiveTTL)
 
 		key := entryKey{podOrCgroup: podOrCgroup, ip: ipStr}

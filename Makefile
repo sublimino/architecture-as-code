@@ -3547,3 +3547,11 @@ verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s),
 
 verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
 	$(VERIFY_CEL) db
+
+.PHONY: verify-cel-selftest verify-cel-mutation-proof
+
+verify-cel-selftest: ## Prove the verify-cel aggregator can go red: 14 injected conditions (failing tier, zero collection, skip-only, zero fixtures, no Docker, unready Postgres).
+	bats test/verify-cel.bats
+
+verify-cel-mutation-proof: ## Prove verify-cel-selftest is not decoration: delete each gate from the runner and require the one test that pins it to go red (6 mutants).
+	test/verify-cel-mutation-proof.sh

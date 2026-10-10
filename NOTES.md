@@ -1,8 +1,9 @@
 # NOTES — I2-v2-acceptance
 
 Working notes for the branch `feat/gcp-tf-v2-acceptance`. Two things belong
-here: which acceptance checks cannot reach a real verdict without a live estate,
-and every v1 assumption in the tree that will need attention when v1 migrates.
+here. First, which acceptance checks cannot reach a real verdict without a live
+estate. Second, every v1 assumption in the tree that will need attention when
+v1 migrates.
 
 Base commit: `cd68dea`. Revised after review by I1 (schema + access_mode enum)
 and the team lead (egress direction, OS Login gap).
@@ -13,38 +14,39 @@ and the team lead (egress direction, OS Login gap).
 
 The bats suite drives every branch of every check below with a stubbed `gcloud`,
 so the *classification logic* is fully exercised offline. What follows is a
-different claim: which checks cannot produce a real-world verdict — `PASS` or
-`FAIL` about the actual estate — without a deployed environment to point at.
+different claim. It names which checks cannot produce a real-world verdict
+without a deployed environment to point at (`PASS` or `FAIL` about the actual
+estate).
 
 ### Everything, if the handoff is absent
 
 `deploy/gcp/<env>.handoff.json` does not exist on this branch's base commit
-(`cd68dea`); `make gcp-tf-handoff` and the emitter live on I1's branch
-(`8ba9e98`). Until those merge, `acceptance-v2.sh` exits `5` and checks nothing.
-That is deliberate: the alternative is reconstructing resource names from a
-naming convention, which grades resources that may not exist and reports their
-absence as a clean estate.
+(`cd68dea`). The target `make gcp-tf-handoff` and the emitter live on I1's
+branch (`8ba9e98`). Until those merge, `acceptance-v2.sh` exits `5` and checks
+nothing. That is deliberate. The alternative is reconstructing resource names
+from a naming convention. That grades resources that may not exist and reports
+their absence as a clean estate.
 
-**Schema converged with I1 — no rename needed on either side.** The emitter's
+**Schema converged with I1: no rename needed on either side.** The emitter's
 exact shape is committed as a fixture at
 `test/fixtures/gcp-tf-v2/handoff/emitter-shape.handoff.json`, and a test asserts
 it produces 14 PASS with zero UNKNOWN. Nine of eleven fields already matched a
-spelling I accept; I1 added `env` and `schema` as additive aliases, and I added
+spelling I accept. I1 added `env` and `schema` as additive aliases. I added
 `.environment_key` to my fallback chain so either spelling resolves.
 
-`schema` is now checked. An unrecognised value is **announced but not fatal** —
-the field reader already degrades to UNKNOWN on anything it cannot resolve, so a
-newer schema produces an honest report rather than a refusal or a wrong answer.
+`schema` is now checked. An unrecognised value is **announced but not fatal**.
+The field reader already degrades to UNKNOWN on anything it cannot resolve. So
+a newer schema produces an honest report rather than a refusal or a wrong answer.
 Fixture: `future-schema.handoff.json`.
 
-`state_prefix`, `schema_version` and `generated_at` are emitted and ignored;
-extra fields are never fatal, so the emitter can add freely.
+`state_prefix`, `schema_version` and `generated_at` are emitted and ignored.
+Extra fields are never fatal, so the emitter can add freely.
 
-**I1's note on degradation is worth recording:** the generator never writes a
-hand-off with a blank required field — it exits non-zero naming the field. So in
+**I1's note on degradation is worth recording.** The generator never writes a
+hand-off with a blank required field: it exits non-zero naming the field. So in
 practice I get the *missing file* path, not the *missing key* path. The UNKNOWN
-degradation stays anyway, because it is what protects against a hand-off written
-by an older or newer schema, but it is not the normal signal.
+degradation stays anyway. It protects against a hand-off written by an older
+or newer schema, but it is not the normal signal.
 
 The handoff schema I read, with the fallback spellings also accepted:
 
@@ -80,7 +82,7 @@ never a guess. Extra fields are ignored, so the emitter can add freely.
 ### The check that is deliberately *not* live
 
 **`access mode authenticates`** is graded from the handoff, not from the edge. It
-asserts what the estate was *declared* to be; the tunnel probe asserts what it
+asserts what the estate was *declared* to be. The tunnel probe asserts what it
 *does*. Both matter, and a disagreement between them is worth seeing rather than
 silently resolving in favour of one.
 
@@ -88,34 +90,35 @@ silently resolving in favour of one.
 
 - **The OS Login external-user grant.** `roles/compute.osLoginExternalUser` is
   **org-scoped**, and this suite has no org-level read. So the report names the
-  condition rather than grading it: when the tunnel to tcp/22 is `PASS` and
-  `gcloud compute ssh` still fails, the note says explicitly that the difference
-  is that grant and not the estate. Converting an unexplained failure into a
-  named condition is the most this can honestly do without org read.
-- **Whether `iap_members` is non-empty.** Terraform validates it at plan time
-  (IAP with no authorised principal is a locked door with no key), and
+  condition rather than grading it. When the tunnel to tcp/22 is `PASS` and
+  `gcloud compute ssh` still fails, the note explains the cause. It says
+  explicitly that the difference is that grant and not the estate. Converting an
+  unexplained failure into a named condition is the most this can honestly do
+  without org read.
+- **Whether `iap_members` is non-empty.** Terraform validates it at plan time.
+  IAP with no authorised principal is a locked door with no key. And
   `conformance.sh` already grades the live IAP IAM policy. Not duplicated here.
 
 ### One judgement call worth surfacing
 
 `acceptance-v2.sh` carries the same read-only allowlist as `preflight.sh` and
-`conformance.sh` — `describe` / `list` / `version`, plus `get-iam-policy`, which
+`conformance.sh`: `describe` / `list` / `version`, plus `get-iam-policy`, which
 `conformance.sh` already established.
 
 It adds **one** verb those two do not have: `compute start-iap-tunnel`.
 
 I put it in a **separate gate** (`gcloud_tunnel_probe`) rather than widening
-`gcloud_ro`, so it cannot be reached accidentally from any other check, and so
-that adding a second verb there is a decision someone has to make in the open.
-The justification: `start-iap-tunnel` opens a local listener and a tunnel
-session. It creates no cloud resource, modifies no configuration and deletes
-nothing — the same class of operation as curling an endpoint. Its genuinely
-mutating neighbours in the same command group (`ssh`, `scp`, `reset`, `delete`)
-are refused by that gate, and there is a test asserting so.
+`gcloud_ro`. That prevents accidental reach from any other check. Adding a
+second verb there becomes a decision made in the open. The justification:
+`start-iap-tunnel` opens a local listener and a tunnel session. It creates no
+cloud resource, modifies no configuration, and deletes nothing. That is the
+same class of operation as curling an endpoint. Its genuinely mutating
+neighbours in the same command group (`ssh`, `scp`, `reset`, `delete`) are
+refused by that gate, and there is a test asserting so.
 
 It is nonetheless a widening, and the brief said `describe`/`list`/`version`. If
-that is judged too broad, the alternative is dropping the tunnel check entirely
-and with it the single most useful distinction the report draws — so I would
+that is judged too broad, the alternative is dropping the tunnel check entirely.
+That would lose the single most useful distinction the report draws. So I would
 rather flag the call than quietly make it.
 
 ---
@@ -126,24 +129,25 @@ Recorded because each is a class, not a one-off.
 
 1. **A jq `//` fired on an empty stream.** `[ .networkInterfaces[]?
    .accessConfigs[]? .natIP // "assigned" ]` parses the `//` as an alternative to
-   the *whole* preceding expression. An instance with no `accessConfigs` — the
-   passing case — produces an empty stream, which is falsy, so the alternative
-   fired and the array became `["assigned"]`. **Every compliant instance was
-   reported as having an external IP.** Caught by the compliant positive on the
-   first run; a suite of negatives alone would have shipped it.
+   the *whole* preceding expression. An instance with no `accessConfigs`
+   produces an empty stream (the passing case). An empty stream is falsy, so the
+   alternative fired and the array became `["assigned"]`. **Every compliant
+   instance was reported as having an external IP.** It was caught by the
+   compliant positive on the first run. A suite of negatives alone would have
+   shipped it.
 
 2. **A total cloud blackout was classified as an IAP denial.** `gcloud` answers
    `PERMISSION_DENIED` to everything when a token has expired, so the tunnel
    probe's text classifier read it as "IAP refuses you". Now a denial is only
-   evidence about IAP if some other read in the same run succeeded; otherwise
-   `UNKNOWN`. Same discrimination `teardown-verify.sh` draws around a missing
-   state bucket: the identical failed call means opposite things depending on
-   whether anything else answered.
+   evidence about IAP if some other read in the same run succeeded. Otherwise
+   the check reports `UNKNOWN`. Same discrimination `teardown-verify.sh` draws
+   around a missing state bucket: the identical failed call means opposite
+   things depending on whether anything else answered.
 
 3. **Teardown killed only the backgrounded wrapper.** The tunnel's child process
    survived every run. In the suite that cost 2m40s of wall clock (down to 46s
-   once fixed); in production it leaks a **live IAP tunnel per invocation**. Now
-   torn down by walking children by parent PID — never by pattern, because a
+   once fixed). In production it leaks a **live IAP tunnel per invocation**. We
+   now tear down by walking children by parent PID. We never match by pattern. A
    `pkill -f start-iap-tunnel` can match the script's own shell, whose
    `/proc/*/cmdline` contains the entire program text under `bash -c`.
 
@@ -151,26 +155,25 @@ Recorded because each is a class, not a one-off.
 
 ### 2a. Two more, found in review rather than by the suite
 
-4. **`access_mode` was treated as a boolean.** It is a three-valued enum —
-   `iap | allowlist | iap_and_allowlist` — and the combined mode is, per the
-   variable's own description, the strongest posture. My first revision FAILED
-   it. The failure mode is the worst possible shape: the *best-configured*
-   estate is the one that fails, and `iap_and_allowlist` is exactly what a demo
-   estate that is both IAP-gated and IP-restricted would run. Caught by I1, who
-   owns the emitter, not by my suite — the fixtures only carried the two values
-   I had imagined. Now graded as an enum against the Terraform validation, with
-   an unrecognised value reporting UNKNOWN rather than guessing in either
-   direction.
+4. **`access_mode` was treated as a boolean.** It is a three-valued enum
+   (`iap | allowlist | iap_and_allowlist`). Per the variable's description, the
+   combined mode is the strongest posture. My first revision FAILED it. The
+   failure mode is the worst possible shape. The *best-configured* estate is
+   the one that fails. And `iap_and_allowlist` is exactly what a demo estate
+   that is both IAP-gated and IP-restricted would run. It was caught by I1, who
+   owns the emitter, not by my suite. The fixtures only carried the two values
+   I had imagined. Now graded as an enum against the Terraform validation. An
+   unrecognised value reports UNKNOWN rather than guessing in either direction.
 5. **The pidfile in the leak-regression test was overwritten, not appended.**
    Once a run opened two tunnels (app port and tcp/22), the test only ever
    checked the second one. A leak of the first would have gone unnoticed by the
    very test written to catch leaks.
 
-6. **A correct CI hand-off could never have passed `--strict`.** With no way to
-   tell "CI lane, no instance by design" from "demo lane, instance missing",
-   both reported UNKNOWN — and `--strict` exits 3 on any UNKNOWN. So every CI
-   lane would have failed every strict run, permanently, and the fix would have
-   looked like "stop using --strict" rather than "the report cannot express
+6. **A correct CI hand-off could never have passed `--strict`.** There was no
+   way to tell "CI lane, no instance by design" from "demo lane, instance
+   missing". Both reported UNKNOWN. And `--strict` exits 3 on any UNKNOWN. So
+   every CI lane would have failed every strict run permanently. The fix would
+   have looked like "stop using --strict" rather than "the report cannot express
    this". Resolved by I1 adding `kind` and by adding a fourth verdict, `N/A`.
    Fail-closed: only the exact string `ci` is lenient. Four tests pin it,
    including the demo-lane and unknown-kind negatives with byte-identical blank
@@ -178,7 +181,7 @@ Recorded because each is a class, not a one-off.
 
    I1's observation generalises and is the sharper version of my own: their
    fixtures carried only `kind: demo` until an hour before this landed. Both
-   suites were green; neither was measuring the third case. A fixture set only
+   suites were green. Neither was measuring the third case. A fixture set only
    ever covers the cases its author imagined, so green says nothing about the
    case nobody thought of. That is an argument for cross-review between agents
    holding different halves of a contract, which is exactly what caught both
@@ -186,33 +189,33 @@ Recorded because each is a class, not a one-off.
 
 ## 3. Blockers and open decisions
 
-**Blocker — outside both my chunk and I1's, needs the orchestrator.**
+**Blocker: outside both my chunk and I1's, needs the orchestrator.**
 `terraform/environments/outputs.tf` does not re-export the compute module's
-`instance_name` and `internal_ip`. The module publishes both; the root does not.
-So `make gcp-tf-handoff` fails against the live estate today, deliberately,
-naming those two fields — which means the end-to-end path (`make gcp-tf-handoff`
-then `acceptance-v2.sh`) cannot be exercised against the real estate yet. I hit
+`instance_name` and `internal_ip`. The module publishes both. The root does not.
+So `make gcp-tf-handoff` fails against the live estate today deliberately. It names
+those two fields. The end-to-end path (`make gcp-tf-handoff` then
+`acceptance-v2.sh`) cannot be exercised against the real estate yet. I hit
 the "missing file, run `make gcp-tf-handoff`" path, and running it does not fix
 it. The exact output blocks needed are in `NOTES.md` on I1's branch.
 
-**~~Open decision — CI lanes have no instance.~~ RESOLVED.** I1 emits empty
-rather than making the hand-off demo-only, plus a new `kind` field (`demo` |
-`ci`, always present, from `.target_environment.kind`). I consume it: a CI lane
+**~~Open decision: CI lanes have no instance.~~ RESOLVED.** I1 emits empty
+rather than making the hand-off demo-only. A new `kind` field (`demo` | `ci`)
+is always present from `.target_environment.kind`. I consume it. A CI lane
 with blank instance fields now reports `N/A` on the ten instance-dependent
-checks and passes `--strict`, while the state bucket, deploy-SA roles and access
+checks. It passes `--strict`, while the state bucket, deploy-SA roles and access
 mode still have to pass. Fixtures: `ci-lane`, `demo-no-instance`,
 `unknown-kind-no-instance`.
 
-**Declined, deliberately — `iap_member_count`.** I1 offered to emit a count so
-this suite could verify "IAP has at least one authorised principal" without
-putting real email addresses in a file that gets copied around. Good instinct on
-the privacy shape, but `conformance.sh` already reads the **live** IAP IAM
-policy and grades it, including the `allUsers` / `allAuthenticatedUsers` case
-that a count cannot see — a count of 1 is equally consistent with one named
-person and with `allAuthenticatedUsers`, which is every Google account on earth.
-A count in the hand-off would be a weaker restatement of a check that already
-exists, and a second source of truth that can drift from the policy it
-describes. Not worth the field.
+**Declined deliberately: `iap_member_count`.** I1 offered to emit a count.
+This would verify "IAP has at least one authorised principal". It avoids
+putting real email addresses in a shared file. Good instinct on privacy. But
+`conformance.sh` already reads the **live** IAP IAM policy and grades it. That
+includes the `allUsers` / `allAuthenticatedUsers` case that a count cannot see.
+A count of 1 is equally consistent with one named person and with
+`allAuthenticatedUsers`, which is every Google account on earth. A count in the
+hand-off would be a weaker restatement of an existing check. It would be a
+second source of truth that can drift from the policy it describes. Not worth
+the field.
 
 ## 4. v1 assumption inventory
 
@@ -255,13 +258,13 @@ the estate v2 actually applies.
 ### 4d. Deliberate v1 references in my own files
 
 `scripts/gcp-tf/acceptance-v2.sh` and `test/terraform-v2-acceptance.bats` both
-name every v1 marker. That is the refusal guard and its test — the script has to
-name v1 in order to refuse it. `test/fixtures/gcp-tf-v2/handoff/v1-*.json` are
+name every v1 marker. That is the refusal guard and its test. The script has to
+name v1 to refuse it. `test/fixtures/gcp-tf-v2/handoff/v1-*.json` are
 the fixtures that drive it.
 
-No real v2 project id, account or address appears anywhere in the script; there
-is a test asserting that (`no real project id, account or address is hardcoded in
-the script`). Everything identifying comes from the handoff. The real values are
+No real v2 project id, account or address appears anywhere in the script. A
+test asserts that: `no real project id, account or address is hardcoded in
+the script`. Everything identifying comes from the handoff. The real values are
 documented in `docs/policy-as-versioned-code/V2-CICD.md`, where documentation
 belongs.
 
@@ -269,17 +272,17 @@ belongs.
 
 ## 5. Suite facts
 
-- `bats test/terraform-v2-acceptance.bats` — **44 tests, all passing, ~46s**,
+- `bats test/terraform-v2-acceptance.bats`: **44 tests, all passing, ~46s**,
   offline: no network, no cloud credentials, no terraform.
 - `shellcheck` clean: the script and both stubs.
 - Five mutation checks, each refusing to run unless its `sed` actually changed
-  the file — a mutation that silently no-ops runs against unmutated code and
-  passes, which is a mutation check that can never fail.
-- The compliant fixture carries four decoys — a wide-open *neighbouring* VPC, a
-  DISABLED world-open rule, a DENY rule sourced from `0.0.0.0/0`, and
-  `storage.admin` held by someone who is not the deploy identity — so four
-  separate over-broad implementations turn it red. One has already earned its
-  keep (defect 1 above).
+  the file. A mutation that silently no-ops runs against unmutated code and
+  passes. That would be a mutation check that can never fail.
+- The compliant fixture carries four decoys. It includes a wide-open
+  *neighbouring* VPC and a DISABLED world-open rule. It also includes a DENY
+  rule sourced from `0.0.0.0/0`, and `storage.admin` held by someone who is
+  not the deploy identity. Four separate over-broad implementations turn it red.
+  One has already earned its keep (defect 1 above).
 - The suite is picked up automatically by `make gcp-tf-validate`: `GCP_TF_BATS`
   globs `test/terraform-*.bats`. `test/terraform-suite-registration.bats` passes
   (14/14) with this file present, so it is genuinely registered rather than

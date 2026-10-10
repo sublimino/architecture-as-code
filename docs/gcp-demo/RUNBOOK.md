@@ -585,9 +585,9 @@ Or destroy the environment outright:
 make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1
 ```
 
-`gcp-tf-destroy` releases the tailnet name for you: it runs
-`demo-up.sh ts-logout --force` before the `terraform destroy`, because after the
-VM is gone there is nothing left to log out from. That call is best-effort by
+`gcp-tf-destroy` releases the tailnet name for you. It runs
+`demo-up.sh ts-logout --force` before the `terraform destroy`. After the VM
+is gone, there is nothing left to log out from. That call is best-effort by
 design — a destroy must never be blocked by a cleanup — so read its output. If
 it reports that the logout did not happen, do [the manual
 recovery](#the-demo-url-drifted--sl-demo-1-1-instead-of-sl-demo-1) before
@@ -741,10 +741,10 @@ never the key. The startup script's own error says so, for the same reason.
 in a browser:
 
 - the VM's bring-up **asserts** the granted name matches the requested one and
-  fails loudly when it does not;
-- it writes `/var/lib/signalloom/tailscale-name-mismatch`, which survives
+  fails loudly when it does not.
+- it writes `/var/lib/signalloom/tailscale-name-mismatch`. This marker survives
   reboots and is cleared automatically on the first boot that gets the right
-  name, so a healthy VM cannot report failure forever;
+  name. A healthy VM cannot report failure forever.
 - `make gcp-tf-demo-status` and `make gcp-tf-ts-status` read that marker and
   report a mismatch as a **failure**.
 
@@ -765,39 +765,40 @@ destroy-and-rebuild cycles on 2026-08-20 reclaimed the exact name every time.
 
 **Recovery, once it has already drifted.** Delete the offline `sl-<env>` device
 at <https://login.tailscale.com/admin/machines>, then rebuild. The console is
-the fix. Waiting also works but is slow: the ephemeral auto-reap frees the name
-**more than 47 and less than 100 minutes** after the node goes offline, measured
-independently on `demo-1` and `demo-2`. On any rebuild faster than that — which
-is every rebuild — a suffixed name is the *expected* outcome and not a fault.
+the fix. Waiting also works but is slow. The ephemeral auto-reap frees the name
+**more than 47 and less than 100 minutes** after the node goes offline. This
+was measured independently on `demo-1` and `demo-2`. On any rebuild faster
+than that — which is every rebuild — a suffixed name is the *expected* outcome
+and not a fault.
 
-> Note the consequence for the table above: for up to an hour after a destroy
+> Note the consequence for the table above. For up to an hour after a destroy,
 > the record is still present and shows as **offline**, not absent. `no node
 > named 'sl-demo-1'` and `node '…' is OFFLINE` therefore do **not** cleanly
 > separate "destroyed" from "suspended" during that window.
 
 ### Suspending without project owner
 
-Suspend is the step that stops the billing, and until 2026-08-19 it required
-project owner — so it was either skipped or done with an over-privileged
+Suspend is the step that stops the billing. Until 2026-08-19 it required
+project owner. So it was either skipped or done with an over-privileged
 credential. The operator identity now carries a custom role,
 `slOperatorInstanceLifecycle`, holding exactly four permissions:
 `compute.instances.suspend`, `.resume`, `.start`, and `compute.zoneOperations.get`.
 
 `.start` is there because a suspended instance is transitioned to `TERMINATED`
-by Compute Engine after 60 days, which is exactly what happens to a parked lane;
-resume does not cover start. `zoneOperations.get` is there because all three
-verbs are asynchronous and gcloud polls the returned Operation unless `--async`
-is passed, which no driver passes — without it the VM really does suspend and
-the driver reports a 403.
+by Compute Engine after 60 days. That is what happens to a parked lane.
+Resume does not cover start. `zoneOperations.get` is there because all three
+verbs are asynchronous. The gcloud CLI polls the returned Operation unless
+`--async` is passed. No driver passes that flag. Without it, the VM really does
+suspend and the driver reports a 403.
 
 **One-time cost, and it is an operational step rather than a code change.**
 Creating a custom role needs `iam.roles.create`. That is in `roles/iam.roleAdmin`
-and **not** in `roles/resourcemanager.projectIamAdmin`, which is what the deploy
-service account holds — so the deploy identity cannot create this role, and is
-deliberately not being given the ability to. Apply `terraform/platform` **once**
+and **not** in `roles/resourcemanager.projectIamAdmin`, which the deploy
+service account holds. The deploy identity cannot create this role. It is
+deliberately not given that ability. Apply `terraform/platform` **once**
 as an identity holding `roleAdmin` or **owner**. The alternative is
-`manage_operator_lifecycle_role = false`, which applies everything else cleanly
-and leaves the role as a documented follow-up; the operator then keeps the
+`manage_operator_lifecycle_role = false`. That applies everything else cleanly
+and leaves the role as a documented follow-up. The operator then keeps the
 tunnel and the login and still cannot suspend. Which one is in force is reported
 by the `lifecycle_role_is_managed` output, never inferred.
 
@@ -943,7 +944,7 @@ one. It **does** need to mint its own signing material: `.keys/` is gitignored
 and therefore not in the payload, by construction.
 
 **The prefix is `DEMO_`, and this table used to say `SL_DEMO_`.** The driver
-exported ten `SL_DEMO_*` names and the pipeline read `DEMO_*`; nothing in the
+exported ten `SL_DEMO_*` names and the pipeline read `DEMO_*`. Nothing in the
 repository consumed a single `SL_DEMO_` name, so all ten silently fell back to
 their defaults. `test/terraform-env-contract.bats` now asserts every name the
 driver exports is read by the pipeline, so the two cannot drift apart quietly
@@ -967,17 +968,17 @@ were added after the rename below landed):
 | `DEMO_KEYS_DIR` | absolute path of the delivered signing-key directory |
 | `DEMO_ZOT_CACHE_DIR` | absolute path of the delivered zot blob cache |
 
-There is no `DEMO_APP_PORT`. The old table listed `SL_DEMO_APP_PORT`; it was
-never read, and the port the VM publishes on is the pipeline's own
+There is no `DEMO_APP_PORT`. The old table listed `SL_DEMO_APP_PORT`. It was
+never read. The port the VM publishes on is the pipeline's own
 `DEMO_DASHBOARD_LOCAL_PORT` default of 8080, which the driver does not set.
 
 **`DEMO_STAGE` is sent and is not honoured.** `demo-pipeline.sh` implements one
-fixed sequence and has no stage selection — the `STAGE:` banners label steps
+fixed sequence and has no stage selection. The `STAGE:` banners label steps
 within that sequence and select nothing. Rather than accept `test` and silently
 perform a full bring-up including a cluster rebuild, it **refuses**: any stage
 but `full` exits 2 at second zero. That makes `make gcp-tf-demo-test` a target
 that cannot currently succeed, which its `make help` line now says. This is a
-stated gap, not an oversight; implementing real stage selection is a separate
+stated gap, not an oversight. Implementing real stage selection is a separate
 change against a script whose steps are not currently separable.
 
 **Output** — `DEMO_SUMMARY_FILE`, a JSON object carrying at least:

@@ -7,17 +7,16 @@ real `terraform/modules/compute/startup/demo-vm.sh` must never do. They exist so
 the guard can be shown to fire on each forbidden verb in isolation.
 
 **They are not a substitute for mutating the real file.** `terraform/CONTRACT.md`
-§7b used to mandate fixture-only mutation and now says the opposite, because that
-rule generated three dead assertions in a single task on 2026-08-20: a fixture
-mutation only asks "does my scanner detect this string in a file I just wrote it
-into?" and can never ask "does the thing I am guarding actually exist in the
-shipped code?" Fixtures like these remain the right tool for a scanner's edge
-cases — and for defects that cannot exist in the real tree, such as
-`hides-it-in-a-comment.sh` below — but the guard is not proven until the real
-file has been mutated and the right test has gone red for the right reason. Do
-that per the procedure in §7b: copy to a path outside the repository, restore
-from that copy rather than `git checkout`, and assert the mutation applied
-before trusting the result.
+§7b used to mandate fixture-only mutation and now says the opposite. That
+rule produced three dead assertions in a single task on 2026-08-20. A fixture
+mutation only asks whether a scanner detects a string in a written file. It
+can never ask whether the guarded item exists in the shipped code. Fixtures like
+these remain the right tool for a scanner's edge cases. They also test defects
+that cannot exist in the real tree, such as `hides-it-in-a-comment.sh` below.
+But the guard is not proven until the real file is mutated. The right test must
+fail for the right reason. Follow the procedure in §7b. Copy to a path outside
+the repository. Restore from that copy rather than `git checkout`. Check that
+the mutation applied before you trust the result.
 
 One file per forbidden verb rather than one file containing all of them. A
 single combined fixture would still fire if four of the five patterns worked and

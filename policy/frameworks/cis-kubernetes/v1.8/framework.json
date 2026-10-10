@@ -17,7 +17,7 @@
               "id": "sa-token-automount-disabled",
               "name": "Service account token auto-mount disabled",
               "description": "The pod sets automountServiceAccountToken: false. Absent means the ServiceAccount's setting, whose default is true, so absent fails.",
-              "celExpression": "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false",
+              "celExpression": "has(object.spec) && (has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false)",
               "severity": "high",
               "remediation": "Set spec.automountServiceAccountToken: false on pods that do not call the Kubernetes API.",
               "riskTriple": {
@@ -51,7 +51,7 @@
               "id": "no-privileged-containers",
               "name": "No privileged containers",
               "description": "No container, init container or ephemeral container sets securityContext.privileged: true. Absent defaults to false.",
-              "celExpression": "((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
+              "celExpression": "has(object.spec) && (((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true)))",
               "severity": "critical",
               "remediation": "Remove securityContext.privileged: true from every container; grant only the specific capabilities required.",
               "riskTriple": {
@@ -78,7 +78,7 @@
               "id": "no-host-pid",
               "name": "Host PID namespace not shared",
               "description": "spec.hostPID is absent or false. Absent defaults to false.",
-              "celExpression": "!has(object.spec.hostPID) || object.spec.hostPID == false",
+              "celExpression": "has(object.spec) && (!has(object.spec.hostPID) || object.spec.hostPID == false)",
               "severity": "critical",
               "remediation": "Remove spec.hostPID: true.",
               "riskTriple": {
@@ -105,7 +105,7 @@
               "id": "no-host-ipc",
               "name": "Host IPC namespace not shared",
               "description": "spec.hostIPC is absent or false. Absent defaults to false.",
-              "celExpression": "!has(object.spec.hostIPC) || object.spec.hostIPC == false",
+              "celExpression": "has(object.spec) && (!has(object.spec.hostIPC) || object.spec.hostIPC == false)",
               "severity": "high",
               "remediation": "Remove spec.hostIPC: true.",
               "riskTriple": {
@@ -132,7 +132,7 @@
               "id": "no-host-network",
               "name": "Host network namespace not shared",
               "description": "spec.hostNetwork is absent or false. Absent defaults to false.",
-              "celExpression": "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false",
+              "celExpression": "has(object.spec) && (!has(object.spec.hostNetwork) || object.spec.hostNetwork == false)",
               "severity": "high",
               "remediation": "Remove spec.hostNetwork: true; expose the workload through a Service instead.",
               "riskTriple": {
@@ -159,7 +159,7 @@
               "id": "no-privilege-escalation",
               "name": "Privilege escalation disallowed",
               "description": "Every container sets securityContext.allowPrivilegeEscalation: false. Absent defaults to true, so absent fails. Pods with spec.os.name: windows are exempt (the field is Linux-only and forbidden there).",
-              "celExpression": "(has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
+              "celExpression": "has(object.spec) && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false))",
               "severity": "high",
               "remediation": "Set securityContext.allowPrivilegeEscalation: false on every container, init container and ephemeral container.",
               "riskTriple": {
@@ -186,7 +186,7 @@
               "id": "no-root-containers",
               "name": "Containers do not run as root",
               "description": "Each container's effective runAsUser (container, else pod) is non-zero; if no runAsUser is set anywhere, the effective runAsNonRoot (container, else pod) must be true. With neither set the image USER decides, which is unknown, so it fails.",
-              "celExpression": "((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsUser)) ? c.securityContext.runAsUser > 0 : ((has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser)) ? object.spec.securityContext.runAsUser > 0 : ((has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))))",
+              "celExpression": "has(object.spec) && (((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsUser)) ? c.securityContext.runAsUser > 0 : ((has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser)) ? object.spec.securityContext.runAsUser > 0 : ((has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)))))",
               "severity": "high",
               "remediation": "Set runAsNonRoot: true and a non-zero runAsUser in the pod securityContext, and do not override them per container.",
               "riskTriple": {
@@ -213,7 +213,7 @@
               "id": "no-net-raw",
               "name": "NET_RAW capability not held",
               "description": "Container runtimes grant NET_RAW by default, so each container must drop NET_RAW or ALL, must not add it back (NET_RAW, CAP_NET_RAW or ALL), and must not be privileged. Pods with spec.os.name: windows are exempt.",
-              "celExpression": "(has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true) && has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d in ['ALL', 'NET_RAW', 'CAP_NET_RAW']) && !(has(c.securityContext.capabilities.add) && c.securityContext.capabilities.add.exists(a, a in ['ALL', 'NET_RAW', 'CAP_NET_RAW'])))",
+              "celExpression": "has(object.spec) && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true) && has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^((cap_)?net_raw|all)$')) && !(has(c.securityContext.capabilities.add) && c.securityContext.capabilities.add.exists(a, a.matches('(?i)^(cap_)?(net_raw|all)$')))))",
               "severity": "medium",
               "remediation": "Add capabilities.drop: [\"ALL\"] (or at least NET_RAW) to every container and do not add NET_RAW back.",
               "riskTriple": {
@@ -240,7 +240,7 @@
               "id": "no-added-capabilities",
               "name": "No added capabilities",
               "description": "No container has a non-empty securityContext.capabilities.add. Absent adds nothing.",
-              "celExpression": "((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.add) && size(c.securityContext.capabilities.add) > 0))",
+              "celExpression": "has(object.spec) && (((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.add) && size(c.securityContext.capabilities.add) > 0)))",
               "severity": "high",
               "remediation": "Remove capabilities.add from every container; redesign the workload if it needs a capability.",
               "riskTriple": {
@@ -267,7 +267,7 @@
               "id": "capabilities-dropped-all",
               "name": "All capabilities dropped",
               "description": "Every container lists \"ALL\" (exact, as Pod Security Standards compare it) in securityContext.capabilities.drop. Absent keeps the runtime default set, so absent fails. Pods with spec.os.name: windows are exempt.",
-              "celExpression": "(has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "celExpression": "has(object.spec) && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$'))))",
               "severity": "medium",
               "remediation": "Add capabilities.drop: [\"ALL\"] to every container, init container and ephemeral container.",
               "riskTriple": {
@@ -294,7 +294,7 @@
               "id": "no-windows-hostprocess",
               "name": "No Windows HostProcess containers",
               "description": "Neither the pod nor any container sets securityContext.windowsOptions.hostProcess: true. Absent defaults to false.",
-              "celExpression": "!(has(object.spec.securityContext) && has(object.spec.securityContext.windowsOptions) && has(object.spec.securityContext.windowsOptions.hostProcess) && object.spec.securityContext.windowsOptions.hostProcess == true) && ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.windowsOptions) && has(c.securityContext.windowsOptions.hostProcess) && c.securityContext.windowsOptions.hostProcess == true))",
+              "celExpression": "has(object.spec) && (!(has(object.spec.securityContext) && has(object.spec.securityContext.windowsOptions) && has(object.spec.securityContext.windowsOptions.hostProcess) && object.spec.securityContext.windowsOptions.hostProcess == true) && ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.windowsOptions) && has(c.securityContext.windowsOptions.hostProcess) && c.securityContext.windowsOptions.hostProcess == true)))",
               "severity": "critical",
               "remediation": "Remove windowsOptions.hostProcess: true; run node-level Windows agents outside tenant namespaces.",
               "riskTriple": {
@@ -321,7 +321,7 @@
               "id": "no-hostpath-volumes",
               "name": "No hostPath volumes",
               "description": "No entry in spec.volumes is a hostPath volume. Absent volumes pass.",
-              "celExpression": "!has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath))",
+              "celExpression": "has(object.spec) && (!has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath)))",
               "severity": "critical",
               "remediation": "Replace hostPath volumes with emptyDir, a PersistentVolumeClaim, a ConfigMap or a CSI volume.",
               "riskTriple": {
@@ -348,7 +348,7 @@
               "id": "no-host-ports",
               "name": "No host ports",
               "description": "No container port sets a non-zero hostPort. With spec.hostNetwork: true the API server defaults hostPort to containerPort, so any declared port on a hostNetwork pod is a host port and fails.",
-              "celExpression": "((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !has(c.ports) || c.ports.all(p, !(has(p.hostPort) && p.hostPort != 0) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)))",
+              "celExpression": "has(object.spec) && (((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !has(c.ports) || c.ports.all(p, !(has(p.hostPort) && p.hostPort != 0) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true))))",
               "severity": "medium",
               "remediation": "Remove hostPort from container ports and expose the workload through a Service.",
               "riskTriple": {
@@ -382,7 +382,7 @@
               "id": "no-secrets-in-env",
               "name": "Secrets not exposed as environment variables",
               "description": "No container has an env entry with valueFrom.secretKeyRef or an envFrom entry with secretRef.",
-              "celExpression": "((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (!has(c.env) || c.env.all(e, !(has(e.valueFrom) && has(e.valueFrom.secretKeyRef)))) && (!has(c.envFrom) || c.envFrom.all(f, !has(f.secretRef))))",
+              "celExpression": "has(object.spec) && (((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (!has(c.env) || c.env.all(e, !(has(e.valueFrom) && has(e.valueFrom.secretKeyRef)))) && (!has(c.envFrom) || c.envFrom.all(f, !has(f.secretRef)))))",
               "severity": "medium",
               "remediation": "Mount Secrets as volumes and read them from files instead of env/envFrom.",
               "riskTriple": {
@@ -416,7 +416,7 @@
               "id": "seccomp-runtime-default",
               "name": "Seccomp profile RuntimeDefault or Localhost",
               "description": "Each container's effective seccompProfile (container, else pod) has type RuntimeDefault or Localhost. Unconfined fails; absent everywhere fails (the kubelet default is Unconfined). Pods with spec.os.name: windows are exempt (seccomp is Linux-only).",
-              "celExpression": "(has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.seccompProfile)) ? (has(c.securityContext.seccompProfile.type) && c.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost']) : (has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost']))",
+              "celExpression": "has(object.spec) && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.seccompProfile)) ? (has(c.securityContext.seccompProfile.type) && c.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost']) : (has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'])))",
               "severity": "medium",
               "remediation": "Set spec.securityContext.seccompProfile.type: RuntimeDefault and do not override it with Unconfined per container.",
               "riskTriple": {
@@ -443,7 +443,7 @@
               "id": "security-context-applied",
               "name": "SecurityContext applied to pod and containers",
               "description": "spec.securityContext is present and non-empty, and every container, init container and ephemeral container has a non-empty securityContext.",
-              "celExpression": "has(object.spec.securityContext) && size(object.spec.securityContext) > 0 && ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && size(c.securityContext) > 0)",
+              "celExpression": "has(object.spec) && (has(object.spec.securityContext) && size(object.spec.securityContext) > 0 && ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && size(c.securityContext) > 0))",
               "severity": "low",
               "remediation": "Set a pod-level securityContext and a container-level securityContext on every container.",
               "riskTriple": {

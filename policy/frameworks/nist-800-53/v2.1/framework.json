@@ -65,7 +65,7 @@
               "id": "cross-namespace-egress-authorization",
               "name": "Cross-namespace network egress authorization",
               "description": "Restricts inter-agent communication across namespace boundaries without explicit egress grant.",
-              "celExpression": "has(request.destination) && has(request.destination.namespace) && ((has(request.source) && has(request.source.namespace) && request.destination.namespace == request.source.namespace) || (has(request.context) && has(request.context.egress_authorized) && request.context.egress_authorized == true))",
+              "celExpression": "has(request.destination) && has(request.destination.namespace) && request.destination.namespace != '' && ((has(request.source) && has(request.source.namespace) && request.destination.namespace == request.source.namespace) || (has(request.context) && has(request.context.egress_authorized) && request.context.egress_authorized == true))",
               "severity": "high",
               "remediation": "Obtain cross-namespace authorization grant or isolate within local namespace.",
               "riskTriple": {
@@ -93,7 +93,7 @@
               "id": "container-run-as-non-root",
               "name": "Container runs as non-root",
               "description": "Enforces least privilege execution preventing root user execution.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
               "severity": "high",
               "remediation": "Configure runAsNonRoot: true in container securityContext.",
               "riskTriple": {
@@ -115,7 +115,7 @@
               "id": "no-privilege-escalation",
               "name": "Privilege escalation disabled",
               "description": "Blocks privilege escalation flag across all containers in the pod.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
               "severity": "critical",
               "remediation": "Set allowPrivilegeEscalation: false in container securityContext.",
               "riskTriple": {
@@ -137,7 +137,7 @@
               "id": "no-privileged-mode",
               "name": "Privileged mode disabled",
               "description": "Strictly forbids container execution with privileged host device access.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
               "severity": "critical",
               "remediation": "Remove privileged: true from container securityContext.",
               "riskTriple": {
@@ -205,7 +205,7 @@
               "id": "read-only-rootfs",
               "name": "Read-only root filesystem",
               "description": "Configures containers with read-only root filesystems to prevent runtime tampering.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
               "severity": "medium",
               "remediation": "Enable readOnlyRootFilesystem: true in container securityContext.",
               "riskTriple": {
@@ -272,7 +272,7 @@
               "id": "drop-all-capabilities",
               "name": "All capabilities dropped",
               "description": "Strips Linux kernel capabilities to establish strict container isolation boundary.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$')))",
               "severity": "high",
               "remediation": "Add ALL to securityContext.capabilities.drop.",
               "riskTriple": {
@@ -356,7 +356,7 @@
               "id": "image-digest",
               "name": "Immutable container image digest",
               "description": "Ensures container images are pinned by immutable cryptographic SHA-256 digest.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.image) && c.image.contains('@sha256:'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.matches('@sha256:[a-f0-9]{64}$'))",
               "severity": "high",
               "remediation": "Reference images by immutable sha256 digest.",
               "riskTriple": {
@@ -376,8 +376,8 @@
             {
               "id": "trusted-registry",
               "name": "Image from trusted registry",
-              "description": "Permits images only from verified and signed OCI registry domains.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.image) && (c.image.startsWith('zot.local/') || c.image.startsWith('ghcr.io/') || c.image.startsWith('gcr.io/')))",
+              "description": "Every container, init container and ephemeral container image comes from a trusted organisation prefix (listed in AGENT-CONTEXT.md); a whole public registry is never trusted.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && (c.image.startsWith('zot.local/') || c.image.startsWith('registry.internal/') || c.image.startsWith('ghcr.io/controlplaneio/') || c.image.startsWith('ghcr.io/controlplaneio-in-toto/') || c.image.startsWith('ghcr.io/controlplaneio-fluxcd/') || c.image.startsWith('gcr.io/distroless/')))",
               "severity": "high",
               "remediation": "Deploy images sourced exclusively from trusted registries.",
               "riskTriple": {

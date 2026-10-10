@@ -13,10 +13,6 @@ That fact is evidence for one mitigation in the FINOS AIGF catalogue.
 ## Files
 
 - `framework.json`: the pack. The policy engine loads this file.
-- `framework.yaml`: a faithful YAML rendering of `framework.json`.
-  `yaml.safe_load(framework.yaml) == json.load(framework.json)`. The engine
-  ignores it, because a `framework.json` exists in the same directory.
-  Regenerate it from the JSON file. Never edit it alone.
 - `AGENT-CONTEXT.md`: the schema of the `agent` document. It covers every
   field path, its type, and what happens when the field is absent.
 - `fixtures/unit/`: one-fact-changed pass and fail cases, and edge cases.
@@ -71,7 +67,13 @@ The three original checks keep their IDs and field paths.
 - `registered-model-registry-entry` sits under AIR-PREV-010. That
   mitigation's guidance includes "Keep an up-to-date inventory of all deployed
   AI models, their specific pinned versions, and their business owners". The
-  catalogue has no separate model-registry mitigation.
+  catalogue has no separate model-registry mitigation. Re-checked against all
+  25 mitigations at a149dd1e after the cross-vendor audit questioned the fit
+  (pinning is not registration): AIR-PREV-010 is the only one whose text
+  covers a model inventory (its "Maintain an Inventory and Conduct Regular
+  Audits" action, and its NIST `cm-8` System Component Inventory reference).
+  AIR-PREV-012's "Data Asset Inventory" covers data assets, not deployed
+  models. The check stays under AIR-PREV-010.
 - `prompt-injection-guardrail-active` sits under AIR-PREV-003. Its "User Input
   to the AI Model" control names prompt injection directly.
 - `decision-explainability-metadata` sits under AIR-DET-021.

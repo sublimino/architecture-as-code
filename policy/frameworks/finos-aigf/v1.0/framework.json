@@ -18,7 +18,7 @@
               "id": "rag-ingestion-sensitive-data-filtered",
               "name": "RAG ingestion filters sensitive data",
               "description": "If the agent uses retrieval-augmented generation (agent.data.rag_enabled is true), sensitive-data filtering must be active on ingestion. Not applicable, and passes, when rag_enabled is false. Undeclared or non-boolean rag_enabled fails.",
-              "celExpression": "has(agent.data) && has(agent.data.rag_enabled) && type(agent.data.rag_enabled) == bool && (agent.data.rag_enabled == false || (has(agent.data.ingestion_sensitive_data_filter) && agent.data.ingestion_sensitive_data_filter == true))",
+              "celExpression": "has(agent.data) && type(agent.data) == map && has(agent.data.rag_enabled) && type(agent.data.rag_enabled) == bool && (agent.data.rag_enabled == false || (has(agent.data.ingestion_sensitive_data_filter) && agent.data.ingestion_sensitive_data_filter == true))",
               "severity": "high",
               "remediation": "Enable sensitive-data filtering (PII/confidential classification and redaction) on every RAG ingestion path, or declare rag_enabled false.",
               "riskTriple": {
@@ -46,7 +46,7 @@
               "id": "prompt-injection-guardrail-active",
               "name": "Active prompt injection filter guardrail",
               "description": "Enforces real-time input guardrails to detect adversarial prompt injection attacks (agent.guardrails.prompt_injection_filter is true).",
-              "celExpression": "has(agent.guardrails) && has(agent.guardrails.prompt_injection_filter) && agent.guardrails.prompt_injection_filter == true",
+              "celExpression": "has(agent.guardrails) && type(agent.guardrails) == map && has(agent.guardrails.prompt_injection_filter) && agent.guardrails.prompt_injection_filter == true",
               "severity": "critical",
               "remediation": "Enable prompt injection detection filter in agent inference pipeline.",
               "riskTriple": {
@@ -67,7 +67,7 @@
               "id": "output-leakage-filter-active",
               "name": "Model output filtered for leakage and harmful content",
               "description": "Model responses are inspected for sensitive-data leakage and policy-violating content before they leave the system (agent.guardrails.output_filter is true).",
-              "celExpression": "has(agent.guardrails) && has(agent.guardrails.output_filter) && agent.guardrails.output_filter == true",
+              "celExpression": "has(agent.guardrails) && type(agent.guardrails) == map && has(agent.guardrails.output_filter) && agent.guardrails.output_filter == true",
               "severity": "high",
               "remediation": "Enable output filtering/redaction on the response path (DLP and content policy) before responses reach users or downstream systems.",
               "riskTriple": {
@@ -95,7 +95,7 @@
               "id": "inference-rate-limit-configured",
               "name": "Inference request rate limit configured",
               "description": "A positive per-minute request limit is enforced on the agent (agent.rate_limits.requests_per_minute is a JSON number > 0).",
-              "celExpression": "has(agent.rate_limits) && has(agent.rate_limits.requests_per_minute) && type(agent.rate_limits.requests_per_minute) == double && agent.rate_limits.requests_per_minute > 0.0",
+              "celExpression": "has(agent.rate_limits) && type(agent.rate_limits) == map && has(agent.rate_limits.requests_per_minute) && type(agent.rate_limits.requests_per_minute) == double && agent.rate_limits.requests_per_minute > 0.0",
               "severity": "medium",
               "remediation": "Configure a per-caller request rate limit at the gateway or inference proxy and record it in the agent registry.",
               "riskTriple": {
@@ -123,7 +123,7 @@
               "id": "registered-model-registry-entry",
               "name": "Model catalog registration and approval",
               "description": "Verifies AI agent model is registered and actively approved in the enterprise model inventory (agent.registry.model_registered is true).",
-              "celExpression": "has(agent.registry) && has(agent.registry.model_registered) && agent.registry.model_registered == true",
+              "celExpression": "has(agent.registry) && type(agent.registry) == map && has(agent.registry.model_registered) && agent.registry.model_registered == true",
               "severity": "high",
               "remediation": "Register model in the centralized enterprise AI model registry.",
               "riskTriple": {
@@ -143,8 +143,8 @@
             {
               "id": "model-version-pinned",
               "name": "Model version pinned, not a floating alias",
-              "description": "agent.registry.model_version is a non-empty string without whitespace that does not end in a 'latest' alias segment (case-insensitive, e.g. '-latest', ':latest', or bare 'latest').",
-              "celExpression": "has(agent.registry) && has(agent.registry.model_version) && type(agent.registry.model_version) == string && agent.registry.model_version.matches('^\\\\S+$') && !agent.registry.model_version.matches('(?i)(^|[-_.:@/])latest$')",
+              "description": "agent.registry.model_version names an explicitly pinned version: it contains a dated snapshot (YYYYMMDD or YYYY-MM-DD), a sha256 digest, or a MAJOR.MINOR.PATCH version; it has no whitespace and does not end in a 'latest' alias segment (case-insensitive). Floating aliases such as gpt-4o or claude-sonnet-4-5 fail. Derived from AIR-PREV-010: use 'a specific, fixed version ... rather than automatically adopting the latest available version'.",
+              "celExpression": "has(agent.registry) && type(agent.registry) == map && has(agent.registry.model_version) && type(agent.registry.model_version) == string && agent.registry.model_version.matches('^\\\\S+$') && !agent.registry.model_version.matches('(?i)(^|[-_.:@/])latest$') && agent.registry.model_version.matches('(^|[^0-9])(19|20)[0-9]{2}-?(0[1-9]|1[0-2])-?(0[1-9]|[12][0-9]|3[01])([^0-9]|$)|sha256:[a-f0-9]{64}|(^|[^0-9.])v?[0-9]+[.][0-9]+[.][0-9]+([^0-9.]|$)')",
               "severity": "medium",
               "remediation": "Pin the model to an explicit dated or digest version and record it in the registry; upgrade only through change control.",
               "riskTriple": {
@@ -172,7 +172,7 @@
               "id": "user-authn-and-rbac-enforced",
               "name": "Caller authentication and RBAC enforced",
               "description": "Callers must authenticate (agent.access.authentication_required is true) and role-based authorisation is enforced (agent.access.rbac_enforced is true).",
-              "celExpression": "has(agent.access) && has(agent.access.authentication_required) && agent.access.authentication_required == true && has(agent.access.rbac_enforced) && agent.access.rbac_enforced == true",
+              "celExpression": "has(agent.access) && type(agent.access) == map && has(agent.access.authentication_required) && agent.access.authentication_required == true && has(agent.access.rbac_enforced) && agent.access.rbac_enforced == true",
               "severity": "high",
               "remediation": "Front the agent with the enterprise IdP and enforce role-based authorisation on the data and actions it exposes.",
               "riskTriple": {
@@ -200,7 +200,7 @@
               "id": "ai-data-encrypted-at-rest",
               "name": "All persistent AI data stores encrypted at rest",
               "description": "Every entry of agent.data.persistent_stores has encrypted_at_rest true. An empty list (the agent persists nothing) passes; an absent or non-list field fails.",
-              "celExpression": "has(agent.data) && has(agent.data.persistent_stores) && type(agent.data.persistent_stores) == list && agent.data.persistent_stores.all(s, has(s.encrypted_at_rest) && s.encrypted_at_rest == true)",
+              "celExpression": "has(agent.data) && type(agent.data) == map && has(agent.data.persistent_stores) && type(agent.data.persistent_stores) == list && agent.data.persistent_stores.all(s, type(s) == map && has(s.encrypted_at_rest) && s.encrypted_at_rest == true)",
               "severity": "high",
               "remediation": "Enable encryption at rest (KMS-managed keys) on every vector store, history store and cache the agent uses.",
               "riskTriple": {
@@ -228,7 +228,7 @@
               "id": "tool-grants-least-privilege",
               "name": "Tool grants are explicitly scoped, no wildcards",
               "description": "Every entry of agent.tools declares a non-empty scopes list of non-empty strings, none ending in '*' (no '*' or prefix wildcards). An empty tools list passes; an absent or non-list field fails.",
-              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, has(t.scopes) && type(t.scopes) == list && size(t.scopes) > 0 && t.scopes.all(s, type(s) == string && s != '' && !s.endsWith('*')))",
+              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && has(t.scopes) && type(t.scopes) == list && size(t.scopes) > 0 && t.scopes.all(s, type(s) == string && s != '' && !s.contains('*')))",
               "severity": "high",
               "remediation": "Replace wildcard and unscoped tool grants with enumerated per-tool scopes matched to the agent's designated function.",
               "riskTriple": {
@@ -256,7 +256,7 @@
               "id": "mcp-servers-allowlisted",
               "name": "Only allow-listed MCP servers connected",
               "description": "Every entry of agent.mcp_servers has allowlisted true. An empty list (no MCP servers) passes; an absent or non-list field fails.",
-              "celExpression": "has(agent.mcp_servers) && type(agent.mcp_servers) == list && agent.mcp_servers.all(m, has(m.allowlisted) && m.allowlisted == true)",
+              "celExpression": "has(agent.mcp_servers) && type(agent.mcp_servers) == list && agent.mcp_servers.all(m, type(m) == map && has(m.allowlisted) && m.allowlisted == true)",
               "severity": "high",
               "remediation": "Route MCP connections through the central proxy and remove any server not on the security-vetted allow-list.",
               "riskTriple": {
@@ -284,7 +284,7 @@
               "id": "no-long-lived-credentials-exposed",
               "name": "No long-lived credentials exposed to the agent",
               "description": "agent.credentials.long_lived_secrets_exposed is boolean false. Absent or non-boolean fails: lack of a finding is not evidence of protection.",
-              "celExpression": "has(agent.credentials) && has(agent.credentials.long_lived_secrets_exposed) && agent.credentials.long_lived_secrets_exposed == false",
+              "celExpression": "has(agent.credentials) && type(agent.credentials) == map && has(agent.credentials.long_lived_secrets_exposed) && agent.credentials.long_lived_secrets_exposed == false",
               "severity": "critical",
               "remediation": "Remove static API keys and secrets from the agent's environment and files; deliver short-lived credentials via workload identity or a secrets broker.",
               "riskTriple": {
@@ -312,7 +312,7 @@
               "id": "high-impact-actions-human-approved",
               "name": "High-impact tools gated by human approval",
               "description": "Every entry of agent.tools either declares impact 'low' or 'medium', or has requires_human_approval true. Tools with impact 'high' or no impact classification are treated as high (fail-closed). Not applicable, and passes, when every tool is low/medium or the list is empty; an absent or non-list field fails.",
-              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, (has(t.impact) && t.impact in ['low', 'medium']) || (has(t.requires_human_approval) && t.requires_human_approval == true))",
+              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && (has(t.impact) && t.impact in ['low', 'medium']) || (has(t.requires_human_approval) && t.requires_human_approval == true))",
               "severity": "critical",
               "remediation": "Classify every tool's impact and route high-impact and unclassified tool calls through a fail-closed human approval gate.",
               "riskTriple": {
@@ -347,7 +347,7 @@
               "id": "ai-interaction-audit-logging",
               "name": "Agent interaction audit logging enabled",
               "description": "agent.observability.audit_logging is true.",
-              "celExpression": "has(agent.observability) && has(agent.observability.audit_logging) && agent.observability.audit_logging == true",
+              "celExpression": "has(agent.observability) && type(agent.observability) == map && has(agent.observability.audit_logging) && agent.observability.audit_logging == true",
               "severity": "medium",
               "remediation": "Ship prompts, responses, tool calls and policy decisions to the central audit log with retention per policy.",
               "riskTriple": {
@@ -375,7 +375,7 @@
               "id": "spend-budget-alerting-configured",
               "name": "Spend budget and alerting configured",
               "description": "agent.cost_controls.budget_limit is a JSON number > 0 and agent.cost_controls.spend_alerting is true.",
-              "celExpression": "has(agent.cost_controls) && has(agent.cost_controls.budget_limit) && type(agent.cost_controls.budget_limit) == double && agent.cost_controls.budget_limit > 0.0 && has(agent.cost_controls.spend_alerting) && agent.cost_controls.spend_alerting == true",
+              "celExpression": "has(agent.cost_controls) && type(agent.cost_controls) == map && has(agent.cost_controls.budget_limit) && type(agent.cost_controls.budget_limit) == double && agent.cost_controls.budget_limit > 0.0 && has(agent.cost_controls.spend_alerting) && agent.cost_controls.spend_alerting == true",
               "severity": "medium",
               "remediation": "Set a budget for the agent's model usage and configure threshold alerts against it.",
               "riskTriple": {
@@ -403,7 +403,7 @@
               "id": "decision-explainability-metadata",
               "name": "Decision explainability and reasoning trace",
               "description": "Requires recorded reasoning traces and explainability metadata for compliance auditing (agent.governance.decision_explainability is true).",
-              "celExpression": "has(agent.governance) && has(agent.governance.decision_explainability) && agent.governance.decision_explainability == true",
+              "celExpression": "has(agent.governance) && type(agent.governance) == map && has(agent.governance.decision_explainability) && agent.governance.decision_explainability == true",
               "severity": "medium",
               "remediation": "Record structured reasoning traces and explainability metadata on tool invocations.",
               "riskTriple": {
@@ -424,7 +424,7 @@
               "id": "decision-audit-tamper-evident",
               "name": "Decision audit log is tamper-evident",
               "description": "agent.governance.audit_log_tamper_evident is true (cryptographic integrity protection on the decision log).",
-              "celExpression": "has(agent.governance) && has(agent.governance.audit_log_tamper_evident) && agent.governance.audit_log_tamper_evident == true",
+              "celExpression": "has(agent.governance) && type(agent.governance) == map && has(agent.governance.audit_log_tamper_evident) && agent.governance.audit_log_tamper_evident == true",
               "severity": "medium",
               "remediation": "Write decision records to an append-only, hash-chained or signed log so tampering is detectable.",
               "riskTriple": {

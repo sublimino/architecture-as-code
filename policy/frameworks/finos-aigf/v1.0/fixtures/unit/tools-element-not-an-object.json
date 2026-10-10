@@ -1,0 +1,78 @@
+{
+  "name": "tools-element-not-an-object",
+  "level": "unit",
+  "description": "One tools entry is the string \"shell\" instead of an object: it evidences neither scopes nor approval, so both tool checks fail (not error).",
+  "input": {
+    "object": {},
+    "agent": {
+      "registry": {
+        "model_registered": true,
+        "model_version": "claude-sonnet-4-5-20250929"
+      },
+      "guardrails": {
+        "prompt_injection_filter": true,
+        "output_filter": true
+      },
+      "data": {
+        "rag_enabled": true,
+        "ingestion_sensitive_data_filter": true,
+        "persistent_stores": [
+          {
+            "name": "vector-index",
+            "encrypted_at_rest": true
+          }
+        ]
+      },
+      "rate_limits": {
+        "requests_per_minute": 120
+      },
+      "access": {
+        "authentication_required": true,
+        "rbac_enforced": true
+      },
+      "tools": [
+        {
+          "name": "search_docs",
+          "scopes": [
+            "kb:read"
+          ],
+          "impact": "low"
+        },
+        {
+          "name": "submit_payment",
+          "scopes": [
+            "payments:write"
+          ],
+          "impact": "high",
+          "requires_human_approval": true
+        },
+        "shell"
+      ],
+      "mcp_servers": [
+        {
+          "name": "docs-mcp",
+          "allowlisted": true
+        }
+      ],
+      "credentials": {
+        "long_lived_secrets_exposed": false
+      },
+      "observability": {
+        "audit_logging": true
+      },
+      "cost_controls": {
+        "budget_limit": 5000,
+        "spend_alerting": true
+      },
+      "governance": {
+        "decision_explainability": true,
+        "audit_log_tamper_evident": true
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "tool-grants-least-privilege": "fail",
+    "high-impact-actions-human-approved": "fail"
+  }
+}

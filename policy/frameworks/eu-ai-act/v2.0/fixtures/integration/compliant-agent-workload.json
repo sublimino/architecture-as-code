@@ -167,8 +167,7 @@
             "name": "logs",
             "emptyDir": {}
           }
-        ],
-        "replicas": 2
+        ]
       }
     },
     "agent": {},
@@ -190,7 +189,7 @@
     "resource-limits-set": "pass",
     "resource-requests-set": "pass",
     "readiness-probe-present": "pass",
-    "min-replicas": "pass",
+    "min-replicas": "fail",
     "image-digest-required": "pass",
     "trusted-registry": "pass",
     "policy-version-label": "pass"

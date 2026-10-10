@@ -1,0 +1,61 @@
+{
+  "name": "windows-hostprocess-container-level",
+  "level": "unit",
+  "description": "Container windowsOptions.hostProcess: true, nothing at pod level.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "windows-hostprocess-container-level",
+        "namespace": "win-apps"
+      },
+      "spec": {
+        "os": {
+          "name": "windows"
+        },
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "windowsOptions": {
+            "runAsUserName": "ContainerUser"
+          }
+        },
+        "containers": [
+          {
+            "name": "iis",
+            "image": "mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2022",
+            "securityContext": {
+              "windowsOptions": {
+                "hostProcess": true,
+                "runAsUserName": "NT AUTHORITY\\LOCAL SERVICE"
+              }
+            }
+          }
+        ],
+        "hostNetwork": true
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "fail",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "pass",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "fail",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

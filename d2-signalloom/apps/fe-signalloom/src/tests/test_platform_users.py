@@ -720,3 +720,258 @@ def test_operator_rejection_of_last_admin_removal(monkeypatch: pytest.MonkeyPatc
     assert error.status_code == 409
     assert error.code == "last_operator_admin"
 
+
+# ---------------------------------------------------------------------------
+# SLFA-P2-1 Platform Users Superadmin & Repository Tests
+# ---------------------------------------------------------------------------
+
+SUPERADMIN_MIGRATION = (
+    Path(__file__).resolve().parent.parent / "db" / "migrations" / "058_platform_users_superadmin.sql"
+)
+
+
+def test_platform_users_migration_adds_is_superadmin_and_partial_index() -> None:
+    assert SUPERADMIN_MIGRATION.is_file(), f"Migration file missing: {SUPERADMIN_MIGRATION}"
+    sql = SUPERADMIN_MIGRATION.read_text(encoding="utf-8")
+    assert "ALTER TABLE public.platform_users" in sql
+    assert "ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN NOT NULL DEFAULT FALSE" in sql
+    assert "CREATE INDEX IF NOT EXISTS idx_platform_users_superadmin" in sql
+    assert "ON public.platform_users (email)" in sql
+    assert "WHERE is_superadmin = TRUE" in sql
+    assert "BEGIN;" in sql
+    assert "COMMIT;" in sql
+
+
+def test_platform_user_model_defaults_is_superadmin_to_false() -> None:
+    import platform_users
+
+    user = platform_users.PlatformUser(
+        id=str(USER_ID),
+        email="alice@example.com",
+        display_name="Alice Standard",
+    )
+    assert user.is_superadmin is False
+    assert user.role == "viewer"
+    assert user.status == "active"
+    assert user.tenant_id == "tenant-demo"
+
+
+def test_platform_user_model_serializes_superadmin_true() -> None:
+    import platform_users
+
+    user = platform_users.PlatformUser(
+        id=str(USER_ID),
+        email="superadmin@example.com",
+        display_name="Super Administrator",
+        role="admin",
+        is_superadmin=True,
+    )
+    assert user.is_superadmin is True
+    dumped = user.model_dump()
+    assert dumped["is_superadmin"] is True
+
+
+def test_platform_user_model_normalizes_email() -> None:
+    import platform_users
+
+    user = platform_users.PlatformUser(
+        id=str(USER_ID),
+        email="  ALICE@AgentMaxxing.Example  ",
+        display_name="Alice Normalized",
+    )
+    assert user.email == "alice@agentmaxxing.example"
+
+
+def test_platform_user_from_row_parses_legacy_dict_without_superadmin() -> None:
+    import platform_users
+
+    legacy_row = {
+        "id": USER_ID,
+        "tenant_id": "tenant-demo",
+        "email": "legacy@example.com",
+        "display_name": "Legacy User",
+        "role": "editor",
+        "status": "active",
+        "department": "Engineering",
+        "title": "Engineer",
+        "created_at": NOW,
+    }
+    user = platform_users.platform_user_from_row(legacy_row)
+    assert user.id == str(USER_ID)
+    assert user.email == "legacy@example.com"
+    assert user.is_superadmin is False
+    assert user.role == "editor"
+
+
+def test_platform_user_from_row_parses_superadmin_boolean_field() -> None:
+    import platform_users
+
+    super_row = {
+        "id": USER_ID,
+        "tenant_id": "tenant-demo",
+        "email": "root@signalloom.local",
+        "display_name": "Platform Root",
+        "role": "admin",
+        "status": "active",
+        "is_superadmin": True,
+        "created_at": NOW,
+    }
+    user = platform_users.platform_user_from_row(super_row)
+    assert user.is_superadmin is True
+    assert user.role == "admin"
+
+
+def test_platform_user_response_model_serializes_superadmin() -> None:
+    import platform_users
+
+    res_default = platform_users.PlatformUserResponse(
+        id=str(USER_ID),
+        email="user@example.com",
+        display_name="User",
+        role="viewer",
+        status="active",
+        created_at=NOW.isoformat(),
+    )
+    assert res_default.is_superadmin is False
+
+    res_super = platform_users.PlatformUserResponse(
+        id=str(USER_ID),
+        email="super@example.com",
+        display_name="Super User",
+        role="admin",
+        status="active",
+        created_at=NOW.isoformat(),
+        is_superadmin=True,
+    )
+    assert res_super.is_superadmin is True
+
+
+@pytest.mark.asyncio
+async def test_platform_user_repository_get_by_email() -> None:
+    import platform_users
+
+    user_row = {
+        "id": USER_ID,
+        "tenant_id": "tenant-agentmaxxing",
+        "email": "alice@agentmaxxing.example",
+        "display_name": "Alice Operator",
+        "role": "admin",
+        "status": "active",
+        "is_superadmin": True,
+        "avatar_url": None,
+        "department": "Security",
+        "title": "Principal",
+        "last_login_at": NOW,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    pool = QueuedPool(rows=[user_row])
+    user = await platform_users.PlatformUserRepository.get_by_email(
+        pool, "  Alice@AgentMaxxing.Example  ", tenant_id="tenant-agentmaxxing"
+    )
+    assert user is not None
+    assert user.id == str(USER_ID)
+    assert user.is_superadmin is True
+    assert "is_superadmin" in pool.statements[0][0]
+    assert "LOWER(email) = $1 AND tenant_id = $2" in pool.statements[0][0]
+    assert pool.statements[0][1] == ("alice@agentmaxxing.example", "tenant-agentmaxxing")
+
+
+@pytest.mark.asyncio
+async def test_platform_user_repository_get_by_id() -> None:
+    import platform_users
+
+    user_row = {
+        "id": USER_ID,
+        "tenant_id": "tenant-demo",
+        "email": "bob@demo.example",
+        "display_name": "Bob Demo",
+        "role": "editor",
+        "status": "active",
+        "is_superadmin": False,
+        "avatar_url": None,
+        "department": None,
+        "title": None,
+        "last_login_at": None,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    pool = QueuedPool(rows=[user_row])
+    user = await platform_users.PlatformUserRepository.get_by_id(pool, USER_ID)
+    assert user is not None
+    assert user.id == str(USER_ID)
+    assert user.is_superadmin is False
+    assert "is_superadmin" in pool.statements[0][0]
+    assert "id = $1" in pool.statements[0][0]
+
+
+@pytest.mark.asyncio
+async def test_platform_user_repository_list_users() -> None:
+    import platform_users
+
+    rows = [
+        {
+            "id": USER_ID,
+            "tenant_id": "tenant-agentmaxxing",
+            "email": "alice@agentmaxxing.example",
+            "display_name": "Alice Operator",
+            "role": "admin",
+            "status": "active",
+            "is_superadmin": True,
+            "avatar_url": None,
+            "department": None,
+            "title": None,
+            "last_login_at": None,
+            "created_at": NOW,
+            "updated_at": NOW,
+        },
+        {
+            "id": TARGET_USER_ID,
+            "tenant_id": "tenant-agentmaxxing",
+            "email": "bob@agentmaxxing.example",
+            "display_name": "Bob Operator",
+            "role": "viewer",
+            "status": "active",
+            "is_superadmin": False,
+            "avatar_url": None,
+            "department": None,
+            "title": None,
+            "last_login_at": None,
+            "created_at": NOW,
+            "updated_at": NOW,
+        },
+    ]
+    pool = QueuedPool(lists=[rows])
+    users = await platform_users.PlatformUserRepository.list_users(pool, tenant_id="tenant-agentmaxxing")
+    assert len(users) == 2
+    assert users[0].is_superadmin is True
+    assert users[1].is_superadmin is False
+    assert "is_superadmin" in pool.statements[0][0]
+    assert "tenant_id = $1" in pool.statements[0][0]
+
+
+def test_platform_users_module_exports_all_symbols() -> None:
+    import platform_users
+
+    # Verify new platform user exports
+    assert hasattr(platform_users, "PlatformUser")
+    assert hasattr(platform_users, "PlatformUserRepository")
+    assert hasattr(platform_users, "PlatformUserResponse")
+    assert hasattr(platform_users, "PlatformUsersResponse")
+    assert hasattr(platform_users, "get_platform_user_by_email")
+    assert hasattr(platform_users, "get_platform_user_by_id")
+    assert hasattr(platform_users, "list_platform_users")
+    assert hasattr(platform_users, "platform_user_from_row")
+
+    # Verify backwards compatibility with existing operator identity exports
+    assert platform_users.router is operator_identity.router
+    assert platform_users.AUTHORIZATION_MATRIX == operator_identity.AUTHORIZATION_MATRIX
+    assert platform_users.OperatorIdentityCreateRequest is operator_identity.OperatorIdentityCreateRequest
+    assert platform_users.OperatorIdentityRemovalRequest is operator_identity.OperatorIdentityRemovalRequest
+    assert platform_users.OperatorIdentityResponse is operator_identity.OperatorIdentityResponse
+    assert platform_users.OperatorIdentitiesResponse is operator_identity.OperatorIdentitiesResponse
+    assert platform_users.OperatorSessionResponse is operator_identity.OperatorSessionResponse
+    assert platform_users.OperatorRemovalResponse is operator_identity.OperatorRemovalResponse
+    assert platform_users.OperatorPrincipal is operator_identity.OperatorPrincipal
+
+

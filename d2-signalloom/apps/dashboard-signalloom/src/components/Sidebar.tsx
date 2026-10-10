@@ -7,6 +7,9 @@ import { useAppContext } from '../App'
 import { isSuperadminEligible } from '../auth/superadmin'
 import { api } from '../api/client'
 import type { TenantSettingsResponse } from '../types/api'
+import FeatureGate from './common/FeatureGate'
+import { useFeatureFlag } from '../hooks/useFeatureFlag'
+import type { KnownFeatureFlag } from '../types/features'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 import NotificationBell from './NotificationBell'
@@ -20,6 +23,7 @@ export interface NavItem {
   icon: IconKind
   end?: boolean
   superadminOnly?: boolean
+  flag?: KnownFeatureFlag | string
 }
 
 // One glyph per destination: never share a kind between two nav items. A
@@ -110,7 +114,7 @@ export const NAV: NavItem[] = [
   // ─── Control Group ──────────────────────────────────────
   { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies' },
   { to: '/compliance', label: 'Compliance', section: 'Control', icon: 'containment' },
-  { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion' },
+  { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion', flag: 'collusion_access' },
   { to: '/users', label: 'Users & Permissions', section: 'Control', icon: 'approvals' },
   { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit' },
 
@@ -121,16 +125,16 @@ export const NAV: NavItem[] = [
   // ─── Superadmin Specialized Modules ─────────────────────
   { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true },
   { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true },
-  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true },
-  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true },
+  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true, flag: 'rbac_analysis' },
+  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true, flag: 'rbac_analysis' },
   { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
   { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
   { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true },
 
   // ─── Demos Group ────────────────────────────────────────
-  { to: '/fleet', label: 'Fleet Demo', section: 'Demos', icon: 'fleet', superadminOnly: true },
-  { to: '/fleet/audience', label: 'Fleet Demo Audience', section: 'Demos', icon: 'fleetAudience', superadminOnly: true },
-  { to: '/supercred', label: 'SuperCredential Demo', section: 'Demos', icon: 'supercred', superadminOnly: true },
+  { to: '/fleet', label: 'Fleet Demo', section: 'Demos', icon: 'fleet', superadminOnly: true, flag: 'demos_fleet' },
+  { to: '/fleet/audience', label: 'Fleet Demo Audience', section: 'Demos', icon: 'fleetAudience', superadminOnly: true, flag: 'demos_fleet' },
+  { to: '/supercred', label: 'SuperCredential Demo', section: 'Demos', icon: 'supercred', superadminOnly: true, flag: 'supercred' },
   { to: '/demos/agentmaxxing', label: 'AgentMaxxing Demo', section: 'Demos', icon: 'agentmaxxing', superadminOnly: true },
   { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'Demos', icon: 'signalFusion', superadminOnly: true },
   { to: '/distance-latency', label: 'Distance Latency Demo', section: 'Demos', icon: 'distanceLatency', superadminOnly: true },
@@ -188,10 +192,27 @@ export default function Sidebar() {
   const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
   const searchRef = useRef<HTMLInputElement>(null)
 
+  const { isEnabled: isDemosFleetEnabled } = useFeatureFlag('demos_fleet')
+  const { isEnabled: isSupercredEnabled } = useFeatureFlag('supercred')
+  const { isEnabled: isRbacAnalysisEnabled } = useFeatureFlag('rbac_analysis')
+  const { isEnabled: isCollusionAccessEnabled } = useFeatureFlag('collusion_access')
+
+  const flagStatus: Record<string, boolean> = {
+    demos_fleet: isDemosFleetEnabled,
+    supercred: isSupercredEnabled,
+    rbac_analysis: isRbacAnalysisEnabled,
+    collusion_access: isCollusionAccessEnabled,
+  }
+
+  const isFlagActive = (flag?: string) => {
+    if (!flag) return true
+    return flagStatus[flag] ?? true
+  }
+
   const canSuperadmin = isSuperadminEligible(user)
   const showSuperadminNav = canSuperadmin && superadmin
-  const navItems = NAV.filter(({ superadminOnly }) => !superadminOnly)
-  const superadminItems = NAV.filter(({ superadminOnly }) => superadminOnly)
+  const navItems = NAV.filter(({ superadminOnly, flag }) => !superadminOnly && isFlagActive(flag))
+  const superadminItems = NAV.filter(({ superadminOnly, flag }) => superadminOnly && isFlagActive(flag))
   const normalizedQuery = query.trim().toLowerCase()
   const matchesQuery = ({ label }: NavItem) => !normalizedQuery || label.toLowerCase().includes(normalizedQuery)
   const visibleNavItems = navItems.filter(matchesQuery)
@@ -224,12 +245,15 @@ export default function Sidebar() {
 
   useLayoutEffect(() => {
     const container = navRef.current
-    const activeItem = NAV.find(({ to, end }) => end ? location.pathname === to : location.pathname === to || location.pathname.startsWith(`${to}/`))
+    const activeItem = NAV.find(({ to, end, flag }) => {
+      if (flag && !isFlagActive(flag)) return false
+      return end ? location.pathname === to : location.pathname === to || location.pathname.startsWith(`${to}/`)
+    })
     const targetTo = (hoveredNav === null ? activeItem : NAV[hoveredNav])?.to
     const target = targetTo ? itemRefs.current[targetTo] : null
 
     // No row to sit on: the active route is off-nav, filtered out of the rail,
-    // or behind the superadmin flag.
+    // or behind the superadmin flag / feature flag.
     if (!container || !target || !targetTo) {
       setSelectionBox(null)
       return
@@ -238,7 +262,7 @@ export default function Sidebar() {
     const targetRect = target.getBoundingClientRect()
     const top = targetRect.top - containerRect.top + container.scrollTop
     setSelectionBox({ to: targetTo, top, height: targetRect.height })
-  }, [hoveredNav, location.pathname, collapsed, normalizedQuery, showSuperadminNav])
+  }, [hoveredNav, location.pathname, collapsed, normalizedQuery, showSuperadminNav, isDemosFleetEnabled, isSupercredEnabled, isRbacAnalysisEnabled, isCollusionAccessEnabled])
 
   useEffect(() => {
     let canceled = false
@@ -301,10 +325,10 @@ export default function Sidebar() {
     setPendingSearchFocus(false)
   }, [pendingSearchFocus, collapsed])
 
-  function renderNavLink({ to, label, end, icon, superadminOnly }: NavItem) {
+  function renderNavLink({ to, label, end, icon, superadminOnly, flag }: NavItem) {
     const i = NAV.findIndex((item) => item.to === to)
     const showShortcut = !collapsed && !superadminOnly && hoveredNav === i && i < 9
-    return (
+    const link = (
       <NavLink
         key={to}
         to={to}
@@ -370,6 +394,16 @@ export default function Sidebar() {
         )}
       </NavLink>
     )
+
+    if (flag) {
+      return (
+        <FeatureGate key={to} flag={flag}>
+          {link}
+        </FeatureGate>
+      )
+    }
+
+    return link
   }
 
   return (

@@ -54,6 +54,9 @@ def _normalize_email(email: str) -> str:
 
 
 def is_superadmin(principal: Principal) -> bool:
+    if getattr(principal, "_is_superadmin", False) is True:
+        return True
+
     email_allowlist = _configured_superadmin_emails()
     subject_allowlist = _configured_superadmin_subjects()
 
@@ -80,3 +83,22 @@ def require_superadmin(
             "Superadmin access is required",
         )
     return principal
+
+
+def is_admin(principal: Principal) -> bool:
+    """Return True if principal has admin or superadmin privileges."""
+    return is_superadmin(principal) or getattr(principal, "role", "viewer") == "admin"
+
+
+def require_admin_or_superadmin(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> Principal:
+    """Authorize callers with either tenant admin role or platform superadmin privilege."""
+    if not is_admin(principal):
+        raise APIError(
+            403,
+            "admin_required",
+            "Admin or superadmin access is required",
+        )
+    return principal
+

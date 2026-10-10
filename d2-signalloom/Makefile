@@ -207,6 +207,13 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               spire-jwks-live.bats belongs in the same stage 7
 #                               list; it had no other runner.
 #
+#   test/api-route-liveness.bats
+#                             - LIVE-cluster suite: port-forwards the deployed
+#                               fe-signalloom and signal-ingest services and
+#                               queries their running route tables. Its runner is
+#                               demo-signalloom-api-route-liveness in the root
+#                               Makefile and stage 7 of the pipelines.
+#
 #   test/dashboard-fleet-gate.bats
 #                             - needs docker and two images it refuses to pull
 #                               (nginxinc/nginx-unprivileged:1.27-alpine,
@@ -214,7 +221,7 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               wherever they had not been pulled by hand. Its
 #                               runner is stage 1c5 in both pipeline lanes,
 #                               which pulls them first.
-EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats test/supercred-step1-runtime.bats test/runtime.bats test/test-1-runtime.bats test/spire-jwks-live.bats test/dashboard-fleet-gate.bats
+EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats test/supercred-step1-runtime.bats test/runtime.bats test/test-1-runtime.bats test/spire-jwks-live.bats test/api-route-liveness.bats test/dashboard-fleet-gate.bats
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh

@@ -4454,3 +4454,270 @@ END $body$;
 
 COMMIT;
 -- END 056_cross_tenant_read_event_type.sql
+
+-- BEGIN 057_tenant_feature_flags.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 057 — tenant-scoped feature flags for granular surface scoping and gating
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Provides tenant-scoped feature flags with JSONB configuration payloads.
+-- Guarantees strict multi-tenant isolation, default evaluation fallbacks,
+-- and sub-millisecond lookups via composite primary key (tenant_id, flag_key).
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.tenant_feature_flags (
+    tenant_id   VARCHAR(128) NOT NULL,
+    flag_key    VARCHAR(128) NOT NULL,
+    enabled     BOOLEAN      NOT NULL DEFAULT FALSE,
+    config_json JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, flag_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_feature_flags_tenant
+    ON public.tenant_feature_flags (tenant_id, flag_key);
+
+COMMIT;
+-- END 057_tenant_feature_flags.sql
+
+-- BEGIN 058_platform_users_superadmin.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 058 — platform_users superadmin flag and partial index
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Adds is_superadmin boolean column to public.platform_users defaulting to FALSE.
+-- Adds partial index on platform_users(email) WHERE is_superadmin = TRUE for fast
+-- privileged account lookup without scanning ordinary user records.
+
+BEGIN;
+
+ALTER TABLE public.platform_users
+    ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_platform_users_superadmin
+    ON public.platform_users (email)
+    WHERE is_superadmin = TRUE;
+
+COMMIT;
+-- END 058_platform_users_superadmin.sql
+
+-- BEGIN 059_user_admin_audit_event_types.sql
+-- 059 — admit user admin lifecycle audit event types
+--
+-- Adds audit event types for platform user administration CRUD endpoints:
+-- 'user.invited', 'user.updated', 'user.role_updated', 'user.status_updated', 'user.deleted'.
+-- Replaces audit_events_event_type_check with 056's vocabulary plus these types.
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+         )) NOT LIKE '%user.invited%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%user.invited%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'afm.cluster_import_requested',
+        'actor.promote_requested',
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stun_failed',
+        'agent.stun_simulated',
+        'agent.stunned',
+        'agent.transition_failed',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'audit.cross_tenant_read',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'fleet.recover_requested',
+        'fleet.resume_requested',
+        'invite.created',
+        'invite.redeemed',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'policy.bundle_submitted',
+        'policy.rollback_requested',
+        'rbac.scan_requested',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user.deleted',
+        'user.invited',
+        'user.role_updated',
+        'user.status_updated',
+        'user.updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 059_user_admin_audit_event_types.sql
+
+-- BEGIN 060_seed_design_partner_presets.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 060 — seed design partner presets (Kusari tenant) and initial superadmin
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Seeds default feature flags for design partner tenant 'kusari':
+--   - Enabled: core_governance, audit, compliance
+--   - Disabled: demos_fleet, supercred, rbac_analysis, collusion_access
+--
+-- Seeds initial platform superadmin accounts:
+--   - demo-user@signalloom.local (tenant: tenant-demo, is_superadmin: true)
+--   - admin@kusari.demo (tenant: kusari, is_superadmin: true)
+--
+-- All inserts use ON CONFLICT clauses to ensure strict forward-only idempotency.
+
+BEGIN;
+
+-- 1. Seed Kusari Design Partner Tenant Feature Flags
+INSERT INTO public.tenant_feature_flags (
+    tenant_id,
+    flag_key,
+    enabled,
+    config_json,
+    created_at,
+    updated_at
+) VALUES
+    ('kusari', 'core_governance', TRUE,  '{"description": "Core governance policies, agent registry, and guardrails"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'audit',           TRUE,  '{"description": "Authoritative immutable audit log and provenance stream"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'compliance',      TRUE,  '{"description": "Compliance posture dashboards and regulatory framework evaluation"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'demos_fleet',     FALSE, '{"description": "Demo fleet simulation scenarios and testing controls"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'supercred',       FALSE, '{"description": "SuperCred privilege escalation demonstration surfaces"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'rbac_analysis',   FALSE, '{"description": "Experimental AFM formal RBAC graph visualization"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'collusion_access',FALSE, '{"description": "Experimental multi-agent collusion detection matrix"}'::jsonb, NOW(), NOW())
+ON CONFLICT (tenant_id, flag_key) DO UPDATE SET
+    enabled = EXCLUDED.enabled,
+    config_json = EXCLUDED.config_json,
+    updated_at = NOW();
+
+-- 2. Seed Initial Platform Superadmin Users
+-- Uses stable UUIDs for deterministic bootstrap reconciliation.
+INSERT INTO public.platform_users (
+    id,
+    tenant_id,
+    email,
+    display_name,
+    role,
+    status,
+    department,
+    title,
+    is_superadmin,
+    created_at,
+    updated_at
+) VALUES
+    (
+        'a0000000-0000-0000-0000-000000000000',
+        'tenant-demo',
+        'demo-user@signalloom.local',
+        'Platform Superadmin',
+        'admin',
+        'active',
+        'Platform Engineering',
+        'Superadmin Operator',
+        TRUE,
+        NOW(),
+        NOW()
+    ),
+    (
+        'a0000000-0000-0000-0000-000000000001',
+        'kusari',
+        'admin@kusari.demo',
+        'Kusari Admin',
+        'admin',
+        'active',
+        'Security Operations',
+        'Design Partner Lead',
+        TRUE,
+        NOW(),
+        NOW()
+    )
+ON CONFLICT (tenant_id, email) DO UPDATE SET
+    role = EXCLUDED.role,
+    status = EXCLUDED.status,
+    is_superadmin = EXCLUDED.is_superadmin,
+    updated_at = NOW();
+
+-- Ensure any preexisting record for seeded superadmins is also elevated
+UPDATE public.platform_users
+SET is_superadmin = TRUE,
+    role = 'admin',
+    status = 'active',
+    updated_at = NOW()
+WHERE email IN ('demo-user@signalloom.local', 'admin@kusari.demo');
+
+COMMIT;
+-- END 060_seed_design_partner_presets.sql

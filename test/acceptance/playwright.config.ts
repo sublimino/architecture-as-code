@@ -88,6 +88,20 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // SLFA-P4-2: Superadmin user administration and Kusari feature flag suppression journey.
+      // Cluster-free harness spawns `bun harness/user-admin-flags-server.ts` on `--port 0`.
+      name: "user-admin-and-flags",
+      testMatch: /user-admin-and-flags\.spec\.ts/,
+      timeout: 3 * 60_000,
+      fullyParallel: false,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // The two-window SuperCredential demo.
       //
       // Its own project because it needs BOTH of the things only `chromium`
@@ -382,7 +396,7 @@ export default defineConfig({
       // this project's contract. A spec that matches NO project is silently
       // skipped by Playwright - exit 0, no warning - so leaving it out would
       // reproduce the very blindness it was written to close.
-      testMatch: /smoke\.spec\.ts|navigation\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|agent-claim\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts|onboarding\.spec\.ts|smoke-onboarding-agents\.spec\.ts|feeds-explorer\.spec\.ts|governance-navigation\.spec\.ts|discovery-claim\.spec\.ts|topology-graph\.spec\.ts|policy-editor\.spec\.ts|risk-audit\.spec\.ts|supercred-fleet-cascade\.spec\.ts/,
+      testMatch: /smoke\.spec\.ts|navigation\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts|live-data\.spec\.ts|kagent-agents\.spec\.ts|distance-latency\.spec\.ts|agent-activity-timeline\.spec\.ts|agent-drilldown-and-selectors\.spec\.ts|agent-claim\.spec\.ts|cloudaudit-dashboard\.spec\.ts|signal-loom-netebpf\.spec\.ts|signal-loom-baoaudit\.spec\.ts|who-authorized\.spec\.ts|sfas-dossier-authorization\.spec\.ts|onboarding\.spec\.ts|smoke-onboarding-agents\.spec\.ts|feeds-explorer\.spec\.ts|governance-navigation\.spec\.ts|discovery-claim\.spec\.ts|topology-graph\.spec\.ts|policy-editor\.spec\.ts|risk-audit\.spec\.ts|supercred-fleet-cascade\.spec\.ts|user-admin-and-flags\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,

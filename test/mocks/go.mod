@@ -2,16 +2,16 @@ module github.com/controlplaneio-in-toto/osramp-demo/test/mocks
 
 go 1.27.0
 
+// Standalone module, following the d2-signalloom/test/dex-templates pattern.
+// It is deliberately NOT part of the signal-ingest module: a `package main`
+// binary living under apps/signal-ingest would be picked up by `go build ./...`
+// and shipped in the production image, and a mock Tetragon server is the last
+// thing that should be reachable from a release artifact.
+//
+// The replace directive points at the working tree rather than a published
+// version so the mock can never drift from the collector it is mocking.
 require (
 	github.com/cilium/tetragon/api v1.1.0
-	// Standalone module, following the d2-signalloom/test/dex-templates pattern.
-	// It is deliberately NOT part of the signal-ingest module: a `package main`
-	// binary living under apps/signal-ingest would be picked up by `go build ./...`
-	// and shipped in the production image, and a mock Tetragon server is the last
-	// thing that should be reachable from a release artifact.
-	//
-	// The replace directive points at the working tree rather than a published
-	// version so the mock can never drift from the collector it is mocking.
 	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest v0.0.0
 )
 

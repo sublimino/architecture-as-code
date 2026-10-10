@@ -1,6 +1,7 @@
 package frameworks
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,29 +12,42 @@ import (
 )
 
 // Load reads a framework definition from policyRoot/frameworks/<frameworkID>/<version>/.
-// It tries framework.json first, falling back to framework.yaml.
+// framework.json wins; framework.yaml is read only when no framework.json exists.
+//
+// Both files must use the canonical shape (see types.go): an unknown key is an
+// error, not a silently dropped field, and every check must carry an id and a
+// non-empty celExpression. A pack either loads whole and evaluable or does not
+// load at all.
 func Load(policyRoot, frameworkID, version string) (*Framework, error) {
 	dir := filepath.Join(policyRoot, "frameworks", frameworkID, version)
 
-	var data []byte
-	var err error
-
-	// Prefer .json, fall back to .yaml.
-	for _, name := range []string{"framework.json", "framework.yaml"} {
+	var (
+		fw   Framework
+		name string
+		err  error
+	)
+	for _, name = range []string{"framework.json", "framework.yaml"} {
+		var data []byte
 		data, err = os.ReadFile(filepath.Join(dir, name))
-		if err == nil {
-			break
+		if err != nil {
+			continue
 		}
+		if name == "framework.json" {
+			err = decodeJSON(data, &fw)
+		} else {
+			err = decodeYAML(data, &fw)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parsing framework %s/%s/%s: %w", frameworkID, version, name, err)
+		}
+		break
 	}
 	if err != nil {
 		return nil, fmt.Errorf("loading framework %s/%s: %w", frameworkID, version, err)
 	}
 
-	var fw Framework
-	if err := json.Unmarshal(data, &fw); err != nil {
-		if yamlErr := yaml.Unmarshal(data, &fw); yamlErr != nil {
-			return nil, fmt.Errorf("parsing framework %s/%s as JSON (%v) and YAML (%w)", frameworkID, version, err, yamlErr)
-		}
+	if err := validate(&fw); err != nil {
+		return nil, fmt.Errorf("framework %s/%s/%s: %w", frameworkID, version, name, err)
 	}
 
 	if fw.ID == "" {
@@ -44,6 +58,48 @@ func Load(policyRoot, frameworkID, version string) (*Framework, error) {
 	}
 
 	return &fw, nil
+}
+
+func decodeJSON(data []byte, fw *Framework) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(fw); err != nil {
+		return err
+	}
+	if dec.More() {
+		return fmt.Errorf("trailing data after the framework object")
+	}
+	return nil
+}
+
+func decodeYAML(data []byte, fw *Framework) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	return dec.Decode(fw)
+}
+
+// validate rejects a pack that would evaluate checks it cannot run: a check
+// with no id cannot be reported, a duplicate id shadows another check's
+// result, and an empty expression can only ever error.
+func validate(fw *Framework) error {
+	seen := map[string]string{}
+	for _, cs := range fw.ControlSets {
+		for _, ctrl := range cs.Controls {
+			for i, chk := range ctrl.Checks {
+				if strings.TrimSpace(chk.ID) == "" {
+					return fmt.Errorf("control %q check #%d has no id", ctrl.ID, i)
+				}
+				if prev, dup := seen[chk.ID]; dup {
+					return fmt.Errorf("duplicate check id %q in controls %q and %q", chk.ID, prev, ctrl.ID)
+				}
+				seen[chk.ID] = ctrl.ID
+				if strings.TrimSpace(chk.CELExpression) == "" {
+					return fmt.Errorf("control %q check %q has empty celExpression", ctrl.ID, chk.ID)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // ListFrameworks returns available framework IDs and their versions by scanning

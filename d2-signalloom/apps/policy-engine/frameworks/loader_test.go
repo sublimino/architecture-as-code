@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/cel-go/cel"
@@ -458,6 +459,238 @@ func TestAllRegulatoryRules_TableDrivenAllowDeny(t *testing.T) {
 			if denyVerdict {
 				t.Errorf("expected DENY fixture to evaluate to false for rule %s, got true", tt.CheckID)
 			}
+		})
+	}
+}
+
+// --- loader integrity: a pack loads with every check evaluable, or not at all.
+
+// writePack writes files into <root>/frameworks/<id>/<version>/ and returns root.
+func writePack(t *testing.T, id, version string, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "frameworks", id, version)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+const canonicalJSON = `{"id":"x","name":"X","version":"v1.0.0","controlSets":[{"id":"cs","name":"CS","controls":[{"id":"c1","name":"C1","checks":[
+ {"id":"ok","name":"ok","celExpression":"true","riskTriple":{"min":1,"mode":2,"max":3},"freqTriple":{"min":0.1,"mode":0.2,"max":0.3},"policyVersions":["v1.0.0"]}]}]}]}`
+
+func TestLoad_CanonicalJSONLoads(t *testing.T) {
+	fw, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": canonicalJSON}), "x", "v1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fw.ControlSets[0].Controls[0].Checks[0].CELExpression; got != "true" {
+		t.Fatalf("celExpression = %q", got)
+	}
+}
+
+func TestLoad_RejectsEmptyCELExpression(t *testing.T) {
+	for name, expr := range map[string]string{"empty": `""`, "blank": `"  \n "`} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(canonicalJSON, `"celExpression":"true"`, `"celExpression":`+expr, 1)
+			_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
+			if err == nil || !strings.Contains(err.Error(), `"ok"`) || !strings.Contains(err.Error(), "empty celExpression") {
+				t.Fatalf("want error naming check \"ok\" and empty celExpression, got %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_RejectsMissingCELExpression(t *testing.T) {
+	body := strings.Replace(canonicalJSON, `"celExpression":"true",`, ``, 1)
+	if _, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0"); err == nil {
+		t.Fatal("a check with no celExpression key loaded")
+	}
+}
+
+func TestLoad_RejectsCheckWithoutID(t *testing.T) {
+	body := strings.Replace(canonicalJSON, `"id":"ok",`, ``, 1)
+	if _, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0"); err == nil {
+		t.Fatal("a check with no id loaded")
+	}
+}
+
+// Results are keyed by check id, so a second check with the same id would
+// overwrite or shadow the first.
+func TestLoad_RejectsDuplicateCheckID(t *testing.T) {
+	dup := `{"id":"ok","name":"dup","celExpression":"false","riskTriple":{"min":1,"mode":2,"max":3},"freqTriple":{"min":0.1,"mode":0.2,"max":0.3},"policyVersions":["v1.0.0"]}`
+	body := strings.Replace(canonicalJSON, `"policyVersions":["v1.0.0"]}]`, `"policyVersions":["v1.0.0"]},`+dup+`]`, 1)
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), `duplicate check id "ok"`) {
+		t.Fatalf("want duplicate check id error, got %v", err)
+	}
+}
+
+// A misspelt key would otherwise decode to a zero value (empty expression,
+// zero risk) without a word.
+func TestLoad_RejectsUnknownJSONField(t *testing.T) {
+	body := strings.Replace(canonicalJSON, `"riskTriple"`, `"rsikTriple"`, 1)
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), "rsikTriple") {
+		t.Fatalf("want unknown-field error naming rsikTriple, got %v", err)
+	}
+}
+
+// The legacy YAML dialect (framework: wrapper, cel: key, riskTriple on the
+// control) used to half-parse into checks with empty expressions.
+const legacyYAML = `framework:
+  id: x
+  name: X
+  version: v1.0.0
+controlSets:
+  - id: cs
+    name: CS
+    controls:
+      - id: c1
+        name: C1
+        riskTriple: {min: 1, mode: 2, max: 3}
+        checks:
+          - id: ok
+            name: ok
+            cel: "true"
+`
+
+func TestLoad_RejectsLegacyYAMLShape(t *testing.T) {
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": legacyYAML}), "x", "v1.0")
+	if err == nil {
+		t.Fatal("legacy YAML shape loaded silently")
+	}
+	if !strings.Contains(err.Error(), "field framework not found") {
+		t.Fatalf("error should name the unknown key, got %v", err)
+	}
+}
+
+func TestLoad_RejectsUnknownYAMLField(t *testing.T) {
+	body := "id: x\nname: X\ncontrolSets:\n  - id: cs\n    controls:\n      - id: c1\n        checks:\n          - id: ok\n            celExpression: \"true\"\n            rsikTriple: {min: 1, mode: 2, max: 3}\n"
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": body}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), "rsikTriple") {
+		t.Fatalf("want unknown-field error naming rsikTriple, got %v", err)
+	}
+}
+
+func TestLoad_RejectsTrailingJSON(t *testing.T) {
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": canonicalJSON + `{"id":"y"}`}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), "trailing data") {
+		t.Fatalf("want trailing-data error, got %v", err)
+	}
+}
+
+func TestLoad_CanonicalYAMLLoads(t *testing.T) {
+	body := `id: x
+name: X
+version: v1.0.0
+controlSets:
+  - id: cs
+    name: CS
+    controls:
+      - id: c1
+        name: C1
+        checks:
+          - id: ok
+            name: ok
+            celExpression: "true"
+            riskTriple: {min: 1, mode: 2, max: 3}
+`
+	fw, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": body}), "x", "v1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chk := fw.ControlSets[0].Controls[0].Checks[0]; chk.CELExpression != "true" || chk.RiskTriple.Max != 3 {
+		t.Fatalf("canonical YAML decoded wrongly: %+v", chk)
+	}
+}
+
+func TestLoad_JSONWinsOverYAML(t *testing.T) {
+	root := writePack(t, "x", "v1.0", map[string]string{"framework.json": canonicalJSON, "framework.yaml": legacyYAML})
+	if _, err := Load(root, "x", "v1.0"); err != nil {
+		t.Fatalf("framework.json must win; YAML beside it is not read: %v", err)
+	}
+}
+
+func TestLoad_MalformedJSONIsNotRetriedAsYAML(t *testing.T) {
+	if _, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": "id: x\n"}), "x", "v1.0"); err == nil {
+		t.Fatal("YAML content in framework.json loaded")
+	}
+}
+
+// Every pack the engine lists must load, and every check it loads must carry
+// an expression and a risk triple. This is the production guarantee.
+func TestLoad_EveryShippedPackLoadsCompletely(t *testing.T) {
+	root := testPolicyRoot(t)
+	avail, err := ListFrameworks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, versions := range avail {
+		for _, ver := range versions {
+			fw, err := Load(root, id, ver)
+			if err != nil {
+				t.Errorf("%s/%s: %v", id, ver, err)
+				continue
+			}
+			for _, cwc := range ChecksForVersion(fw, "") {
+				if strings.TrimSpace(cwc.Check.CELExpression) == "" {
+					t.Errorf("%s/%s: check %q has empty celExpression", id, ver, cwc.Check.ID)
+				}
+				placeholder := fw.Status == "placeholder" || cwc.Check.Status == "placeholder"
+				if cwc.Check.RiskTriple.Max == 0 && !placeholder {
+					t.Errorf("%s/%s: check %q has zero riskTriple", id, ver, cwc.Check.ID)
+				}
+			}
+		}
+	}
+}
+
+// The converted lax/standard packs keep their identity, check count, and the
+// risk triple each control carried in the legacy YAML.
+func TestLoad_LegacyTiersConverted(t *testing.T) {
+	root := testPolicyRoot(t)
+	cases := []struct {
+		id, ver, wantVersion, check string
+		checks                      int
+		min, mode, max              float64
+	}{
+		{"eu-ai-act", "v1.0", "v1.0.0", "container-run-as-non-root", 7, 2000, 10000, 50000},
+		{"eu-ai-act", "v2.0", "v2.0.0", "no-privileged-mode", 19, 8000, 40000, 150000},
+		{"nist-800-53", "v1.0", "v1.0.0", "no-automount-sa-token", 11, 2000, 10000, 40000},
+		{"nist-800-53", "v2.0", "v2.0.0", "no-privilege-escalation", 27, 8000, 40000, 150000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"/"+tc.ver, func(t *testing.T) {
+			fw, err := Load(root, tc.id, tc.ver)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fw.ID != tc.id || fw.Version != tc.wantVersion {
+				t.Fatalf("identity = %s/%s", fw.ID, fw.Version)
+			}
+			all := ChecksForVersion(fw, "")
+			if len(all) != tc.checks {
+				t.Fatalf("got %d checks, want %d", len(all), tc.checks)
+			}
+			if got := ChecksForVersion(fw, tc.wantVersion); len(got) != tc.checks {
+				t.Fatalf("policyVersion %s selects %d checks, want %d", tc.wantVersion, len(got), tc.checks)
+			}
+			for _, c := range all {
+				if c.Check.ID != tc.check {
+					continue
+				}
+				if c.Check.RiskTriple.Min != tc.min || c.Check.RiskTriple.Mode != tc.mode || c.Check.RiskTriple.Max != tc.max {
+					t.Fatalf("riskTriple = %+v", c.Check.RiskTriple)
+				}
+				return
+			}
+			t.Fatalf("check %q missing", tc.check)
 		})
 	}
 }

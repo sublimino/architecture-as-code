@@ -1110,3 +1110,409 @@ describe('live cluster telemetry streaming & demo fallback', () => {
   })
 })
 
+
+describe("SLSC-P2-2 FleetDemoPage risk scan wiring", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+    mockScanFleet.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("displays baseline risk £12,400 on initial load", async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
+    })
+    const aleEls = screen.getAllByTestId("fleet-risk-ale")
+    expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
+    const carriedEls = screen.getAllByTestId("fleet-risk-carried")
+    expect(carriedEls[0]).toHaveTextContent(/12[,.]?400/)
+  })
+
+  it("wires Scan Fleet button to update risk metrics from baseline £12,400 to escalated £847,000", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
+    })
+
+    // Baseline: £12,400
+    const aleEl = screen.getAllByTestId("fleet-risk-ale")[0]
+    expect(aleEl).toHaveTextContent(/12[,.]?400/)
+
+    // Click Scan Fleet
+    await user.click(screen.getByTestId("fleet-scan-btn"))
+    await waitFor(() => {
+      expect(mockScanFleet).toHaveBeenCalledWith("test-token")
+    })
+
+    // Advance animation timers
+    act(() => { vi.advanceTimersByTime(700) })
+
+    // Escalated: £847,000
+    await waitFor(() => {
+      expect(screen.getAllByTestId("fleet-risk-ale")[0]).toHaveTextContent(/847[,.]?000/)
+    })
+    const carriedEl = screen.getAllByTestId("fleet-risk-carried")[0]
+    expect(carriedEl).toHaveTextContent(/847[,.]?000/)
+  })
+
+  it("transitions non-compliant agents on scan and updates risk band", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByTestId("fleet-scan-btn"))
+    act(() => { vi.advanceTimersByTime(700) })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("fleet-risk-band")[0]).toHaveTextContent("High Risk")
+    })
+  })
+})
+
+describe("SLSC-P3-2 FleetDemoPage animated cascade and stepwise risk recalculation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+    mockDeployFleet.mockResolvedValue(undefined)
+    mockScanFleet.mockResolvedValue(undefined)
+    mockStunFleetAgent.mockResolvedValue({
+      triggerId: 'agent-cardvault',
+      affectedIds: ['agent-cardvault', 'agent-pipeline'],
+      timestamp: '2026-08-04T00:00:00Z',
+      durationMs: 500,
+      riskBefore: 12400,
+      riskAfter: 847000,
+    })
+    mockRecoverFleet.mockResolvedValue(undefined)
+    mockResetFleet.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("recalculates risk stepwise as each node cascades into stunned state upon stun action", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    // Baseline risk: £12,400
+    const aleEls = screen.getAllByTestId("fleet-risk-ale")
+    expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
+
+    // Trigger stun
+    await user.click(screen.getByTestId("fleet-stun-btn"))
+    await user.type(await screen.findByLabelText(/Reason for stunning/), "cascade test drill")
+    await user.click(screen.getByRole("button", { name: /Confirm stun/ }))
+
+    await waitFor(() => {
+      expect(mockStunFleetAgent).toHaveBeenCalledWith("agent-cardvault", "test-token", "cascade test drill")
+    })
+
+    // Advance to step 1 (0ms stagger)
+    act(() => { vi.advanceTimersByTime(50) })
+
+    await waitFor(() => {
+      const stepwiseBadge = screen.getAllByTestId("fleet-risk-stepwise")[0]
+      expect(stepwiseBadge).toBeInTheDocument()
+      expect(stepwiseBadge.textContent).toContain("Cascade Step 1 of 2: agent-cardvault")
+    })
+
+    // Intermediate risk: approx £429,700
+    await waitFor(() => {
+      const ale = screen.getAllByTestId("fleet-risk-ale")[0]
+      expect(ale).toHaveTextContent(/429[,.]?700/)
+    })
+
+    // Advance to step 2 (200ms stagger)
+    act(() => { vi.advanceTimersByTime(250) })
+
+    await waitFor(() => {
+      const stepwiseBadge = screen.getAllByTestId("fleet-risk-stepwise")[0]
+      expect(stepwiseBadge.textContent).toContain("Cascade Step 2 of 2: agent-pipeline")
+    })
+
+    // Final escalated risk: £847,000
+    await waitFor(() => {
+      const ale = screen.getAllByTestId("fleet-risk-ale")[0]
+      expect(ale).toHaveTextContent(/847[,.]?000/)
+    })
+  })
+
+  it("excludes agent-monitor from stun cascade and keeps it active throughout cascade journey", async () => {
+    mockStunFleetAgent.mockResolvedValue({
+      triggerId: "agent-cardvault",
+      affected_agents: ["agent-cardvault", "agent-monitor"],
+      duration_ms: 300,
+      overall_outcome: "contained",
+    })
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByTestId("fleet-stun-btn"))
+    await user.type(await screen.findByLabelText(/Reason for stunning/), "monitor exclusion test")
+    await user.click(screen.getByRole("button", { name: /Confirm stun/ }))
+
+    await waitFor(() => {
+      expect(mockStunFleetAgent).toHaveBeenCalled()
+    })
+
+    // Advance through all cascade timers
+    act(() => { vi.advanceTimersByTime(500) })
+
+    // Monitor stays active in topology
+    const monitorNode = screen.getByTestId("fleet-node-agent-monitor")
+    expect(monitorNode).toHaveAttribute("data-agent-state", "active")
+    expect(monitorNode).not.toHaveAttribute("data-cascading")
+  })
+
+  it("contains zero em-dashes across rendered content and labels during cascade", async () => {
+    const { container } = renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    expect(container.textContent).not.toMatch(/\u2014/)
+    // em-dash check only
+  })
+})
+
+
+describe("SLSC-P4-2 FleetDemoPage role-aware views and RoleViewSelector", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+    mockDeployFleet.mockResolvedValue(undefined)
+    mockScanFleet.mockResolvedValue(undefined)
+    mockStunFleetAgent.mockResolvedValue({
+      triggerId: "agent-cardvault",
+      affectedIds: ["agent-cardvault", "agent-pipeline"],
+      timestamp: "2026-08-04T00:00:00Z",
+      durationMs: 500,
+      riskBefore: 12400,
+      riskAfter: 847000,
+    })
+    mockRecoverFleet.mockResolvedValue(undefined)
+    mockResetFleet.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("renders RoleViewSelector with Platform Admin, Compliance Officer, and Payments Team Lead options", async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("role-view-selector")).toBeInTheDocument()
+    })
+
+    const adminBtn = screen.getByTestId("role-btn-admin")
+    const complianceBtn = screen.getByTestId("role-btn-compliance")
+    const teamLeadBtn = screen.getByTestId("role-btn-team-lead")
+
+    expect(adminBtn).toHaveTextContent("Platform Admin")
+    expect(complianceBtn).toHaveTextContent("Compliance Officer")
+    expect(teamLeadBtn).toHaveTextContent("Payments Team Lead")
+    expect(adminBtn).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("shows all 5 agents and enables Stun and Recover buttons under Platform Admin role", async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
+    })
+
+    // All 5 agents visible in topology
+    expect(screen.getByTestId("fleet-node-agent-cardvault")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-pipeline")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-llm")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-gateway")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-monitor")).toBeInTheDocument()
+
+    // Controls enabled with no disabled role tooltip
+    const stunBtn = screen.getByTestId("fleet-stun-btn")
+    const recoverBtn = screen.getByTestId("fleet-recover-btn")
+    expect(stunBtn).toBeEnabled()
+    expect(recoverBtn).toBeEnabled()
+    expect(stunBtn).not.toHaveAttribute("title")
+    expect(recoverBtn).not.toHaveAttribute("title")
+  })
+
+  it("filters topology to payments team agents and disables Stun and Recover buttons under Payments Team Lead role", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("role-btn-team-lead")).toBeInTheDocument()
+    })
+
+    // Click Payments Team Lead role
+    await user.click(screen.getByTestId("role-btn-team-lead"))
+    expect(screen.getByTestId("role-btn-team-lead")).toHaveAttribute("aria-pressed", "true")
+
+    // Topology filtered to payments team agents only
+    expect(screen.getByTestId("fleet-node-agent-pipeline")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-llm")).toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-node-agent-cardvault")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-node-agent-gateway")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-node-agent-monitor")).not.toBeInTheDocument()
+
+    // Edges between payments team agents are preserved; edges to excluded nodes are filtered
+    expect(screen.getByTestId("fleet-edge-agent-pipeline-agent-llm")).toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-edge-agent-cardvault-agent-pipeline")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-edge-agent-llm-agent-gateway")).not.toBeInTheDocument()
+
+    // Controls disabled with explanatory tooltip
+    const stunBtn = screen.getByTestId("fleet-stun-btn")
+    const recoverBtn = screen.getByTestId("fleet-recover-btn")
+    expect(stunBtn).toBeDisabled()
+    expect(recoverBtn).toBeDisabled()
+    expect(stunBtn).toHaveAttribute("title", "Team leads cannot execute stun or recover actions.")
+    expect(recoverBtn).toHaveAttribute("title", "Team leads cannot execute stun or recover actions.")
+  })
+
+  it("displays all 5 agents, full FAIR risk metrics, and disables Stun and Recover buttons under Compliance Officer role", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("role-btn-compliance")).toBeInTheDocument()
+    })
+
+    // Click Compliance Officer role
+    await user.click(screen.getByTestId("role-btn-compliance"))
+    expect(screen.getByTestId("role-btn-compliance")).toHaveAttribute("aria-pressed", "true")
+
+    // Full fleet view: all 5 agents displayed
+    expect(screen.getByTestId("fleet-node-agent-cardvault")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-pipeline")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-llm")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-gateway")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-monitor")).toBeInTheDocument()
+
+    // Full FAIR risk metrics visible
+    const aleEls = screen.getAllByTestId("fleet-risk-ale")
+    expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
+    expect(screen.getByText(/VaR95:\s*£58[,.]?000/i)).toBeInTheDocument()
+
+    // Controls disabled with compliance read-only tooltip
+    const stunBtn = screen.getByTestId("fleet-stun-btn")
+    const recoverBtn = screen.getByTestId("fleet-recover-btn")
+    expect(stunBtn).toBeDisabled()
+    expect(recoverBtn).toBeDisabled()
+    expect(stunBtn).toHaveAttribute("title", "Compliance officers have read-only audit permissions.")
+    expect(recoverBtn).toHaveAttribute("title", "Compliance officers have read-only audit permissions.")
+  })
+
+  it("restores full topology view and enables action buttons when returning to Platform Admin role", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("role-btn-team-lead")).toBeInTheDocument()
+    })
+
+    // Switch to Payments Team Lead
+    await user.click(screen.getByTestId("role-btn-team-lead"))
+    expect(screen.getByTestId("fleet-stun-btn")).toBeDisabled()
+    expect(screen.queryByTestId("fleet-node-agent-cardvault")).not.toBeInTheDocument()
+
+    // Switch back to Platform Admin
+    await user.click(screen.getByTestId("role-btn-admin"))
+    expect(screen.getByTestId("role-btn-admin")).toHaveAttribute("aria-pressed", "true")
+
+    // All agents restored
+    expect(screen.getByTestId("fleet-node-agent-cardvault")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-gateway")).toBeInTheDocument()
+
+    // Buttons re-enabled
+    const stunBtn = screen.getByTestId("fleet-stun-btn")
+    const recoverBtn = screen.getByTestId("fleet-recover-btn")
+    expect(stunBtn).toBeEnabled()
+    expect(recoverBtn).toBeEnabled()
+    expect(stunBtn).not.toHaveAttribute("title")
+    expect(recoverBtn).not.toHaveAttribute("title")
+  })
+
+  it("correctly filters topology display when agent-txn-pipeline and agent-llm-classifier are named explicitly", async () => {
+    const customTopology: FleetTopology = {
+      agents: [
+        { id: "agent-cardvault", name: "Card Vault", type: "data-vault", team: "data", trustProfile: "high", state: "active" },
+        { id: "agent-txn-pipeline", name: "Transaction Pipeline", type: "data-pipeline", team: "payments", trustProfile: "medium", state: "active" },
+        { id: "agent-llm-classifier", name: "LLM Classifier", type: "llm-inference", team: "payments", trustProfile: "medium", state: "active" },
+        { id: "agent-gateway", name: "API Gateway", type: "api-gateway", team: "platform", trustProfile: "low", state: "active" },
+        { id: "agent-monitor", name: "Monitor", type: "observability", team: "sre", trustProfile: "high", state: "active" },
+      ],
+      edges: [
+        { from: "agent-cardvault", to: "agent-txn-pipeline" },
+        { from: "agent-txn-pipeline", to: "agent-llm-classifier" },
+        { from: "agent-llm-classifier", to: "agent-gateway" },
+        { from: "agent-gateway", to: "agent-monitor" },
+      ],
+      aggregateRisk: { ale: 12400, var95: 58000, trend: "stable" },
+      cascadeHistory: [],
+    }
+    mockFetchFleetTopology.mockResolvedValue(customTopology)
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("role-btn-team-lead")).toBeInTheDocument()
+    })
+
+    // Switch to Payments Team Lead
+    await user.click(screen.getByTestId("role-btn-team-lead"))
+
+    // Explicitly named payments agents are visible
+    expect(screen.getByTestId("fleet-node-agent-txn-pipeline")).toBeInTheDocument()
+    expect(screen.getByTestId("fleet-node-agent-llm-classifier")).toBeInTheDocument()
+
+    // Non-payments agents are filtered out
+    expect(screen.queryByTestId("fleet-node-agent-cardvault")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-node-agent-gateway")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("fleet-node-agent-monitor")).not.toBeInTheDocument()
+
+    // Edge between them is preserved
+    expect(screen.getByTestId("fleet-edge-agent-txn-pipeline-agent-llm-classifier")).toBeInTheDocument()
+  })
+
+  it("contains zero em-dashes across rendered content and tooltips across all roles", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const { container } = renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId("role-view-selector")).toBeInTheDocument()
+    })
+
+    // Platform Admin check
+    expect(container.textContent).not.toMatch(/\u2014/)
+
+    // Compliance Officer check
+    await user.click(screen.getByTestId("role-btn-compliance"))
+    expect(container.textContent).not.toMatch(/\u2014/)
+    const complianceTooltip = screen.getByTestId("fleet-stun-btn").getAttribute("title") ?? ""
+    expect(complianceTooltip).not.toMatch(/\u2014/)
+
+    // Payments Team Lead check
+    await user.click(screen.getByTestId("role-btn-team-lead"))
+    expect(container.textContent).not.toMatch(/\u2014/)
+    const teamLeadTooltip = screen.getByTestId("fleet-stun-btn").getAttribute("title") ?? ""
+    expect(teamLeadTooltip).not.toMatch(/\u2014/)
+  })
+})

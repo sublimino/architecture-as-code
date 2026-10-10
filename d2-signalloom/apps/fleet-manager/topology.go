@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -11,7 +13,7 @@ import (
 // DefaultAgentState is the state an agent is reported in when the fleet config
 // does not say otherwise.
 //
-// "active" and not "" — fleetApi.ts declares AgentState.state non-optional and
+// "active" and not "": fleetApi.ts declares AgentState.state non-optional and
 // types it as AgentStateValue, so an empty string is not a member of the union.
 // The dashboard does not reject it: stateToken()/stateColour() simply miss,
 // every roster count lands on zero, and the Fleet page renders a fleet in no
@@ -39,25 +41,32 @@ func IsValidAgentState(state string) bool {
 	}
 }
 
-// Agent represents a single agent in the fleet topology.
-type Agent struct {
+// AgentProfile represents a single agent in the fleet topology with identity,
+// governance, and trust boundary configuration.
+type AgentProfile struct {
 	ID string `json:"id" yaml:"id"`
 	// Name is the human label the topology graph renders (FleetTopology.tsx:145).
 	// Defaulted to ID by BuildDAG when the config omits it, because a blank here
 	// draws an unlabelled node rather than raising anything.
-	Name         string   `json:"name" yaml:"name"`
-	Type         string   `json:"type" yaml:"type"`
-	Team         string   `json:"team" yaml:"team"`
-	TrustProfile string   `json:"trustProfile" yaml:"trustProfile"`
-	RiskClass    string   `json:"riskClass" yaml:"riskClass"`
-	GracePeriod  string   `json:"gracePeriod" yaml:"gracePeriod"`
-	Dependencies []string `json:"dependencies" yaml:"dependencies"`
-	Namespace    string   `json:"namespace" yaml:"namespace"`
+	Name              string   `json:"name" yaml:"name"`
+	Type              string   `json:"type" yaml:"type"`
+	Team              string   `json:"team" yaml:"team"`
+	TrustProfile      string   `json:"trustProfile" yaml:"trustProfile"`
+	RiskClass         string   `json:"riskClass" yaml:"riskClass"`
+	GracePeriod       string   `json:"gracePeriod" yaml:"gracePeriod"`
+	Dependencies      []string `json:"dependencies" yaml:"dependencies"`
+	Namespace         string   `json:"namespace" yaml:"namespace"`
 	// No omitempty: the client requires this key to be present. With omitempty
 	// an unset state vanished from the wire entirely, which is how the Fleet
 	// page came to render agents with no state and counts of zero.
-	State string `json:"state" yaml:"state"`
+	State             string   `json:"state" yaml:"state"`
+	DataSensitivity   string   `json:"dataSensitivity,omitempty" yaml:"dataSensitivity,omitempty"`
+	GracePeriodExpiry string   `json:"gracePeriodExpiry,omitempty" yaml:"gracePeriodExpiry,omitempty"`
+	RemainingHours    float64  `json:"remainingHours,omitempty" yaml:"remainingHours,omitempty"`
 }
+
+// Agent is an alias for AgentProfile for compatibility across the codebase.
+type Agent = AgentProfile
 
 // RiskSummary is the aggregate fleet risk the dashboard renders as currency.
 // Mirrors the RiskSummary interface in fleetApi.ts.
@@ -303,8 +312,8 @@ func (d *DAG) TopologicalSort() ([]string, error) {
 
 // CascadeTargets returns the set of agents that must be stunned when the given
 // agent is stunned. This is the target agent plus all agents that transitively
-// depend on it (BFS on reverse edges). Agents with type "observability" are
-// excluded from the cascade (they stay alive to observe).
+// depend on it (BFS on reverse edges). Agents designated for observability
+// (e.g. agent-monitor) are strictly excluded from the cascade (they stay alive to observe).
 //
 // The result is ordered: target first, then direct dependants, then transitive.
 func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
@@ -326,8 +335,15 @@ func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
 		current := queue[0]
 		queue = queue[1:]
 
-		// Skip observability agents (they are read-only watchers)
-		if d.agents[current].Type == "observability" && current != agentID {
+		// Observability agents are preserved (they are read-only watchers and remain running)
+		if d.isObservability(current) && current != agentID {
+			// Traverse reverse dependencies so downstream non-observability agents are reached
+			for _, rdep := range d.rdeps[current] {
+				if !visited[rdep] {
+					visited[rdep] = true
+					queue = append(queue, rdep)
+				}
+			}
 			continue
 		}
 
@@ -342,6 +358,23 @@ func (d *DAG) CascadeTargets(agentID string) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// isObservability returns true if the agent is designated for observability or monitoring.
+func (d *DAG) isObservability(agentID string) bool {
+	a, ok := d.agents[agentID]
+	if !ok {
+		return false
+	}
+	t := strings.ToLower(strings.TrimSpace(a.Type))
+	return t == "observability" || t == "monitor" || t == "logging" || strings.Contains(t, "observability") || agentID == "agent-monitor"
+}
+
+// IsObservabilityAgent returns true if the agent is designated for observability or monitoring.
+func (d *DAG) IsObservabilityAgent(agentID string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.isObservability(agentID)
 }
 
 // RecoveryOrder returns the topological order for recovering stunned agents.
@@ -469,4 +502,67 @@ func (d *DAG) SetAgentState(id, state string) error {
 	}
 	a.State = state
 	return nil
+}
+
+// SetAgentGracePeriod updates the grace period expiry and remaining hours of a specific agent.
+func (d *DAG) SetAgentGracePeriod(id, expiry string, remainingHours float64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	a, exists := d.agents[id]
+	if !exists {
+		return fmt.Errorf("unknown agent: %s", id)
+	}
+	a.GracePeriodExpiry = expiry
+	a.RemainingHours = remainingHours
+	return nil
+}
+
+// SetAgentCompliance updates an agent state and grace period based on compliance evaluation.
+func (d *DAG) SetAgentCompliance(id string, compliant bool, detectedAt, now time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	a, exists := d.agents[id]
+	if !exists {
+		return fmt.Errorf("unknown agent: %s", id)
+	}
+	evaluator := NewGracePeriodEvaluator()
+	evaluator.ApplyEvaluation(a, compliant, detectedAt, now)
+	return nil
+}
+
+
+// FilterAgentsByTeam returns all agents belonging to the specified team in insertion order.
+// If team is empty, all agents are returned.
+func (d *DAG) FilterAgentsByTeam(team string) []*Agent {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if team == "" {
+		result := make([]*Agent, 0, len(d.order))
+		for _, id := range d.order {
+			result = append(result, d.agents[id])
+		}
+		return result
+	}
+	var result []*Agent
+	for _, id := range d.order {
+		if strings.EqualFold(d.agents[id].Team, team) {
+			result = append(result, d.agents[id])
+		}
+	}
+	return result
+}
+
+// FilterEdgesBetween returns only edges where both source and destination agents are present in visibleIDs.
+func (d *DAG) FilterEdgesBetween(visibleIDs map[string]bool) []Edge {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	var result []Edge
+	for _, edge := range d.edges {
+		if visibleIDs[edge.From] && visibleIDs[edge.To] {
+			result = append(result, edge)
+		}
+	}
+	return result
 }

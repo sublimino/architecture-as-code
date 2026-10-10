@@ -12,7 +12,7 @@ export interface FleetRiskGaugeProps {
    * Still a bare number: the gauge is handed raw figures by the fleet topology
    * and converts them for display itself, so callers are not each obliged to
    * convert before rendering. The currency this ends up shown in comes from the
-   * user's preference, not from this prop.
+   * user preference, not from this prop.
    */
   ale: number
   /** Value at risk, 95th percentile, in the source currency. */
@@ -29,6 +29,17 @@ export interface FleetRiskGaugeProps {
    * currency field this default goes and the prop becomes required.
    */
   currency?: CurrencyCode
+  /** Carried GBP exposure figure from the compliance evaluation. */
+  carriedGbp?: number
+  carried?: number
+  /** Stepwise cascade indicator: true if cascade in progress or stepwise updates active */
+  stepwise?: boolean
+  /** Stepwise cascade status: current step index (1-based) */
+  cascadeStep?: number
+  /** Stepwise cascade status: total number of cascade steps */
+  totalCascadeSteps?: number
+  /** Currently cascading agent workload ID */
+  cascadingAgent?: string
 }
 
 // ── Colour boundaries ───────────────────────────────────────────────────────
@@ -44,29 +55,23 @@ function riskColour(ale: number): string {
   return 'var(--error)'
 }
 
-// ── Formatting ──────────────────────────────────────────────────────────────
-
-// The hand-rolled formatter that used to live here was
-// `'\u00A3' + value.toLocaleString('en-GB')` with a bespoke "M" suffix above a
-// million. Both assumptions were British-specific and neither survives a second
-// currency: the symbol is not always a prefix, and the abbreviation is a CLDR
-// fact (en-GB writes "\u00A32.5m", en-US writes "$2.5M", de-DE writes "Mio.").
-// Intl already encodes all of it, so formatting now comes from useMoney().
-//
-// The one-million abbreviation THRESHOLD is preserved deliberately \u2014 it is
-// COMPACT_THRESHOLD in money/format.ts \u2014 so this component's only visible
-// change is its currency. A gauge that restyled every figure under a million at
-// the same moment it changed currency would make a visual regression
-// impossible to attribute to either change.
+function riskBandLabel(amount: number): string {
+  if (!Number.isFinite(amount)) return 'Unknown'
+  if (amount < 50_000) return 'Low Risk'
+  if (amount < 500_000) return 'Medium Risk'
+  return 'High Risk'
+}
 
 // ── Animated counter ────────────────────────────────────────────────────────
 
 const ANIM_DURATION_MS = 600
 const ANIM_FRAMES = 30
+const STEPWISE_DURATION_MS = 180
+const STEPWISE_FRAMES = 12
 
-function useAnimatedNumber(target: number): number {
+function useAnimatedNumber(target: number, isStepwise = false): number {
   const [display, setDisplay] = useState(target)
-  const prevRef = useRef(target)
+  const displayRef = useRef(target)
   const frameRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -78,49 +83,105 @@ function useAnimatedNumber(target: number): number {
 
     if (reducedMotion) {
       setDisplay(target)
-      prevRef.current = target
+      displayRef.current = target
       return
     }
 
-    const from = prevRef.current
+    const from = displayRef.current
     if (from === target) return
-    prevRef.current = target
 
     let frame = 0
     if (frameRef.current) clearInterval(frameRef.current)
 
+    const duration = isStepwise ? STEPWISE_DURATION_MS : ANIM_DURATION_MS
+    const totalFrames = isStepwise ? STEPWISE_FRAMES : ANIM_FRAMES
+
     frameRef.current = setInterval(() => {
       frame++
-      if (frame >= ANIM_FRAMES) {
+      if (frame >= totalFrames) {
         setDisplay(target)
+        displayRef.current = target
         if (frameRef.current) clearInterval(frameRef.current)
         return
       }
       // Ease-out cubic.
-      const t = frame / ANIM_FRAMES
+      const t = frame / totalFrames
       const eased = 1 - Math.pow(1 - t, 3)
-      setDisplay(Math.round(from + (target - from) * eased))
-    }, ANIM_DURATION_MS / ANIM_FRAMES)
+      const nextVal = Math.round(from + (target - from) * eased)
+      setDisplay(nextVal)
+      displayRef.current = nextVal
+    }, duration / totalFrames)
 
     return () => {
       if (frameRef.current) clearInterval(frameRef.current)
     }
-  }, [target])
+  }, [target, isStepwise])
 
   return display
 }
 
+// ── Radial Gauge Math ───────────────────────────────────────────────────────
+
+/**
+ * Calculates needle end point on a semi-circular arc (180 deg to 0 deg).
+ * Center: (100, 95), Radius: 70, Needle length: 55.
+ */
+function getNeedleCoords(val: number): { x: number; y: number } {
+  const cx = 100
+  const cy = 95
+  const needleLength = 55
+
+  if (!Number.isFinite(val) || val <= 0) {
+    return { x: cx - needleLength, y: cy }
+  }
+
+  let angleDeg = 180
+  if (val < 50_000) {
+    angleDeg = 180 - (val / 50_000) * 60
+  } else if (val < 500_000) {
+    angleDeg = 120 - ((val - 50_000) / 450_000) * 60
+  } else {
+    const fraction = Math.min(1, (val - 500_000) / 500_000)
+    angleDeg = 60 - fraction * 60
+  }
+
+  const rad = (angleDeg * Math.PI) / 180
+  return {
+    x: Math.round((cx - needleLength * Math.cos(rad)) * 100) / 100,
+    y: Math.round((cy - needleLength * Math.sin(rad)) * 100) / 100,
+  }
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function FleetRiskGauge({ ale, var95, trend, previousAle, currency = 'GBP' }: FleetRiskGaugeProps) {
-  const displayAle = useAnimatedNumber(ale)
+export default function FleetRiskGauge({
+  ale,
+  var95,
+  trend,
+  previousAle,
+  currency = 'GBP',
+  carriedGbp,
+  carried,
+  stepwise = false,
+  cascadeStep,
+  totalCascadeSteps,
+  cascadingAgent,
+}: FleetRiskGaugeProps) {
+  const isStepwiseActive = stepwise || cascadeStep !== undefined
+  const displayAle = useAnimatedNumber(ale, isStepwiseActive)
+  const carriedValue = carriedGbp ?? carried ?? ale
+  const displayCarried = useAnimatedNumber(carriedValue, isStepwiseActive)
+
   const colour = riskColour(ale)
+  const carriedColour = riskColour(carriedValue)
   const { fmtMoney, asOfFor } = useMoney()
   const money = (value: number) => fmtMoney({ amount: value, currency }, { compact: true })
   const asOfNote = asOfFor(currency)
 
   const trendIcon = trend === 'up' ? '\u25B2' : trend === 'down' ? '\u25BC' : '-'
   const trendColour = trend === 'up' ? 'var(--error)' : trend === 'down' ? 'var(--teal)' : 'var(--muted)'
+
+  const needleCoords = getNeedleCoords(displayAle)
 
   const container: CSSProperties = {
     display: 'flex',
@@ -131,11 +192,131 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle, currenc
     borderRadius: 12,
     background: 'var(--surface)',
     border: '1px solid var(--border)',
+    position: 'relative',
   }
 
   return (
     <div data-testid="fleet-risk-gauge" style={container} role="status" aria-live="polite">
-      {/* ALE number */}
+      {/* Top row: Section title and Risk Band badge */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)' }}>
+          Fleet Risk Gauge
+        </span>
+        <span
+          data-testid="fleet-risk-band"
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            padding: '2px 7px',
+            borderRadius: 4,
+            color: colour,
+            border: `1px solid ${colour}`,
+            background: 'color-mix(in srgb, currentColor 8%, transparent)',
+          }}
+        >
+          {riskBandLabel(ale)}
+        </span>
+      </div>
+
+      {/* Stepwise cascade progression indicator */}
+      {isStepwiseActive && cascadeStep !== undefined && totalCascadeSteps !== undefined && (
+        <div
+          data-testid="fleet-risk-stepwise"
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: 'var(--amber)',
+            background: 'color-mix(in srgb, var(--amber) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--amber) 30%, transparent)',
+            padding: '2px 8px',
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            width: '100%',
+            justifyContent: 'center',
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--amber)',
+              display: 'inline-block',
+            }}
+          />
+          <span>
+            Cascade Step {cascadeStep} of {totalCascadeSteps}
+            {cascadingAgent ? `: ${cascadingAgent}` : ''}
+          </span>
+        </div>
+      )}
+
+      {/* SVG Radial Gauge */}
+      <svg
+        data-testid="fleet-radial-gauge"
+        viewBox="0 0 200 115"
+        width="200"
+        height="115"
+        aria-hidden="true"
+        style={{ overflow: 'visible' }}
+      >
+        {/* Low risk band: green (var(--teal)) */}
+        <path
+          d="M 30 95 A 70 70 0 0 1 65 34.38"
+          fill="none"
+          stroke="var(--teal)"
+          strokeWidth="9"
+          strokeLinecap="round"
+          data-testid="fleet-gauge-band-low"
+        />
+        {/* Medium risk band: amber (var(--amber)) */}
+        <path
+          d="M 65 34.38 A 70 70 0 0 1 135 34.38"
+          fill="none"
+          stroke="var(--amber)"
+          strokeWidth="9"
+          data-testid="fleet-gauge-band-medium"
+        />
+        {/* High risk band: red (var(--error)) */}
+        <path
+          d="M 135 34.38 A 70 70 0 0 1 170 95"
+          fill="none"
+          stroke="var(--error)"
+          strokeWidth="9"
+          strokeLinecap="round"
+          data-testid="fleet-gauge-band-high"
+        />
+
+        {/* Dynamic Needle */}
+        <line
+          x1="100"
+          y1="95"
+          x2={needleCoords.x}
+          y2={needleCoords.y}
+          stroke={colour}
+          strokeWidth="3.5"
+          strokeLinecap="round"
+          data-testid="fleet-gauge-needle"
+        />
+        <circle cx="100" cy="95" r="5" fill={colour} />
+
+        {/* Band range labels */}
+        <text x="24" y="110" fontSize="9" fontWeight="600" fill="var(--teal)">
+          Low
+        </text>
+        <text x="100" y="24" fontSize="9" fontWeight="600" fill="var(--amber)" textAnchor="middle">
+          Medium
+        </text>
+        <text x="176" y="110" fontSize="9" fontWeight="600" fill="var(--error)" textAnchor="end">
+          High
+        </text>
+      </svg>
+
+      {/* ALE number (Digital Counter) */}
       <div
         data-testid="fleet-risk-ale"
         style={{
@@ -147,6 +328,24 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle, currenc
         }}
       >
         {money(displayAle)}
+      </div>
+
+      {/* Carried GBP Exposure */}
+      <div
+        data-testid="fleet-risk-carried"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 13,
+          fontWeight: 600,
+          color: 'var(--text)',
+        }}
+      >
+        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Carried GBP:</span>
+        <span style={{ color: carriedColour, fontVariantNumeric: 'tabular-nums' }}>
+          {money(displayCarried)}
+        </span>
       </div>
 
       {/* Trend indicator + delta */}
@@ -164,10 +363,6 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle, currenc
       {/* VaR 95 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
         <span>VaR95: {money(var95)}</span>
-        {/* aria-live="off" overrides the container's polite region for this
-            subtree. Without it the tooltip text is announced twice: once by
-            aria-describedby when the "?" takes focus, and again by the live
-            region, because opening the tooltip changes the region's content. */}
         <span aria-live="off">
           <HelpHint label="What these two money figures mean" testId="fleet-risk-help">
             The big number is Annual Loss Expectancy: what this fleet is modeled to cost you in a typical year. VaR95 is the bad year, the loss that only 1 year in 20 exceeds. Both come from a FAIR simulation over the agents currently deployed, so stunning or removing an agent moves them.
@@ -175,10 +370,7 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle, currenc
         </span>
       </div>
 
-      {/* Subtitle. The as_of suffix appears only when a conversion actually
-          happened: a converted figure with no stated date is one nobody can
-          defend in a review, and that is the whole reason the rate table is
-          checked in rather than fetched. */}
+      {/* Subtitle */}
       <div data-testid="fleet-risk-subtitle" style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 4 }}>
         Annual Loss Expectancy (FAIR Monte Carlo)
         {asOfNote !== null && ` \u00B7 ${asOfNote}`}

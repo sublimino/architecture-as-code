@@ -222,7 +222,8 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 
 	orch := NewCascadeOrchestrator(dag, client, 0)
 
-	stunned := []string{"agent-cardvault", "agent-txn-pipeline", "agent-llm-classifier", "agent-api-gateway"}
+	// Pass stunned agents in reverse topological order to assert topological sorting
+	stunned := []string{"agent-llm-classifier", "agent-api-gateway", "agent-txn-pipeline", "agent-cardvault"}
 	result, err := orch.Recover(context.Background(), stunned)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -240,6 +241,20 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 		t.Fatalf("expected agent-cardvault first in recovery, got %q", result.RecoveryOrder[0])
 	}
 
+	pos := make(map[string]int)
+	for i, id := range result.RecoveryOrder {
+		pos[id] = i
+	}
+	if pos["agent-cardvault"] >= pos["agent-txn-pipeline"] {
+		t.Fatalf("agent-cardvault must be ordered before agent-txn-pipeline: %v", result.RecoveryOrder)
+	}
+	if pos["agent-cardvault"] >= pos["agent-api-gateway"] {
+		t.Fatalf("agent-cardvault must be ordered before agent-api-gateway: %v", result.RecoveryOrder)
+	}
+	if pos["agent-txn-pipeline"] >= pos["agent-llm-classifier"] {
+		t.Fatalf("agent-txn-pipeline must be ordered before agent-llm-classifier: %v", result.RecoveryOrder)
+	}
+
 	// Restore calls should be in topological order
 	calls := client.getCalls()
 	var restoreCalls []string
@@ -249,18 +264,19 @@ func TestRecover_TopologicalOrder(t *testing.T) {
 		}
 	}
 
-	// cardvault must come before txn-pipeline
-	cardvaultPos, txnPos := -1, -1
+	callPos := make(map[string]int)
 	for i, id := range restoreCalls {
-		if id == "agent-cardvault" {
-			cardvaultPos = i
-		}
-		if id == "agent-txn-pipeline" {
-			txnPos = i
-		}
+		callPos[id] = i
 	}
-	if cardvaultPos >= txnPos {
+
+	if callPos["agent-cardvault"] >= callPos["agent-txn-pipeline"] {
 		t.Fatal("agent-cardvault must be restored before agent-txn-pipeline")
+	}
+	if callPos["agent-cardvault"] >= callPos["agent-api-gateway"] {
+		t.Fatal("agent-cardvault must be restored before agent-api-gateway")
+	}
+	if callPos["agent-txn-pipeline"] >= callPos["agent-llm-classifier"] {
+		t.Fatal("agent-txn-pipeline must be restored before agent-llm-classifier")
 	}
 }
 
@@ -285,7 +301,7 @@ func TestStun_ContextCancellation(t *testing.T) {
 // TestStun_ClientErrors_AreTolerated, which asserted the defect SLER-P1-5 was
 // raised to remove. That test's comment read "client failures are logged but
 // tolerated" and it checked only that the cascade returned no error and emitted
-// one event — both of which a wholly-failed containment also does. It was green
+// one event, both of which a wholly-failed containment also does. It was green
 // throughout the entire lifetime of the bug.
 //
 // The contract kept: a per-target client failure is not a cascade-level error,
@@ -321,4 +337,219 @@ func TestStun_ClientErrors_AreRecordedNotTolerated(t *testing.T) {
 	if !strings.Contains(result.Events[0].Error, "vault unavailable") {
 		t.Fatalf("expected the client error on the event, got %q", result.Events[0].Error)
 	}
+}
+
+
+func TestCascade_DownstreamIsolationOrder(t *testing.T) {
+	dag := mustBuildTestDAG(t)
+	client := newMockClient()
+	orch := NewCascadeOrchestrator(dag, client, 0)
+
+	start := time.Now()
+	result, err := orch.Stun(context.Background(), "agent-cardvault", "cascade isolation order test")
+	if err != nil {
+		t.Fatalf("unexpected stun failure: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// Sub-second SLA: must complete in <1000ms
+	if elapsed >= 1000*time.Millisecond {
+		t.Fatalf("cascade stun execution took %v, exceeding the 1000ms SLA", elapsed)
+	}
+	if !result.MeetsSLA() {
+		t.Fatalf("result DurationMs=%d failed MeetsSLA check", result.DurationMs)
+	}
+
+	// Verify affected count: cardvault, txn-pipeline, api-gateway, llm-classifier
+	if len(result.AffectedAgents) != 4 {
+		t.Fatalf("expected 4 affected agents, got %d: %v", len(result.AffectedAgents), result.AffectedAgents)
+	}
+
+	// Order invariant:
+	// 1. Target first (agent-cardvault)
+	if result.AffectedAgents[0] != "agent-cardvault" {
+		t.Fatalf("expected target first (agent-cardvault), got %s", result.AffectedAgents[0])
+	}
+
+	// 2. Direct dependants second (agent-txn-pipeline, agent-api-gateway)
+	direct1 := result.AffectedAgents[1]
+	direct2 := result.AffectedAgents[2]
+	if !((direct1 == "agent-txn-pipeline" && direct2 == "agent-api-gateway") ||
+		(direct1 == "agent-api-gateway" && direct2 == "agent-txn-pipeline")) {
+		t.Fatalf("expected direct dependants second (txn-pipeline, api-gateway), got %s, %s", direct1, direct2)
+	}
+
+	// 3. Transitive dependants third (agent-llm-classifier)
+	if result.AffectedAgents[3] != "agent-llm-classifier" {
+		t.Fatalf("expected transitive dependant third (agent-llm-classifier), got %s", result.AffectedAgents[3])
+	}
+
+	// Observability agent (agent-monitor) strictly preserved and remains running
+	for _, id := range result.AffectedAgents {
+		if id == "agent-monitor" {
+			t.Fatal("observability agent (agent-monitor) must not be included in cascade stun targets")
+		}
+	}
+	if client.getState("agent-monitor") == StateStunned {
+		t.Fatal("observability agent (agent-monitor) must not be stunned: it must remain running")
+	}
+
+	// All affected agents must be stunned
+	for _, id := range result.AffectedAgents {
+		if client.getState(id) != StateStunned {
+			t.Fatalf("expected affected agent %s to be stunned", id)
+		}
+	}
+}
+
+func TestCascade_MultiTierTransitiveIsolation(t *testing.T) {
+	fleetYAML := []byte(`
+agents:
+  - id: tier0-target
+    type: data-vault
+    team: platform
+    dependencies: []
+    namespace: fe-signalloom-agents
+  - id: tier1-worker-a
+    type: worker
+    team: payments
+    dependencies: [tier0-target]
+    namespace: fe-signalloom-agents
+  - id: tier1-worker-b
+    type: worker
+    team: edge
+    dependencies: [tier0-target]
+    namespace: fe-signalloom-agents
+  - id: tier2-worker-a
+    type: processing
+    team: payments
+    dependencies: [tier1-worker-a]
+    namespace: fe-signalloom-agents
+  - id: tier2-worker-b
+    type: processing
+    team: edge
+    dependencies: [tier1-worker-b]
+    namespace: fe-signalloom-agents
+  - id: tier3-worker-c
+    type: analytics
+    team: data
+    dependencies: [tier2-worker-a]
+    namespace: fe-signalloom-agents
+  - id: obs-global
+    type: observability
+    team: sre
+    dependencies: [tier0-target, tier1-worker-a, tier2-worker-a, tier3-worker-c]
+    namespace: fe-signalloom-agents
+  - id: obs-local
+    type: monitor
+    team: sre
+    dependencies: [tier1-worker-b]
+    namespace: fe-signalloom-agents
+`)
+
+	dag, err := ParseFleet(fleetYAML)
+	if err != nil {
+		t.Fatalf("failed to parse multi-tier fleet YAML: %v", err)
+	}
+
+	client := newMockClient()
+	orch := NewCascadeOrchestrator(dag, client, 0)
+
+	start := time.Now()
+	result, err := orch.Stun(context.Background(), "tier0-target", "multi-tier isolation test")
+	if err != nil {
+		t.Fatalf("unexpected stun failure: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if elapsed >= 1000*time.Millisecond {
+		t.Fatalf("multi-tier cascade stun took %v, exceeding 1000ms SLA", elapsed)
+	}
+	if !result.MeetsSLA() {
+		t.Fatalf("result DurationMs=%d failed MeetsSLA check", result.DurationMs)
+	}
+
+	// Total non-observability agents: 6 (tier0 + 2 tier1 + 2 tier2 + 1 tier3)
+	if len(result.AffectedAgents) != 6 {
+		t.Fatalf("expected 6 affected agents, got %d: %v", len(result.AffectedAgents), result.AffectedAgents)
+	}
+
+	pos := make(map[string]int, len(result.AffectedAgents))
+	for i, id := range result.AffectedAgents {
+		pos[id] = i
+	}
+
+	// Tier 0 (Target first)
+	if pos["tier0-target"] != 0 {
+		t.Fatalf("expected tier0-target at position 0, got %d", pos["tier0-target"])
+	}
+
+	// Tier 1 (Direct dependants second)
+	if pos["tier1-worker-a"] > 2 || pos["tier1-worker-b"] > 2 {
+		t.Fatalf("expected tier1 workers at positions 1 and 2, got %d and %d", pos["tier1-worker-a"], pos["tier1-worker-b"])
+	}
+
+	// Tier 2 (Transitive level 2 third)
+	if pos["tier2-worker-a"] < 3 || pos["tier2-worker-a"] > 4 || pos["tier2-worker-b"] < 3 || pos["tier2-worker-b"] > 4 {
+		t.Fatalf("expected tier2 workers at positions 3 and 4, got %d and %d", pos["tier2-worker-a"], pos["tier2-worker-b"])
+	}
+
+	// Tier 3 (Transitive level 3 fourth)
+	if pos["tier3-worker-c"] != 5 {
+		t.Fatalf("expected tier3 worker at position 5, got %d", pos["tier3-worker-c"])
+	}
+
+	// Observability agents must be strictly preserved
+	if _, exists := pos["obs-global"]; exists {
+		t.Fatal("obs-global must not be in affected agents")
+	}
+	if _, exists := pos["obs-local"]; exists {
+		t.Fatal("obs-local must not be in affected agents")
+	}
+	if client.getState("obs-global") == StateStunned {
+		t.Fatal("obs-global must remain running, not stunned")
+	}
+	if client.getState("obs-local") == StateStunned {
+		t.Fatal("obs-local must remain running, not stunned")
+	}
+}
+
+func TestCascade_SubSecondSLA(t *testing.T) {
+	dag := mustBuildTestDAG(t)
+	client := newMockClient()
+	orch := NewCascadeOrchestrator(dag, client, 0)
+
+	start := time.Now()
+	result, err := orch.Stun(context.Background(), "agent-cardvault", "")
+	if err != nil {
+		t.Fatalf("stun failed: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if elapsed >= 1000*time.Millisecond {
+		t.Fatalf("cascade stun took %v, over the 1000ms SLA", elapsed)
+	}
+	if !result.MeetsSLA() {
+		t.Fatalf("result.MeetsSLA() returned false with DurationMs=%d", result.DurationMs)
+	}
+}
+
+func TestCascade_RootAgent(t *testing.T) {
+	TestStun_CascadeFromRoot(t)
+}
+
+func TestCascade_LeafAgent(t *testing.T) {
+	TestStun_LeafAgent(t)
+}
+
+func TestCascade_UnknownAgent(t *testing.T) {
+	TestStun_UnknownAgent(t)
+}
+
+func TestCascade_CallOrder(t *testing.T) {
+	TestStun_CallOrder(t)
+}
+
+func TestCascade_TopologicalRecovery(t *testing.T) {
+	TestRecover_TopologicalOrder(t)
 }

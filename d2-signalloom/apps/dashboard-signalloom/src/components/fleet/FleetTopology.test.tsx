@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import FleetTopology from './FleetTopology'
 import type { AgentState } from '../../api/fleetApi'
 
@@ -326,3 +326,211 @@ describe('FleetTopology agent drill-down links', () => {
   })
 })
 
+
+describe("SLSC-P2-2 FleetTopology interactive node risk tooltips", () => {
+  it("displays tooltip on node mouse hover and hides on mouse leave", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    expect(screen.queryByTestId("fleet-node-tooltip-agent-cardvault")).not.toBeInTheDocument()
+
+    fireEvent.mouseEnter(node)
+    expect(screen.getByTestId("fleet-node-tooltip-agent-cardvault")).toBeInTheDocument()
+
+    fireEvent.mouseLeave(node)
+    expect(screen.queryByTestId("fleet-node-tooltip-agent-cardvault")).not.toBeInTheDocument()
+  })
+
+  it("displays tooltip on node focus and hides on blur", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    fireEvent.focus(node)
+    expect(screen.getByTestId("fleet-node-tooltip-agent-cardvault")).toBeInTheDocument()
+
+    fireEvent.blur(node)
+    expect(screen.queryByTestId("fleet-node-tooltip-agent-cardvault")).not.toBeInTheDocument()
+  })
+
+  it("displays passing control status for compliant agents", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    fireEvent.mouseEnter(node)
+    const failuresEl = screen.getByTestId("fleet-node-failures-agent-cardvault")
+    expect(failuresEl).toHaveTextContent(/None: all controls passing/i)
+  })
+
+  it("displays per-agent control failures for non-compliant agents", () => {
+    const nonCompliantAgents = FIVE_AGENTS.map(a =>
+      a.id === "agent-pipeline" ? { ...a, state: "non-compliant" as const } : a
+    )
+    render(<FleetTopology agents={nonCompliantAgents} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-pipeline")
+
+    fireEvent.mouseEnter(node)
+    const failuresEl = screen.getByTestId("fleet-node-failures-agent-pipeline")
+    expect(failuresEl).toHaveTextContent(/Missing security context/i)
+    expect(failuresEl).toHaveTextContent(/Un-dropped Linux capabilities/i)
+  })
+
+  it("displays calibrated parameter triples with min/mode/max values", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    const node = screen.getByTestId("fleet-node-agent-cardvault")
+
+    fireEvent.mouseEnter(node)
+    const tripleEl = screen.getByTestId("fleet-node-triple-agent-cardvault")
+    expect(tripleEl).toHaveTextContent(/Calibrated Parameter Triple \(min\/mode\/max\):/i)
+    expect(tripleEl).toHaveTextContent(/Min:\s*£10,000/)
+    expect(tripleEl).toHaveTextContent(/Mode:\s*£50,000/)
+    expect(tripleEl).toHaveTextContent(/Max:\s*£200,000/)
+  })
+
+  it("supports explicit per-agent control failures and parameter triples from props", () => {
+    const customAgents: AgentState[] = [
+      makeAgent({
+        id: "agent-custom",
+        name: "Custom Agent",
+        controlFailures: ["Custom auth context failure", "Missing egress filter"],
+        parameterTriple: { min: 30000, mode: 75000, max: 350000 },
+      }),
+    ]
+    render(<FleetTopology agents={customAgents} edges={[]} />)
+    const node = screen.getByTestId("fleet-node-agent-custom")
+
+    fireEvent.mouseEnter(node)
+    const failuresEl = screen.getByTestId("fleet-node-failures-agent-custom")
+    expect(failuresEl).toHaveTextContent("Custom auth context failure")
+    expect(failuresEl).toHaveTextContent("Missing egress filter")
+
+    const tripleEl = screen.getByTestId("fleet-node-triple-agent-custom")
+    expect(tripleEl).toHaveTextContent(/Min:\s*£30,000/)
+    expect(tripleEl).toHaveTextContent(/Mode:\s*£75,000/)
+    expect(tripleEl).toHaveTextContent(/Max:\s*£350,000/)
+  })
+
+  it("contains zero em-dashes in tooltip text and labels", () => {
+    render(<FleetTopology agents={FIVE_AGENTS} edges={EDGES} />)
+    for (const agent of FIVE_AGENTS) {
+      const node = screen.getByTestId(`fleet-node-${agent.id}`)
+      fireEvent.mouseEnter(node)
+      const tooltip = screen.getByTestId(`fleet-node-tooltip-${agent.id}`)
+      expect(tooltip.textContent).not.toMatch(/\u2014/)
+      fireEvent.mouseLeave(node)
+    }
+  })
+})
+
+describe('SLSC-P3-2 FleetTopology cascade animation and pulse transitions', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('excludes agent-monitor from stun even if explicitly listed in cascadeInProgress', async () => {
+    const agents = [
+      makeAgent({ id: 'agent-cardvault', state: 'active' }),
+      makeAgent({ id: 'agent-monitor', type: 'observability', state: 'active' }),
+    ]
+    const edges = [{ from: 'agent-cardvault', to: 'agent-monitor' }]
+    const onCascadeStep = vi.fn()
+
+    render(
+      <FleetTopology
+        agents={agents}
+        edges={edges}
+        cascadeInProgress={['agent-cardvault', 'agent-monitor']}
+        onCascadeStep={onCascadeStep}
+      />
+    )
+
+    await act(async () => { vi.advanceTimersByTime(50) })
+
+    expect(screen.getByTestId('fleet-node-agent-cardvault')).toHaveAttribute('data-agent-state', 'stunned')
+    expect(screen.getByTestId('fleet-node-agent-cardvault')).toHaveAttribute('data-cascading', 'true')
+
+    const monitorNode = screen.getByTestId('fleet-node-agent-monitor')
+    expect(monitorNode).toHaveAttribute('data-agent-state', 'active')
+    expect(monitorNode).not.toHaveAttribute('data-cascading')
+    expect(monitorNode.className).not.toContain('sl-node-cascade-pulse')
+
+    await act(async () => { vi.advanceTimersByTime(400) })
+
+    expect(monitorNode).toHaveAttribute('data-agent-state', 'active')
+    expect(screen.getByTestId('fleet-state-dot-agent-monitor').style.background).toBe('var(--cyan)')
+    expect(onCascadeStep).not.toHaveBeenCalledWith('agent-monitor', expect.anything(), expect.anything())
+  })
+
+  it('applies pulse animation class and colour transition to cascading nodes', async () => {
+    const agents = [
+      makeAgent({ id: 'a1', state: 'active' }),
+      makeAgent({ id: 'a2', state: 'active' }),
+    ]
+    const edges = [{ from: 'a1', to: 'a2' }]
+
+    const { rerender } = render(
+      <FleetTopology agents={agents} edges={edges} cascadeInProgress={[]} />
+    )
+
+    rerender(
+      <FleetTopology agents={agents} edges={edges} cascadeInProgress={['a1', 'a2']} />
+    )
+
+    await act(async () => { vi.advanceTimersByTime(50) })
+
+    const nodeA1 = screen.getByTestId('fleet-node-a1')
+    expect(nodeA1).toHaveAttribute('data-agent-state', 'stunned')
+    expect(nodeA1).toHaveAttribute('data-cascading', 'true')
+    expect(nodeA1.className).toContain('sl-node-cascade-pulse')
+
+    const dotA1 = screen.getByTestId('fleet-state-dot-a1')
+    expect(dotA1.className).toContain('sl-dot-cascade-pulse')
+    expect(dotA1.style.background).toBe('var(--error)')
+
+    const nodeA2 = screen.getByTestId('fleet-node-a2')
+    expect(nodeA2).toHaveAttribute('data-agent-state', 'active')
+    expect(nodeA2).not.toHaveAttribute('data-cascading')
+
+    await act(async () => { vi.advanceTimersByTime(200) })
+
+    expect(screen.getByTestId('fleet-node-a2')).toHaveAttribute('data-agent-state', 'stunned')
+    expect(screen.getByTestId('fleet-node-a2')).toHaveAttribute('data-cascading', 'true')
+  })
+
+  it('invokes onCascadeStep callback as each node transitions', async () => {
+    const agents = [
+      makeAgent({ id: 'a1', state: 'active' }),
+      makeAgent({ id: 'a2', state: 'active' }),
+    ]
+    const edges = [{ from: 'a1', to: 'a2' }]
+    const onCascadeStep = vi.fn()
+
+    render(
+      <FleetTopology
+        agents={agents}
+        edges={edges}
+        cascadeInProgress={['a1', 'a2']}
+        onCascadeStep={onCascadeStep}
+      />
+    )
+
+    await act(async () => { vi.advanceTimersByTime(50) })
+    expect(onCascadeStep).toHaveBeenCalledTimes(1)
+    expect(onCascadeStep).toHaveBeenCalledWith('a1', 0, ['a1'])
+
+    await act(async () => { vi.advanceTimersByTime(200) })
+    expect(onCascadeStep).toHaveBeenCalledTimes(2)
+    expect(onCascadeStep).toHaveBeenCalledWith('a2', 1, ['a1', 'a2'])
+  })
+
+  it('contains zero em-dashes across cascade animation elements and legend', () => {
+    const { container } = render(
+      <FleetTopology agents={FIVE_AGENTS} edges={EDGES} cascadeInProgress={['agent-cardvault']} />
+    )
+    expect(container.textContent).not.toMatch(/\u2014/)
+    expect(container.textContent).not.toMatch(/\u2013/)
+  })
+})

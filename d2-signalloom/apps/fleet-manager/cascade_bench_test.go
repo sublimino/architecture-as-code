@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 )
 
 // Cascade wall-time benchmarks for SLER-P1-5.
@@ -78,8 +79,12 @@ func benchmarkStunAtFleetSize(b *testing.B, n int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := orch.Stun(ctx, "agent-root", ""); err != nil {
+		res, err := orch.Stun(ctx, "agent-root", "")
+		if err != nil {
 			b.Fatalf("stun: %v", err)
+		}
+		if res.DurationMs >= 1000 {
+			b.Fatalf("cascade stun took %d ms, exceeding the 1000ms SLA", res.DurationMs)
 		}
 	}
 }
@@ -119,3 +124,37 @@ func benchmarkRecoverAtFleetSize(b *testing.B, n int) {
 // BenchmarkRecoverCascade_Fleet64 covers the mirror-image operation, which this
 // card also changes.
 func BenchmarkRecoverCascade_Fleet64(b *testing.B) { benchmarkRecoverAtFleetSize(b, 64) }
+
+
+// TestCascade_BenchmarkLatencyUnderSLA verifies that cascading stun DAG walk completes
+// strictly within the sub-second SLA (<1000ms) across fleet sizes 5, 64, and 256.
+func TestCascade_BenchmarkLatencyUnderSLA(t *testing.T) {
+	fleetSizes := []int{5, 64, 256}
+	for _, n := range fleetSizes {
+		t.Run(fmt.Sprintf("Fleet%d", n), func(t *testing.T) {
+			dag := benchFleetDAG(t, n)
+			client := newMockClient()
+			orch := NewCascadeOrchestrator(dag, client, 0)
+
+			start := time.Now()
+			res, err := orch.Stun(context.Background(), "agent-root", "bench SLA verification")
+			if err != nil {
+				t.Fatalf("stun failed for fleet size %d: %v", n, err)
+			}
+			elapsed := time.Since(start)
+
+			if elapsed >= 1000*time.Millisecond {
+				t.Fatalf("fleet size %d took %v, over 1000ms SLA", n, elapsed)
+			}
+			if !res.MeetsSLA() {
+				t.Fatalf("fleet size %d DurationMs=%d failed MeetsSLA", n, res.DurationMs)
+			}
+			if len(res.AffectedAgents) != n {
+				t.Fatalf("expected %d affected agents, got %d", n, len(res.AffectedAgents))
+			}
+			if res.AffectedAgents[0] != "agent-root" {
+				t.Fatalf("expected target agent-root first, got %s", res.AffectedAgents[0])
+			}
+		})
+	}
+}

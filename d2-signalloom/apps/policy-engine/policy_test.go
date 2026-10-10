@@ -208,9 +208,9 @@ func TestCELEvaluation(t *testing.T) {
 			"egress_allowlist": []any{"api.openai.com", "anthropic.com", "svc-vault"},
 		},
 		Request: map[string]any{
-			"spiffe_id":       "spiffe://controlplane.io/ns/prod/sa/agent-alpha",
-			"target_service":  "svc-vault",
-			"action":          "read_secret",
+			"spiffe_id":      "spiffe://controlplane.io/ns/prod/sa/agent-alpha",
+			"target_service": "svc-vault",
+			"action":         "read_secret",
 		},
 	}
 

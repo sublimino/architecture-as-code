@@ -6,6 +6,9 @@ export interface PolicyRule {
   severity?: 'critical' | 'high' | 'medium' | 'low' | string
   remediation?: string
   status?: string
+  docs_url?: string
+  tested_separately?: boolean
+  tested_separately_note?: string
 }
 
 export interface PolicyBundle {
@@ -20,6 +23,7 @@ export interface PolicyBundle {
   rules: PolicyRule[]
   raw_bundle?: string
   checksum: string
+  official_docs_url?: string
 }
 
 export interface VersionHistoryItem {

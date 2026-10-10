@@ -1371,6 +1371,7 @@ export default function AgentDetailPage() {
       {activeTab === 'overview' && (
         <AgentOverviewTab
           agent={agent}
+          complianceResults={complianceResults}
           claiming={claiming}
           claimError={claimError}
           retryingClaimRefresh={claimRefreshId !== null}

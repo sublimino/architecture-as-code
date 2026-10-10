@@ -1,9 +1,115 @@
 import { Link } from 'react-router-dom'
-import type { AgentResponse, SourceHealthMap } from '../types/api'
+import type { AgentResponse, SourceHealthMap, AgentComplianceResultResponse } from '../types/api'
 import { colors } from '../styles/tokens'
 import AgentCockpitSection from './AgentCockpitSection'
+import { DEFAULT_BUNDLES } from '../pages/CompliancePolicyPage'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+export function getControlSlug(controlName: string): string {
+  const cisMatch = controlName.match(/cis\s*(\d+)[\.\-](\d+)[\.\-](\d+)/i)
+  if (cisMatch) {
+    return `cis-${cisMatch[1]}-${cisMatch[2]}-${cisMatch[3]}`
+  }
+  return controlName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+interface ControlPolicyMetadata {
+  ruleId: string
+  ruleName: string
+  frameworkId: string
+  frameworkName: string
+  celExpression: string
+  severity?: string
+  remediation?: string
+  docsUrl: string
+  testedSeparately?: boolean
+  testedSeparatelyNote?: string
+}
+
+function lookupPolicyForControl(controlName: string, frameworkName: string): ControlPolicyMetadata {
+  const slug = getControlSlug(controlName)
+
+  // 1. CIS Kubernetes Benchmark
+  const cisBundle = DEFAULT_BUNDLES['k8s-cis-benchmark']
+  if (cisBundle) {
+    const cisRule = cisBundle.rules.find(r => {
+      const rSlug = r.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      return slug.includes(rSlug) || rSlug.includes(slug) || controlName.toLowerCase().includes(r.id.toLowerCase())
+    })
+    if (cisRule) {
+      return {
+        ruleId: cisRule.id,
+        ruleName: cisRule.name,
+        frameworkId: cisBundle.framework_id,
+        frameworkName: 'CIS Kubernetes Benchmark',
+        celExpression: cisRule.cel_expression,
+        severity: cisRule.severity,
+        remediation: cisRule.remediation,
+        docsUrl: cisRule.docs_url || cisBundle.official_docs_url || 'https://www.cisecurity.org/benchmark/kubernetes',
+        testedSeparately: cisRule.tested_separately,
+        testedSeparatelyNote: cisRule.tested_separately_note,
+      }
+    }
+  }
+
+  // 2. EU AI Act
+  if (frameworkName.toLowerCase().includes('eu ai act') || controlName.toLowerCase().includes('art.')) {
+    const euBundle = DEFAULT_BUNDLES['eu-ai-act']
+    if (euBundle) {
+      let rule = euBundle.rules[0]
+      if (controlName.includes('9')) rule = euBundle.rules.find(r => r.id === 'audit-trail-logging') || rule
+      else if (controlName.includes('10')) rule = euBundle.rules.find(r => r.id === 'training-data-governance') || rule
+      else if (controlName.includes('13')) rule = euBundle.rules.find(r => r.id === 'transparency-system-prompt') || rule
+      else if (controlName.includes('14')) rule = euBundle.rules.find(r => r.id === 'block-unauthorized-host-exec') || rule
+      return {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        frameworkId: euBundle.framework_id,
+        frameworkName: 'EU AI Act',
+        celExpression: rule.cel_expression,
+        severity: rule.severity,
+        remediation: rule.remediation,
+        docsUrl: rule.docs_url || 'https://artificialintelligenceact.eu/',
+      }
+    }
+  }
+
+  // 3. SOC 2 or NIST
+  if (frameworkName.toLowerCase().includes('soc') || frameworkName.toLowerCase().includes('nist')) {
+    const nistBundle = DEFAULT_BUNDLES['nist-800-53']
+    if (nistBundle) {
+      let rule = nistBundle.rules[0]
+      if (controlName.includes('CC6.1') || controlName.includes('Access')) {
+        rule = nistBundle.rules.find(r => r.id === 'spiffe-peer-authorization') || rule
+      } else if (controlName.includes('CC7.2') || controlName.includes('Monitoring')) {
+        rule = nistBundle.rules.find(r => r.id === 'audit-trail-tamper-protection') || rule
+      }
+      return {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        frameworkId: nistBundle.framework_id,
+        frameworkName: frameworkName,
+        celExpression: rule.cel_expression,
+        severity: rule.severity,
+        remediation: rule.remediation,
+        docsUrl: rule.docs_url || 'https://www.aicpa.org/resources/landing/trust-services-criteria',
+      }
+    }
+  }
+
+  // Fallback
+  return {
+    ruleId: slug,
+    ruleName: controlName,
+    frameworkId: frameworkName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    frameworkName: frameworkName,
+    celExpression: 'object.spec.metadata.name != ""',
+    severity: 'medium',
+    remediation: `Remediate findings for ${controlName}.`,
+    docsUrl: 'https://kubernetes.io/docs/concepts/security/',
+  }
+}
 
 function fmtDate(iso: string | null) {
   if (!iso) return '-'
@@ -35,6 +141,7 @@ function fmtRelative(iso: string | null) {
 
 export interface AgentOverviewTabProps {
   agent: AgentResponse
+  complianceResults?: AgentComplianceResultResponse[]
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
   claiming?: boolean
@@ -45,6 +152,7 @@ export interface AgentOverviewTabProps {
 
 export default function AgentOverviewTab({
   agent,
+  complianceResults,
   sourceHealth,
   sourceHealthDetail,
   claiming = false,
@@ -114,6 +222,75 @@ export default function AgentOverviewTab({
   const observedTime = agent.timestamps?.last_observed_at || agent.last_transition_at || agent.created_at
   const transitionTime = agent.timestamps?.last_transition_at || agent.last_transition_at
   const actionTime = agent.timestamps?.last_action_at
+
+  // 8. Compliance & CEL Policy Frameworks
+  const defaultFrameworks: Record<string, { name: string; bundleId: string; officialDocsUrl?: string }> = {
+    'eu-ai-act': {
+      name: 'EU AI Act',
+      bundleId: 'eu-ai-act',
+      officialDocsUrl: 'https://artificialintelligenceact.eu/',
+    },
+    'soc-2-type-ii': {
+      name: 'SOC 2 Type II',
+      bundleId: 'nist-800-53',
+      officialDocsUrl: 'https://www.aicpa.org/resources/landing/trust-services-criteria',
+    },
+    'cis-kubernetes-benchmark': {
+      name: 'CIS Kubernetes Benchmark',
+      bundleId: 'k8s-cis-benchmark',
+      officialDocsUrl: 'https://www.cisecurity.org/benchmark/kubernetes',
+    },
+  }
+
+  const frameworkMap: Record<
+    string,
+    {
+      name: string
+      bundleId: string
+      officialDocsUrl?: string
+      total: number
+      passing: number
+      failing: number
+      pending: number
+    }
+  > = {}
+
+  for (const [slug, def] of Object.entries(defaultFrameworks)) {
+    frameworkMap[slug] = {
+      ...def,
+      total: 0,
+      passing: 0,
+      failing: 0,
+      pending: 0,
+    }
+  }
+
+  if (complianceResults && complianceResults.length > 0) {
+    for (const r of complianceResults) {
+      const slug = r.framework_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      if (!frameworkMap[slug]) {
+        frameworkMap[slug] = {
+          name: r.framework_name,
+          bundleId: slug,
+          total: 0,
+          passing: 0,
+          failing: 0,
+          pending: 0,
+        }
+      }
+      frameworkMap[slug].total += 1
+      if (r.status === 'pass') {
+        frameworkMap[slug].passing += 1
+      } else if (r.status === 'fail') {
+        frameworkMap[slug].failing += 1
+      } else {
+        frameworkMap[slug].pending += 1
+      }
+    }
+  }
+
+  const frameworkEntries = Object.entries(frameworkMap)
+  const nonCompliantControls = (complianceResults ?? []).filter(r => r.status !== 'pass')
 
   return (
     <div data-testid="dossier-panel-overview" role="tabpanel" id="dossier-tabpanel-overview" aria-labelledby="dossier-tab-overview" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -194,8 +371,17 @@ export default function AgentOverviewTab({
         {/* StatCard 1: Posture & Assessment */}
         <div className="card" data-testid="overview-card-posture" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: 8 }}>
-              Governance Posture
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>
+                Governance Posture
+              </span>
+              <a
+                href="#overview-compliance-posture-section"
+                data-testid="overview-posture-drilldown"
+                style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', fontWeight: 600 }}
+              >
+                CEL Policies ↓
+              </a>
             </div>
             <div data-testid="overview-posture-score" style={{
               fontSize: 32,
@@ -414,6 +600,218 @@ export default function AgentOverviewTab({
 
       {/* ─── Live Containment Cockpit ────────────────────────────────────────── */}
       <AgentCockpitSection agent={agent} style={{ marginBottom: 0 }} />
+
+      {/* ─── Compliance Posture & CEL Policy Section ───────────────────────────── */}
+      <div
+        id="overview-compliance-posture-section"
+        data-testid="overview-compliance-posture-section"
+        className="card"
+        style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
+              Compliance Posture & Frameworks
+            </h3>
+            <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 4 }}>
+              Active regulatory and security frameworks governing this agent, evaluated via Common Expression Language (CEL) policies and cluster admission rules.
+            </div>
+          </div>
+          <Link
+            to="/compliance/policies"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 12px', textDecoration: 'none' }}
+          >
+            Policy Engine & Bundles →
+          </Link>
+        </div>
+
+        {/* Framework Cards Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+          {frameworkEntries.map(([fKey, data]) => {
+            const passPct = data.total > 0 ? Math.round((data.passing / data.total) * 100) : 0
+            const hasFails = data.failing > 0
+            return (
+              <div
+                key={fKey}
+                data-testid={`framework-card-${fKey}`}
+                style={{
+                  background: 'var(--surface2)',
+                  border: `1px solid ${hasFails ? 'color-mix(in srgb, var(--error) 40%, transparent)' : 'var(--border)'}`,
+                  borderRadius: 6,
+                  padding: 14,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>
+                      {data.name}
+                    </div>
+                    <span
+                      className="tag"
+                      style={{
+                        fontSize: 10,
+                        padding: '2px 8px',
+                        fontWeight: 700,
+                        background: hasFails
+                          ? 'color-mix(in srgb, var(--error) 15%, transparent)'
+                          : data.passing > 0
+                          ? 'rgba(16, 185, 129, 0.15)'
+                          : 'rgba(156, 163, 175, 0.15)',
+                        color: hasFails
+                          ? 'var(--error)'
+                          : data.passing > 0
+                          ? 'var(--teal)'
+                          : 'var(--muted)',
+                      }}
+                    >
+                      {hasFails ? `${data.failing} FAILING` : data.total === 0 ? 'NOT ASSESSED' : 'COMPLIANT'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    {data.passing} / {data.total} controls compliant ({passPct}%)
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 10, fontSize: 11 }}>
+                  <Link
+                    to={`/policies?framework=${data.bundleId || fKey}`}
+                    style={{ color: 'var(--teal)', textDecoration: 'none', fontWeight: 600 }}
+                  >
+                    View CEL Policy Rules →
+                  </Link>
+                  {data.officialDocsUrl && (
+                    <a
+                      href={data.officialDocsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'var(--muted)', textDecoration: 'none' }}
+                    >
+                      Official Docs ↗
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Detailed Non-compliant or Failing Controls Inspection */}
+        {nonCompliantControls.length > 0 && (
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--error)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>⚠️ Non-Compliant Controls Requiring Remediation</span>
+              <span className="tag" style={{ background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', fontSize: 10 }}>
+                {nonCompliantControls.length} findings
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {nonCompliantControls.map(res => {
+                const slug = getControlSlug(res.control_name)
+                const policy = lookupPolicyForControl(res.control_name, res.framework_name)
+                return (
+                  <div
+                    key={res.control_id}
+                    data-testid={`noncompliant-control-${slug}`}
+                    style={{
+                      background: 'var(--surface2)',
+                      border: '1px solid color-mix(in srgb, var(--error) 30%, transparent)',
+                      borderRadius: 6,
+                      padding: 14,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
+                          {res.control_name}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                          Framework: <strong>{res.framework_name}</strong> | ID: <code>{res.control_id}</code>
+                        </div>
+                      </div>
+                      <span
+                        className="tag"
+                        style={{
+                          fontSize: 10,
+                          padding: '2px 8px',
+                          fontWeight: 700,
+                          background: res.status === 'fail'
+                            ? 'color-mix(in srgb, var(--error) 15%, transparent)'
+                            : 'color-mix(in srgb, var(--amber) 15%, transparent)',
+                          color: res.status === 'fail' ? 'var(--error)' : 'var(--amber)',
+                        }}
+                      >
+                        {res.status.toUpperCase()}
+                      </span>
+                    </div>
+
+                    {/* CEL Expression */}
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+                        CEL Policy Rule ({policy.ruleId}):
+                      </div>
+                      <pre
+                        data-testid={`cel-rule-expression-${slug}`}
+                        style={{
+                          margin: 0,
+                          padding: '8px 12px',
+                          background: 'var(--surface)',
+                          borderRadius: 4,
+                          border: '1px solid var(--border)',
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          overflowX: 'auto',
+                          color: '#e2e8f0',
+                        }}
+                      >
+                        <code>{policy.celExpression}</code>
+                      </pre>
+                    </div>
+
+                    {/* Remediation & Audit notes */}
+                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text)' }}>
+                      <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Remediation: </span>
+                      {policy.remediation}
+                    </div>
+
+                    {policy.testedSeparately && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--cyan)' }}>
+                        ℹ️ {policy.testedSeparatelyNote || 'Audited at cluster / namespace scope separately.'}
+                      </div>
+                    )}
+
+                    {/* Links */}
+                    <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
+                      <Link
+                        to={`/policies?framework=${policy.frameworkId}&rule=${policy.ruleId}`}
+                        data-testid={`cel-drilldown-link-${slug}`}
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '4px 10px', textDecoration: 'none' }}
+                      >
+                        Drill down to CEL Policy Rule →
+                      </Link>
+                      <a
+                        href={policy.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`compliance-docs-link-${slug}`}
+                        style={{ color: 'var(--teal)', fontSize: 11, textDecoration: 'none', fontWeight: 600 }}
+                      >
+                        Official Benchmark Documentation ↗
+                      </a>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ─── Detail Snapshot Panels ────────────────────────────────────────────── */}
       <div style={{

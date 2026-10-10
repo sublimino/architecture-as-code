@@ -239,4 +239,40 @@ describe('CompliancePolicyPage', () => {
       )
     })
   })
+
+  it('includes K8s CIS benchmark bundle with CEL policies and cluster-level audit controls', async () => {
+    const { DEFAULT_BUNDLES } = await import('./CompliancePolicyPage')
+    const cisBundle = DEFAULT_BUNDLES['k8s-cis-benchmark']
+    expect(cisBundle).toBeDefined()
+    expect(cisBundle.version).toBe('v1.8.0')
+    expect(cisBundle.official_docs_url).toContain('cisecurity.org')
+
+    // Pod admission CEL controls
+    const rootControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.2.6')
+    expect(rootControl).toBeDefined()
+    expect(rootControl?.cel_expression).toContain('runAsNonRoot == true')
+
+    const privEscControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.2.5')
+    expect(privEscControl).toBeDefined()
+    expect(privEscControl?.cel_expression).toContain('allowPrivilegeEscalation == false')
+
+    const seccompControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.7.4')
+    expect(seccompControl).toBeDefined()
+    expect(seccompControl?.cel_expression).toContain('RuntimeDefault')
+
+    // Cluster / namespace-level controls marked as tested separately
+    const netpolControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.3.1')
+    expect(netpolControl).toBeDefined()
+    expect(netpolControl?.tested_separately).toBe(true)
+    expect(netpolControl?.docs_url).toContain('kubernetes.io')
+
+    // Validate that all pod admission CEL rules pass syntax validation
+    const { validateCelExpression } = await import('../components/PolicyEditor')
+    for (const rule of cisBundle.rules) {
+      if (!rule.tested_separately) {
+        const diag = validateCelExpression(rule.cel_expression)
+        expect(diag.valid, `CEL rule ${rule.id} syntax error: ${diag.message}`).toBe(true)
+      }
+    }
+  })
 })

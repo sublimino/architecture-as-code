@@ -257,6 +257,44 @@ INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, descr
  3)
 ON CONFLICT DO NOTHING;
 
+-- CIS Kubernetes Benchmark
+INSERT INTO public.governance_frameworks (
+    id, tenant_id, name, version, regulatory_body,
+    control_count, activated_by
+) VALUES (
+    'f0000000-0000-0000-0000-000000000003', 'tenant-demo',
+    'CIS Kubernetes Benchmark', 'v1.8.0', 'Center for Internet Security',
+    6, 'admin@acme.co'
+) ON CONFLICT DO NOTHING;
+
+-- CIS Kubernetes Benchmark controls
+INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, description, control_order) VALUES
+('c0000000-0000-0000-0000-000000000007', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.6 -- Non-Root Execution',
+ 'Containers must run as non-root user (runAsNonRoot: true). CEL: object.spec.containers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true)',
+ 1),
+('c0000000-0000-0000-0000-000000000008', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.5 -- Privilege Escalation Disabled',
+ 'Prohibits allowPrivilegeEscalation in containers. CEL: object.spec.containers.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false)',
+ 2),
+('c0000000-0000-0000-0000-000000000009', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.4 -- Seccomp RuntimeDefault',
+ 'Enforces default seccomp profile filtering. CEL: has(object.spec.securityContext) && object.spec.securityContext.seccompProfile.type in [RuntimeDefault, Localhost]',
+ 3),
+('c0000000-0000-0000-0000-000000000010', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.1 -- Automount Service Account Token Disabled',
+ 'Disable default ServiceAccount token injection. CEL: !has(object.spec.automountServiceAccountToken) || object.spec.automountServiceAccountToken == false',
+ 4),
+('c0000000-0000-0000-0000-000000000011', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.2 -- Host Namespace Sharing Prohibited',
+ 'Containers must not share host PID, IPC, or network namespaces. CEL: (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.hostNetwork) || !object.spec.hostNetwork)',
+ 5),
+('c0000000-0000-0000-0000-000000000012', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.3.1 -- Namespace Network Isolation',
+ 'Namespace NetworkPolicy isolation. Not tested in Pod CEL -- audited at cluster/namespace level via NetworkPolicy controller. Docs: https://www.cisecurity.org/benchmark/kubernetes',
+ 6)
+ON CONFLICT DO NOTHING;
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Agent Compliance Results (30 = 5 agents x 6 controls)
 -- ══════════════════════════════════════════════════════════════════════════════

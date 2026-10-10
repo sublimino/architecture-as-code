@@ -387,3 +387,80 @@ describe('AgentOverviewTab — Governance Claim', () => {
     expect(screen.getByText('Live containment cockpit')).toBeInTheDocument()
   })
 })
+
+describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () => {
+  const mockComplianceResults = [
+    {
+      agent_id: 'agent-123-uuid',
+      control_id: 'c0000000-0000-0000-0000-000000000001',
+      control_name: 'Art. 9 -- Traceability',
+      framework_name: 'EU AI Act',
+      status: 'pass',
+      assessed_at: '2026-09-01T12:00:00Z',
+      evidence_ref: 'autoclaim:order-agent-pod-7b9d:Traceability',
+    },
+    {
+      agent_id: 'agent-123-uuid',
+      control_id: 'c0000000-0000-0000-0000-000000000006',
+      control_name: 'CC7.2 -- System Monitoring',
+      framework_name: 'SOC 2 Type II',
+      status: 'pending',
+      assessed_at: '2026-09-01T12:00:00Z',
+      evidence_ref: 'autoclaim:order-agent-pod-7b9d:CC7.2',
+    },
+    {
+      agent_id: 'agent-123-uuid',
+      control_id: 'c0000000-0000-0000-0000-000000000007',
+      control_name: 'CIS 5.2.6 -- Non-Root Execution',
+      framework_name: 'CIS Kubernetes Benchmark',
+      status: 'pass',
+      assessed_at: '2026-09-01T12:00:00Z',
+      evidence_ref: 'autoclaim:order-agent-pod-7b9d:CIS-5.2.6',
+    },
+    {
+      agent_id: 'agent-123-uuid',
+      control_id: 'c0000000-0000-0000-0000-000000000010',
+      control_name: 'CIS 5.7.1 -- Automount Service Account Token Disabled',
+      framework_name: 'CIS Kubernetes Benchmark',
+      status: 'fail',
+      assessed_at: '2026-09-01T12:00:00Z',
+      evidence_ref: 'autoclaim:order-agent-pod-7b9d:CIS-5.7.1',
+    },
+  ]
+
+  it('renders Compliance Posture section with framework status and pass rates', () => {
+    const agent = createMockAgent()
+    renderTab(<AgentOverviewTab agent={agent} complianceResults={mockComplianceResults} />)
+
+    expect(screen.getByTestId('overview-compliance-posture-section')).toBeInTheDocument()
+    expect(screen.getByText('Compliance Posture & Frameworks')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-eu-ai-act')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-soc-2-type-ii')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-cis-kubernetes-benchmark')).toBeInTheDocument()
+  })
+
+  it('renders detailed CEL policy inspection and drill-down links for non-compliant controls', () => {
+    const agent = createMockAgent()
+    renderTab(<AgentOverviewTab agent={agent} complianceResults={mockComplianceResults} />)
+
+    // Non-compliant control CIS 5.7.1
+    expect(screen.getByTestId('noncompliant-control-cis-5-7-1')).toBeInTheDocument()
+    expect(screen.getByTestId('cel-rule-expression-cis-5-7-1')).toHaveTextContent('automountServiceAccountToken')
+
+    // Drill down to CEL policy link
+    const drillDownLink = screen.getByTestId('cel-drilldown-link-cis-5-7-1')
+    expect(drillDownLink).toHaveAttribute('href', expect.stringContaining('/policies'))
+
+    // Official docs link
+    const docsLink = screen.getByTestId('compliance-docs-link-cis-5-7-1')
+    expect(docsLink).toHaveAttribute('href', expect.stringContaining('http'))
+  })
+
+  it('links Governance Posture StatCard to compliance posture breakdown', async () => {
+    const agent = createMockAgent()
+    renderTab(<AgentOverviewTab agent={agent} complianceResults={mockComplianceResults} />)
+
+    const postureCard = screen.getByTestId('overview-card-posture')
+    expect(postureCard.querySelector('[data-testid="overview-posture-drilldown"]')).toBeInTheDocument()
+  })
+})

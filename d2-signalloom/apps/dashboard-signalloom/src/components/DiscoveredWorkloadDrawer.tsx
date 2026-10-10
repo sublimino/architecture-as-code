@@ -268,7 +268,7 @@ export default function DiscoveredWorkloadDrawer({
                       padding: '2px 8px',
                       borderRadius: 4,
                       background: 'rgba(168, 85, 247, 0.15)',
-                      color: colors.purpleLoom || '#c084fc',
+                      color: colors.irisViolet || '#c084fc',
                     }}
                   >
                     ns:{workload.namespace}

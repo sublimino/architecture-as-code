@@ -1,7 +1,7 @@
 {
   "name": "seccomp-profile--container-level-only",
   "level": "unit",
-  "description": "Ambiguity pinned: seccompProfile set on every container but not the pod; this pod-level check still fails.",
+  "description": "seccompProfile RuntimeDefault set on every container (app and init) but not on the pod: every container is filtered, so the check passes (CIS 5.7.2 container-over-pod semantics).",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -180,6 +180,6 @@
     "request": {}
   },
   "expect": {
-    "seccomp-profile": "fail"
+    "seccomp-profile": "pass"
   }
 }

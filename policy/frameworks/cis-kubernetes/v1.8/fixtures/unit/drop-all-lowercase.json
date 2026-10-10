@@ -1,7 +1,7 @@
 {
   "name": "drop-all-lowercase",
   "level": "unit",
-  "description": "drop: [all] (lowercase): Pod Security Standards compare \"ALL\" exactly, so this does not count.",
+  "description": "drop: [all] (lowercase). containerd and CRI-O compare capability names case-insensitively, so this drops every capability: no-net-raw and capabilities-dropped-all pass. (Pod Security Admission compares \"ALL\" exactly; these checks judge the runtime effect.)",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -66,9 +66,9 @@
     "no-host-network": "pass",
     "no-privilege-escalation": "pass",
     "no-root-containers": "pass",
-    "no-net-raw": "fail",
+    "no-net-raw": "pass",
     "no-added-capabilities": "pass",
-    "capabilities-dropped-all": "fail",
+    "capabilities-dropped-all": "pass",
     "no-windows-hostprocess": "pass",
     "no-hostpath-volumes": "pass",
     "no-host-ports": "pass",

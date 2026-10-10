@@ -1,0 +1,13 @@
+{
+  "name": "image-digest-required--empty-object",
+  "level": "unit",
+  "description": "object is {} (no pod spec supplied): fails closed instead of erroring.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "image-digest-required": "fail"
+  }
+}

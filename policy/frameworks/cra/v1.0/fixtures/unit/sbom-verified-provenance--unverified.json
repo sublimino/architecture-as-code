@@ -1,0 +1,47 @@
+{
+  "name": "sbom-verified-provenance--unverified",
+  "level": "unit",
+  "description": "CycloneDX SBOM not verified.",
+  "input": {
+    "object": {},
+    "agent": {
+      "model_type": "generative",
+      "training_data_provenance": {
+        "validated": true
+      },
+      "technical_documentation": {
+        "annex_iv_compliant": true
+      },
+      "logging_config": {
+        "automatic_record_keeping": true
+      },
+      "transparency": {
+        "user_instructions_available": true,
+        "synthetic_content_watermarking": true
+      },
+      "deployer_oversight": {
+        "continuous_monitoring": true
+      },
+      "audit_config": {
+        "event_logging_enabled": true
+      },
+      "telemetry": {
+        "monitoring_active": true
+      },
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": false
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "sbom-verified-provenance": "fail"
+  }
+}

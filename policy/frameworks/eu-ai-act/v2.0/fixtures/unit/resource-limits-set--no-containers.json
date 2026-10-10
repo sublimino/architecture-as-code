@@ -1,0 +1,59 @@
+{
+  "name": "resource-limits-set--no-containers",
+  "level": "unit",
+  "description": "spec.containers is empty and there are no init containers: nothing to attest, so the check fails closed.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "agents",
+        "labels": {
+          "app": "agent-alpha",
+          "version": "1.4.2",
+          "data_classification": "confidential",
+          "ai_human_oversight": "human-on-the-loop",
+          "policy_version": "v2.0.0",
+          "managed_by": "flux",
+          "environment": "production",
+          "audit_logging": "enabled",
+          "owner": "platform-team"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "90d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "oncall@example.com",
+          "osramp.io/tls-config": "mtls-spiffe",
+          "osramp.io/encryption-at-rest": "aes-256-gcm",
+          "osramp.io/vuln-scan-url": "https://scan.example.com/agent-alpha",
+          "osramp.io/log-format": "json"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [],
+        "volumes": [
+          {
+            "name": "logs",
+            "emptyDir": {}
+          }
+        ],
+        "replicas": 2
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "resource-limits-set": "fail"
+  }
+}

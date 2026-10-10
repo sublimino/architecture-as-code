@@ -1,0 +1,53 @@
+{
+  "name": "bare-pod",
+  "level": "integration",
+  "description": "A minimal pod with one container and nothing else set; agent and request are empty. Shows the absent-field semantics: Kubernetes defaults, fail-closed governance, and the two pinned fail-open request/agent checks.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "bare"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "app",
+            "image": "busybox"
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "container-run-as-non-root": "fail",
+    "no-privilege-escalation": "fail",
+    "no-privileged-mode": "pass",
+    "no-automount-sa-token": "fail",
+    "pod-security-context": "fail",
+    "no-host-network": "pass",
+    "no-host-pid": "pass",
+    "app-label": "fail",
+    "version-label": "fail",
+    "resource-limits-set": "fail",
+    "resource-requests-set": "fail",
+    "managed-by-label": "fail",
+    "env-label": "fail",
+    "drop-all-capabilities": "fail",
+    "read-only-rootfs": "fail",
+    "tls-annotation": "fail",
+    "seccomp-profile": "fail",
+    "encryption-annotation": "fail",
+    "image-digest-required": "fail",
+    "trusted-registry": "fail",
+    "vuln-scan-annotation": "fail",
+    "liveness-probe-present": "fail",
+    "readiness-probe-present": "fail",
+    "audit-label": "fail",
+    "log-volume-mount": "fail",
+    "log-format-annotation": "fail",
+    "owner-label": "fail"
+  }
+}

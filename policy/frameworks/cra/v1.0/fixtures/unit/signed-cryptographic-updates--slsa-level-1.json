@@ -1,0 +1,47 @@
+{
+  "name": "signed-cryptographic-updates--slsa-level-1",
+  "level": "unit",
+  "description": "Provenance at SLSA_LEVEL_1.",
+  "input": {
+    "object": {},
+    "agent": {
+      "model_type": "generative",
+      "training_data_provenance": {
+        "validated": true
+      },
+      "technical_documentation": {
+        "annex_iv_compliant": true
+      },
+      "logging_config": {
+        "automatic_record_keeping": true
+      },
+      "transparency": {
+        "user_instructions_available": true,
+        "synthetic_content_watermarking": true
+      },
+      "deployer_oversight": {
+        "continuous_monitoring": true
+      },
+      "audit_config": {
+        "event_logging_enabled": true
+      },
+      "telemetry": {
+        "monitoring_active": true
+      },
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_1"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "signed-cryptographic-updates": "fail"
+  }
+}

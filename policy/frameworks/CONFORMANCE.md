@@ -76,12 +76,12 @@ Rules the harness enforces:
    A pack with any non-placeholder check and no fixtures at all fails the gate.
    A placeholder check's expectation must be `not_evaluated`, and only a
    placeholder check may expect `not_evaluated`.
-8. A scan at `policyVersion` = a pack's own `version` returns exactly that
-   directory's checks carrying that version, each once
-   (`TestConformance_VersionSelection`, through the real `handleScan`).
 6. An `error` expectation is allowed only for deliberately malformed input and
    the fixture's `description` must say why.
 7. Every check expression compiles.
+8. A scan at `policyVersion` = a pack's own `version` returns exactly that
+   directory's checks carrying that version, each once
+   (`TestConformance_VersionSelection`, through the real `handleScan`).
 
 Unit fixtures are minimal: change one fact relative to a compliant baseline so
 the expectation is attributable to that fact. Integration fixtures are

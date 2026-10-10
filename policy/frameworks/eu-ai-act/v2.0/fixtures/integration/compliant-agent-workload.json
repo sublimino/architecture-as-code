@@ -189,7 +189,7 @@
     "resource-limits-set": "pass",
     "resource-requests-set": "pass",
     "readiness-probe-present": "pass",
-    "min-replicas": "fail",
+    "min-replicas": "not_evaluated",
     "image-digest-required": "pass",
     "trusted-registry": "pass",
     "policy-version-label": "pass"

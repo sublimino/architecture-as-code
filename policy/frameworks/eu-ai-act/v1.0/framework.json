@@ -82,7 +82,7 @@
             {
               "id": "data-classification-label",
               "name": "Data classification label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.data_classification)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.data_classification) && object.metadata.labels.data_classification != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 8000,
@@ -108,7 +108,7 @@
             {
               "id": "hitl-label",
               "name": "HITL oversight label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.ai_human_oversight)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.ai_human_oversight) && object.metadata.labels.ai_human_oversight != ''",
               "riskTriple": {
                 "min": 2000,
                 "mode": 12000,

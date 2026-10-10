@@ -162,7 +162,7 @@
             {
               "id": "app-label",
               "name": "Application label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app) && object.metadata.labels.app != ''",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -182,7 +182,7 @@
             {
               "id": "version-label",
               "name": "Version label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.version)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.version) && object.metadata.labels.version != ''",
               "riskTriple": {
                 "min": 2000,
                 "mode": 8000,
@@ -242,7 +242,7 @@
             {
               "id": "managed-by-label",
               "name": "Managed-by label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.managed_by)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.managed_by) && object.metadata.labels.managed_by != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -262,7 +262,7 @@
             {
               "id": "env-label",
               "name": "Environment label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.environment)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.environment) && object.metadata.labels.environment != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -328,7 +328,7 @@
             {
               "id": "tls-annotation",
               "name": "TLS configuration declared",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/tls-config' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/tls-config' in object.metadata.annotations && object.metadata.annotations['osramp.io/tls-config'] != ''",
               "riskTriple": {
                 "min": 5000,
                 "mode": 20000,
@@ -368,7 +368,7 @@
             {
               "id": "encryption-annotation",
               "name": "Encryption at rest declared",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/encryption-at-rest' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/encryption-at-rest' in object.metadata.annotations && object.metadata.annotations['osramp.io/encryption-at-rest'] != ''",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -435,7 +435,7 @@
             {
               "id": "vuln-scan-annotation",
               "name": "Vulnerability scan reference present",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/vuln-scan-url' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/vuln-scan-url' in object.metadata.annotations && object.metadata.annotations['osramp.io/vuln-scan-url'] != ''",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -501,7 +501,7 @@
             {
               "id": "audit-label",
               "name": "Audit logging label present",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.audit_logging)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.audit_logging) && object.metadata.labels.audit_logging != ''",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -541,7 +541,7 @@
             {
               "id": "log-format-annotation",
               "name": "Log format declared",
-              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/log-format' in object.metadata.annotations",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/log-format' in object.metadata.annotations && object.metadata.annotations['osramp.io/log-format'] != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -561,7 +561,7 @@
             {
               "id": "owner-label",
               "name": "Owner label exists",
-              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.owner)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.owner) && object.metadata.labels.owner != ''",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,

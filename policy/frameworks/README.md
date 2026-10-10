@@ -99,10 +99,19 @@ optional field with `has()`. `has(a.b.c)` tests only the last field, so guard
 each level that can be absent. Decide the meaning of an absent field from the
 Kubernetes default.
 
+A per-container security control (privileged, privilege escalation,
+capabilities, read-only root filesystem, run-as-non-root, image digest,
+trusted registry, seccomp) covers `containers`, `initContainers` and
+`ephemeralContainers`: `kubectl debug --profile=sysadmin` adds a privileged
+ephemeral container to a running pod. Resource limits/requests cover
+`containers` and `initContainers` only, and probes `containers` only, because
+the API forbids resources and probes on ephemeral containers.
+
 ```cel
-# Per-container control, covering init containers. A pod with no containers fails.
+# Per-container control, covering init and ephemeral containers. A pod with no containers fails.
 has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 &&
-  (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []))
+  (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) +
+     (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : []))
     .all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) &&
             c.securityContext.allowPrivilegeEscalation == false)
 

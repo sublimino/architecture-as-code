@@ -149,8 +149,7 @@
             "name": "logs",
             "emptyDir": {}
           }
-        ],
-        "replicas": 2
+        ]
       }
     },
     "agent": {},

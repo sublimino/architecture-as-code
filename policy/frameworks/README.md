@@ -73,10 +73,8 @@ The loader is
   error and skips the pack. `TestLoad_EveryShippedPackLoadsCompletely` fails
   for any shipped pack that does not load.
 
-CAUTION: `eu-ai-act/v2.1`, `nist-800-53/v2.1`, `cra/v1.0`, `dora/v1.0`,
-`nis2/v1.0` and `finos-aigf/v1.0` still have a `framework.yaml` beside the
-`framework.json`. The loader never reads those YAML files. They are in an
-older dialect and differ from the JSON. Do not edit them.
+Every shipped pack is a single `framework.json`; no pack carries a
+`framework.yaml`. The YAML fallback exists only for a pack with no JSON file.
 
 ## Adding a New Framework
 
@@ -99,10 +97,19 @@ optional field with `has()`. `has(a.b.c)` tests only the last field, so guard
 each level that can be absent. Decide the meaning of an absent field from the
 Kubernetes default.
 
+A per-container security control (privileged, privilege escalation,
+capabilities, read-only root filesystem, run-as-non-root, image digest,
+trusted registry, seccomp) covers `containers`, `initContainers` and
+`ephemeralContainers`: `kubectl debug --profile=sysadmin` adds a privileged
+ephemeral container to a running pod. Resource limits/requests cover
+`containers` and `initContainers` only, and probes `containers` only, because
+the API forbids resources and probes on ephemeral containers.
+
 ```cel
-# Per-container control, covering init containers. A pod with no containers fails.
+# Per-container control, covering init and ephemeral containers. A pod with no containers fails.
 has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 &&
-  (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []))
+  (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) +
+     (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : []))
     .all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) &&
             c.securityContext.allowPrivilegeEscalation == false)
 
@@ -113,12 +120,14 @@ has(object.spec) && has(object.spec.automountServiceAccountToken) &&
 # Absent hostNetwork means false, so the check passes
 has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)
 
-# Label exists
-has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app)
+# Label exists with a non-empty value
+has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app) &&
+  object.metadata.labels.app != ''
 
-# Annotation exists
+# Annotation exists with a non-empty value
 has(object.metadata) && has(object.metadata.annotations) &&
-  'osramp.io/sbom-url' in object.metadata.annotations
+  'osramp.io/sbom-url' in object.metadata.annotations &&
+  object.metadata.annotations['osramp.io/sbom-url'] != ''
 
 # Agent governance flag
 has(agent.audit_config) && has(agent.audit_config.event_logging_enabled) &&

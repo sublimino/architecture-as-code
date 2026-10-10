@@ -15,8 +15,9 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
 - **Absent means unevidenced, so the check fails.** No check returns `error`
   for an absent key. A missing container object fails too.
 - **Container objects** (`registry`, `guardrails`, `data`, and the rest) must
-  be JSON objects. A container of the wrong type, such as a string, makes its
-  checks fail.
+  be JSON objects. A container of the wrong type, such as a string or a list, makes its
+  checks fail (every container read is guarded with `type(x) == map`; list
+  elements of `persistent_stores`, `tools` and `mcp_servers` likewise).
 - **Lists** must be JSON arrays.
   - An empty array `[]` declares "none", so every-element checks pass on it
     (vacuous truth).
@@ -34,7 +35,7 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
 | Path | Type | Meaning | Absent / wrong type | Read by |
 |---|---|---|---|---|
 | `registry.model_registered` | bool | The model is in the enterprise model inventory and is approved. | fail | `registered-model-registry-entry` (frozen) |
-| `registry.model_version` | string | The exact model version deployed. It must contain at least one character and no whitespace. It must not end in a `latest` alias segment. The match is case-insensitive: `x-latest`, `x:latest`, `x@latest`, `x/latest`, `x.latest`, `x_latest` and bare `latest` all fail. A version that only contains `latest` elsewhere passes. | fail | `model-version-pinned` |
+| `registry.model_version` | string | The exact model version deployed. It must name an explicit pin: a dated snapshot (`YYYYMMDD` or `YYYY-MM-DD`, e.g. `gpt-4o-2024-08-06`, `claude-sonnet-4-5-20250929`), a `sha256:` digest of 64 hex digits, or a `MAJOR.MINOR.PATCH` version. Floating aliases (`gpt-4o`, `claude-sonnet-4-5`, `gemini-1.5-pro`) fail. Rule derived from AIR-PREV-010 ("a specific, fixed version ... rather than automatically adopting the latest available version"; suppliers should version "e.g., semantic versioning like MAJOR.MINOR.PATCH"). It must contain no whitespace. It must not end in a `latest` alias segment. The match is case-insensitive: `x-latest`, `x:latest`, `x@latest`, `x/latest`, `x.latest`, `x_latest` and bare `latest` all fail. A version that only contains `latest` elsewhere passes. | fail | `model-version-pinned` |
 | `guardrails.prompt_injection_filter` | bool | Prompt-injection detection runs on input. | fail | `prompt-injection-guardrail-active` (frozen) |
 | `guardrails.output_filter` | bool | Model output is filtered for leakage and policy violations before release. | fail | `output-leakage-filter-active` |
 | `data.rag_enabled` | bool | The agent retrieves from knowledge bases (RAG). This is the applicability fact. | fail (unknown applicability) | `rag-ingestion-sensitive-data-filtered` |
@@ -45,7 +46,7 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
 | `access.authentication_required` | bool | Callers must authenticate. | fail | `user-authn-and-rbac-enforced` |
 | `access.rbac_enforced` | bool | Role-based authorisation is enforced on the agent's data and actions. | fail | `user-authn-and-rbac-enforced` |
 | `tools` | array of objects | The tools the agent can invoke. `[]` means no tools. | both tool checks fail | `tool-grants-least-privilege`, `high-impact-actions-human-approved` |
-| `tools[].scopes` | array of strings | The scopes granted to the tool. The array must not be empty. Every entry must be a non-empty string and must not end in `*`, so neither `*` nor `repo:*` is allowed. | fail | `tool-grants-least-privilege` |
+| `tools[].scopes` | array of strings | The scopes granted to the tool. The array must not be empty. Every entry must be a non-empty string containing no `*` anywhere, so `*`, `repo:*` and `repo:*:write` are all rejected. | fail | `tool-grants-least-privilege` |
 | `tools[].impact` | `"low"` \| `"medium"` \| `"high"` | The impact class. Absent, or any other value, is treated as `high` (fail-closed). | treated as high | `high-impact-actions-human-approved` |
 | `tools[].requires_human_approval` | bool | Calls to this tool wait at a human approval gate. Required when the impact is high or unclassified. | fail if the tool is high or unclassified | `high-impact-actions-human-approved` |
 | `mcp_servers` | array of objects | The MCP servers the agent connects to. `[]` means none. | fail | `mcp-servers-allowlisted` |

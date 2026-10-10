@@ -30,9 +30,9 @@ from kube-bench, which carries them for the `cis-1.8` benchmark (Kubernetes
 | `no-host-network` | 5.2.5 | Minimize the admission of containers wishing to share the host network namespace | Absent `hostNetwork` is `false`: pass. |
 | `no-privilege-escalation` | 5.2.6 | Minimize the admission of containers with allowPrivilegeEscalation | Absent `allowPrivilegeEscalation` is effectively `true`: **fail**. Windows exempt. |
 | `no-root-containers` | 5.2.7 | Minimize the admission of root containers | Effective `runAsUser` = container, else pod; if set it must be `> 0`. If unset everywhere, effective `runAsNonRoot` (container, else pod) must be `true`. Neither set: the image USER decides, unknown: **fail**. |
-| `no-net-raw` | 5.2.8 | Minimize the admission of containers with the NET_RAW capability | Runtimes grant NET_RAW by default, so absent `capabilities` **fails**. Passes only if `drop` holds `ALL`, `NET_RAW` or `CAP_NET_RAW`, `add` does not re-add any of those, and the container is not privileged. Windows exempt. |
+| `no-net-raw` | 5.2.8 | Minimize the admission of containers with the NET_RAW capability | Runtimes grant NET_RAW by default, so absent `capabilities` **fails**. Names compare case-insensitively, as containerd and CRI-O do. Passes only if `drop` holds `ALL`, `NET_RAW` or `CAP_NET_RAW` (any case), `add` does not re-add any of those (any case, including `cap_all`), and the container is not privileged. Windows exempt. |
 | `no-added-capabilities` | 5.2.9 | Minimize the admission of containers with added capabilities | Absent or empty `capabilities.add`: pass. |
-| `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain exactly `"ALL"` (Pod Security Standards compare case-sensitively; `"all"` does not count). Absent: **fail**. Windows exempt. |
+| `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain `ALL` in any case: containerd and CRI-O compare case-insensitively, so `"all"` drops everything (Pod Security Admission would reject it; this check judges the runtime effect). Absent: **fail**. Windows exempt. |
 | `no-windows-hostprocess` | 5.2.11 | Minimize the admission of Windows HostProcess containers | Absent `windowsOptions.hostProcess` is `false`. Fails if the pod or any container sets `true` (the API rejects a pod/container mismatch, so either level is decisive). |
 | `no-hostpath-volumes` | 5.2.12 | Minimize the admission of HostPath volumes | Absent `volumes`: pass. |
 | `no-host-ports` | 5.2.13 | Minimize the admission of containers which use HostPorts | Absent or `0` `hostPort`: pass. With `hostNetwork: true` the API server defaults `hostPort` to `containerPort`, so any declared port on a hostNetwork pod **fails**. |
@@ -52,7 +52,7 @@ relies on a `kubernetes.io/os` nodeSelector is evaluated as Linux
 Per-container checks pass vacuously because nothing runs; pod-level checks
 still evaluate (fixture `empty-containers-vacuous`).
 
-**Missing `spec`.** Not a pod. Checks return `error`, never `fail`.
+**Missing `spec`.** Not a pod. Every spec-reading check fails closed (`has(object.spec)` guard), never `error`.
 
 **Numbers.** JSON numbers reach CEL as `double`. `runAsUser > 0`, `hostPort != 0`
 compare int literals against doubles correctly (fixtures `root-container-uid-0`,

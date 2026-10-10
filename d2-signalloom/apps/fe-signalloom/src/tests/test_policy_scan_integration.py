@@ -9,6 +9,7 @@ control -- the defect this guards against stamped one verdict on every agent.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -91,8 +92,14 @@ VERDICTS: dict[str | None, dict[str, str]] = {
                "decision-explainability-metadata": "fail"},
     "black-knight": {**{c: ("pass" if i < 5 else "fail") for i, c in enumerate(CIS)},
                      **{c: "fail" for c in AIGF}},
-    None: {**{c: "error" for c in CIS}, **{c: "fail" for c in AIGF}},
+    # What the real engine answers with no object (verified against the binary:
+    # an absent object is bound to {}, and every CIS check FAILS on {}).  The
+    # scan must never ask it, and never store this: see H1 below.
+    None: {**{c: "fail" for c in CIS}, **{c: "fail" for c in AIGF}},
 }
+#: An agent with no workload on record: the scan does not ask the engine about
+#: an object-only pack, and stores those controls as pending with no assessed_at.
+NO_WORKLOAD = "pending"
 WORKLOAD = {LANCELOT: "lancelot", DENNIS: "dennis", BLACK_KNIGHT: "black-knight", PATSY: None, ROBIN: None}
 CONTEXT = {
     LANCELOT: {"guardrails": {"prompt_injection_filter": True}},
@@ -217,7 +224,13 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
             assert resp.status_code == 200, resp.text
             assert resp.json()["engineInvoked"] is True
             assert resp.json()["agentsScanned"] == 5
-            assert route.call_count == 10  # five agents x two pack versions
+            # Three agents with a workload x two packs, two without x AIGF only.
+            assert route.call_count == 8
+            assert all("object" in json.loads(c.request.content) for c in route.calls
+                       if json.loads(c.request.content)["frameworks"] == ["cis-kubernetes"])
+            gaps = resp.json()["controlGaps"]
+            assert sorted((g["agentId"], g["check"], g["reason"], g["stored"]) for g in gaps) == sorted(
+                (str(a), c, "no_workload", "pending") for a, w in WORKLOAD.items() if w is None for c in CIS)
 
             # The agent context each agent was scanned with came from ITS row.
             sent = {json.loads(c.request.content).get("object", {}).get("metadata", {}).get("name"):
@@ -235,7 +248,8 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     expected = dict(before)
     for agent_id, workload in WORKLOAD.items():
         for check, status in VERDICTS[workload].items():
-            expected[(agent_id, control_of[check])] = status
+            expected[(agent_id, control_of[check])] = (
+                NO_WORKLOAD if workload is None and check in CIS else status)
 
     stored = {(r["agent_id"], r["control_id"]): r["status"] for r in await seeded_pool.fetch(
         "SELECT agent_id, control_id, status FROM agent_compliance_results")}
@@ -250,14 +264,21 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     counts = Counter(expected.values())
     assert summary["controls_passing"] == counts["pass"]
     assert summary["controls_failing"] == counts["fail"]
-    # error is neither pass nor fail; this contract folds it into pending.
-    assert summary["controls_pending"] == len(expected) - counts["pass"] - counts["fail"]
+    # M4: error is neither pass, fail nor pending. It used to be counted as
+    # pending, which read as "not assessed yet" for a control the engine tried
+    # and could not judge. It has its own count, and is in neither of the
+    # others -- while staying in total_controls and the posture denominator.
+    assert counts["error"] > 0, "this fixture must exercise an errored control"
+    assert summary["controls_errored"] == counts["error"]
+    assert summary["controls_pending"] == (
+        len(expected) - counts["pass"] - counts["fail"] - counts["error"])
+    assert summary["posture_score"] == round(counts["pass"] / len(expected), 2)
 
-    assert (policy["totalChecks"], policy["passed"], policy["failed"]) == (
-        len(expected), counts["pass"], counts["fail"])
+    assert (policy["totalChecks"], policy["passed"], policy["failed"], policy["errored"]) == (
+        len(expected), counts["pass"], counts["fail"], counts["error"])
     frameworks = {f["name"]: f for f in policy["frameworks"]}
     for name, checks in (("CIS Kubernetes Benchmark", CIS), ("FINOS AI Governance Framework", AIGF)):
-        per_control = {c: [VERDICTS[w][c] for w in WORKLOAD.values()] for c in checks}
+        per_control = {c: [expected[(a, control_of[c])] for a in WORKLOAD] for c in checks}
         assert frameworks[name]["totalControls"] == len(checks)
         assert frameworks[name]["passedControls"] == sum(all(s == "pass" for s in v) for v in per_control.values())
         assert frameworks[name]["failedControls"] == sum(any(s == "fail" for s in v) for v in per_control.values())
@@ -266,7 +287,126 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
         """SELECT detail FROM audit_events WHERE event_type = 'compliance.scan_completed'
             ORDER BY timestamp DESC LIMIT 1""")
     detail = json.loads(audit["detail"])
-    new = Counter(VERDICTS[w][c] for w in WORKLOAD.values() for c in CIS + AIGF)
+    new = Counter(expected[(a, control_of[c])] for a in WORKLOAD for c in CIS + AIGF)
     assert (detail["controls_assessed"], detail["controls_passed"], detail["controls_failed"],
-            detail["controls_errored"], detail["agents_scanned"]) == (
-        5 * (len(CIS) + len(AIGF)), new["pass"], new["fail"], new["error"], 5)
+            detail["controls_errored"], detail["controls_no_workload"], detail["agents_scanned"]) == (
+        5 * (len(CIS) + len(AIGF)), new["pass"], new["fail"], new["error"], 2 * len(CIS), 5)
+    # No assessment time on a control nobody assessed.
+    unassessed = await seeded_pool.fetch(
+        "SELECT assessed_at FROM agent_compliance_results WHERE agent_id = ANY($1::uuid[]) AND control_id = ANY($2::uuid[])",
+        [PATSY, ROBIN], [control_of[c] for c in CIS])
+    assert len(unassessed) == 2 * len(CIS) and all(r["assessed_at"] is None for r in unassessed)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_scan_never_overwrites_a_fresher_scans_verdict(seeded_pool, monkeypatch):
+    """H3: two scans of one tenant, interleaved.
+
+    The first scan reads the registry, then its engine call hangs; the second
+    scan runs to completion while it hangs; only then does the first scan get
+    its answer and write.  Its view of the agent is the older one, so the row
+    must keep the second scan's verdict.  The upsert is guarded on freshness
+    and the write transaction holds a per-tenant advisory lock, so the loser
+    neither interleaves row by row nor lands last-write-wins.
+    """
+    await _as_tenant_demo(seeded_pool, monkeypatch)
+    await seeded_pool.execute(
+        "UPDATE agent_registry SET workload_spec = $2::jsonb WHERE id = $1",
+        LANCELOT, json.dumps(pod("lancelot")))
+    check = "no-privileged-containers"
+    control = await seeded_pool.fetchval(
+        "SELECT id FROM governance_controls WHERE tenant_id = $1 AND policy_check_id = $2",
+        TENANT, check)
+
+    stale_at_engine = asyncio.Event()
+    fresh_committed = asyncio.Event()
+
+    async def engine(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["namespace"] == "stale":
+            stale_at_engine.set()
+            await asyncio.wait_for(fresh_committed.wait(), timeout=30)
+            status = "pass"
+        else:
+            status = "fail"
+        return httpx.Response(200, json=[{
+            "framework": "cis-kubernetes", "controlSet": "set", "control": check, "check": check,
+            "passed": status == "pass", "status": status, "policyVersion": "v1.8.0",
+            "ale": 0.0, "var95": 0.0, "tvar": 0.0, "carriedGbp": 0.0,
+            "scanTimestamp": "2026-10-10T12:00:00Z", "calibrationSource": "industry-indicative",
+        }])
+
+    async def run(namespace: str) -> dict[str, Any]:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/compliance/policy/scan",
+                json={"namespace": namespace, "policyVersion": "v1.8.0",
+                      "frameworks": ["cis-kubernetes"], "agentIds": [str(LANCELOT)]},
+                headers=eap_bearer(SUBJECT),
+            )
+            assert resp.status_code == 200, resp.text
+            return resp.json()
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post(ENGINE).mock(side_effect=engine)
+        stale = asyncio.create_task(run("stale"))
+        # The loser must have taken its view of the registry FIRST.
+        await asyncio.wait_for(stale_at_engine.wait(), timeout=30)
+        fresh = await run("fresh")
+        fresh_committed.set()
+        stale_body = await stale
+
+    # Each scan reports what its own engine call said -- neither response lies.
+    assert [c["status"] for c in fresh["checks"]] == ["fail"]
+    assert [c["status"] for c in stale_body["checks"]] == ["pass"]
+    # The row keeps the fresher assessment.
+    row = await seeded_pool.fetchrow(
+        "SELECT status FROM agent_compliance_results WHERE agent_id = $1 AND control_id = $2",
+        LANCELOT, control)
+    assert row["status"] == "fail"
+
+
+TENANT_B = "tenant-b-f3"
+TENANT_B_FRAMEWORK = uuid.UUID("fb000000-0000-0000-0000-000000000001")
+
+
+async def _as_tenant_demo(seeded_pool, monkeypatch):
+    async def get_pool():
+        return seeded_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    monkeypatch.setattr(settings, "api_subject_tenants", {**settings.api_subject_tenants, SUBJECT: TENANT})
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_identically_named_framework_never_reaches_this_tenant(seeded_pool, monkeypatch):
+    """H4: the framework catalogue and its policy summary are tenant-scoped.
+
+    Tenant B activates a framework with exactly the name tenant-demo's CIS pack
+    carries, a different control count and a control of its own.  Grouping by
+    name used to merge the two; reading without a tenant filter used to list B's.
+    """
+    await _as_tenant_demo(seeded_pool, monkeypatch)
+    await seeded_pool.execute(
+        """INSERT INTO governance_frameworks (id, tenant_id, name, version, regulatory_body, control_count, activated_by)
+           VALUES ($1, $2, 'CIS Kubernetes Benchmark', 'b-only', 'Tenant B', 99, 'b@example.test')""",
+        TENANT_B_FRAMEWORK, TENANT_B)
+    await seeded_pool.execute(
+        """INSERT INTO governance_controls (id, tenant_id, framework_id, name, description, control_order)
+           VALUES ('cb000000-0000-0000-0000-000000000001', $1, $2, 'B secret control', 'b', 1)""",
+        TENANT_B, TENANT_B_FRAMEWORK)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        catalogue = (await client.get("/api/compliance/frameworks", headers=eap_bearer(SUBJECT))).json()
+        summaries = (await client.get("/api/compliance/policy/frameworks", headers=eap_bearer(SUBJECT))).json()
+
+    assert str(TENANT_B_FRAMEWORK) not in {f["id"] for f in catalogue}
+    assert "B secret control" not in {c["name"] for f in catalogue for c in f["controls"]}
+    assert "b-only" not in {f["version"] for f in catalogue}
+    names = [f["name"] for f in summaries]
+    assert len(names) == len(set(names)), names
+    [cis] = [f for f in summaries if f["name"] == "CIS Kubernetes Benchmark"]
+    assert cis["totalControls"] == len(CIS)
+    assert "b-only" not in cis["versions"]

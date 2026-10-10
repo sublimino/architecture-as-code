@@ -65,7 +65,7 @@
               "id": "cross-namespace-egress-authorization",
               "name": "Cross-namespace network egress authorization",
               "description": "Restricts inter-agent communication across namespace boundaries without explicit egress grant.",
-              "celExpression": "has(request.destination) && has(request.destination.namespace) && ((has(request.source) && has(request.source.namespace) && request.destination.namespace == request.source.namespace) || (has(request.context) && has(request.context.egress_authorized) && request.context.egress_authorized == true))",
+              "celExpression": "has(request.destination) && has(request.destination.namespace) && request.destination.namespace != '' && ((has(request.source) && has(request.source.namespace) && request.destination.namespace == request.source.namespace) || (has(request.context) && has(request.context.egress_authorized) && request.context.egress_authorized == true))",
               "severity": "high",
               "remediation": "Obtain cross-namespace authorization grant or isolate within local namespace.",
               "riskTriple": {

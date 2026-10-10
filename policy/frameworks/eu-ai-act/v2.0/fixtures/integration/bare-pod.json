@@ -1,0 +1,45 @@
+{
+  "name": "bare-pod",
+  "level": "integration",
+  "description": "A minimal pod with one container and nothing else set; agent and request are empty. Shows the absent-field semantics: Kubernetes defaults, fail-closed governance, and the two pinned fail-open request/agent checks.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "bare"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "app",
+            "image": "busybox"
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "container-run-as-non-root": "fail",
+    "no-privilege-escalation": "fail",
+    "no-privileged-mode": "pass",
+    "read-only-rootfs": "fail",
+    "drop-all-capabilities": "fail",
+    "liveness-probe-present": "fail",
+    "data-classification-label": "fail",
+    "pii-handling-annotation": "fail",
+    "data-retention-annotation": "fail",
+    "hitl-label": "fail",
+    "approval-gate-annotation": "fail",
+    "override-contact-annotation": "fail",
+    "resource-limits-set": "fail",
+    "resource-requests-set": "fail",
+    "readiness-probe-present": "fail",
+    "min-replicas": "fail",
+    "image-digest-required": "fail",
+    "trusted-registry": "fail",
+    "policy-version-label": "fail"
+  }
+}

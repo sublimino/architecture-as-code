@@ -1,7 +1,9 @@
 # Policy Framework Packs
 
 Regulatory compliance policy packs. The policy engine evaluates them offline
-against Kubernetes manifests with `cel-go`.
+with `cel-go` against a Kubernetes pod template (`object`), an agent context
+document (`agent`) and a runtime request context (`request`). The binding
+contract and the fixture rules are in [CONFORMANCE.md](CONFORMANCE.md).
 
 ## Gemara Tension Hierarchy
 
@@ -12,107 +14,113 @@ commentary -- each layer adds specificity and evaluable detail:
 framework          # The regulatory standard (EU AI Act, NIST 800-53)
   controlSet       # A grouping of related controls (e.g. Art. 9, AC family)
     control        # A specific requirement within the set
-      check        # A CEL expression evaluated against a pod spec
+      check        # A CEL expression the policy engine evaluates
 ```
 
 - **Framework** identifies the regulation, version, and strictness tier.
 - **Control Set** maps to a regulatory article or control family.
-- **Control** is a single auditable requirement. In `framework.json` a
-  control holds `id`, `name`, and `checks`.
-- **Check** is a concrete CEL expression the policy engine evaluates against
-  `object` (a deserialised Kubernetes pod template spec). In `framework.json`
-  each check carries `celExpression`, `riskTriple`, `freqTriple`, and
-  `policyVersions`.
+- **Control** is a single auditable requirement. It holds `id`, `name`,
+  `description` and `checks`.
+- **Check** is a concrete CEL expression. Each check carries `id`, `name`,
+  `celExpression`, `riskTriple`, and optionally `freqTriple`,
+  `policyVersions`, `severity`, `remediation`, `description` and `status`.
 
 ## Strictness Tiers
 
-Each framework directory has three version directories, one per strictness
-tier. Only the v2.1 `framework.json` of each framework loads. The v1.0 and
-v2.0 YAML packs do not load (see
-[Adding a New Framework](#adding-a-new-framework)).
+`eu-ai-act` and `nist-800-53` each have three version directories, one per
+strictness tier. Every version directory with a `framework.json` loads.
 
-| Version | Tier     | Intent                                       | Loads |
-|---------|----------|----------------------------------------------|-------|
-| v1.0    | Lax      | Bare minimum critical security.              | No    |
-| v2.0    | Standard | Defence-in-depth. Resource limits, probes.   | No    |
-| v2.1    | Strict   | Full manifest coverage. Labels, annotations. | Yes, from `framework.json` |
+| Version | Tier     | Intent                                       |
+|---------|----------|----------------------------------------------|
+| v1.0    | Lax      | Bare minimum critical security.              |
+| v2.0    | Standard | Defence-in-depth. Resource limits, probes.   |
+| v2.1    | Strict   | Workload checks plus agent and request governance. |
 
-In the YAML files, each tier adds controls to the tier below it. The
-`framework.json` that loads is a smaller pack than the YAML file beside it.
-Count the controls in the packs themselves. A count written here goes stale.
+Count the checks in the packs themselves. A count written here goes stale.
+
+The v1.0 and v2.0 packs were converted from a legacy YAML dialect. They carry
+no `freqTriple`, so the engine computes zero annual loss for their failures.
 
 ## Risk Triples and FAIR Quantification
 
-In `framework.json`, each check carries a `riskTriple` with three values. In
-the YAML files, the triple sits on each control.
+Each check carries a `riskTriple` with three values:
 
-```yaml
-riskTriple:
-  min: 5000      # Best-case single loss event
-  mode: 25000    # Most likely single loss event
-  max: 120000    # Worst-case single loss event
+```json
+"riskTriple": { "min": 5000, "mode": 25000, "max": 120000 }
 ```
 
 These map to FAIR (Factor Analysis of Information Risk) loss magnitude
-estimation using a PERT distribution. The policy engine aggregates risk
-triples across failing checks to produce a monetary exposure estimate for the
-entire workload.
+estimation using a PERT distribution. `freqTriple` has the same shape and
+gives the loss event frequency per year. A check with no `freqTriple` has
+zero frequency, so its failures carry zero annual loss. The policy engine
+aggregates the results across failing checks into a monetary exposure
+estimate for the workload.
 
 The packs carry no currency field.
 
+## How the Loader Reads a Pack
+
+The loader is
+[`loader.go`](../../d2-signalloom/apps/policy-engine/frameworks/loader.go).
+
+- It reads `framework.json` when one exists. It reads `framework.yaml` only
+  when there is no `framework.json`.
+- `framework.json` must be JSON. `framework.yaml` must be YAML in the same
+  canonical shape. Neither may contain a key the shape does not define, so a
+  misspelt key is a load error, not a silently empty field.
+- Every check must have an `id` and a non-empty `celExpression`.
+- A pack that breaks any of these rules does not load. The engine logs the
+  error and skips the pack. `TestLoad_EveryShippedPackLoadsCompletely` fails
+  for any shipped pack that does not load.
+
+CAUTION: `eu-ai-act/v2.1`, `nist-800-53/v2.1`, `cra/v1.0`, `dora/v1.0`,
+`nis2/v1.0` and `finos-aigf/v1.0` still have a `framework.yaml` beside the
+`framework.json`. The loader never reads those YAML files. They are in an
+older dialect and differ from the JSON. Do not edit them.
+
 ## Adding a New Framework
 
-The policy engine reads these packs. Its loader,
-[`loader.go`](../../d2-signalloom/apps/policy-engine/frameworks/loader.go), reads
-`framework.json` first. It reads `framework.yaml` only when no `framework.json`
-exists. It parses either file as JSON.
-
-CAUTION: Do not edit only `framework.yaml` in a version directory that also
-has a `framework.json`. The policy engine ignores the YAML file there, so your
-change has no effect on scan results.
-
-The v2.1 directories contain both files. Each `framework.json` is a separate,
-smaller pack with a different top-level shape. No script makes it from the
-YAML file, so the two files can differ. The YAML files are not valid JSON. The
-policy engine logs a load error for a version directory that has only
-`framework.yaml`, and it skips that version.
-
-WARNING: A pack that is only in YAML syntax does not load. The policy engine
-skips it, and the scan results do not include it. Write each new pack as
-`framework.json`, in the shape of the existing v2.1 `framework.json` files.
-
-1. Create `policy/frameworks/<framework-id>/v1.0/framework.json`.
-2. Follow the shape of an existing v2.1 `framework.json`: `id`, `name`,
-   `version`, then `controlSets` containing `controls` with `checks`.
-3. Every check needs a `celExpression` that `cel-go` can evaluate against
-   a Kubernetes pod template spec accessed as `object`.
-4. Add v2.0 (standard) and v2.1 (strict) tiers with progressively more
-   checks and higher risk triples.
-5. Update this README if the framework introduces novel conventions.
+1. Create `policy/frameworks/<framework-id>/v1.0/framework.json` in the shape
+   of an existing `framework.json`: `id`, `name`, `version`, then
+   `controlSets` containing `controls` with `checks`.
+2. Give every check a `celExpression` and a `riskTriple`.
+3. If a check reads `agent` or `request`, list each path it reads in
+   `<version>/AGENT-CONTEXT.md`. Shipped paths are frozen: extend, never
+   rename.
+4. Add fixtures under `<version>/fixtures/{unit,integration}/` as
+   [CONFORMANCE.md](CONFORMANCE.md) describes: every non-placeholder check
+   needs at least one passing and one failing fixture.
+5. Run `cd d2-signalloom/apps/policy-engine && go test ./... -count=1`.
 
 ## CEL Expression Conventions
 
-Expressions receive the pod template spec as `object`. Common patterns:
+A check must fail, not error, on any ordinary valid input. Guard every
+optional field with `has()`. `has(a.b.c)` tests only the last field, so guard
+each level that can be absent. Decide the meaning of an absent field from the
+Kubernetes default.
 
 ```cel
-# All containers run as non-root
-object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)
+# Per-container control, covering init containers. A pod with no containers fails.
+has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 &&
+  (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []))
+    .all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) &&
+            c.securityContext.allowPrivilegeEscalation == false)
 
-# No privileged containers
-object.spec.containers.all(c, !c.securityContext.privileged)
+# Absent automountServiceAccountToken means the Kubernetes default (true), so the check fails
+has(object.spec) && has(object.spec.automountServiceAccountToken) &&
+  object.spec.automountServiceAccountToken == false
 
-# Drop all capabilities
-object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == "ALL"))
+# Absent hostNetwork means false, so the check passes
+has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)
 
 # Label exists
-has(object.metadata.labels.app)
+has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app)
 
-# Annotation contains value
-object.metadata.annotations.exists(k, k == "osramp.io/sbom-url")
+# Annotation exists
+has(object.metadata) && has(object.metadata.annotations) &&
+  'osramp.io/sbom-url' in object.metadata.annotations
 
-# Image pinned by digest
-object.spec.containers.all(c, c.image.contains("@sha256:"))
-
-# Resource limits set
-object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))
+# Agent governance flag
+has(agent.audit_config) && has(agent.audit_config.event_logging_enabled) &&
+  agent.audit_config.event_logging_enabled == true
 ```

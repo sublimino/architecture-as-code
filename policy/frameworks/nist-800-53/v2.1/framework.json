@@ -15,7 +15,7 @@
               "id": "no-automount-sa-token",
               "name": "Service account token auto-mount disabled",
               "description": "Prevents automatic injection of default API credentials into container pods.",
-              "celExpression": "object.spec.automountServiceAccountToken == false",
+              "celExpression": "has(object.spec) && has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false",
               "severity": "high",
               "remediation": "Set automountServiceAccountToken: false in pod spec.",
               "riskTriple": {
@@ -37,7 +37,7 @@
               "id": "spiffe-peer-authorization",
               "name": "SPIFFE peer workload identity authorization",
               "description": "Enforces cryptographically verifiable SPIFFE SVID peer authentication.",
-              "celExpression": "has(request.peer.spiffe_id) && request.peer.spiffe_id.startsWith('spiffe://signalloom.demo/ns/')",
+              "celExpression": "has(request.peer) && has(request.peer.spiffe_id) && request.peer.spiffe_id.startsWith('spiffe://signalloom.demo/ns/')",
               "severity": "critical",
               "remediation": "Present valid SPIFFE SVID rooted in the Signal Loom trust domain.",
               "riskTriple": {
@@ -65,7 +65,7 @@
               "id": "cross-namespace-egress-authorization",
               "name": "Cross-namespace network egress authorization",
               "description": "Restricts inter-agent communication across namespace boundaries without explicit egress grant.",
-              "celExpression": "has(request.destination.namespace) && (request.destination.namespace == request.source.namespace || request.context.egress_authorized == true)",
+              "celExpression": "has(request.destination) && has(request.destination.namespace) && ((has(request.source) && has(request.source.namespace) && request.destination.namespace == request.source.namespace) || (has(request.context) && has(request.context.egress_authorized) && request.context.egress_authorized == true))",
               "severity": "high",
               "remediation": "Obtain cross-namespace authorization grant or isolate within local namespace.",
               "riskTriple": {
@@ -93,7 +93,7 @@
               "id": "container-run-as-non-root",
               "name": "Container runs as non-root",
               "description": "Enforces least privilege execution preventing root user execution.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
               "severity": "high",
               "remediation": "Configure runAsNonRoot: true in container securityContext.",
               "riskTriple": {
@@ -115,7 +115,7 @@
               "id": "no-privilege-escalation",
               "name": "Privilege escalation disabled",
               "description": "Blocks privilege escalation flag across all containers in the pod.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
               "severity": "critical",
               "remediation": "Set allowPrivilegeEscalation: false in container securityContext.",
               "riskTriple": {
@@ -137,7 +137,7 @@
               "id": "no-privileged-mode",
               "name": "Privileged mode disabled",
               "description": "Strictly forbids container execution with privileged host device access.",
-              "celExpression": "object.spec.containers.all(c, !c.securityContext.privileged)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
               "severity": "critical",
               "remediation": "Remove privileged: true from container securityContext.",
               "riskTriple": {
@@ -171,7 +171,7 @@
               "id": "immutable-audit-sink",
               "name": "Immutable event logging sink active",
               "description": "Ensures security-relevant agent lifecycle and access events are forwarded to audit sink.",
-              "celExpression": "has(agent.audit_config) && agent.audit_config.event_logging_enabled == true",
+              "celExpression": "has(agent.audit_config) && has(agent.audit_config.event_logging_enabled) && agent.audit_config.event_logging_enabled == true",
               "severity": "high",
               "remediation": "Configure event_logging_enabled: true in agent audit configuration.",
               "riskTriple": {
@@ -205,7 +205,7 @@
               "id": "read-only-rootfs",
               "name": "Read-only root filesystem",
               "description": "Configures containers with read-only root filesystems to prevent runtime tampering.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
               "severity": "medium",
               "remediation": "Enable readOnlyRootFilesystem: true in container securityContext.",
               "riskTriple": {
@@ -238,7 +238,7 @@
               "id": "mfa-spiffe-svid-required",
               "name": "Cryptographic SVID identity presentation",
               "description": "Requires valid cryptographic SVID presentation for all inter-service communications.",
-              "celExpression": "has(request.auth.svid_presented) && request.auth.svid_presented == true",
+              "celExpression": "has(request.auth) && has(request.auth.svid_presented) && request.auth.svid_presented == true",
               "severity": "critical",
               "remediation": "Authenticate using an issued X.509 or JWT SPIFFE SVID credential.",
               "riskTriple": {
@@ -272,7 +272,7 @@
               "id": "drop-all-capabilities",
               "name": "All capabilities dropped",
               "description": "Strips Linux kernel capabilities to establish strict container isolation boundary.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
               "severity": "high",
               "remediation": "Add ALL to securityContext.capabilities.drop.",
               "riskTriple": {
@@ -294,7 +294,7 @@
               "id": "network-boundary-enforcement",
               "name": "Network boundary ingress isolation",
               "description": "Verifies NetworkPolicy isolation is active for workload boundaries.",
-              "celExpression": "has(request.network_policy) && request.network_policy.ingress_isolated == true",
+              "celExpression": "has(request.network_policy) && has(request.network_policy.ingress_isolated) && request.network_policy.ingress_isolated == true",
               "severity": "high",
               "remediation": "Attach default-deny ingress NetworkPolicy to agent namespace.",
               "riskTriple": {
@@ -328,7 +328,7 @@
               "id": "anomaly-detection-telemetry",
               "name": "Continuous runtime anomaly monitoring",
               "description": "Monitors runtime telemetry streams for anomalous tool invocation patterns.",
-              "celExpression": "has(agent.telemetry) && agent.telemetry.monitoring_active == true",
+              "celExpression": "has(agent.telemetry) && has(agent.telemetry.monitoring_active) && agent.telemetry.monitoring_active == true",
               "severity": "medium",
               "remediation": "Enable telemetry streaming agent monitor.",
               "riskTriple": {
@@ -356,7 +356,7 @@
               "id": "image-digest",
               "name": "Immutable container image digest",
               "description": "Ensures container images are pinned by immutable cryptographic SHA-256 digest.",
-              "celExpression": "object.spec.containers.all(c, c.image.contains('@sha256:'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.image) && c.image.contains('@sha256:'))",
               "severity": "high",
               "remediation": "Reference images by immutable sha256 digest.",
               "riskTriple": {
@@ -377,7 +377,7 @@
               "id": "trusted-registry",
               "name": "Image from trusted registry",
               "description": "Permits images only from verified and signed OCI registry domains.",
-              "celExpression": "object.spec.containers.all(c, c.image.startsWith('zot.local/') || c.image.startsWith('ghcr.io/') || c.image.startsWith('gcr.io/'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.image) && (c.image.startsWith('zot.local/') || c.image.startsWith('ghcr.io/') || c.image.startsWith('gcr.io/')))",
               "severity": "high",
               "remediation": "Deploy images sourced exclusively from trusted registries.",
               "riskTriple": {

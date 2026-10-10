@@ -1,0 +1,29 @@
+{
+  "name": "object-empty",
+  "level": "unit",
+  "description": "object is {}: no metadata and no spec. Every check fails closed rather than erroring.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "fail",
+    "no-privileged-containers": "fail",
+    "no-host-pid": "fail",
+    "no-host-ipc": "fail",
+    "no-host-network": "fail",
+    "no-privilege-escalation": "fail",
+    "no-root-containers": "fail",
+    "no-net-raw": "fail",
+    "no-added-capabilities": "fail",
+    "capabilities-dropped-all": "fail",
+    "no-windows-hostprocess": "fail",
+    "no-hostpath-volumes": "fail",
+    "no-host-ports": "fail",
+    "no-secrets-in-env": "fail",
+    "seccomp-runtime-default": "fail",
+    "security-context-applied": "fail",
+    "no-default-namespace": "fail"
+  }
+}

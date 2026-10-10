@@ -1,0 +1,72 @@
+{
+  "framework": "cra",
+  "version": "v1.0.0",
+  "currency": "GBP",
+  "iterations": 10000,
+  "note": "Engine-reported risk figures for every check in this pack. ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). Regenerate with: make verify-cel-money-golden",
+  "checks": [
+    {
+      "check": "default-secure-configuration",
+      "seed": 5064549759467574171,
+      "riskTriple": {
+        "min": 10000,
+        "mode": 40000,
+        "max": 160000
+      },
+      "freqTriple": {
+        "min": 0.4,
+        "mode": 1.2,
+        "max": 3.5
+      },
+      "ale": 79664.6,
+      "var95": 179634.77,
+      "tvar": 217255.68,
+      "carried": 238981.24,
+      "tailDominated": false,
+      "analyticAle": 79750,
+      "aleSigma": -0.169
+    },
+    {
+      "check": "sbom-verified-provenance",
+      "seed": 6104530605917657381,
+      "riskTriple": {
+        "min": 15000,
+        "mode": 65000,
+        "max": 260000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 3
+      },
+      "ale": 109479.34,
+      "var95": 251063.04,
+      "tvar": 299365.17,
+      "carried": 329301.68,
+      "tailDominated": false,
+      "analyticAle": 108486.11,
+      "aleSigma": 1.41
+    },
+    {
+      "check": "signed-cryptographic-updates",
+      "seed": 3970917564774192500,
+      "riskTriple": {
+        "min": 12000,
+        "mode": 50000,
+        "max": 200000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.8,
+        "max": 2.5
+      },
+      "ale": 67370.49,
+      "var95": 157469.14,
+      "tvar": 193839.25,
+      "carried": 213223.17,
+      "tailDominated": false,
+      "analyticAle": 67522.22,
+      "aleSigma": -0.339
+    }
+  ]
+}

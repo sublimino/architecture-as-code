@@ -74,10 +74,10 @@ func TestSensitiveOpenStaysCriticalAndFreezes(t *testing.T) {
 
 func TestNormalizeConnectUsesTheEndpointNotTheFilename(t *testing.T) {
 	m := NewSentinelProbeManager(nil, "", nil)
-	raw := SyscallEvent{Type: SyscallTypeConnect, Family: ebpf.AF_INET, DestPort: 53, DestAddr: net.IPv4(10, 96, 0, 10)}
+	raw := SyscallEvent{Type: SyscallTypeConnect, Family: ebpf.AF_INET, DestPort: 53, DestAddr: net.IPv4(10, 43, 0, 10)}
 	copy(raw.Filename[:], "/should/not/appear")
 	obs := m.NormalizeObservation(raw, nil)
-	if obs.Target != "10.96.0.10:53" || obs.Severity != SeverityWarn || obs.Syscall != SyscallNameConnect {
+	if obs.Target != "10.43.0.10:53" || obs.Severity != SeverityWarn || obs.Syscall != SyscallNameConnect {
 		t.Fatalf("obs = %+v", obs)
 	}
 	if (SyscallEvent{Type: SyscallTypeOpenat, DestAddr: net.IPv4(1, 2, 3, 4)}).RemoteEndpoint() != "" {

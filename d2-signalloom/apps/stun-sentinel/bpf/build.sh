@@ -43,14 +43,12 @@ ensure_builder() {
 	docker build -q -f "$BUILDER_DOCKERFILE" -t "$BUILDER_IMAGE" "$HERE" >/dev/null
 }
 
-build_tc() {
-	command -v docker >/dev/null 2>&1 || {
-		log "FATAL: docker is required to build the BPF object"
-		exit 1
-	}
-	ensure_builder
+build_tc_obj() {
+	local src="$1"
+	local obj="$2"
+	local sec="$3"
 
-	log "compiling ${SRC} -> ${OBJ}"
+	log "compiling ${src} -> ${obj}"
 	# -g is REQUIRED: it is what emits .BTF / .BTF.ext. Without BTF, CO-RE
 	# relocations and bpftool's pretty map dump both stop working.
 	# -Werror is deliberate. A warning in a program the verifier will police
@@ -72,13 +70,14 @@ build_tc() {
 		-Wno-unused-parameter \
 		-Wno-compare-distinct-pointer-types \
 		-I/usr/include/x86_64-linux-gnu \
-		-c "$SRC" -o "$OBJ"
+		-c "$src" -o "$obj"
 
-	log "verifying artifact"
+	log "verifying artifact: ${obj}"
 	docker run --rm -v "${HERE}:/src" -w /src "$BUILDER_IMAGE" \
 		bash -c '
 			set -e
-			obj='"$OBJ"'
+			obj="'"$obj"'"
+			sec="'"$sec"'"
 			# Machine type is the authoritative architecture claim. The
 			# directory name and the .o suffix are not evidence.
 			llvm-readelf -h "$obj" | grep -q "EM_BPF" \
@@ -87,27 +86,42 @@ build_tc() {
 				|| { echo "missing .BTF" >&2; exit 1; }
 			llvm-readelf -S "$obj" | grep -q "\.BTF\.ext" \
 				|| { echo "missing .BTF.ext" >&2; exit 1; }
-			llvm-readelf -S "$obj" | grep -q "classifier/drop" \
-				|| { echo "missing classifier/drop section" >&2; exit 1; }
+			llvm-readelf -S "$obj" | grep -q "$sec" \
+				|| { echo "missing $sec section" >&2; exit 1; }
 			llvm-objdump -S "$obj" >/dev/null \
 				|| { echo "disassembly failed" >&2; exit 1; }
-
-			# NOTE ON LOOP SAFETY. Do not add a grep for "goto -" here.
-			# The compiler emits backward branches to SHARED EPILOGUE
-			# blocks (tail merging); this object contains 18 of them and
-			# has no loop in the source at all. A grep would fail a
-			# correct program and, worse, would pass a program whose loop
-			# the compiler had unrolled forwards.
-			#
-			# The authoritative oracle for loop safety is the in-kernel
-			# verifier, which rejects unbounded loops outright. That check
-			# lives in TestVerifierAcceptsProgram (pkg/tc) and in
-			# test/tc-ebpf-drop.bats, both of which load this object for
-			# real. See ISC-37/38/46.
 		'
 
-	log "OK: ${HERE}/${OBJ}"
-	ls -l "${HERE}/${OBJ}" >&2
+	log "OK: ${HERE}/${obj}"
+	ls -l "${HERE}/${obj}" >&2
+}
+
+build_tc() {
+	command -v docker >/dev/null 2>&1 || {
+		log "FATAL: docker is required to build the BPF object"
+		exit 1
+	}
+	ensure_builder
+	build_tc_obj "tc_drop.bpf.c" "tc_drop.bpf.o" "classifier/drop"
+}
+
+build_monitor() {
+	command -v docker >/dev/null 2>&1 || {
+		log "FATAL: docker is required to build the BPF object"
+		exit 1
+	}
+	ensure_builder
+	build_tc_obj "tc_monitor.bpf.c" "tc_monitor.bpf.o" "classifier/monitor"
+}
+
+build_all_tc() {
+	command -v docker >/dev/null 2>&1 || {
+		log "FATAL: docker is required to build the BPF object"
+		exit 1
+	}
+	ensure_builder
+	build_tc_obj "tc_drop.bpf.c" "tc_drop.bpf.o" "classifier/drop"
+	build_tc_obj "tc_monitor.bpf.c" "tc_monitor.bpf.o" "classifier/monitor"
 }
 
 # --- SLDC-P1-1: in-sentinel syscall probe ----------------------------------
@@ -174,16 +188,18 @@ test_sentinel() {
 	GO_CACHE_DIR="${GO_CACHE_DIR}-root"
 	run_in_toolchain --privileged -e SENTINEL_REQUIRE_LIVE_BPF=1 -w /src -- \
 		bash -c 'mountpoint -q /sys/kernel/tracing || mount -t tracefs tracefs /sys/kernel/tracing
-			exec go test -count=1 -v '"${STUN_TEST_ARGS:-}"' ./pkg/ebpf/...'
+			exec go test -count=1 -v '"${STUN_TEST_ARGS:-}"' ./bpf/tests/... ./pkg/ebpf/... ./pkg/tc/...'
 }
 
 main() {
 	case "${1:-tc}" in
 	tc) build_tc ;;
+	monitor) build_monitor ;;
+	all-tc|all) build_all_tc ;;
 	sentinel) build_sentinel ;;
 	test) test_sentinel ;;
 	*)
-		log "usage: build.sh [tc|sentinel|test]"
+		log "usage: build.sh [tc|monitor|all|sentinel|test]"
 		exit 2
 		;;
 	esac

@@ -11,6 +11,7 @@
     "labels": {
       "cgroup_path": "/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice",
       "direct_reaction": "cgroup_frozen",
+      "domain_pseudonym": "4975aa30b0b9151963beacd82371a61e2ff27e8faaf786746c39c414c5ae1928",
       "namespace": "fe-signalloom-agents",
       "pod_name": "agent-kusari-7d9f",
       "severity": "CRITICAL",
@@ -32,6 +33,7 @@
     "labels": {
       "cgroup_path": "/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice",
       "direct_reaction": "cgroup_frozen",
+      "domain_pseudonym": "e729104b1342de846ee98490d3413f19bb02637a2c3033a92236f39a4dea0806",
       "namespace": "fe-signalloom-agents",
       "pod_name": "agent-cardvault-5b7c",
       "severity": "CRITICAL",

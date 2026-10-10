@@ -231,7 +231,7 @@ namespaces_created() {
 
 # Namespaces the cluster always has. kube-system et al are created by the
 # control plane before any Flux object exists, so writing into them is fine.
-PREEXISTING_NAMESPACES="kube-system kube-public kube-node-lease default flux-system"
+PREEXISTING_NAMESPACES="kube-system kube-public kube-node-lease default flux-system ingress"
 
 # Union of namespaces created across EVERY input, because the set renders once
 # per input and input[1] creates the namespace input[0] happens to reference.

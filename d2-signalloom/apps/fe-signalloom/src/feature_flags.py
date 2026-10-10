@@ -123,8 +123,8 @@ async def _resolve_db_pool(pool: Any = None, request: Request | None = None) -> 
             return p
 
     try:
-        from api_compat import _get_pool
-        p = await _get_pool()
+        import api_compat
+        p = await api_compat._get_pool()
         if p is not None and (hasattr(p, "fetch") or hasattr(p, "acquire")):
             return p
     except (ImportError, AttributeError, Exception):

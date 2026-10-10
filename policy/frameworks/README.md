@@ -73,10 +73,8 @@ The loader is
   error and skips the pack. `TestLoad_EveryShippedPackLoadsCompletely` fails
   for any shipped pack that does not load.
 
-CAUTION: `eu-ai-act/v2.1`, `nist-800-53/v2.1`, `cra/v1.0`, `dora/v1.0`,
-`nis2/v1.0` and `finos-aigf/v1.0` still have a `framework.yaml` beside the
-`framework.json`. The loader never reads those YAML files. They are in an
-older dialect and differ from the JSON. Do not edit them.
+Every shipped pack is a single `framework.json`; no pack carries a
+`framework.yaml`. The YAML fallback exists only for a pack with no JSON file.
 
 ## Adding a New Framework
 

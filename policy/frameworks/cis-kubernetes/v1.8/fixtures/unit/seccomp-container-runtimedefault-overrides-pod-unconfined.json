@@ -1,7 +1,7 @@
 {
   "name": "seccomp-container-runtimedefault-overrides-pod-unconfined",
   "level": "unit",
-  "description": "Pod Unconfined, the only container overrides with RuntimeDefault.",
+  "description": "Pod Unconfined, the only container overrides with RuntimeDefault. PSA forbids a pod-level Unconfined profile outright, at baseline as well as restricted, so the pod is rejected and the check fails: any container added later without an override would inherit Unconfined.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -76,7 +76,7 @@
     "no-hostpath-volumes": "pass",
     "no-host-ports": "pass",
     "no-secrets-in-env": "pass",
-    "seccomp-runtime-default": "pass",
+    "seccomp-runtime-default": "fail",
     "security-context-applied": "pass",
     "no-default-namespace": "pass"
   }

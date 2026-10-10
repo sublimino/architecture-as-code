@@ -1,0 +1,417 @@
+package main
+
+// Conformance harness for policy/frameworks/*. Contract: policy/frameworks/CONFORMANCE.md.
+//
+// Every pack that has a fixtures/ directory is held to the contract: each
+// fixture's expectations must match the verdict the real CELEngine produces,
+// fixtures must be well-formed, and every non-placeholder check needs at least
+// one passing and one failing fixture.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
+)
+
+type conformanceFixture struct {
+	Name        string             `json:"name"`
+	Level       string             `json:"level"`
+	Description string             `json:"description"`
+	Input       conformanceInput   `json:"input"`
+	Expect      map[string]Verdict `json:"expect"`
+
+	path string
+}
+
+type conformanceInput struct {
+	Object  map[string]any `json:"object"`
+	Agent   map[string]any `json:"agent"`
+	Request map[string]any `json:"request"`
+}
+
+type conformancePack struct {
+	dir      string
+	fw       *frameworks.Framework
+	checks   map[string]frameworks.Check
+	order    []string
+	fixtures []conformanceFixture
+}
+
+func (p *conformancePack) label() string { return p.fw.ID + "/" + filepath.Base(p.dir) }
+
+func (p *conformancePack) placeholder(id string) bool {
+	return p.fw.Status == "placeholder" || p.checks[id].Status == "placeholder"
+}
+
+func conformancePolicyRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		candidate := filepath.Join(dir, "policy", "frameworks")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return filepath.Join(dir, "policy")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not find policy/frameworks")
+		}
+		dir = parent
+	}
+}
+
+// loadConformancePacks loads every framework version the engine would load,
+// with its fixtures (if any).
+func loadConformancePacks(t *testing.T, root string) []*conformancePack {
+	t.Helper()
+	avail, err := frameworks.ListFrameworks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packs []*conformancePack
+	ids := make([]string, 0, len(avail))
+	for id := range avail {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		for _, ver := range avail[id] {
+			fw, err := frameworks.Load(root, id, ver)
+			if err != nil {
+				t.Errorf("%s/%s does not load: %v", id, ver, err)
+				continue
+			}
+			p := newConformancePack(filepath.Join(root, "frameworks", id, ver), fw)
+			fixtures, err := readFixtures(filepath.Join(p.dir, "fixtures"))
+			if err != nil {
+				t.Errorf("%s: %v", p.label(), err)
+			}
+			p.fixtures = fixtures
+			packs = append(packs, p)
+		}
+	}
+	return packs
+}
+
+func newConformancePack(dir string, fw *frameworks.Framework) *conformancePack {
+	p := &conformancePack{dir: dir, fw: fw, checks: map[string]frameworks.Check{}}
+	for _, cs := range fw.ControlSets {
+		for _, c := range cs.Controls {
+			for _, chk := range c.Checks {
+				if _, dup := p.checks[chk.ID]; !dup {
+					p.order = append(p.order, chk.ID)
+				}
+				p.checks[chk.ID] = chk
+			}
+		}
+	}
+	return p
+}
+
+func readFixtures(dir string) ([]conformanceFixture, error) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, nil
+	}
+	var out []conformanceFixture
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
+			return err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		var f conformanceFixture
+		if err := dec.Decode(&f); err != nil {
+			return fmt.Errorf("fixture %s: %w", path, err)
+		}
+		f.path = path
+		out = append(out, f)
+		return nil
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	return out, err
+}
+
+// validatePack returns every contract violation in a pack's fixtures. It does
+// not evaluate CEL; see evaluateFixture for that.
+func validatePack(p *conformancePack) []string {
+	var problems []string
+	seen := map[string]string{}
+	for _, f := range p.fixtures {
+		where := f.path
+		base := strings.TrimSuffix(filepath.Base(f.path), ".json")
+		if f.Name != base {
+			problems = append(problems, fmt.Sprintf("%s: name %q must equal file basename %q", where, f.Name, base))
+		}
+		if prev, dup := seen[f.Name]; dup {
+			problems = append(problems, fmt.Sprintf("%s: duplicate fixture name %q (also %s)", where, f.Name, prev))
+		}
+		seen[f.Name] = where
+		if f.Level != "unit" && f.Level != "integration" {
+			problems = append(problems, fmt.Sprintf("%s: level %q must be unit or integration", where, f.Level))
+		}
+		if len(f.Expect) == 0 {
+			problems = append(problems, fmt.Sprintf("%s: expect is empty", where))
+		}
+		for id, v := range f.Expect {
+			if _, ok := p.checks[id]; !ok {
+				problems = append(problems, fmt.Sprintf("%s: expects unknown check %q", where, id))
+			}
+			switch v {
+			case VerdictPass, VerdictFail:
+			case VerdictError:
+				if strings.TrimSpace(f.Description) == "" {
+					problems = append(problems, fmt.Sprintf("%s: error expectation for %q needs a description saying why", where, id))
+				}
+			default:
+				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail or error", where, v, id))
+			}
+		}
+		if f.Level == "integration" {
+			for _, id := range p.order {
+				if _, ok := f.Expect[id]; !ok {
+					problems = append(problems, fmt.Sprintf("%s: integration fixture missing expectation for check %q", where, id))
+				}
+			}
+		}
+	}
+	return problems
+}
+
+// coverageGaps lists non-placeholder checks lacking a pass or a fail fixture.
+func coverageGaps(p *conformancePack) []string {
+	var gaps []string
+	for _, id := range p.order {
+		if p.placeholder(id) {
+			continue
+		}
+		var pass, fail bool
+		for _, f := range p.fixtures {
+			switch f.Expect[id] {
+			case VerdictPass:
+				pass = true
+			case VerdictFail:
+				fail = true
+			}
+		}
+		if !pass {
+			gaps = append(gaps, fmt.Sprintf("%s: check %q has no passing fixture", p.label(), id))
+		}
+		if !fail {
+			gaps = append(gaps, fmt.Sprintf("%s: check %q has no failing fixture", p.label(), id))
+		}
+	}
+	return gaps
+}
+
+type checkOutcome struct {
+	verdict Verdict
+	err     error
+}
+
+func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) map[string]checkOutcome {
+	in := celBindings(f.Input.Object, f.Input.Agent, f.Input.Request)
+	out := map[string]checkOutcome{}
+	for id := range f.Expect {
+		chk, ok := p.checks[id]
+		if !ok {
+			continue
+		}
+		passed, _, err := eng.Evaluate(context.Background(), chk.CELExpression, in)
+		out[id] = checkOutcome{verdict: verdictOf(passed, err), err: err}
+	}
+	return out
+}
+
+// roundTripFixtureInput re-decodes a fixture's input exactly the way handleScan
+// decodes a request body, so numbers reach CEL as float64 like in production.
+func roundTripFixtureInput(t *testing.T, f conformanceFixture) conformanceFixture {
+	t.Helper()
+	raw, err := json.Marshal(f.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var in conformanceInput
+	if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&in); err != nil {
+		t.Fatal(err)
+	}
+	f.Input = in
+	return f
+}
+
+func TestConformance_ChecksCompile(t *testing.T) {
+	eng, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
+		for _, id := range p.order {
+			if _, err := eng.CompileRule(p.checks[id].CELExpression); err != nil {
+				t.Errorf("%s: check %q does not compile: %v", p.label(), id, err)
+			}
+		}
+	}
+}
+
+func TestConformance_FixturesWellFormed(t *testing.T) {
+	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
+		for _, problem := range validatePack(p) {
+			t.Error(problem)
+		}
+	}
+}
+
+func TestConformance_Coverage(t *testing.T) {
+	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
+		if len(p.fixtures) == 0 {
+			continue
+		}
+		for _, gap := range coverageGaps(p) {
+			t.Error(gap)
+		}
+	}
+}
+
+func TestConformance_Verdicts(t *testing.T) {
+	eng, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
+		for _, f := range p.fixtures {
+			f := roundTripFixtureInput(t, f)
+			t.Run(p.label()+"/"+f.Name, func(t *testing.T) {
+				got := evaluateFixture(eng, p, f)
+				ids := make([]string, 0, len(f.Expect))
+				for id := range f.Expect {
+					ids = append(ids, id)
+				}
+				sort.Strings(ids)
+				for _, id := range ids {
+					want, o := f.Expect[id], got[id]
+					if o.verdict != want {
+						t.Errorf("check %q: got %s, want %s (err=%v)", id, o.verdict, want, o.err)
+					}
+				}
+			})
+		}
+	}
+}
+
+// --- harness self-tests: the harness must refuse the fake greens it exists to stop.
+
+func syntheticPack() *conformancePack {
+	fw := &frameworks.Framework{ID: "synthetic", ControlSets: []frameworks.ControlSet{{
+		Controls: []frameworks.Control{{Checks: []frameworks.Check{
+			{ID: "non-root", CELExpression: "object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true)"},
+			{ID: "strict-read", CELExpression: "object.spec.mustExist == true"},
+		}}},
+	}}}
+	return newConformancePack("/x/frameworks/synthetic/v1.0", fw)
+}
+
+func fixture(name, level string, expect map[string]Verdict) conformanceFixture {
+	return conformanceFixture{Name: name, Level: level, Expect: expect, path: "/x/fixtures/" + name + ".json"}
+}
+
+func TestConformanceHarness_RejectsMalformedFixtures(t *testing.T) {
+	cases := map[string]struct {
+		f    conformanceFixture
+		want string
+	}{
+		"unknown check":      {fixture("a", "unit", map[string]Verdict{"typo": VerdictPass}), `unknown check "typo"`},
+		"empty expect":       {fixture("a", "unit", nil), "expect is empty"},
+		"bad level":          {fixture("a", "e2e", map[string]Verdict{"non-root": VerdictPass}), `level "e2e"`},
+		"bad verdict":        {fixture("a", "unit", map[string]Verdict{"non-root": "ok"}), `verdict "ok"`},
+		"undocumented error": {fixture("a", "unit", map[string]Verdict{"non-root": VerdictError}), "needs a description"},
+		"incomplete integ":   {fixture("a", "integration", map[string]Verdict{"non-root": VerdictPass}), `missing expectation for check "strict-read"`},
+		"name != basename":   {conformanceFixture{Name: "a", Level: "unit", Expect: map[string]Verdict{"non-root": VerdictPass}, path: "/x/b.json"}, "must equal file basename"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := syntheticPack()
+			p.fixtures = []conformanceFixture{tc.f}
+			problems := strings.Join(validatePack(p), "\n")
+			if !strings.Contains(problems, tc.want) {
+				t.Fatalf("want a problem containing %q, got:\n%s", tc.want, problems)
+			}
+		})
+	}
+	t.Run("duplicate names", func(t *testing.T) {
+		p := syntheticPack()
+		a := fixture("a", "unit", map[string]Verdict{"non-root": VerdictPass})
+		b := a
+		b.path = "/x/fixtures/sub/a.json"
+		p.fixtures = []conformanceFixture{a, b}
+		if !strings.Contains(strings.Join(validatePack(p), "\n"), "duplicate fixture name") {
+			t.Fatal("duplicate fixture names accepted")
+		}
+	})
+	t.Run("well-formed accepted", func(t *testing.T) {
+		p := syntheticPack()
+		p.fixtures = []conformanceFixture{fixture("a", "integration", map[string]Verdict{"non-root": VerdictPass, "strict-read": VerdictFail})}
+		if problems := validatePack(p); len(problems) != 0 {
+			t.Fatalf("valid fixture rejected: %v", problems)
+		}
+	})
+}
+
+func TestConformanceHarness_CoverageNeedsPassAndFail(t *testing.T) {
+	p := syntheticPack()
+	p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"non-root": VerdictPass})}
+	gaps := strings.Join(coverageGaps(p), "\n")
+	for _, want := range []string{`"non-root" has no failing`, `"strict-read" has no passing`, `"strict-read" has no failing`} {
+		if !strings.Contains(gaps, want) {
+			t.Errorf("coverage gate missed %q:\n%s", want, gaps)
+		}
+	}
+	p.fw.Status = "placeholder"
+	if gaps := coverageGaps(p); len(gaps) != 0 {
+		t.Errorf("placeholder pack still gated: %v", gaps)
+	}
+}
+
+// An evaluation error must surface as error, never satisfy a fail expectation.
+func TestConformanceHarness_ErrorIsNotFail(t *testing.T) {
+	eng, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := syntheticPack()
+	f := fixture("a", "unit", map[string]Verdict{"strict-read": VerdictFail, "non-root": VerdictFail})
+	f.Input.Object = map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"name": "c"}}}}
+	got := evaluateFixture(eng, p, roundTripFixtureInput(t, f))
+	if got["strict-read"].verdict != VerdictError {
+		t.Errorf("missing key: got %s, want error", got["strict-read"].verdict)
+	}
+	if got["non-root"].verdict != VerdictFail {
+		t.Errorf("guarded absent field: got %s, want fail (err=%v)", got["non-root"].verdict, got["non-root"].err)
+	}
+}
+
+// Absent inputs are bound to empty maps: a has()-guarded agent check fails
+// instead of erroring on an undeclared variable.
+func TestConformanceHarness_AbsentInputsBoundEmpty(t *testing.T) {
+	eng, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed, _, err := eng.Evaluate(context.Background(), "has(agent.registry) && agent.registry.model_registered == true", celBindings(nil, nil, nil))
+	if v := verdictOf(passed, err); v != VerdictFail {
+		t.Fatalf("got %s, want fail (err=%v)", v, err)
+	}
+}

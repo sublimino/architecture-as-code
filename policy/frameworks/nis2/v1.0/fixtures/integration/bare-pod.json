@@ -1,0 +1,13 @@
+{
+  "name": "bare-pod",
+  "level": "integration",
+  "description": "A minimal pod with one container and nothing else set; agent and request are empty. Shows the absent-field semantics: Kubernetes defaults, fail-closed governance, and the two pinned fail-open request/agent checks.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "nis2-supply-chain-risk": "not_evaluated"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "name": "windows-hostprocess-agent",
+  "level": "integration",
+  "description": "Windows HostProcess logging agent pod: spec.os windows, pod-level hostProcess as LOCAL SYSTEM, hostNetwork, hostPath to C:\\var\\log.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "win-log-agent-8qz",
+        "namespace": "logging"
+      },
+      "spec": {
+        "os": {
+          "name": "windows"
+        },
+        "hostNetwork": true,
+        "nodeSelector": {
+          "kubernetes.io/os": "windows"
+        },
+        "securityContext": {
+          "windowsOptions": {
+            "hostProcess": true,
+            "runAsUserName": "NT AUTHORITY\\SYSTEM"
+          }
+        },
+        "containers": [
+          {
+            "name": "fluent-bit",
+            "image": "registry.example/fluent-bit-windows@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "ports": [
+              {
+                "name": "metrics",
+                "containerPort": 2020
+              }
+            ],
+            "volumeMounts": [
+              {
+                "name": "logs",
+                "mountPath": "C:\\var\\log"
+              }
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "name": "logs",
+            "hostPath": {
+              "path": "C:\\var\\log"
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "fail",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "fail",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "fail",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "fail",
+    "no-hostpath-volumes": "fail",
+    "no-host-ports": "fail",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "fail",
+    "no-default-namespace": "pass"
+  }
+}

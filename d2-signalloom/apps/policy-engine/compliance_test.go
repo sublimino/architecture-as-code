@@ -295,9 +295,10 @@ func TestComplianceSummary(t *testing.T) {
 	if summary.TotalControls == 0 {
 		t.Fatal("expected total controls > 0")
 	}
-	if summary.Passed+summary.Failed != summary.TotalControls {
-		t.Fatalf("passed (%d) + failed (%d) should equal total (%d)",
-			summary.Passed, summary.Failed, summary.TotalControls)
+	// Errored is its own bucket: an unevaluable check is not a failed one.
+	if summary.Passed+summary.Failed+summary.Errored != summary.TotalControls {
+		t.Fatalf("passed (%d) + failed (%d) + errored (%d) should equal total (%d)",
+			summary.Passed, summary.Failed, summary.Errored, summary.TotalControls)
 	}
 }
 

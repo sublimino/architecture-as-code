@@ -1,0 +1,158 @@
+{
+  "name": "helm-chart-redis-pod",
+  "level": "integration",
+  "description": "A Bitnami-Redis-shaped Helm pod: root init container, unpinned docker.io images, a metrics sidecar with defaults, container-level seccomp only, a partially governed agent and a cross-namespace write_file request with an invalid approval.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "redis-master-0",
+        "namespace": "cache",
+        "labels": {
+          "app": "redis",
+          "app.kubernetes.io/name": "redis",
+          "app.kubernetes.io/instance": "redis",
+          "app.kubernetes.io/managed-by": "Helm",
+          "helm.sh/chart": "redis-18.1.0"
+        },
+        "annotations": {
+          "checksum/config": "9f2c1e"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "redis",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "fsGroup": 1001
+        },
+        "initContainers": [
+          {
+            "name": "volume-permissions",
+            "image": "docker.io/bitnami/os-shell:12-debian-12-r16",
+            "command": [
+              "/bin/bash",
+              "-ec",
+              "chown -R 1001:1001 /data"
+            ],
+            "securityContext": {
+              "runAsUser": 0
+            },
+            "resources": {},
+            "volumeMounts": [
+              {
+                "name": "redis-data",
+                "mountPath": "/data"
+              }
+            ]
+          }
+        ],
+        "containers": [
+          {
+            "name": "redis",
+            "image": "docker.io/bitnami/redis:7.2.4-debian-12-r9",
+            "ports": [
+              {
+                "name": "redis",
+                "containerPort": 6379
+              }
+            ],
+            "securityContext": {
+              "runAsUser": 1001,
+              "runAsNonRoot": true,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "exec": {
+                "command": [
+                  "sh",
+                  "-c",
+                  "/health/ping_liveness_local.sh 5"
+                ]
+              },
+              "initialDelaySeconds": 20
+            },
+            "readinessProbe": {
+              "exec": {
+                "command": [
+                  "sh",
+                  "-c",
+                  "/health/ping_readiness_local.sh 1"
+                ]
+              },
+              "initialDelaySeconds": 20
+            },
+            "volumeMounts": [
+              {
+                "name": "redis-data",
+                "mountPath": "/data"
+              }
+            ]
+          },
+          {
+            "name": "metrics",
+            "image": "docker.io/bitnami/redis-exporter:1.55.0",
+            "securityContext": {
+              "runAsUser": 1001,
+              "runAsNonRoot": true
+            },
+            "resources": {
+              "limits": {
+                "cpu": "100m"
+              },
+              "requests": {
+                "cpu": "50m"
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "redis-data",
+            "persistentVolumeClaim": {
+              "claimName": "redis-data-redis-master-0"
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "container-run-as-non-root": "fail",
+    "no-privilege-escalation": "fail",
+    "no-privileged-mode": "pass",
+    "read-only-rootfs": "fail",
+    "drop-all-capabilities": "fail",
+    "liveness-probe-present": "fail",
+    "data-classification-label": "fail",
+    "pii-handling-annotation": "fail",
+    "data-retention-annotation": "fail",
+    "hitl-label": "fail",
+    "approval-gate-annotation": "fail",
+    "override-contact-annotation": "fail",
+    "resource-limits-set": "fail",
+    "resource-requests-set": "fail",
+    "readiness-probe-present": "fail",
+    "min-replicas": "not_evaluated",
+    "image-digest-required": "fail",
+    "trusted-registry": "fail",
+    "policy-version-label": "fail"
+  }
+}

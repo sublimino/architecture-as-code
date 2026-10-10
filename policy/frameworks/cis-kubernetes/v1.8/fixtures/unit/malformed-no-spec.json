@@ -1,0 +1,36 @@
+{
+  "name": "malformed-no-spec",
+  "level": "unit",
+  "description": "Malformed: a Pod with metadata but no spec. Every spec-reading check fails closed (an absent spec evidences nothing); only the metadata-only namespace check passes.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "malformed-no-spec",
+        "namespace": "payments"
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "fail",
+    "no-privileged-containers": "fail",
+    "no-host-pid": "fail",
+    "no-host-ipc": "fail",
+    "no-host-network": "fail",
+    "no-privilege-escalation": "fail",
+    "no-root-containers": "fail",
+    "no-net-raw": "fail",
+    "no-added-capabilities": "fail",
+    "capabilities-dropped-all": "fail",
+    "no-windows-hostprocess": "fail",
+    "no-hostpath-volumes": "fail",
+    "no-host-ports": "fail",
+    "no-secrets-in-env": "fail",
+    "seccomp-runtime-default": "fail",
+    "security-context-applied": "fail",
+    "no-default-namespace": "pass"
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "id": "eu-ai-act",
+  "name": "EU AI Act",
+  "version": "v1.0.0",
+  "description": "Lax tier — bare minimum critical security for AI workloads",
+  "controlSets": [
+    {
+      "id": "art9-risk-mgmt",
+      "name": "Art. 9 — Risk Management System",
+      "controls": [
+        {
+          "id": "art9-1-non-root",
+          "name": "AI containers run as non-root",
+          "description": "High-risk AI systems must not run with root privileges",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "Container runs as non-root",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 50000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-2-no-privilege-escalation",
+          "name": "No privilege escalation",
+          "description": "AI containers must not allow privilege escalation",
+          "checks": [
+            {
+              "id": "no-privilege-escalation",
+              "name": "Privilege escalation disabled",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-3-no-privileged",
+          "name": "No privileged containers",
+          "description": "AI containers must not run in privileged mode",
+          "checks": [
+            {
+              "id": "no-privileged-mode",
+              "name": "Privileged mode disabled",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 80000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art10-data-governance",
+      "name": "Art. 10 — Data Governance",
+      "controls": [
+        {
+          "id": "art10-1-data-classification",
+          "name": "Data classification label present",
+          "description": "Workloads handling training data must declare classification",
+          "checks": [
+            {
+              "id": "data-classification-label",
+              "name": "Data classification label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.data_classification) && object.metadata.labels.data_classification != ''",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 8000,
+                "max": 40000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art14-human-oversight",
+      "name": "Art. 14 — Human Oversight",
+      "controls": [
+        {
+          "id": "art14-1-hitl-label",
+          "name": "Human-in-the-loop label present",
+          "description": "AI workloads must declare their human oversight level",
+          "checks": [
+            {
+              "id": "hitl-label",
+              "name": "HITL oversight label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.ai_human_oversight) && object.metadata.labels.ai_human_oversight != ''",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 12000,
+                "max": 55000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art15-accuracy-robustness",
+      "name": "Art. 15 — Accuracy, Robustness & Cybersecurity",
+      "controls": [
+        {
+          "id": "art15-1-resource-limits",
+          "name": "Resource limits defined",
+          "description": "AI workloads must have resource limits to prevent resource exhaustion",
+          "checks": [
+            {
+              "id": "resource-limits-set",
+              "name": "CPU and memory limits defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits))",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 5000,
+                "max": 30000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art17-quality-mgmt",
+      "name": "Art. 17 — Quality Management System",
+      "controls": [
+        {
+          "id": "art17-1-image-digest",
+          "name": "Image pinned by digest",
+          "description": "Container images must use digest references for reproducibility",
+          "checks": [
+            {
+              "id": "image-digest-required",
+              "name": "Image uses sha256 digest",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.matches('@sha256:[a-f0-9]{64}$'))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 45000
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

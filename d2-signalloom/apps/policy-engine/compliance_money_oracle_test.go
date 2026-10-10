@@ -100,8 +100,16 @@ func analyticALEStdErr(loss, freq fair.RiskTriple) float64 {
 // variate is bounded by its own min and max, so the product is bounded by the
 // products of the bounds. Every figure the engine reports — mean, percentile or
 // tail mean — must lie inside it. Crude, but it is exact and it is falsifiable:
-// a wrong triple binding, a transposed frequency and magnitude, or a lost scale
-// factor leaves it immediately.
+// a lost scale factor or a figure read from the wrong triple leaves it
+// immediately.
+//
+// KNOWN BLIND SPOT, found by mutation. This oracle cannot see frequency and
+// magnitude TRANSPOSED, and neither can analyticALE: E[F]*E[M] and
+// freq.Min*loss.Min are both symmetric in their arguments, so swapping the two
+// triples is analytically invisible. Transposition IS caught — by the golden
+// files, because the two triples are consumed in a fixed draw order so var95
+// and tvar move, and by the carried-equals-tvar-plus-10% pin. Stated here so
+// nobody mistakes the analytic tier for a complete one.
 func analyticSupport(loss, freq fair.RiskTriple) (lo, hi float64) {
 	if zeroFrequency(freq) {
 		return 0, 0

@@ -47,8 +47,8 @@ async def _resolve_db_pool(request: Request) -> Any:
 
     # 3. Check api_compat._get_pool()
     try:
-        from api_compat import _get_pool
-        pool = await _get_pool()
+        import api_compat
+        pool = await api_compat._get_pool()
         if pool is not None and (hasattr(pool, "fetch") or hasattr(pool, "acquire")):
             return pool
     except (ImportError, AttributeError, Exception):

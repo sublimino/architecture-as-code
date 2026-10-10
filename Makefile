@@ -3522,3 +3522,28 @@ install-git-hooks: ## Install the pre-push hook that runs scan-secrets.
 	@chmod +x .git/hooks/pre-push
 	@echo "installed .git/hooks/pre-push -> make scan-secrets"
 	@echo "  bypass: git push --no-verify   or   SKIP_SECRET_SCAN=1 git push"
+
+##@ CEL policy verification
+
+# One entry point, five tiers, parallel by default, honest aggregation. The
+# tier map, the measured wall clock of each, how the fe suite was parallelised
+# and which two files had to stay serial are all documented in the header of
+# scripts/verify-cel.sh; test/verify-cel.bats proves the aggregator goes red.
+VERIFY_CEL = scripts/verify-cel.sh
+
+.PHONY: verify-cel verify-cel-engine verify-cel-conformance verify-cel-fe verify-cel-db
+
+verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s: engine 20s, conformance 0.8s, fe-fast 5s, fe-full 40s, db 26s).
+	$(VERIFY_CEL) all
+
+verify-cel-engine: ## CEL tier 1 alone: go test ./... -count=1 in apps/policy-engine (14-20s, 1105 tests).
+	$(VERIFY_CEL) engine
+
+verify-cel-conformance: ## CEL tier 2 alone: -run TestConformance, every framework fixture through the real engine (0.8s, 755 fixtures). Fast enough to run on save.
+	$(VERIFY_CEL) conformance
+
+verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s), then the whole fe pytest suite parallel (40s, 3443 passed — 404s serial).
+	$(VERIFY_CEL) fe
+
+verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
+	$(VERIFY_CEL) db

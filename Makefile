@@ -3533,8 +3533,11 @@ VERIFY_CEL = scripts/verify-cel.sh
 
 .PHONY: verify-cel verify-cel-engine verify-cel-conformance verify-cel-fe verify-cel-db
 
-verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s: engine 20s, conformance 0.8s, fe-fast 5s, fe-full 40s, db 26s).
+# verify-cel also runs the external-oracle tier (below): the aggregate must not
+# be able to pass while the one tier whose oracle nobody here wrote is failing.
+verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s), then the external PSA oracle (0.6s).
 	$(VERIFY_CEL) all
+	@$(MAKE) --no-print-directory verify-cel-oracle
 
 verify-cel-engine: ## CEL tier 1 alone: go test ./... -count=1 in apps/policy-engine (14-20s, 1105 tests).
 	$(VERIFY_CEL) engine
@@ -3555,3 +3558,32 @@ verify-cel-selftest: ## Prove the verify-cel aggregator can go red: 14 injected 
 
 verify-cel-mutation-proof: ## Prove verify-cel-selftest is not decoration: delete each gate from the runner and require the one test that pins it to go red (6 mutants).
 	test/verify-cel-mutation-proof.sh
+# verify-cel-oracle holds the CIS Kubernetes pack against an EXTERNAL oracle:
+# k8s.io/pod-security-admission, the module the API server itself runs to
+# enforce the Pod Security Standards, plus two rules transcribed from
+# kubernetes/kubernetes v1.34.0 (seccomp localhostProfile validation, and
+# hostNetwork hostPort defaulting). Every other CEL tier compares an expression
+# against a fixture written by the same author in the same sitting, so this is
+# the only tier whose oracle nobody here wrote.
+#
+# It lives in its own Go module (d2-signalloom/apps/policy-engine/oracle) so the
+# engine's production module graph does not carry 17 test-only dependencies into
+# a signed image. That is also why it is not reached by the engine's own
+# `go test ./...` and needs a target of its own.
+#
+# Divergences are failures unless individually justified in oracleExceptions,
+# and an exception that stops diverging fails as stale. ~2s, no cluster.
+.PHONY: verify-cel-oracle
+verify-cel-oracle: ## Hold the CIS pack against upstream Pod Security Admission (external oracle, no cluster).
+	@command -v go >/dev/null || { echo "verify-cel-oracle: go not on PATH"; exit 127; }
+	@echo "==> verify-cel-oracle: CIS pack vs k8s.io/pod-security-admission"
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  { [ -z "$$(gofmt -l .)" ] || { echo "gofmt: $$(gofmt -l .)"; exit 1; }; } && \
+	  go vet ./... && go test ./... -count=1
+	@echo "==> verify-cel-oracle: agrees with Pod Security Admission, or diverges only where recorded"
+
+.PHONY: verify-cel-oracle-report
+verify-cel-oracle-report: ## Print every pack/PSA divergence, including the ones recorded as accepted.
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  go test -count=1 -v -run 'TestPSAOracle_PackAgreesWithPodSecurityAdmission' ./... \
+	  | grep -E 'cases:|divergence:|skipped:|UNEXCUSED|STALE' || true

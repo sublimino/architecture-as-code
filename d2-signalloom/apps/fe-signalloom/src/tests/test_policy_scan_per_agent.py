@@ -494,6 +494,31 @@ async def test_unmapped_checks_are_reported_but_never_stored(db):
 
 
 # --------------------------------------------------------------------------
+# Reading the stored verdicts back (M4)
+# --------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_an_errored_control_is_reported_as_errored_not_as_pending():
+    """M4: ``error`` was folded into ``pending`` by the ``else`` branch, so a
+    control the engine tried and could not judge read as "not assessed yet".
+    It is now counted on its own.  It stays in the posture denominator: an
+    agent the engine could not judge must not score higher for it."""
+
+    class Executor:
+        async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
+            assert "agent_compliance_results" in query
+            return [{"status": "pass", "cnt": 5}, {"status": "fail", "cnt": 2},
+                    {"status": "error", "cnt": 2}, {"status": "pending", "cnt": 1}]
+
+    summary = await api_compat._compliance_summary_for_agent(Executor(), AGENT_A)
+    assert (summary.total_controls, summary.passing, summary.failing,
+            summary.errored, summary.pending) == (10, 5, 2, 2, 1)
+    # 5 of 10, not 5 of 8: the two the engine could not judge are still controls
+    # this agent is not known to pass.
+    assert summary.posture_score == 0.5
+
+
+# --------------------------------------------------------------------------
 # The scan response's per-framework summary (M5)
 # --------------------------------------------------------------------------
 

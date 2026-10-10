@@ -3,7 +3,9 @@ package frameworks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +32,12 @@ func Load(policyRoot, frameworkID, version string) (*Framework, error) {
 		var data []byte
 		data, err = os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
-			continue
+			// Only an absent framework.json falls back to framework.yaml; an
+			// unreadable one must not be silently replaced by its YAML twin.
+			if name == "framework.json" && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("loading framework %s/%s/%s: %w", frameworkID, version, name, err)
 		}
 		if name == "framework.json" {
 			err = decodeJSON(data, &fw)

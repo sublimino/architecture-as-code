@@ -465,6 +465,32 @@ func TestAllRegulatoryRules_TableDrivenAllowDeny(t *testing.T) {
 
 // --- loader integrity: a pack loads with every check evaluable, or not at all.
 
+// framework.yaml is a fallback only for an ABSENT framework.json. Any other
+// read error (here: permission denied) must fail the load, not silently serve
+// the YAML twin.
+func TestLoad_UnreadableJSONDoesNotFallBackToYAML(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 does not deny reads")
+	}
+	root := writePack(t, "x", "v1.0", map[string]string{"framework.json": canonicalJSON, "framework.yaml": canonicalJSON})
+	jsonPath := filepath.Join(root, "frameworks", "x", "v1.0", "framework.json")
+	if err := os.Chmod(jsonPath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(jsonPath, 0o644) })
+	_, err := Load(root, "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), "framework.json") || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("want a load error naming framework.json and permission denied, got %v", err)
+	}
+}
+
+func TestLoad_AbsentJSONFallsBackToYAML(t *testing.T) {
+	fw, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": canonicalJSON}), "x", "v1.0")
+	if err != nil || fw.Version != "v1.0.0" {
+		t.Fatalf("yaml fallback: fw=%v err=%v", fw, err)
+	}
+}
+
 // writePack writes files into <root>/frameworks/<id>/<version>/ and returns root.
 func writePack(t *testing.T, id, version string, files map[string]string) string {
 	t.Helper()

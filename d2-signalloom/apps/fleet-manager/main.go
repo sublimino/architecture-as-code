@@ -339,6 +339,13 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if result != nil && len(result.AffectedAgents) > 0 {
 		affected = result.AffectedAgents
 	}
+	if s.dag != nil {
+		for _, id := range affected {
+			if !s.dag.IsObservabilityAgent(id) {
+				_ = s.dag.SetAgentState(id, AgentStateStunned)
+			}
+		}
+	}
 	durationMs := int64(0)
 	if result != nil && result.DurationMs > 0 {
 		durationMs = result.DurationMs
@@ -460,6 +467,11 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	affected := stunnedIDs
 	if result != nil && len(result.AffectedAgents) > 0 {
 		affected = result.AffectedAgents
+	}
+	if s.dag != nil {
+		for _, id := range affected {
+			_ = s.dag.SetAgentState(id, AgentStateActive)
+		}
 	}
 	durationMs := int64(0)
 	if result != nil && result.DurationMs > 0 {

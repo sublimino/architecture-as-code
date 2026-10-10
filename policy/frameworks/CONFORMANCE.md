@@ -134,6 +134,132 @@ the expectation is attributable to that fact. Integration fixtures are
 realistic: multi-container workloads, real Helm-chart-shaped pods, a fully
 described agent.
 
+## Pinning money
+
+Every check carries a `riskTriple` (loss magnitude) and a `freqTriple` (events
+per year), and a scan reports four figures per check: `ale`, `var95`, `tvar` and
+`carriedGbp`. **Those figures are part of the contract, not decoration** — the
+product sells *priced* risk, and a figure nobody checked is worse than no
+figure.
+
+The money is a **pure function of `(check ID, riskTriple, freqTriple)`**. The
+simulation seed is `fnv64a(check.ID)` and nothing from the scanned object enters
+it, so a *passing* row still carries a full-size figure; it is the **summary**
+that excludes passing rows from exposure. The figure is therefore a per-check
+constant, and it is pinned per pack rather than per fixture.
+
+### Golden files
+
+```
+d2-signalloom/apps/policy-engine/testdata/money-golden/<framework-id>@<version>.json
+```
+
+One file per pack, covering **every** check in it — not a sample. Each row
+records the check ID, the seed, both triples, the four figures, the engine's
+`tailDominated` flag, and the analytic anchor (`analyticAle`, `aleSigma`).
+
+Regenerate and re-verify:
+
+```bash
+make verify-cel-money-golden      # rewrite the goldens, then assert them
+make verify-cel-money             # assert only (also runs inside verify-cel-conformance)
+```
+
+A triple edit is then a reviewable diff of exactly the prices it moved: change
+`riskTriple.mode` on one check and `make verify-cel-money-golden` shows four
+figures and one sigma moving on that one row. **Review that diff.** It is every
+price the product quotes for that control.
+
+Comparison is **exact**. `fair.Simulate` is a seeded Monte Carlo over a PCG
+generator consumed in a fixed order, so for a given `(triple, triple, seed)` it
+is deterministic to the bit. There is no sampling tolerance to allow for, and
+allowing one would hide the drift the goldens exist to catch.
+
+### The analytic anchor
+
+A golden regenerated from the engine and asserted against the engine is
+circular. The anchor is a **closed form**, derived from the distribution's
+definition rather than from `fair.go`, in
+`d2-signalloom/apps/policy-engine/compliance_money_oracle_test.go`. The sampler
+draws `X = min + span·B`, `B ~ Beta(α, β)` with `α = 1 + 4(mode−min)/span` and
+`β = 1 + 4(max−mode)/span`, so **α+β ≡ 6** for every triple and
+
+| Quantity | Closed form |
+|---|---|
+| `E[X]` | `(min + 4·mode + max) / 6` (the PERT mean) |
+| `Var[X]` | `span² · α·β / 252` (252 = 6²·7) |
+| `E[L]` for `L = F·M` | `E[F] · E[M]` — independent draws |
+| `Var[L]` | `(Var[F]+E[F]²)(Var[M]+E[M]²) − (E[F]·E[M])²` |
+| standard error of `ALE` | `sqrt(Var[L] / 10000)` |
+
+So the tolerance on `ALE` is **5 standard errors of its own estimator**, not a
+percentage pulled from the air. Worst observed across the estate: **2.71 σ**
+(1.87 % relative), `cis-kubernetes/v1.8 no-host-ports`. A line-by-line port of
+`fair.go` would have agreed by construction and anchored nothing.
+
+**`var95` and `tvar` are not analytically pinned**, because a quantile of a
+product of two Beta variates has no comparable closed form. They are held by
+(a) the golden diff, (b) the closed-form support `[min_f·min_l, max_f·max_l]`,
+which every figure must lie inside, and (c) the ordering properties below. The
+limitation is stated rather than hidden behind a loose tolerance. An optional
+non-gating tier compares them to an independent NumPy derivation:
+
+```bash
+make verify-cel-money-independent   # needs NumPy; statistical, not part of verify-cel
+```
+
+Observed there: the Go oracle's algebra agrees with a 1 000 000-sample estimate
+to **0.19 %**; `var95` to **2.58 %** and `tvar` to **2.89 %**, which is the
+expected quantile noise at the engine's 10 000 iterations.
+
+### Properties, and one that is deliberately absent
+
+| Property | Where |
+|---|---|
+| `tvar >= var95`, `tvar >= ale`, `carried >= tvar`, all four finite and non-negative | `TestConformance_MoneyFigureOrdering` |
+| `carried` is exactly `tvar + 10 %` of the **unrounded** tail mean | same |
+| `tailDominated` **iff** `var95 < ale`, in both directions, plus a reachability sweep | `TestConformance_MoneyTailDominatedFlagIsExact` |
+| raising `riskTriple.mode` never lowers `carried` | `TestConformance_MoneyExposureMonotoneInRiskMode` |
+| the same check ID with the same triples prices identically in every pack, and renaming it moves every figure | `TestConformance_MoneySeedDerivedFromCheckID` |
+| a `not_evaluated` row keeps its own figure but contributes nothing to summary exposure | `TestConformance_MoneyNotEvaluatedFigureExcludedFromExposure` |
+| `GBP` is hardcoded, and `money` still refuses to add across denominations | `TestConformance_MoneyReportingCurrencyIsPinned` |
+
+**`ale <= var95` is NOT asserted, deliberately.** An earlier revision of
+`fair.Simulate` clamped `VaR95` up to `ALE`; the clamp was removed because
+`VaR95 >= ALE` is not a property of loss distributions — for a rare-but-severe
+risk most simulated years cost nothing, the 95th percentile sits below the mean,
+and the clamp "silently reported a bad year equal to the average year" in
+precisely the well-governed case a client most wants to see (see the note on
+`fair.Simulate` and `fair/regression_test.go`). Asserting the ordering here
+would re-introduce that defect as a test. The honest relation — the
+`tailDominated` biconditional — is asserted instead.
+
+### Two findings pinned by these tests
+
+1. **66 of 127 checks price at £0.00.** Four shipped packs — `eu-ai-act/v1.0`,
+   `eu-ai-act/v2.0`, `nist-800-53/v1.0`, `nist-800-53/v2.0` — declare a
+   `riskTriple` but **no `freqTriple` at all**. `fair.Simulate` short-circuits an
+   all-zero frequency to a zero result, so every check in those packs reports
+   `0.00` and a scan of them reports **zero total exposure however many controls
+   fail**. `dora/v1.0` and `nis2/v1.0` also price at zero, but they are
+   all-placeholder packs and that is correct;
+   `TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero` keeps the two groups
+   apart and pins both, so adding a `freqTriple` turns the golden red and the new
+   figures must be proved.
+2. **Tail dominance is unreachable on the `Simulate` path**, so `tailDominated`
+   is dead code there. `α+β ≡ 6` bounds the attainable skew, and `Simulate`
+   multiplies a *continuous* frequency instead of drawing Poisson event counts,
+   so there are no zero-loss years — an independent derivation puts
+   `P(L <= E[L])` at about 0.63–0.69 across the extremes of the family, against
+   the 0.95 needed to invert. Zero-loss years only appear on the aggregate
+   `Engine.Run` path, which does draw Poisson. The reachability sweep is pinned
+   at zero so a sampler change, a different λ, or Poisson counts on this path
+   surface immediately.
+
+**A new check, or a new triple on an existing check, must land with its golden
+row regenerated in the same commit.** A pack whose golden file is missing or
+incomplete fails `TestConformance_MoneyGoldenMatchesEngine` by name.
+
 ## Proving a test bites
 
 For every new check or fixture, record in the commit body or the worker report:

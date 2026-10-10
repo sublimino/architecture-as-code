@@ -75,7 +75,7 @@ that the assertion was made, nothing more.
 
 | Check | Obligation | Kind |
 |---|---|---|
-| `container-run-as-non-root`, `no-privilege-escalation`, `no-privileged-mode`, `read-only-rootfs`, `drop-all-capabilities` | Art. 15(5) resilience against third parties (via 9(2)(d)) | **evidence** of the stated hardening measure; **proxy** for the paragraph, which names poisoning/evasion/confidentiality attacks a pod spec cannot speak to |
+| `container-run-as-non-root`, `no-privilege-escalation`, `no-privileged-mode`, `read-only-rootfs`, `drop-all-capabilities` | Art. 15(5) resilience against third parties (via 9(2)(d)) | **evidence** of the stated hardening measure, and **admissibility-equivalent** to Pod Security Admission restricted for the five fields the external oracle covers; **proxy** for the paragraph, which names poisoning/evasion/confidentiality attacks a pod spec cannot speak to |
 | `resource-limits-set`, `resource-requests-set` | Art. 15(4) resilience to faults | **evidence** (an unbounded container is the fault mode) |
 | `liveness-probe-present`, `readiness-probe-present` | Art. 15(4) fail-safe | **proxy** — tests that the field is *present*, not that the probe is meaningful. `livenessProbe: {}` passes (the API server rejects it, so it is not a reachable state). |
 | `min-replicas` | Art. 15(4) redundancy | **not evaluable** — `status: placeholder`; `replicas` is a controller-level fact, absent from a pod |
@@ -141,18 +141,43 @@ in these two versions prices at £0.00** and a scan of them reports zero total
 exposure however many controls fail. v2.1 carries real frequency triples and
 prices correctly.
 
-The zero was previously **implicit**: the two packs omitted `freqTriple`
-entirely and Go's zero value supplied `{0,0,0}` silently. It is now **explicit**
-in the data — every check in v1.0 and v2.0 declares
-`"freqTriple": {"min": 0, "mode": 0, "max": 0}` — so a reader of the pack sees
-the unpriced declaration rather than an absence, and the framework description
-of each version says so in words. The engine's behaviour is unchanged (the
-golden figures are byte-identical), which is the point: the data now says what
-the engine already did.
+The zero was previously **implicit**: the two versions omitted `freqTriple`
+entirely and Go's zero value supplied `{0,0,0}` silently. It is now declared in
+three places, and the third one is enforced:
+
+1. **In the pack data.** Every check in v1.0 and v2.0 writes
+   `"freqTriple": {"min": 0, "mode": 0, "max": 0}`, so a reader sees a
+   declaration instead of an absence. An `unpriced` schema key is not an
+   option: the loader runs `DisallowUnknownFields`, so a new key breaks pack
+   loading.
+2. **In words**, in each version's `framework.description`: "Do not quote a
+   figure from this version."
+3. **In `catalogue/unpriced.tsv`**, checked by `catalogue/pricing-test.sh`
+   (`cd policy/frameworks/eu-ai-act/catalogue && ./pricing-test.sh`). That is
+   the same test `nist-800-53/catalogue/pricing-test.sh` runs, kept byte-wise
+   identical apart from its header so the two packs cannot drift into two
+   patterns; it derives the pack from its own location, so the only
+   pack-specific state is the `.tsv` beside it. It fails three ways: a check
+   that is **neither priced nor declared** (the silence this exists to stop), a
+   **declaration whose check has since been calibrated** (so the list cannot
+   rot into a blanket exemption), and a **declaration naming a check that does
+   not exist**. All three proved by mutation. Current state:
+   `PASS -- 37 check(s): 11 priced, 26 declared unpriced`.
+
+The engine's behaviour is unchanged (the money goldens are byte-identical,
+`make verify-cel-money` green), which is the point: the data now says what the
+engine already did.
 
 No frequency triples were invented. Loss-event-frequency calibration is the
 principal's call, not a worker's, and a fabricated frequency is worse than a
-declared zero.
+declared zero because it would look like evidence. The remedy for a long
+`unpriced.tsv` is calibration, not fabrication.
+
+`min-replicas` (v2.0) is declared with a different reason code,
+`placeholder-not-evaluated`: it is `status: placeholder`, never evaluated, and
+excluded from exposure by the engine, so its zero is correct rather than
+missing. It is still declared, so the test needs no special case and a future
+decision to evaluate it must also price it.
 
 `TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero`
 (`d2-signalloom/apps/policy-engine/compliance_money_test.go`) pins the exact set
@@ -165,6 +190,67 @@ a pack joining it has lost its frequency data. That is the enforcement the
 declaration needs: the data declares, the test makes the declaration impossible
 to change quietly.
 
+## Admissibility: what the external PSA oracle settled
+
+`d2-signalloom/apps/policy-engine/oracle` runs this pack's object-reading checks
+against upstream `k8s.io/pod-security-admission` on a shared fixture corpus. PSA
+is authoritative on **admissibility**: the dangerous error is calling a pod
+compliant that a cluster will reject. It found three classes here, all now
+closed, and the eleven exception entries that recorded them are stale:
+
+| Class | Check | What was wrong |
+|---|---|---|
+| **D (high)** | `drop-all-capabilities` (v2.0, v2.1) | A container that dropped ALL and re-added `SYS_ADMIN` (mount, ptrace, kernel-module loading — a container-escape primitive) was reported **compliant**. PSS restricted is a conjunction over drop **and** add; only the drop half was checked. Fixed with an add allow-list of `{NET_BIND_SERVICE}`. |
+| **C (high)** | `container-run-as-non-root` (all three) | `runAsUser: 0` alongside `runAsNonRoot: true` **passed**, at pod and container level. PSS forbids `runAsUser: 0` outright. Fixed. |
+| **B (low, opposite direction)** | `no-privilege-escalation` (all three) | A conformant Windows workload was permanently non-compliant and could not be made compliant: `allowPrivilegeEscalation` is Linux-only and PSA exempts `spec.os.name == 'windows'`. Fixed, and the same exemption added to `drop-all-capabilities`. |
+
+One consequence worth recording, because it reversed a decision made earlier in
+the same branch. A pod that sets `runAsNonRoot: false` at pod level while every
+container overrides it to `true` **would run non-root**, but PSA restricted
+rejects it on the pod-level value. On the admissibility frame the pack must
+therefore **fail** it, and an earlier fixture asserting `pass` was wrong. See
+`container-run-as-non-root--pod-false-container-true-still-fails`, and
+`--pod-absent-container-true` for the boundary: an *absent* pod securityContext
+is not an explicit false.
+
+The surviving eu-ai-act divergences are all `*--no-containers` fixtures in the
+`pack=fail, oracle=allow` direction. Those are deliberate: this pack's checks
+begin `size(object.spec.containers) > 0`, so a pod asserting zero containers
+fails closed where PSA admits it. Recorded as the oracle's class A.
+
+## Two checks report `pass` when they cannot assess
+
+`block-unauthorized-host-exec` and `synthetic-content-marking` (both v2.1) end
+`… : true`. When the precondition is absent — no `request.tool_call.action`, or
+no `agent.model_type` — they return `pass`. Measured through the engine: a
+maximally hostile privileged pod submitted with empty `agent` and `request`
+passes both and is counted into posture as compliant with zero exposure. These
+are the only 2 of 127 checks in the estate with that shape; the `finos-aigf`
+pack fails closed on 16 of 16, so the estate is internally inconsistent.
+
+A guard that cannot be evaluated is not a pass. Three ways out, in preference
+order:
+
+1. **`not_evaluated`.** The verdict vocabulary already has it, the conformance
+   suite enforces it bidirectionally, and the money tier already excludes it
+   from exposure. The obstacle is that `not_evaluated` is today reached only via
+   `status: placeholder`, which is a *static* property of a check, and this needs
+   to be decided per input. That is an engine change.
+2. **A new `not_applicable` verdict.** Semantically the most honest — Article
+   50(2) genuinely does not bind a non-generative model, and a tool call that is
+   not `exec`/`write_file`/`modify_iam` is genuinely outside the gate. Also an
+   engine change, and it widens the verdict vocabulary that four test suites
+   pin.
+3. **Fail closed**, i.e. require the precondition to be *declared*: an absent
+   `agent.model_type` becomes a fail, and so does a `request` with no
+   `tool_call`. Pack-local, no Go change — but it would fail every object-only
+   scan of v2.1, which is a real workflow, so it is not a free change either.
+
+Not implemented. Option 1 or 2 touches Go that this pack does not own, and
+option 3 changes what a scan means. Recorded for the principal. Until then, a
+`pass` on either of these two checks must not be read as evidence; the
+AGENT-CONTEXT table marks both as passing when their trigger is absent.
+
 ## Checks that error
 
 Per `../CONFORMANCE.md`, `error` on an ordinary valid input is a defect. The
@@ -173,6 +259,10 @@ pack was probed with 16 synthetic inputs per version (48 runs) covering an absen
 by scalars, `request.context.claims` as a map / scalar / empty list / list of
 empty objects, a non-string `tool_call.action`, empty and partial `resources`
 maps, and empty probe objects. **No check errors on any schema-valid input.**
+The battery was re-run unchanged after the PSA-oracle fixes added `runAsUser`,
+`capabilities.add` and `spec.os` reads, with the same result: no new error
+class, so the probes are left out of the permanent fixture set and only the
+three cases below are pinned as fixtures.
 
 Three inputs do produce `error`, all of them schema violations:
 

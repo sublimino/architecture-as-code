@@ -1,0 +1,47 @@
+# Checks in this pack that are DECLARED UNPRICED.
+#
+# A check with an all-zero frequency triple contributes exactly nothing to
+# reported exposure however often it fails. That is a legitimate state -- a
+# magnitude without a calibrated frequency is not a price -- but it must be
+# SAID, not inferred from a field of zeros. pricing-test.sh fails any check
+# that is neither priced nor listed here, so the silence cannot return.
+#
+# Every check in v1.0 (7 of 7) and v2.0 (19 of 19) is in this state. v2.1 is
+# unaffected: all 11 of its checks carry a real frequency triple and price.
+# Each check in v1.0 and v2.0 now also writes "freqTriple": {"min": 0,
+# "mode": 0, "max": 0} into framework.json, so the zero is declared in the
+# pack data as well as here rather than arriving as a Go zero value. An
+# `unpriced` schema key cannot be used: the loader runs DisallowUnknownFields,
+# so a new key breaks pack loading.
+#
+# Removing a line requires adding a real freqTriple to that check, and the
+# test fails a line whose check has since been priced, so this list cannot rot.
+# Calibration is the principal's call. Do not invent triples to empty this file.
+#
+# version	check	reason-code	note
+v1.0	container-run-as-non-root	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v1.0	no-privilege-escalation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v1.0	no-privileged-mode	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v1.0	data-classification-label	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v1.0	hitl-label	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v1.0	resource-limits-set	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v1.0	image-digest-required	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	container-run-as-non-root	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	no-privilege-escalation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	no-privileged-mode	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	read-only-rootfs	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	drop-all-capabilities	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	liveness-probe-present	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	data-classification-label	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	pii-handling-annotation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	data-retention-annotation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	hitl-label	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	approval-gate-annotation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	override-contact-annotation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	resource-limits-set	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	resource-requests-set	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	readiness-probe-present	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	min-replicas	placeholder-not-evaluated	status: placeholder. The check is never evaluated (replicas is a controller-level fact, absent from a pod), reports not_evaluated, and is excluded from exposure by the engine. Zero is correct here, but it is declared so the pricing test needs no special case and so a future decision to evaluate this check must also price it.
+v2.0	image-digest-required	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	trusted-registry	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
+v2.0	policy-version-label	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing an EU AI Act control failure requires a calibrated annual loss-event frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.

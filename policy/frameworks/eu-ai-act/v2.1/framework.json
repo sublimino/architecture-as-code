@@ -2,20 +2,23 @@
   "id": "eu-ai-act",
   "name": "EU AI Act: High-Risk AI System Requirements",
   "version": "v2.1.0",
+  "description": "Strict tier. Controls cite Regulation (EU) 2024/1689 by article and paragraph, verified against the authenticated OJ text (CELEX 32024R1689). Articles 9 to 15 and 26 are Chapter III high-risk obligations; Article 50 is a Chapter IV transparency obligation that applies to certain AI systems regardless of high-risk classification, so the ART-50 control set is in scope of this pack by subject, not by the high-risk trigger.",
   "controlSets": [
     {
       "id": "art9-risk-mgmt",
       "name": "ART-9 Risk Management System",
+      "description": "Article 9(2) lists the steps of the risk management system: (a) identification and analysis of risks, (b) estimation and evaluation, (c) evaluation against post-market monitoring data, (d) adoption of appropriate and targeted risk management measures. The two workload checks here are measures, so they sit under 9(2)(d), not 9(2)(a). Article 9 mandates no named technical control; these are proxies for a documented measure, and the cybersecurity obligation they most directly serve is Article 15(5).",
       "controls": [
         {
           "id": "ART-9.2",
-          "name": "ART-9(2) Risk Identification and Analysis",
+          "name": "ART-9(2)(d) Adoption of Risk Management Measures",
+          "description": "Verified against Article 9(2)(d), 'the adoption of appropriate and targeted risk management measures designed to address the risks identified pursuant to point (a)'. Running non-root and refusing privilege escalation are two such measures. Proxy: the Regulation requires that measures be adopted and documented, not these measures.",
           "checks": [
             {
               "id": "container-run-as-non-root",
               "name": "AI system container runs as non-root",
-              "description": "Ensures high-risk AI system workloads do not execute with root UID privileges.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
+              "description": "No container may run as UID 0. An explicit runAsNonRoot: false or runAsUser: 0 is fatal at pod level and at container level; otherwise a container without its own runAsNonRoot inherits the pod value. Pod Security Admission restricted rejects a pod that sets runAsNonRoot: false at pod level even where every container overrides it to true, so a pass here means the pod is admissible, not merely that it would run non-root.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) && object.spec.securityContext.runAsUser == 0) && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == false) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, ((has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)) && !(has(c.securityContext) && has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0) && !(has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == false))",
               "severity": "high",
               "remediation": "Configure securityContext.runAsNonRoot to true in all container specifications.",
               "riskTriple": {
@@ -36,8 +39,8 @@
             {
               "id": "no-privilege-escalation",
               "name": "No privilege escalation in AI workloads",
-              "description": "Prohibits processes within AI workloads from gaining more privileges than their parent process.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
+              "description": "Every container, init container and ephemeral container must set allowPrivilegeEscalation: false. Windows pods are exempt, as they are under Pod Security Admission: the field is a Linux-only field and a Windows pod cannot set it, so demanding it would make a conformant Windows workload impossible to satisfy.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false))",
               "severity": "critical",
               "remediation": "Set securityContext.allowPrivilegeEscalation to false in pod specifications.",
               "riskTriple": {
@@ -61,11 +64,13 @@
     },
     {
       "id": "art10-data-gov",
-      "name": "ART-10 Data Governance and Training Validation",
+      "name": "ART-10 Data and Data Governance",
+      "description": "Article 10(2) requires data governance and management practices for training, validation and testing data sets, concerning in particular (b) 'data collection processes and the origin of data, and in the case of personal data, the original purpose of the data collection'. That is the provenance obligation.",
       "controls": [
         {
           "id": "ART-10.2",
-          "name": "ART-10(2) Training, Validation and Testing Data Quality",
+          "name": "ART-10(2)(b) Data Collection Processes and Origin of Data",
+          "description": "Verified against Article 10(2)(b). The check reads a single declared boolean, so it is a declaration that the practice exists, not evidence of the practice.",
           "checks": [
             {
               "id": "training-data-provenance",
@@ -96,6 +101,7 @@
     {
       "id": "art11-tech-doc",
       "name": "ART-11 Technical Documentation",
+      "description": "Article 11(1): the technical documentation shall be drawn up before the system is placed on the market, kept up to date, and 'shall contain, at a minimum, the elements set out in Annex IV'. Annex IV is titled 'Technical documentation referred to in Article 11(1)'.",
       "controls": [
         {
           "id": "ART-11.1",
@@ -129,7 +135,8 @@
     },
     {
       "id": "art12-record-keeping",
-      "name": "ART-12 Event Logging and Record-Keeping",
+      "name": "ART-12 Record-Keeping",
+      "description": "Article 12(1): 'High-risk AI systems shall technically allow for the automatic recording of events (logs) over the lifetime of the system.' Deployer-side log retention of at least six months is a separate obligation under Article 26(6) and is not checked here.",
       "controls": [
         {
           "id": "ART-12.1",
@@ -163,11 +170,13 @@
     },
     {
       "id": "art13-transparency",
-      "name": "ART-13 Transparency and Instructions for Use",
+      "name": "ART-13 Transparency and Provision of Information to Deployers",
+      "description": "Article 13(1) is a design obligation: operation must be sufficiently transparent to enable deployers to interpret the output. The instructions-for-use obligation this control checks is Article 13(2) ('shall be accompanied by instructions for use ... concise, complete, correct and clear'), with the mandatory contents listed in Article 13(3).",
       "controls": [
         {
-          "id": "ART-13.1",
-          "name": "ART-13(1) Clear User Instructions and Transparency",
+          "id": "ART-13.2",
+          "name": "ART-13(2) Instructions for Use Accompany the System",
+          "description": "Corrected citation: was claimed as Article 13(1), which is the design-transparency obligation and says nothing about instructions. The obligation the check tests is Article 13(2). The check reads a declared boolean, so it is a declaration that instructions exist, not a test of their Article 13(3) contents.",
           "checks": [
             {
               "id": "user-instructions-transparency",
@@ -197,11 +206,13 @@
     },
     {
       "id": "art14-human-oversight",
-      "name": "ART-14 Human Oversight Mechanisms",
+      "name": "ART-14 Human Oversight",
+      "description": "Article 14(4)(a)-(e) lists what the oversight person must be enabled to do: understand capacities and limitations, remain aware of automation bias, interpret output correctly, decide not to use or to disregard, override or reverse the output, and intervene or interrupt through a stop button. Article 14 contains NO general requirement for ex-ante human authorisation of an action. The nearest such requirement is Article 14(5), and it is scoped to the systems in point 1(a) of Annex III (remote biometric identification), where no action may be taken unless the identification has been separately verified by at least two natural persons.",
       "controls": [
         {
           "id": "ART-14.4",
-          "name": "ART-14(4) Human-in-the-Loop Authorization",
+          "name": "ART-14(4) Human Oversight Enablement",
+          "description": "Proxy, stated as such. The check gates exec, write_file and modify_iam on a valid human_approval_svid claim, which is ex-ante authorisation. Article 14(4)(d)-(e) requires that a person be ABLE to disregard, override, reverse or interrupt; it does not require prior approval. A pre-authorisation gate is a stricter design that satisfies the spirit of 14(4) and is not the letter of any paragraph of Article 14 outside 14(5)'s biometric scope. Do not represent a pass as evidence of Article 14(5) compliance.",
           "checks": [
             {
               "id": "block-unauthorized-host-exec",
@@ -232,38 +243,18 @@
     {
       "id": "art15-cybersecurity",
       "name": "ART-15 Accuracy, Robustness and Cybersecurity",
+      "description": "Two distinct paragraphs, previously conflated under one control labelled 'ART-15(4) Cybersecurity Measures'. Article 15(4) is robustness: systems 'shall be as resilient as possible regarding errors, faults or inconsistencies', achievable 'through technical redundancy solutions, which may include backup or fail-safe plans'. Article 15(5) is cybersecurity: systems 'shall be resilient against attempts by unauthorised third parties to alter their use, outputs or performance by exploiting system vulnerabilities', with named AI-specific measures against data poisoning, model poisoning, adversarial examples, model evasion and confidentiality attacks.",
       "controls": [
         {
           "id": "ART-15.4",
-          "name": "ART-15(4) Cybersecurity Measures",
+          "name": "ART-15(4) Resilience to Errors, Faults and Inconsistencies",
+          "description": "Verified against Article 15(4). Bounding cpu and memory is a resilience measure: an unbounded container is the fault mode 15(4) asks to be resilient to. Proxy: 15(4) names no specific control and offers redundancy and fail-safe plans as the examples.",
           "checks": [
             {
-              "id": "drop-all-capabilities",
-              "name": "Drop all capabilities for AI workloads",
-              "description": "Strips all default Linux capabilities from container runtime processes. The ALL token is compared exactly, as Pod Security Admission compares it: a lowercase \"all\" is rejected by a restricted namespace, so it fails here.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
-              "severity": "high",
-              "remediation": "Add ALL to securityContext.capabilities.drop in all container definitions.",
-              "riskTriple": {
-                "min": 15000,
-                "mode": 70000,
-                "max": 280000
-              },
-              "freqTriple": {
-                "min": 0.3,
-                "mode": 1,
-                "max": 3
-              },
-              "policyVersions": [
-                "v1.0.0",
-                "v2.1.0"
-              ]
-            },
-            {
               "id": "resource-limits-set",
-              "name": "AI system has resource limits set",
-              "description": "Enforces compute resource limits to protect against denial of service or resource exhaustion.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits))",
+              "name": "CPU and memory limits defined",
+              "description": "Every container and init container must bound both cpu and memory in resources.limits. Ephemeral containers are excluded: the Kubernetes EphemeralContainer schema forbids resources on them.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits) && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)",
               "severity": "medium",
               "remediation": "Specify CPU and memory limits in container resource specifications.",
               "riskTriple": {
@@ -282,16 +273,47 @@
               ]
             }
           ]
+        },
+        {
+          "id": "ART-15.5",
+          "name": "ART-15(5) Resilience Against Unauthorised Third Parties",
+          "description": "Corrected citation: the cybersecurity obligation is Article 15(5), not 15(4). Dropping all Linux capabilities reduces what an attacker who alters the system's use can reach, which is squarely 15(5). Proxy: 15(5) names data poisoning, model poisoning, adversarial examples, model evasion and confidentiality attacks, none of which a pod spec can evidence.",
+          "checks": [
+            {
+              "id": "drop-all-capabilities",
+              "name": "Drop all capabilities for AI workloads",
+              "description": "Every container, init container and ephemeral container must drop ALL capabilities AND add back nothing outside NET_BIND_SERVICE. Pod Security Admission restricted is a conjunction over both halves; checking only the drop half reports a container that drops ALL and re-adds SYS_ADMIN (mount, ptrace, kernel-module loading) as compliant. Windows pods are exempt, as they are under PSA.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL') && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a == 'NET_BIND_SERVICE'))))",
+              "severity": "high",
+              "remediation": "Add ALL to securityContext.capabilities.drop in all container definitions.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 70000,
+                "max": 280000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
         }
       ]
     },
     {
       "id": "art26-deployer-obligations",
-      "name": "ART-26 Deployer Obligations",
+      "name": "ART-26 Obligations of Deployers of High-Risk AI Systems",
+      "description": "Article 26(1) is 'appropriate technical and organisational measures to ensure they use such systems in accordance with the instructions for use'. The monitoring obligation is Article 26(5): 'Deployers shall monitor the operation of the high-risk AI system on the basis of the instructions for use'. Assignment of human oversight to competent persons is Article 26(2).",
       "controls": [
         {
-          "id": "ART-26.1",
-          "name": "ART-26(1) Operational Oversight and Monitoring",
+          "id": "ART-26.5",
+          "name": "ART-26(5) Deployer Monitoring of the Operation",
+          "description": "Corrected citation: was claimed as Article 26(1), which is about using the system in accordance with the instructions for use, not about monitoring. The obligation the check tests is Article 26(5). The check reads a declared boolean, so it is a declaration that monitoring is in place, not evidence of monitoring.",
           "checks": [
             {
               "id": "deployer-monitoring-active",
@@ -321,11 +343,13 @@
     },
     {
       "id": "art50-genai-transparency",
-      "name": "ART-50 Transparency for Generative AI Models",
+      "name": "ART-50 Transparency Obligations for Providers and Deployers of Certain AI Systems",
+      "description": "Article 50(1) requires that a natural person interacting with an AI system be informed that they are. Article 50(2) is the marking obligation: providers of AI systems generating synthetic audio, image, video or text 'shall ensure that the outputs of the AI system are marked in a machine-readable format and detectable as artificially generated or manipulated'. Deep-fake disclosure by deployers is 50(4). Article 50 is in Chapter IV and binds regardless of high-risk classification.",
       "controls": [
         {
-          "id": "ART-50.1",
-          "name": "ART-50(1) Synthetic Content Marking and AI Disclosure",
+          "id": "ART-50.2",
+          "name": "ART-50(2) Marking of Synthetic Content as Artificially Generated",
+          "description": "Corrected citation: was claimed as Article 50(1) under the name 'Synthetic Content Marking and AI Disclosure', conflating two paragraphs. Marking is 50(2); informing a person that they are interacting with an AI system is 50(1) and is NOT checked by this pack. The check also passes when agent.model_type is absent, so an undeclared model type is not gated; see AGENT-CONTEXT.md.",
           "checks": [
             {
               "id": "synthetic-content-marking",

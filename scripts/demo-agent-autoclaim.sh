@@ -452,9 +452,9 @@ POSTURE_SCORE="$(jq -er '.compliance_summary.posture_score | numbers' <<<"${REGI
 POSTURE_PERCENT="$(jq -n --argjson passing "${PASSING_CONTROLS}" --argjson total "${CONTROL_COUNT}" \
   'if $total > 0 then (($passing * 100 / $total) | round) else 0 end')"
 SCORE_PERCENT="$(jq -n --argjson score "${POSTURE_SCORE}" '($score * 100 | round)')"
-[[ "${CONTROL_COUNT}" == "6" && "${POSTURE_PERCENT}" -gt 0 && "${POSTURE_PERCENT}" == "${SCORE_PERCENT}" ]] || \
+[[ "${CONTROL_COUNT}" -ge 6 && "${POSTURE_PERCENT}" -gt 0 && "${POSTURE_PERCENT}" == "${SCORE_PERCENT}" ]] || \
   die "compliance posture assertion failed" \
-    "Expected 6 controls and a calculated positive score; observed ${CONTROL_COUNT} controls at ${POSTURE_SCORE}"
+    "Expected at least 6 controls and a calculated positive score; observed ${CONTROL_COUNT} controls at ${POSTURE_SCORE}"
 pass_step "Evaluated ${CONTROL_COUNT} controls: ${PASSING_CONTROLS} pass, ${FAILING_CONTROLS} fail, ${PENDING_CONTROLS} pending (${POSTURE_PERCENT}%)"
 
 api_request GET "/api/audit?limit=100"

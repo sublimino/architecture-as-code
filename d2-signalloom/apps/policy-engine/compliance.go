@@ -1,12 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,8 +34,10 @@ type ComplianceScanRequest struct {
 }
 
 // workload returns the object every check reads as `object` (and `manifest`).
+// An empty object is treated as absent so `"object": {}` cannot mask a
+// non-empty manifest.
 func (req ComplianceScanRequest) workload() map[string]any {
-	if req.Object != nil {
+	if len(req.Object) > 0 {
 		return req.Object
 	}
 	return req.Manifest
@@ -62,8 +66,9 @@ type ComplianceScanResult struct {
 	// Carried is CarriedGBP with its denomination attached. Same number, self-describing.
 	Carried money.Money `json:"carried"`
 
-	// Status is the three-valued verdict: pass, fail or error. An expression
-	// that cannot evaluate is error, never fail.
+	// Status is the verdict: pass, fail, error or not_evaluated. An expression
+	// that cannot evaluate is error, never fail; a placeholder check is
+	// not_evaluated and is never evaluated.
 	Status Verdict `json:"status"`
 	// Error is the CEL error text when Status is error.
 	Error            string `json:"error,omitempty"`
@@ -73,10 +78,12 @@ type ComplianceScanResult struct {
 }
 
 type ComplianceSummary struct {
-	TotalControls int     `json:"totalControls"`
-	Passed        int     `json:"passed"`
-	Failed        int     `json:"failed"`
-	Errored       int     `json:"errored"`
+	TotalControls int `json:"totalControls"`
+	Passed        int `json:"passed"`
+	Failed        int `json:"failed"`
+	Errored       int `json:"errored"`
+	// NotEvaluated counts placeholder checks; they are in TotalControls only.
+	NotEvaluated  int     `json:"notEvaluated"`
 	TotalExposure float64 `json:"totalExposureGbp"`
 	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
 
@@ -160,58 +167,91 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Select every requested framework's pack before evaluating anything: a
+	// framework that fails to load, or yields no checks, fails the whole scan
+	// rather than being silently omitted from a 200.
+	type selected struct {
+		fw     *frameworks.Framework
+		checks []scanCheck
+	}
+	var (
+		packs               []selected
+		loadFailed, noCheck []string
+		loadErrs            []string
+	)
+	for _, fwID := range req.Frameworks {
+		versions, ok := available[fwID]
+		if !ok {
+			// Unknown IDs beside known ones are skipped (all-unknown is a 400
+			// above); TestScanMixedKnownUnknown_Succeeds pins this.
+			slog.Warn("framework not found, skipping", "framework", fwID)
+			continue
+		}
+		fw, err := selectPack(ch.policyRoot, fwID, versions, req.PolicyVersion)
+		if err != nil {
+			slog.Error("loading framework", "framework", fwID, "error", err)
+			loadFailed = append(loadFailed, fwID)
+			loadErrs = append(loadErrs, err.Error())
+			continue
+		}
+		checks := checksWithControlIDs(fw, req.PolicyVersion)
+		if len(checks) == 0 {
+			noCheck = append(noCheck, fwID)
+			continue
+		}
+		packs = append(packs, selected{fw: fw, checks: checks})
+	}
+	if len(loadFailed) > 0 {
+		writeFrameworkError(w, http.StatusInternalServerError, "framework_load_failed", loadFailed, req.PolicyVersion, strings.Join(loadErrs, "; "))
+		return
+	}
+	if len(noCheck) > 0 {
+		writeFrameworkError(w, http.StatusBadRequest, "no_checks_for_framework", noCheck, req.PolicyVersion, "")
+		return
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
 	inputMap := celBindings(req.workload(), req.Agent, req.Request)
 
-	for _, fwID := range req.Frameworks {
-		versions, ok := available[fwID]
-		if !ok || len(versions) == 0 {
-			slog.Warn("framework not found, skipping", "framework", fwID)
-			continue
-		}
-
-		for _, ver := range versions {
-			fw, err := frameworks.Load(ch.policyRoot, fwID, ver)
-			if err != nil {
-				slog.Error("loading framework", "framework", fwID, "version", ver, "error", err)
-				continue
-			}
-
-			for _, cwc := range checksWithControlIDs(fw, req.PolicyVersion) {
+	for _, sel := range packs {
+		fw := sel.fw
+		for _, cwc := range sel.checks {
+			status := VerdictNotEvaluated
+			var errText string
+			if !isPlaceholder(fw.Status, cwc.Check.Status) {
 				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
-				status := verdictOf(passed, err)
-				var errText string
+				status = verdictOf(passed, err)
 				if err != nil {
 					errText = err.Error()
 				}
-
-				seed := checkSeed(cwc.Check.ID)
-				risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
-
-				results = append(results, ComplianceScanResult{
-					Framework:         cwc.Framework,
-					ControlSet:        cwc.ControlSet,
-					Control:           cwc.Control,
-					Check:             cwc.Check.ID,
-					Passed:            status == VerdictPass,
-					Status:            status,
-					Error:             errText,
-					ControlID:         cwc.controlID,
-					FrameworkVersion:  fw.Version,
-					CheckName:         cwc.Check.Name,
-					PolicyVersion:     req.PolicyVersion,
-					ALE:               roundMoney(risk.ALE, reportingCurrency),
-					VaR95:             roundMoney(risk.VaR95, reportingCurrency),
-					TVaR:              roundMoney(risk.TVaR, reportingCurrency),
-					CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
-					Currency:          reportingCurrency,
-					Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
-					ScanTimestamp:     now,
-					CalibrationSource: "industry-indicative",
-				})
 			}
+
+			seed := checkSeed(cwc.Check.ID)
+			risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
+
+			results = append(results, ComplianceScanResult{
+				Framework:         cwc.Framework,
+				ControlSet:        cwc.ControlSet,
+				Control:           cwc.Control,
+				Check:             cwc.Check.ID,
+				Passed:            status == VerdictPass,
+				Status:            status,
+				Error:             errText,
+				ControlID:         cwc.controlID,
+				FrameworkVersion:  fw.Version,
+				CheckName:         cwc.Check.Name,
+				PolicyVersion:     req.PolicyVersion,
+				ALE:               roundMoney(risk.ALE, reportingCurrency),
+				VaR95:             roundMoney(risk.VaR95, reportingCurrency),
+				TVaR:              roundMoney(risk.TVaR, reportingCurrency),
+				CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
+				Currency:          reportingCurrency,
+				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
+				ScanTimestamp:     now,
+				CalibrationSource: "industry-indicative",
+			})
 		}
 	}
 
@@ -278,12 +318,16 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 			case VerdictPass:
 				summary.Passed++
 				continue
+			case VerdictNotEvaluated:
+				// A placeholder has no verdict: neither failed, errored nor exposure.
+				summary.NotEvaluated++
+				continue
 			case VerdictError:
 				summary.Errored++
 			default:
 				summary.Failed++
 			}
-			// Exposure is conservative: an unevaluated control is not assumed safe.
+			// Exposure is conservative: an errored control is not assumed safe.
 			summary.TotalExposure += r.CarriedGBP
 		}
 	}
@@ -345,4 +389,73 @@ func checkSeed(id string) uint64 {
 
 func roundMoney(v float64, c money.Currency) float64 {
 	return money.Money{Amount: v, Currency: c}.Round().Amount
+}
+
+// writeFrameworkError reports frameworks a scan could not evaluate.
+// `framework` names them all (", "-joined); `frameworks` lists them.
+func writeFrameworkError(w http.ResponseWriter, code int, kind string, fws []string, policyVersion, detail string) {
+	body := map[string]any{
+		"error":         kind,
+		"framework":     strings.Join(fws, ", "),
+		"frameworks":    fws,
+		"policyVersion": policyVersion,
+	}
+	if detail != "" {
+		body["detail"] = detail
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(body)
+}
+
+// selectPack loads every version directory of a framework and returns the ONE
+// a scan evaluates: the pack whose version equals policyVersion, otherwise the
+// newest pack by version order. Every directory is loaded, so a pack that
+// fails to load fails the selection rather than being silently skipped.
+func selectPack(policyRoot, fwID string, dirs []string, policyVersion string) (*frameworks.Framework, error) {
+	var newest *frameworks.Framework
+	var newestDir string
+	for _, dir := range dirs {
+		fw, err := frameworks.Load(policyRoot, fwID, dir)
+		if err != nil {
+			return nil, err
+		}
+		if policyVersion != "" && fw.Version == policyVersion {
+			return fw, nil
+		}
+		if newest == nil {
+			newest, newestDir = fw, dir
+			continue
+		}
+		c := compareVersions(fw.Version, newest.Version)
+		if c > 0 || (c == 0 && dir > newestDir) {
+			newest, newestDir = fw, dir
+		}
+	}
+	if newest == nil {
+		return nil, fmt.Errorf("framework %s has no version directories", fwID)
+	}
+	return newest, nil
+}
+
+// compareVersions orders semver-ish strings ("v2.10.0" > "v2.9.0"): an
+// optional leading v, dot-separated segments compared numerically when both
+// are integers and lexically otherwise; a shorter prefix sorts first.
+func compareVersions(a, b string) int {
+	as := strings.Split(strings.TrimPrefix(a, "v"), ".")
+	bs := strings.Split(strings.TrimPrefix(b, "v"), ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aerr := strconv.Atoi(as[i])
+		bn, berr := strconv.Atoi(bs[i])
+		var c int
+		if aerr == nil && berr == nil {
+			c = cmp.Compare(an, bn)
+		} else {
+			c = strings.Compare(as[i], bs[i])
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
 }

@@ -8,6 +8,6 @@
     "request": {}
   },
   "expect": {
-    "nis2-supply-chain-risk": "fail"
+    "nis2-supply-chain-risk": "not_evaluated"
   }
 }

@@ -49,7 +49,7 @@ type conformancePack struct {
 func (p *conformancePack) label() string { return p.fw.ID + "/" + filepath.Base(p.dir) }
 
 func (p *conformancePack) placeholder(id string) bool {
-	return p.fw.Status == "placeholder" || p.checks[id].Status == "placeholder"
+	return isPlaceholder(p.fw.Status, p.checks[id].Status)
 }
 
 func conformancePolicyRoot(t *testing.T) string {
@@ -170,15 +170,25 @@ func validatePack(p *conformancePack) []string {
 		for id, v := range f.Expect {
 			if _, ok := p.checks[id]; !ok {
 				problems = append(problems, fmt.Sprintf("%s: expects unknown check %q", where, id))
+				continue
+			}
+			placeholder := p.placeholder(id)
+			if placeholder && v != VerdictNotEvaluated {
+				problems = append(problems, fmt.Sprintf("%s: placeholder check %q must expect not_evaluated, not %q", where, id, v))
+				continue
 			}
 			switch v {
+			case VerdictNotEvaluated:
+				if !placeholder {
+					problems = append(problems, fmt.Sprintf("%s: check %q is not a placeholder: not_evaluated is not a valid expectation", where, id))
+				}
 			case VerdictPass, VerdictFail:
 			case VerdictError:
 				if strings.TrimSpace(f.Description) == "" {
 					problems = append(problems, fmt.Sprintf("%s: error expectation for %q needs a description saying why", where, id))
 				}
 			default:
-				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail or error", where, v, id))
+				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail, error or not_evaluated", where, v, id))
 			}
 		}
 		if f.Level == "integration" {
@@ -195,6 +205,14 @@ func validatePack(p *conformancePack) []string {
 // coverageGaps lists non-placeholder checks lacking a pass or a fail fixture.
 func coverageGaps(p *conformancePack) []string {
 	var gaps []string
+	if len(p.fixtures) == 0 {
+		for _, id := range p.order {
+			if !p.placeholder(id) {
+				gaps = append(gaps, fmt.Sprintf("%s: pack has no fixtures but has non-placeholder check %q", p.label(), id))
+				break
+			}
+		}
+	}
 	for _, id := range p.order {
 		if p.placeholder(id) {
 			continue
@@ -229,6 +247,10 @@ func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) m
 	for id := range f.Expect {
 		chk, ok := p.checks[id]
 		if !ok {
+			continue
+		}
+		if p.placeholder(id) {
+			out[id] = checkOutcome{verdict: VerdictNotEvaluated}
 			continue
 		}
 		passed, _, err := eng.Evaluate(context.Background(), chk.CELExpression, in)
@@ -277,12 +299,73 @@ func TestConformance_FixturesWellFormed(t *testing.T) {
 
 func TestConformance_Coverage(t *testing.T) {
 	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
-		if len(p.fixtures) == 0 {
-			continue
-		}
 		for _, gap := range coverageGaps(p) {
 			t.Error(gap)
 		}
+	}
+}
+
+// versionSelectionProblems runs, for every pack, a scan of its framework at
+// policyVersion = the pack's version, and requires the rows to be exactly that
+// directory's checks carrying that version: no foreign directory, no
+// duplicate, none missing.
+func versionSelectionProblems(packs []*conformancePack, scan func(fwID, policyVersion string) ([]ComplianceScanResult, error)) []string {
+	var problems []string
+	for _, p := range packs {
+		where := p.fw.ID + "@" + p.fw.Version
+		results, err := scan(p.fw.ID, p.fw.Version)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", where, err))
+			continue
+		}
+		want := map[string]bool{}
+		for _, id := range p.order {
+			for _, v := range p.checks[id].PolicyVersions {
+				if v == p.fw.Version {
+					want[id] = true
+				}
+			}
+		}
+		count := map[string]int{}
+		for _, r := range results {
+			if r.Framework != p.fw.ID || r.FrameworkVersion != p.fw.Version {
+				problems = append(problems, fmt.Sprintf("%s: row %q from %s", where, r.Check, r.FrameworkVersion))
+				continue
+			}
+			count[r.Check]++
+		}
+		for id, n := range count {
+			if n > 1 {
+				problems = append(problems, fmt.Sprintf("%s: check %q reported %d times", where, id, n))
+			}
+			if !want[id] {
+				problems = append(problems, fmt.Sprintf("%s: check %q does not carry %s", where, id, p.fw.Version))
+			}
+		}
+		for id := range want {
+			if count[id] == 0 {
+				problems = append(problems, fmt.Sprintf("%s: check %q missing", where, id))
+			}
+		}
+	}
+	sort.Strings(problems)
+	return problems
+}
+
+// Audit H1/H2 through the real handleScan: each framework × each pack version
+// present selects exactly that pack's directory.
+func TestConformance_VersionSelection(t *testing.T) {
+	root := conformancePolicyRoot(t)
+	h, err := newComplianceHandler(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan := func(fwID, pv string) ([]ComplianceScanResult, error) {
+		raw, _ := json.Marshal(map[string]any{"frameworks": []string{fwID}, "policyVersion": pv})
+		return handlerTransport{h}.scan(raw)
+	}
+	for _, problem := range versionSelectionProblems(loadConformancePacks(t, root), scan) {
+		t.Error(problem)
 	}
 }
 
@@ -382,6 +465,103 @@ func TestConformanceHarness_CoverageNeedsPassAndFail(t *testing.T) {
 	p.fw.Status = "placeholder"
 	if gaps := coverageGaps(p); len(gaps) != 0 {
 		t.Errorf("placeholder pack still gated: %v", gaps)
+	}
+}
+
+// CONFORMANCE rule 5: a pack with any non-placeholder check and no fixtures at
+// all fails coverage; an all-placeholder pack with no fixtures does not.
+func TestConformanceHarness_PackWithoutFixturesFailsCoverage(t *testing.T) {
+	p := syntheticPack()
+	if gaps := strings.Join(coverageGaps(p), "\n"); !strings.Contains(gaps, "synthetic/v1.0: pack has no fixtures") {
+		t.Errorf("fixture-less pack passed coverage:\n%s", gaps)
+	}
+	p.fw.Status = "placeholder"
+	if gaps := coverageGaps(p); len(gaps) != 0 {
+		t.Errorf("fixture-less placeholder pack gated: %v", gaps)
+	}
+}
+
+// versionSelectionProblems must catch a scanner that evaluates more than the
+// one selected directory (the audit H1/H2 defect).
+func TestConformanceHarness_VersionSelectionDetectsMultiDirectoryScan(t *testing.T) {
+	packs := loadConformancePacks(t, throwawayRoot(t))
+	allDirs := func(fwID, _ string) ([]ComplianceScanResult, error) {
+		var out []ComplianceScanResult
+		for _, p := range packs {
+			for _, id := range p.order {
+				out = append(out, ComplianceScanResult{Framework: fwID, Check: id, FrameworkVersion: p.fw.Version})
+			}
+		}
+		return out, nil
+	}
+	problems := strings.Join(versionSelectionProblems(packs, allDirs), "\n")
+	if want := `throwaway@v1.0.0: row "agent-registered" from v2.0.0`; !strings.Contains(problems, want) {
+		t.Errorf("missed %q in:\n%s", want, problems)
+	}
+
+	// Right directory, but a check reported twice and one missing.
+	dupAndMissing := func(fwID, pv string) ([]ComplianceScanResult, error) {
+		r := ComplianceScanResult{Framework: fwID, Check: "agent-registered", FrameworkVersion: pv}
+		return []ComplianceScanResult{r, r}, nil
+	}
+	problems = strings.Join(versionSelectionProblems(packs, dupAndMissing), "\n")
+	for _, want := range []string{
+		`throwaway@v1.0.0: check "agent-registered" reported 2 times`,
+		`throwaway@v1.0.0: check "object-non-root" missing`,
+	} {
+		if !strings.Contains(problems, want) {
+			t.Errorf("missed %q in:\n%s", want, problems)
+		}
+	}
+	if got := versionSelectionProblems(packs, func(fwID, pv string) ([]ComplianceScanResult, error) {
+		var out []ComplianceScanResult
+		for _, p := range packs {
+			if p.fw.Version == pv {
+				for _, id := range p.order {
+					out = append(out, ComplianceScanResult{Framework: fwID, Check: id, FrameworkVersion: pv})
+				}
+			}
+		}
+		return out, nil
+	}); len(got) != 0 {
+		t.Errorf("correct scanner flagged: %v", got)
+	}
+}
+
+// A placeholder check is expected not_evaluated, and only a placeholder check
+// may be: pass/fail/error for a placeholder, or not_evaluated for a real
+// check, are both rejected.
+func TestConformanceHarness_PlaceholderVerdicts(t *testing.T) {
+	p := syntheticPack()
+	ph := p.checks["strict-read"]
+	ph.Status = "placeholder"
+	p.checks["strict-read"] = ph
+
+	for _, v := range []Verdict{VerdictPass, VerdictFail, VerdictError} {
+		p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"strict-read": v})}
+		p.fixtures[0].Description = "why"
+		if !strings.Contains(strings.Join(validatePack(p), "\n"), `placeholder check "strict-read" must expect not_evaluated`) {
+			t.Errorf("placeholder expecting %s accepted", v)
+		}
+	}
+	p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"non-root": VerdictNotEvaluated})}
+	if !strings.Contains(strings.Join(validatePack(p), "\n"), `check "non-root" is not a placeholder: not_evaluated`) {
+		t.Error("not_evaluated accepted for a non-placeholder check")
+	}
+	p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"strict-read": VerdictNotEvaluated})}
+	if problems := validatePack(p); len(problems) != 0 {
+		t.Errorf("not_evaluated for a placeholder rejected: %v", problems)
+	}
+
+	eng, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// strict-read would error on this input; as a placeholder it is not evaluated.
+	f := fixture("a", "unit", map[string]Verdict{"strict-read": VerdictNotEvaluated})
+	f.Input.Object = map[string]any{"spec": map[string]any{}}
+	if got := evaluateFixture(eng, p, f)["strict-read"]; got.verdict != VerdictNotEvaluated || got.err != nil {
+		t.Errorf("placeholder evaluated: got %s (err=%v), want not_evaluated", got.verdict, got.err)
 	}
 }
 

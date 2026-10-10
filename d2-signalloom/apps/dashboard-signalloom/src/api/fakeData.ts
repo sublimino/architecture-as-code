@@ -1038,7 +1038,7 @@ const nhiReport = { tenant_id: TENANT, generated_at: NOW, at_risk: 4, format: 'j
 export const initialDiscoveryWorkloads: DiscoveryWorkload[] = [
   // 1. IDP (Entra ID, Okta)
   {
-    id: `${TENANT}:disc-idp-1`,
+    id: `${TENANT}:nhi-1`,
     name: 'svc-billing-sync',
     source: 'idp',
     source_label: 'Entra ID',
@@ -1062,7 +1062,7 @@ export const initialDiscoveryWorkloads: DiscoveryWorkload[] = [
     },
   },
   {
-    id: `${TENANT}:disc-idp-2`,
+    id: `${TENANT}:nhi-2`,
     name: 'sa-datapipeline-runner',
     source: 'idp',
     source_label: 'Okta',

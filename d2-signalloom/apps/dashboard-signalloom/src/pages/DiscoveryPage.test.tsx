@@ -406,5 +406,15 @@ describe('DiscoveryPage Super Datatable', () => {
       expect(api.discovery.enroll).toHaveBeenCalledWith('test-token', 'idp-1')
     })
   })
+
+  it('opens DiscoveredWorkloadDrawer when deep-linked by workload name or suffix ID', async () => {
+    renderPage('/discovery?workload=agent-inventory-worker')
+    await screen.findByTestId('discovery-workload-name-k8s-1')
+
+    const drawer = await screen.findByTestId('discovered-workload-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-workload-name')).toHaveTextContent('agent-inventory-worker')
+    expect(screen.getByTestId('drawer-workload-id')).toHaveTextContent('k8s-1')
+  })
 })
 

@@ -85,6 +85,7 @@ describe('DiscoveredWorkloadDrawer', () => {
     expect(screen.getByTestId('drawer-workload-source')).toHaveTextContent('Entra ID')
     expect(screen.getByTestId('drawer-workload-status')).toHaveTextContent('discovered')
     expect(screen.getByTestId('drawer-workload-id')).toHaveTextContent('tenant-demo:nhi-1')
+    expect(screen.getByTestId('drawer-workload-header-namespace')).toHaveTextContent('ns:identity-entra')
     expect(screen.getByTestId('drawer-workload-namespace')).toHaveTextContent('identity-entra')
     expect(screen.getByTestId('drawer-workload-owner')).toHaveTextContent('ops@signalloom.local')
     expect(screen.getByTestId('drawer-workload-model')).toHaveTextContent('gpt-4o')

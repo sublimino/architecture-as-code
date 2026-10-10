@@ -300,13 +300,13 @@ if [[ "${MODE}" == "reset" ]]; then
 fi
 
 if [[ -n "${WORKLOAD}" ]]; then
-  wait_pods_ready "app.kubernetes.io/name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" 20 || \
-  wait_pods_ready "signalloom.ai/agent-name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" 20 || \
+  wait_pods_ready "app.kubernetes.io/name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" --for any-ready 20 || \
+  wait_pods_ready "signalloom.ai/agent-name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" --for any-ready 20 || \
     die "no running unclaimed agent named ${WORKLOAD} became ready" \
       "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -l app.kubernetes.io/name=${WORKLOAD}"
 else
-  wait_pods_ready "app.kubernetes.io/managed-by=kagent" -n "${AGENT_NAMESPACE}" 20 || \
-  wait_pods_ready "signalloom.ai/agent=true" -n "${AGENT_NAMESPACE}" 20 || \
+  wait_pods_ready "app.kubernetes.io/managed-by=kagent" -n "${AGENT_NAMESPACE}" --for any-ready 20 || \
+  wait_pods_ready "signalloom.ai/agent=true" -n "${AGENT_NAMESPACE}" --for any-ready 20 || \
     die "Agent workloads did not become ready" \
       "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -o wide"
 fi

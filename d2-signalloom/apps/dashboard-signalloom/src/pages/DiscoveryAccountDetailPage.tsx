@@ -63,7 +63,16 @@ export default function DiscoveryAccountDetailPage() {
               ? api.agents.list(token).catch(() => ({ agents: [] as AgentResponse[] }))
               : Promise.resolve({ agents: [] as AgentResponse[] }),
           ])
-          const match = workloadsRes.workloads?.find((w) => w.id === accountId || w.name === accountId)
+          let match = workloadsRes.workloads?.find(
+            (w) => w.id === accountId || w.name === accountId || w.id.endsWith(`:${accountId}`) || accountId.endsWith(`:${w.name}`),
+          )
+          if (!match) {
+            // Secondary fallback: fetch full list of workloads in case search was narrow
+            const allWorkloadsRes = await api.discovery.workloads(token, { limit: 100 }).catch(() => ({ workloads: [] }))
+            match = allWorkloadsRes.workloads?.find(
+              (w) => w.id === accountId || w.name === accountId || w.id.endsWith(`:${accountId}`) || accountId.endsWith(`:${w.name}`),
+            )
+          }
           if (match) {
             const meta = match.metadata || {}
             accountData = {

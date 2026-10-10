@@ -13,3 +13,16 @@ metadata:
     app.kubernetes.io/part-of: signalloom
     bao.controlplane.io/consumer: cardvault-agent
 automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-cardvault
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: agent-cardvault
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+    bao.controlplane.io/consumer: agent-cardvault
+automountServiceAccountToken: false
+

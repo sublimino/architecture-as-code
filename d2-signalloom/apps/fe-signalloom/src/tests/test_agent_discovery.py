@@ -344,3 +344,14 @@ def test_discovery_nhi_enroll_and_dismiss_lifecycle(monkeypatch):
         dismissed_w = next(w for w in after_dismiss["workloads"] if w["id"] == target_id)
         assert dismissed_w["discovery_state"] == "ignored"
 
+
+def test_discovery_workloads_search_by_id(monkeypatch):
+    with client_for(monkeypatch) as client:
+        # Search specifically by non-name workload ID, e.g. "tenant-a:nhi-1"
+        res = client.get("/api/v1/discovery/workloads?search=tenant-a:nhi-1", headers=bearer(token_for("alice")))
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data["workloads"]) >= 1
+        assert any(w["id"] == "tenant-a:nhi-1" for w in data["workloads"])
+
+

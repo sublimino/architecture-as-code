@@ -104,6 +104,11 @@ up() {
   kubectl create namespace fe-signalloom --dry-run=client -o yaml | kubectl apply -f -
   kubectl -n fe-signalloom apply -f "$repo_root/d2-signalloom/apps/fleet-manager/base/configmap.yaml"
 
+  # Pre-seed CiliumNetworkPolicy CRDs if not present (required by cilium-isolation-policy.yaml in fe-signalloom).
+  if [ -f "$repo_root/d2-signalloom/infra/crds/ciliumnetworkpolicies.yaml" ]; then
+    kubectl apply -f "$repo_root/d2-signalloom/infra/crds/ciliumnetworkpolicies.yaml" -f "$repo_root/d2-signalloom/infra/crds/ciliumclusterwidenetworkpolicies.yaml" >/dev/null 2>&1 || true
+  fi
+
   activate_resourceset signalloom-infra '[{"appsTenant":"fe-signalloom","artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-bao","environment":"local","tag":"latest","tenant":"inf-bao"},{"appsTenant":"fe-signalloom","artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-signalloom","environment":"local","tag":"latest","tenant":"inf-signalloom"}]'
   wait_resourceset signalloom-infra
   wait_namespace inf-bao

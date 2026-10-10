@@ -77,7 +77,22 @@ relies on a `kubernetes.io/os` nodeSelector is evaluated as Linux
 Per-container checks pass vacuously because nothing runs; pod-level checks
 still evaluate (fixture `empty-containers-vacuous`).
 
-**Missing `spec`.** Not a pod. Every spec-reading check fails closed (`has(object.spec)` guard), never `error`.
+**Missing `spec`.** Not a pod. Every spec-reading check fails closed
+(`has(object.spec)` guard), never `error` (fixture `malformed-no-spec`).
+
+This was re-examined in this pass, because `fail` is not obviously the honest
+verdict: the pack reports 16 specific violations — "no privileged containers",
+"all capabilities dropped" — for an object that has no containers to judge, and
+`error` would describe the epistemic state better. It stays `fail` for one
+decisive reason: the identical shape is a **production** input, not just a
+malformed fixture. Per [`../../CONFORMANCE.md`](../../CONFORMANCE.md) an empty
+`object` (`{}`) is bound when the scan supplies no manifest, so removing the
+guards to make a missing `spec` error would make *every* check error on *every*
+scan that carries no manifest (fixture `object-empty`). Failing closed on an
+unevidenced pod is the behaviour we want there, and a verdict rule that depends
+on how the absence arrived would be worse than either. The cost is recorded
+here rather than hidden: a no-`spec` object contributes 16 failures to exposure
+that no CEL expression actually examined.
 
 **Numbers.** JSON numbers reach CEL as `double`. `runAsUser > 0`, `hostPort != 0`
 compare int literals against doubles correctly (fixtures `root-container-uid-0`,

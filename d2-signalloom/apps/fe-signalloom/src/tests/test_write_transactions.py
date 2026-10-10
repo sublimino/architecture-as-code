@@ -349,6 +349,8 @@ class FakePostgres:
     def read_many(self, state: _State, query: str, *args: Any) -> list[dict[str, Any]]:
         if "FROM agent_compliance_results" in query or "FROM governance_controls" in query:
             return []
+        if "FROM agent_registry" in query and "policy_context" in query:
+            return []  # the policy scan's subject read: no agents to scan here
         raise AssertionError(f"unexpected fetch: {query}")
 
 

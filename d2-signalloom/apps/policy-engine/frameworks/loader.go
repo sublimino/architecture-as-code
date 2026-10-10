@@ -88,6 +88,23 @@ func decodeYAML(data []byte, fw *Framework) error {
 // validate rejects a pack that would evaluate checks it cannot run: a check
 // with no id cannot be reported, a duplicate id shadows another check's
 // result, and an empty expression can only ever error.
+//
+// It also rejects a MALFORMED risk or frequency triple. This is a shape
+// contract, not a calibration judgement: the loader has no opinion on whether
+// 120,000 is the right modal loss for a privileged container, and deliberately
+// never will. It does have an opinion on min > mode, on a negative loss, and on
+// a NaN — those are data errors with no defensible reading, and
+// fair.RiskTriple.Validate is the single place that definition lives.
+//
+// WHY THIS IS HERE AND NOT ONLY IN TESTS. Before this call, Validate had zero
+// production callers in the engine: fair.Simulate and fair.SimulateWithLoad do
+// not call it, and the loader did not either. An adversarial audit injected
+// freqTriple{min: 4, mode: 1.5, max: 0.5} and riskTriple{min: -100000, ...}
+// into a shipped pack and every pack test passed, with the malformed values
+// flowing straight into samplePERT — where span<=0 silently returns min (so an
+// inverted triple prices at its own maximum) and a negative min is clamped to
+// zero per draw rather than reported. A pack that cannot be priced honestly
+// must fail to load, loudly, at the boundary.
 func validate(fw *Framework) error {
 	seen := map[string]string{}
 	for _, cs := range fw.ControlSets {
@@ -102,6 +119,12 @@ func validate(fw *Framework) error {
 				seen[chk.ID] = ctrl.ID
 				if strings.TrimSpace(chk.CELExpression) == "" {
 					return fmt.Errorf("control %q check %q has empty celExpression", ctrl.ID, chk.ID)
+				}
+				if err := chk.RiskTriple.Validate(fmt.Sprintf("control %q check %q riskTriple", ctrl.ID, chk.ID)); err != nil {
+					return err
+				}
+				if err := chk.FreqTriple.Validate(fmt.Sprintf("control %q check %q freqTriple", ctrl.ID, chk.ID)); err != nil {
+					return err
 				}
 			}
 		}

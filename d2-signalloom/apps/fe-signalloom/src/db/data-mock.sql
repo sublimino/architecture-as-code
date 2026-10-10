@@ -179,7 +179,7 @@ INSERT INTO public.agent_registry (
     'active', '2026-07-08 13:00:00+00', 'not_classified',
     '2026-05-01 11:30:00+00', '2026-07-19 08:15:00+00'
 )
-ON CONFLICT (name) DO UPDATE SET
+ON CONFLICT (tenant_id, name) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description = EXCLUDED.description,
     version = EXCLUDED.version,

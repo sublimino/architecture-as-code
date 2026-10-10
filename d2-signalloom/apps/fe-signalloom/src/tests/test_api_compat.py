@@ -442,8 +442,15 @@ def test_policy_scan_without_the_engine_reports_nothing_rather_than_a_db_verdict
                     "framework_version": "v1.8.0",
                 }]
             if "FROM agent_registry" in query:
+                # H1: cis-kubernetes reads only ``object``, so an agent with no
+                # recorded workload is never sent to it -- and then the engine
+                # is never asked, which is not the path under test here.
                 return [{"id": uuid.UUID("a0000000-0000-0000-0000-000000000001"), "name": "a",
-                         "model_approved": None, "policy_context": None, "workload_spec": None}]
+                         "model_approved": None, "policy_context": None,
+                         "workload_spec": json.dumps({
+                             "apiVersion": "v1", "kind": "Pod",
+                             "metadata": {"name": "a", "namespace": "agents"},
+                             "spec": {"containers": [{"name": "runtime", "image": "i"}]}})}]
             return []  # auth and binding reads
 
     class PolicyPool:

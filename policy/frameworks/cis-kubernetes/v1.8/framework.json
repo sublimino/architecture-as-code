@@ -347,8 +347,8 @@
             {
               "id": "no-host-ports",
               "name": "No host ports",
-              "description": "No container port sets a non-zero hostPort. With spec.hostNetwork: true the API server defaults hostPort to containerPort, so any declared port on a hostNetwork pod is a host port and fails.",
-              "celExpression": "has(object.spec) && (((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !has(c.ports) || c.ports.all(p, !(has(p.hostPort) && p.hostPort != 0) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true))))",
+              "description": "No container port sets a non-zero hostPort, and spec.hostNetwork is not true. The hostNetwork test sits outside the ports loop on purpose: a hostNetwork pod shares the host network namespace, so every port its processes bind is a host port whether or not the spec declares one, and the API server defaults hostPort to containerPort for any port it does declare. Declaring no ports is therefore not a defence, and a hostNetwork pod fails even with no ports.",
+              "celExpression": "has(object.spec) && (!(has(object.spec.hostNetwork) && object.spec.hostNetwork == true) && ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !has(c.ports) || c.ports.all(p, !(has(p.hostPort) && p.hostPort != 0))))",
               "severity": "medium",
               "remediation": "Remove hostPort from container ports and expose the workload through a Service.",
               "riskTriple": {

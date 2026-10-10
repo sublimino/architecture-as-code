@@ -203,17 +203,17 @@
         "max": 100000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 59587.65,
-      "var95": 134743.31,
-      "tvar": 163883.96,
-      "carried": 180272.35,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 59791.67,
-      "aleSigma": -0.542
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "no-host-network",
@@ -224,17 +224,17 @@
         "max": 100000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 60074.23,
-      "var95": 135603.15,
-      "tvar": 163355.12,
-      "carried": 179690.63,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 59791.67,
-      "aleSigma": 0.75
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "no-host-pid",
@@ -245,17 +245,17 @@
         "max": 100000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 60225.38,
-      "var95": 134794.37,
-      "tvar": 160500.27,
-      "carried": 176550.3,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 59791.67,
-      "aleSigma": 1.151
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "no-privilege-escalation",

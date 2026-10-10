@@ -71,7 +71,13 @@ The three original checks keep their IDs and field paths.
 - `registered-model-registry-entry` sits under AIR-PREV-010. That
   mitigation's guidance includes "Keep an up-to-date inventory of all deployed
   AI models, their specific pinned versions, and their business owners". The
-  catalogue has no separate model-registry mitigation.
+  catalogue has no separate model-registry mitigation. Re-checked against all
+  25 mitigations at a149dd1e after the cross-vendor audit questioned the fit
+  (pinning is not registration): AIR-PREV-010 is the only one whose text
+  covers a model inventory (its "Maintain an Inventory and Conduct Regular
+  Audits" action, and its NIST `cm-8` System Component Inventory reference).
+  AIR-PREV-012's "Data Asset Inventory" covers data assets, not deployed
+  models. The check stays under AIR-PREV-010.
 - `prompt-injection-guardrail-active` sits under AIR-PREV-003. Its "User Input
   to the AI Model" control names prompt injection directly.
 - `decision-explainability-metadata` sits under AIR-DET-021.

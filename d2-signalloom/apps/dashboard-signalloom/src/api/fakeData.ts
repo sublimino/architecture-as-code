@@ -288,8 +288,10 @@ function listAgents(): AgentListResponse {
 function readAgent(path: string): AgentResponse | undefined {
   const agentId = readAgentId(path)
   if (!agentId) return undefined
+  if (agentId === 'agent-cardvault' || agentId.endsWith(':agent-cardvault')) return undefined
   const record = findDemoAgent(agentId)
   if (record) return cloneAgent(record.agent)
+  if (agentId.includes('missing') || agentId === 'unknown') return undefined
   // Dynamic fallback for arbitrary agent names, custom slugs, and UUIDs in demo mode
   return cloneAgent(agent(agentId, agentId, 'active', 'limited', { failing: 1, passing: 9, posture_score: 85 }))
 }

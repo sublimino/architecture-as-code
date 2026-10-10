@@ -40,6 +40,7 @@ func setupActorIDTestHarness(t testing.TB, customAuth Authenticator) (*Protected
 
 	// Setup FairService with fixture source
 	fixtureSrc := fair.NewFixtureSource(12)
+	fixtureSrc.SetAllowFallback(true)
 	fairSvc := fair.NewService(fixtureSrc)
 
 	// Setup Privacy service

@@ -468,6 +468,7 @@ func TestLabelAllowList_RefusesIdentifierKeys(t *testing.T) {
 	forbidden := []string{
 		"user", "username", "email", "sub", "subject", "caller", "ip",
 		"src_ip", "actor", "principal", "client_id", "upn", "mail", "phone",
+		"domain", "sni",
 	}
 	for _, k := range forbidden {
 		if IsAllowedLabelKey(k) {

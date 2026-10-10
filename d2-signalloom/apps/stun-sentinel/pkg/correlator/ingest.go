@@ -49,7 +49,7 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 	// Only the sentinel's own keys. Pod labels are chosen by whoever deploys
 	// the pod, so they are attacker-influenced and must not ride along (review
 	// M5), and signal-ingest's segment store admits a closed key set (M4).
-	labels := make(map[string]string, 8)
+	labels := make(map[string]string, 9)
 	for k, v := range map[string]string{
 		"syscall": o.Syscall, "target": o.Target, "pod_name": o.PodName,
 		"namespace": o.Namespace, "tenant_id": o.TenantID, "severity": o.Severity,
@@ -57,6 +57,17 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 	} {
 		if v != "" {
 			labels[k] = v
+		}
+	}
+	if o.Domain != "" {
+		tenant := o.TenantID
+		if tenant == "" {
+			tenant = UnattributedTenantID
+		}
+		if p := GetDefaultPseudonymiser(); p != nil {
+			if pseudo, err := p.Pseudonym(tenant, o.Domain); err == nil && pseudo != "" {
+				labels["domain_pseudonym"] = pseudo
+			}
 		}
 	}
 	actor := o.ActorID

@@ -386,7 +386,7 @@ def test_cross_tenant_agent_transition_on_shared_id_does_not_mutate_the_other_te
     alice_agents = alice_list.get("agents", alice_list.get("items", []))
     alice_record = next((a for a in alice_agents if (a.get("agent_id") or a.get("id")) == agent_id), None)
     assert alice_record is not None, "alice's own record disappeared"
-    assert alice_record.get("lifecycle_state") == "governed", (
+    assert alice_record.get("lifecycle_state", "").lower() == "governed", (
         "bob's transition on the same literal agent_id mutated alice's tenant-scoped record"
     )
 

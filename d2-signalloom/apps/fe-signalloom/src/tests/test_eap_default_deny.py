@@ -54,6 +54,7 @@ EAP_PATH_PREFIXES = ("/api/v1/eap/", "/api/v1/environments")
 #: ``test_no_oidc_callback_route_is_mounted`` keeps that claim honest.
 ANONYMOUS_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/health"): "liveness probe for the kubelet and load balancer; returns a constant",
+    ("GET", "/api/health"): "liveness probe alias under /api prefix; returns a constant",
     ("GET", "/livez"): "process/event-loop probe; touches no dependency and returns a constant",
     ("GET", "/readyz"): "readiness probe; reports PostgreSQL/Redis state only, no tenant data",
     ("GET", "/openapi.json"): "FastAPI schema document; describes routes, carries no data",

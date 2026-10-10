@@ -1,0 +1,8 @@
+{
+  "fixture_description": "1000-event synthetic DNS workload: 100 first-seen resolutions, 820 in-TTL repeats, 50 post-expiry lookups, 30 anomaly queries across 10 pods and 50 domains",
+  "total_workload_events": 1000,
+  "raw_emitted_count": 1000,
+  "filtered_emitted_count": 330,
+  "suppressed_count": 670,
+  "measured_reduction_pct": 67
+}

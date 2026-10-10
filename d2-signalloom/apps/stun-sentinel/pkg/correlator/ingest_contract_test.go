@@ -35,6 +35,7 @@ func sampleObservation() TelemetryObservation {
 		Namespace:      "fe-signalloom-agents",
 		Syscall:        SyscallNameOpenat,
 		Target:         "/etc/passwd",
+		Domain:         "api.anthropic.com",
 		Severity:       SeverityCritical,
 		CgroupPath:     "/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable-pod771fb437.slice",
 		DirectReaction: ReactionCgroupFrozen,
@@ -138,8 +139,11 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	o := sampleObservation()
 	o.Labels = map[string]string{"syscall": "forged", "tenant_id": "other-tenant", "evil": "x"}
 	got := o.toIngest().Labels
-	want := map[string]bool{"syscall": true, "target": true, "pod_name": true, "namespace": true,
-		"tenant_id": true, "severity": true, "direct_reaction": true, "cgroup_path": true}
+	want := map[string]bool{
+		"syscall": true, "target": true, "pod_name": true, "namespace": true,
+		"tenant_id": true, "severity": true, "direct_reaction": true, "cgroup_path": true,
+		"domain_pseudonym": true,
+	}
 	for k := range got {
 		if !want[k] {
 			t.Fatalf("wire label %q is not a sentinel key; pod labels must not reach signal-ingest (%v)", k, got)
@@ -147,6 +151,12 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	}
 	if got["syscall"] != SyscallNameOpenat || got["tenant_id"] != "kusari" {
 		t.Fatalf("a pod label overrode a sentinel key: %v", got)
+	}
+	if got["domain_pseudonym"] == "" || !IsPseudonym(got["domain_pseudonym"]) {
+		t.Fatalf("domain_pseudonym = %q, want valid 64-character hex pseudonym", got["domain_pseudonym"])
+	}
+	if _, exists := got["domain"]; exists {
+		t.Fatalf("cleartext domain label leaked to wire: %v", got)
 	}
 }
 

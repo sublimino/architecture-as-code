@@ -2,16 +2,16 @@
   "id": "nist-800-53",
   "name": "NIST 800-53",
   "version": "v2.0.0",
-  "description": "Standard tier — defence-in-depth access control, integrity, and audit",
+  "description": "Standard tier \u2014 defence-in-depth access control, integrity, and audit",
   "controlSets": [
     {
       "id": "ac-access-control",
-      "name": "AC — Access Control",
+      "name": "AC \u2014 Access Control",
       "controls": [
         {
           "id": "ac-1-non-root",
           "name": "Containers run as non-root",
-          "description": "AC-6: Principle of least privilege — containers must not run as root",
+          "description": "AC-6: Principle of least privilege \u2014 containers must not run as root",
           "checks": [
             {
               "id": "container-run-as-non-root",
@@ -145,6 +145,20 @@
               "policyVersions": [
                 "v2.0.0"
               ]
+            },
+            {
+              "id": "no-host-ipc",
+              "name": "Host IPC namespace not shared",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostIPC) && object.spec.hostIPC == true)",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 90000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ],
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names."
             }
           ]
         }
@@ -152,7 +166,7 @@
     },
     {
       "id": "cm-config-mgmt",
-      "name": "CM — Configuration Management",
+      "name": "CM \u2014 Configuration Management",
       "controls": [
         {
           "id": "cm-1-app-label",
@@ -278,7 +292,7 @@
     },
     {
       "id": "sc-system-comms",
-      "name": "SC — System & Communications Protection",
+      "name": "SC \u2014 System & Communications Protection",
       "controls": [
         {
           "id": "sc-1-drop-capabilities",
@@ -384,7 +398,7 @@
     },
     {
       "id": "si-system-integrity",
-      "name": "SI — System & Information Integrity",
+      "name": "SI \u2014 System & Information Integrity",
       "controls": [
         {
           "id": "si-1-image-digest",
@@ -491,7 +505,7 @@
     },
     {
       "id": "au-audit",
-      "name": "AU — Audit & Accountability",
+      "name": "AU \u2014 Audit & Accountability",
       "controls": [
         {
           "id": "au-1-audit-label",

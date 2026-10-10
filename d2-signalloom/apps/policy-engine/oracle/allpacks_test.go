@@ -145,11 +145,12 @@ var apkGroupTemplates = []apkGroupTemplate{
 	},
 	{
 		name: "hostNamespaces",
-		ours: []string{"no-host-network", "no-host-pid"},
+		ours: []string{"no-host-network", "no-host-pid", "no-host-ipc"},
 		psa:  []psapolicy.CheckID{"hostNamespaces"},
-		note: "baseline. nist-800-53 v2.0 only. PSA judges hostNetwork, hostPID and hostIPC as one check; " +
-			"this pack has no hostIPC check at all, so the group is a 2-of-3 cover and the gap is visible " +
-			"as a divergence on apk-probe-host-ipc-only.",
+		note: "baseline. nist-800-53 v2.0 only. PSA judges hostNetwork, hostPID and hostIPC as one " +
+			"check, and this pack now has all three: V3 built the no-host-ipc check and proved it but " +
+			"could not land it (a Go test pinned the check count and this group mapped two names), so " +
+			"the lead added it and widened the group. apk-probe-host-ipc-only now agrees.",
 	},
 	{
 		name: "seccompProfile",

@@ -195,6 +195,27 @@
       "aleSigma": 1.592
     },
     {
+      "check": "no-host-ipc",
+      "seed": 13307746948461300716,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.5,
+        "max": 4
+      },
+      "ale": 59587.65,
+      "var95": 134743.31,
+      "tvar": 163883.96,
+      "carried": 180272.35,
+      "tailDominated": false,
+      "analyticAle": 59791.67,
+      "aleSigma": -0.542
+    },
+    {
       "check": "no-privilege-escalation",
       "seed": 2576653535541714086,
       "riskTriple": {

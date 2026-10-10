@@ -191,6 +191,7 @@
     "network-boundary-enforcement": "fail",
     "anomaly-detection-telemetry": "fail",
     "image-digest": "fail",
-    "trusted-registry": "fail"
+    "trusted-registry": "fail",
+    "no-host-ipc": "pass"
   }
 }

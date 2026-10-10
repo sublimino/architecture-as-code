@@ -184,6 +184,7 @@
     "drop-all-capabilities": "pass",
     "read-only-rootfs": "pass",
     "image-digest-required": "pass",
-    "audit-label": "pass"
+    "audit-label": "pass",
+    "no-host-ipc": "pass"
   }
 }

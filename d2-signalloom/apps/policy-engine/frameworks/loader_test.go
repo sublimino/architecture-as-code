@@ -554,8 +554,23 @@ func TestLoad_RejectsLegacyYAMLShape(t *testing.T) {
 	if err == nil {
 		t.Fatal("legacy YAML shape loaded silently")
 	}
-	if !strings.Contains(err.Error(), "framework") {
+	if !strings.Contains(err.Error(), "field framework not found") {
 		t.Fatalf("error should name the unknown key, got %v", err)
+	}
+}
+
+func TestLoad_RejectsUnknownYAMLField(t *testing.T) {
+	body := "id: x\nname: X\ncontrolSets:\n  - id: cs\n    controls:\n      - id: c1\n        checks:\n          - id: ok\n            celExpression: \"true\"\n            rsikTriple: {min: 1, mode: 2, max: 3}\n"
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": body}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), "rsikTriple") {
+		t.Fatalf("want unknown-field error naming rsikTriple, got %v", err)
+	}
+}
+
+func TestLoad_RejectsTrailingJSON(t *testing.T) {
+	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": canonicalJSON + `{"id":"y"}`}), "x", "v1.0")
+	if err == nil || !strings.Contains(err.Error(), "trailing data") {
+		t.Fatalf("want trailing-data error, got %v", err)
 	}
 }
 

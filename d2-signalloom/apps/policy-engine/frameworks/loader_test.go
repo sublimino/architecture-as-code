@@ -300,8 +300,10 @@ func TestAllRegulatoryRules_TableDrivenAllowDeny(t *testing.T) {
 		},
 		{
 			FrameworkID: "eu-ai-act", Version: "v2.1", CheckID: "resource-limits-set",
-			AllowFixture: map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "500m"}}}}}}},
-			DenyFixture:  map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{}}}}}},
+			// cpu alone is no longer an ALLOW: resource-limits-set requires both
+			// cpu and memory, because its name says "CPU and memory limits defined".
+			AllowFixture: map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "500m", "memory": "512Mi"}}}}}}},
+			DenyFixture:  map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "500m"}}}}}}},
 		},
 		{
 			FrameworkID: "eu-ai-act", Version: "v2.1", CheckID: "deployer-monitoring-active",

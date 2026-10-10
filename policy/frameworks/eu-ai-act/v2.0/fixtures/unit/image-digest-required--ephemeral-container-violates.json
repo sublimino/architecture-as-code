@@ -168,7 +168,6 @@
             "emptyDir": {}
           }
         ],
-        "replicas": 2,
         "ephemeralContainers": [
           {
             "name": "debugger",

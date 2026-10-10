@@ -334,7 +334,7 @@
             {
               "id": "min-replicas",
               "name": "At least 2 replicas specified",
-              "celExpression": "has(object.spec) && has(object.spec.replicas) && object.spec.replicas >= 2",
+              "celExpression": "false",
               "riskTriple": {
                 "min": 3000,
                 "mode": 12000,
@@ -342,7 +342,9 @@
               },
               "policyVersions": [
                 "v2.0.0"
-              ]
+              ],
+              "status": "placeholder",
+              "description": "Placeholder: replica count is a controller-level fact (Deployment/StatefulSet spec.replicas). The engine evaluates a pod spec, which never carries replicas, so this control is not evaluable here. Pod fixtures that set spec.replicas made it a fake green."
             }
           ]
         }

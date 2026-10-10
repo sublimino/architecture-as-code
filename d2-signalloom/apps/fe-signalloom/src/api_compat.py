@@ -7202,7 +7202,8 @@ async def _db_policy_scan(
                             policy_scan.worse(previous, verdict),
                             policy_scan.evidence_ref(framework, check_id, result_version),
                         )
-                    carried_gbp = float(item.get("carriedGbp", 0.0))
+                    # Integer pounds: the engine reports pence, these fields are int.
+                    carried_gbp = round(float(item.get("carriedGbp", 0.0)))
                     checks.append(
                         PolicyComplianceCheck(
                             framework=framework,
@@ -7211,9 +7212,9 @@ async def _db_policy_scan(
                             check=check_id,
                             passed=verdict == "pass",
                             policyVersion=result_version,
-                            ale=float(item.get("ale", 0.0)),
-                            var95=float(item.get("var95", 0.0)),
-                            tvar=float(item.get("tvar", 0.0)),
+                            ale=round(float(item.get("ale", 0.0))),
+                            var95=round(float(item.get("var95", 0.0))),
+                            tvar=round(float(item.get("tvar", 0.0))),
                             carriedGbp=carried_gbp,
                             carried=MoneyResponse(amount=carried_gbp, currency=REPORTING_CURRENCY),
                             currency=REPORTING_CURRENCY,

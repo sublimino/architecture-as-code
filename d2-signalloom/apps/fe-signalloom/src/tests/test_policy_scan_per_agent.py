@@ -382,6 +382,23 @@ async def test_engine_refusal_for_one_pack_is_a_failed_agent_not_an_empty_pass(d
 
 
 @pytest.mark.asyncio
+async def test_engine_money_in_pence_is_reported_in_whole_pounds(db):
+    """The engine rounds FAIR figures to the penny; these response fields are
+    integer pounds. A fractional figure used to fail validation (HTTP 500) on
+    every real scan."""
+    db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
+    result = item("cis-kubernetes", "no-root-containers", "fail")
+    result.update({"ale": 59860.07, "var95": 133551.5, "tvar": 159991.96, "carriedGbp": 175991.15})
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering([result]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    [check] = resp.json()["checks"]
+    assert (check["ale"], check["var95"], check["tvar"], check["carriedGbp"]) == (59860, 133552, 159992, 175991)
+    assert check["carried"] == {"amount": 175991, "currency": "GBP"}
+
+
+@pytest.mark.asyncio
 async def test_unmapped_checks_are_reported_but_never_stored(db):
     fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
     with respx.mock() as mock:

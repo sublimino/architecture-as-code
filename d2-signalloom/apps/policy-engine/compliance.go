@@ -1,12 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -174,46 +176,44 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
-		for _, ver := range versions {
-			fw, err := frameworks.Load(ch.policyRoot, fwID, ver)
+		fw, err := selectPack(ch.policyRoot, fwID, versions, req.PolicyVersion)
+		if err != nil {
+			slog.Error("loading framework", "framework", fwID, "error", err)
+			continue
+		}
+
+		for _, cwc := range checksWithControlIDs(fw, req.PolicyVersion) {
+			passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
+			status := verdictOf(passed, err)
+			var errText string
 			if err != nil {
-				slog.Error("loading framework", "framework", fwID, "version", ver, "error", err)
-				continue
+				errText = err.Error()
 			}
 
-			for _, cwc := range checksWithControlIDs(fw, req.PolicyVersion) {
-				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
-				status := verdictOf(passed, err)
-				var errText string
-				if err != nil {
-					errText = err.Error()
-				}
+			seed := checkSeed(cwc.Check.ID)
+			risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
 
-				seed := checkSeed(cwc.Check.ID)
-				risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
-
-				results = append(results, ComplianceScanResult{
-					Framework:         cwc.Framework,
-					ControlSet:        cwc.ControlSet,
-					Control:           cwc.Control,
-					Check:             cwc.Check.ID,
-					Passed:            status == VerdictPass,
-					Status:            status,
-					Error:             errText,
-					ControlID:         cwc.controlID,
-					FrameworkVersion:  fw.Version,
-					CheckName:         cwc.Check.Name,
-					PolicyVersion:     req.PolicyVersion,
-					ALE:               roundMoney(risk.ALE, reportingCurrency),
-					VaR95:             roundMoney(risk.VaR95, reportingCurrency),
-					TVaR:              roundMoney(risk.TVaR, reportingCurrency),
-					CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
-					Currency:          reportingCurrency,
-					Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
-					ScanTimestamp:     now,
-					CalibrationSource: "industry-indicative",
-				})
-			}
+			results = append(results, ComplianceScanResult{
+				Framework:         cwc.Framework,
+				ControlSet:        cwc.ControlSet,
+				Control:           cwc.Control,
+				Check:             cwc.Check.ID,
+				Passed:            status == VerdictPass,
+				Status:            status,
+				Error:             errText,
+				ControlID:         cwc.controlID,
+				FrameworkVersion:  fw.Version,
+				CheckName:         cwc.Check.Name,
+				PolicyVersion:     req.PolicyVersion,
+				ALE:               roundMoney(risk.ALE, reportingCurrency),
+				VaR95:             roundMoney(risk.VaR95, reportingCurrency),
+				TVaR:              roundMoney(risk.TVaR, reportingCurrency),
+				CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
+				Currency:          reportingCurrency,
+				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
+				ScanTimestamp:     now,
+				CalibrationSource: "industry-indicative",
+			})
 		}
 	}
 
@@ -347,4 +347,56 @@ func checkSeed(id string) uint64 {
 
 func roundMoney(v float64, c money.Currency) float64 {
 	return money.Money{Amount: v, Currency: c}.Round().Amount
+}
+
+// selectPack loads every version directory of a framework and returns the ONE
+// a scan evaluates: the pack whose version equals policyVersion, otherwise the
+// newest pack by version order. Every directory is loaded, so a pack that
+// fails to load fails the selection rather than being silently skipped.
+func selectPack(policyRoot, fwID string, dirs []string, policyVersion string) (*frameworks.Framework, error) {
+	var newest *frameworks.Framework
+	var newestDir string
+	for _, dir := range dirs {
+		fw, err := frameworks.Load(policyRoot, fwID, dir)
+		if err != nil {
+			return nil, err
+		}
+		if policyVersion != "" && fw.Version == policyVersion {
+			return fw, nil
+		}
+		if newest == nil {
+			newest, newestDir = fw, dir
+			continue
+		}
+		c := compareVersions(fw.Version, newest.Version)
+		if c > 0 || (c == 0 && dir > newestDir) {
+			newest, newestDir = fw, dir
+		}
+	}
+	if newest == nil {
+		return nil, fmt.Errorf("framework %s has no version directories", fwID)
+	}
+	return newest, nil
+}
+
+// compareVersions orders semver-ish strings ("v2.10.0" > "v2.9.0"): an
+// optional leading v, dot-separated segments compared numerically when both
+// are integers and lexically otherwise; a shorter prefix sorts first.
+func compareVersions(a, b string) int {
+	as := strings.Split(strings.TrimPrefix(a, "v"), ".")
+	bs := strings.Split(strings.TrimPrefix(b, "v"), ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aerr := strconv.Atoi(as[i])
+		bn, berr := strconv.Atoi(bs[i])
+		var c int
+		if aerr == nil && berr == nil {
+			c = cmp.Compare(an, bn)
+		} else {
+			c = strings.Compare(as[i], bs[i])
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
 }

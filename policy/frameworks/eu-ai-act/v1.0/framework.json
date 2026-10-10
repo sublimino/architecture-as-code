@@ -2,7 +2,7 @@
   "id": "eu-ai-act",
   "name": "EU AI Act",
   "version": "v1.0.0",
-  "description": "Lax tier — bare minimum critical security for AI workloads. Citations are at article granularity only; the paragraph actually engaged, and every check that is a proxy rather than evidence, is named in each control set's description and in the citation table in ../README.md. Verified against CELEX 32024R1689.",
+  "description": "Lax tier — bare minimum critical security for AI workloads. Citations are at article granularity only; the paragraph actually engaged, and every check that is a proxy rather than evidence, is named in each control set's description and in the citation table in ../README.md. Verified against CELEX 32024R1689. UNPRICED: every check in this version declares freqTriple {min: 0, mode: 0, max: 0}, so fair.Simulate returns zero and a failing check contributes GBP 0.00 of annual loss. The riskTriple states loss magnitude only; loss-event frequency has never been calibrated for this tier. A scan of this version reports zero total exposure however many controls fail. The zeros are declared rather than omitted so the absence of pricing is visible in the pack instead of arriving as a Go zero value. Do not quote a figure from this version. v2.1 carries real frequency triples. See ../README.md, section 'Pricing'.",
   "controlSets": [
     {
       "id": "art9-risk-mgmt",
@@ -23,6 +23,11 @@
                 "min": 2000,
                 "mode": 10000,
                 "max": 50000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"
@@ -45,6 +50,11 @@
                 "mode": 15000,
                 "max": 60000
               },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
               "policyVersions": [
                 "v1.0.0"
               ]
@@ -64,6 +74,11 @@
                 "min": 5000,
                 "mode": 20000,
                 "max": 80000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"
@@ -92,6 +107,11 @@
                 "mode": 8000,
                 "max": 40000
               },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
               "policyVersions": [
                 "v1.0.0"
               ]
@@ -118,6 +138,11 @@
                 "min": 2000,
                 "mode": 12000,
                 "max": 55000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"
@@ -147,6 +172,11 @@
                 "mode": 5000,
                 "max": 30000
               },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
               "policyVersions": [
                 "v1.0.0"
               ]
@@ -173,6 +203,11 @@
                 "min": 2000,
                 "mode": 10000,
                 "max": 45000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"

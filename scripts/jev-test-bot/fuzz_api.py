@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fuzz_api.py — Concurrent stochastic backend API fuzzer with zero-500 invariants.
+"""fuzz_api.py: Concurrent stochastic backend API fuzzer with zero-500 invariants.
 
 Tests backend API routes with randomized mutation strategies derived from
 `fuzz_payloads.json`: query parameters, JSON bodies, malformed JSON, corrupted
@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 
-# ── Payload Loader ─────────────────────────────────────────────────────────
+# -- Payload Loader ---------------------------------------------------------
 
 def load_payloads() -> Dict[str, List[str]]:
     candidate = os.path.join(SCRIPT_DIR, "fuzz_payloads.json")
@@ -71,6 +71,10 @@ DEFAULT_ENDPOINTS = [
     "/api/v1/evidence",
     "/api/v1/risk/summary",
     "/api/v1/agents",
+    "/api/v1/admin/users",
+    "/api/v1/features",
+    "/api/v1/fleet/stun/agent-cardvault",
+    "/api/v1/fleet/recover",
 ]
 
 

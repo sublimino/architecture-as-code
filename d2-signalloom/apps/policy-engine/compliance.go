@@ -213,7 +213,14 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
-	inputMap := celBindings(req.workload(), req.Agent, req.Request)
+	// An object the engine cannot judge must not yield a pass. workload_shape.go
+	// normalises supported controller kinds and refuses the rest; checks that do
+	// not read the workload are unaffected.
+	shaped := shapeWorkload(req.workload())
+	if shaped.err != nil {
+		slog.Warn("scan object is not pod-shaped: object-reading checks report error", "error", shaped.err)
+	}
+	inputMap := celBindings(shaped.object, req.Agent, req.Request)
 
 	for _, sel := range packs {
 		fw := sel.fw
@@ -221,10 +228,14 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			status := VerdictNotEvaluated
 			var errText string
 			if !isPlaceholder(fw.Status, cwc.Check.Status) {
-				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
-				status = verdictOf(passed, err)
-				if err != nil {
-					errText = err.Error()
+				if v, msg, guarded := shaped.verdictFor(cwc.Check.CELExpression); guarded {
+					status, errText = v, msg
+				} else {
+					passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
+					status = verdictOf(passed, err)
+					if err != nil {
+						errText = err.Error()
+					}
 				}
 			}
 

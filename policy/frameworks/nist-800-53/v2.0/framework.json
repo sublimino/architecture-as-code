@@ -16,7 +16,7 @@
             {
               "id": "container-run-as-non-root",
               "name": "Container runs as non-root",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -36,7 +36,7 @@
             {
               "id": "no-privilege-escalation",
               "name": "Privilege escalation disabled",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
               "riskTriple": {
                 "min": 8000,
                 "mode": 40000,
@@ -56,7 +56,7 @@
             {
               "id": "no-privileged-mode",
               "name": "Privileged mode disabled",
-              "celExpression": "object.spec.containers.all(c, !c.securityContext.privileged)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
               "riskTriple": {
                 "min": 10000,
                 "mode": 50000,
@@ -76,7 +76,7 @@
             {
               "id": "no-automount-sa-token",
               "name": "Service account token auto-mount disabled",
-              "celExpression": "object.spec.automountServiceAccountToken == false",
+              "celExpression": "has(object.spec) && has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -96,7 +96,7 @@
             {
               "id": "pod-security-context",
               "name": "Pod security context present",
-              "celExpression": "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true",
+              "celExpression": "has(object.spec) && has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true",
               "riskTriple": {
                 "min": 5000,
                 "mode": 20000,
@@ -116,7 +116,7 @@
             {
               "id": "no-host-network",
               "name": "Host network disabled",
-              "celExpression": "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -136,7 +136,7 @@
             {
               "id": "no-host-pid",
               "name": "Host PID namespace disabled",
-              "celExpression": "!has(object.spec.hostPID) || object.spec.hostPID == false",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
               "riskTriple": {
                 "min": 5000,
                 "mode": 20000,
@@ -162,7 +162,7 @@
             {
               "id": "app-label",
               "name": "Application label exists",
-              "celExpression": "has(object.metadata.labels.app)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app)",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -182,7 +182,7 @@
             {
               "id": "version-label",
               "name": "Version label exists",
-              "celExpression": "has(object.metadata.labels.version)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.version)",
               "riskTriple": {
                 "min": 2000,
                 "mode": 8000,
@@ -202,7 +202,7 @@
             {
               "id": "resource-limits-set",
               "name": "CPU and memory limits defined",
-              "celExpression": "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits))",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -222,7 +222,7 @@
             {
               "id": "resource-requests-set",
               "name": "CPU and memory requests defined",
-              "celExpression": "object.spec.containers.all(c, has(c.resources) && has(c.resources.requests))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.requests))",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -242,7 +242,7 @@
             {
               "id": "managed-by-label",
               "name": "Managed-by label exists",
-              "celExpression": "has(object.metadata.labels.managed_by)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.managed_by)",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -262,7 +262,7 @@
             {
               "id": "env-label",
               "name": "Environment label exists",
-              "celExpression": "has(object.metadata.labels.environment)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.environment)",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -288,7 +288,7 @@
             {
               "id": "drop-all-capabilities",
               "name": "All capabilities dropped",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -308,7 +308,7 @@
             {
               "id": "read-only-rootfs",
               "name": "Read-only root filesystem",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -328,7 +328,7 @@
             {
               "id": "tls-annotation",
               "name": "TLS configuration declared",
-              "celExpression": "object.metadata.annotations.exists(k, k == 'osramp.io/tls-config')",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/tls-config' in object.metadata.annotations",
               "riskTriple": {
                 "min": 5000,
                 "mode": 20000,
@@ -348,7 +348,7 @@
             {
               "id": "seccomp-profile",
               "name": "Seccomp profile set",
-              "celExpression": "has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)",
+              "celExpression": "has(object.spec) && has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -368,7 +368,7 @@
             {
               "id": "encryption-annotation",
               "name": "Encryption at rest declared",
-              "celExpression": "object.metadata.annotations.exists(k, k == 'osramp.io/encryption-at-rest')",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/encryption-at-rest' in object.metadata.annotations",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -394,7 +394,7 @@
             {
               "id": "image-digest-required",
               "name": "Image uses sha256 digest",
-              "celExpression": "object.spec.containers.all(c, c.image.contains('@sha256:'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.image) && c.image.contains('@sha256:'))",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -414,7 +414,7 @@
             {
               "id": "trusted-registry",
               "name": "Image from trusted registry",
-              "celExpression": "object.spec.containers.all(c, c.image.startsWith('ghcr.io/') || c.image.startsWith('registry.internal/'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.image) && (c.image.startsWith('ghcr.io/') || c.image.startsWith('registry.internal/')))",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
@@ -434,7 +434,7 @@
             {
               "id": "vuln-scan-annotation",
               "name": "Vulnerability scan reference present",
-              "celExpression": "object.metadata.annotations.exists(k, k == 'osramp.io/vuln-scan-url')",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/vuln-scan-url' in object.metadata.annotations",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -454,7 +454,7 @@
             {
               "id": "liveness-probe-present",
               "name": "Liveness probe defined",
-              "celExpression": "object.spec.containers.all(c, has(c.livenessProbe))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.livenessProbe))",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -474,7 +474,7 @@
             {
               "id": "readiness-probe-present",
               "name": "Readiness probe defined",
-              "celExpression": "object.spec.containers.all(c, has(c.readinessProbe))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.readinessProbe))",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -500,7 +500,7 @@
             {
               "id": "audit-label",
               "name": "Audit logging label present",
-              "celExpression": "has(object.metadata.labels.audit_logging)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.audit_logging)",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,
@@ -520,7 +520,7 @@
             {
               "id": "log-volume-mount",
               "name": "Log volume mount exists",
-              "celExpression": "object.spec.containers.all(c, c.volumeMounts.exists(v, v.mountPath.startsWith('/var/log')))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.volumeMounts) && c.volumeMounts.exists(v, has(v.mountPath) && v.mountPath.startsWith('/var/log')))",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -540,7 +540,7 @@
             {
               "id": "log-format-annotation",
               "name": "Log format declared",
-              "celExpression": "object.metadata.annotations.exists(k, k == 'osramp.io/log-format')",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/log-format' in object.metadata.annotations",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,
@@ -560,7 +560,7 @@
             {
               "id": "owner-label",
               "name": "Owner label exists",
-              "celExpression": "has(object.metadata.labels.owner)",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.owner)",
               "riskTriple": {
                 "min": 1000,
                 "mode": 5000,

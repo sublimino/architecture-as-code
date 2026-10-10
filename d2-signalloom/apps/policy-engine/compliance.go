@@ -32,8 +32,10 @@ type ComplianceScanRequest struct {
 }
 
 // workload returns the object every check reads as `object` (and `manifest`).
+// An empty object is treated as absent so `"object": {}` cannot mask a
+// non-empty manifest.
 func (req ComplianceScanRequest) workload() map[string]any {
-	if req.Object != nil {
+	if len(req.Object) > 0 {
 		return req.Object
 	}
 	return req.Manifest

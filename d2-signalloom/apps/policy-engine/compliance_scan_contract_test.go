@@ -212,6 +212,11 @@ func TestScanContract_ObjectWinsOverManifest(t *testing.T) {
 
 	onlyObject := postScan(t, contractHandler(t), contractScan(map[string]any{"object": obj}))
 	assertStatus(t, onlyObject, "manifest-name", "pass")
+
+	// An explicit empty object is absent: it must not mask a non-empty manifest.
+	emptyObject := postScan(t, contractHandler(t), contractScan(map[string]any{"object": map[string]any{}, "manifest": obj}))
+	assertStatus(t, emptyObject, "object-name", "pass")
+	assertStatus(t, emptyObject, "manifest-name", "pass")
 }
 
 // Summary: failed counts fail only, errored counts error, exposure sums every

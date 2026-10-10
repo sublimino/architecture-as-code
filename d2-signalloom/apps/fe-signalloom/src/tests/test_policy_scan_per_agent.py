@@ -163,10 +163,22 @@ def control(control_id, framework, check, tenant=EAP_TENANT_A):
 
 
 def answering(results):
-    """Engine stand-in: answer each call with the results for the packs it asked about."""
+    """Engine stand-in: answer each call with the results for the packs it asked
+    about, at the version it asked about.
+
+    The version half matters.  The real engine evaluates only the checks its
+    ``policyVersion`` selects and answers ``400 no_checks_for_framework``
+    otherwise, so a mock that filtered on the framework alone would answer a
+    scan that asked every pack at one arbitrary version -- and the test suite
+    would pass with the per-pack version lookup deleted.
+    """
     def respond(request: httpx.Request) -> httpx.Response:
-        asked = json.loads(request.content)["frameworks"]
-        return httpx.Response(200, json=[r for r in results if r["framework"] in asked])
+        body = json.loads(request.content)
+        asked, version = body["frameworks"], body["policyVersion"]
+        return httpx.Response(200, json=[
+            r for r in results
+            if r["framework"] in asked and r.get("policyVersion") == version
+        ])
     return respond
 
 
@@ -852,6 +864,31 @@ async def test_versions_that_disagree_resolve_to_the_worse_verdict(db):
         (AGENT_A, CTRL_PRIV): "fail",
         (AGENT_A, CTRL_ROOT): "error",
     }
+
+
+@pytest.mark.asyncio
+async def test_each_pack_is_asked_at_the_version_it_is_activated_at(db):
+    """L3: each pack is asked at its own ``governance_frameworks.version``; the
+    request's ``policyVersion`` is only the fallback for a pack this tenant has
+    not mapped.  Asked here with a version no pack carries, every mapped check
+    still comes back -- which only holds if the per-pack lookup is doing the
+    work, because the engine answers nothing for a version it has no checks
+    for."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    with respx.mock() as mock:
+        route = mock.post(ENGINE).mock(side_effect=answering(EVERY_CHECK_PASSES))
+        resp = await scan({**SCAN, "policyVersion": "v99.0.0"})
+
+    assert resp.status_code == 200, resp.text
+    assert sorted(json.loads(c.request.content)["policyVersion"] for c in route.calls) == [
+        "v1.0.0", "v1.8.0"]
+    data = resp.json()
+    assert (data["agentsFailed"], data["agentsScanned"]) == ([], 1)
+    assert len(data["checks"]) == len(CONTROLS)
+    # The stored evidence names the version the check was evaluated at, not the
+    # one the caller typed.
+    assert all("@v99" not in row["evidence_ref"] for row in fake.results.values())
+    assert {c["policyVersion"] for c in data["checks"]} == {"v1.0.0", "v1.8.0"}
 
 
 # --------------------------------------------------------------------------

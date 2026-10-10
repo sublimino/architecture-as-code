@@ -232,7 +232,7 @@
       "controls": [
         {
           "id": "IA-2",
-          "name": "IA-2 Identification and Authentication",
+          "name": "IA-2 Identification and Authentication (Organizational Users)",
           "checks": [
             {
               "id": "mfa-spiffe-svid-required",

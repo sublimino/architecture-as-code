@@ -1,7 +1,7 @@
 {
   "name": "root-container-nonroot-false-uid-10001",
   "level": "unit",
-  "description": "Container overrides runAsNonRoot: false but the pod runAsUser 10001 still applies: non-root.",
+  "description": "Container overrides runAsNonRoot: false while the pod sets runAsUser 10001. PSA rejects a container that sets runAsNonRoot: false regardless of the effective UID, so the check fails.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -66,7 +66,7 @@
     "no-host-ipc": "pass",
     "no-host-network": "pass",
     "no-privilege-escalation": "pass",
-    "no-root-containers": "pass",
+    "no-root-containers": "fail",
     "no-net-raw": "pass",
     "no-added-capabilities": "pass",
     "capabilities-dropped-all": "pass",

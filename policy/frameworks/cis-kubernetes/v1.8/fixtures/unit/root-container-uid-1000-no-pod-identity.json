@@ -1,7 +1,7 @@
 {
   "name": "root-container-uid-1000-no-pod-identity",
   "level": "unit",
-  "description": "Container runAsUser: 1000 (float64 1000) with no pod-level runAsUser or runAsNonRoot.",
+  "description": "Container runAsUser: 1000 (float64 1000) with no runAsNonRoot at container or pod level. PSS restricted requires runAsNonRoot: true -- it is what makes the kubelet refuse an image whose USER is root -- so a restricted namespace rejects this pod and the check fails.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -64,7 +64,7 @@
     "no-host-ipc": "pass",
     "no-host-network": "pass",
     "no-privilege-escalation": "pass",
-    "no-root-containers": "pass",
+    "no-root-containers": "fail",
     "no-net-raw": "pass",
     "no-added-capabilities": "pass",
     "capabilities-dropped-all": "pass",

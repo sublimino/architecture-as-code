@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -267,6 +268,20 @@ func WithNetlinkResolver(r *netlink.Resolver) Option {
 	}
 }
 
+// WithPresentationFilter sets the 3-tier presentation volume filter (SLWD Phase 3).
+func WithPresentationFilter(pf *PresentationFilter) Option {
+	return func(m *SentinelProbeManager) {
+		m.presentationFilter = pf
+	}
+}
+
+// WithDNSHeuristicsEngine sets the anomaly heuristics evaluation engine (SLWD Phase 2).
+func WithDNSHeuristicsEngine(engine *DNSHeuristicsEngine) Option {
+	return func(m *SentinelProbeManager) {
+		m.heuristicsEngine = engine
+	}
+}
+
 // ifindexEntry stores the pod identity mapped from a host veth interface index.
 type ifindexEntry struct {
 	PodUID     string
@@ -388,6 +403,12 @@ type SentinelProbeManager struct {
 	netlinkResolver *netlink.Resolver
 	ifindexMap      map[uint32]ifindexEntry // host ifindex -> pod & cgroup
 	ifindexMu       sync.RWMutex
+
+	// presentationFilter enforces the 3-tier presentation volume filter (SLWD Phase 3).
+	presentationFilter *PresentationFilter
+
+	// heuristicsEngine evaluates DNS and TLS anomaly heuristics (SLWD Phase 2).
+	heuristicsEngine *DNSHeuristicsEngine
 }
 
 // NewSentinelProbeManager constructs a SentinelProbeManager instance.
@@ -434,12 +455,35 @@ func NewSentinelProbeManager(informer cache.SharedIndexInformer, ingestURL strin
 		opt(m)
 	}
 
+	// Initialize default presentation filter if none was provided via options
+	if m.presentationFilter == nil {
+		m.presentationFilter = NewPresentationFilter(
+			WithPresentationFilterDNSCache(m.dnsCache),
+			WithPresentationFilterClock(m.clock),
+		)
+	}
+
 	spool, _ := NewSpool(m.spoolDir, m.spoolMaxBytes, m.spoolMaxAge, m.clock, &m.stats)
 	m.spool = spool
 	m.sender = newSender(m, spool, m.batchMax, m.batchLinger, m.clock)
 
 	m.initInformer()
 	return m
+}
+
+// PresentationFilter returns the configured PresentationFilter.
+func (m *SentinelProbeManager) PresentationFilter() *PresentationFilter {
+	return m.presentationFilter
+}
+
+// DNSCache returns the configured DNSCache.
+func (m *SentinelProbeManager) DNSCache() *DNSCache {
+	return m.dnsCache
+}
+
+// DNSHeuristicsEngine returns the configured DNSHeuristicsEngine.
+func (m *SentinelProbeManager) DNSHeuristicsEngine() *DNSHeuristicsEngine {
+	return m.heuristicsEngine
 }
 
 // initInformer registers event handlers to synchronize the pod index cache.
@@ -1057,6 +1101,47 @@ func (m *SentinelProbeManager) reportConnect(raw SyscallEvent, ev *ebpf.SyscallE
 	}
 
 	return obs, true
+}
+
+// ProcessDNSResolution records a DNS resolution in DNSCache and filters its presentation telemetry
+// using the 3-tier presentation volume defense (SLWD Phase 3).
+//
+// Returns (obs, true) if the resolution observation should be emitted (first encounter or expired),
+// or (TelemetryObservation{}, false) if suppressed by the 3-tier presentation filter.
+func (m *SentinelProbeManager) ProcessDNSResolution(
+	pod *corev1.Pod,
+	podOrCgroup string,
+	answers []net.IP,
+	ttls []uint32,
+	qname, cname string,
+) (TelemetryObservation, bool) {
+	if podOrCgroup == "" && pod != nil {
+		podOrCgroup = podKey(pod)
+	}
+
+	// 1. Insert into DNSCache (indexes every answer IP with per-record floored/ceiled TTLs)
+	if m.dnsCache != nil {
+		m.dnsCache.Insert(podOrCgroup, answers, ttls, qname, cname)
+	}
+
+	var rawTTL uint32
+	if len(ttls) > 0 {
+		rawTTL = ttls[0]
+	}
+
+	// 2. Build DNS resolution observation
+	obs := BuildDNSResolutionObservation(pod, qname, answers, m.clock)
+
+	// 3. Filter presentation (Tier 2: emit once per unique name within TTL)
+	if m.presentationFilter != nil {
+		filteredObs, emit := m.presentationFilter.FilterObservation(podOrCgroup, qname, rawTTL, obs)
+		if !emit || filteredObs == nil {
+			return TelemetryObservation{}, false
+		}
+		return *filteredObs, true
+	}
+
+	return *obs, true
 }
 
 // reportEvasiveBurst builds the telemetry observation for a detected

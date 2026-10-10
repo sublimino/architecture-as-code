@@ -8,6 +8,6 @@
     "request": {}
   },
   "expect": {
-    "dora-ict-risk-management": "fail"
+    "dora-ict-risk-management": "not_evaluated"
   }
 }

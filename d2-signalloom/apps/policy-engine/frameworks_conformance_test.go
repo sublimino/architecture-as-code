@@ -49,7 +49,7 @@ type conformancePack struct {
 func (p *conformancePack) label() string { return p.fw.ID + "/" + filepath.Base(p.dir) }
 
 func (p *conformancePack) placeholder(id string) bool {
-	return p.fw.Status == "placeholder" || p.checks[id].Status == "placeholder"
+	return isPlaceholder(p.fw.Status, p.checks[id].Status)
 }
 
 func conformancePolicyRoot(t *testing.T) string {
@@ -170,15 +170,25 @@ func validatePack(p *conformancePack) []string {
 		for id, v := range f.Expect {
 			if _, ok := p.checks[id]; !ok {
 				problems = append(problems, fmt.Sprintf("%s: expects unknown check %q", where, id))
+				continue
+			}
+			placeholder := p.placeholder(id)
+			if placeholder && v != VerdictNotEvaluated {
+				problems = append(problems, fmt.Sprintf("%s: placeholder check %q must expect not_evaluated, not %q", where, id, v))
+				continue
 			}
 			switch v {
+			case VerdictNotEvaluated:
+				if !placeholder {
+					problems = append(problems, fmt.Sprintf("%s: check %q is not a placeholder: not_evaluated is not a valid expectation", where, id))
+				}
 			case VerdictPass, VerdictFail:
 			case VerdictError:
 				if strings.TrimSpace(f.Description) == "" {
 					problems = append(problems, fmt.Sprintf("%s: error expectation for %q needs a description saying why", where, id))
 				}
 			default:
-				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail or error", where, v, id))
+				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail, error or not_evaluated", where, v, id))
 			}
 		}
 		if f.Level == "integration" {
@@ -229,6 +239,10 @@ func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) m
 	for id := range f.Expect {
 		chk, ok := p.checks[id]
 		if !ok {
+			continue
+		}
+		if p.placeholder(id) {
+			out[id] = checkOutcome{verdict: VerdictNotEvaluated}
 			continue
 		}
 		passed, _, err := eng.Evaluate(context.Background(), chk.CELExpression, in)
@@ -382,6 +396,43 @@ func TestConformanceHarness_CoverageNeedsPassAndFail(t *testing.T) {
 	p.fw.Status = "placeholder"
 	if gaps := coverageGaps(p); len(gaps) != 0 {
 		t.Errorf("placeholder pack still gated: %v", gaps)
+	}
+}
+
+// A placeholder check is expected not_evaluated, and only a placeholder check
+// may be: pass/fail/error for a placeholder, or not_evaluated for a real
+// check, are both rejected.
+func TestConformanceHarness_PlaceholderVerdicts(t *testing.T) {
+	p := syntheticPack()
+	ph := p.checks["strict-read"]
+	ph.Status = "placeholder"
+	p.checks["strict-read"] = ph
+
+	for _, v := range []Verdict{VerdictPass, VerdictFail, VerdictError} {
+		p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"strict-read": v})}
+		p.fixtures[0].Description = "why"
+		if !strings.Contains(strings.Join(validatePack(p), "\n"), `placeholder check "strict-read" must expect not_evaluated`) {
+			t.Errorf("placeholder expecting %s accepted", v)
+		}
+	}
+	p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"non-root": VerdictNotEvaluated})}
+	if !strings.Contains(strings.Join(validatePack(p), "\n"), `check "non-root" is not a placeholder: not_evaluated`) {
+		t.Error("not_evaluated accepted for a non-placeholder check")
+	}
+	p.fixtures = []conformanceFixture{fixture("a", "unit", map[string]Verdict{"strict-read": VerdictNotEvaluated})}
+	if problems := validatePack(p); len(problems) != 0 {
+		t.Errorf("not_evaluated for a placeholder rejected: %v", problems)
+	}
+
+	eng, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// strict-read would error on this input; as a placeholder it is not evaluated.
+	f := fixture("a", "unit", map[string]Verdict{"strict-read": VerdictNotEvaluated})
+	f.Input.Object = map[string]any{"spec": map[string]any{}}
+	if got := evaluateFixture(eng, p, f)["strict-read"]; got.verdict != VerdictNotEvaluated || got.err != nil {
+		t.Errorf("placeholder evaluated: got %s (err=%v), want not_evaluated", got.verdict, got.err)
 	}
 }
 

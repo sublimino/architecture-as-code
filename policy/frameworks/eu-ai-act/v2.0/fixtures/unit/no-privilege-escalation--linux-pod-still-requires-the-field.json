@@ -1,0 +1,71 @@
+{
+  "name": "no-privilege-escalation--linux-pod-still-requires-the-field",
+  "level": "unit",
+  "description": "The same pod with spec.os.name == 'linux' and the field omitted still fails. Pins that the Windows exemption is keyed on the declared OS and does not leak into Linux workloads.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "tenant-demo",
+        "labels": {
+          "data_classification": "confidential",
+          "ai_human_oversight": "required",
+          "policy_version": "v2.0.0"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "180d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "ai-ops@example.com"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {},
+        "containers": [
+          {
+            "name": "agent",
+            "image": "ghcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              }
+            }
+          }
+        ],
+        "os": {
+          "name": "linux"
+        }
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "no-privilege-escalation": "fail"
+  }
+}

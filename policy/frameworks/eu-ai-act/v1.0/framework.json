@@ -17,7 +17,8 @@
             {
               "id": "container-run-as-non-root",
               "name": "Container runs as non-root",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
+              "description": "No container may run as UID 0. An explicit runAsNonRoot: false or runAsUser: 0 is fatal at pod level and at container level; otherwise a container without its own runAsNonRoot inherits the pod value. Pod Security Admission restricted rejects a pod that sets runAsNonRoot: false at pod level even where every container overrides it to true, so a pass here means the pod is admissible, not merely that it would run non-root.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) && object.spec.securityContext.runAsUser == 0) && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == false) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, ((has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)) && !(has(c.securityContext) && has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0) && !(has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == false))",
               "riskTriple": {
                 "min": 2000,
                 "mode": 10000,
@@ -37,7 +38,8 @@
             {
               "id": "no-privilege-escalation",
               "name": "Privilege escalation disabled",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
+              "description": "Every container, init container and ephemeral container must set allowPrivilegeEscalation: false. Windows pods are exempt, as they are under Pod Security Admission: the field is a Linux-only field and a Windows pod cannot set it, so demanding it would make a conformant Windows workload impossible to satisfy.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false))",
               "riskTriple": {
                 "min": 3000,
                 "mode": 15000,

@@ -1,0 +1,75 @@
+{
+  "name": "helm-nginx-defaults",
+  "level": "integration",
+  "description": "Typical Helm-chart nginx pod with chart defaults: no securityContext anywhere, default SA token, credentials via env, default namespace.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "web-nginx-5c7b",
+        "namespace": "default",
+        "labels": {
+          "app.kubernetes.io/name": "nginx",
+          "helm.sh/chart": "nginx-15.0.0"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "default",
+        "containers": [
+          {
+            "name": "nginx",
+            "image": "nginx:1.25",
+            "imagePullPolicy": "IfNotPresent",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 80,
+                "protocol": "TCP"
+              }
+            ],
+            "env": [
+              {
+                "name": "NGINX_BASIC_AUTH",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "web-auth",
+                    "key": "htpasswd"
+                  }
+                }
+              }
+            ],
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/",
+                "port": "http"
+              }
+            },
+            "resources": {}
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "fail",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "fail",
+    "no-root-containers": "fail",
+    "no-net-raw": "fail",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "fail",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "fail",
+    "seccomp-runtime-default": "fail",
+    "security-context-applied": "fail",
+    "no-default-namespace": "fail"
+  }
+}

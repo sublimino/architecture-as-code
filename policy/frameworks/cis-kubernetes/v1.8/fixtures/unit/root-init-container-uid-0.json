@@ -1,0 +1,96 @@
+{
+  "name": "root-init-container-uid-0",
+  "level": "unit",
+  "description": "An initContainer sets runAsUser: 0 while the main container inherits 10001.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "root-init-container-uid-0",
+        "namespace": "payments"
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 10001,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "app",
+            "image": "registry.example/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 8080,
+                "protocol": "TCP"
+              }
+            ],
+            "env": [
+              {
+                "name": "LOG_LEVEL",
+                "value": "info"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "tmp",
+            "emptyDir": {}
+          }
+        ],
+        "initContainers": [
+          {
+            "name": "init",
+            "image": "registry.example/init@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "runAsUser": 0
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "fail",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

@@ -3555,6 +3555,23 @@ verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s),
 verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
 	$(VERIFY_CEL) db
 
+.PHONY: verify-cel-money verify-cel-money-golden verify-cel-money-independent
+
+# The priced figures (ale, var95, tvar, carriedGbp) are pinned by one golden
+# file per pack under d2-signalloom/apps/policy-engine/testdata/money-golden/ and
+# anchored to a closed-form beta-PERT oracle. The assertions run inside the
+# conformance tier (they are TestConformance_Money*), so `verify-cel` already
+# covers them; these targets are for working on the money alone.
+verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 127 pinned checks).
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
+
+verify-cel-money-golden: ## REGENERATE the per-pack money golden files, then verify them. Review the diff: it is every price the product quotes.
+	cd d2-signalloom/apps/policy-engine && MONEY_GOLDEN=update go test -count=1 -v -run TestWriteMoneyGolden .
+	@$(MAKE) --no-print-directory verify-cel-money
+
+verify-cel-money-independent: ## Cross-check the priced figures against an independent NumPy derivation (needs NumPy; not part of verify-cel).
+	python3 scripts/verify-cel-money-independent.py
+
 .PHONY: verify-cel-selftest verify-cel-mutation-proof
 
 verify-cel-selftest: ## Prove the verify-cel aggregator can go red: 14 injected conditions (failing tier, zero collection, skip-only, zero fixtures, no Docker, unready Postgres).

@@ -1,0 +1,13 @@
+{
+  "name": "helm-chart-redis-pod",
+  "level": "integration",
+  "description": "A Bitnami-Redis-shaped Helm pod: root init container, unpinned docker.io images, a metrics sidecar with defaults, container-level seccomp only, a partially governed agent and a cross-namespace write_file request with an invalid approval.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "nis2-supply-chain-risk": "fail"
+  }
+}

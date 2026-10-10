@@ -1,0 +1,34 @@
+{
+  "name": "helm-chart-redis-pod",
+  "level": "integration",
+  "description": "A Bitnami-Redis-shaped Helm pod: root init container, unpinned docker.io images, a metrics sidecar with defaults, container-level seccomp only, a partially governed agent and a cross-namespace write_file request with an invalid approval.",
+  "input": {
+    "object": {},
+    "agent": {
+      "model_type": "generative",
+      "transparency": {
+        "user_instructions_available": true
+      },
+      "logging_config": {
+        "automatic_record_keeping": true
+      },
+      "audit_config": {
+        "event_logging_enabled": true
+      },
+      "sbom": {
+        "format": "SPDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_2"
+      },
+      "security_profile": {}
+    },
+    "request": {}
+  },
+  "expect": {
+    "default-secure-configuration": "fail",
+    "sbom-verified-provenance": "pass",
+    "signed-cryptographic-updates": "fail"
+  }
+}

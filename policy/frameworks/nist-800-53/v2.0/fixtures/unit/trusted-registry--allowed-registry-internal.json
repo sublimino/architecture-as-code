@@ -1,0 +1,179 @@
+{
+  "name": "trusted-registry--allowed-registry-internal",
+  "level": "unit",
+  "description": "Every image comes from the allowed registry registry.internal/.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "agents",
+        "labels": {
+          "app": "agent-alpha",
+          "version": "1.4.2",
+          "data_classification": "confidential",
+          "ai_human_oversight": "human-on-the-loop",
+          "policy_version": "v2.0.0",
+          "managed_by": "flux",
+          "environment": "production",
+          "audit_logging": "enabled",
+          "owner": "platform-team"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "90d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "oncall@example.com",
+          "osramp.io/tls-config": "mtls-spiffe",
+          "osramp.io/encryption-at-rest": "aes-256-gcm",
+          "osramp.io/vuln-scan-url": "https://scan.example.com/agent-alpha",
+          "osramp.io/log-format": "json"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "initContainers": [
+          {
+            "name": "fetch-model",
+            "image": "registry.internal/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "200m",
+                "memory": "256Mi"
+              },
+              "requests": {
+                "cpu": "50m",
+                "memory": "64Mi"
+              }
+            }
+          }
+        ],
+        "containers": [
+          {
+            "name": "agent",
+            "image": "registry.internal/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              },
+              "periodSeconds": 10
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              },
+              "periodSeconds": 10
+            },
+            "volumeMounts": [
+              {
+                "name": "logs",
+                "mountPath": "/var/log/agent"
+              }
+            ]
+          },
+          {
+            "name": "proxy",
+            "image": "registry.internal/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              },
+              "periodSeconds": 10
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              },
+              "periodSeconds": 10
+            },
+            "volumeMounts": [
+              {
+                "name": "logs",
+                "mountPath": "/var/log/agent"
+              }
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "name": "logs",
+            "emptyDir": {}
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "trusted-registry": "pass"
+  }
+}

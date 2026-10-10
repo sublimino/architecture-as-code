@@ -1,0 +1,13 @@
+{
+  "name": "compliant-agent-workload",
+  "level": "integration",
+  "description": "A fully hardened, fully governed agent workload. The placeholder check is the literal false, so it fails even here.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "nis2-supply-chain-risk": "fail"
+  }
+}

@@ -1,0 +1,2193 @@
+{
+  "name": "ten-container-cost",
+  "level": "integration",
+  "description": "Ten containers (4 init, 5 main, 1 ephemeral), each with 25 env vars, 4 envFrom and 5 ports: every check must evaluate under the engine's CEL cost limit of 10000.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "batch-pipeline-0",
+        "namespace": "pipelines"
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 2000,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "initContainers": [
+          {
+            "name": "init-0",
+            "image": "registry.example/init-0@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "init-1",
+            "image": "registry.example/init-1@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "init-2",
+            "image": "registry.example/init-2@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "init-3",
+            "image": "registry.example/init-3@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          }
+        ],
+        "containers": [
+          {
+            "name": "svc-0",
+            "image": "registry.example/svc-0@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "svc-1",
+            "image": "registry.example/svc-1@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "svc-2",
+            "image": "registry.example/svc-2@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "svc-3",
+            "image": "registry.example/svc-3@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          },
+          {
+            "name": "svc-4",
+            "image": "registry.example/svc-4@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "ports": [
+              {
+                "name": "p0",
+                "containerPort": 8000
+              },
+              {
+                "name": "p1",
+                "containerPort": 8001
+              },
+              {
+                "name": "p2",
+                "containerPort": 8002
+              },
+              {
+                "name": "p3",
+                "containerPort": 8003
+              },
+              {
+                "name": "p4",
+                "containerPort": 8004
+              }
+            ],
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          }
+        ],
+        "ephemeralContainers": [
+          {
+            "name": "debug-0",
+            "image": "registry.example/debug-0@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "targetContainerName": "svc-0",
+            "env": [
+              {
+                "name": "CFG_0",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k0"
+                  }
+                }
+              },
+              {
+                "name": "VAR_1",
+                "value": "1"
+              },
+              {
+                "name": "VAR_2",
+                "value": "2"
+              },
+              {
+                "name": "CFG_3",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k3"
+                  }
+                }
+              },
+              {
+                "name": "VAR_4",
+                "value": "4"
+              },
+              {
+                "name": "VAR_5",
+                "value": "5"
+              },
+              {
+                "name": "CFG_6",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k6"
+                  }
+                }
+              },
+              {
+                "name": "VAR_7",
+                "value": "7"
+              },
+              {
+                "name": "VAR_8",
+                "value": "8"
+              },
+              {
+                "name": "CFG_9",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k9"
+                  }
+                }
+              },
+              {
+                "name": "VAR_10",
+                "value": "10"
+              },
+              {
+                "name": "VAR_11",
+                "value": "11"
+              },
+              {
+                "name": "CFG_12",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k12"
+                  }
+                }
+              },
+              {
+                "name": "VAR_13",
+                "value": "13"
+              },
+              {
+                "name": "VAR_14",
+                "value": "14"
+              },
+              {
+                "name": "CFG_15",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k15"
+                  }
+                }
+              },
+              {
+                "name": "VAR_16",
+                "value": "16"
+              },
+              {
+                "name": "VAR_17",
+                "value": "17"
+              },
+              {
+                "name": "CFG_18",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k18"
+                  }
+                }
+              },
+              {
+                "name": "VAR_19",
+                "value": "19"
+              },
+              {
+                "name": "VAR_20",
+                "value": "20"
+              },
+              {
+                "name": "CFG_21",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k21"
+                  }
+                }
+              },
+              {
+                "name": "VAR_22",
+                "value": "22"
+              },
+              {
+                "name": "VAR_23",
+                "value": "23"
+              },
+              {
+                "name": "CFG_24",
+                "valueFrom": {
+                  "configMapKeyRef": {
+                    "name": "cfg",
+                    "key": "k24"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "cm-0"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-1"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-2"
+                }
+              },
+              {
+                "configMapRef": {
+                  "name": "cm-3"
+                }
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true,
+              "runAsUser": 2000,
+              "capabilities": {
+                "drop": [
+                  "NET_RAW",
+                  "SYS_ADMIN",
+                  "MKNOD",
+                  "ALL"
+                ]
+              },
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "v0",
+            "emptyDir": {}
+          },
+          {
+            "name": "v1",
+            "emptyDir": {}
+          },
+          {
+            "name": "v2",
+            "emptyDir": {}
+          },
+          {
+            "name": "v3",
+            "emptyDir": {}
+          },
+          {
+            "name": "v4",
+            "emptyDir": {}
+          },
+          {
+            "name": "v5",
+            "emptyDir": {}
+          },
+          {
+            "name": "v6",
+            "emptyDir": {}
+          },
+          {
+            "name": "v7",
+            "emptyDir": {}
+          },
+          {
+            "name": "v8",
+            "emptyDir": {}
+          },
+          {
+            "name": "v9",
+            "emptyDir": {}
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "pass",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

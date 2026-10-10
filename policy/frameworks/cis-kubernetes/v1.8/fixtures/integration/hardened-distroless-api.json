@@ -1,0 +1,157 @@
+{
+  "name": "hardened-distroless-api",
+  "level": "integration",
+  "description": "Hardened distroless API Deployment pod template: init migration container, read-only root, projected volumes, everything set.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "orders-api-7d9f",
+        "namespace": "orders",
+        "labels": {
+          "app.kubernetes.io/name": "orders-api"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "orders-api",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 65532,
+          "runAsGroup": 65532,
+          "fsGroup": 65532,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "initContainers": [
+          {
+            "name": "migrate",
+            "image": "gcr.io/distroless/static-debian12@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "args": [
+              "migrate",
+              "up"
+            ],
+            "volumeMounts": [
+              {
+                "name": "db-creds",
+                "mountPath": "/var/run/secrets/db",
+                "readOnly": true
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            }
+          }
+        ],
+        "containers": [
+          {
+            "name": "api",
+            "image": "gcr.io/distroless/static-debian12@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 8080
+              },
+              {
+                "name": "metrics",
+                "containerPort": 9090
+              }
+            ],
+            "env": [
+              {
+                "name": "DB_PASSWORD_FILE",
+                "value": "/var/run/secrets/db/password"
+              },
+              {
+                "name": "POD_NAME",
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "metadata.name"
+                  }
+                }
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              },
+              "limits": {
+                "memory": "256Mi"
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "db-creds",
+                "mountPath": "/var/run/secrets/db",
+                "readOnly": true
+              },
+              {
+                "name": "tmp",
+                "mountPath": "/tmp"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "db-creds",
+            "secret": {
+              "secretName": "orders-db"
+            }
+          },
+          {
+            "name": "tmp",
+            "emptyDir": {
+              "medium": "Memory"
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "pass",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

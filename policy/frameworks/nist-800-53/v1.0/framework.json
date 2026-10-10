@@ -38,7 +38,8 @@
               "policyVersions": [
                 "v1.0.0"
               ],
-              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names."
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names.",
+              "remediation": "Remove spec.hostIPC (or set it false) so the pod does not share the host IPC namespace."
             },
             {
               "id": "no-host-pid",
@@ -52,7 +53,8 @@
               "policyVersions": [
                 "v1.0.0"
               ],
-              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant."
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant.",
+              "remediation": "Remove spec.hostPID (or set it false) so the pod does not share the host PID namespace."
             },
             {
               "id": "no-host-network",
@@ -66,7 +68,8 @@
               "policyVersions": [
                 "v1.0.0"
               ],
-              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant."
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant.",
+              "remediation": "Remove spec.hostNetwork (or set it false) so the pod does not share the host network namespace."
             }
           ]
         },

@@ -49,7 +49,10 @@ v2.0	audit-label	no-calibrated-frequency	Carries a loss-magnitude triple but no 
 v2.0	log-volume-mount	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing a NIST 800-53 control failure requires a calibrated annual frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
 v2.0	log-format-annotation	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing a NIST 800-53 control failure requires a calibrated annual frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
 v2.0	owner-label	no-calibrated-frequency	Carries a loss-magnitude triple but no frequency triple. Pricing a NIST 800-53 control failure requires a calibrated annual frequency, which is a principal decision, not an engineering one. Declared unpriced rather than given an invented number.
-v1.0	no-host-ipc	Added by the lead with the check itself; v1.0 carries no frequency triples at all, so it inherits the pack-wide pricing gap rather than introducing a new one.
-v2.0	no-host-ipc	Added by the lead with the check itself; v2.0 carries no frequency triples at all, so it inherits the pack-wide pricing gap rather than introducing a new one.
-v1.0	no-host-pid	Added by the lead completing the PSS Host Namespaces control set; v1.0 carries no frequency triples at all.
-v1.0	no-host-network	Added by the lead completing the PSS Host Namespaces control set; v1.0 carries no frequency triples at all.
+v1.0	no-host-ipc	no-calibrated-frequency	Added by the lead with the check itself; v1.0 carries no frequency triples at all, so it inherits the pack-wide pricing gap rather than introducing a new one.
+v2.0	no-host-ipc	no-calibrated-frequency	Added by the lead with the check itself; v2.0 carries no frequency triples at all, so it inherits the pack-wide pricing gap rather than introducing a new one.
+v1.0	no-host-pid	no-calibrated-frequency	Added by the lead completing the PSS Host Namespaces control set; v1.0 carries no frequency triples at all.
+v1.0	no-host-network	no-calibrated-frequency	Added by the lead completing the PSS Host Namespaces control set; v1.0 carries no frequency triples at all.
+v2.1	no-host-ipc	no-calibrated-frequency	Cloned triples were a copy-paste, not a calibration; zeroed pending the principal.
+v2.1	no-host-pid	no-calibrated-frequency	Cloned triples were a copy-paste, not a calibration; zeroed pending the principal.
+v2.1	no-host-network	no-calibrated-frequency	Cloned triples were a copy-paste, not a calibration; zeroed pending the principal.

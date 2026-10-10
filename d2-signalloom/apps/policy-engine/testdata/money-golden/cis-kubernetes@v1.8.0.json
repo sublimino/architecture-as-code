@@ -1,0 +1,366 @@
+{
+  "framework": "cis-kubernetes",
+  "version": "v1.8.0",
+  "currency": "GBP",
+  "iterations": 10000,
+  "note": "Engine-reported risk figures for every check in this pack. ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). Regenerate with: make verify-cel-money-golden",
+  "checks": [
+    {
+      "check": "capabilities-dropped-all",
+      "seed": 18066913217231859994,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 70000
+      },
+      "freqTriple": {
+        "min": 0.4,
+        "mode": 1.2,
+        "max": 3
+      },
+      "ale": 30513.02,
+      "var95": 69210.39,
+      "tvar": 82736.08,
+      "carried": 91009.69,
+      "tailDominated": false,
+      "analyticAle": 30294.44,
+      "aleSigma": 1.114
+    },
+    {
+      "check": "no-added-capabilities",
+      "seed": 17896336176180286382,
+      "riskTriple": {
+        "min": 8000,
+        "mode": 40000,
+        "max": 180000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.7,
+        "max": 2
+      },
+      "ale": 48045.74,
+      "var95": 112087.93,
+      "tvar": 136012.01,
+      "carried": 149613.21,
+      "tailDominated": false,
+      "analyticAle": 48333.33,
+      "aleSigma": -0.887
+    },
+    {
+      "check": "no-default-namespace",
+      "seed": 17822150941766833372,
+      "riskTriple": {
+        "min": 500,
+        "mode": 3000,
+        "max": 20000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 2,
+        "max": 5
+      },
+      "ale": 12101.57,
+      "var95": 29346.5,
+      "tvar": 36142.59,
+      "carried": 39756.85,
+      "tailDominated": false,
+      "analyticAle": 12187.5,
+      "aleSigma": -0.966
+    },
+    {
+      "check": "no-host-ipc",
+      "seed": 13307746948461300716,
+      "riskTriple": {
+        "min": 10000,
+        "mode": 50000,
+        "max": 250000
+      },
+      "freqTriple": {
+        "min": 0.1,
+        "mode": 0.4,
+        "max": 1.2
+      },
+      "ale": 36658.73,
+      "var95": 88851.82,
+      "tvar": 111063.58,
+      "carried": 122169.94,
+      "tailDominated": false,
+      "analyticAle": 37055.56,
+      "aleSigma": -1.521
+    },
+    {
+      "check": "no-host-network",
+      "seed": 16963957592432379188,
+      "riskTriple": {
+        "min": 15000,
+        "mode": 70000,
+        "max": 350000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.6,
+        "max": 1.8
+      },
+      "ale": 79269.05,
+      "var95": 188412.05,
+      "tvar": 228779.52,
+      "carried": 251657.47,
+      "tailDominated": false,
+      "analyticAle": 78833.33,
+      "aleSigma": 0.806
+    },
+    {
+      "check": "no-host-pid",
+      "seed": 16143600739692222015,
+      "riskTriple": {
+        "min": 20000,
+        "mode": 90000,
+        "max": 450000
+      },
+      "freqTriple": {
+        "min": 0.1,
+        "mode": 0.5,
+        "max": 1.5
+      },
+      "ale": 83336.89,
+      "var95": 201220.67,
+      "tvar": 246250.67,
+      "carried": 270875.74,
+      "tailDominated": false,
+      "analyticAle": 83000,
+      "aleSigma": 0.572
+    },
+    {
+      "check": "no-host-ports",
+      "seed": 1491446832349784822,
+      "riskTriple": {
+        "min": 2000,
+        "mode": 10000,
+        "max": 60000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.6,
+        "max": 1.5
+      },
+      "ale": 11399.12,
+      "var95": 27104.56,
+      "tvar": 33324.9,
+      "carried": 36657.38,
+      "tailDominated": false,
+      "analyticAle": 11616.67,
+      "aleSigma": -2.708
+    },
+    {
+      "check": "no-hostpath-volumes",
+      "seed": 12344209226517051118,
+      "riskTriple": {
+        "min": 20000,
+        "mode": 100000,
+        "max": 500000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.6,
+        "max": 1.8
+      },
+      "ale": 112263.49,
+      "var95": 266134.39,
+      "tvar": 326093.59,
+      "carried": 358702.95,
+      "tailDominated": false,
+      "analyticAle": 112444.44,
+      "aleSigma": -0.234
+    },
+    {
+      "check": "no-net-raw",
+      "seed": 11401342028531142575,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 80000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 2.5
+      },
+      "ale": 27102.58,
+      "var95": 63280.69,
+      "tvar": 76747.44,
+      "carried": 84422.18,
+      "tailDominated": false,
+      "analyticAle": 27011.11,
+      "aleSigma": 0.5
+    },
+    {
+      "check": "no-privilege-escalation",
+      "seed": 2576653535541714086,
+      "riskTriple": {
+        "min": 10000,
+        "mode": 45000,
+        "max": 200000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 3
+      },
+      "ale": 78570.67,
+      "var95": 184449.36,
+      "tvar": 219799.2,
+      "carried": 241779.12,
+      "tailDominated": false,
+      "analyticAle": 79083.33,
+      "aleSigma": -0.968
+    },
+    {
+      "check": "no-privileged-containers",
+      "seed": 13228741072171277099,
+      "riskTriple": {
+        "min": 25000,
+        "mode": 120000,
+        "max": 600000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.8,
+        "max": 2
+      },
+      "ale": 167840.95,
+      "var95": 388886.97,
+      "tvar": 470889.52,
+      "carried": 517978.47,
+      "tailDominated": false,
+      "analyticAle": 165750,
+      "aleSigma": 1.875
+    },
+    {
+      "check": "no-root-containers",
+      "seed": 8046559635835891588,
+      "riskTriple": {
+        "min": 10000,
+        "mode": 50000,
+        "max": 220000
+      },
+      "freqTriple": {
+        "min": 0.4,
+        "mode": 1.2,
+        "max": 3
+      },
+      "ale": 98257.07,
+      "var95": 221893.32,
+      "tvar": 267871.57,
+      "carried": 294658.73,
+      "tailDominated": false,
+      "analyticAle": 97944.44,
+      "aleSigma": 0.501
+    },
+    {
+      "check": "no-secrets-in-env",
+      "seed": 11615148013708836204,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 30000,
+        "max": 150000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.5,
+        "max": 4
+      },
+      "ale": 80244.29,
+      "var95": 186178.68,
+      "tvar": 227630.4,
+      "carried": 250393.44,
+      "tailDominated": false,
+      "analyticAle": 80208.33,
+      "aleSigma": 0.066
+    },
+    {
+      "check": "no-windows-hostprocess",
+      "seed": 15502226765648597740,
+      "riskTriple": {
+        "min": 25000,
+        "mode": 120000,
+        "max": 600000
+      },
+      "freqTriple": {
+        "min": 0.05,
+        "mode": 0.2,
+        "max": 0.8
+      },
+      "ale": 50853.65,
+      "var95": 127032.64,
+      "tvar": 160276.52,
+      "carried": 176304.17,
+      "tailDominated": false,
+      "analyticAle": 50645.83,
+      "aleSigma": 0.546
+    },
+    {
+      "check": "sa-token-automount-disabled",
+      "seed": 8587994417529998475,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.5,
+        "max": 4
+      },
+      "ale": 59860.07,
+      "var95": 133551.1,
+      "tvar": 159991.96,
+      "carried": 175991.15,
+      "tailDominated": false,
+      "analyticAle": 59791.67,
+      "aleSigma": 0.182
+    },
+    {
+      "check": "seccomp-runtime-default",
+      "seed": 16280664905557350744,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 80000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 2.5
+      },
+      "ale": 26812.61,
+      "var95": 62310.28,
+      "tvar": 76183.52,
+      "carried": 83801.87,
+      "tailDominated": false,
+      "analyticAle": 27011.11,
+      "aleSigma": -1.086
+    },
+    {
+      "check": "security-context-applied",
+      "seed": 10487380428756368085,
+      "riskTriple": {
+        "min": 1000,
+        "mode": 5000,
+        "max": 30000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.5,
+        "max": 4
+      },
+      "ale": 15100.89,
+      "var95": 36061.32,
+      "tvar": 44588.73,
+      "carried": 49047.6,
+      "tailDominated": false,
+      "analyticAle": 14875,
+      "aleSigma": 2.165
+    }
+  ]
+}

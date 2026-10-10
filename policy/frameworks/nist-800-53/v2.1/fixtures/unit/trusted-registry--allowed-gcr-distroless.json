@@ -1,7 +1,7 @@
 {
-  "name": "trusted-registry--allowed-gcr-io",
+  "name": "trusted-registry--allowed-gcr-distroless",
   "level": "unit",
-  "description": "Every image comes from the allowed registry gcr.io/.",
+  "description": "Every image (app and init) comes from the trusted prefix gcr.io/distroless/; the check passes.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -43,7 +43,7 @@
         "initContainers": [
           {
             "name": "fetch-model",
-            "image": "gcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "image": "gcr.io/distroless/model-fetcher@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "securityContext": {
               "runAsNonRoot": true,
               "runAsUser": 10001,
@@ -71,7 +71,7 @@
         "containers": [
           {
             "name": "agent",
-            "image": "gcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "image": "gcr.io/distroless/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "securityContext": {
               "runAsNonRoot": true,
               "runAsUser": 10001,
@@ -117,7 +117,7 @@
           },
           {
             "name": "proxy",
-            "image": "gcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "image": "gcr.io/distroless/envoy@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "securityContext": {
               "runAsNonRoot": true,
               "runAsUser": 10001,

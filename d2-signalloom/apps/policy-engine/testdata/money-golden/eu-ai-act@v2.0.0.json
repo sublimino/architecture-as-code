@@ -1,0 +1,408 @@
+{
+  "framework": "eu-ai-act",
+  "version": "v2.0.0",
+  "currency": "GBP",
+  "iterations": 10000,
+  "note": "Engine-reported risk figures for every check in this pack. ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). Regenerate with: make verify-cel-money-golden",
+  "checks": [
+    {
+      "check": "approval-gate-annotation",
+      "seed": 15798007022937374748,
+      "riskTriple": {
+        "min": 8000,
+        "mode": 35000,
+        "max": 140000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "container-run-as-non-root",
+      "seed": 13173452002471815016,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "data-classification-label",
+      "seed": 4097388753183408975,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 70000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "data-retention-annotation",
+      "seed": 9769349313902175864,
+      "riskTriple": {
+        "min": 2000,
+        "mode": 12000,
+        "max": 55000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "drop-all-capabilities",
+      "seed": 1303214286282351651,
+      "riskTriple": {
+        "min": 4000,
+        "mode": 20000,
+        "max": 90000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "hitl-label",
+      "seed": 11500305679034266741,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "image-digest-required",
+      "seed": 8206598097392484073,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 20000,
+        "max": 80000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "liveness-probe-present",
+      "seed": 1257001877124409509,
+      "riskTriple": {
+        "min": 1000,
+        "mode": 8000,
+        "max": 35000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "min-replicas",
+      "seed": 695658457895247967,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 12000,
+        "max": 50000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "no-privilege-escalation",
+      "seed": 2576653535541714086,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 30000,
+        "max": 120000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "no-privileged-mode",
+      "seed": 9615357642972356824,
+      "riskTriple": {
+        "min": 8000,
+        "mode": 40000,
+        "max": 150000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "override-contact-annotation",
+      "seed": 9693231368637524274,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 60000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "pii-handling-annotation",
+      "seed": 2240757455483478037,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "policy-version-label",
+      "seed": 322921188147917453,
+      "riskTriple": {
+        "min": 1000,
+        "mode": 5000,
+        "max": 25000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "read-only-rootfs",
+      "seed": 12814417459058723486,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 70000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "readiness-probe-present",
+      "seed": 16117088326246703174,
+      "riskTriple": {
+        "min": 2000,
+        "mode": 10000,
+        "max": 45000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "resource-limits-set",
+      "seed": 12307356394082094453,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 60000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "resource-requests-set",
+      "seed": 14523588040443554591,
+      "riskTriple": {
+        "min": 2000,
+        "mode": 10000,
+        "max": 40000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "trusted-registry",
+      "seed": 595715405229082340,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    }
+  ]
+}

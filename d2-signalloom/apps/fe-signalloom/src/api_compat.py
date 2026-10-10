@@ -1101,6 +1101,17 @@ class PolicyScanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     namespace: str = Field(min_length=1, max_length=253)
+    # A FALLBACK, not an override. Each pack is evaluated at the version the
+    # tenant activated it at (``governance_frameworks.version``), and this value
+    # is used only for a requested pack the tenant has not mapped. That is
+    # deliberate: the activated version is a recorded governance decision, and a
+    # caller who could override it by passing a string could have the fleet
+    # assessed against a policy version the tenant never adopted. It is not
+    # rejected when it matches nothing either -- packs activate at different
+    # versions, so any single value a caller sends matches at most one of them,
+    # and a 4xx there would fail the ordinary case. What the scan was actually
+    # evaluated at is reported per framework in the response summary's
+    # ``versions`` and recorded in the audit event's ``pack_versions``.
     policyVersion: str = Field(min_length=1, max_length=64)
     # Policy-engine pack ids (``cis-kubernetes``, ``finos-aigf``). Empty: every
     # pack the tenant's governance_controls map to.
@@ -7382,11 +7393,21 @@ async def _db_policy_scan(
                         unmapped += 1
                     else:
                         key = (agent_row["id"], control_id)
-                        previous = verdicts[key][0] if key in verdicts else None
-                        verdicts[key] = (
-                            policy_scan.worse(previous, verdict),
-                            policy_scan.evidence_ref(framework, check_id, result_version),
-                        )
+                        evidence = policy_scan.evidence_ref(framework, check_id, result_version)
+                        previous = verdicts.get(key)
+                        if previous is None:
+                            verdicts[key] = (verdict, evidence)
+                        else:
+                            # L4: the evidence must name the result the stored
+                            # verdict came from. It was overwritten by whichever
+                            # result arrived last, so a row could read ``fail``
+                            # and cite the evaluation that passed. ``worse``
+                            # keeps the earlier verdict on a tie; so does this.
+                            resolved = policy_scan.worse(previous[0], verdict)
+                            verdicts[key] = (
+                                resolved,
+                                previous[1] if resolved == previous[0] else evidence,
+                            )
                     # Integer pounds: the engine reports pounds at pence precision (e.g. 1234.57),
                     # and these response fields are int. A defective result has no
                     # figure at all; it reports 0 under an ``error`` status, which is
@@ -7460,6 +7481,9 @@ async def _db_policy_scan(
             {
                 "frameworks": frameworks,
                 "policy_version": request.policyVersion,
+                # The versions the packs were actually evaluated at. The field
+                # above is only what the caller asked for, which is a fallback.
+                "pack_versions": {version: sorted(names) for version, names in calls.items()},
                 "controls_assessed": len(stored),
                 "controls_passed": stored.count("pass"),
                 "controls_failed": stored.count("fail"),

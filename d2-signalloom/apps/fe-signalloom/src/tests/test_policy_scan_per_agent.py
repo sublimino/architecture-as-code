@@ -249,6 +249,63 @@ def test_object_is_the_pod_or_the_pod_template_and_none_when_absent():
     assert build_agent_object(agent_row(AGENT_A, "a")) is None
     # Not pod-shaped: no spec. Sending it would let pod checks judge nothing.
     assert build_agent_object(agent_row(AGENT_A, "a", workload={"containers": []})) is None
+    cron = {"kind": "CronJob", "metadata": {"namespace": "agents"},
+            "spec": {"jobTemplate": {"spec": {"template": {"spec": {"containers": [{"name": "c"}]}}}}}}
+    assert build_agent_object(agent_row(AGENT_A, "a", workload=cron)) == {
+        "metadata": {"namespace": "agents"}, "spec": {"containers": [{"name": "c"}]}}
+
+
+@pytest.mark.parametrize("workload", [
+    # H1: a spec with no non-empty containers list is not a workload the CIS
+    # checks can judge; sent as one, most checks PASS vacuously.
+    {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "svc"},
+     "spec": {"ports": [{"port": 80}], "selector": {"app": "a"}}},
+    {"spec": {}},
+    {"kind": "Pod", "spec": {}},
+    {"kind": "Pod", "spec": {"containers": []}},
+    {"kind": "Pod", "spec": {"containers": "runtime"}},
+    # A pod spec with no kind is not known to be a Pod.
+    {"spec": {"containers": [{"name": "c"}]}},
+    {"kind": "ConfigMap", "spec": {"containers": [{"name": "c"}]}},
+    {"kind": "Deployment", "spec": {"template": {"spec": {}}}},
+    {"kind": "Deployment", "spec": {"template": {"spec": {"containers": []}}}},
+    {"kind": "Deployment", "spec": {"containers": [{"name": "c"}]}},
+    {"kind": "CronJob", "spec": {"jobTemplate": {"spec": {"template": {"spec": {}}}}}},
+])
+def test_object_is_none_unless_a_pod_or_controller_with_containers(workload):
+    assert build_agent_object(agent_row(AGENT_A, "a", workload=workload)) is None
+
+
+@pytest.mark.parametrize("kind", ["Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job"])
+def test_every_controller_kind_yields_its_pod_template(kind):
+    workload = {"kind": kind, "metadata": {"namespace": "agents"},
+                "spec": {"template": {"spec": {"containers": [{"name": "c"}]}}}}
+    assert build_agent_object(agent_row(AGENT_A, "a", workload=workload)) == {
+        "metadata": {"namespace": "agents"}, "spec": {"containers": [{"name": "c"}]}}
+
+
+def test_object_only_packs_are_exactly_the_repo_pack_versions_that_read_only_object():
+    """The H1 rule: with no workload, a pack version is not sent when none of its
+    checks reads ``agent`` or ``request`` (so every evaluated check reads only
+    ``object``).  The fe image has no ``policy/``, so the set is a constant and
+    this derives it from the packs in the checkout."""
+    import re
+    from pathlib import Path
+
+    from policy_scan import OBJECT_ONLY_PACKS
+
+    packs = Path(__file__).resolve().parents[5] / "policy" / "frameworks"
+    derived = set()
+    for path in packs.glob("*/*/framework.json"):
+        pack = json.loads(path.read_text(encoding="utf-8"))
+        expressions = [check.get("celExpression", "") for cs in pack["controlSets"]
+                       for control in cs["controls"] for check in control["checks"]]
+        reads = {var for expr in expressions for var in ("object", "agent", "request")
+                 if re.search(rf"\b{var}\.", expr)}
+        if reads == {"object"}:
+            derived.add((pack["id"], pack["version"]))
+    assert ("cis-kubernetes", "v1.8.0") in derived
+    assert OBJECT_ONLY_PACKS == frozenset(derived)
 
 
 # --------------------------------------------------------------------------
@@ -278,16 +335,13 @@ async def test_request_body_per_agent_is_that_agents_context_and_object(db):
          "object": POD_A, "agent": context_a, "request": {}},
         {"namespace": "agents", "policyVersion": "v1.0.0", "frameworks": ["finos-aigf"],
          "object": POD_A, "agent": context_a, "request": {}},
-        # No workload on record: no object is sent, so pod checks report
-        # what they make of nothing rather than judging a fictional pod.
-        {"namespace": "agents", "policyVersion": "v1.8.0", "frameworks": ["cis-kubernetes"],
-         "agent": {}, "request": {}},
+        # H1: no workload on record. The engine binds an absent object to {}
+        # and every CIS check FAILS on {}, so cis-kubernetes is not asked at all.
         {"namespace": "agents", "policyVersion": "v1.0.0", "frameworks": ["finos-aigf"],
          "agent": {}, "request": {}},
     ]
     for call in route.calls:
         assert call.request.headers["X-Tenant-ID"] == EAP_TENANT_A
-    assert fake.result_writes == 0
 
 
 # --------------------------------------------------------------------------
@@ -395,7 +449,7 @@ async def test_engine_money_in_pence_is_reported_in_whole_pounds(db):
     """The engine rounds FAIR figures to the penny; these response fields are
     integer pounds. A fractional figure used to fail validation (HTTP 500) on
     every real scan."""
-    db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
+    db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
     result = item("cis-kubernetes", "no-root-containers", "fail")
     result.update({"ale": 59860.07, "var95": 133551.5, "tvar": 159991.96, "carriedGbp": 175991.15})
     with respx.mock() as mock:
@@ -409,7 +463,7 @@ async def test_engine_money_in_pence_is_reported_in_whole_pounds(db):
 
 @pytest.mark.asyncio
 async def test_unmapped_checks_are_reported_but_never_stored(db):
-    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
     with respx.mock() as mock:
         mock.post(ENGINE).mock(side_effect=answering([
             item("finos-aigf", "a-check-with-no-seed-row", "pass"),
@@ -432,7 +486,7 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
     fake = db(FakeDB(
         agents=[
             agent_row(AGENT_A, "agent-a", workload=POD_A),
-            agent_row(AGENT_B, "agent-b"),
+            agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT),
             agent_row(AGENT_C, "agent-c"),
         ],
         controls=CONTROLS,
@@ -442,7 +496,7 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
 
     def by_agent(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        verdict = "fail" if "object" in body else "pass"
+        verdict = "fail" if body["object"]["metadata"].get("name") == "agent-a" else "pass"
         return answering([item("cis-kubernetes", "no-privileged-containers", verdict)])(request)
 
     with respx.mock() as mock:
@@ -461,7 +515,7 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
 @pytest.mark.asyncio
 async def test_versions_that_disagree_resolve_to_the_worse_verdict(db):
     """The engine scans every version of a pack; one control, one stored row."""
-    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a")], controls=CONTROLS))
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
     with respx.mock() as mock:
         mock.post(ENGINE).mock(side_effect=answering([
             item("cis-kubernetes", "no-privileged-containers", "pass"),
@@ -515,7 +569,8 @@ async def test_engine_unavailable_changes_no_rows_and_invents_no_checks(db, fail
 @pytest.mark.asyncio
 async def test_an_agent_with_one_failed_pack_call_keeps_all_its_rows(db):
     """No partial reconcile: half an assessment would read as a complete one."""
-    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a"), agent_row(AGENT_B, "agent-b")], controls=CONTROLS))
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A),
+                             agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT)], controls=CONTROLS))
 
     def flaky(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -550,3 +605,50 @@ async def test_no_mapped_frameworks_means_no_engine_call(db):
     assert not route.called
     assert resp.json()["engineInvoked"] is False
     assert fake.result_writes == 0
+
+
+@pytest.mark.asyncio
+async def test_an_agent_without_a_workload_gets_object_only_controls_pending_not_assessed(db):
+    """H1: no observed workload, no CIS assessment -- neither 17x fail (the engine's
+    answer for {}) nor a stale verdict from an earlier workload."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_B, "agent-b")], controls=CONTROLS))
+    fake.results[(AGENT_B, CTRL_PRIV)] = {"tenant_id": EAP_TENANT_A, "status": "pass", "evidence_ref": "old"}
+    with respx.mock() as mock:
+        route = mock.post(ENGINE).mock(side_effect=answering([
+            item("cis-kubernetes", "no-privileged-containers", "fail"),
+            item("cis-kubernetes", "no-root-containers", "fail"),
+            item("finos-aigf", "registered-model-registry-entry", "pass"),
+            item("finos-aigf", "prompt-injection-guardrail-active", "fail"),
+        ]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    assert [json.loads(c.request.content)["frameworks"] for c in route.calls] == [["finos-aigf"]]
+    assert {k: (r["status"], r["evidence_ref"]) for k, r in fake.results.items()} == {
+        (AGENT_B, CTRL_PRIV): ("pending", None),
+        (AGENT_B, CTRL_ROOT): ("pending", None),
+        (AGENT_B, CTRL_MODEL): ("pass", "policy-engine:finos-aigf/registered-model-registry-entry@v1.0.0"),
+        (AGENT_B, CTRL_PI): ("fail", "policy-engine:finos-aigf/prompt-injection-guardrail-active@v1.0.0"),
+    }
+    assert fake.assessed[(AGENT_B, CTRL_PRIV)] is None and fake.assessed[(AGENT_B, CTRL_ROOT)] is None
+    data = resp.json()
+    assert {c["framework"] for c in data["checks"]} == {"finos-aigf"}
+    assert sorted((g["agentId"], g["framework"], g["check"], g["controlId"], g["stored"], g["reason"])
+                  for g in data["controlGaps"]) == [
+        (str(AGENT_B), "cis-kubernetes", "no-privileged-containers", str(CTRL_PRIV), "pending", "no_workload"),
+        (str(AGENT_B), "cis-kubernetes", "no-root-containers", str(CTRL_ROOT), "pending", "no_workload"),
+    ]
+    assert (data["agentsScanned"], data["engineInvoked"]) == (1, True)
+    assert fake.audit[0]["detail"]["controls_no_workload"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_cis_only_scan_of_an_agent_without_a_workload_calls_no_engine(db):
+    fake = db(FakeDB(agents=[agent_row(AGENT_B, "agent-b")], controls=CONTROLS))
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.post(ENGINE).mock(return_value=httpx.Response(200, json=[]))
+        resp = await scan({**SCAN, "frameworks": ["cis-kubernetes"]})
+    assert resp.status_code == 200, resp.text
+    assert not route.called
+    assert resp.json()["engineInvoked"] is False
+    assert {k: r["status"] for k, r in fake.results.items()} == {
+        (AGENT_B, CTRL_PRIV): "pending", (AGENT_B, CTRL_ROOT): "pending"}

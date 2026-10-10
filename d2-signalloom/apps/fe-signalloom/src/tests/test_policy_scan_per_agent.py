@@ -164,6 +164,10 @@ CONTROLS = [
 ]
 
 
+def _every_check_passes():
+    return [item(c["policy_framework_id"], c["policy_check_id"], "pass") for c in CONTROLS]
+
+
 def item(framework, check, status=None, *, passed=None, error=None):
     out: dict[str, Any] = {
         "framework": framework,
@@ -189,6 +193,10 @@ def item(framework, check, status=None, *, passed=None, error=None):
     if error is not None:
         out["error"] = error
     return out
+
+
+#: An engine answer covering every mapped check (H2: a partial answer is a gap).
+EVERY_CHECK_PASSES = _every_check_passes()
 
 
 @pytest.fixture
@@ -322,7 +330,7 @@ async def test_request_body_per_agent_is_that_agents_context_and_object(db):
         controls=CONTROLS,
     ))
     with respx.mock(assert_all_called=True) as mock:
-        route = mock.post(ENGINE).mock(return_value=httpx.Response(200, json=[]))
+        route = mock.post(ENGINE).mock(side_effect=answering(EVERY_CHECK_PASSES))
         resp = await scan(SCAN)
 
     assert resp.status_code == 200, resp.text
@@ -396,7 +404,7 @@ async def test_status_is_authoritative_and_error_is_stored_as_error(db):
 @pytest.mark.asyncio
 async def test_not_evaluated_is_carried_through_and_stored_as_pending(db):
     """A placeholder check is not assessed: neither a pass nor a fail."""
-    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0], CONTROLS[1]]))
     fake.results[(AGENT_A, CTRL_ROOT)] = {"tenant_id": EAP_TENANT_A, "status": "pass", "evidence_ref": "old"}
     with respx.mock() as mock:
         mock.post(ENGINE).mock(side_effect=answering([
@@ -449,7 +457,7 @@ async def test_engine_money_in_pence_is_reported_in_whole_pounds(db):
     """The engine rounds FAIR figures to the penny; these response fields are
     integer pounds. A fractional figure used to fail validation (HTTP 500) on
     every real scan."""
-    db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[1]]))
     result = item("cis-kubernetes", "no-root-containers", "fail")
     result.update({"ale": 59860.07, "var95": 133551.5, "tvar": 159991.96, "carriedGbp": 175991.15})
     with respx.mock() as mock:
@@ -463,12 +471,12 @@ async def test_engine_money_in_pence_is_reported_in_whole_pounds(db):
 
 @pytest.mark.asyncio
 async def test_unmapped_checks_are_reported_but_never_stored(db):
-    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[]))
     with respx.mock() as mock:
         mock.post(ENGINE).mock(side_effect=answering([
             item("finos-aigf", "a-check-with-no-seed-row", "pass"),
         ]))
-        resp = await scan(SCAN)
+        resp = await scan({**SCAN, "frameworks": ["finos-aigf"]})
     assert resp.status_code == 200, resp.text
     assert fake.results == {}
     [check] = resp.json()["checks"]
@@ -489,7 +497,7 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
             agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT),
             agent_row(AGENT_C, "agent-c"),
         ],
-        controls=CONTROLS,
+        controls=[CONTROLS[0]],
     ))
     # C was assessed earlier and is not part of this scan.
     fake.results[(AGENT_C, CTRL_PRIV)] = {"tenant_id": EAP_TENANT_A, "status": "pending", "evidence_ref": None}
@@ -504,7 +512,7 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
         resp = await scan({**SCAN, "agentIds": [str(AGENT_A), str(AGENT_B)]})
 
     assert resp.status_code == 200, resp.text
-    assert route.call_count == 4  # two agents x two packs; C is never asked about
+    assert route.call_count == 2  # two agents x one mapped pack; C is never asked about
     assert {key: row["status"] for key, row in fake.results.items()} == {
         (AGENT_A, CTRL_PRIV): "fail",
         (AGENT_B, CTRL_PRIV): "pass",
@@ -515,7 +523,7 @@ async def test_each_verdict_lands_on_its_own_agent_only(db):
 @pytest.mark.asyncio
 async def test_versions_that_disagree_resolve_to_the_worse_verdict(db):
     """The engine scans every version of a pack; one control, one stored row."""
-    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0], CONTROLS[1]]))
     with respx.mock() as mock:
         mock.post(ENGINE).mock(side_effect=answering([
             item("cis-kubernetes", "no-privileged-containers", "pass"),
@@ -570,7 +578,7 @@ async def test_engine_unavailable_changes_no_rows_and_invents_no_checks(db, fail
 async def test_an_agent_with_one_failed_pack_call_keeps_all_its_rows(db):
     """No partial reconcile: half an assessment would read as a complete one."""
     fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A),
-                             agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT)], controls=CONTROLS))
+                             agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT)], controls=[CONTROLS[0], CONTROLS[3]]))
 
     def flaky(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -652,3 +660,50 @@ async def test_a_cis_only_scan_of_an_agent_without_a_workload_calls_no_engine(db
     assert resp.json()["engineInvoked"] is False
     assert {k: r["status"] for k, r in fake.results.items()} == {
         (AGENT_B, CTRL_PRIV): "pending", (AGENT_B, CTRL_ROOT): "pending"}
+
+
+@pytest.mark.asyncio
+async def test_a_mapped_check_missing_from_the_engine_answer_is_stored_as_error(db):
+    """H2: a partial 200 must not leave the missing control's earlier verdict standing."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    fake.results[(AGENT_A, CTRL_ROOT)] = {"tenant_id": EAP_TENANT_A, "status": "pass", "evidence_ref": "old"}
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering([
+            item("cis-kubernetes", "no-privileged-containers", "pass"),
+            # no-root-containers: absent from the answer
+            item("finos-aigf", "registered-model-registry-entry", "pass"),
+            item("finos-aigf", "prompt-injection-guardrail-active", "pass"),
+        ]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    assert (fake.results[(AGENT_A, CTRL_ROOT)]["status"], fake.results[(AGENT_A, CTRL_ROOT)]["evidence_ref"]) \
+        == ("error", None)
+    assert fake.assessed[(AGENT_A, CTRL_ROOT)] is not None
+    data = resp.json()
+    assert [(g["check"], g["stored"], g["reason"]) for g in data["controlGaps"]] == [
+        ("no-root-containers", "error", "missing_from_engine_response")]
+    assert data["agentsFailed"] == []
+    assert fake.audit[0]["detail"]["controls_missing_from_engine"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_empty_answer_for_mapped_checks_is_an_engine_failure_for_that_agent(db):
+    """H2: ``[]`` where checks were expected is not "nothing to report"."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=CONTROLS))
+    fake.results[(AGENT_A, CTRL_PRIV)] = {"tenant_id": EAP_TENANT_A, "status": "pass", "evidence_ref": "old"}
+    before = dict(fake.results)
+
+    def empty_aigf(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["frameworks"] == ["finos-aigf"]:
+            return httpx.Response(200, json=[])
+        return answering([item("cis-kubernetes", "no-privileged-containers", "fail"),
+                          item("cis-kubernetes", "no-root-containers", "fail")])(request)
+
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=empty_aigf)
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert (data["agentsFailed"], data["agentsScanned"], data["checks"]) == ([str(AGENT_A)], 0, [])
+    assert fake.results == before
+    assert fake.result_writes == 0

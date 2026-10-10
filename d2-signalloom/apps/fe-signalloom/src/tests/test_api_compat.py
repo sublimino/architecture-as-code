@@ -283,8 +283,11 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     # This assertion is deliberately an exact set rather than a subset check, so that any future
     # field lands here as a conscious contract decision rather than by accident. Removing a *Gbp
     # field IS a breaking change and must be coordinated with the dashboard.
+    # ``totalResults`` is likewise additive: ``totalControls`` used to be the
+    # number of (agent, check) assessment rows, which grows with the fleet, so
+    # it now counts distinct controls and the row count has a field of its own.
     assert set(frameworks.json()[0]) == {
-        "id", "name", "versions", "totalControls", "passedControls",
+        "id", "name", "versions", "totalControls", "totalResults", "passedControls",
         "failedControls", "totalExposureGbp", "exposure",
     }
     assert set(summary.json()) == {
@@ -442,8 +445,15 @@ def test_policy_scan_without_the_engine_reports_nothing_rather_than_a_db_verdict
                     "framework_version": "v1.8.0",
                 }]
             if "FROM agent_registry" in query:
+                # H1: cis-kubernetes reads only ``object``, so an agent with no
+                # recorded workload is never sent to it -- and then the engine
+                # is never asked, which is not the path under test here.
                 return [{"id": uuid.UUID("a0000000-0000-0000-0000-000000000001"), "name": "a",
-                         "model_approved": None, "policy_context": None, "workload_spec": None}]
+                         "model_approved": None, "policy_context": None,
+                         "workload_spec": json.dumps({
+                             "apiVersion": "v1", "kind": "Pod",
+                             "metadata": {"name": "a", "namespace": "agents"},
+                             "spec": {"containers": [{"name": "runtime", "image": "i"}]}})}]
             return []  # auth and binding reads
 
     class PolicyPool:

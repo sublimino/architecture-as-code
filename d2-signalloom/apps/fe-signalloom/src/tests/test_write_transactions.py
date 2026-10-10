@@ -238,6 +238,11 @@ class FakePostgres:
                 },
             )
             return
+        if "pg_advisory_xact_lock" in query:
+            # The scan serialises its write half per tenant (H3). Nothing to
+            # model here: this fake is single-threaded, and the lock is taken
+            # inside the transaction so it is released with it either way.
+            return
         if "UPDATE agent_compliance_results" in query:
             # No rows are seeded, so the refresh is a no-op. The audit row is
             # what is under test, and it must be written for a scan that

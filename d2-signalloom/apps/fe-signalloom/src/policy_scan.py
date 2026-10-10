@@ -14,6 +14,7 @@ verdict about something nobody observed.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -82,30 +83,62 @@ def build_agent_policy_context(row: Mapping[str, Any]) -> dict[str, Any]:
     return _merge(context, columns)
 
 
+#: Controller kinds whose pod template is the scan subject.
+_TEMPLATE_KINDS = frozenset({"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job"})
+
+#: Pack versions none of whose checks reads ``agent`` or ``request``: every
+#: evaluated check reads only ``object``.  For an agent with no observed
+#: workload such a pack is NOT sent -- the engine binds an absent object to
+#: ``{}`` and the CIS checks then fail (or, on a spec with no containers,
+#: mostly pass), a verdict about a workload nobody observed.  Its mapped
+#: controls are stored ``pending`` and reported as gaps (``no_workload``).
+#: Mixed packs (some checks read ``agent``/``request``) are still sent; see
+#: ``tests/test_policy_scan_per_agent.py`` for the derivation from the packs.
+OBJECT_ONLY_PACKS = frozenset({
+    ("cis-kubernetes", "v1.8.0"),
+    ("eu-ai-act", "v1.0.0"),
+    ("eu-ai-act", "v2.0.0"),
+    ("nist-800-53", "v1.0.0"),
+    ("nist-800-53", "v2.0.0"),
+})
+
+
+def _has_containers(pod_spec: Any) -> bool:
+    if not isinstance(pod_spec, Mapping):
+        return False
+    containers = pod_spec.get("containers")
+    return isinstance(containers, list) and len(containers) > 0
+
+
 def build_agent_object(row: Mapping[str, Any]) -> dict[str, Any] | None:
     """The ``object`` CEL binding: the agent's Pod-shaped workload, or ``None``.
 
-    Source: ``agent_registry.workload_spec``.  A Pod is sent as recorded; for a
-    Deployment/StatefulSet/DaemonSet/Job (``spec.template``) or CronJob
-    (``spec.jobTemplate.spec.template``) the pod template is sent as
-    ``{"metadata": template.metadata, "spec": template.spec}``, as
-    CONFORMANCE.md specifies.  Anything without a pod ``spec`` is not a
-    workload the CIS checks can judge, so nothing is sent.
+    Source: ``agent_registry.workload_spec``.  A ``kind: Pod`` is sent as
+    recorded; for a Deployment/StatefulSet/DaemonSet/ReplicaSet/Job
+    (``spec.template``) or CronJob (``spec.jobTemplate.spec.template``) the pod
+    template is sent as ``{"metadata": template.metadata, "spec": template.spec}``,
+    as CONFORMANCE.md specifies.  Anything else -- another kind, no kind, or a
+    pod spec without a non-empty ``containers`` list -- is not a workload the
+    CIS checks can judge, so nothing is sent (``None``).
     """
     workload = _document(row.get("workload_spec"))
     if not isinstance(workload, Mapping):
         return None
+    kind = workload.get("kind")
     spec = workload.get("spec")
     if not isinstance(spec, Mapping):
         return None
-    template = spec.get("template")
-    job_template = spec.get("jobTemplate")
-    if template is None and isinstance(job_template, Mapping):
-        inner = job_template.get("spec")
+    if kind == "Pod":
+        return dict(workload) if _has_containers(spec) else None
+    if kind in _TEMPLATE_KINDS:
+        template = spec.get("template")
+    elif kind == "CronJob":
+        job_template = spec.get("jobTemplate")
+        inner = job_template.get("spec") if isinstance(job_template, Mapping) else None
         template = inner.get("template") if isinstance(inner, Mapping) else None
-    if template is None:
-        return dict(workload)
-    if not isinstance(template, Mapping) or not isinstance(template.get("spec"), Mapping):
+    else:
+        return None
+    if not isinstance(template, Mapping) or not _has_containers(template.get("spec")):
         return None
     metadata = dict(template.get("metadata") or {})
     # A pod template carries no namespace; the pods run in the controller's,
@@ -153,6 +186,55 @@ def verdict_of(result: Mapping[str, Any]) -> str:
     if isinstance(passed, bool):
         return "pass" if passed else "fail"
     return "error"
+
+
+#: The monetary figures every engine result carries (Go ``float64``, never
+#: omitted -- see ``policy-engine/compliance.go``).  A result that is missing
+#: one, or carries something that is not a finite number there, is not a result
+#: this API can report: defaulting it to 0 publishes a figure nobody computed.
+MONEY_FIELDS = ("ale", "var95", "tvar", "carriedGbp")
+
+
+def money_of(result: Mapping[str, Any], field: str) -> float | None:
+    """One monetary figure as a finite float, or ``None`` when it is not one.
+
+    ``bool`` is rejected deliberately: it is an ``int`` subclass in Python, and
+    ``True`` arriving in ``ale`` is a shape error, not £1.
+    """
+    value = result.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def defect_of(result: Mapping[str, Any]) -> str | None:
+    """Why this result cannot be read as a verdict, or ``None`` when it can.
+
+    The reason is stored as the check's ``error``.  Every defect here used to
+    be silently repaired or fatal: a missing ``status`` and ``passed`` read as
+    a fail, a ``None`` or NaN in a money field reached ``float()`` and raised,
+    which turned one malformed result into an HTTP 500 for the whole tenant's
+    scan.  One unreadable check is one errored check.
+    """
+    if result.get("status") is None and not isinstance(result.get("passed"), bool):
+        return "engine result carried neither status nor passed"
+    bad = [field for field in MONEY_FIELDS if money_of(result, field) is None]
+    if bad:
+        return f"engine result carried no finite number for {', '.join(bad)}"
+    return None
+
+
+def text_of(result: Mapping[str, Any], field: str) -> str | None:
+    """A descriptive string the engine may not have sent.
+
+    ``None`` rather than a stand-in: ``calibrationSource`` defaulted to
+    ``industry-indicative`` claimed a calibration provenance for a figure whose
+    provenance was never reported, and ``scanTimestamp`` defaulted to now
+    claimed the engine had just looked.
+    """
+    value = result.get(field)
+    return value if isinstance(value, str) and value else None
 
 
 def worse(a: str | None, b: str) -> str:

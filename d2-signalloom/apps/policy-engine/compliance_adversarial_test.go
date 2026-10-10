@@ -26,8 +26,8 @@ func TestRoundMoneyNegativeValues(t *testing.T) {
 		// Decimal-string rounding sees "1.005" and rounds to 1.01. The money package
 		// uses decimal-string rounding, which is the reader's answer.
 		{-1.005, -1.01},
-		{-0.006, -0.01},  // Sign should survive
-		{-0.015, -0.02},  // Another boundary
+		{-0.006, -0.01}, // Sign should survive
+		{-0.015, -0.02}, // Another boundary
 		{-99.995, -100.0},
 	}
 	for _, tc := range cases {

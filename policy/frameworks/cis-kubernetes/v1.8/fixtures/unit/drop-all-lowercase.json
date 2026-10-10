@@ -1,7 +1,7 @@
 {
   "name": "drop-all-lowercase",
   "level": "unit",
-  "description": "drop: [all] (lowercase). containerd and CRI-O compare capability names case-insensitively, so this drops every capability: no-net-raw and capabilities-dropped-all pass. (Pod Security Admission compares \"ALL\" exactly; these checks judge the runtime effect.)",
+  "description": "drop: [all] (lowercase). Pod Security Admission compares the ALL token exactly, so a restricted namespace rejects this pod: capabilities-dropped-all fails. no-net-raw still passes: it judges whether NET_RAW is held, and CRI normalises capability names, so lowercase all does drop it at runtime.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -68,7 +68,7 @@
     "no-root-containers": "pass",
     "no-net-raw": "pass",
     "no-added-capabilities": "pass",
-    "capabilities-dropped-all": "pass",
+    "capabilities-dropped-all": "fail",
     "no-windows-hostprocess": "pass",
     "no-hostpath-volumes": "pass",
     "no-host-ports": "pass",

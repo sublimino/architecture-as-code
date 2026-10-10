@@ -1,7 +1,7 @@
 {
   "name": "host-network-true-no-ports",
   "level": "unit",
-  "description": "hostNetwork: true on a pod that declares no container ports.",
+  "description": "hostNetwork: true on a pod that declares no container ports. The pod shares the host network namespace, so every port its processes bind is a host port whether or not the spec declares it; declaring a port is optional metadata, not the thing that creates the exposure. no-host-ports fails as well as no-host-network.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -65,7 +65,7 @@
     "capabilities-dropped-all": "pass",
     "no-windows-hostprocess": "pass",
     "no-hostpath-volumes": "pass",
-    "no-host-ports": "pass",
+    "no-host-ports": "fail",
     "no-secrets-in-env": "pass",
     "seccomp-runtime-default": "pass",
     "security-context-applied": "pass",

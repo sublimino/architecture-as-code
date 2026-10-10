@@ -240,8 +240,8 @@
             {
               "id": "drop-all-capabilities",
               "name": "Drop all capabilities for AI workloads",
-              "description": "Strips all default Linux capabilities from container runtime processes.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$')))",
+              "description": "Strips all default Linux capabilities from container runtime processes. The ALL token is compared exactly, as Pod Security Admission compares it: a lowercase \"all\" is rejected by a restricted namespace, so it fails here.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
               "severity": "high",
               "remediation": "Add ALL to securityContext.capabilities.drop in all container definitions.",
               "riskTriple": {

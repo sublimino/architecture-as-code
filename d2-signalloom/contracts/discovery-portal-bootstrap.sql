@@ -4628,12 +4628,15 @@ COMMIT;
 
 -- BEGIN 060_seed_design_partner_presets.sql
 -- ══════════════════════════════════════════════════════════════════════════════
--- 060 — seed design partner presets (Kusari tenant) and initial superadmin
+-- 060: seed design partner presets (Kusari and tenant-demo) and initial superadmin
 -- ══════════════════════════════════════════════════════════════════════════════
 --
 -- Seeds default feature flags for design partner tenant 'kusari':
 --   - Enabled: core_governance, audit, compliance
 --   - Disabled: demos_fleet, supercred, rbac_analysis, collusion_access
+--
+-- Seeds default feature flags for demonstration tenant 'tenant-demo':
+--   - Enabled: core_governance, audit, compliance, demos_fleet, supercred, rbac_analysis, collusion_access
 --
 -- Seeds initial platform superadmin accounts:
 --   - demo-user@signalloom.local (tenant: tenant-demo, is_superadmin: true)
@@ -4643,7 +4646,7 @@ COMMIT;
 
 BEGIN;
 
--- 1. Seed Kusari Design Partner Tenant Feature Flags
+-- 1. Seed Kusari and Tenant-Demo Feature Flags
 INSERT INTO public.tenant_feature_flags (
     tenant_id,
     flag_key,
@@ -4658,7 +4661,14 @@ INSERT INTO public.tenant_feature_flags (
     ('kusari', 'demos_fleet',     FALSE, '{"description": "Demo fleet simulation scenarios and testing controls"}'::jsonb, NOW(), NOW()),
     ('kusari', 'supercred',       FALSE, '{"description": "SuperCred privilege escalation demonstration surfaces"}'::jsonb, NOW(), NOW()),
     ('kusari', 'rbac_analysis',   FALSE, '{"description": "Experimental AFM formal RBAC graph visualization"}'::jsonb, NOW(), NOW()),
-    ('kusari', 'collusion_access',FALSE, '{"description": "Experimental multi-agent collusion detection matrix"}'::jsonb, NOW(), NOW())
+    ('kusari', 'collusion_access',FALSE, '{"description": "Experimental multi-agent collusion detection matrix"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'core_governance', TRUE,  '{"description": "Core governance policies, agent registry, and guardrails"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'audit',           TRUE,  '{"description": "Authoritative immutable audit log and provenance stream"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'compliance',      TRUE,  '{"description": "Compliance posture dashboards and regulatory framework evaluation"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'demos_fleet',     TRUE,  '{"description": "Demo fleet simulation scenarios and testing controls"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'supercred',       TRUE,  '{"description": "SuperCred privilege escalation demonstration surfaces"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'rbac_analysis',   TRUE,  '{"description": "Experimental AFM formal RBAC graph visualization"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'collusion_access',TRUE,  '{"description": "Experimental multi-agent collusion detection matrix"}'::jsonb, NOW(), NOW())
 ON CONFLICT (tenant_id, flag_key) DO UPDATE SET
     enabled = EXCLUDED.enabled,
     config_json = EXCLUDED.config_json,

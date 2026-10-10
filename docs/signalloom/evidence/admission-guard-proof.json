@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-21:25:53T21:25:53Z",
+  "timestamp": "2026-10-14:22:51T14:22:51Z",
   "component": "node-capability-guard",
   "task": "CRKC-P3-3",
   "verdict": "pass",
@@ -14,7 +14,7 @@
       "code": 200
     },
     "metrics": {
-      "node_capability_rejections_total": 1,
+      "node_capability_rejections_total": 6,
       "node_capability_admissions_total": 1
     }
   }

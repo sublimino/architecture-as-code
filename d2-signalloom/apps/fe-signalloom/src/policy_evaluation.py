@@ -342,6 +342,192 @@ def _resolve_path(ctx: dict[str, Any], path: str) -> Any:
     return curr
 
 
+def _split_top_level(s: str, op: str) -> list[str]:
+    """Split string by operator at top syntactic depth outside quotes/brackets."""
+    parts = []
+    depth = 0
+    in_quote = None
+    escaped = False
+    curr: list[str] = []
+    i = 0
+    n = len(s)
+    op_len = len(op)
+    while i < n:
+        c = s[i]
+        if escaped:
+            curr.append(c)
+            escaped = False
+            i += 1
+            continue
+        if c == "\\":
+            escaped = True
+            curr.append(c)
+            i += 1
+            continue
+        if in_quote:
+            curr.append(c)
+            if c == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if c in ("'", '"'):
+            in_quote = c
+            curr.append(c)
+            i += 1
+            continue
+        if c in "([{":
+            depth += 1
+            curr.append(c)
+            i += 1
+            continue
+        if c in ")]}":
+            depth -= 1
+            curr.append(c)
+            i += 1
+            continue
+        if depth == 0 and s[i : i + op_len] == op:
+            if op == "in":
+                before = s[i - 1] if i > 0 else " "
+                after = s[i + op_len] if i + op_len < n else " "
+                if (before.isalnum() or before == "_") or (after.isalnum() or after == "_"):
+                    curr.append(c)
+                    i += 1
+                    continue
+            parts.append("".join(curr).strip())
+            curr = []
+            i += op_len
+            continue
+        curr.append(c)
+        i += 1
+    if curr:
+        parts.append("".join(curr).strip())
+    return parts
+
+
+def _parse_literal_or_path(expr: str, scope: dict[str, Any]) -> Any:
+    """Parse literal value, list, or resolve identifier path against scope."""
+    expr = expr.strip()
+    if expr == "true":
+        return True
+    if expr == "false":
+        return False
+    if expr == "null":
+        return None
+    if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
+        return expr[1:-1]
+    if expr.isdigit() or (expr.startswith("-") and expr[1:].isdigit()):
+        return int(expr)
+    if expr.startswith("[") and expr.endswith("]"):
+        inner = expr[1:-1].strip()
+        if not inner:
+            return []
+        items = _split_top_level(inner, ",")
+        return [_parse_literal_or_path(it, scope) for it in items]
+    return _resolve_path(scope, expr)
+
+
+def _eval_cel_ast(expr: str, scope: dict[str, Any]) -> Any:
+    """Recursively evaluate validated CEL expression tree against scope dictionary."""
+    expr = expr.strip()
+    if not expr:
+        return False
+
+    # Strip outer matching parentheses
+    while expr.startswith("(") and expr.endswith(")"):
+        depth = 0
+        wraps_all = True
+        for c in expr[:-1]:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            if depth == 0:
+                wraps_all = False
+                break
+        if wraps_all:
+            expr = expr[1:-1].strip()
+        else:
+            break
+
+    # 1. Top-level Ternary: cond ? then_expr : else_expr
+    q_parts = _split_top_level(expr, "?")
+    if len(q_parts) == 2:
+        cond_str = q_parts[0]
+        colon_parts = _split_top_level(q_parts[1], ":")
+        if len(colon_parts) == 2:
+            return _eval_cel_ast(colon_parts[0], scope) if _eval_cel_ast(cond_str, scope) else _eval_cel_ast(colon_parts[1], scope)
+
+    # 2. Top-level ||
+    or_parts = _split_top_level(expr, "||")
+    if len(or_parts) > 1:
+        return any(bool(_eval_cel_ast(p, scope)) for p in or_parts)
+
+    # 3. Top-level &&
+    and_parts = _split_top_level(expr, "&&")
+    if len(and_parts) > 1:
+        return all(bool(_eval_cel_ast(p, scope)) for p in and_parts)
+
+    # 4. Top-level !
+    if expr.startswith("!") and not expr.startswith("!="):
+        return not bool(_eval_cel_ast(expr[1:].strip(), scope))
+
+    # 5. Top-level == and !=
+    eq_parts = _split_top_level(expr, "==")
+    if len(eq_parts) == 2:
+        left = _parse_literal_or_path(eq_parts[0], scope)
+        right = _parse_literal_or_path(eq_parts[1], scope)
+        return left == right
+
+    neq_parts = _split_top_level(expr, "!=")
+    if len(neq_parts) == 2:
+        left = _parse_literal_or_path(neq_parts[0], scope)
+        right = _parse_literal_or_path(neq_parts[1], scope)
+        return left != right
+
+    # 6. Top-level 'in'
+    in_parts = _split_top_level(expr, "in")
+    if len(in_parts) == 2:
+        val = _parse_literal_or_path(in_parts[0], scope)
+        container = _parse_literal_or_path(in_parts[1], scope)
+        if isinstance(container, (list, tuple, set)):
+            return val in container
+        return False
+
+    # 7. has(path)
+    has_match = re.match(r"^has\(\s*([a-zA-Z0-9_\.]+)\s*\)$", expr)
+    if has_match:
+        return _resolve_path(scope, has_match.group(1)) is not None
+
+    # 8. Macros: .all(var, cond) and .exists(var, cond)
+    macro_match = re.search(r"\.(all|exists)\(\s*([a-zA-Z0-9_]+)\s*,\s*(.+)\)$", expr)
+    if macro_match:
+        mtype = macro_match.group(1)
+        var_name = macro_match.group(2)
+        cond_body = macro_match.group(3)
+        target_expr = expr[: macro_match.start()]
+        target_list = _parse_literal_or_path(target_expr, scope)
+        if not isinstance(target_list, list):
+            return False
+        if mtype == "all":
+            for item in target_list:
+                inner_scope = dict(scope)
+                inner_scope[var_name] = item
+                if not _eval_cel_ast(cond_body, inner_scope):
+                    return False
+            return True
+        elif mtype == "exists":
+            for item in target_list:
+                inner_scope = dict(scope)
+                inner_scope[var_name] = item
+                if _eval_cel_ast(cond_body, inner_scope):
+                    return True
+            return False
+
+    # Fallback to truthiness of path or literal
+    val = _parse_literal_or_path(expr, scope)
+    return bool(val)
+
+
 def evaluate_cel_expression(
     expression: str,
     context: dict[str, Any],
@@ -356,68 +542,17 @@ def evaluate_cel_expression(
             diagnostics=validation.diagnostics,
         )
 
-    expr = expression.strip()
+    scope = dict(context)
+    if "object" in scope and "manifest" not in scope:
+        scope["manifest"] = scope["object"]
+    elif "manifest" in scope and "object" not in scope:
+        scope["object"] = scope["manifest"]
 
-    # Literal true/false
-    if expr == "true":
-        return CelEvaluationResult(compliant=True, cost=1)
-    if expr == "false":
-        return CelEvaluationResult(compliant=False, cost=1)
-
-    # has(...) macro
-    has_match = re.match(r"^has\(\s*([a-zA-Z0-9_\.]+)\s*\)$", expr)
-    if has_match:
-        target = has_match.group(1)
-        val = _resolve_path(context, target)
-        return CelEvaluationResult(compliant=val is not None, cost=2)
-
-    # has(...) && ...
-    has_and_match = re.match(r"^has\(\s*([a-zA-Z0-9_\.]+)\s*\)\s*&&\s*(.+)$", expr)
-    if has_and_match:
-        target = has_and_match.group(1)
-        rest = has_and_match.group(2).strip()
-        val = _resolve_path(context, target)
-        if val is None:
-            return CelEvaluationResult(compliant=False, cost=2)
-        return evaluate_cel_expression(rest, context)
-
-    # Simple equality check: <path> == <literal>
-    eq_match = re.match(r"^([a-zA-Z0-9_\.]+)\s*(==|!=)\s*(true|false|'[^']*'|\"[^\"]*\"|\d+)$", expr)
-    if eq_match:
-        path, op, lit = eq_match.groups()
-        val = _resolve_path(context, path)
-        if lit == "true":
-            expected: Any = True
-        elif lit == "false":
-            expected = False
-        elif (lit.startswith("'") and lit.endswith("'")) or (lit.startswith('"') and lit.endswith('"')):
-            expected = lit[1:-1]
-        else:
-            expected = int(lit)
-
-        is_equal = val == expected
-        compliant = is_equal if op == "==" else (not is_equal)
-        return CelEvaluationResult(compliant=compliant, cost=3)
-
-    # All containers check: object.spec.containers.all(...)
-    all_match = re.match(
-        r"^(?:object|manifest)\.spec\.containers\.all\(\s*([a-zA-Z0-9_]+)\s*,\s*\1\.securityContext\.runAsNonRoot\s*==\s*true\s*\)$",
-        expr,
-    )
-    if all_match:
-        spec = context.get("object", {}).get("spec") or context.get("manifest", {}).get("spec") or {}
-        containers = spec.get("containers", [])
-        if not containers:
-            return CelEvaluationResult(compliant=False, cost=5)
-        for c in containers:
-            sc = c.get("securityContext", {})
-            if sc.get("runAsNonRoot") is not True:
-                return CelEvaluationResult(compliant=False, cost=5)
-        return CelEvaluationResult(compliant=True, cost=5)
-
-    # Default fallback: safe truthiness check
-    val = _resolve_path(context, expr)
-    return CelEvaluationResult(compliant=bool(val), cost=5)
+    try:
+        compliant = bool(_eval_cel_ast(expression, scope))
+        return CelEvaluationResult(compliant=compliant, cost=5)
+    except Exception as exc:
+        return CelEvaluationResult(compliant=False, cost=0, error=str(exc))
 
 
 def calculate_posture_score(

@@ -3533,11 +3533,15 @@ VERIFY_CEL = scripts/verify-cel.sh
 
 .PHONY: verify-cel verify-cel-engine verify-cel-conformance verify-cel-fe verify-cel-db
 
-# verify-cel also runs the external-oracle tier (below): the aggregate must not
-# be able to pass while the one tier whose oracle nobody here wrote is failing.
-verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s), then the external PSA oracle (0.6s).
-	$(VERIFY_CEL) all
+# verify-cel runs the external-oracle tier (below) BEFORE the parallel tiers.
+# Ordering is load-bearing, not cosmetic: with the oracle last, the script printed
+# its own `verify-cel: PASS` line and the oracle's FAIL appeared underneath it. The
+# exit code was correct (2) but a human reading top-down saw PASS above a failure,
+# which is the exact dishonesty the aggregator was built to prevent. Proven by
+# injecting a t.Fatal into the oracle and reading the output, not just the status.
+verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s). Runs the external PSA oracle FIRST so a red oracle can never sit under a printed PASS.
 	@$(MAKE) --no-print-directory verify-cel-oracle
+	$(VERIFY_CEL) all
 
 verify-cel-engine: ## CEL tier 1 alone: go test ./... -count=1 in apps/policy-engine (14-20s, 1105 tests).
 	$(VERIFY_CEL) engine

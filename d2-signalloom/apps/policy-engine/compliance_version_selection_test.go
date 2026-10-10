@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
@@ -156,6 +157,68 @@ func TestScan_VersionSelection(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func errorBody(t *testing.T, w *httptest.ResponseRecorder, wantCode int) map[string]any {
+	t.Helper()
+	if w.Code != wantCode {
+		t.Fatalf("HTTP %d, want %d: %s", w.Code, wantCode, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("error body is not JSON: %v: %s", err, w.Body.String())
+	}
+	return body
+}
+
+// Audit H1: a requested framework that yields zero checks after selection and
+// filter is a 400 naming it, never a 200 that silently omits it.
+func TestScan_NoChecksForFrameworkIs400(t *testing.T) {
+	root := versionedRoot(t)
+	other := packCheck("other-check", "true")
+	other.PolicyVersions = []string{"v2.10.0"}
+	writePack(t, root, "other", "v1.0", frameworks.Framework{ID: "other", Version: "v1.0.0",
+		ControlSets: []frameworks.ControlSet{{ID: "CS", Name: "Set", Controls: []frameworks.Control{{ID: "C", Name: "C", Checks: []frameworks.Check{other}}}}}})
+	h, err := newComplianceHandler(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := errorBody(t, scanRaw(t, h, map[string]any{"frameworks": []string{"vsel"}, "policyVersion": "v9.9.9"}), http.StatusBadRequest)
+	if body["error"] != "no_checks_for_framework" || body["framework"] != "vsel" || body["policyVersion"] != "v9.9.9" {
+		t.Errorf("body = %v, want error no_checks_for_framework, framework vsel, policyVersion v9.9.9", body)
+	}
+
+	// At v9.9.9 neither framework has a check: both are named, in request order.
+	body = errorBody(t, scanRaw(t, h, map[string]any{"frameworks": []string{"vsel", "other"}, "policyVersion": "v9.9.9"}), http.StatusBadRequest)
+	if body["framework"] != "vsel, other" || len(body["frameworks"].([]any)) != 2 {
+		t.Errorf("body = %v, want both frameworks named", body)
+	}
+
+	// One empty, one non-empty: still 400 naming only the empty one.
+	body = errorBody(t, scanRaw(t, h, map[string]any{"frameworks": []string{"vsel", "other"}, "policyVersion": "v2.9.0"}), http.StatusBadRequest)
+	if body["framework"] != "other" {
+		t.Errorf("body = %v, want framework other", body)
+	}
+}
+
+// A requested framework whose pack fails to load is a 500 naming it, even
+// beside a framework that scans fine.
+func TestScan_PackLoadFailureIs500(t *testing.T) {
+	root := versionedRoot(t)
+	writePack(t, root, "broken", "v1.0", frameworks.Framework{ID: "broken", Version: "v1.0.0",
+		ControlSets: []frameworks.ControlSet{{ID: "CS", Name: "Set", Controls: []frameworks.Control{{ID: "C", Name: "C", Checks: []frameworks.Check{packCheck("", "true")}}}}}})
+	h, err := newComplianceHandler(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := errorBody(t, scanRaw(t, h, map[string]any{"frameworks": []string{"vsel", "broken"}}), http.StatusInternalServerError)
+	if body["error"] != "framework_load_failed" || body["framework"] != "broken" {
+		t.Errorf("body = %v, want error framework_load_failed, framework broken", body)
+	}
+	if d, _ := body["detail"].(string); !strings.Contains(d, "has no id") {
+		t.Errorf("detail = %q, want the loader error", d)
 	}
 }
 

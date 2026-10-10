@@ -164,25 +164,57 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Select every requested framework's pack before evaluating anything: a
+	// framework that fails to load, or yields no checks, fails the whole scan
+	// rather than being silently omitted from a 200.
+	type selected struct {
+		fw     *frameworks.Framework
+		checks []scanCheck
+	}
+	var (
+		packs               []selected
+		loadFailed, noCheck []string
+		loadErrs            []string
+	)
+	for _, fwID := range req.Frameworks {
+		versions, ok := available[fwID]
+		if !ok {
+			// Unknown IDs beside known ones are skipped (all-unknown is a 400
+			// above); TestScanMixedKnownUnknown_Succeeds pins this.
+			slog.Warn("framework not found, skipping", "framework", fwID)
+			continue
+		}
+		fw, err := selectPack(ch.policyRoot, fwID, versions, req.PolicyVersion)
+		if err != nil {
+			slog.Error("loading framework", "framework", fwID, "error", err)
+			loadFailed = append(loadFailed, fwID)
+			loadErrs = append(loadErrs, err.Error())
+			continue
+		}
+		checks := checksWithControlIDs(fw, req.PolicyVersion)
+		if len(checks) == 0 {
+			noCheck = append(noCheck, fwID)
+			continue
+		}
+		packs = append(packs, selected{fw: fw, checks: checks})
+	}
+	if len(loadFailed) > 0 {
+		writeFrameworkError(w, http.StatusInternalServerError, "framework_load_failed", loadFailed, req.PolicyVersion, strings.Join(loadErrs, "; "))
+		return
+	}
+	if len(noCheck) > 0 {
+		writeFrameworkError(w, http.StatusBadRequest, "no_checks_for_framework", noCheck, req.PolicyVersion, "")
+		return
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
 	inputMap := celBindings(req.workload(), req.Agent, req.Request)
 
-	for _, fwID := range req.Frameworks {
-		versions, ok := available[fwID]
-		if !ok || len(versions) == 0 {
-			slog.Warn("framework not found, skipping", "framework", fwID)
-			continue
-		}
-
-		fw, err := selectPack(ch.policyRoot, fwID, versions, req.PolicyVersion)
-		if err != nil {
-			slog.Error("loading framework", "framework", fwID, "error", err)
-			continue
-		}
-
-		for _, cwc := range checksWithControlIDs(fw, req.PolicyVersion) {
+	for _, sel := range packs {
+		fw := sel.fw
+		for _, cwc := range sel.checks {
 			passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
 			status := verdictOf(passed, err)
 			var errText string
@@ -347,6 +379,23 @@ func checkSeed(id string) uint64 {
 
 func roundMoney(v float64, c money.Currency) float64 {
 	return money.Money{Amount: v, Currency: c}.Round().Amount
+}
+
+// writeFrameworkError reports frameworks a scan could not evaluate.
+// `framework` names them all (", "-joined); `frameworks` lists them.
+func writeFrameworkError(w http.ResponseWriter, code int, kind string, fws []string, policyVersion, detail string) {
+	body := map[string]any{
+		"error":         kind,
+		"framework":     strings.Join(fws, ", "),
+		"frameworks":    fws,
+		"policyVersion": policyVersion,
+	}
+	if detail != "" {
+		body["detail"] = detail
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(body)
 }
 
 // selectPack loads every version directory of a framework and returns the ONE

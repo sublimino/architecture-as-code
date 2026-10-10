@@ -1,0 +1,24 @@
+{
+  "name": "signed-cryptographic-updates--slsa-level-3",
+  "level": "unit",
+  "description": "Provenance at exactly SLSA_LEVEL_3.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "signed-cryptographic-updates": "pass"
+  }
+}

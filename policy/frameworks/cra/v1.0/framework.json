@@ -15,7 +15,7 @@
               "id": "default-secure-configuration",
               "name": "Secure-by-default runtime profile",
               "description": "Ensures system components ship and run with hardened security configurations by default.",
-              "celExpression": "has(agent.security_profile) && has(agent.security_profile.secure_by_default) && agent.security_profile.secure_by_default == true",
+              "celExpression": "has(agent.security_profile) && type(agent.security_profile) == map && has(agent.security_profile.secure_by_default) && agent.security_profile.secure_by_default == true",
               "severity": "high",
               "remediation": "Enable default hardened security profile in agent manifest.",
               "riskTriple": {
@@ -48,7 +48,7 @@
               "id": "sbom-verified-provenance",
               "name": "Verified Software Bill of Materials (SBOM)",
               "description": "Requires machine-readable CycloneDX or SPDX SBOM with verified supply chain provenance.",
-              "celExpression": "has(agent.sbom) && has(agent.sbom.format) && (agent.sbom.format == 'CycloneDX' || agent.sbom.format == 'SPDX') && has(agent.sbom.verified) && agent.sbom.verified == true",
+              "celExpression": "has(agent.sbom) && type(agent.sbom) == map && has(agent.sbom.format) && (agent.sbom.format == 'CycloneDX' || agent.sbom.format == 'SPDX') && has(agent.sbom.verified) && agent.sbom.verified == true",
               "severity": "critical",
               "remediation": "Attach signed CycloneDX or SPDX SBOM metadata to agent workload.",
               "riskTriple": {
@@ -81,7 +81,7 @@
               "id": "signed-cryptographic-updates",
               "name": "Cryptographically signed software provenance",
               "description": "Verifies SLSA Level 3 provenance and cosign signatures for all deployed binaries.",
-              "celExpression": "has(agent.provenance) && has(agent.provenance.slsa_level) && agent.provenance.slsa_level == 'SLSA_LEVEL_3'",
+              "celExpression": "has(agent.provenance) && type(agent.provenance) == map && has(agent.provenance.slsa_level) && agent.provenance.slsa_level == 'SLSA_LEVEL_3'",
               "severity": "high",
               "remediation": "Build and sign artifacts satisfying SLSA Level 3 provenance criteria.",
               "riskTriple": {

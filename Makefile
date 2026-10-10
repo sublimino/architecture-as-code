@@ -3522,3 +3522,35 @@ install-git-hooks: ## Install the pre-push hook that runs scan-secrets.
 	@chmod +x .git/hooks/pre-push
 	@echo "installed .git/hooks/pre-push -> make scan-secrets"
 	@echo "  bypass: git push --no-verify   or   SKIP_SECRET_SCAN=1 git push"
+
+##@ CEL policy verification
+
+# verify-cel-oracle holds the CIS Kubernetes pack against an EXTERNAL oracle:
+# k8s.io/pod-security-admission, the module the API server itself runs to
+# enforce the Pod Security Standards, plus two rules transcribed from
+# kubernetes/kubernetes v1.34.0 (seccomp localhostProfile validation, and
+# hostNetwork hostPort defaulting). Every other CEL tier compares an expression
+# against a fixture written by the same author in the same sitting, so this is
+# the only tier whose oracle nobody here wrote.
+#
+# It lives in its own Go module (d2-signalloom/apps/policy-engine/oracle) so the
+# engine's production module graph does not carry 17 test-only dependencies into
+# a signed image. That is also why it is not reached by the engine's own
+# `go test ./...` and needs a target of its own.
+#
+# Divergences are failures unless individually justified in oracleExceptions,
+# and an exception that stops diverging fails as stale. ~2s, no cluster.
+.PHONY: verify-cel-oracle
+verify-cel-oracle: ## Hold the CIS pack against upstream Pod Security Admission (external oracle, no cluster).
+	@command -v go >/dev/null || { echo "verify-cel-oracle: go not on PATH"; exit 127; }
+	@echo "==> verify-cel-oracle: CIS pack vs k8s.io/pod-security-admission"
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  { [ -z "$$(gofmt -l .)" ] || { echo "gofmt: $$(gofmt -l .)"; exit 1; }; } && \
+	  go vet ./... && go test ./... -count=1
+	@echo "==> verify-cel-oracle: agrees with Pod Security Admission, or diverges only where recorded"
+
+.PHONY: verify-cel-oracle-report
+verify-cel-oracle-report: ## Print every pack/PSA divergence, including the ones recorded as accepted.
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  go test -count=1 -v -run 'TestPSAOracle_PackAgreesWithPodSecurityAdmission' ./... \
+	  | grep -E 'cases:|divergence:|skipped:|UNEXCUSED|STALE' || true

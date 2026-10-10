@@ -289,13 +289,14 @@ compares it to a port.
 ### Worked example
 
 `instance_name` and `internal_ip` may be empty **only** for a CI lane.
-`terraform/environments/main.tf` filters the compute module on `kind == "demo"`,
-so a CI environment genuinely has no instance and no internal IP; demanding them
+`terraform/environments/main.tf` filters the compute module on `kind == "demo"`.
+A CI environment genuinely has no instance and no internal IP. Demanding them
 would make `make gcp-tf-up ENV=ci-1` fail at its last step with nothing wrong.
-The relaxation is keyed on the resolved `kind` and is fail-closed: only the exact
-string `ci` takes the lenient branch, `demo` and an unresolved `kind` both take
-the strict one, and any other value is rejected rather than guessed at. Read
-`kind` to tell "CI lane, correctly has no instance" from "demo lane, broken".
+The relaxation is keyed on the resolved `kind` and is fail-closed. Only the
+exact string `ci` takes the lenient branch. Both `demo` and an unresolved
+`kind` take the strict branch. Any other value is rejected rather than guessed
+at. Read `kind` to tell "CI lane, correctly has no instance" from "demo lane,
+broken".
 
 `access_mode` reports **the access path actually in force**, which is not the
 same thing as `var.access_mode` in the tfvars.

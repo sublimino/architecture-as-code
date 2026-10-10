@@ -267,15 +267,15 @@ otherwise each claim to own:
 **This apply needs more privilege than every other apply in this runbook, once.**
 `modules/operator-identity` creates a custom role, which needs
 `iam.roles.create`. That permission is in `roles/iam.roleAdmin` and **not** in
-`roles/resourcemanager.projectIamAdmin`, which is what `sl-tf-deploy` holds — so
-the deploy identity cannot create it, and is deliberately not being granted the
-ability to (`roleAdmin` on an identity that already holds `compute.admin` and
-`projectIamAdmin` would let it mint any role and bind that role to itself).
+`roles/resourcemanager.projectIamAdmin`, which `sl-tf-deploy` holds. The deploy
+identity cannot create it. It is deliberately not granted that ability.
+Holding `roleAdmin` with `compute.admin` and `projectIamAdmin` would let it mint
+any role and bind that role to itself.
 
 Two ways through, and you must pick one before planning:
 
 - **Apply this root once as an identity holding `roleAdmin` or owner.** The role
-  is a singleton; subsequent applies as the deploy identity are a no-op on it.
+  is a singleton. Subsequent applies as the deploy identity are a no-op on it.
 - **Set `manage_operator_lifecycle_role = false`.** Everything else applies
   cleanly and the role becomes a documented manual follow-up. The operator keeps
   the IAP tunnel and OS Login and cannot suspend a VM, which means teardown needs
@@ -467,8 +467,8 @@ to make than to recover from.
 
 Before the `terraform destroy` runs, the target releases the VM's Tailscale
 device record by calling `demo-up.sh ts-logout --force`. Nothing in
-`terraform destroy` removes a tailnet device, and a destroyed VM that keeps
-owning `sl-demo-1` makes the next build come up as `sl-demo-1-1` — the demo URL
+`terraform destroy` removes a tailnet device. A destroyed VM that keeps
+owning `sl-demo-1` makes the next build come up as `sl-demo-1-1`. The demo URL
 drifts further on every rebuild. The call is best-effort so a cleanup can never
 block a destroy, which means you should read its output.
 

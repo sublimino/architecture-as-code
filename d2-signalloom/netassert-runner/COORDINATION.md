@@ -45,13 +45,13 @@ an expected connection failure cannot be presented as policy-denial evidence.
 ## TAP validator
 
 `/usr/local/bin/validate-tap.sh TAP_FILE` accepts Netassert TAP version 14 only
-when it has exactly one positive plan, one uniquely numbered result per plan
-entry, no out-of-plan numbering, no malformed top-level records, and no
-bailout. Complete `not ok` assertions are valid TAP and retain Netassert's exit
-status `1`; absent or structurally invalid TAP changes the Job status to `2`.
-The controller's fixed command prints the marker and TAP before validation
-affects completion. GitOps should invoke scans through the controller only;
-there is no supported host-side runner bypass.
+with strict checks. The output must have one positive plan and one uniquely
+numbered result per plan entry. It must have no out-of-plan numbering, no
+malformed top-level records, and no bailout. Complete `not ok` assertions are
+valid TAP and retain Netassert's exit status `1`. Absent or structurally invalid
+TAP changes the Job status to `2`. The controller's fixed command prints the
+marker and TAP before validation affects completion. GitOps should invoke scans
+through the controller only. There is no supported host-side runner bypass.
 
 ## Pinned helper images
 

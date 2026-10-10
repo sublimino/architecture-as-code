@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["compliance"])
 
-# Standard available regulatory frameworks
+# Standard available regulatory frameworks.  Served when the policy engine is
+# unreachable.  For every framework with a pack under policy/frameworks,
+# ``version`` is the newest pack version and ``controls_count`` its number of
+# checks; tests/test_known_frameworks_match_packs.py derives both from the packs.
 KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
     "eu-ai-act": {
         "id": "eu-ai-act",
@@ -33,7 +36,7 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
         "version": "v2.1.0",
         "regulatory_body": "European Commission",
         "description": "High-risk AI governance, technical robustness, and human oversight requirements.",
-        "controls_count": 4,
+        "controls_count": 11,
     },
     "nist-800-53": {
         "id": "nist-800-53",
@@ -41,7 +44,7 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
         "version": "v2.1.0",
         "regulatory_body": "NIST",
         "description": "Security and Privacy Controls for Information Systems and Organizations.",
-        "controls_count": 5,
+        "controls_count": 14,
     },
     "cra": {
         "id": "cra",
@@ -54,7 +57,7 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
     "cis-kubernetes": {
         "id": "cis-kubernetes",
         "name": "CIS Kubernetes Benchmark",
-        "version": "v1.0.0",
+        "version": "v1.8.0",
         "regulatory_body": "Center for Internet Security",
         "description": "Pod-level workload security checks (policy/frameworks/cis-kubernetes).",
         "controls_count": 17,
@@ -65,7 +68,7 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
         "version": "v1.0.0",
         "regulatory_body": "FINOS",
         "description": "AI agent governance checks over the agent context (policy/frameworks/finos-aigf).",
-        "controls_count": 3,
+        "controls_count": 16,
     },
     # No policy pack exists for soc-2 under policy/frameworks; listed for the
     # catalogue only, a scan of it returns nothing.

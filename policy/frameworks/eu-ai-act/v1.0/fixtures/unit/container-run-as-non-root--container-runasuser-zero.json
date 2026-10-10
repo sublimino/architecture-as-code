@@ -1,7 +1,7 @@
 {
-  "name": "container-run-as-non-root--pod-false-container-true",
+  "name": "container-run-as-non-root--container-runasuser-zero",
   "level": "unit",
-  "description": "Pod-level runAsNonRoot is false and the only container sets it true. The container value takes precedence over the pod value, so the check passes. This is the effective-value precedence case; the CIS pack resolved it wrongly.",
+  "description": "The only container sets runAsNonRoot: true and runAsUser: 0. PSA restricted rejects on runAsUser=0 at container level too (oracle class C).",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -25,7 +25,10 @@
         "serviceAccountName": "agent-alpha",
         "automountServiceAccountToken": false,
         "securityContext": {
-          "runAsNonRoot": false
+          "runAsNonRoot": true,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
         },
         "containers": [
           {
@@ -33,7 +36,7 @@
             "image": "ghcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "securityContext": {
               "runAsNonRoot": true,
-              "runAsUser": 10001,
+              "runAsUser": 0,
               "allowPrivilegeEscalation": false,
               "privileged": false,
               "readOnlyRootFilesystem": true,
@@ -73,6 +76,6 @@
     "request": {}
   },
   "expect": {
-    "container-run-as-non-root": "pass"
+    "container-run-as-non-root": "fail"
   }
 }

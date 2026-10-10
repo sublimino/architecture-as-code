@@ -258,42 +258,137 @@ INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, descr
 ON CONFLICT DO NOTHING;
 
 -- CIS Kubernetes Benchmark
+--
+-- Every control below is evaluated by the policy-engine pack `cis-kubernetes`
+-- (policy/frameworks/cis-kubernetes/): the check id is the stable key
+-- (policy_framework_id, policy_check_id) the scan reconciles verdicts onto.
+-- The CEL lives in the pack, never here.  CIS section numbers are CIS
+-- Kubernetes Benchmark v1.8.0 as verified against kube-bench
+-- cfg/cis-1.8/policies.yaml.  The former 5.3.1 NetworkPolicy row (no pod check can
+-- evaluate it) is reused for no-privileged-containers.
 INSERT INTO public.governance_frameworks (
     id, tenant_id, name, version, regulatory_body,
     control_count, activated_by
 ) VALUES (
     'f0000000-0000-0000-0000-000000000003', 'tenant-demo',
     'CIS Kubernetes Benchmark', 'v1.8.0', 'Center for Internet Security',
-    6, 'admin@acme.co'
-) ON CONFLICT DO NOTHING;
+    17, 'admin@acme.co'
+) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
 
--- CIS Kubernetes Benchmark controls
-INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, description, control_order) VALUES
-('c0000000-0000-0000-0000-000000000007', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.2.6 -- Non-Root Execution',
- 'Containers must run as non-root user (runAsNonRoot: true). CEL: object.spec.containers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true)',
- 1),
-('c0000000-0000-0000-0000-000000000008', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.2.5 -- Privilege Escalation Disabled',
- 'Prohibits allowPrivilegeEscalation in containers. CEL: object.spec.containers.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false)',
- 2),
-('c0000000-0000-0000-0000-000000000009', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.7.4 -- Seccomp RuntimeDefault',
- 'Enforces default seccomp profile filtering. CEL: has(object.spec.securityContext) && object.spec.securityContext.seccompProfile.type in [RuntimeDefault, Localhost]',
- 3),
+-- CIS Kubernetes Benchmark controls (17, one per cis-kubernetes check)
+INSERT INTO public.governance_controls (
+    id, tenant_id, framework_id, name, description, control_order,
+    policy_framework_id, policy_check_id
+) VALUES
 ('c0000000-0000-0000-0000-000000000010', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.7.1 -- Automount Service Account Token Disabled',
- 'Disable default ServiceAccount token injection. CEL: !has(object.spec.automountServiceAccountToken) || object.spec.automountServiceAccountToken == false',
- 4),
-('c0000000-0000-0000-0000-000000000011', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.2.2 -- Host Namespace Sharing Prohibited',
- 'Containers must not share host PID, IPC, or network namespaces. CEL: (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.hostNetwork) || !object.spec.hostNetwork)',
- 5),
+ 'CIS 5.1.6 -- SA Token Automount Disabled',
+ 'Service account tokens are only mounted where necessary. Evaluated by cis-kubernetes/sa-token-automount-disabled.',
+ 1, 'cis-kubernetes', 'sa-token-automount-disabled'),
 ('c0000000-0000-0000-0000-000000000012', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.3.1 -- Namespace Network Isolation',
- 'Namespace NetworkPolicy isolation. Not tested in Pod CEL -- audited at cluster/namespace level via NetworkPolicy controller. Docs: https://www.cisecurity.org/benchmark/kubernetes',
- 6)
-ON CONFLICT DO NOTHING;
+ 'CIS 5.2.2 -- No Privileged Containers',
+ 'Minimize the admission of privileged containers. Evaluated by cis-kubernetes/no-privileged-containers.',
+ 2, 'cis-kubernetes', 'no-privileged-containers'),
+('c0000000-0000-0000-0000-000000000011', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.3 -- No Host PID',
+ 'Minimize the admission of containers sharing the host process ID namespace. Evaluated by cis-kubernetes/no-host-pid.',
+ 3, 'cis-kubernetes', 'no-host-pid'),
+('c0000000-0000-0000-0000-000000000013', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.4 -- No Host IPC',
+ 'Minimize the admission of containers sharing the host IPC namespace. Evaluated by cis-kubernetes/no-host-ipc.',
+ 4, 'cis-kubernetes', 'no-host-ipc'),
+('c0000000-0000-0000-0000-000000000014', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.5 -- No Host Network',
+ 'Minimize the admission of containers sharing the host network namespace. Evaluated by cis-kubernetes/no-host-network.',
+ 5, 'cis-kubernetes', 'no-host-network'),
+('c0000000-0000-0000-0000-000000000008', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.6 -- No Privilege Escalation',
+ 'Minimize the admission of containers with allowPrivilegeEscalation. Evaluated by cis-kubernetes/no-privilege-escalation.',
+ 6, 'cis-kubernetes', 'no-privilege-escalation'),
+('c0000000-0000-0000-0000-000000000007', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.7 -- No Root Containers',
+ 'Minimize the admission of root containers. Evaluated by cis-kubernetes/no-root-containers.',
+ 7, 'cis-kubernetes', 'no-root-containers'),
+('c0000000-0000-0000-0000-000000000015', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.8 -- No NET_RAW',
+ 'Minimize the admission of containers with the NET_RAW capability. Evaluated by cis-kubernetes/no-net-raw.',
+ 8, 'cis-kubernetes', 'no-net-raw'),
+('c0000000-0000-0000-0000-000000000016', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.9 -- No Added Capabilities',
+ 'Minimize the admission of containers with added capabilities. Evaluated by cis-kubernetes/no-added-capabilities.',
+ 9, 'cis-kubernetes', 'no-added-capabilities'),
+('c0000000-0000-0000-0000-000000000017', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.10 -- Capabilities Dropped ALL',
+ 'Minimize the admission of containers with capabilities assigned. Evaluated by cis-kubernetes/capabilities-dropped-all.',
+ 10, 'cis-kubernetes', 'capabilities-dropped-all'),
+('c0000000-0000-0000-0000-000000000018', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.11 -- No Windows HostProcess',
+ 'Minimize the admission of Windows HostProcess containers. Evaluated by cis-kubernetes/no-windows-hostprocess.',
+ 11, 'cis-kubernetes', 'no-windows-hostprocess'),
+('c0000000-0000-0000-0000-000000000019', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.12 -- No HostPath Volumes',
+ 'Minimize the admission of HostPath volumes. Evaluated by cis-kubernetes/no-hostpath-volumes.',
+ 12, 'cis-kubernetes', 'no-hostpath-volumes'),
+('c0000000-0000-0000-0000-000000000020', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.13 -- No Host Ports',
+ 'Minimize the admission of containers which use HostPorts. Evaluated by cis-kubernetes/no-host-ports.',
+ 13, 'cis-kubernetes', 'no-host-ports'),
+('c0000000-0000-0000-0000-000000000021', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.4.1 -- No Secrets in Env',
+ 'Prefer secrets as files over secrets as environment variables. Evaluated by cis-kubernetes/no-secrets-in-env.',
+ 14, 'cis-kubernetes', 'no-secrets-in-env'),
+('c0000000-0000-0000-0000-000000000009', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.2 -- Seccomp RuntimeDefault',
+ 'Ensure the seccomp profile is set to RuntimeDefault in pod definitions. Evaluated by cis-kubernetes/seccomp-runtime-default.',
+ 15, 'cis-kubernetes', 'seccomp-runtime-default'),
+('c0000000-0000-0000-0000-000000000022', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.3 -- Security Context Applied',
+ 'Apply a security context to pods and containers. Evaluated by cis-kubernetes/security-context-applied.',
+ 16, 'cis-kubernetes', 'security-context-applied'),
+('c0000000-0000-0000-0000-000000000023', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.4 -- No Default Namespace',
+ 'The default namespace should not be used. Evaluated by cis-kubernetes/no-default-namespace.',
+ 17, 'cis-kubernetes', 'no-default-namespace')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    control_order = EXCLUDED.control_order,
+    policy_framework_id = EXCLUDED.policy_framework_id,
+    policy_check_id = EXCLUDED.policy_check_id;
+
+-- FINOS AI Governance Framework (AIGF), evaluated by the `finos-aigf` pack
+-- against each agent's governance context (see policy_scan.build_agent_policy_context).
+-- A new AIGF check needs only a row here with its check id.
+INSERT INTO public.governance_frameworks (
+    id, tenant_id, name, version, regulatory_body,
+    control_count, activated_by
+) VALUES (
+    'f0000000-0000-0000-0000-000000000004', 'tenant-demo',
+    'FINOS AI Governance Framework', 'v1.0.0', 'FINOS',
+    3, 'admin@acme.co'
+) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
+
+INSERT INTO public.governance_controls (
+    id, tenant_id, framework_id, name, description, control_order,
+    policy_framework_id, policy_check_id
+) VALUES
+('c0000000-0000-0000-0000-000000000024', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIGF-1.1 -- Registered Enterprise Model Catalog',
+ 'Agent model is registered and approved in the enterprise model catalog. Evaluated by finos-aigf/registered-model-registry-entry.',
+ 1, 'finos-aigf', 'registered-model-registry-entry'),
+('c0000000-0000-0000-0000-000000000025', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIGF -- Prompt Injection Guardrail Active',
+ 'A prompt-injection filter is active for the agent. Evaluated by finos-aigf/prompt-injection-guardrail-active.',
+ 2, 'finos-aigf', 'prompt-injection-guardrail-active'),
+('c0000000-0000-0000-0000-000000000026', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIGF -- Decision Explainability Metadata',
+ 'Agent decisions carry explainability metadata. Evaluated by finos-aigf/decision-explainability-metadata.',
+ 3, 'finos-aigf', 'decision-explainability-metadata')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    control_order = EXCLUDED.control_order,
+    policy_framework_id = EXCLUDED.policy_framework_id,
+    policy_check_id = EXCLUDED.policy_check_id;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Agent Compliance Results (30 = 5 agents x 6 controls)

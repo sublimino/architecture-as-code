@@ -106,7 +106,14 @@ def build_agent_object(row: Mapping[str, Any]) -> dict[str, Any] | None:
         return dict(workload)
     if not isinstance(template, Mapping) or not isinstance(template.get("spec"), Mapping):
         return None
-    return {"metadata": dict(template.get("metadata") or {}), "spec": dict(template["spec"])}
+    metadata = dict(template.get("metadata") or {})
+    # A pod template carries no namespace; the pods run in the controller's,
+    # and checks such as no-default-namespace read object.metadata.namespace.
+    workload_metadata = workload.get("metadata")
+    if "namespace" not in metadata and isinstance(workload_metadata, Mapping) \
+            and workload_metadata.get("namespace"):
+        metadata["namespace"] = workload_metadata["namespace"]
+    return {"metadata": metadata, "spec": dict(template["spec"])}
 
 
 def scan_request_body(

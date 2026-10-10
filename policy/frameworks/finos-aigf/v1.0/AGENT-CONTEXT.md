@@ -46,7 +46,7 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
 | `access.authentication_required` | bool | Callers must authenticate. | fail | `user-authn-and-rbac-enforced` |
 | `access.rbac_enforced` | bool | Role-based authorisation is enforced on the agent's data and actions. | fail | `user-authn-and-rbac-enforced` |
 | `tools` | array of objects | The tools the agent can invoke. `[]` means no tools. | both tool checks fail | `tool-grants-least-privilege`, `high-impact-actions-human-approved` |
-| `tools[].scopes` | array of strings | The scopes granted to the tool. The array must not be empty. Every entry must be a non-empty string and must not end in `*`, so neither `*` nor `repo:*` is allowed. | fail | `tool-grants-least-privilege` |
+| `tools[].scopes` | array of strings | The scopes granted to the tool. The array must not be empty. Every entry must be a non-empty string containing no `*` anywhere, so `*`, `repo:*` and `repo:*:write` are all rejected. | fail | `tool-grants-least-privilege` |
 | `tools[].impact` | `"low"` \| `"medium"` \| `"high"` | The impact class. Absent, or any other value, is treated as `high` (fail-closed). | treated as high | `high-impact-actions-human-approved` |
 | `tools[].requires_human_approval` | bool | Calls to this tool wait at a human approval gate. Required when the impact is high or unclassified. | fail if the tool is high or unclassified | `high-impact-actions-human-approved` |
 | `mcp_servers` | array of objects | The MCP servers the agent connects to. `[]` means none. | fail | `mcp-servers-allowlisted` |

@@ -19,16 +19,15 @@ SERVICE="${ZOT_SERVICE:-svc/zot}"
 REGISTRY_URL="http://localhost:${LOCAL_PORT}/v2/"
 
 IMAGE_TAR="$(mktemp)"
+trap 'rm -f "${IMAGE_TAR}"' EXIT
 
-if curl -fsS "${REGISTRY_URL}" >/dev/null 2>&1; then
-  # Reuse an existing forward — do not start or tear one down.
-  trap 'rm -f "${IMAGE_TAR}"' EXIT
-else
+docker save -o "${IMAGE_TAR}" "${SOURCE_IMAGE}"
+
+if ! curl -fsS "${REGISTRY_URL}" >/dev/null 2>&1; then
   kubectl -n "${NAMESPACE}" port-forward "${SERVICE}" "${LOCAL_PORT}:5000" >/dev/null 2>&1 &
   PORT_FORWARD_PID=$!
   trap 'kill "${PORT_FORWARD_PID}" 2>/dev/null || true; rm -f "${IMAGE_TAR}"' EXIT
   wait_reachable "${REGISTRY_URL}" 90
 fi
 
-docker save -o "${IMAGE_TAR}" "${SOURCE_IMAGE}"
 crane push --insecure "${IMAGE_TAR}" "${DESTINATION}"

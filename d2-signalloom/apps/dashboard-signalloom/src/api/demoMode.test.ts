@@ -46,11 +46,20 @@ describe('demo mode', () => {
   // +2 discovery aggregate & namespace autoclaim routes (SLMS-P1-2: GET /discovery/workloads, POST /agents/autoclaim-discovered) = 59.
   // +7 fleet manager routes (SLMS-P4-2 Surface 12: topology, status, deploy, scan, stun, recover, reset) = 66.
   // +1 audit events CSV export route (GET /audit/events.csv) = 83.
+  // +1 discovered account detail route (GET /nhi/discovered/:id) = 84.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound: it guards against
   // routes disappearing in a merge.
-  it('covers the full 82-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(83)
+  it('covers the full 84-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(84)
+  })
+
+  it('resolves discovered account detail fixture in demo mode', async () => {
+    setDemoMode(true)
+    const result = await api.nhi.getAccount('tok', 'tenant-demo:nhi-1')
+    expect(result).toBeDefined()
+    expect(result.id).toBe('tenant-demo:nhi-1')
+    expect(result.account_name).toBe('svc-billing-sync')
   })
 
 

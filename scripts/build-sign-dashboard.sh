@@ -11,8 +11,12 @@ if [ -z "${DOCKER_CONFIG:-}" ]; then
     rm -f "${HOME}/.docker/.probe"
   fi
 fi
-if [ -z "${KUBECONFIG:-}" ] && [ -f /tmp/osramp.kubeconfig ]; then
-  export KUBECONFIG="/tmp/osramp.kubeconfig"
+if [ -z "${KUBECONFIG:-}" ]; then
+  if [ -f /tmp/osramp-kubeconfig.yaml ]; then
+    export KUBECONFIG="/tmp/osramp-kubeconfig.yaml"
+  elif [ -f /tmp/osramp.kubeconfig ]; then
+    export KUBECONFIG="/tmp/osramp.kubeconfig"
+  fi
 fi
 
 cd "$(dirname "$0")/.."

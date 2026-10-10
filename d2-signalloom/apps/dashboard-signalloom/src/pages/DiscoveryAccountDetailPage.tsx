@@ -40,16 +40,62 @@ export default function DiscoveryAccountDetailPage() {
     setLoading(true)
     try {
       const token = await getAccessTokenSilently()
-      const [data, agentsData] = await Promise.all([
-        api.nhi.getAccount(token, accountId),
-        api.agents?.list
-          ? api.agents.list(token).catch(() => ({ agents: [] as AgentResponse[] }))
-          : Promise.resolve({ agents: [] as AgentResponse[] }),
-      ])
-      setAccount(data)
-      if (agentsData && 'agents' in agentsData && Array.isArray(agentsData.agents)) {
-        setAgents(agentsData.agents)
+      let accountData: NHIAccountDetail | null = null
+      let agentsList: AgentResponse[] = []
+
+      try {
+        const [data, agentsData] = await Promise.all([
+          api.nhi.getAccount(token, accountId),
+          api.agents?.list
+            ? api.agents.list(token).catch(() => ({ agents: [] as AgentResponse[] }))
+            : Promise.resolve({ agents: [] as AgentResponse[] }),
+        ])
+        accountData = data
+        if (agentsData && 'agents' in agentsData && Array.isArray(agentsData.agents)) {
+          agentsList = agentsData.agents
+        }
+      } catch (primaryErr) {
+        // Fallback: check if accountId matches a discovered workload (e.g. non-UUID or synthetic fixture)
+        try {
+          const [workloadsRes, agentsData] = await Promise.all([
+            api.discovery.workloads(token, { search: accountId }),
+            api.agents?.list
+              ? api.agents.list(token).catch(() => ({ agents: [] as AgentResponse[] }))
+              : Promise.resolve({ agents: [] as AgentResponse[] }),
+          ])
+          const match = workloadsRes.workloads?.find((w) => w.id === accountId || w.name === accountId)
+          if (match) {
+            const meta = match.metadata || {}
+            accountData = {
+              id: match.id,
+              scan_id: (meta.scan_id as string) || null,
+              account_name: match.name,
+              directory_source: (meta.directory_source as string) || match.source_label || match.source,
+              owner_email: match.owner || null,
+              last_rotated: null,
+              privilege_level: (meta.privilege_level as string) || 'standard',
+              findings: Array.isArray(meta.findings) ? (meta.findings as string[]) : [],
+              status: match.status === 'ignored' ? 'dismissed' : match.status === 'in_review' ? 'enrollment_requested' : match.status,
+              first_discovered_at: match.last_seen_at || null,
+              last_seen_at: match.last_seen_at || null,
+              dismissed_at: null,
+              dismissed_by: null,
+              dismiss_reason: null,
+              scan_count: (meta.scan_count as number) || 1,
+            }
+            if (agentsData && 'agents' in agentsData && Array.isArray(agentsData.agents)) {
+              agentsList = agentsData.agents
+            }
+          } else {
+            throw primaryErr
+          }
+        } catch {
+          throw primaryErr
+        }
       }
+
+      setAccount(accountData)
+      setAgents(agentsList)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load account details')
@@ -65,8 +111,19 @@ export default function DiscoveryAccountDetailPage() {
   async function handleAction(action: TriageAction, id: string) {
     try {
       const token = await getAccessTokenSilently()
-      if (action === 'enroll') await api.nhi.enrollAccount(token, id)
-      else if (action === 'dismiss') await api.nhi.dismissAccount(token, id)
+      if (action === 'enroll') {
+        try {
+          await api.nhi.enrollAccount(token, id)
+        } catch {
+          await api.discovery.enroll(token, id)
+        }
+      } else if (action === 'dismiss') {
+        try {
+          await api.nhi.dismissAccount(token, id)
+        } catch {
+          await api.discovery.dismiss(token, id)
+        }
+      }
       await load()
     } catch (e) {
       alert(`Action failed: ${e instanceof Error ? e.message : String(e)}`)
@@ -101,19 +158,35 @@ export default function DiscoveryAccountDetailPage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
-      {/* Back nav */}
-      <button
-        onClick={() => navigate('/discovery')}
-        style={{
-          background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-          marginBottom: 16, padding: 0, fontFamily: 'inherit',
-        }}
-        onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
-        onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
-      >
-        ← Discovery
-      </button>
+      {/* Back nav & Drawer link */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <button
+          onClick={() => navigate('/discovery')}
+          style={{
+            background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+            padding: 0, fontFamily: 'inherit',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+        >
+          ← Discovery
+        </button>
+        <Link
+          to={`/discovery?workload=${encodeURIComponent(accountId || '')}`}
+          data-testid="open-in-discovery-drawer-link"
+          style={{
+            fontSize: 12,
+            color: colors.cyanLoom,
+            textDecoration: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          Open in Discovery Drawer ↗
+        </Link>
+      </div>
 
       {/* Header */}
       <div className="card" style={{ padding: 20, marginBottom: 20 }}>

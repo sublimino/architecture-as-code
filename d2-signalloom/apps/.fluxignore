@@ -1,0 +1,8 @@
+**/node_modules/
+**/.astro/
+**/.venv/
+**/__pycache__/
+**/dist/
+**/build/
+*.tsbuildinfo
+.git/

@@ -197,6 +197,7 @@ give false answers.
 | `make demo-signalloom-coding-agent-topology` | A Playwright test of the coding-agent topology view. It needs no cluster. |
 | `make attested-test` | The OSRAMP BATS suite under `witness run`. It needs a cluster. `ATTESTED_TEST_SOURCE=segments` runs the FrostDB proof. |
 | `make docs-lint` | Documentation links, paths, make targets, diagrams, index, and style rules. No cluster. |
+| `make docs-render-check` | Documentation portal build, link audit, and Playwright Chromium render tests. No cluster. |
 | `make docs-lint-test` | The three BATS suites behind the documentation checks. No cluster. |
 | `make test-all-offline` | All offline suites. It needs no cluster. |
 

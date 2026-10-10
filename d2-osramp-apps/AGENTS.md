@@ -24,6 +24,37 @@ before you run `make demo-osramp-up`. The script
 The `ImageUpdateAutomation` that uses the image policies is in
 [`../d2-osramp-fleet/clusters/update/`](../d2-osramp-fleet/clusters/update/).
 
+## Architecture
+
+The diagram shows how packages flow through the frontend services and the backend evidence plane.
+
+```mermaid
+flowchart LR
+  subgraph FE["frontend namespace"]
+    PURL["osramp-purl<br/>(PURL listener)"]
+    MULTI["osramp-multipurpose<br/>(processor & syft SBOM)"]
+    ARCH["osramp-archiver<br/>(result persistence)"]
+  end
+
+  subgraph BE["backend namespace"]
+    NATS["NATS JetStream<br/>(tasks.purl, tasks.results)"]
+    ARV["Archivista<br/>(in-toto attestation store)"]
+    PG["PostgreSQL<br/>(task results & audit)"]
+  end
+
+  PURL --> NATS
+  NATS --> MULTI
+  MULTI --> ARV
+  MULTI --> NATS
+  NATS --> ARCH
+  ARCH --> PG
+
+  classDef fe fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+  classDef be fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  class PURL,MULTI,ARCH fe;
+  class NATS,ARV,PG be;
+```
+
 ## Lifecycle
 
 ```bash

@@ -20,6 +20,37 @@ The backend source is not in this repository. It is in the separate
 | Lifecycle script | Bash | [`../scripts/k8s-afm.sh`](../scripts/k8s-afm.sh) |
 | Integration tests | BATS suites | [`test/`](test/) |
 
+## Architecture
+
+The diagram shows how cluster RBAC objects flow into KubeSec-AFM and reach the dashboard.
+
+```mermaid
+flowchart LR
+  subgraph K8S["Kubernetes Cluster"]
+    RBAC["RBAC objects<br/>(Roles, RoleBindings, SAs)"]
+  end
+
+  subgraph AFM["fe-k8s-afm namespace"]
+    CRON["afm-cluster-import<br/>(CronJob / Job)"]
+    API["afm-platform<br/>(FastAPI & Z3 solver)"]
+  end
+
+  subgraph UI["fe-signalloom namespace"]
+    DASH["dashboard-signalloom<br/>(/rbac-analysis, /rbac-explorer)"]
+  end
+
+  RBAC --> CRON
+  CRON -- "import JSON" --> API
+  API --> DASH
+
+  classDef k8s fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+  classDef afm fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+  classDef ui fill:#e1f5fe,stroke:#0288d1,color:#01579b;
+  class RBAC k8s;
+  class CRON,API afm;
+  class DASH ui;
+```
+
 ## Namespaces
 
 | Namespace | Contents |

@@ -101,16 +101,27 @@ _psql_via_pod() {
 
 run_sql() {
     local file="$1"
+    local prefix="${2:-}"
     if _has_local_psql; then
-        PGPASSWORD="${PG_PASSWORD}" psql \
+        {
+            if [[ -n "${prefix}" ]]; then
+                printf '%s\n' "${prefix}"
+            fi
+            cat "${file}"
+        } | PGPASSWORD="${PG_PASSWORD}" psql \
             -h "${PGHOST:-localhost}" \
             -p "${PGPORT:-$LOCAL_PORT}" \
             -U "${PG_USER}" \
             -d "${PG_DATABASE}" \
             -v ON_ERROR_STOP=1 \
-            -f "${file}"
+            -f -
     else
-        _psql_via_pod < "${file}"
+        {
+            if [[ -n "${prefix}" ]]; then
+                printf '%s\n' "${prefix}"
+            fi
+            cat "${file}"
+        } | _psql_via_pod
     fi
 }
 
@@ -135,11 +146,12 @@ cmd_reset() {
     local focus="${1:-all}"
     log "Resetting tables (focus: ${focus})..."
 
+    local prefix=""
     if [[ "${focus}" != "all" ]]; then
-        run_sql_cmd "SET app.data_reset_focus = '${focus}';"
+        prefix="SET app.data_reset_focus = '${focus}';"
     fi
 
-    run_sql "${DB_DIR}/data-reset.sql"
+    run_sql "${DB_DIR}/data-reset.sql" "${prefix}"
     log "Reset complete"
 }
 

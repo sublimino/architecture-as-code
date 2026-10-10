@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import AgentDeepLink from '../components/AgentDeepLink'
+import DiscoveredWorkloadDrawer from '../components/DiscoveredWorkloadDrawer'
+import ClaimModal from '../components/agents/ClaimModal'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type {
@@ -523,6 +525,7 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: Wo
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => onOpen(workload.id)}
+            data-testid={`discovery-workload-name-${workload.id}`}
             style={{
               background: 'none',
               border: 'none',
@@ -658,11 +661,55 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: Wo
   )
 }
 
+function workloadToClaimAgent(w: DiscoveryWorkload): AgentResponse {
+  const meta = w.metadata || {}
+  const podName = (meta.pod_name as string) || w.name
+  const ns = w.namespace || (meta.namespace as string) || 'fe-signalloom-agents'
+  const sa = (meta.service_account as string) || podName
+  const framework = (meta.framework as string) || 'claude-code'
+  const model = w.model || 'claude-3-5-sonnet'
+  const spiffeId = w.spiffe_id || `spiffe://signalloom.svc.cluster.local/ns/${ns}/sa/${sa}`
+
+  return {
+    id: w.id,
+    name: w.name,
+    type: 'Discovered Workload',
+    owner: w.owner || 'unassigned',
+    tenant_id: 'tenant-demo',
+    lifecycle_state: w.status === 'governed' ? 'governed' : 'discovered',
+    last_transition_at: w.last_seen_at || new Date().toISOString(),
+    last_transition_by: 'system',
+    eu_ai_act_risk_class: 'minimal',
+    compliance_summary: {
+      total_controls: 12,
+      passing: 8,
+      failing: 0,
+      pending: 4,
+      posture_score: 0.67,
+    },
+    runtime: {
+      namespace: ns,
+      pod_name: podName,
+      service_account: sa,
+      framework,
+      model,
+    },
+    identity: {
+      spiffe_id: spiffeId,
+      spiffe_status: w.status === 'governed' ? 'linked' : 'unlinked',
+      aliases: [],
+    },
+    created_at: w.last_seen_at || new Date().toISOString(),
+    record_class: 'discovered',
+  }
+}
+
 // Main Page Component
 
 export default function DiscoveryPage() {
   const { getAccessTokenSilently } = useAuth0()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [workloads, setWorkloads] = useState<DiscoveryWorkload[]>([])
   const [total, setTotal] = useState(0)
@@ -671,6 +718,33 @@ export default function DiscoveryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null)
+
+  // Discovered Workload Drawer & Claim Modal state
+  const selectedWorkloadId = searchParams.get('workload')
+  const selectedWorkload = useMemo(
+    () => workloads.find((w) => w.id === selectedWorkloadId) || null,
+    [workloads, selectedWorkloadId],
+  )
+  const [claimWorkload, setClaimWorkload] = useState<DiscoveryWorkload | null>(null)
+
+  const handleOpenWorkload = useCallback(
+    (id: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('workload', id)
+        return next
+      })
+    },
+    [setSearchParams],
+  )
+
+  const handleCloseDrawer = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('workload')
+      return next
+    })
+  }, [setSearchParams])
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -1143,9 +1217,49 @@ export default function DiscoveryPage() {
                     matchedAgent={matched}
                     onEnroll={handleEnrollWorkload}
                     onDismiss={handleDismissWorkload}
-                    onOpen={(id) => navigate(`/discovery/accounts/${id}`)}
+                    onOpen={handleOpenWorkload}
                   />
                 )
+              }}
+            />
+          )}
+
+          <DiscoveredWorkloadDrawer
+            isOpen={Boolean(selectedWorkload)}
+            workload={selectedWorkload}
+            matchedAgent={
+              selectedWorkload
+                ? findMatchingAgent(
+                    {
+                      id: selectedWorkload.id,
+                      account_name: selectedWorkload.name,
+                      owner_email: selectedWorkload.owner || null,
+                    },
+                    agents,
+                  )
+                : null
+            }
+            onClose={handleCloseDrawer}
+            onEnroll={handleEnrollWorkload}
+            onDismiss={handleDismissWorkload}
+            onClaim={(w) => setClaimWorkload(w)}
+          />
+
+          {claimWorkload && (
+            <ClaimModal
+              agent={workloadToClaimAgent(claimWorkload)}
+              onClose={() => setClaimWorkload(null)}
+              onSuccess={() => {
+                setWorkloads((prev) =>
+                  prev.map((w) =>
+                    w.id === claimWorkload.id
+                      ? { ...w, status: 'governed' as DiscoveryLifecycleState }
+                      : w,
+                  ),
+                )
+                setClaimWorkload(null)
+                setFeedbackToast(`Workload ${claimWorkload.name} successfully claimed into Signal Loom governance.`)
+                setTimeout(() => setFeedbackToast(null), 4000)
               }}
             />
           )}

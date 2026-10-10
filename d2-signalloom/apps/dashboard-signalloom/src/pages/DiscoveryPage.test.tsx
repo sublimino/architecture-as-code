@@ -116,9 +116,9 @@ const mockMultiSourceResponse: DiscoveryWorkloadsResponse = {
   },
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/discovery') {
   return render(
-    <MemoryRouter initialEntries={['/discovery']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/discovery" element={<DiscoveryPage />} />
         <Route path="/discovery/accounts/:accountId" element={<div>ACCOUNT DETAIL PAGE</div>} />
@@ -344,4 +344,67 @@ describe('DiscoveryPage Super Datatable', () => {
     expect(screen.queryByText('entra-audit-sync')).not.toBeInTheDocument()
     expect(screen.queryByText('governed-security-scanner')).not.toBeInTheDocument()
   })
+
+  it('clicking workload name opens DiscoveredWorkloadDrawer in-context without navigating away', async () => {
+    renderPage()
+    await screen.findByText('entra-audit-sync')
+
+    // Workload name button
+    const workloadBtn = screen.getByTestId('discovery-workload-name-idp-1')
+    await userEvent.click(workloadBtn)
+
+    // Drawer should open and be visible
+    const drawer = await screen.findByTestId('discovered-workload-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-workload-name')).toHaveTextContent('entra-audit-sync')
+    expect(screen.getByTestId('drawer-workload-source')).toHaveTextContent('Entra ID')
+    expect(screen.getByTestId('drawer-workload-id')).toHaveTextContent('idp-1')
+
+    // Does NOT navigate to the old account detail page
+    expect(screen.queryByText('ACCOUNT DETAIL PAGE')).not.toBeInTheDocument()
+
+    // 4 pillars should be present in the drawer
+    expect(screen.getByTestId('drawer-control-recommendations')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-rec-config')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-rec-content')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-rec-supply_chain')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-rec-eu_ai_act')).toBeInTheDocument()
+  })
+
+  it('opens DiscoveredWorkloadDrawer directly when deep-linked with ?workload= query parameter', async () => {
+    renderPage('/discovery?workload=k8s-1')
+    await screen.findByTestId('discovery-workload-name-k8s-1')
+
+    // Drawer should be open for k8s-1
+    const drawer = await screen.findByTestId('discovered-workload-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-workload-name')).toHaveTextContent('agent-inventory-worker')
+    expect(screen.getByTestId('drawer-workload-source')).toHaveTextContent('Local K8s')
+    expect(screen.getByTestId('drawer-workload-spiffe-id')).toHaveTextContent('spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-inventory-worker')
+  })
+
+  it('closes DiscoveredWorkloadDrawer when close button is clicked', async () => {
+    renderPage('/discovery?workload=idp-1')
+    await screen.findByTestId('discovery-workload-name-idp-1')
+
+    expect(screen.getByTestId('discovered-workload-drawer')).toBeInTheDocument()
+
+    const closeBtn = screen.getByTestId('drawer-close-btn')
+    await userEvent.click(closeBtn)
+
+    expect(screen.queryByTestId('discovered-workload-drawer')).not.toBeInTheDocument()
+  })
+
+  it('triggers enrollment from inside DiscoveredWorkloadDrawer', async () => {
+    renderPage('/discovery?workload=idp-1')
+    await screen.findByTestId('discovery-workload-name-idp-1')
+
+    const drawerEnrollBtn = screen.getByTestId('drawer-enroll-btn')
+    await userEvent.click(drawerEnrollBtn)
+
+    await waitFor(() => {
+      expect(api.discovery.enroll).toHaveBeenCalledWith('test-token', 'idp-1')
+    })
+  })
 })
+

@@ -301,11 +301,13 @@ fi
 
 if [[ -n "${WORKLOAD}" ]]; then
   wait_pods_ready "app.kubernetes.io/name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" 20 || \
+  wait_pods_ready "signalloom.ai/agent-name=${WORKLOAD}" -n "${AGENT_NAMESPACE}" 20 || \
     die "no running unclaimed agent named ${WORKLOAD} became ready" \
       "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -l app.kubernetes.io/name=${WORKLOAD}"
 else
   wait_pods_ready "app.kubernetes.io/managed-by=kagent" -n "${AGENT_NAMESPACE}" 20 || \
-    die "Kagent workloads did not become ready" \
+  wait_pods_ready "signalloom.ai/agent=true" -n "${AGENT_NAMESPACE}" 20 || \
+    die "Agent workloads did not become ready" \
       "Inspect: kubectl get pods -n ${AGENT_NAMESPACE} -o wide"
 fi
 kubectl -n "${API_NAMESPACE}" exec "deploy/${API_CLIENT_DEPLOYMENT}" -- \
@@ -328,7 +330,7 @@ READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
    | select([.status.containerStatuses[] | .ready] | all)
    | {
        pod: .metadata.name,
-       workload: (.metadata.labels["app.kubernetes.io/name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name),
+       workload: (if .metadata.labels["app.kubernetes.io/name"] == "signalloom-agent" then (.metadata.labels["signalloom.ai/agent-name"] // .metadata.labels["app.kubernetes.io/instance"] // .metadata.name) else (.metadata.labels["app.kubernetes.io/name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name) end),
        # How discovery names this workload in /api/agents (fake-integration-proxy
        # _agent_from_pod): display annotation, then agent-name label, then pod.
        discovered: ((.metadata.annotations // {})["signalloom.ai/agent-display-name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name),
@@ -337,14 +339,14 @@ READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
        model: (.metadata.labels["signalloom.ai/model"] // (if $only == "" then "anthropic-claude" else "" end))
      }
    | select($only == "" or .workload == $only)]
-  | sort_by([(.workload != "kagent-k8s-reader"), .workload])
+  | sort_by([(.workload != "kagent-k8s-reader"), (.workload != "agent-standard-baseline"), .workload])
 ' <<<"${PODS_JSON}")" || die "could not parse Kubernetes workload inventory" "Inspect kubectl pod JSON"
 
 while IFS=$'\t' read -r workload pod service_account harness discovered model; do
   [[ -n "${workload}" ]] || continue
   candidate="$(jq -c --arg name "${workload}" --arg discovered "${discovered}" '
     [.agents[]
-     | select(.name == $name or .name == $discovered)
+     | select(.name == $name or .name == $discovered or .agent_name == $name or .id == $name)
      | select(.record_class == "discovered")
      | select(.is_registry_linked == false)
      | select((.compliance_summary.total_controls // 0) == 0)]
@@ -414,9 +416,9 @@ pass_step "Claim granted (${CLAIM_ID}); SPIFFE SVID verified"
 
 api_request GET "/api/agents?search=${TARGET_WORKLOAD}&limit=100"
 require_http_success "post-claim registry lookup"
-REGISTERED_AGENT="$(jq -c --arg name "${TARGET_WORKLOAD}" '
+REGISTERED_AGENT="$(jq -c --arg name "${TARGET_WORKLOAD}" --arg agent_id "${AGENT_ID}" '
   [.agents[]
-   | select(.name == $name)
+   | select(.id == $agent_id or .name == $name or .agent_name == $name or ((.identity.aliases // []) | index($name)))
    | select(.is_registry_linked == true)
    | select(.record_class == "resolved")]
   | first // empty
@@ -456,8 +458,7 @@ api_request GET "/api/audit?limit=100"
 require_http_success "audit trail lookup"
 AUDIT_EVENT="$(jq -c --arg name "${TARGET_WORKLOAD}" --arg claim_id "${CLAIM_ID}" '
   [.events[]
-   | select(.agent_name == $name)
-   | select(.detail.action == "claimed")
+   | select((.agent_name == $name or .detail.pod_name == $name or .detail.agent_name == $name or .detail.claim_id == $claim_id) and .detail.action == "claimed")
    | select(.detail.claim_id == $claim_id)]
   | first // empty
 ' <<<"${API_BODY}")"

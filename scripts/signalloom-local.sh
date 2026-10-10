@@ -96,6 +96,14 @@ up() {
   # validate subjects. Both infra inputs carry the same appsTenant value, and
   # it MUST equal the apps activation's `tenant` below;
   # d2-signalloom/test/supercred-runner-rbac.bats asserts exactly that.
+  # Pre-seed fe-signalloom namespace and fleet-config ConfigMap if not yet present.
+  # The sl-agent-identity-binding ValidatingAdmissionPolicy fails closed (Deny)
+  # when fleet-config is absent. signalloom-infra creates agent pods carrying
+  # signalloom.ai/agent-name (e.g. agent-sir-lancelot), which require fleet-config
+  # to evaluate during dry-run apply.
+  kubectl create namespace fe-signalloom --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n fe-signalloom apply -f "$repo_root/d2-signalloom/apps/fleet-manager/base/configmap.yaml"
+
   activate_resourceset signalloom-infra '[{"appsTenant":"fe-signalloom","artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-bao","environment":"local","tag":"latest","tenant":"inf-bao"},{"appsTenant":"fe-signalloom","artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-signalloom","environment":"local","tag":"latest","tenant":"inf-signalloom"}]'
   wait_resourceset signalloom-infra
   wait_namespace inf-bao

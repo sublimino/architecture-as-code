@@ -5,6 +5,7 @@ import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { useServerSuperadmin } from '../auth/superadmin'
 import FleetTopology from '../components/fleet/FleetTopology'
+import RoleViewSelector, { type FleetRole } from '../components/fleet/RoleViewSelector'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
 import FleetBadge, { stateToken, trustToken } from '../components/fleet/FleetBadge'
 import HelpHint from '../components/HelpHint'
@@ -14,7 +15,7 @@ import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import { StatCard, Section } from '../components/DashKit'
-import type { AgentState, FleetStunResult, FleetTopology as FleetTopologyData } from '../api/fleetApi'
+import type { AgentState, FleetStunResult, FleetTopology as FleetTopologyData, RiskSummary } from '../api/fleetApi'
 import StunReasonForm from '../components/StunReasonForm'
 import { PlaneOutcomeTable, StunOverallHeadline } from '../components/StunPlanes'
 import {
@@ -177,7 +178,35 @@ function chipStyle(selected: boolean): React.CSSProperties {
   }
 }
 
+// ── FAIR Risk Baseline & Escalated Scenarios ─────────────────────────────────
+
+const BASELINE_RISK: RiskSummary = {
+  ale: 12400,
+  var95: 58000,
+  trend: 'stable',
+  carriedGbp: 12400,
+}
+
+const ESCALATED_RISK: RiskSummary = {
+  ale: 847000,
+  var95: 1200000,
+  trend: 'up',
+  previousAle: 12400,
+  carriedGbp: 847000,
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
+
+const PAYMENTS_AGENT_IDS = new Set([
+  'agent-txn-pipeline',
+  'agent-llm-classifier',
+  'agent-pipeline',
+  'agent-llm',
+])
+
+function isPaymentsAgent(agent: AgentState): boolean {
+  return PAYMENTS_AGENT_IDS.has(agent.id) || agent.team === 'payments'
+}
 
 interface FleetDemoPageProps {
   audience?: boolean
@@ -190,6 +219,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   // the toggle is a visibility control the browser owns.
   const { superadmin: serverSuperadmin } = useServerSuperadmin(user, getAccessTokenSilently)
 
+  // Role view state.
+  const [activeRole, setActiveRole] = useState<FleetRole>('admin')
+
   // Connection mode and heartbeat state.
   const [sourceMode, setSourceMode] = useState<'live' | 'demo'>('live')
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'demo_fallback' | 'offline'>('connected')
@@ -197,8 +229,15 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   // Fleet state.
   const [topology, setTopology] = useState<FleetTopologyData | null>(null)
+  const [isScanned, setIsScanned] = useState(false)
   const [cascadeInProgress, setCascadeInProgress] = useState<string[]>([])
+  const [stunnedCascadeNodes, setStunnedCascadeNodes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  const handleCascadeStep = useCallback((stunnedAgentId: string, stepIndex: number, currentStunned: string[]) => {
+    if (stunnedAgentId === 'agent-monitor') return
+    setStunnedCascadeNodes(currentStunned.filter(id => id !== 'agent-monitor'))
+  }, [])
 
   // Per-operation loading states.
   const [topologyLoading, setTopologyLoading] = useState(false)
@@ -256,6 +295,20 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       setConnectionStatus('connected')
       setLastHeartbeat(new Date())
       setTopologyLoaded(true)
+      const stunnedAgents = (data.agents ?? []).filter(a => a.state === 'stunned').map(a => a.id)
+      if (audience) {
+        if (stunnedAgents.length > 0) {
+          setCascadeInProgress(prev => {
+            if (prev.length > 0) return prev
+            const order = ['agent-cardvault', 'agent-txn-pipeline', 'agent-llm-classifier', 'agent-api-gateway']
+            const cascadeOrder = order.filter(id => stunnedAgents.includes(id))
+            return cascadeOrder.length > 0 ? cascadeOrder : stunnedAgents
+          })
+        } else {
+          setCascadeInProgress([])
+          setStunnedCascadeNodes([])
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load fleet topology'
       setError(msg)
@@ -280,6 +333,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   const handleDeploy = useCallback(async () => {
     setDeployLoading(true)
     setDeployError(null)
+    setIsScanned(false)
+    setCascadeInProgress([])
+    setStunnedCascadeNodes([])
     try {
       const token = await getAccessTokenSilently()
       await deployFleet(token)
@@ -299,6 +355,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       const token = await getAccessTokenSilently()
       await scanFleet(token)
       setScanLoaded(true)
+      setIsScanned(true)
       void loadTopology()
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed')
@@ -325,7 +382,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       setStunResult(result)
       // Trigger cascade animation. fleet-manager spells it affected_agents;
       // affectedIds is the older CascadeEvent spelling.
-      setCascadeInProgress(result.affected_agents ?? result.affectedIds ?? [])
+      const rawAffected = result.affected_agents ?? result.affectedIds ?? []
+      const affected = rawAffected.filter(id => id !== 'agent-monitor')
+      setStunnedCascadeNodes([])
+      setCascadeInProgress(affected)
       void loadTopology()
     } catch (err) {
       setStunError(err instanceof Error ? err.message : 'Stun failed')
@@ -338,7 +398,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setRecoverLoading(true)
     setRecoverError(null)
     setCascadeInProgress([])
+    setStunnedCascadeNodes([])
     setStunResult(null)
+    setIsScanned(false)
     try {
       const token = await getAccessTokenSilently()
       await recoverFleet(token)
@@ -355,7 +417,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setResetLoading(true)
     setResetError(null)
     setCascadeInProgress([])
+    setStunnedCascadeNodes([])
     setStunResult(null)
+    setIsScanned(false)
     try {
       const token = await getAccessTokenSilently()
       await resetFleet(token)
@@ -369,13 +433,85 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   }, [getAccessTokenSilently, loadTopology])
 
   // Computed summaries.
-  const agents = topology?.agents ?? []
+  const rawAgents = topology?.agents ?? []
+  const agents = useMemo(() => {
+    if (!isScanned) return rawAgents
+    return rawAgents.map(a => {
+      if (
+        (a.id === 'agent-llm-classifier' || a.id === 'agent-llm' ||
+         a.id === 'agent-txn-pipeline' || a.id === 'agent-pipeline') &&
+        a.state === 'active'
+      ) {
+        return { ...a, state: 'non-compliant' as const }
+      }
+      return a
+    })
+  }, [rawAgents, isScanned])
+
+  const displayedAgents = useMemo(() => {
+    if (activeRole === 'team-lead') {
+      return agents.filter(isPaymentsAgent)
+    }
+    return agents
+  }, [agents, activeRole])
+
+  const displayedEdges = useMemo(() => {
+    const rawEdges = topology?.edges ?? []
+    if (activeRole === 'team-lead') {
+      const visibleAgentIds = new Set(displayedAgents.map(a => a.id))
+      return rawEdges.filter(e => visibleAgentIds.has(e.from) && visibleAgentIds.has(e.to))
+    }
+    return rawEdges
+  }, [topology?.edges, activeRole, displayedAgents])
+
+  const isRoleActionDisabled = activeRole !== 'admin'
+
+  const roleActionTooltip = useMemo(() => {
+    if (activeRole === 'team-lead') {
+      return 'Team leads cannot execute stun or recover actions.'
+    }
+    if (activeRole === 'compliance') {
+      return 'Compliance officers have read-only audit permissions.'
+    }
+    return undefined
+  }, [activeRole])
+
   const activeCount = agents.filter(a => a.state === 'active').length
   const stunnedCount = agents.filter(a => a.state === 'stunned').length
   const nonCompliantCount = agents.filter(a => a.state === 'non-compliant').length
-  const stunnableAgents = agents.filter(a => a.type !== 'observability')
+  const stunnableAgents = displayedAgents.filter(a => a.type !== 'observability')
 
-  const risk = topology?.aggregateRisk ?? { ale: 0, var95: 0, trend: 'stable' as const }
+  const risk: RiskSummary = useMemo(() => {
+    if (topology && rawAgents.length === 0) {
+      return { ale: 0, var95: 0, trend: 'stable', carriedGbp: 0 }
+    }
+    // Stepwise cascade in progress: recalculate risk as each node cascades into stunned state
+    const cascadeTargets = cascadeInProgress.filter(id => id !== 'agent-monitor')
+    if (cascadeTargets.length > 0 && stunnedCascadeNodes.length > 0) {
+      const baseAle = isScanned ? ESCALATED_RISK.ale : BASELINE_RISK.ale
+      const baseVar = isScanned ? ESCALATED_RISK.var95 : BASELINE_RISK.var95
+      const targetAle = 847000
+      const targetVar = 1200000
+
+      // Stepwise progression: fraction of nodes stunned so far
+      const stepFraction = Math.min(1, stunnedCascadeNodes.length / cascadeTargets.length)
+      const currentAle = Math.round(baseAle + (targetAle - baseAle) * stepFraction)
+      const currentVar = Math.round(baseVar + (targetVar - baseVar) * stepFraction)
+
+      return {
+        ale: currentAle,
+        var95: currentVar,
+        trend: 'up',
+        previousAle: BASELINE_RISK.ale,
+        carriedGbp: currentAle,
+      }
+    }
+
+    if (isScanned || stunnedCount > 0) {
+      return ESCALATED_RISK
+    }
+    return BASELINE_RISK
+  }, [topology, rawAgents.length, isScanned, cascadeInProgress, stunnedCascadeNodes, stunnedCount])
 
   const showControls = superadmin && !audience
 
@@ -493,9 +629,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       <div data-testid="fleet-demo-page" style={{ display: 'flex', height: '100vh', gap: 0 }}>
         <div style={{ flex: 1, position: 'relative' }}>
           <FleetTopology
-            agents={agents}
-            edges={topology?.edges ?? []}
+            agents={displayedAgents}
+            edges={displayedEdges}
             cascadeInProgress={cascadeInProgress}
+            onCascadeStep={handleCascadeStep}
             audience
           />
         </div>
@@ -513,6 +650,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             var95={risk.var95}
             trend={risk.trend}
             previousAle={risk.previousAle}
+            carriedGbp={risk.carriedGbp}
+            stepwise={cascadeInProgress.length > 0}
+            cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
+            totalCascadeSteps={cascadeInProgress.filter(id => id !== 'agent-monitor').length || undefined}
+            cascadingAgent={stunnedCascadeNodes[stunnedCascadeNodes.length - 1]}
           />
           <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
             {agents.length} agents deployed
@@ -530,7 +672,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
           Fleet Demo
         </h1>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <RoleViewSelector activeRole={activeRole} onRoleChange={setActiveRole} />
+
           {/* Pulsing heartbeat status indicator */}
           <div
             data-testid="fleet-heartbeat-indicator"
@@ -678,11 +822,12 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             overflow: 'hidden',
           }}>
             <FleetTopology
-              agents={agents}
-              edges={topology?.edges ?? []}
+              agents={displayedAgents}
+              edges={displayedEdges}
               cascadeInProgress={cascadeInProgress}
-              onStun={showControls ? requestStun : undefined}
-              onRecover={showControls ? handleRecover : undefined}
+              onCascadeStep={handleCascadeStep}
+              onStun={showControls && !isRoleActionDisabled ? requestStun : undefined}
+              onRecover={showControls && !isRoleActionDisabled ? handleRecover : undefined}
             />
           </div>
         </div>
@@ -695,6 +840,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             var95={risk.var95}
             trend={risk.trend}
             previousAle={risk.previousAle}
+            carriedGbp={risk.carriedGbp}
+            stepwise={cascadeInProgress.length > 0}
+            cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
+            totalCascadeSteps={cascadeInProgress.filter(id => id !== 'agent-monitor').length || undefined}
+            cascadingAgent={stunnedCascadeNodes[stunnedCascadeNodes.length - 1]}
           />
 
           {/* Topology loading state */}
@@ -813,6 +963,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   data-testid="fleet-stun-select"
                   value={stunTarget}
                   onChange={e => setStunTarget(e.target.value)}
+                  disabled={isRoleActionDisabled}
                   style={{ flex: 1, minWidth: 0 }}
                 >
                   {stunnableAgents.map(a => (
@@ -825,7 +976,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 <button
                   data-testid="fleet-stun-btn"
                   onClick={() => requestStun()}
-                  disabled={stunLoading}
+                  disabled={stunLoading || isRoleActionDisabled}
+                  title={roleActionTooltip}
+                  data-tooltip={roleActionTooltip}
                   className="btn btn-danger"
                   style={{ minWidth: STUN_BUTTON_W, whiteSpace: 'nowrap', justifyContent: 'center' }}
                 >
@@ -876,7 +1029,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   // the real gate is require_superadmin on
                   // POST /api/v1/fleet/recover, and this keeps the button from
                   // promising an action the server will refuse.
-                  disabled={recoverLoading || !serverSuperadmin}
+                  disabled={recoverLoading || !serverSuperadmin || isRoleActionDisabled}
+                  title={roleActionTooltip}
+                  data-tooltip={roleActionTooltip}
                   style={FILL_COLUMN}
                 >
                   {recoverLoading ? <ButtonWait testId="fleet-recover-loader" label="Recovering" /> : 'Recover Fleet'}

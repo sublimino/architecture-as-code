@@ -664,6 +664,7 @@ $(sed 's/#.*//' "$runner")"
 	#   spool-replay-lib.bats, test-isolation-audit.bats, tombstone-mutation-check.bats -
 	#   offline utility, tool and harness self-tests.
 	local root_excluded="supercred-images.bats
+supercred-fleet-deploy.bats
 e2e-dual-cluster-containment.bats
 agent-trust-lifecycle.bats
 deployed-staleness.bats

@@ -449,6 +449,15 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
             "token_budget_limit": 100000,
         },
     ),
+    (
+        "POST",
+        "/api/discovery/claim",
+        {
+            "agent_id": "probe-discovery-claim",
+            "namespace": "fe-signalloom-agents",
+            "token_budget_limit": 100000,
+        },
+    ),
     ("POST", "/api/agents/violations/00000000-0000-0000-0000-0000000000b1/acknowledge", None),
     (
         "POST",

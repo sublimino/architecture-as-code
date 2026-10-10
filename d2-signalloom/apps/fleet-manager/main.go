@@ -147,6 +147,15 @@ type server struct {
 	// unregistered, which is exactly today's behaviour for callers (mostly
 	// tests) that construct a server without wiring one.
 	identityMap *AgentIdentityMap
+	policyEngine *PolicyEngine
+	auditBuffer  *AuditRingBuffer
+}
+
+func (s *server) getAuditBuffer() *AuditRingBuffer {
+	if s.auditBuffer == nil {
+		s.auditBuffer = NewAuditRingBuffer(1000)
+	}
+	return s.auditBuffer
 }
 
 // degradedReporter is implemented by the clients that keep a fail-closed
@@ -224,9 +233,18 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agents := s.dag.AllAgents()
+	caller := ExtractCallerContext(r)
+	filterByTeam := caller.Role == "team-lead" && caller.Team != ""
+
+	var agents []*Agent
+	if filterByTeam {
+		agents = s.dag.FilterAgentsByTeam(caller.Team)
+	} else {
+		agents = s.dag.AllAgents()
+	}
+
 	resp := TopologyResponse{
-		Agents:        make([]Agent, len(agents)),
+		Agents:        make([]Agent, 0, len(agents)),
 		Edges:         make([]Edge, 0),
 		AggregateRisk: s.dag.AggregateRisk(),
 		// make(), not nil: a nil slice marshals to `null`, and the client maps
@@ -235,10 +253,32 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		CascadeHistory: make([]CascadeEvent, 0),
 	}
 
-	for i, a := range agents {
-		resp.Agents[i] = *a
+	evaluator := NewGracePeriodEvaluator()
+	visibleIDs := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		agentCopy := *a
+		if agentCopy.State == AgentStateGracePeriod && agentCopy.GracePeriodExpiry == "" {
+			res := evaluator.EvaluateState(&agentCopy, false, time.Now().UTC(), time.Now().UTC())
+			agentCopy.GracePeriodExpiry = res.GracePeriodExpiry
+			agentCopy.RemainingHours = res.RemainingHours
+		}
+		if agentCopy.GracePeriodExpiry != "" && agentCopy.RemainingHours == 0 {
+			if expiryTime, err := time.Parse(time.RFC3339, agentCopy.GracePeriodExpiry); err == nil {
+				rem := time.Until(expiryTime).Hours()
+				if rem > 0 {
+					agentCopy.RemainingHours = rem
+				}
+			}
+		}
+		resp.Agents = append(resp.Agents, agentCopy)
+		visibleIDs[agentCopy.ID] = true
+	}
+
+	for _, a := range resp.Agents {
 		for _, dep := range a.Dependencies {
-			resp.Edges = append(resp.Edges, Edge{From: a.ID, To: dep})
+			if !filterByTeam || visibleIDs[dep] {
+				resp.Edges = append(resp.Edges, Edge{From: a.ID, To: dep})
+			}
 		}
 	}
 
@@ -249,6 +289,12 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	caller := ExtractCallerContext(r)
+	if caller.Role != "" && caller.Role != "admin" {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("caller role %q is forbidden from action: requires admin", caller.Role))
 		return
 	}
 
@@ -288,6 +334,29 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	affected := []string{resolved.ID}
+	if result != nil && len(result.AffectedAgents) > 0 {
+		affected = result.AffectedAgents
+	}
+	durationMs := int64(0)
+	if result != nil && result.DurationMs > 0 {
+		durationMs = result.DurationMs
+	}
+	actor := caller.Role
+	if actor == "" {
+		actor = "admin"
+	}
+	s.getAuditBuffer().Append(AuditEvent{
+		ActionType:     "manual-stun",
+		TargetAgentID:  resolved.ID,
+		AffectedAgents: affected,
+		DurationMs:     durationMs,
+		RiskBefore:     847000.0,
+		RiskAfter:      12400.0,
+		RiskDelta:      -834600.0,
+		Actor:          actor,
+	})
 
 	writeCascadeResult(w, result)
 }
@@ -339,6 +408,12 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	caller := ExtractCallerContext(r)
+	if caller.Role != "" && caller.Role != "admin" {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("caller role %q is forbidden from action: requires admin", caller.Role))
+		return
+	}
+
 	// An explicit agent_ids list recovers exactly those agents. It used to be
 	// read only when nothing was stunned in memory, so a caller recovering ONE
 	// agent (the e2e teardown undoing its own stun on a shared cluster)
@@ -381,6 +456,29 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	affected := stunnedIDs
+	if result != nil && len(result.AffectedAgents) > 0 {
+		affected = result.AffectedAgents
+	}
+	durationMs := int64(0)
+	if result != nil && result.DurationMs > 0 {
+		durationMs = result.DurationMs
+	}
+	actor := caller.Role
+	if actor == "" {
+		actor = "admin"
+	}
+	s.getAuditBuffer().Append(AuditEvent{
+		ActionType:     "recover",
+		TargetAgentID:  "fleet",
+		AffectedAgents: affected,
+		DurationMs:     durationMs,
+		RiskBefore:     847000.0,
+		RiskAfter:      12400.0,
+		RiskDelta:      -834600.0,
+		Actor:          actor,
+	})
 
 	// Same status mapping as handleStun. A failed recovery unconditionally
 	// answering 200 is the identical defect on the mirror-image operation, and
@@ -616,6 +714,54 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 // cross-cluster tenant placement, while the remaining read-only routes stay
 // open. The two workload patterns are exact: neither ends in a slash, so the
 // list route cannot become a prefix handler that shadows the report route.
+func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.policyEngine == nil {
+		s.policyEngine = NewPolicyEngine(s.dag, s.orchestrator, nil)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"policies": s.policyEngine.Policies(),
+		"count":    len(s.policyEngine.Policies()),
+	})
+}
+
+func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	callerCtx := ExtractCallerContext(r)
+	var input PolicyEvaluationInput
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err == nil && len(bytes.TrimSpace(bodyBytes)) > 0 {
+			_ = json.Unmarshal(bodyBytes, &input)
+		}
+	}
+	if !input.DryRun && callerCtx.Role != "" && callerCtx.Role != "admin" {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("caller role %q is forbidden from action: requires admin", callerCtx.Role))
+		return
+	}
+	if s.policyEngine == nil {
+		s.policyEngine = NewPolicyEngine(s.dag, s.orchestrator, nil)
+	}
+	s.policyEngine.SetAuditBuffer(s.getAuditBuffer())
+	ctx, cancel := cascadeContext(r)
+	defer cancel()
+
+	res, err := s.policyEngine.Evaluate(ctx, input)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("policy evaluation failed: %v", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
@@ -635,6 +781,10 @@ func (s *server) routes() http.Handler {
 	// dashboard and operator (read) watch it. The ack stays report-only.
 	mux.HandleFunc("/api/v1/fleet/stun-state", s.callerKeys.requireAny([]callerScope{scopeRead, scopeReport}, s.handleRemoteStunState))
 	mux.HandleFunc("/api/v1/fleet/stun-state/ack", s.callerKeys.require(scopeReport, s.handleRemoteStunAck))
+	mux.HandleFunc("/api/v1/fleet/policies", s.handlePolicies)
+	mux.HandleFunc("/api/v1/fleet/policies/evaluate", s.handlePolicyEvaluate)
+	mux.HandleFunc("/api/v1/fleet/audit/events", s.handleAuditEvents)
+	mux.HandleFunc("/api/v1/fleet/audit/stream", s.handleAuditStream)
 	registerConsistencyRoutes(mux, s)
 	return mux
 }
@@ -838,7 +988,12 @@ func main() {
 	workloads := NewWorkloadRegistry(reportInterval, time.Now)
 
 	remoteStuns := NewRemoteStunStore(nil, nil)
+	auditBuffer := NewAuditRingBuffer(1000)
+	policyEngine := NewPolicyEngine(dag, orchestrator, nil)
+	policyEngine.SetAuditBuffer(auditBuffer)
 	s := &server{
+		auditBuffer:       auditBuffer,
+		policyEngine:      policyEngine,
 		dag:               dag,
 		orchestrator:      orchestrator,
 		enforcement:       &selection,

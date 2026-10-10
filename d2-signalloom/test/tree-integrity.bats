@@ -41,7 +41,7 @@ conflict_hits() {
       xargs -0 -r sh -c '
         pattern="$1"
         shift
-        grep -lE "$pattern" "$@"
+        grep -d skip -lE "$pattern" "$@"
         rc=$?
         [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ]
       ' sh "$MARKERS"

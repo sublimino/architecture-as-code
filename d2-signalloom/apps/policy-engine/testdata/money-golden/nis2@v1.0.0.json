@@ -3,7 +3,7 @@
   "version": "v1.0.0",
   "currency": "GBP",
   "iterations": 10000,
-  "note": "Engine-reported risk figures for every check in this pack. ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). Regenerate with: make verify-cel-money-golden",
+  "note": "Engine-reported risk figures for every check in this pack. ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). Regenerate with: make verify-cel-money-golden — which pins a NEW check's figures freely but REFUSES to rewrite an already-pinned figure without MONEY_GOLDEN_MOVE_REASON and MONEY_GOLDEN_MOVE_CHECKS, recorded in lastMovement.",
   "checks": [
     {
       "check": "nis2-supply-chain-risk",

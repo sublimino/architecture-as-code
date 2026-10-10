@@ -10,6 +10,7 @@ from typing import Any, Literal
 import httpx
 import jwt
 import pytest
+import respx
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
@@ -289,7 +290,7 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     assert set(summary.json()) == {
         "totalChecks", "passed", "failed", "totalAle", "totalVar95",
         "totalTvar", "totalCarriedGbp", "scanTimestamp", "frameworks",
-        "carried", "currency",
+        "carried", "currency", "errored",
     }
     assert summary.json()["frameworks"] == frameworks.json()
 
@@ -409,65 +410,48 @@ def test_tenant_users_fails_closed_without_database(client, monkeypatch):
     assert response.json()["error"]["code"] == "database_unavailable"
 
 
-def test_policy_scan_updates_persisted_rows_and_returns_existing_summary_model(client, monkeypatch):
-    assessed_at = datetime(2026, 8, 2, 22, 30, tzinfo=timezone.utc)
+def test_policy_scan_without_the_engine_reports_nothing_rather_than_a_db_verdict(client, monkeypatch):
+    """The scan used to fall back to agent_compliance_results when the engine was
+    unreachable and reported every unassessed control as passed
+    (``bool(passed) if passed is not None else True``). With no engine there is
+    no verdict: no checks, no rows touched, and the response says so."""
 
-    class Transaction:
+    class Connection:
+        def __init__(self):
+            self.executions = []
+
+        def transaction(self):
+            return self
+
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *_args):
             return False
 
-    class Connection:
-        def __init__(self):
-            self.executions = []
-            self.fetch_args = ()
-
-        def transaction(self):
-            return Transaction()
-
         async def execute(self, query, *args):
             self.executions.append((query, args))
-            return "UPDATE 4" if "UPDATE agent_compliance_results" in query else "INSERT 0 1"
+            return "INSERT 0 1"
 
-        async def fetch(self, _query, *args):
-            self.fetch_args = args
-            return [
-                {
-                    "framework_id": uuid.UUID("f0000000-0000-0000-0000-000000000001"),
-                    "framework_name": "EU AI Act",
-                    "control_id": uuid.UUID("c0000000-0000-0000-0000-000000000001"),
-                    "control_name": "Traceability",
-                    "passed": True,
-                    "assessed_at": assessed_at,
-                },
-                {
-                    "framework_id": uuid.UUID("f0000000-0000-0000-0000-000000000001"),
-                    "framework_name": "EU AI Act",
-                    "control_id": uuid.UUID("c0000000-0000-0000-0000-000000000002"),
-                    "control_name": "Human oversight",
-                    "passed": False,
-                    "assessed_at": assessed_at,
-                },
-            ]
-
-    class Acquire:
-        def __init__(self, connection):
-            self.connection = connection
-
-        async def __aenter__(self):
-            return self.connection
-
-        async def __aexit__(self, *_args):
-            return False
+        async def fetch(self, query, *args):
+            if "FROM governance_controls" in query:
+                return [{
+                    "control_id": uuid.UUID("c0000000-0000-0000-0000-000000000007"),
+                    "policy_framework_id": "cis-kubernetes",
+                    "policy_check_id": "no-root-containers",
+                    "framework_version": "v1.8.0",
+                }]
+            if "FROM agent_registry" in query:
+                return [{"id": uuid.UUID("a0000000-0000-0000-0000-000000000001"), "name": "a",
+                         "model_approved": None, "policy_context": None, "workload_spec": None}]
+            return []  # auth and binding reads
 
     class PolicyPool:
         def __init__(self):
             self.connection = Connection()
 
         def acquire(self):
-            return Acquire(self.connection)
+            return self.connection
 
     pool = PolicyPool()
 
@@ -475,26 +459,24 @@ def test_policy_scan_updates_persisted_rows_and_returns_existing_summary_model(c
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", get_pool)
-    body = {
-        "namespace": "default",
-        "policyVersion": "v2.1",
-        "frameworks": ["f0000000-0000-0000-0000-000000000001"],
-    }
-    response = client.post(
-        "/api/compliance/policy/scan",
-        json=body,
-        headers=bearer(token_for("alice")),
-    )
+    monkeypatch.setattr(api_compat.settings, "policy_engine_url", "http://policy-engine.test")
+    with respx.mock(assert_all_called=True) as engine:
+        engine.post("http://policy-engine.test/api/v1/compliance/scan").mock(
+            side_effect=httpx.ConnectError("refused"),
+        )
+        response = client.post(
+            "/api/compliance/policy/scan",
+            json={"namespace": "default", "policyVersion": "v1.8.0", "frameworks": []},
+            headers=bearer(token_for("alice")),
+        )
 
     assert response.status_code == 200, response.text
     scan = api_compat.PolicyScanResponse.model_validate(response.json())
-    assert len(scan.checks) == 2
-    assert scan.summary.totalChecks == 2
-    assert scan.summary.passed == 1
-    assert scan.summary.failed == 1
-    assert scan.summary.scanTimestamp == "2026-08-02T22:30:00Z"
-    assert pool.connection.fetch_args == ("tenant-a", body["frameworks"])
-    assert any("UPDATE agent_compliance_results" in query for query, _ in pool.connection.executions)
+    assert scan.checks == []
+    assert scan.engineInvoked is False
+    assert scan.agentsFailed == ["a0000000-0000-0000-0000-000000000001"]
+    assert (scan.summary.totalChecks, scan.summary.passed, scan.summary.failed) == (0, 0, 0)
+    assert not any("agent_compliance_results" in query for query, _ in pool.connection.executions)
 
 
 def test_policy_scan_fails_closed_without_database(client, monkeypatch):

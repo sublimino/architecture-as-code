@@ -7336,6 +7336,10 @@ async def policy_compliance_summary(
         totalChecks=summary.controls_passing + summary.controls_failing + summary.controls_pending,
         passed=summary.controls_passing,
         failed=summary.controls_failing,
+        # Counted inside controls_pending above (that contract has no error bucket).
+        errored=sum(
+            result.status == "error" for agent in posture.agents for result in agent.results
+        ),
         totalAle=0,
         totalVar95=0,
         totalTvar=0,

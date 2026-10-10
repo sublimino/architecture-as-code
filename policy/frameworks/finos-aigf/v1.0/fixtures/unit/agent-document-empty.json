@@ -1,0 +1,28 @@
+{
+  "name": "agent-document-empty",
+  "level": "unit",
+  "description": "agent is {} (no registry facts at all, as when the binding is absent): every check fails, none errors.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "rag-ingestion-sensitive-data-filtered": "fail",
+    "prompt-injection-guardrail-active": "fail",
+    "output-leakage-filter-active": "fail",
+    "inference-rate-limit-configured": "fail",
+    "registered-model-registry-entry": "fail",
+    "model-version-pinned": "fail",
+    "user-authn-and-rbac-enforced": "fail",
+    "ai-data-encrypted-at-rest": "fail",
+    "tool-grants-least-privilege": "fail",
+    "mcp-servers-allowlisted": "fail",
+    "no-long-lived-credentials-exposed": "fail",
+    "high-impact-actions-human-approved": "fail",
+    "ai-interaction-audit-logging": "fail",
+    "spend-budget-alerting-configured": "fail",
+    "decision-explainability-metadata": "fail",
+    "decision-audit-tamper-evident": "fail"
+  }
+}

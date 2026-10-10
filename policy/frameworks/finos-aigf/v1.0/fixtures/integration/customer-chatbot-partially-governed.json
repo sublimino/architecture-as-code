@@ -1,0 +1,91 @@
+{
+  "name": "customer-chatbot-partially-governed",
+  "level": "integration",
+  "description": "Public retail-banking chatbot: input firewall on but no output leakage filter; registered but on a -latest alias; RAG over FAQs with filtering; chat history store unencrypted; anonymous users (no authN); refund tool is high impact with no approval gate; credential exposure undeclared; explainability and tamper-evident logs missing. Rate limit, audit logging, spend alerts, scoped tools and MCP ([]) pass.",
+  "input": {
+    "object": {},
+    "agent": {
+      "name": "retail-help-chat",
+      "owner": "digital-channels",
+      "status": "active",
+      "registry": {
+        "model_registered": true,
+        "model_version": "gpt-4o-latest"
+      },
+      "guardrails": {
+        "prompt_injection_filter": true,
+        "output_filter": false
+      },
+      "data": {
+        "rag_enabled": true,
+        "ingestion_sensitive_data_filter": true,
+        "persistent_stores": [
+          {
+            "name": "faq-index",
+            "encrypted_at_rest": true
+          },
+          {
+            "name": "chat-history",
+            "encrypted_at_rest": false
+          }
+        ]
+      },
+      "rate_limits": {
+        "requests_per_minute": 30
+      },
+      "access": {
+        "authentication_required": false,
+        "rbac_enforced": false
+      },
+      "tools": [
+        {
+          "name": "lookup_order",
+          "scopes": [
+            "orders:read"
+          ],
+          "impact": "low"
+        },
+        {
+          "name": "issue_refund",
+          "scopes": [
+            "refunds:create"
+          ],
+          "impact": "high",
+          "requires_human_approval": false
+        }
+      ],
+      "mcp_servers": [],
+      "credentials": {},
+      "observability": {
+        "audit_logging": true
+      },
+      "cost_controls": {
+        "budget_limit": 800,
+        "spend_alerting": true
+      },
+      "governance": {
+        "decision_explainability": false,
+        "audit_log_tamper_evident": false
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "rag-ingestion-sensitive-data-filtered": "pass",
+    "prompt-injection-guardrail-active": "pass",
+    "output-leakage-filter-active": "fail",
+    "inference-rate-limit-configured": "pass",
+    "registered-model-registry-entry": "pass",
+    "model-version-pinned": "fail",
+    "user-authn-and-rbac-enforced": "fail",
+    "ai-data-encrypted-at-rest": "fail",
+    "tool-grants-least-privilege": "pass",
+    "mcp-servers-allowlisted": "pass",
+    "no-long-lived-credentials-exposed": "fail",
+    "high-impact-actions-human-approved": "fail",
+    "ai-interaction-audit-logging": "pass",
+    "spend-budget-alerting-configured": "pass",
+    "decision-explainability-metadata": "fail",
+    "decision-audit-tamper-evident": "fail"
+  }
+}

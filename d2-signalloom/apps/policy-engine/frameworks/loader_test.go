@@ -690,7 +690,7 @@ func TestLoad_LegacyTiersConverted(t *testing.T) {
 	}{
 		{"eu-ai-act", "v1.0", "v1.0.0", "container-run-as-non-root", 7, 2000, 10000, 50000},
 		{"eu-ai-act", "v2.0", "v2.0.0", "no-privileged-mode", 19, 8000, 40000, 150000},
-		{"nist-800-53", "v1.0", "v1.0.0", "no-automount-sa-token", 12, 2000, 10000, 40000},
+		{"nist-800-53", "v1.0", "v1.0.0", "no-automount-sa-token", 14, 2000, 10000, 40000},
 		{"nist-800-53", "v2.0", "v2.0.0", "no-privilege-escalation", 28, 8000, 40000, 150000},
 	}
 	for _, tc := range cases {

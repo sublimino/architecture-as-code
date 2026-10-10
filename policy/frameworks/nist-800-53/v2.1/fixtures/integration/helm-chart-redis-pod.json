@@ -192,6 +192,8 @@
     "anomaly-detection-telemetry": "fail",
     "image-digest": "fail",
     "trusted-registry": "fail",
-    "no-host-ipc": "pass"
+    "no-host-ipc": "pass",
+    "no-host-pid": "pass",
+    "no-host-network": "pass"
   }
 }

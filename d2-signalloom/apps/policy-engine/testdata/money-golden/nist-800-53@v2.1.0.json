@@ -216,6 +216,48 @@
       "aleSigma": -0.542
     },
     {
+      "check": "no-host-network",
+      "seed": 16963957592432379188,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.5,
+        "max": 4
+      },
+      "ale": 60074.23,
+      "var95": 135603.15,
+      "tvar": 163355.12,
+      "carried": 179690.63,
+      "tailDominated": false,
+      "analyticAle": 59791.67,
+      "aleSigma": 0.75
+    },
+    {
+      "check": "no-host-pid",
+      "seed": 16143600739692222015,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.5,
+        "max": 4
+      },
+      "ale": 60225.38,
+      "var95": 134794.37,
+      "tvar": 160500.27,
+      "carried": 176550.3,
+      "tailDominated": false,
+      "analyticAle": 59791.67,
+      "aleSigma": 1.151
+    },
+    {
       "check": "no-privilege-escalation",
       "seed": 2576653535541714086,
       "riskTriple": {

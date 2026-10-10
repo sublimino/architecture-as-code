@@ -15,8 +15,9 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
 - **Absent means unevidenced, so the check fails.** No check returns `error`
   for an absent key. A missing container object fails too.
 - **Container objects** (`registry`, `guardrails`, `data`, and the rest) must
-  be JSON objects. A container of the wrong type, such as a string, makes its
-  checks fail.
+  be JSON objects. A container of the wrong type, such as a string or a list, makes its
+  checks fail (every container read is guarded with `type(x) == map`; list
+  elements of `persistent_stores`, `tools` and `mcp_servers` likewise).
 - **Lists** must be JSON arrays.
   - An empty array `[]` declares "none", so every-element checks pass on it
     (vacuous truth).

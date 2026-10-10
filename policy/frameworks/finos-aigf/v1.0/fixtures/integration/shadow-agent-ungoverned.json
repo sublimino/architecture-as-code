@@ -1,0 +1,84 @@
+{
+  "name": "shadow-agent-ungoverned",
+  "level": "integration",
+  "description": "Unregistered agent a developer deployed from a laptop: unpinned model, no guardrails, RAG over a shared drive with no filtering, unencrypted local store, wildcard shell tool with no approval, a random MCP server, an API key in env, no limits or logging. Every check fails.",
+  "input": {
+    "object": {},
+    "agent": {
+      "name": "quick-helper-bot",
+      "owner": null,
+      "status": "active",
+      "registry": {
+        "model_registered": false,
+        "model_version": "gpt-4o-latest"
+      },
+      "guardrails": {
+        "prompt_injection_filter": false
+      },
+      "data": {
+        "rag_enabled": true,
+        "persistent_stores": [
+          {
+            "name": "sqlite-cache",
+            "encrypted_at_rest": false
+          }
+        ]
+      },
+      "rate_limits": {},
+      "access": {
+        "authentication_required": false
+      },
+      "tools": [
+        {
+          "name": "shell_exec",
+          "scopes": [
+            "*"
+          ]
+        },
+        {
+          "name": "http_fetch",
+          "scopes": [
+            "net:*"
+          ],
+          "impact": "high"
+        }
+      ],
+      "mcp_servers": [
+        {
+          "name": "community-filesystem-mcp",
+          "allowlisted": false
+        }
+      ],
+      "credentials": {
+        "long_lived_secrets_exposed": true,
+        "delivery": "env:OPENAI_API_KEY"
+      },
+      "observability": {
+        "audit_logging": false
+      },
+      "cost_controls": {
+        "spend_alerting": false
+      },
+      "governance": {}
+    },
+    "request": {}
+  },
+  "expect": {
+    "rag-ingestion-sensitive-data-filtered": "fail",
+    "prompt-injection-guardrail-active": "fail",
+    "output-leakage-filter-active": "fail",
+    "inference-rate-limit-configured": "fail",
+    "registered-model-registry-entry": "fail",
+    "model-version-pinned": "fail",
+    "user-authn-and-rbac-enforced": "fail",
+    "ai-data-encrypted-at-rest": "fail",
+    "tool-grants-least-privilege": "fail",
+    "mcp-servers-allowlisted": "fail",
+    "no-long-lived-credentials-exposed": "fail",
+    "high-impact-actions-human-approved": "fail",
+    "ai-interaction-audit-logging": "fail",
+    "spend-budget-alerting-configured": "fail",
+    "decision-explainability-metadata": "fail",
+    "decision-audit-tamper-evident": "fail"
+  }
+}

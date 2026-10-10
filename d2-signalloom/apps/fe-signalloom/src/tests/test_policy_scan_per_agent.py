@@ -31,7 +31,7 @@ from httpx import ASGITransport, AsyncClient
 
 import api_compat
 from config import settings
-from conftest import EAP_ALICE, EAP_TENANT_A, eap_bearer
+from conftest import EAP_ALICE, EAP_TENANT_A, EAP_TENANT_B, eap_bearer
 from main import app
 from policy_scan import build_agent_object, build_agent_policy_context
 
@@ -104,14 +104,18 @@ class FakeDB:
         return False
 
     async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
+        # Both statements are ``WHERE tenant_id = $1``. The fake has to honour
+        # that, or a tenant-isolation test here is theatre: it would be asserting
+        # that rows the fake never withheld did not come back.
         if "FROM agent_registry" in query:
-            assert args[0] == EAP_TENANT_A
             wanted = set(args[1])
-            return [a for a in self.agents if not wanted or str(a["id"]) in wanted]
+            return [a for a in self.agents
+                    if a["tenant_id"] == args[0] and (not wanted or str(a["id"]) in wanted)]
         if "FROM governance_controls" in query:
-            assert args[0] == EAP_TENANT_A
             wanted = set(args[1])
-            return [c for c in self.controls if not wanted or c["policy_framework_id"] in wanted]
+            return [c for c in self.controls
+                    if c["tenant_id"] == args[0]
+                    and (not wanted or c["policy_framework_id"] in wanted)]
         raise AssertionError(f"unexpected fetch: {query}")
 
     async def execute(self, query: str, *args: Any) -> str:
@@ -136,10 +140,12 @@ class FakeDB:
         raise AssertionError(f"unexpected execute: {query}")
 
 
-def agent_row(agent_id, name, *, model_approved=None, context=None, workload=None):
+def agent_row(agent_id, name, *, model_approved=None, context=None, workload=None,
+              tenant=EAP_TENANT_A):
     return {
         "id": agent_id,
         "name": name,
+        "tenant_id": tenant,
         "model_approved": model_approved,
         # asyncpg returns json/jsonb as text without a codec; the builder must cope.
         "policy_context": json.dumps(context) if context is not None else None,
@@ -151,9 +157,9 @@ def agent_row(agent_id, name, *, model_approved=None, context=None, workload=Non
 PACK_VERSION = {"cis-kubernetes": "v1.8.0", "finos-aigf": "v1.0.0"}
 
 
-def control(control_id, framework, check):
+def control(control_id, framework, check, tenant=EAP_TENANT_A):
     return {"control_id": control_id, "policy_framework_id": framework, "policy_check_id": check,
-            "framework_version": PACK_VERSION[framework]}
+            "framework_version": PACK_VERSION[framework], "tenant_id": tenant}
 
 
 def answering(results):
@@ -491,6 +497,48 @@ async def test_unmapped_checks_are_reported_but_never_stored(db):
     assert (check["status"], check["controlId"]) == ("pass", None)
     assert fake.audit[0]["detail"]["checks_unmapped"] == 1
     assert fake.audit[0]["detail"]["controls_assessed"] == 0
+
+
+# --------------------------------------------------------------------------
+# Another tenant's agents (L1)
+# --------------------------------------------------------------------------
+
+FOREIGN_AGENT = uuid.UUID("bbbbbbbb-0000-0000-0000-000000000001")
+
+
+@pytest.mark.asyncio
+async def test_a_scan_of_another_tenants_agents_scans_and_writes_nothing(db):
+    """L1: ``agentIds`` is caller-supplied, and the registry read is the only
+    thing standing between it and another tenant's agents.  Naming one scans
+    nothing, writes nothing, and asks the engine nothing -- the id is simply
+    not an agent as far as this caller is concerned."""
+    fake = db(FakeDB(
+        agents=[agent_row(AGENT_A, "agent-a", workload=POD_A),
+                agent_row(FOREIGN_AGENT, "tenant-b-agent", workload=POD_A, tenant=EAP_TENANT_B)],
+        controls=CONTROLS + [control(uuid.UUID("cccccccc-0000-0000-0000-00000000000b"),
+                                     "cis-kubernetes", "no-privileged-containers",
+                                     tenant=EAP_TENANT_B)],
+    ))
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.post(ENGINE).mock(side_effect=answering(EVERY_CHECK_PASSES))
+        resp = await scan({**SCAN, "agentIds": [str(FOREIGN_AGENT)]})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert not route.called
+    assert (data["checks"], data["agentsScanned"], data["agentsFailed"],
+            data["engineInvoked"]) == ([], 0, [], False)
+    assert fake.results == {} and fake.result_writes == 0
+    detail = fake.audit[0]["detail"]
+    assert (detail["agents_scanned"], detail["controls_assessed"]) == (0, 0)
+    # And the caller's own agent is still scannable, so the filter is a tenant
+    # filter and not a broken query.
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering(EVERY_CHECK_PASSES))
+        resp = await scan({**SCAN, "agentIds": [str(AGENT_A)]})
+    assert resp.status_code == 200, resp.text
+    assert {c["agentId"] for c in resp.json()["checks"]} == {str(AGENT_A)}
+    assert {agent for agent, _ in fake.results} == {AGENT_A}
 
 
 # --------------------------------------------------------------------------

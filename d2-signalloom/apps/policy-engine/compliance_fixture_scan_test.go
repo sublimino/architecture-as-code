@@ -97,7 +97,7 @@ func fixtureScanMismatches(t *testing.T, tr scanTransport, packs []*conformanceP
 			var exposure float64
 			for _, r := range results {
 				tally[r.Status]++
-				if r.Status != VerdictPass {
+				if r.Status == VerdictFail || r.Status == VerdictError {
 					exposure += r.CarriedGBP
 				}
 				if r.Framework != p.fw.ID || r.FrameworkVersion != p.fw.Version {
@@ -132,13 +132,13 @@ func fixtureScanMismatches(t *testing.T, tr scanTransport, packs []*conformanceP
 				problems = append(problems, fmt.Sprintf("%s: %v", where, err))
 				continue
 			}
-			if s.TotalControls != len(results) || s.Passed != tally[VerdictPass] || s.Failed != tally[VerdictFail] || s.Errored != tally[VerdictError] {
-				problems = append(problems, fmt.Sprintf("%s: summary total/passed/failed/errored = %d/%d/%d/%d, scan tally = %d/%d/%d/%d",
-					where, s.TotalControls, s.Passed, s.Failed, s.Errored,
-					len(results), tally[VerdictPass], tally[VerdictFail], tally[VerdictError]))
+			if s.TotalControls != len(results) || s.Passed != tally[VerdictPass] || s.Failed != tally[VerdictFail] || s.Errored != tally[VerdictError] || s.NotEvaluated != tally[VerdictNotEvaluated] {
+				problems = append(problems, fmt.Sprintf("%s: summary total/passed/failed/errored/notEvaluated = %d/%d/%d/%d/%d, scan tally = %d/%d/%d/%d/%d",
+					where, s.TotalControls, s.Passed, s.Failed, s.Errored, s.NotEvaluated,
+					len(results), tally[VerdictPass], tally[VerdictFail], tally[VerdictError], tally[VerdictNotEvaluated]))
 			}
 			if math.Abs(s.TotalExposure-exposure) > 0.01*float64(len(results)+1) {
-				problems = append(problems, fmt.Sprintf("%s: summary exposure %.2f, scan non-pass carried %.2f", where, s.TotalExposure, exposure))
+				problems = append(problems, fmt.Sprintf("%s: summary exposure %.2f, scan fail+error carried %.2f", where, s.TotalExposure, exposure))
 			}
 		}
 	}

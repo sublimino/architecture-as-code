@@ -66,8 +66,9 @@ type ComplianceScanResult struct {
 	// Carried is CarriedGBP with its denomination attached. Same number, self-describing.
 	Carried money.Money `json:"carried"`
 
-	// Status is the three-valued verdict: pass, fail or error. An expression
-	// that cannot evaluate is error, never fail.
+	// Status is the verdict: pass, fail, error or not_evaluated. An expression
+	// that cannot evaluate is error, never fail; a placeholder check is
+	// not_evaluated and is never evaluated.
 	Status Verdict `json:"status"`
 	// Error is the CEL error text when Status is error.
 	Error            string `json:"error,omitempty"`
@@ -77,10 +78,12 @@ type ComplianceScanResult struct {
 }
 
 type ComplianceSummary struct {
-	TotalControls int     `json:"totalControls"`
-	Passed        int     `json:"passed"`
-	Failed        int     `json:"failed"`
-	Errored       int     `json:"errored"`
+	TotalControls int `json:"totalControls"`
+	Passed        int `json:"passed"`
+	Failed        int `json:"failed"`
+	Errored       int `json:"errored"`
+	// NotEvaluated counts placeholder checks; they are in TotalControls only.
+	NotEvaluated  int     `json:"notEvaluated"`
 	TotalExposure float64 `json:"totalExposureGbp"`
 	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
 
@@ -215,11 +218,14 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	for _, sel := range packs {
 		fw := sel.fw
 		for _, cwc := range sel.checks {
-			passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
-			status := verdictOf(passed, err)
+			status := VerdictNotEvaluated
 			var errText string
-			if err != nil {
-				errText = err.Error()
+			if !isPlaceholder(fw.Status, cwc.Check.Status) {
+				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
+				status = verdictOf(passed, err)
+				if err != nil {
+					errText = err.Error()
+				}
 			}
 
 			seed := checkSeed(cwc.Check.ID)
@@ -312,12 +318,16 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 			case VerdictPass:
 				summary.Passed++
 				continue
+			case VerdictNotEvaluated:
+				// A placeholder has no verdict: neither failed, errored nor exposure.
+				summary.NotEvaluated++
+				continue
 			case VerdictError:
 				summary.Errored++
 			default:
 				summary.Failed++
 			}
-			// Exposure is conservative: an unevaluated control is not assumed safe.
+			// Exposure is conservative: an errored control is not assumed safe.
 			summary.TotalExposure += r.CarriedGBP
 		}
 	}

@@ -251,6 +251,48 @@ func TestScanContract_SummaryCountsErroredSeparately(t *testing.T) {
 	}
 }
 
+// Audit M4: a placeholder check (or any check of a placeholder framework) is
+// not evaluated. It reports status not_evaluated, passed false, no error; the
+// summary counts it in totalControls and notEvaluated only, never in failed,
+// errored or exposure.
+func TestScanContract_PlaceholderIsNotEvaluated(t *testing.T) {
+	root := t.TempDir()
+	placeholder := packCheck("ph-check", "false")
+	placeholder.Status = "placeholder"
+	writePack(t, root, "mixed", "v1.0", frameworks.Framework{ID: "mixed", Version: "v1.0.0",
+		ControlSets: []frameworks.ControlSet{{ID: "CS", Name: "Set", Controls: []frameworks.Control{
+			{ID: "C1", Name: "C1", Checks: []frameworks.Check{placeholder}},
+			{ID: "C2", Name: "C2", Checks: []frameworks.Check{packCheck("real-fail", "false")}},
+			{ID: "C3", Name: "C3", Checks: []frameworks.Check{packCheck("real-pass", "true")}},
+		}}}})
+	writePack(t, root, "phfw", "v1.0", frameworks.Framework{ID: "phfw", Version: "v1.0.0", Status: "placeholder",
+		ControlSets: []frameworks.ControlSet{{ID: "CS", Name: "Set", Controls: []frameworks.Control{
+			{ID: "C1", Name: "C1", Checks: []frameworks.Check{packCheck("fw-ph-check", "agent.registry")}},
+		}}}})
+	h, err := newComplianceHandler(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := postScan(t, h, map[string]any{"frameworks": []string{"mixed", "phfw"}})
+	for _, id := range []string{"ph-check", "fw-ph-check"} {
+		assertStatus(t, res, id, "not_evaluated")
+		if _, present := res[id]["error"]; present {
+			t.Errorf("%s: not_evaluated result carries an error: %v", id, res[id]["error"])
+		}
+	}
+	assertStatus(t, res, "real-fail", "fail")
+	assertStatus(t, res, "real-pass", "pass")
+
+	s := getSummary(t, h)
+	if s["totalControls"] != 4.0 || s["passed"] != 1.0 || s["failed"] != 1.0 || s["errored"] != 0.0 || s["notEvaluated"] != 2.0 {
+		t.Errorf("summary = total %v passed %v failed %v errored %v notEvaluated %v, want 4/1/1/0/2",
+			s["totalControls"], s["passed"], s["failed"], s["errored"], s["notEvaluated"])
+	}
+	if e, want := s["totalExposureGbp"].(float64), res["real-fail"]["carriedGbp"].(float64); math.Abs(e-want) > 0.005 {
+		t.Errorf("totalExposureGbp = %v, want %v (real-fail only)", e, want)
+	}
+}
+
 // The headline bug: the shipped FINOS AIGF pack reads agent.*, which was never
 // bound, so every check reported passed:false. A compliant agent must pass.
 func TestScanContract_FinosAIGFAgentChecksEvaluate(t *testing.T) {

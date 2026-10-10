@@ -2,6 +2,7 @@ package frameworks
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -556,6 +557,94 @@ func TestLoad_RejectsDuplicateCheckID(t *testing.T) {
 	_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
 	if err == nil || !strings.Contains(err.Error(), `duplicate check id "ok"`) {
 		t.Fatalf("want duplicate check id error, got %v", err)
+	}
+}
+
+// A malformed triple must fail to LOAD, not price silently.
+//
+// Every case here was invisible before frameworks.validate called
+// fair.RiskTriple.Validate: an adversarial audit edited a shipped pack to
+// freqTriple{min: 4, mode: 1.5, max: 0.5} and riskTriple{min: -100000, ...},
+// ran every pack test, and got a clean suite — because fair.Simulate never
+// validates its inputs and samplePERT quietly absorbs both shapes (span <= 0
+// returns min, so an inverted triple prices at its own maximum; a negative draw
+// is clamped to zero per iteration).
+//
+// These are SHAPE errors. The pricing gate deliberately abstains from
+// calibration — whether 120,000 is the right modal loss is a judgement nothing
+// here can referee — but min > mode, a negative loss and a non-finite value
+// have no defensible reading at all.
+func TestLoad_RejectsMalformedTriple(t *testing.T) {
+	for name, tc := range map[string]struct{ from, to, want string }{
+		"risk min above mode": {
+			`"riskTriple":{"min":1,"mode":2,"max":3}`, `"riskTriple":{"min":3,"mode":2,"max":3}`,
+			"min <= mode <= max",
+		},
+		"risk mode above max": {
+			`"riskTriple":{"min":1,"mode":2,"max":3}`, `"riskTriple":{"min":1,"mode":9,"max":3}`,
+			"min <= mode <= max",
+		},
+		"risk min negative": {
+			`"riskTriple":{"min":1,"mode":2,"max":3}`, `"riskTriple":{"min":-100000,"mode":2,"max":3}`,
+			"min must be >= 0",
+		},
+		// The exact triple the auditor injected.
+		"freq fully inverted": {
+			`"freqTriple":{"min":0.1,"mode":0.2,"max":0.3}`, `"freqTriple":{"min":4,"mode":1.5,"max":0.5}`,
+			"min <= mode <= max",
+		},
+		"freq min negative": {
+			`"freqTriple":{"min":0.1,"mode":0.2,"max":0.3}`, `"freqTriple":{"min":-1,"mode":0.2,"max":0.3}`,
+			"min must be >= 0",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(canonicalJSON, tc.from, tc.to, 1)
+			if body == canonicalJSON {
+				t.Fatalf("fixture did not apply: %q not found in canonicalJSON", tc.from)
+			}
+			_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
+			if err == nil {
+				t.Fatalf("a pack with %s loaded; its figures would be fabricated", name)
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), `"ok"`) {
+				t.Fatalf("want an error naming check \"ok\" and %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// NaN and Inf are unrepresentable in JSON but entirely writable in YAML, and a
+// non-finite triple propagates NaN into every figure the product quotes. (The
+// shape clamp in samplePERT catches a NaN alpha; it does not catch a NaN min,
+// which is added to the sample unconditionally.)
+func TestLoad_RejectsNonFiniteTripleFromYAML(t *testing.T) {
+	const tmpl = `id: x
+name: X
+version: v1.0.0
+controlSets:
+  - id: cs
+    name: CS
+    controls:
+      - id: c1
+        name: C1
+        checks:
+          - id: ok
+            name: ok
+            celExpression: "true"
+            riskTriple: {min: %s, mode: 2, max: 3}
+`
+	for _, v := range []string{".nan", ".inf", "-.inf"} {
+		t.Run(v, func(t *testing.T) {
+			body := fmt.Sprintf(tmpl, v)
+			_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": body}), "x", "v1.0")
+			if err == nil {
+				t.Fatalf("a pack with a %s triple bound loaded; every figure it prices is NaN or Inf", v)
+			}
+			if !strings.Contains(err.Error(), "finite") && !strings.Contains(err.Error(), "min must be >= 0") {
+				t.Fatalf("want a finiteness or non-negativity error, got %v", err)
+			}
+		})
 	}
 }
 

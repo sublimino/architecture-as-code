@@ -32,11 +32,15 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
@@ -52,7 +56,9 @@ const moneyGoldenNote = "Engine-reported risk figures for every check in this pa
 	"ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); " +
 	"analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and " +
 	"aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). " +
-	"Regenerate with: make verify-cel-money-golden"
+	"Regenerate with: make verify-cel-money-golden — which pins a NEW check's figures freely but REFUSES " +
+	"to rewrite an already-pinned figure without MONEY_GOLDEN_MOVE_REASON and MONEY_GOLDEN_MOVE_CHECKS, " +
+	"recorded in lastMovement."
 
 type moneyGolden struct {
 	Framework  string           `json:"framework"`
@@ -61,6 +67,19 @@ type moneyGolden struct {
 	Iterations int              `json:"iterations"`
 	Note       string           `json:"note"`
 	Checks     []moneyGoldenRow `json:"checks"`
+
+	// LastMovement records the acknowledgement that let a pre-existing check's
+	// figures change. Update mode cannot write one without it (see
+	// TestWriteMoneyGolden), so it is the provenance a reviewer reads INSTEAD of
+	// re-deriving 64 numbers from a JSON diff.
+	LastMovement *moneyMovement `json:"lastMovement,omitempty"`
+}
+
+// moneyMovement is the committed record of one acknowledged price movement.
+type moneyMovement struct {
+	Reason      string   `json:"reason"`
+	ChecksMoved int      `json:"checksMoved"`
+	Checks      []string `json:"checks"`
 }
 
 type moneyGoldenRow struct {
@@ -171,6 +190,7 @@ func readMoneyGolden(path string) (moneyGolden, error) {
 func TestConformance_MoneyGoldenMatchesEngine(t *testing.T) {
 	packs := loadConformancePacks(t, conformancePolicyRoot(t))
 	rows := 0
+	var drift []figureDelta
 	for _, p := range packs {
 		path := moneyGoldenPath(p)
 		g, err := readMoneyGolden(path)
@@ -207,11 +227,19 @@ func TestConformance_MoneyGoldenMatchesEngine(t *testing.T) {
 			rows++
 			if want := goldenRowFor(p.checks[id]); got != want {
 				t.Errorf("%s: check %q drifted\n golden %+v\n engine %+v", path, id, got, want)
+				drift = append(drift, rowDeltas(p.label()+" "+id, got, want)...)
 			}
 		}
 	}
 	if rows == 0 {
 		t.Fatal("no golden rows checked: the money is unproven")
+	}
+	// The per-figure table, with percentages, is the only form in which a
+	// uniform drift across dozens of checks is visible to a reader. Printed on
+	// failure in assert mode as well as in update mode, because a human reading
+	// a wall of "golden {...} engine {...}" pairs cannot see the shape.
+	if len(drift) > 0 {
+		t.Errorf("figures moved:\n%s", deltaTable(drift))
 	}
 	t.Logf("%d packs, %d pinned checks", len(packs), rows)
 }
@@ -798,27 +826,292 @@ func TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Golden updater. Writes the files; asserts nothing. Run via the make target.
+// Figure deltas. A reviewer cannot see a uniform 4% drift in a diff of 64 JSON
+// rows; a table of percentages makes it unmissable. Printed by the assert tier
+// on any mismatch and by the updater on any movement.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// figureDelta is one figure of one check moving between the committed golden
+// and what the engine now produces. Note is set instead of Old/New for a
+// non-numeric field, where a percentage is meaningless.
+type figureDelta struct {
+	Where  string // "<pack> <check>"
+	Figure string
+	Old    float64
+	New    float64
+	Note   string
+}
+
+func (d figureDelta) numeric() bool { return d.Note == "" }
+
+// pct is the relative movement. A figure leaving zero has no finite relative
+// change and is reported as such rather than as a made-up number.
+func (d figureDelta) pct() float64 {
+	if d.Old == 0 {
+		if d.New == 0 {
+			return 0
+		}
+		return math.Inf(1)
+	}
+	return (d.New - d.Old) / d.Old * 100
+}
+
+// goldenFigures is the ordered list of numeric fields a golden row pins. The
+// four the product quotes come first; the analytic anchor and its sigma follow
+// because a movement in them says whether the figure moved toward or away from
+// the closed form.
+func goldenFigures(r moneyGoldenRow) []struct {
+	name string
+	val  float64
+} {
+	return []struct {
+		name string
+		val  float64
+	}{
+		{"ale", r.ALE}, {"var95", r.VaR95}, {"tvar", r.TVaR}, {"carried", r.Carried},
+		{"analyticAle", r.AnalyticALE}, {"aleSigma", r.ALESigma},
+	}
+}
+
+// rowDeltas lists every field in which the two rows disagree.
+func rowDeltas(where string, old, now moneyGoldenRow) []figureDelta {
+	var out []figureDelta
+	o, n := goldenFigures(old), goldenFigures(now)
+	for i := range o {
+		if o[i].val != n[i].val {
+			out = append(out, figureDelta{Where: where, Figure: o[i].name, Old: o[i].val, New: n[i].val})
+		}
+	}
+	note := func(figure string, a, b any) {
+		out = append(out, figureDelta{Where: where, Figure: figure, Note: fmt.Sprintf("%v -> %v", a, b)})
+	}
+	if old.TailDominated != now.TailDominated {
+		note("tailDominated", old.TailDominated, now.TailDominated)
+	}
+	if old.Seed != now.Seed {
+		note("seed", old.Seed, now.Seed)
+	}
+	if old.Risk != now.Risk {
+		note("riskTriple", old.Risk, now.Risk)
+	}
+	if old.Freq != now.Freq {
+		note("freqTriple", old.Freq, now.Freq)
+	}
+	return out
+}
+
+// inputsMoved reports whether the check's INPUTS changed. If they did not, a
+// moved figure means the ENGINE moved — the dangerous case, because no pack
+// edit accompanies it in the diff to explain the new numbers.
+func inputsMoved(old, now moneyGoldenRow) bool {
+	return old.Risk != now.Risk || old.Freq != now.Freq || old.Seed != now.Seed
+}
+
+// deltaTable renders the movements, widest-first on the figure name, with a
+// one-line distribution summary. The summary is the point: a uniform drift
+// across dozens of checks has a tight percentage range, which is exactly the
+// signature of an engine change and exactly what 64 rows of JSON hide.
+func deltaTable(ds []figureDelta) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-44s %-13s %16s %16s %10s\n", "CHECK", "FIGURE", "OLD", "NEW", "CHANGE")
+	var pcts []float64
+	for _, d := range ds {
+		if !d.numeric() {
+			fmt.Fprintf(&b, "%-44s %-13s %50s\n", d.Where, d.Figure, d.Note)
+			continue
+		}
+		p := d.pct()
+		pcts = append(pcts, p)
+		change := fmt.Sprintf("%+.2f%%", p)
+		if math.IsInf(p, 0) {
+			change = "from zero"
+		}
+		fmt.Fprintf(&b, "%-44s %-13s %16.2f %16.2f %10s\n", d.Where, d.Figure, d.Old, d.New, change)
+	}
+	if len(pcts) == 0 {
+		fmt.Fprintf(&b, "%d field(s) moved, none numeric\n", len(ds))
+		return b.String()
+	}
+	sort.Float64s(pcts)
+	med := pcts[len(pcts)/2]
+	fmt.Fprintf(&b, "%d numeric figure(s) moved; median %+.2f%%, range %+.2f%% .. %+.2f%%\n",
+		len(pcts), med, pcts[0], pcts[len(pcts)-1])
+	return b.String()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Golden updater. Writes the files; asserts nothing EXCEPT that nobody can
+// relabel a pre-existing check's figures as reviewed by running one command.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// WHY THIS IS GUARDED. This test used to rewrite every golden row from whatever
+// the engine currently produced, unconditionally. The only control was a comment
+// on the make target saying "Review the diff". An adversarial audit changed one
+// character in fair.go — percentile(annualLosses, 0.95) to 0.94, a plausible
+// off-by-one — and the path was: money test fails correctly, MONEY_GOLDEN=update
+// absorbs it, the FULL SUITE GOES GREEN, and 64 priced figures across 5 packs
+// have quietly moved 4-5%. The goldens were regenerated three times in one
+// session, which is precisely the condition under which a human stops reading 64
+// numbers.
+//
+// That is the money tier's version of the circularity this whole build exists to
+// remove: the oracle for a figure must not be the thing that produced it. The
+// closed-form anchor does not cover it either — it pins analyticAle only, so
+// var95, tvar and carried, three of the four figures the product quotes, are
+// pinned EXCLUSIVELY by self-generated goldens.
+//
+// THE RULE. Update mode writes rows for checks ABSENT from the golden, and drops
+// rows for checks the pack no longer has. Both are free and need no ceremony:
+// pinning a genuinely new check's first figures stays one command, which is the
+// case that legitimately occurred three times in a session. For a check ALREADY
+// pinned, any change to any figure is refused: the per-figure delta table is
+// printed and nothing is written, unless the movement is acknowledged by both
+//
+//	MONEY_GOLDEN_MOVE_REASON="<why these prices moved>"
+//	MONEY_GOLDEN_MOVE_CHECKS=<the exact number of checks expected to move>
+//
+// The count is what defeats the attack. A one-character engine change moves 64
+// checks; laundering it now requires typing 64 beside a written reason, and the
+// reason and the count are RECORDED INTO each affected golden's lastMovement
+// block, so the claim lands in the commit as a sentence rather than as drift
+// hidden in a wall of digits. A legitimate single-check recalibration declares 1.
+// The refusal is atomic: if any movement is unacknowledged, NO file is written,
+// so there is no half-updated set to reason about.
 func TestWriteMoneyGolden(t *testing.T) {
 	if os.Getenv("MONEY_GOLDEN") != "update" {
 		t.Skip("set MONEY_GOLDEN=update (or run `make verify-cel-money-golden`) to rewrite the golden files")
 	}
+
+	type pending struct {
+		path     string
+		g        moneyGolden
+		movedIDs []string
+	}
+	var (
+		writes      []pending
+		moved       []figureDelta
+		movedChecks int
+		engineMoved []string // moved with IDENTICAL inputs: the engine moved
+		added       []string
+		removed     []string
+	)
+
+	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
+		path := moneyGoldenPath(p)
+		next := goldenFor(p)
+
+		prev, err := readMoneyGolden(path)
+		switch {
+		case err == nil:
+		case errors.Is(err, fs.ErrNotExist):
+			// A pack with no golden at all: every row is new.
+		default:
+			// A corrupt or unparseable golden must not be silently replaced —
+			// that is how a hand-edit or a merge conflict disappears.
+			t.Fatalf("%s: %v\nrefusing to overwrite a golden that cannot be read", path, err)
+		}
+
+		prevRows := make(map[string]moneyGoldenRow, len(prev.Checks))
+		for _, r := range prev.Checks {
+			prevRows[r.Check] = r
+		}
+
+		var movedIDs []string
+		for _, r := range next.Checks {
+			old, ok := prevRows[r.Check]
+			if !ok {
+				added = append(added, p.label()+" "+r.Check)
+				continue
+			}
+			delete(prevRows, r.Check)
+			if old == r {
+				continue
+			}
+			where := p.label() + " " + r.Check
+			moved = append(moved, rowDeltas(where, old, r)...)
+			movedIDs = append(movedIDs, r.Check)
+			movedChecks++
+			if !inputsMoved(old, r) {
+				engineMoved = append(engineMoved, where)
+			}
+		}
+		for id := range prevRows {
+			removed = append(removed, p.label()+" "+id)
+		}
+		sort.Strings(removed)
+
+		next.LastMovement = prev.LastMovement // carried forward until a movement replaces it
+		writes = append(writes, pending{path: path, g: next, movedIDs: movedIDs})
+	}
+
+	reason := strings.TrimSpace(os.Getenv("MONEY_GOLDEN_MOVE_REASON"))
+	declared := strings.TrimSpace(os.Getenv("MONEY_GOLDEN_MOVE_CHECKS"))
+
+	if movedChecks > 0 {
+		t.Logf("figures moved for %d already-pinned check(s):\n%s", movedChecks, deltaTable(moved))
+		if len(engineMoved) > 0 {
+			t.Logf("%d of those moved with IDENTICAL triples and seed, so the ENGINE moved, not the inputs: %s",
+				len(engineMoved), firstN(engineMoved, 8))
+		}
+		if reason == "" || declared != strconv.Itoa(movedChecks) {
+			t.Fatalf(`REFUSED: %d already-pinned check(s) would have their figures rewritten.
+
+Update mode pins figures for NEW checks freely. It will not relabel an existing
+price as reviewed, because that is how an engine regression launders itself into
+a green suite (see the comment on this test).
+
+Read the table above. If every movement is intended, say so explicitly:
+
+    MONEY_GOLDEN_MOVE_REASON="<why these prices moved>" \
+    MONEY_GOLDEN_MOVE_CHECKS=%d \
+    MONEY_GOLDEN=update go test -count=1 -v -run TestWriteMoneyGolden .
+
+(or: make verify-cel-money-golden-acknowledged REASON="..." CHECKS=%d)
+
+Both are recorded into each affected golden's lastMovement block and land in the
+commit. Got REASON=%q CHECKS=%q.`,
+				movedChecks, movedChecks, movedChecks, reason, declared)
+		}
+		t.Logf("movement acknowledged: %q (%d checks)", reason, movedChecks)
+	} else if reason != "" || declared != "" {
+		// A stale acknowledgement left in the environment must not sit there
+		// pre-authorising the next run's movement.
+		t.Fatalf("MONEY_GOLDEN_MOVE_REASON/CHECKS are set but no pinned figure moved; drop them")
+	}
+
 	if err := os.MkdirAll(moneyGoldenDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
-		path := moneyGoldenPath(p)
-		raw, err := json.MarshalIndent(goldenFor(p), "", "  ")
+	for _, w := range writes {
+		if len(w.movedIDs) > 0 {
+			sort.Strings(w.movedIDs)
+			w.g.LastMovement = &moneyMovement{Reason: reason, ChecksMoved: len(w.movedIDs), Checks: w.movedIDs}
+		}
+		raw, err := json.MarshalIndent(w.g, "", "  ")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, append(raw, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(w.path, append(raw, '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("wrote %s (%d checks)", path, len(p.order))
+		t.Logf("wrote %s (%d checks, %d moved)", w.path, len(w.g.Checks), len(w.movedIDs))
 	}
+	t.Logf("%d pack(s): %d check(s) newly pinned, %d removed, %d moved", len(writes), len(added), len(removed), movedChecks)
+	if len(added) > 0 {
+		t.Logf("newly pinned: %s", firstN(added, 20))
+	}
+	if len(removed) > 0 {
+		t.Logf("no longer in a pack: %s", firstN(removed, 20))
+	}
+}
+
+// firstN keeps a log line readable when a change touches the whole estate: the
+// counts above are the load-bearing part, the names are orientation.
+func firstN(ss []string, n int) string {
+	if len(ss) <= n {
+		return strings.Join(ss, ", ")
+	}
+	return fmt.Sprintf("%s, ... (%d more)", strings.Join(ss[:n], ", "), len(ss)-n)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

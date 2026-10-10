@@ -1,4 +1,4 @@
-package main
+package oracle
 
 // External oracle for the CIS Kubernetes pack.
 //
@@ -19,6 +19,9 @@ package main
 //	           (validateSeccompProfileField). PSA deliberately does not cover
 //	           object validity, so the one rule we need from it is transcribed
 //	           verbatim and cited rather than derived from our pack.
+//	defaulting: kubernetes/kubernetes v1.34.0, pkg/apis/core/v1/defaults.go
+//	           lines 209-212 and 401-409 (SetDefaults_Pod ->
+//	           defaultHostNetworkPorts).
 //
 // Two legs feed the comparison:
 //
@@ -28,7 +31,7 @@ package main
 //	       author-chosen, so a semantics gap no fixture exercises is invisible
 //	       to leg A by construction.
 //
-// This file must not change policy/**. Where the oracle says our pack is
+// This module must not change policy/**. Where the oracle says our pack is
 // wrong, the divergence is recorded as an exception with a reason and is a
 // decision for the pack owner, not something to paper over here.
 
@@ -44,13 +47,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	psaapi "k8s.io/pod-security-admission/api"
 	psapolicy "k8s.io/pod-security-admission/policy"
-
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
 )
 
 const (
-	oraclePackID      = "cis-kubernetes"
+	oraclePackID = "cis-kubernetes"
+	// The directory name and the version framework.json declares are not the
+	// same string; both are asserted so a pack moved between directories
+	// cannot be judged under the wrong name.
+	oraclePackDir     = "v1.8"
 	oraclePackVersion = "v1.8.0"
+	oraclePSAModule   = "k8s.io/pod-security-admission v0.36.2"
 )
 
 // --- the mapping: our check IDs <-> the PSA checks that bear on them ---------
@@ -128,7 +134,7 @@ var oracleGroups = []oracleGroup{
 		name: "hostPorts",
 		ours: []string{"no-host-ports"},
 		psa:  []psapolicy.CheckID{"hostPorts"},
-		note: "baseline. 1:1.",
+		note: "baseline. 1:1, once API-server hostNetwork port defaulting is applied.",
 	},
 	{
 		name: "seccompProfile",
@@ -344,9 +350,10 @@ func oracleSeccompAPIValidation(p *corev1.SeccompProfile) string {
 // oracleAPIValidationVerdict is the secondary oracle's verdict for a pod,
 // shaped like a PSA verdict so it travels through the same comparison.
 func oracleAPIValidationVerdict(pod *corev1.Pod) psaVerdict {
+	profiles := oracleSeccompProfilesOf(&pod.Spec)
 	var rejections []string
-	for _, path := range oracleSortedKeys(oracleSeccompProfilesOf(&pod.Spec)) {
-		if msg := oracleSeccompAPIValidation(oracleSeccompProfilesOf(&pod.Spec)[path]); msg != "" {
+	for _, path := range oracleSortedKeys(profiles) {
+		if msg := oracleSeccompAPIValidation(profiles[path]); msg != "" {
 			rejections = append(rejections, path+": "+msg)
 		}
 	}
@@ -535,15 +542,32 @@ func applyExceptions(divs []oracleDivergence, exceptions []oracleException) (une
 
 // --- loading ----------------------------------------------------------------
 
-func oracleCISPack(t *testing.T) *conformancePack {
+func cisPack(t *testing.T) *Pack {
 	t.Helper()
-	for _, p := range loadConformancePacks(t, conformancePolicyRoot(t)) {
-		if p.fw.ID == oraclePackID && p.fw.Version == oraclePackVersion {
-			return p
-		}
+	root, err := PolicyRoot()
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Fatalf("pack %s@%s not found", oraclePackID, oraclePackVersion)
-	return nil
+	p, err := LoadPack(root, oraclePackID, oraclePackDir)
+	if err != nil {
+		t.Fatalf("loading %s/%s: %v", oraclePackID, oraclePackDir, err)
+	}
+	if p.ID != oraclePackID || p.Version != oraclePackVersion {
+		t.Fatalf("framework.json declares %s@%s, want %s@%s", p.ID, p.Version, oraclePackID, oraclePackVersion)
+	}
+	return p
+}
+
+func cisFixtures(t *testing.T, p *Pack) []Fixture {
+	t.Helper()
+	f, err := LoadFixtures(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f) == 0 {
+		t.Fatal("no fixtures loaded: the oracle would pass vacuously")
+	}
+	return f
 }
 
 // oraclePodShaped reports whether a fixture's object is a pod we can hand to
@@ -580,18 +604,18 @@ func oracleDecodePod(obj map[string]any) (*corev1.Pod, error) {
 	return &pod, nil
 }
 
-// oracleOurVerdicts runs the real CELEngine over the pack's checks for one
+// oracleOurVerdicts runs the mirrored CELEngine over the pack's checks for one
 // object. It evaluates every check the pack has, not just the ones a fixture
 // chose to pin, so leg B works on objects with no expectations at all.
-func oracleOurVerdicts(eng *CELEngine, p *conformancePack, obj map[string]any) map[string]Verdict {
+func oracleOurVerdicts(eng *CELEngine, p *Pack, obj map[string]any) map[string]Verdict {
 	in := celBindings(obj, map[string]any{}, map[string]any{})
 	out := map[string]Verdict{}
-	for _, id := range p.order {
-		if p.placeholder(id) {
+	for _, id := range p.Order {
+		if p.Placeholder(id) {
 			out[id] = VerdictNotEvaluated
 			continue
 		}
-		passed, _, err := eng.Evaluate(context.Background(), p.checks[id].CELExpression, in)
+		passed, err := eng.Evaluate(context.Background(), p.Checks[id].CELExpression, in)
 		out[id] = verdictOf(passed, err)
 	}
 	return out
@@ -612,8 +636,8 @@ func oracleRoundTrip(t *testing.T, obj map[string]any) map[string]any {
 	return out
 }
 
-func oracleFixtureCases(p *conformancePack) (cases []oracleCase, notPods []string) {
-	for _, f := range p.fixtures {
+func oracleFixtureCases(fixtures []Fixture) (cases []oracleCase, notPods []string) {
+	for _, f := range fixtures {
 		if !oraclePodShaped(f.Input.Object) {
 			notPods = append(notPods, f.Name)
 			continue
@@ -759,7 +783,7 @@ func oracleProbeCases(t *testing.T) []oracleCase {
 
 // oracleScan is the reusable pipeline: for each case, our engine's verdicts and
 // PSA's per-check verdicts, compared group-wise.
-func oracleScan(t *testing.T, eng *CELEngine, o *psaOracle, p *conformancePack, cases []oracleCase) (divs []oracleDivergence, skipped []string) {
+func oracleScan(t *testing.T, eng *CELEngine, o *psaOracle, p *Pack, cases []oracleCase) (divs []oracleDivergence, skipped []string) {
 	t.Helper()
 	for _, c := range cases {
 		obj := oracleRoundTrip(t, c.object)
@@ -798,11 +822,11 @@ func TestPSAOracle_PackAgreesWithPodSecurityAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := oracleCISPack(t)
+	p := cisPack(t)
 
-	fixtures, notPods := oracleFixtureCases(p)
+	fixtures, notPods := oracleFixtureCases(cisFixtures(t, p))
 	cases := append(fixtures, oracleProbeCases(t)...)
-	t.Logf("oracle: k8s.io/pod-security-admission v0.36.2, policy version %s", psaapi.LatestVersion())
+	t.Logf("oracle: %s, policy version %s", oraclePSAModule, psaapi.LatestVersion())
 	t.Logf("cases: %d fixtures (%d objects were not pod-shaped: %s) + %d probes",
 		len(fixtures), len(notPods), strings.Join(notPods, ", "), len(oracleProbePods))
 
@@ -816,9 +840,9 @@ func TestPSAOracle_PackAgreesWithPodSecurityAdmission(t *testing.T) {
 
 	unexcused, stale := applyExceptions(divs, oracleExceptions)
 	for _, d := range unexcused {
-		pod, err := oracleDecodePod(oracleRoundTrip(t, caseObject(cases, d.Case)))
 		detail := ""
-		if err == nil {
+		if pod, err := oracleDecodePod(oracleRoundTrip(t, caseObject(cases, d.Case))); err == nil {
+			oracleApplyAPIServerDefaults(pod)
 			detail = fmt.Sprintf("\n  PSA baseline:   %s\n  PSA restricted: %s\n  pod: %s",
 				o.aggregate(psaapi.LevelBaseline, pod), o.aggregate(psaapi.LevelRestricted, pod),
 				compactJSON(caseObject(cases, d.Case)))
@@ -859,7 +883,7 @@ func TestPSAOracle_SeccompLocalhostNeedsProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := oracleCISPack(t)
+	p := cisPack(t)
 
 	type want struct {
 		ourVerdict Verdict
@@ -879,13 +903,13 @@ func TestPSAOracle_SeccompLocalhostNeedsProfile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
+		profiles := oracleSeccompProfilesOf(&pod.Spec)
 		var rejections []string
-		for path, prof := range oracleSeccompProfilesOf(&pod.Spec) {
-			if msg := oracleSeccompAPIValidation(prof); msg != "" {
+		for _, path := range oracleSortedKeys(profiles) {
+			if msg := oracleSeccompAPIValidation(profiles[path]); msg != "" {
 				rejections = append(rejections, path+": "+msg)
 			}
 		}
-		sort.Strings(rejections)
 		if (len(rejections) > 0) != w.apiRejects {
 			t.Errorf("%s: API validation rejects=%v, want %v (%v)", c.name, len(rejections) > 0, w.apiRejects, rejections)
 		}
@@ -908,7 +932,7 @@ func TestPSAOracle_SeccompLocalhostNeedsProfile(t *testing.T) {
 // mapped to a PSA check nor explicitly declared unanchored. A new CIS check
 // must make a decision, not default to unexamined.
 func TestPSAOracle_MappingCoversEveryPackCheck(t *testing.T) {
-	p := oracleCISPack(t)
+	p := cisPack(t)
 	mapped := map[string]string{}
 	for _, g := range oracleGroups {
 		if g.secondary {
@@ -931,7 +955,7 @@ func TestPSAOracle_MappingCoversEveryPackCheck(t *testing.T) {
 			}
 		}
 	}
-	for _, id := range p.order {
+	for _, id := range p.Order {
 		_, isMapped := mapped[id]
 		_, isUnanchored := oracleUnanchoredChecks[id]
 		switch {
@@ -943,7 +967,7 @@ func TestPSAOracle_MappingCoversEveryPackCheck(t *testing.T) {
 		}
 	}
 	known := map[string]bool{}
-	for _, id := range p.order {
+	for _, id := range p.Order {
 		known[id] = true
 	}
 	for id := range mapped {
@@ -957,7 +981,7 @@ func TestPSAOracle_MappingCoversEveryPackCheck(t *testing.T) {
 		}
 	}
 	t.Logf("unanchored by this tier (%d of %d pack checks): %s",
-		len(oracleUnanchoredChecks), len(p.order), strings.Join(oracleSortedKeys(oracleUnanchoredChecks), ", "))
+		len(oracleUnanchoredChecks), len(p.Order), strings.Join(oracleSortedKeys(oracleUnanchoredChecks), ", "))
 }
 
 // TestPSAOracle_MappingCoversEveryPSACheck fails if upstream adds or renames a
@@ -1003,13 +1027,13 @@ func TestPSAOracle_MappingCoversEveryPSACheck(t *testing.T) {
 // TestPSAOracle_ExceptionsAreWellFormed keeps the exception list honest: known
 // names, no duplicates, and a reason on every entry.
 func TestPSAOracle_ExceptionsAreWellFormed(t *testing.T) {
-	p := oracleCISPack(t)
+	p := cisPack(t)
 	groupNames := map[string]bool{}
 	for _, g := range oracleGroups {
 		groupNames[g.name] = true
 	}
 	caseNames := map[string]bool{}
-	for _, f := range p.fixtures {
+	for _, f := range cisFixtures(t, p) {
 		caseNames[f.Name] = true
 	}
 	for n := range oracleProbePods {
@@ -1047,22 +1071,24 @@ func oracleSortedKeys[V any](m map[string]V) []string {
 
 // invertedPack returns the real CIS pack with one check's expression negated.
 // The pack on disk is untouched; the inversion exists only in this process.
-func invertedPack(t *testing.T, invert string) *conformancePack {
+func invertedPack(t *testing.T, invert string) *Pack {
 	t.Helper()
-	real := oracleCISPack(t)
-	fw := &frameworks.Framework{ID: real.fw.ID, Version: real.fw.Version, Status: real.fw.Status}
-	var checks []frameworks.Check
-	for _, id := range real.order {
-		c := real.checks[id]
+	real := cisPack(t)
+	out := &Pack{ID: real.ID, Version: real.Version, Status: real.Status, Dir: real.Dir, Checks: map[string]Check{}}
+	found := false
+	for _, id := range real.Order {
+		c := real.Checks[id]
 		if id == invert {
 			c.CELExpression = "!(" + c.CELExpression + ")"
+			found = true
 		}
-		checks = append(checks, c)
+		out.Order = append(out.Order, id)
+		out.Checks[id] = c
 	}
-	fw.ControlSets = []frameworks.ControlSet{{Controls: []frameworks.Control{{Checks: checks}}}}
-	p := newConformancePack(real.dir, fw)
-	p.fixtures = real.fixtures
-	return p
+	if !found {
+		t.Fatalf("cannot invert %q: the pack has no such check", invert)
+	}
+	return out
 }
 
 // TestPSAOracleNegative_InvertedCheckIsCaught injects a disagreement by
@@ -1077,8 +1103,8 @@ func TestPSAOracleNegative_InvertedCheckIsCaught(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	real := oracleCISPack(t)
-	fixtures, _ := oracleFixtureCases(real)
+	real := cisPack(t)
+	fixtures, _ := oracleFixtureCases(cisFixtures(t, real))
 	cases := append(fixtures, oracleProbeCases(t)...)
 
 	baseline, _ := oracleScan(t, eng, o, real, cases)

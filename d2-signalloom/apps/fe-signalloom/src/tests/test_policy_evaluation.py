@@ -269,3 +269,188 @@ async def test_api_policies_bundle_registration_adversarial_rejection():
         assert data_broken["rule_id"] == "rule-broken"
         assert data_broken["diagnostics"]["error_type"] == "syntax_error"
         assert "Traceback" not in resp_broken.text
+
+
+def test_hostile_agent_vectors_cel_evaluation():
+    """Verify all 5 hostile agent vectors fail their target CEL controls, and compliant variants pass."""
+    # ─── Vector 1 (Root Breakout) ────────────────────────────────────────────────
+    v1_hostile = {
+        "object": {
+            "spec": {
+                "containers": [
+                    {
+                        "name": "agent-hostile-root-breakout",
+                        "securityContext": {
+                            "runAsNonRoot": False,
+                            "runAsUser": 0,
+                            "allowPrivilegeEscalation": True,
+                        },
+                    }
+                ]
+            }
+        }
+    }
+    v1_compliant = {
+        "object": {
+            "spec": {
+                "containers": [
+                    {
+                        "name": "agent-compliant",
+                        "securityContext": {
+                            "runAsNonRoot": True,
+                            "runAsUser": 65532,
+                            "allowPrivilegeEscalation": False,
+                        },
+                    }
+                ]
+            }
+        }
+    }
+    cis_5_2_6 = "object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true)"
+    cis_5_2_5 = "object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)"
+
+    assert evaluate_cel_expression(cis_5_2_6, v1_hostile).compliant is False
+    assert evaluate_cel_expression(cis_5_2_5, v1_hostile).compliant is False
+    assert evaluate_cel_expression(cis_5_2_6, v1_compliant).compliant is True
+    assert evaluate_cel_expression(cis_5_2_5, v1_compliant).compliant is True
+
+    # ─── Vector 2 (Host Hijacker) ────────────────────────────────────────────────
+    v2_hostile = {
+        "object": {
+            "spec": {
+                "hostPID": True,
+                "hostIPC": True,
+                "hostNetwork": True,
+            }
+        }
+    }
+    v2_compliant = {
+        "object": {
+            "spec": {
+                "hostPID": False,
+                "hostIPC": False,
+                "hostNetwork": False,
+            }
+        }
+    }
+    cis_5_2_2 = "(!has(object.spec.hostPID) || object.spec.hostPID == false) && (!has(object.spec.hostIPC) || object.spec.hostIPC == false) && (!has(object.spec.hostNetwork) || object.spec.hostNetwork == false)"
+
+    assert evaluate_cel_expression(cis_5_2_2, v2_hostile).compliant is False
+    assert evaluate_cel_expression(cis_5_2_2, v2_compliant).compliant is True
+
+    # ─── Vector 3 (Token Harvester) ──────────────────────────────────────────────
+    v3_hostile = {
+        "object": {
+            "spec": {
+                "automountServiceAccountToken": True,
+                "containers": [
+                    {
+                        "name": "agent-hostile-token-harvester",
+                        "ports": [{"containerPort": 4444}],
+                    }
+                ],
+            }
+        }
+    }
+    v3_compliant = {
+        "object": {
+            "spec": {
+                "automountServiceAccountToken": False,
+                "containers": [
+                    {
+                        "name": "agent-compliant",
+                        "ports": [{"containerPort": 8080}],
+                    }
+                ],
+            }
+        }
+    }
+    cis_5_7_1 = "!has(object.spec.automountServiceAccountToken) || object.spec.automountServiceAccountToken == false"
+    cra_ports = "object.spec.containers.all(c, !has(c.ports) || c.ports.all(p, p.containerPort in [8080, 8443, 9090]))"
+
+    assert evaluate_cel_expression(cis_5_7_1, v3_hostile).compliant is False
+    assert evaluate_cel_expression(cra_ports, v3_hostile).compliant is False
+    assert evaluate_cel_expression(cis_5_7_1, v3_compliant).compliant is True
+    assert evaluate_cel_expression(cra_ports, v3_compliant).compliant is True
+
+    # ─── Vector 4 (Syscall Bypass) ───────────────────────────────────────────────
+    v4_hostile = {
+        "object": {
+            "spec": {
+                "securityContext": {
+                    "seccompProfile": {"type": "Unconfined"},
+                }
+            }
+        }
+    }
+    v4_compliant = {
+        "object": {
+            "spec": {
+                "securityContext": {
+                    "seccompProfile": {"type": "RuntimeDefault"},
+                }
+            }
+        }
+    }
+    cis_5_7_4 = 'has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && object.spec.securityContext.seccompProfile.type in ["RuntimeDefault", "Localhost"]'
+
+    assert evaluate_cel_expression(cis_5_7_4, v4_hostile).compliant is False
+    assert evaluate_cel_expression(cis_5_7_4, v4_compliant).compliant is True
+
+    # ─── Vector 5 (Rogue Telemetry & Unauthorized Tool Exec) ────────────────────
+    v5_hostile = {
+        "request": {
+            "tool_call": {"action": "modify_iam"},
+            "context": {"claims": []},
+        }
+    }
+    v5_compliant = {
+        "request": {
+            "tool_call": {"action": "modify_iam"},
+            "context": {"claims": [{"type": "human_approval_svid", "valid": True}]},
+        }
+    }
+    art_14 = "request.tool_call.action in ['exec', 'write_file', 'modify_iam'] ? (has(request.context.claims) && request.context.claims.exists(c, c.type == 'human_approval_svid' && c.valid == true)) : true"
+
+    assert evaluate_cel_expression(art_14, v5_hostile).compliant is False
+    assert evaluate_cel_expression(art_14, v5_compliant).compliant is True
+
+
+@pytest.mark.asyncio
+async def test_api_policies_evaluate_hostile_agent_vectors():
+    """Verify POST /api/v1/policies/evaluate correctly evaluates and flags hostile vectors as non-compliant."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Vector 1 Root Breakout via API evaluate
+        payload = {
+            "expression": "object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true)",
+            "context": {
+                "object": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "hostile-root",
+                                "securityContext": {"runAsNonRoot": False, "runAsUser": 0},
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+        resp = await client.post("/api/v1/policies/evaluate", json=payload, headers=eap_bearer(EAP_ALICE))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["compliant"] is False
+
+        # Vector 2 Host Hijacker via API evaluate
+        payload_v2 = {
+            "expression": "(!has(object.spec.hostPID) || object.spec.hostPID == false) && (!has(object.spec.hostIPC) || object.spec.hostIPC == false) && (!has(object.spec.hostNetwork) || object.spec.hostNetwork == false)",
+            "context": {
+                "object": {
+                    "spec": {"hostPID": True, "hostIPC": True, "hostNetwork": True}
+                }
+            },
+        }
+        resp_v2 = await client.post("/api/v1/policies/evaluate", json=payload_v2, headers=eap_bearer(EAP_ALICE))
+        assert resp_v2.status_code == 200
+        assert resp_v2.json()["compliant"] is False

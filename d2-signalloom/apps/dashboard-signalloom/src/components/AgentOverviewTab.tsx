@@ -98,6 +98,29 @@ function lookupPolicyForControl(controlName: string, frameworkName: string): Con
     }
   }
 
+  // 4. CRA (Cyber Resilience Act)
+  if (frameworkName.toLowerCase().includes('cra') || frameworkName.toLowerCase().includes('cyber resilience') || controlName.toLowerCase().includes('cra') || controlName.toLowerCase().includes('port')) {
+    const craBundle = DEFAULT_BUNDLES['cra']
+    if (craBundle) {
+      const craRule = craBundle.rules.find(r => {
+        const rSlug = r.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+        return slug.includes(rSlug) || rSlug.includes(slug) || controlName.toLowerCase().includes(r.id.toLowerCase())
+      }) || (controlName.toLowerCase().includes('port') ? craBundle.rules.find(r => r.id === 'attack-surface-reduction-ports') : null)
+      if (craRule) {
+        return {
+          ruleId: craRule.id,
+          ruleName: craRule.name,
+          frameworkId: craBundle.framework_id,
+          frameworkName: 'Cyber Resilience Act (CRA)',
+          celExpression: craRule.cel_expression,
+          severity: craRule.severity,
+          remediation: craRule.remediation,
+          docsUrl: craRule.docs_url || 'https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act',
+        }
+      }
+    }
+  }
+
   // Fallback
   return {
     ruleId: slug,

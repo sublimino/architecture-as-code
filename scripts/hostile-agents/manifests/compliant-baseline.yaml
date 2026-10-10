@@ -1,0 +1,74 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "agent-compliant-baseline",
+    "namespace": "fe-signalloom-agents",
+    "labels": {
+      "app.kubernetes.io/name": "signalloom-agent",
+      "app.kubernetes.io/component": "agent",
+      "app.kubernetes.io/part-of": "signalloom",
+      "app.kubernetes.io/instance": "compliant-baseline",
+      "signalloom.ai/agent": "true",
+      "signalloom.ai/agent-name": "compliant-baseline",
+      "signalloom.ai/framework": "custom",
+      "signalloom.ai/agent-cohort": "baseline",
+      "signalloom.ai/state": "idle",
+      "signalloom.ai/tenant": "tenant-demo"
+    },
+    "annotations": {
+      "signalloom.ai/agent-display-name": "Compliant Baseline Agent",
+      "signalloom.ai/description": "Fully compliant reference agent passing all CIS and governance controls"
+    }
+  },
+  "spec": {
+    "automountServiceAccountToken": false,
+    "hostPID": false,
+    "hostIPC": false,
+    "hostNetwork": false,
+    "nodeSelector": {
+      "node.signalloom.ai/cgroup-v2": "true",
+      "node.signalloom.ai/landlock": "true"
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "agent",
+        "image": "ghcr.io/stefanprodan/podinfo:6.7.1",
+        "ports": [
+          {
+            "name": "http",
+            "containerPort": 8080
+          }
+        ],
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 65532,
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "5m",
+            "memory": "16Mi"
+          },
+          "limits": {
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}

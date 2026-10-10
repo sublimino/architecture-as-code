@@ -58,19 +58,19 @@
             {
               "id": "no-host-ipc",
               "name": "Host IPC namespace not shared",
-              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names.",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
               "celExpression": "has(object.spec) && !(has(object.spec.hostIPC) && object.spec.hostIPC == true)",
               "severity": "high",
-              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "remediation": "Remove spec.hostIPC (or set it false) so the pod does not share the host IPC namespace.",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
                 "max": 100000
               },
               "freqTriple": {
-                "min": 0.5,
-                "mode": 1.5,
-                "max": 4
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v2.0.0",
@@ -80,19 +80,19 @@
             {
               "id": "no-host-pid",
               "name": "Host PID namespace not shared",
-              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant.",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
               "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
               "severity": "high",
-              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "remediation": "Remove spec.hostPID (or set it false) so the pod does not share the host PID namespace.",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
                 "max": 100000
               },
               "freqTriple": {
-                "min": 0.5,
-                "mode": 1.5,
-                "max": 4
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v2.0.0",
@@ -102,19 +102,19 @@
             {
               "id": "no-host-network",
               "name": "Host network namespace not shared",
-              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant.",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
               "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
               "severity": "high",
-              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "remediation": "Remove spec.hostNetwork (or set it false) so the pod does not share the host network namespace.",
               "riskTriple": {
                 "min": 5000,
                 "mode": 25000,
                 "max": 100000
               },
               "freqTriple": {
-                "min": 0.5,
-                "mode": 1.5,
-                "max": 4
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v2.0.0",

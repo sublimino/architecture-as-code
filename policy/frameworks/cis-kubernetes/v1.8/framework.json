@@ -266,8 +266,8 @@
             {
               "id": "capabilities-dropped-all",
               "name": "All capabilities dropped",
-              "description": "Every container lists \"ALL\" (exact, as Pod Security Standards compare it) in securityContext.capabilities.drop. Absent keeps the runtime default set, so absent fails. Pods with spec.os.name: windows are exempt.",
-              "celExpression": "has(object.spec) && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$'))))",
+              "description": "Every container lists \"ALL\" in securityContext.capabilities.drop, compared exactly as Pod Security Admission compares it: \"all\" in any other case does not satisfy the restricted profile and the pod is rejected, so it fails here too. Absent keeps the runtime default set, so absent fails. Pods with spec.os.name: windows are exempt.",
+              "celExpression": "has(object.spec) && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || ((has(object.spec.containers) ? object.spec.containers : []) + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL')))",
               "severity": "medium",
               "remediation": "Add capabilities.drop: [\"ALL\"] to every container, init container and ephemeral container.",
               "riskTriple": {

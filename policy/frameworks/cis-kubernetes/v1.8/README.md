@@ -13,6 +13,31 @@ from kube-bench, which carries them for the `cis-1.8` benchmark (Kubernetes
 
 <https://github.com/aquasecurity/kube-bench/blob/main/cfg/cis-1.8/policies.yaml>
 
+## The frame: admissibility, not runtime effect
+
+CIS §5.2 is worded "Minimize the **admission** of …". So where a manifest's
+runtime effect and its admissibility under the
+[Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
+disagree, **these checks follow admissibility**: a pod that a `restricted`
+namespace rejects fails, even if the container runtime would have produced a
+safe process had the pod ever been admitted. A pod that is rejected never runs,
+so reporting it compliant is a false negative, and a false negative is the
+dangerous direction for a compliance product.
+
+Three places where this bites, each pinned by a fixture:
+
+| Manifest | Runtime effect | Admissibility | Verdict |
+|----------|----------------|---------------|---------|
+| `capabilities.drop: ["all"]` | containerd/CRI-O normalise the name and drop everything | PSA compares the `ALL` token exactly and rejects | `capabilities-dropped-all` **fails** (`drop-all-lowercase`) |
+| `runAsUser: 1000`, no `runAsNonRoot` | the process gets UID 1000 | PSS `restricted` requires `runAsNonRoot: true` | `no-root-containers` **fails** (`root-container-uid-1000-no-pod-identity`) |
+| pod `seccompProfile: Unconfined`, container overrides `RuntimeDefault` | that one container is confined | pod-level `Unconfined` is forbidden at baseline, so the pod is rejected | `seccomp-runtime-default` **fails** (`seccomp-container-runtimedefault-overrides-pod-unconfined`) |
+
+**Stricter than PSS where CIS is stricter.** The frame resolves disagreements
+about what a manifest *means*, not about where the bar sits. `no-added-capabilities`
+fails any non-empty `capabilities.add`, including `NET_BIND_SERVICE`, which PSS
+`restricted` explicitly permits — CIS 5.2.9 permits no added capability, and
+this pack implements CIS (fixture `added-capability-net-bind-service`).
+
 ## Input
 
 `object` is a Pod-shaped object `{metadata, spec}`. No check reads `agent` or
@@ -30,9 +55,9 @@ from kube-bench, which carries them for the `cis-1.8` benchmark (Kubernetes
 | `no-host-network` | 5.2.5 | Minimize the admission of containers wishing to share the host network namespace | Absent `hostNetwork` is `false`: pass. |
 | `no-privilege-escalation` | 5.2.6 | Minimize the admission of containers with allowPrivilegeEscalation | Absent `allowPrivilegeEscalation` is effectively `true`: **fail**. Windows exempt. |
 | `no-root-containers` | 5.2.7 | Minimize the admission of root containers | Effective `runAsUser` = container, else pod; if set it must be `> 0`. If unset everywhere, effective `runAsNonRoot` (container, else pod) must be `true`. Neither set: the image USER decides, unknown: **fail**. |
-| `no-net-raw` | 5.2.8 | Minimize the admission of containers with the NET_RAW capability | Runtimes grant NET_RAW by default, so absent `capabilities` **fails**. Names compare case-insensitively, as containerd and CRI-O do. Passes only if `drop` holds `ALL`, `NET_RAW` or `CAP_NET_RAW` (any case), `add` does not re-add any of those (any case, including `cap_all`), and the container is not privileged. Windows exempt. |
+| `no-net-raw` | 5.2.8 | Minimize the admission of containers with the NET_RAW capability | Runtimes grant NET_RAW by default, so absent `capabilities` **fails**. Names compare case-insensitively, as containerd and CRI-O do. Passes only if `drop` holds `ALL`, `NET_RAW` or `CAP_NET_RAW` (any case), `add` does not re-add any of those (any case, including `cap_all`), and the container is not privileged. Windows exempt. This check stays case-insensitive on purpose: PSS has no NET_RAW-specific rule, so there is no admissibility reading to follow, and the question is whether the process holds the capability — CRI normalises the name, so `add: ["net_raw"]` really does re-grant it and must be detected. A pod whose only drop is a lowercase `all` therefore passes `no-net-raw` and fails `capabilities-dropped-all`, which is where PSA rejects it. |
 | `no-added-capabilities` | 5.2.9 | Minimize the admission of containers with added capabilities | Absent or empty `capabilities.add`: pass. |
-| `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain `ALL` in any case: containerd and CRI-O compare case-insensitively, so `"all"` drops everything (Pod Security Admission would reject it; this check judges the runtime effect). Absent: **fail**. Windows exempt. |
+| `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain the exact token `ALL`, as Pod Security Admission compares it. `"all"` in any other case is rejected by a `restricted` namespace: **fail**. Absent: **fail**. Windows exempt. |
 | `no-windows-hostprocess` | 5.2.11 | Minimize the admission of Windows HostProcess containers | Absent `windowsOptions.hostProcess` is `false`. Fails if the pod or any container sets `true` (the API rejects a pod/container mismatch, so either level is decisive). |
 | `no-hostpath-volumes` | 5.2.12 | Minimize the admission of HostPath volumes | Absent `volumes`: pass. |
 | `no-host-ports` | 5.2.13 | Minimize the admission of containers which use HostPorts | Absent or `0` `hostPort`: pass. With `hostNetwork: true` the API server defaults `hostPort` to `containerPort`, so any declared port on a hostNetwork pod **fails**. |

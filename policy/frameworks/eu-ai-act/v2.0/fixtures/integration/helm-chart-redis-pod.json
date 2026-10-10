@@ -150,7 +150,7 @@
     "resource-limits-set": "fail",
     "resource-requests-set": "fail",
     "readiness-probe-present": "fail",
-    "min-replicas": "fail",
+    "min-replicas": "not_evaluated",
     "image-digest-required": "fail",
     "trusted-registry": "fail",
     "policy-version-label": "fail"

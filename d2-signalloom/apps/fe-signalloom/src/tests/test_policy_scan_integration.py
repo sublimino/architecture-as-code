@@ -270,3 +270,48 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     assert (detail["controls_assessed"], detail["controls_passed"], detail["controls_failed"],
             detail["controls_errored"], detail["agents_scanned"]) == (
         5 * (len(CIS) + len(AIGF)), new["pass"], new["fail"], new["error"], 5)
+
+
+TENANT_B = "tenant-b-f3"
+TENANT_B_FRAMEWORK = uuid.UUID("fb000000-0000-0000-0000-000000000001")
+
+
+async def _as_tenant_demo(seeded_pool, monkeypatch):
+    async def get_pool():
+        return seeded_pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    monkeypatch.setattr(settings, "api_subject_tenants", {**settings.api_subject_tenants, SUBJECT: TENANT})
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_identically_named_framework_never_reaches_this_tenant(seeded_pool, monkeypatch):
+    """H4: the framework catalogue and its policy summary are tenant-scoped.
+
+    Tenant B activates a framework with exactly the name tenant-demo's CIS pack
+    carries, a different control count and a control of its own.  Grouping by
+    name used to merge the two; reading without a tenant filter used to list B's.
+    """
+    await _as_tenant_demo(seeded_pool, monkeypatch)
+    await seeded_pool.execute(
+        """INSERT INTO governance_frameworks (id, tenant_id, name, version, regulatory_body, control_count, activated_by)
+           VALUES ($1, $2, 'CIS Kubernetes Benchmark', 'b-only', 'Tenant B', 99, 'b@example.test')""",
+        TENANT_B_FRAMEWORK, TENANT_B)
+    await seeded_pool.execute(
+        """INSERT INTO governance_controls (id, tenant_id, framework_id, name, description, control_order)
+           VALUES ('cb000000-0000-0000-0000-000000000001', $1, $2, 'B secret control', 'b', 1)""",
+        TENANT_B, TENANT_B_FRAMEWORK)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        catalogue = (await client.get("/api/compliance/frameworks", headers=eap_bearer(SUBJECT))).json()
+        summaries = (await client.get("/api/compliance/policy/frameworks", headers=eap_bearer(SUBJECT))).json()
+
+    assert str(TENANT_B_FRAMEWORK) not in {f["id"] for f in catalogue}
+    assert "B secret control" not in {c["name"] for f in catalogue for c in f["controls"]}
+    assert "b-only" not in {f["version"] for f in catalogue}
+    names = [f["name"] for f in summaries]
+    assert len(names) == len(set(names)), names
+    [cis] = [f for f in summaries if f["name"] == "CIS Kubernetes Benchmark"]
+    assert cis["totalControls"] == len(CIS)
+    assert "b-only" not in cis["versions"]

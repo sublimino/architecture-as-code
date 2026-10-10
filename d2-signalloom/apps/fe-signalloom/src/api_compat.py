@@ -6947,11 +6947,18 @@ async def compliance_frameworks(
             ),
         ]
 
-    fw_rows = await pool.fetch("SELECT * FROM governance_frameworks ORDER BY name")
+    # Both tables are tenant-owned (migration 004). Unfiltered, a tenant saw every
+    # other tenant's frameworks, and _policy_framework_summaries -- which groups by
+    # framework name -- merged a same-named foreign framework into the caller's.
+    fw_rows = await pool.fetch(
+        "SELECT * FROM governance_frameworks WHERE tenant_id = $1 ORDER BY name", tenant_id,
+    )
     result = []
     for fw in fw_rows:
         ctrl_rows = await pool.fetch(
-            "SELECT * FROM governance_controls WHERE framework_id = $1 ORDER BY control_order",
+            """SELECT * FROM governance_controls
+                WHERE tenant_id = $1 AND framework_id = $2 ORDER BY control_order""",
+            tenant_id,
             fw["id"],
         )
         controls = [

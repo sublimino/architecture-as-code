@@ -7202,6 +7202,9 @@ async def _db_policy_scan(
                 # ``object`` is not asked (the engine would judge ``{}``).
                 unobserved: list[str] = []
                 answered = 0
+                # (framework, check) mapped for a pack that was asked but absent
+                # from the engine's answer.
+                missing: list[tuple[str, str]] = []
                 for version, version_frameworks in calls.items():
                     send = list(version_frameworks)
                     if obj is None:
@@ -7222,6 +7225,16 @@ async def _db_policy_scan(
                         # as a complete one.
                         results = None
                         break
+                    # H2: every mapped check of every pack sent is expected back.
+                    expected = {(f, c) for f in send for c in mapped_checks.get(f, [])}
+                    if expected and not answer:
+                        # An empty 200 where checks were expected is a failed
+                        # call, not "nothing to report".
+                        logger.warning("policy-engine scan returned no checks for %s@%s", send, version)
+                        results = None
+                        break
+                    seen = {(str(i.get("framework", "")), str(i.get("check", ""))) for i in answer}
+                    missing += sorted(expected - seen)
                     answered += 1
                     results.extend(answer)
                 if results is None:
@@ -7230,6 +7243,13 @@ async def _db_policy_scan(
                 agents_scanned += 1
                 # Counted only for agents whose whole scan was usable.
                 engine_answers += answered
+                for framework, check_id in missing:
+                    control_id = control_for[(framework, check_id)]
+                    verdicts[(agent_row["id"], control_id)] = ("error", None)
+                    gaps.append(PolicyControlGap(
+                        agentId=str(agent_row["id"]), framework=framework, check=check_id,
+                        controlId=str(control_id), stored="error", reason="missing_from_engine_response",
+                    ))
                 for framework in unobserved:
                     for check_id in mapped_checks.get(framework, []):
                         control_id = control_for[(framework, check_id)]
@@ -7322,6 +7342,7 @@ async def _db_policy_scan(
                 "agents_scanned": agents_scanned,
                 "agents_failed": len(agents_failed),
                 "controls_no_workload": sum(g.reason == "no_workload" for g in gaps),
+                "controls_missing_from_engine": sum(g.reason == "missing_from_engine_response" for g in gaps),
                 "total_exposure_gbp": summary.totalCarriedGbp,
                 "engine_invoked": engine_answers > 0,
             },

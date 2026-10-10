@@ -54,10 +54,20 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 		"syscall": o.Syscall, "target": o.Target, "pod_name": o.PodName,
 		"namespace": o.Namespace, "tenant_id": o.TenantID, "severity": o.Severity,
 		"direct_reaction": o.DirectReaction, "cgroup_path": o.CgroupPath,
-		"domain": o.Domain,
 	} {
 		if v != "" {
 			labels[k] = v
+		}
+	}
+	if o.Domain != "" {
+		tenant := o.TenantID
+		if tenant == "" {
+			tenant = UnattributedTenantID
+		}
+		if p := GetDefaultPseudonymiser(); p != nil {
+			if pseudo, err := p.Pseudonym(tenant, o.Domain); err == nil && pseudo != "" {
+				labels["domain_pseudonym"] = pseudo
+			}
 		}
 	}
 	actor := o.ActorID

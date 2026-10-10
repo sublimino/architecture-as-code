@@ -31,10 +31,13 @@ func TestReportConnect_AttributedDomainOnDNSHit(t *testing.T) {
 		t.Fatalf("obs.Target = %q, want %q", obs.Target, "198.51.100.25:443")
 	}
 
-	// Verify downstream ingest conversion carries domain label
+	// Verify downstream ingest conversion carries domain_pseudonym label
 	ingest := obs.toIngest()
-	if ingest.Labels["domain"] != "api.anthropic.com" {
-		t.Fatalf("toIngest().Labels[\"domain\"] = %q, want %q", ingest.Labels["domain"], "api.anthropic.com")
+	if ingest.Labels["domain_pseudonym"] == "" || !IsPseudonym(ingest.Labels["domain_pseudonym"]) {
+		t.Fatalf("toIngest().Labels[\"domain_pseudonym\"] = %q, want valid 64-char hex pseudonym", ingest.Labels["domain_pseudonym"])
+	}
+	if _, exists := ingest.Labels["domain"]; exists {
+		t.Fatalf("toIngest() leaked cleartext domain label: %v", ingest.Labels)
 	}
 }
 
@@ -229,21 +232,27 @@ func TestCanonicalAddressHelper_RepresentationConsistency(t *testing.T) {
 	}
 }
 
-// TestToIngest_CarriesDomainLabel proves that TelemetryObservation.toIngest()
-// produces labels["domain"] only when Domain is set.
-func TestToIngest_CarriesDomainLabel(t *testing.T) {
+// TestToIngest_CarriesDomainPseudonymLabel proves that TelemetryObservation.toIngest()
+// produces labels["domain_pseudonym"] only when Domain is set, and never leaks cleartext domain.
+func TestToIngest_CarriesDomainPseudonymLabel(t *testing.T) {
 	// 1. With Domain
 	obsWithDomain := sampleObservation()
 	obsWithDomain.Domain = "model.anthropic.com"
 	ingest1 := obsWithDomain.toIngest()
-	if ingest1.Labels["domain"] != "model.anthropic.com" {
-		t.Fatalf("Labels[\"domain\"] = %q, want \"model.anthropic.com\"", ingest1.Labels["domain"])
+	if ingest1.Labels["domain_pseudonym"] == "" || !IsPseudonym(ingest1.Labels["domain_pseudonym"]) {
+		t.Fatalf("Labels[\"domain_pseudonym\"] = %q, want valid pseudonym", ingest1.Labels["domain_pseudonym"])
+	}
+	if _, exists := ingest1.Labels["domain"]; exists {
+		t.Fatalf("Labels[\"domain\"] cleartext present: %v", ingest1.Labels)
 	}
 
 	// 2. Without Domain
 	obsWithoutDomain := sampleObservation()
 	obsWithoutDomain.Domain = ""
 	ingest2 := obsWithoutDomain.toIngest()
+	if _, exists := ingest2.Labels["domain_pseudonym"]; exists {
+		t.Fatalf("Labels[\"domain_pseudonym\"] present when empty: %v", ingest2.Labels)
+	}
 	if _, exists := ingest2.Labels["domain"]; exists {
 		t.Fatalf("Labels[\"domain\"] present when empty: %v", ingest2.Labels)
 	}

@@ -36,7 +36,43 @@ delete_cohort() {
 }
 
 create_agent() {
-  local slug="$1" display="$2" atype="$3" framework="$4" model="$5" model_full="$6" desc="$7"
+  local slug="$1" display="$2" atype="$3" framework="$4" model="$5" model_full="$6" desc="$7" active_behavior="${8:-0}"
+  local state="idle"
+  local behavior_yaml=""
+  local sidecar_yaml=""
+
+  if [[ "${active_behavior}" == "1" ]]; then
+    state="active"
+    behavior_yaml="    signalloom.ai/behavior: active-loop"
+    sidecar_yaml=$(cat <<EOF
+    - name: behavior-loop
+      image: ghcr.io/stefanprodan/podinfo:6.7.1
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          while true; do
+            now=\$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            curl -sS -X POST "http://signal-ingest.fe-signalloom.svc.cluster.local:8082/api/v1/observations" \
+              -H "Content-Type: application/json" \
+              -d "{\"actor\": \"agent-${slug}\", \"layer\": \"activity_pulse\", \"action\": \"state_heartbeat\", \"timestamp\": \"\${now}\", \"attributes\": {\"model\": \"${model}\", \"framework\": \"${framework}\"}}" 2>/dev/null || true
+            curl -sS --max-time 1 "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/api/v1/canary" 2>/dev/null || true
+            sleep 10
+          done
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+EOF
+)
+  fi
+
   "$KUBECTL" apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Pod
@@ -54,9 +90,10 @@ metadata:
     signalloom.ai/agent-type: ${atype}
     signalloom.ai/framework: ${framework}
     signalloom.ai/model: ${model}
-    signalloom.ai/state: idle
+    signalloom.ai/state: ${state}
     signalloom.ai/agent-cohort: ephemeral
     signalloom.ai/tenant: ${TENANT:-tenant-demo}
+${behavior_yaml}
   annotations:
     signalloom.ai/agent-display-name: "${display}"
     signalloom.ai/model-full: "${model_full}"
@@ -90,20 +127,27 @@ spec:
           memory: 16Mi
         limits:
           memory: 64Mi
+${sidecar_yaml}
   volumes:
     - name: tmp
       emptyDir: {}
     - name: data
       emptyDir: {}
 EOF
-  echo "  + ${display} (${slug}) [${atype} / ${framework} / ${model}]"
+  if [[ "${active_behavior}" == "1" ]]; then
+    echo "  + ${display} (${slug}) [${atype} / ${framework} / ${model}] (active behavior loop)"
+  else
+    echo "  + ${display} (${slug}) [${atype} / ${framework} / ${model}]"
+  fi
 }
 
 cmd="${1:-up}"
 count="${2:-4}"
 
 case "$cmd" in
-  up)
+  up|up-active)
+    active_flag=0
+    [[ "$cmd" == "up-active" ]] && active_flag=1
     ensure_ns
     echo "==> Removing current ephemeral agent cohort in ${NS}..."
     delete_cohort
@@ -118,7 +162,7 @@ case "$cmd" in
     fi
     for entry in "${picked[@]}"; do
       IFS='|' read -r slug display atype framework model model_full desc <<<"$entry"
-      create_agent "$slug" "$display" "$atype" "$framework" "$model" "$model_full" "$desc"
+      create_agent "$slug" "$display" "$atype" "$framework" "$model" "$model_full" "$desc" "$active_flag"
     done
     echo "==> Done. Discover via GET /api/agents (compliance/posture render as 0 — unconfigured)."
     ;;
@@ -129,10 +173,10 @@ case "$cmd" in
     ;;
   list)
     "$KUBECTL" -n "$NS" get pods -l "signalloom.ai/agent=true" \
-      -L signalloom.ai/agent-name,signalloom.ai/agent-type,signalloom.ai/framework,signalloom.ai/agent-cohort 2>&1
+      -L signalloom.ai/agent-name,signalloom.ai/agent-type,signalloom.ai/framework,signalloom.ai/agent-cohort,signalloom.ai/behavior 2>&1
     ;;
   *)
-    echo "usage: $0 [up N|down|list]" >&2
+    echo "usage: $0 [up N|up-active N|down|list]" >&2
     exit 64
     ;;
 esac

@@ -261,9 +261,9 @@
             },
             {
               "id": "resource-limits-set",
-              "name": "AI system has resource limits set",
-              "description": "Enforces compute resource limits to protect against denial of service or resource exhaustion.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits))",
+              "name": "CPU and memory limits defined",
+              "description": "Every container and init container must bound both cpu and memory in resources.limits. Ephemeral containers are excluded: the Kubernetes EphemeralContainer schema forbids resources on them.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits) && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)",
               "severity": "medium",
               "remediation": "Specify CPU and memory limits in container resource specifications.",
               "riskTriple": {

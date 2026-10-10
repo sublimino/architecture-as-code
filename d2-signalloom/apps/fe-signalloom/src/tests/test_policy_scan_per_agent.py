@@ -867,6 +867,47 @@ async def test_versions_that_disagree_resolve_to_the_worse_verdict(db):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("order", ["worst-first", "worst-last"])
+async def test_the_stored_evidence_names_the_result_the_worst_verdict_came_from(db, order):
+    """L4: a control assessed by several results in one scan stores the worst
+    verdict, and the evidence must point at the result that verdict came from.
+    It used to be overwritten by whichever result arrived last, so the row read
+    ``fail`` while citing the evaluation that passed -- the one thing a piece of
+    regulatory evidence must never do."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    passing = item("cis-kubernetes", "no-privileged-containers", "pass")
+    passing["policyVersion"] = "v1.8.0-rc1"
+    failing = item("cis-kubernetes", "no-privileged-containers", "fail")
+    results = [failing, passing] if order == "worst-first" else [passing, failing]
+
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(return_value=httpx.Response(200, json=results))
+        resp = await scan(SCAN)
+
+    assert resp.status_code == 200, resp.text
+    assert fake.results[(AGENT_A, CTRL_PRIV)] == {
+        "tenant_id": EAP_TENANT_A, "status": "fail",
+        "evidence_ref": "policy-engine:cis-kubernetes/no-privileged-containers@v1.8.0",
+    }
+
+
+@pytest.mark.asyncio
+async def test_results_of_equal_verdict_keep_the_first_result_as_evidence(db):
+    """``worse`` keeps the earlier verdict on a tie, so the evidence does too:
+    one deterministic choice rather than one per field."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    first = item("cis-kubernetes", "no-privileged-containers", "pass")
+    second = item("cis-kubernetes", "no-privileged-containers", "pass")
+    second["policyVersion"] = "v1.8.0-rc1"
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(return_value=httpx.Response(200, json=[first, second]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    assert fake.results[(AGENT_A, CTRL_PRIV)]["evidence_ref"] == \
+        "policy-engine:cis-kubernetes/no-privileged-containers@v1.8.0"
+
+
+@pytest.mark.asyncio
 async def test_each_pack_is_asked_at_the_version_it_is_activated_at(db):
     """L3: each pack is asked at its own ``governance_frameworks.version``; the
     request's ``policyVersion`` is only the fallback for a pack this tenant has

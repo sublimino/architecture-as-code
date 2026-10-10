@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -86,6 +87,8 @@ class FakeDB:
         self.result_writes = 0
         #: (agent_id, control_id) -> the assessed_at the last write stored
         self.assessed: dict[tuple[uuid.UUID, uuid.UUID], Any] = {}
+        #: Every statement the write transaction issued, in order.
+        self.statements: list[tuple[Any, ...]] = []
 
     # -- connection protocol --------------------------------------------
     def acquire(self):
@@ -112,7 +115,11 @@ class FakeDB:
         raise AssertionError(f"unexpected fetch: {query}")
 
     async def execute(self, query: str, *args: Any) -> str:
+        if "pg_advisory_xact_lock" in query:
+            self.statements.append(("lock", args[0]))
+            return "SELECT 1"
         if "INSERT INTO agent_compliance_results" in query:
+            self.statements.append(("result", args[1], args[2]))
             tenant, agent_id, control_id, status, evidence = args[:5]
             self.results[(agent_id, control_id)] = {
                 "tenant_id": tenant, "status": status, "evidence_ref": evidence,
@@ -123,6 +130,7 @@ class FakeDB:
             self.result_writes += 1
             return "INSERT 0 1"
         if "INSERT INTO audit_events" in query:
+            self.statements.append(("audit", args[1]))
             self.audit.append({"event_type": args[1], "detail": json.loads(args[5])})
             return "INSERT 0 1"
         raise AssertionError(f"unexpected execute: {query}")
@@ -483,6 +491,49 @@ async def test_unmapped_checks_are_reported_but_never_stored(db):
     assert (check["status"], check["controlId"]) == ("pass", None)
     assert fake.audit[0]["detail"]["checks_unmapped"] == 1
     assert fake.audit[0]["detail"]["controls_assessed"] == 0
+
+
+# --------------------------------------------------------------------------
+# Concurrent scans of one tenant (H3)
+# --------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_the_write_transaction_locks_the_tenant_before_it_touches_a_row(db):
+    """H3: a scan reads the registry, makes slow sequential engine calls, then
+    upserts.  Two scans of one tenant therefore interleave their writes unless
+    the write half is serialised per tenant.  The lock is taken inside the
+    transaction (``pg_advisory_xact_lock``), so it is released by commit or
+    rollback and never leaks on an exception."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering(
+            [item("cis-kubernetes", "no-privileged-containers", "pass")]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    assert fake.statements == [
+        ("lock", EAP_TENANT_A),
+        ("result", AGENT_A, CTRL_PRIV),
+        ("audit", "compliance.scan_completed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_upsert_records_the_scan_start_so_freshness_orders_by_scan(db):
+    """H3: the stored ``assessed_at`` is the instant this scan's view of the
+    registry was taken, not the instant it got round to writing.  A slow scan
+    that finishes last must not look like the most recent assessment."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    before = datetime.now(timezone.utc)
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering(
+            [item("cis-kubernetes", "no-privileged-containers", "pass")]))
+        resp = await scan(SCAN)
+    after = datetime.now(timezone.utc)
+    assert resp.status_code == 200, resp.text
+    stored_at = fake.assessed[(AGENT_A, CTRL_PRIV)]
+    assert before <= stored_at <= after
+    # The scan response's timestamp comes from the engine; assessed_at is ours.
+    assert stored_at.tzinfo is not None
 
 
 # --------------------------------------------------------------------------

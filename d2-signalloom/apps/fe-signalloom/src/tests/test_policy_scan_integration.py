@@ -9,6 +9,7 @@ control -- the defect this guards against stamped one verdict on every agent.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -288,6 +289,75 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
         "SELECT assessed_at FROM agent_compliance_results WHERE agent_id = ANY($1::uuid[]) AND control_id = ANY($2::uuid[])",
         [PATSY, ROBIN], [control_of[c] for c in CIS])
     assert len(unassessed) == 2 * len(CIS) and all(r["assessed_at"] is None for r in unassessed)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_scan_never_overwrites_a_fresher_scans_verdict(seeded_pool, monkeypatch):
+    """H3: two scans of one tenant, interleaved.
+
+    The first scan reads the registry, then its engine call hangs; the second
+    scan runs to completion while it hangs; only then does the first scan get
+    its answer and write.  Its view of the agent is the older one, so the row
+    must keep the second scan's verdict.  The upsert is guarded on freshness
+    and the write transaction holds a per-tenant advisory lock, so the loser
+    neither interleaves row by row nor lands last-write-wins.
+    """
+    await _as_tenant_demo(seeded_pool, monkeypatch)
+    await seeded_pool.execute(
+        "UPDATE agent_registry SET workload_spec = $2::jsonb WHERE id = $1",
+        LANCELOT, json.dumps(pod("lancelot")))
+    check = "no-privileged-containers"
+    control = await seeded_pool.fetchval(
+        "SELECT id FROM governance_controls WHERE tenant_id = $1 AND policy_check_id = $2",
+        TENANT, check)
+
+    stale_at_engine = asyncio.Event()
+    fresh_committed = asyncio.Event()
+
+    async def engine(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["namespace"] == "stale":
+            stale_at_engine.set()
+            await asyncio.wait_for(fresh_committed.wait(), timeout=30)
+            status = "pass"
+        else:
+            status = "fail"
+        return httpx.Response(200, json=[{
+            "framework": "cis-kubernetes", "controlSet": "set", "control": check, "check": check,
+            "passed": status == "pass", "status": status, "policyVersion": "v1.8.0",
+            "ale": 0.0, "var95": 0.0, "tvar": 0.0, "carriedGbp": 0.0,
+            "scanTimestamp": "2026-10-10T12:00:00Z", "calibrationSource": "industry-indicative",
+        }])
+
+    async def run(namespace: str) -> dict[str, Any]:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/compliance/policy/scan",
+                json={"namespace": namespace, "policyVersion": "v1.8.0",
+                      "frameworks": ["cis-kubernetes"], "agentIds": [str(LANCELOT)]},
+                headers=eap_bearer(SUBJECT),
+            )
+            assert resp.status_code == 200, resp.text
+            return resp.json()
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post(ENGINE).mock(side_effect=engine)
+        stale = asyncio.create_task(run("stale"))
+        # The loser must have taken its view of the registry FIRST.
+        await asyncio.wait_for(stale_at_engine.wait(), timeout=30)
+        fresh = await run("fresh")
+        fresh_committed.set()
+        stale_body = await stale
+
+    # Each scan reports what its own engine call said -- neither response lies.
+    assert [c["status"] for c in fresh["checks"]] == ["fail"]
+    assert [c["status"] for c in stale_body["checks"]] == ["pass"]
+    # The row keeps the fresher assessment.
+    row = await seeded_pool.fetchrow(
+        "SELECT status FROM agent_compliance_results WHERE agent_id = $1 AND control_id = $2",
+        LANCELOT, control)
+    assert row["status"] == "fail"
 
 
 TENANT_B = "tenant-b-f3"

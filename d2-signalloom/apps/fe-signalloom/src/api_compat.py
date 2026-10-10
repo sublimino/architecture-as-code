@@ -7133,7 +7133,20 @@ async def _db_policy_scan(
     ``governance_controls (policy_framework_id, policy_check_id)``.  When the
     engine gives no answer for an agent, that agent's rows are left as they
     were: an unassessed control stays pending, it is never reported as passed.
+
+    Two scans of one tenant race.  Each reads the registry, then makes its slow
+    sequential engine calls, then upserts -- so the one that started first can
+    finish last and bury a newer assessment under its stale view.  Two things
+    stop that: the write transaction holds a per-tenant advisory lock, so the
+    reconciliations cannot interleave row by row; and each upsert replaces a
+    row only when that row is older than this scan's start, so the loser of
+    the race writes nothing rather than winning on arrival order.
     """
+    # The instant this scan's view of the registry was taken.  This, and not the
+    # instant the write got round to happening, is what a row records as
+    # assessed_at: a scan that spent a minute in the engine assessed the agent
+    # as it was a minute ago, and freshness has to order by that.
+    scan_started = datetime.now(timezone.utc)
     async with _read(pool) as conn:
         control_rows = await conn.fetch(
             """SELECT c.id AS control_id, c.policy_framework_id, c.policy_check_id,
@@ -7303,8 +7316,12 @@ async def _db_policy_scan(
                     )
 
     stored = [verdict for verdict, _ in verdicts.values()]
-    assessed_now = datetime.now(timezone.utc)
     async with _write(pool) as conn:
+        # Serialise the write half per tenant. Taken inside the transaction, so
+        # commit or rollback releases it and a failed scan cannot leak it.
+        # hashtext() because the lock key is a bigint and tenant ids are text;
+        # a collision between two tenants costs serialisation, never correctness.
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", tenant_id)
         for (agent_id, control_id), (verdict, evidence) in verdicts.items():
             status = policy_scan.stored_status(verdict)
             await conn.execute(
@@ -7315,14 +7332,21 @@ async def _db_policy_scan(
                       SET status = EXCLUDED.status,
                           assessed_at = EXCLUDED.assessed_at,
                           evidence_ref = EXCLUDED.evidence_ref
-                    WHERE agent_compliance_results.tenant_id = EXCLUDED.tenant_id""",
+                    WHERE agent_compliance_results.tenant_id = EXCLUDED.tenant_id
+                      -- Only a row older than this scan's view may be replaced.
+                      -- assessed_at is the writing scan's start; a row stored
+                      -- pending has none, so updated_at (the trigger's write
+                      -- time) is the floor for those.
+                      AND COALESCE(agent_compliance_results.assessed_at,
+                                   agent_compliance_results.updated_at) < $7""",
                 tenant_id,
                 agent_id,
                 control_id,
                 status,
                 evidence,
                 # pending (not_evaluated) is not an assessment: no assessed_at.
-                None if status == "pending" else assessed_now,
+                None if status == "pending" else scan_started,
+                scan_started,
             )
 
         summary = _policy_scan_summary(checks, request.policyVersion)

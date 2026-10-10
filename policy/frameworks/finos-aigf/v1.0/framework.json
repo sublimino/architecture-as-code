@@ -228,7 +228,7 @@
               "id": "tool-grants-least-privilege",
               "name": "Tool grants are explicitly scoped, no wildcards",
               "description": "Every entry of agent.tools declares a non-empty scopes list of non-empty strings, none ending in '*' (no '*' or prefix wildcards). An empty tools list passes; an absent or non-list field fails.",
-              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && has(t.scopes) && type(t.scopes) == list && size(t.scopes) > 0 && t.scopes.all(s, type(s) == string && s != '' && !s.endsWith('*')))",
+              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && has(t.scopes) && type(t.scopes) == list && size(t.scopes) > 0 && t.scopes.all(s, type(s) == string && s != '' && !s.contains('*')))",
               "severity": "high",
               "remediation": "Replace wildcard and unscoped tool grants with enumerated per-tool scopes matched to the agent's designated function.",
               "riskTriple": {

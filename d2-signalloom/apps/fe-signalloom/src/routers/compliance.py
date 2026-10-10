@@ -51,6 +51,24 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
         "description": "Cybersecurity requirements for products with digital elements.",
         "controls_count": 3,
     },
+    "cis-kubernetes": {
+        "id": "cis-kubernetes",
+        "name": "CIS Kubernetes Benchmark",
+        "version": "v1.0.0",
+        "regulatory_body": "Center for Internet Security",
+        "description": "Pod-level workload security checks (policy/frameworks/cis-kubernetes).",
+        "controls_count": 17,
+    },
+    "finos-aigf": {
+        "id": "finos-aigf",
+        "name": "FINOS AI Governance Framework (AIGF)",
+        "version": "v1.0.0",
+        "regulatory_body": "FINOS",
+        "description": "AI agent governance checks over the agent context (policy/frameworks/finos-aigf).",
+        "controls_count": 3,
+    },
+    # No policy pack exists for soc-2 under policy/frameworks; listed for the
+    # catalogue only, a scan of it returns nothing.
     "soc-2": {
         "id": "soc-2",
         "name": "SOC 2 Type II",

@@ -3,6 +3,8 @@
 Specifically verifies that policy scan invokes policy-engine with real manifests
 and reconciles verdicts into database, flipping the latent defect to PASS.
 """
+import uuid
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 import respx
@@ -14,6 +16,7 @@ from config import settings
 from conftest import eap_bearer, EAP_ALICE, EAP_TENANT_A
 
 EAP_AUTHENTICATED = True
+AGENT_ID = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
 
 
 class MockConnection:
@@ -21,21 +24,20 @@ class MockConnection:
         self.executions = []
 
     async def fetch(self, query, *args):
-        return [
-            {
-                "id": "agent-1",
-                "name": "Sentinel Agent",
-                "capabilities": ["inference"],
-                "config": {"model": "claude-3-5-sonnet"},
-                "policies_applied": ["eu-ai-act"],
-                "framework_id": "eu-ai-act",
-                "framework_name": "EU AI Act",
-                "control_id": "c-1",
-                "control_name": "Risk Management",
-                "passed": True,
-                "assessed_at": "2026-09-29T05:00:00Z",
-            }
-        ]
+        # The scan reads the tenant's control mapping, then its agents.
+        if "FROM governance_controls" in query:
+            return [
+            {"control_id": uuid.UUID("c0000000-0000-0000-0000-000000000001"),
+             "policy_framework_id": "eu-ai-act", "policy_check_id": "check-risk-assessment",
+             "framework_version": None},
+            {"control_id": uuid.UUID("c0000000-0000-0000-0000-000000000002"),
+             "policy_framework_id": "eu-ai-act", "policy_check_id": "check-human-oversight",
+             "framework_version": None},
+            ]
+        if "FROM agent_registry" in query:
+            return [{"id": AGENT_ID, "name": "Sentinel Agent", "model_approved": True,
+                      "policy_context": None, "workload_spec": None}]
+        raise AssertionError(f"unexpected fetch: {query}")
 
     async def execute(self, query, *args):
         self.executions.append((query, args))

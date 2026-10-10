@@ -1,4 +1,6 @@
 """Tests for agent compliance scanning, PostgreSQL reconciliation, and audit trail."""
+import uuid
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 import respx
@@ -10,6 +12,7 @@ from config import settings
 from conftest import eap_bearer, EAP_ALICE, EAP_TENANT_A
 
 EAP_AUTHENTICATED = True
+AGENT_ID = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
 
 
 class MockConnection:
@@ -17,21 +20,17 @@ class MockConnection:
         self.executions = []
 
     async def fetch(self, query, *args):
-        return [
-            {
-                "id": "agent-1",
-                "name": "Sentinel Agent",
-                "capabilities": ["inference"],
-                "config": {"model": "claude-3-5-sonnet"},
-                "policies_applied": ["nist-800-53", "eu-ai-act"],
-                "framework_id": "nist-800-53",
-                "framework_name": "NIST SP 800-53",
-                "control_id": "c-1",
-                "control_name": "AC-6 Least Privilege",
-                "passed": True,
-                "assessed_at": "2026-09-29T05:00:00Z",
-            }
-        ]
+        # The scan reads the tenant's control mapping, then its agents.
+        if "FROM governance_controls" in query:
+            return [
+            {"control_id": uuid.UUID("c0000000-0000-0000-0000-000000000001"),
+             "policy_framework_id": "nist-800-53", "policy_check_id": "check-least-privilege",
+             "framework_version": None},
+            ]
+        if "FROM agent_registry" in query:
+            return [{"id": AGENT_ID, "name": "Sentinel Agent", "model_approved": True,
+                      "policy_context": None, "workload_spec": None}]
+        raise AssertionError(f"unexpected fetch: {query}")
 
     async def execute(self, query, *args):
         self.executions.append((query, args))

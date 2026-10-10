@@ -7202,7 +7202,8 @@ async def _db_policy_scan(
                             policy_scan.worse(previous, verdict),
                             policy_scan.evidence_ref(framework, check_id, result_version),
                         )
-                    # Integer pounds: the engine reports pence, these fields are int.
+                    # Integer pounds: the engine reports pounds at pence precision (e.g. 1234.57),
+                    # and these response fields are int.
                     carried_gbp = round(float(item.get("carriedGbp", 0.0)))
                     checks.append(
                         PolicyComplianceCheck(

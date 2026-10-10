@@ -1170,6 +1170,10 @@ class PolicyScanResponse(BaseModel):
     agentsScanned: int = 0
     # Registry ids of agents whose scan call failed. Their rows were not touched.
     agentsFailed: list[str] = Field(default_factory=list)
+    # Requested ``agentIds`` this tenant has no agent for, as the caller wrote
+    # them. Another tenant's agent, a deleted one or a typo all land here; the
+    # scan neither reads nor writes anything for them.
+    agentsNotFound: list[str] = Field(default_factory=list)
     # Mapped controls of scanned agents that got no engine verdict, and why.
     controlGaps: list[PolicyControlGap] = Field(default_factory=list)
 
@@ -7230,17 +7234,39 @@ async def _db_policy_scan(
             tenant_id,
             request.frameworks,
         )
-        agent_rows = await conn.fetch(
-            """SELECT id, name, model_approved,
-                      config -> 'policy_context' AS policy_context,
-                      workload_spec
-               FROM agent_registry
-               WHERE tenant_id = $1
-                 AND (cardinality($2::text[]) = 0 OR id::text = ANY($2::text[]))
-               ORDER BY created_at, id""",
-            tenant_id,
-            request.agentIds,
-        )
+        # L2: ``agent_registry.id`` is a uuid and the filter compares
+        # ``id::text``, which Postgres renders in lower case -- so an id the
+        # caller typed in upper case, or with braces, matched nothing and the
+        # agent silently dropped out of its own scan.  Canonicalise the ids
+        # here; anything that is not a uuid cannot be an agent id at all and
+        # never reaches the database.  The empty list must not reach the query
+        # either: ``cardinality($2) = 0`` means "every agent in the tenant", so
+        # a request naming three unparseable ids would scan the whole fleet.
+        requested = list(dict.fromkeys(request.agentIds))
+        canonical = [str(parsed) for raw in requested if (parsed := _try_uuid(raw)) is not None]
+        if requested and not canonical:
+            agent_rows = []
+        else:
+            agent_rows = await conn.fetch(
+                """SELECT id, name, model_approved,
+                          config -> 'policy_context' AS policy_context,
+                          workload_spec
+                   FROM agent_registry
+                   WHERE tenant_id = $1
+                     AND (cardinality($2::text[]) = 0 OR id::text = ANY($2::text[]))
+                   ORDER BY created_at, id""",
+                tenant_id,
+                canonical,
+            )
+
+    # Ids this tenant has no agent for: another tenant's, a deleted one, a typo.
+    # Reported rather than dropped -- a caller that asked about four agents and
+    # got verdicts for one is owed the difference, not left to infer it.
+    found = {str(row["id"]) for row in agent_rows}
+    agents_not_found = [
+        raw for raw in requested
+        if (parsed := _try_uuid(raw)) is None or str(parsed) not in found
+    ]
 
     control_for: dict[tuple[str, str], uuid.UUID] = {
         (row["policy_framework_id"], row["policy_check_id"]): row["control_id"]
@@ -7443,6 +7469,7 @@ async def _db_policy_scan(
                 "checks_unmapped": unmapped,
                 "agents_scanned": agents_scanned,
                 "agents_failed": len(agents_failed),
+                "agents_not_found": len(agents_not_found),
                 "controls_no_workload": sum(g.reason == "no_workload" for g in gaps),
                 "controls_missing_from_engine": sum(g.reason == "missing_from_engine_response" for g in gaps),
                 "total_exposure_gbp": summary.totalCarriedGbp,
@@ -7456,6 +7483,7 @@ async def _db_policy_scan(
         engineInvoked=engine_answers > 0,
         agentsScanned=agents_scanned,
         agentsFailed=agents_failed,
+        agentsNotFound=agents_not_found,
         controlGaps=gaps,
     )
 

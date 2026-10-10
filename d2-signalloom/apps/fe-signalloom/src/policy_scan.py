@@ -14,6 +14,7 @@ verdict about something nobody observed.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -185,6 +186,55 @@ def verdict_of(result: Mapping[str, Any]) -> str:
     if isinstance(passed, bool):
         return "pass" if passed else "fail"
     return "error"
+
+
+#: The monetary figures every engine result carries (Go ``float64``, never
+#: omitted -- see ``policy-engine/compliance.go``).  A result that is missing
+#: one, or carries something that is not a finite number there, is not a result
+#: this API can report: defaulting it to 0 publishes a figure nobody computed.
+MONEY_FIELDS = ("ale", "var95", "tvar", "carriedGbp")
+
+
+def money_of(result: Mapping[str, Any], field: str) -> float | None:
+    """One monetary figure as a finite float, or ``None`` when it is not one.
+
+    ``bool`` is rejected deliberately: it is an ``int`` subclass in Python, and
+    ``True`` arriving in ``ale`` is a shape error, not £1.
+    """
+    value = result.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def defect_of(result: Mapping[str, Any]) -> str | None:
+    """Why this result cannot be read as a verdict, or ``None`` when it can.
+
+    The reason is stored as the check's ``error``.  Every defect here used to
+    be silently repaired or fatal: a missing ``status`` and ``passed`` read as
+    a fail, a ``None`` or NaN in a money field reached ``float()`` and raised,
+    which turned one malformed result into an HTTP 500 for the whole tenant's
+    scan.  One unreadable check is one errored check.
+    """
+    if result.get("status") is None and not isinstance(result.get("passed"), bool):
+        return "engine result carried neither status nor passed"
+    bad = [field for field in MONEY_FIELDS if money_of(result, field) is None]
+    if bad:
+        return f"engine result carried no finite number for {', '.join(bad)}"
+    return None
+
+
+def text_of(result: Mapping[str, Any], field: str) -> str | None:
+    """A descriptive string the engine may not have sent.
+
+    ``None`` rather than a stand-in: ``calibrationSource`` defaulted to
+    ``industry-indicative`` claimed a calibration provenance for a figure whose
+    provenance was never reported, and ``scanTimestamp`` defaulted to now
+    claimed the engine had just looked.
+    """
+    value = result.get(field)
+    return value if isinstance(value, str) and value else None
 
 
 def worse(a: str | None, b: str) -> str:

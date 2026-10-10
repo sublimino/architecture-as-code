@@ -494,6 +494,81 @@ async def test_unmapped_checks_are_reported_but_never_stored(db):
 
 
 # --------------------------------------------------------------------------
+# A malformed engine result (M2)
+# --------------------------------------------------------------------------
+
+def without(result: dict[str, Any], *keys: str) -> dict[str, Any]:
+    return {k: v for k, v in result.items() if k not in keys}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("ale", None),
+    ("var95", "1234.5"),
+    ("tvar", float("nan")),
+    ("carriedGbp", float("inf")),
+    ("carriedGbp", True),
+])
+async def test_an_unreadable_money_figure_errors_that_check_not_the_tenant_scan(db, field, value):
+    """M2: ``float(None)`` and ``float('nan')`` used to reach the response model
+    and 500 the whole tenant's scan.  One malformed result is one errored
+    check, and its figure is never defaulted to a number nobody computed."""
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)],
+                     controls=[CONTROLS[0], CONTROLS[1]]))
+    bad = item("cis-kubernetes", "no-privileged-containers", "pass")
+    bad[field] = value
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering(
+            [bad, item("cis-kubernetes", "no-root-containers", "pass")]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["agentsFailed"] == []
+    [bad_check, good_check] = data["checks"]
+    assert (bad_check["status"], bad_check["passed"]) == ("error", False)
+    assert field in bad_check["error"], bad_check["error"]
+    # The verdict the engine sent for it does not survive the defect.
+    assert fake.results[(AGENT_A, CTRL_PRIV)]["status"] == "error"
+    assert good_check["status"] == "pass"
+    assert (data["summary"]["passed"], data["summary"]["errored"]) == (1, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [("status", "passed"), ("status", "passed", "ale")])
+async def test_a_result_with_neither_status_nor_passed_errors_with_a_reason(db, missing):
+    fake = db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering(
+            [without(item("cis-kubernetes", "no-privileged-containers", "pass"), *missing)]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    [check] = resp.json()["checks"]
+    assert check["status"] == "error"
+    assert check["error"] == "engine result carried neither status nor passed"
+    assert fake.results[(AGENT_A, CTRL_PRIV)]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_a_missing_calibration_source_or_timestamp_is_null_not_invented(db):
+    """M2: the engine's provenance is reported or it is absent.  Defaulting
+    ``calibrationSource`` to ``industry-indicative`` asserted a calibration for
+    a figure whose calibration was never reported; defaulting ``scanTimestamp``
+    to now asserted the engine had just looked."""
+    db(FakeDB(agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)], controls=[CONTROLS[0]]))
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=answering([without(
+            item("cis-kubernetes", "no-privileged-containers", "fail"),
+            "calibrationSource", "scanTimestamp")]))
+        resp = await scan(SCAN)
+    assert resp.status_code == 200, resp.text
+    [check] = resp.json()["checks"]
+    assert (check["status"], check["calibrationSource"], check["scanTimestamp"]) == ("fail", None, None)
+    # The summary still needs a time; it is the response's own, not a claim
+    # about an engine answer that carried none.
+    assert resp.json()["summary"]["scanTimestamp"]
+
+
+# --------------------------------------------------------------------------
 # Concurrent scans of one tenant (H3)
 # --------------------------------------------------------------------------
 

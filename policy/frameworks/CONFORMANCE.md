@@ -18,7 +18,7 @@ may read any of them. Fixtures supply them under `input`.
 
 | Variable  | Shape | Source in production |
 |-----------|-------|----------------------|
-| `object`  | A Kubernetes **Pod-shaped** object: `{"apiVersion","kind","metadata":{...},"spec":{...}}`. Checks read `object.spec.*` and `object.metadata.*`. For a Deployment/Job, the scanner passes the pod template as `{"metadata": template.metadata, "spec": template.spec}`. | The workload's pod spec. Scan field `manifest` (alias `object`). |
+| `object`  | A Kubernetes **Pod-shaped** object: `{"apiVersion","kind","metadata":{...},"spec":{...}}`. Checks read `object.spec.*` and `object.metadata.*`. For a Deployment/Job, the scanner passes the pod template as `{"metadata": template.metadata, "spec": template.spec}`. The scanner **MUST** copy the workload's namespace into `object.metadata.namespace` (a pod template carries none of its own). Controller-level facts (`replicas`, update strategy, PDBs) are **not** in this object: a check that needs them is not evaluable from a pod and is marked `status: placeholder` in its pack (it reports `not_evaluated`). | The workload's pod spec. Scan field `object` (alias `manifest`). An empty `object` (`{}`) is treated as absent, so it never masks a non-empty `manifest`. |
 | `agent`   | The **agent context document**: governance facts about the AI agent the workload runs. Field paths are owned by the pack that reads them and documented in that pack's `AGENT-CONTEXT.md`. | Assembled by fe-signalloom from the agent registry. Scan field `agent`. |
 | `request` | A runtime request context (tool call, peer identity, network). | Scan field `request`. |
 
@@ -36,6 +36,7 @@ is fine; test it with a fixture).
 | `pass`  | The expression evaluated to `true`. |
 | `fail`  | The expression evaluated to `false`. |
 | `error` | The expression could not evaluate (missing key, type error, non-bool). |
+| `not_evaluated` | The check (or its framework) has `status: placeholder`. The expression is never run; `passed` is `false` and there is no `error`. The summary counts it in `totalControls` and `notEvaluated` only, never in `failed`, `errored` or exposure. |
 
 **`error` is never a `fail`.** A check that errors on an ordinary, valid input
 is a defect in the check: guard optional fields with `has()` and decide the

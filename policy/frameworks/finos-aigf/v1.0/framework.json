@@ -311,8 +311,8 @@
             {
               "id": "high-impact-actions-human-approved",
               "name": "High-impact tools gated by human approval",
-              "description": "Every entry of agent.tools either declares impact 'low' or 'medium', or has requires_human_approval true. Tools with impact 'high' or no impact classification are treated as high (fail-closed). Not applicable, and passes, when every tool is low/medium or the list is empty; an absent or non-list field fails.",
-              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && (has(t.impact) && t.impact in ['low', 'medium']) || (has(t.requires_human_approval) && t.requires_human_approval == true))",
+              "description": "Every entry of agent.tools either declares impact 'low' or 'medium', or has requires_human_approval true. Tools with impact 'high' or no impact classification are treated as high (fail-closed). Not applicable, and passes, when every tool is low/medium or the list is empty; an absent or non-list field fails, and so does a list element that is not an object -- the type guard gates both branches of the test.",
+              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && ((has(t.impact) && t.impact in ['low', 'medium']) || (has(t.requires_human_approval) && t.requires_human_approval == true)))",
               "severity": "critical",
               "remediation": "Classify every tool's impact and route high-impact and unclassified tool calls through a fail-closed human approval gate.",
               "riskTriple": {

@@ -137,16 +137,16 @@ described agent.
 ## Pinning money
 
 Every check carries a `riskTriple` (loss magnitude) and a `freqTriple` (events
-per year), and a scan reports four figures per check: `ale`, `var95`, `tvar` and
-`carriedGbp`. **Those figures are part of the contract, not decoration** — the
+per year). A scan reports four figures per check: `ale`, `var95`, `tvar` and
+`carriedGbp`. **Those figures are part of the contract, not decoration.** The
 product sells *priced* risk, and a figure nobody checked is worse than no
 figure.
 
 The money is a **pure function of `(check ID, riskTriple, freqTriple)`**. The
-simulation seed is `fnv64a(check.ID)` and nothing from the scanned object enters
-it, so a *passing* row still carries a full-size figure; it is the **summary**
-that excludes passing rows from exposure. The figure is therefore a per-check
-constant, and it is pinned per pack rather than per fixture.
+simulation seed is `fnv64a(check.ID)`, and nothing from the scanned object
+enters it. So a *passing* row still carries a full-size figure. It is the
+**summary** that excludes passing rows from exposure. The figure is therefore a
+per-check constant, pinned per pack rather than per fixture.
 
 ### Golden files
 
@@ -165,14 +165,14 @@ make verify-cel-money-golden      # rewrite the goldens, then assert them
 make verify-cel-money             # assert only (also runs inside verify-cel-conformance)
 ```
 
-A triple edit is then a reviewable diff of exactly the prices it moved: change
-`riskTriple.mode` on one check and `make verify-cel-money-golden` shows four
-figures and one sigma moving on that one row. **Review that diff.** It is every
-price the product quotes for that control.
+A triple edit is then a reviewable diff of exactly the prices it moved. Change
+`riskTriple.mode` on one check, regenerate, and four figures plus one sigma move
+on that one row. **Review that diff.** It is every price the product quotes for
+that control.
 
 Comparison is **exact**. `fair.Simulate` is a seeded Monte Carlo over a PCG
-generator consumed in a fixed order, so for a given `(triple, triple, seed)` it
-is deterministic to the bit. There is no sampling tolerance to allow for, and
+generator consumed in a fixed order. For a given `(triple, triple, seed)` it is
+deterministic to the bit. There is no sampling tolerance to allow for, and
 allowing one would hide the drift the goldens exist to catch.
 
 ### The analytic anchor
@@ -208,18 +208,18 @@ non-gating tier compares them to an independent NumPy derivation:
 make verify-cel-money-independent   # needs NumPy; statistical, not part of verify-cel
 ```
 
-Observed there: the Go oracle's algebra agrees with a 1 000 000-sample estimate
-to **0.19 %**; `var95` to **2.58 %** and `tvar` to **2.89 %**, which is the
-expected quantile noise at the engine's 10 000 iterations.
+Observed there, the Go oracle's algebra agrees with a 1 000 000-sample estimate
+to **0.19 %**. `var95` agrees to **2.58 %** and `tvar` to **2.89 %**. That is
+the expected quantile noise at the engine's 10 000 iterations.
 
-**Known blind spot of the analytic tier**, found by mutation: it cannot see
+**Known blind spot of the analytic tier**, found by mutation. It cannot see
 frequency and magnitude **transposed**, because `E[F]·E[M]` and the support
 product are both symmetric in their arguments. That mutation is caught by the
 golden files instead — the two triples are consumed in a fixed draw order, so
 `var95` and `tvar` move. The analytic tier conversely catches what a golden
 cannot: a sampler change whose author regenerates the golden. Mutating the PERT
 λ from 4 to 2 and regenerating leaves every golden green and moves the analytic
-anchor by **35–43 σ**. Neither tier is sufficient alone; that is why both exist.
+anchor by **35–43 σ**. Neither tier is sufficient alone. That is why both exist.
 
 ### Properties, and one that is deliberately absent
 
@@ -234,36 +234,35 @@ anchor by **35–43 σ**. Neither tier is sufficient alone; that is why both exi
 | `GBP` is hardcoded, and `money` still refuses to add across denominations | `TestConformance_MoneyReportingCurrencyIsPinned` |
 
 **`ale <= var95` is NOT asserted, deliberately.** An earlier revision of
-`fair.Simulate` clamped `VaR95` up to `ALE`; the clamp was removed because
-`VaR95 >= ALE` is not a property of loss distributions — for a rare-but-severe
-risk most simulated years cost nothing, the 95th percentile sits below the mean,
-and the clamp "silently reported a bad year equal to the average year" in
-precisely the well-governed case a client most wants to see (see the note on
-`fair.Simulate` and `fair/regression_test.go`). Asserting the ordering here
-would re-introduce that defect as a test. The honest relation — the
-`tailDominated` biconditional — is asserted instead.
+`fair.Simulate` clamped `VaR95` up to `ALE`. The clamp was removed because
+`VaR95 >= ALE` is not a property of loss distributions. For a rare-but-severe
+risk most simulated years cost nothing, so the 95th percentile sits below the
+mean. The clamp then "silently reported a bad year equal to the average year",
+in precisely the well-governed case a client most wants to see. See the note on
+`fair.Simulate` and `fair/regression_test.go`. Asserting the ordering here would
+re-introduce that defect as a test. The honest relation is asserted instead: the
+`tailDominated` biconditional.
 
 ### Two findings pinned by these tests
 
 1. **66 of 127 checks price at £0.00.** Four shipped packs — `eu-ai-act/v1.0`,
    `eu-ai-act/v2.0`, `nist-800-53/v1.0`, `nist-800-53/v2.0` — declare a
    `riskTriple` but **no `freqTriple` at all**. `fair.Simulate` short-circuits an
-   all-zero frequency to a zero result, so every check in those packs reports
-   `0.00` and a scan of them reports **zero total exposure however many controls
-   fail**. `dora/v1.0` and `nis2/v1.0` also price at zero, but they are
-   all-placeholder packs and that is correct;
+   all-zero frequency to a zero result. So every check in those packs reports
+   `0.00`, and a scan of them reports **zero total exposure however many controls
+   fail**. `dora/v1.0` and `nis2/v1.0` also price at zero. They are
+   all-placeholder packs, so for them zero is correct.
    `TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero` keeps the two groups
-   apart and pins both, so adding a `freqTriple` turns the golden red and the new
-   figures must be proved.
+   apart and pins both. Adding a `freqTriple` turns the golden red, and the new
+   figures must then be proved.
 2. **Tail dominance is unreachable on the `Simulate` path**, so `tailDominated`
-   is dead code there. `α+β ≡ 6` bounds the attainable skew, and `Simulate`
+   is dead code there. `α+β ≡ 6` bounds the attainable skew. `Simulate` also
    multiplies a *continuous* frequency instead of drawing Poisson event counts,
-   so there are no zero-loss years — an independent derivation puts
+   so there are no zero-loss years. An independent derivation puts
    `P(L <= E[L])` at about 0.63–0.69 across the extremes of the family, against
    the 0.95 needed to invert. Zero-loss years only appear on the aggregate
    `Engine.Run` path, which does draw Poisson. The reachability sweep is pinned
-   at zero so a sampler change, a different λ, or Poisson counts on this path
-   surface immediately.
+   at zero, so a sampler change or Poisson counts on this path surface at once.
 
 **A new check, or a new triple on an existing check, must land with its golden
 row regenerated in the same commit.** A pack whose golden file is missing or

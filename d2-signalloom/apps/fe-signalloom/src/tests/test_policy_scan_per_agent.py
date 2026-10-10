@@ -930,6 +930,15 @@ async def test_each_pack_is_asked_at_the_version_it_is_activated_at(db):
     # one the caller typed.
     assert all("@v99" not in row["evidence_ref"] for row in fake.results.values())
     assert {c["policyVersion"] for c in data["checks"]} == {"v1.0.0", "v1.8.0"}
+    # The audit records what the packs were evaluated at, not only what the
+    # caller asked for: re-pinning to the activated version is deliberate, but
+    # it must not be silent.
+    detail = fake.audit[0]["detail"]
+    assert detail["policy_version"] == "v99.0.0"
+    assert detail["pack_versions"] == {"v1.8.0": ["cis-kubernetes"], "v1.0.0": ["finos-aigf"]}
+    # And the response says it per framework.
+    assert {f["id"]: f["versions"] for f in data["summary"]["frameworks"]} == {
+        "cis-kubernetes": ["v1.8.0"], "finos-aigf": ["v1.0.0"]}
 
 
 # --------------------------------------------------------------------------

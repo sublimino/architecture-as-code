@@ -1,0 +1,74 @@
+{
+  "name": "no-privileged-mode--empty-object",
+  "level": "unit",
+  "description": "object is {} (no pod spec supplied): fails closed instead of erroring.",
+  "input": {
+    "object": {},
+    "agent": {
+      "model_type": "generative",
+      "training_data_provenance": {
+        "validated": true
+      },
+      "technical_documentation": {
+        "annex_iv_compliant": true
+      },
+      "logging_config": {
+        "automatic_record_keeping": true
+      },
+      "transparency": {
+        "user_instructions_available": true,
+        "synthetic_content_watermarking": true
+      },
+      "deployer_oversight": {
+        "continuous_monitoring": true
+      },
+      "audit_config": {
+        "event_logging_enabled": true
+      },
+      "telemetry": {
+        "monitoring_active": true
+      },
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {
+      "tool_call": {
+        "action": "exec"
+      },
+      "context": {
+        "claims": [
+          {
+            "type": "human_approval_svid",
+            "valid": true
+          }
+        ]
+      },
+      "peer": {
+        "spiffe_id": "spiffe://signalloom.demo/ns/agents/sa/agent-alpha"
+      },
+      "source": {
+        "namespace": "agents"
+      },
+      "destination": {
+        "namespace": "agents"
+      },
+      "auth": {
+        "svid_presented": true
+      },
+      "network_policy": {
+        "ingress_isolated": true
+      }
+    }
+  },
+  "expect": {
+    "no-privileged-mode": "fail"
+  }
+}

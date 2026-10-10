@@ -15,7 +15,7 @@
               "id": "container-run-as-non-root",
               "name": "AI system container runs as non-root",
               "description": "Ensures high-risk AI system workloads do not execute with root UID privileges.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
               "severity": "high",
               "remediation": "Configure securityContext.runAsNonRoot to true in all container specifications.",
               "riskTriple": {
@@ -37,7 +37,7 @@
               "id": "no-privilege-escalation",
               "name": "No privilege escalation in AI workloads",
               "description": "Prohibits processes within AI workloads from gaining more privileges than their parent process.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
               "severity": "critical",
               "remediation": "Set securityContext.allowPrivilegeEscalation to false in pod specifications.",
               "riskTriple": {
@@ -71,7 +71,7 @@
               "id": "training-data-provenance",
               "name": "Training data provenance and validation",
               "description": "Validates that training and validation data sets have verified provenance records.",
-              "celExpression": "has(agent.training_data_provenance) && agent.training_data_provenance.validated == true",
+              "celExpression": "has(agent.training_data_provenance) && has(agent.training_data_provenance.validated) && agent.training_data_provenance.validated == true",
               "severity": "high",
               "remediation": "Attach verified data provenance metadata and validation certificates to agent definition.",
               "riskTriple": {
@@ -105,7 +105,7 @@
               "id": "annex-iv-technical-documentation",
               "name": "Annex IV Technical Documentation Compliance",
               "description": "Requires comprehensive Annex IV technical documentation prior to deployment.",
-              "celExpression": "has(agent.technical_documentation) && agent.technical_documentation.annex_iv_compliant == true",
+              "celExpression": "has(agent.technical_documentation) && has(agent.technical_documentation.annex_iv_compliant) && agent.technical_documentation.annex_iv_compliant == true",
               "severity": "medium",
               "remediation": "Publish Annex IV technical documentation manifest in the agent governance registry.",
               "riskTriple": {
@@ -139,7 +139,7 @@
               "id": "automatic-record-keeping",
               "name": "Automatic logging of operational events",
               "description": "Ensures autonomous agent operations and decisions are logged automatically to an immutable audit sink.",
-              "celExpression": "has(agent.logging_config) && agent.logging_config.automatic_record_keeping == true",
+              "celExpression": "has(agent.logging_config) && has(agent.logging_config.automatic_record_keeping) && agent.logging_config.automatic_record_keeping == true",
               "severity": "high",
               "remediation": "Enable automated event logging with immutable telemetry forwarding in agent config.",
               "riskTriple": {
@@ -173,7 +173,7 @@
               "id": "user-instructions-transparency",
               "name": "Operator transparency and instruction manual",
               "description": "Mandates clear operational characteristics, intended purpose, and limitations documentation.",
-              "celExpression": "has(agent.transparency) && agent.transparency.user_instructions_available == true",
+              "celExpression": "has(agent.transparency) && has(agent.transparency.user_instructions_available) && agent.transparency.user_instructions_available == true",
               "severity": "medium",
               "remediation": "Provide accessible model transparency card and operator instruction manual.",
               "riskTriple": {
@@ -207,7 +207,7 @@
               "id": "block-unauthorized-host-exec",
               "name": "Privileged action human authorization SVID",
               "description": "Mandates human approval credential for sensitive host execution or IAM modification actions.",
-              "celExpression": "request.tool_call.action in ['exec', 'write_file', 'modify_iam'] ? (has(request.context.claims) && request.context.claims.exists(c, c.type == 'human_approval_svid' && c.valid == true)) : true",
+              "celExpression": "has(request.tool_call) && has(request.tool_call.action) && request.tool_call.action in ['exec', 'write_file', 'modify_iam'] ? (has(request.context) && has(request.context.claims) && request.context.claims.exists(c, has(c.type) && has(c.valid) && c.type == 'human_approval_svid' && c.valid == true)) : true",
               "severity": "critical",
               "remediation": "Obtain valid human approval SVID prior to executing privileged host operations.",
               "riskTriple": {
@@ -241,7 +241,7 @@
               "id": "drop-all-capabilities",
               "name": "Drop all capabilities for AI workloads",
               "description": "Strips all default Linux capabilities from container runtime processes.",
-              "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$')))",
               "severity": "high",
               "remediation": "Add ALL to securityContext.capabilities.drop in all container definitions.",
               "riskTriple": {
@@ -263,7 +263,7 @@
               "id": "resource-limits-set",
               "name": "AI system has resource limits set",
               "description": "Enforces compute resource limits to protect against denial of service or resource exhaustion.",
-              "celExpression": "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits))",
               "severity": "medium",
               "remediation": "Specify CPU and memory limits in container resource specifications.",
               "riskTriple": {
@@ -297,7 +297,7 @@
               "id": "deployer-monitoring-active",
               "name": "Continuous deployer monitoring system",
               "description": "Ensures deployers monitor system operations based on the instructions of use.",
-              "celExpression": "has(agent.deployer_oversight) && agent.deployer_oversight.continuous_monitoring == true",
+              "celExpression": "has(agent.deployer_oversight) && has(agent.deployer_oversight.continuous_monitoring) && agent.deployer_oversight.continuous_monitoring == true",
               "severity": "high",
               "remediation": "Activate continuous deployer telemetry and health monitoring in platform settings.",
               "riskTriple": {
@@ -331,7 +331,7 @@
               "id": "synthetic-content-marking",
               "name": "Synthetic content watermarking and disclosure",
               "description": "Verifies that generative AI models mark synthetic outputs in a machine-readable format.",
-              "celExpression": "has(agent.model_type) && agent.model_type == 'generative' ? (has(agent.transparency) && agent.transparency.synthetic_content_watermarking == true) : true",
+              "celExpression": "has(agent.model_type) && agent.model_type == 'generative' ? (has(agent.transparency) && has(agent.transparency.synthetic_content_watermarking) && agent.transparency.synthetic_content_watermarking == true) : true",
               "severity": "high",
               "remediation": "Enable cryptographic synthetic content watermarking in generative model pipelines.",
               "riskTriple": {

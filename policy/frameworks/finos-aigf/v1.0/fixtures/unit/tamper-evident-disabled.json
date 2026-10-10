@@ -1,0 +1,91 @@
+{
+  "name": "tamper-evident-disabled",
+  "level": "unit",
+  "description": "audit_log_tamper_evident false.",
+  "input": {
+    "object": {},
+    "agent": {
+      "registry": {
+        "model_registered": true,
+        "model_version": "claude-sonnet-4-5-20250929"
+      },
+      "guardrails": {
+        "prompt_injection_filter": true,
+        "output_filter": true
+      },
+      "data": {
+        "rag_enabled": true,
+        "ingestion_sensitive_data_filter": true,
+        "persistent_stores": [
+          {
+            "name": "vector-index",
+            "encrypted_at_rest": true
+          }
+        ]
+      },
+      "rate_limits": {
+        "requests_per_minute": 120
+      },
+      "access": {
+        "authentication_required": true,
+        "rbac_enforced": true
+      },
+      "tools": [
+        {
+          "name": "search_docs",
+          "scopes": [
+            "kb:read"
+          ],
+          "impact": "low"
+        },
+        {
+          "name": "submit_payment",
+          "scopes": [
+            "payments:write"
+          ],
+          "impact": "high",
+          "requires_human_approval": true
+        }
+      ],
+      "mcp_servers": [
+        {
+          "name": "docs-mcp",
+          "allowlisted": true
+        }
+      ],
+      "credentials": {
+        "long_lived_secrets_exposed": false
+      },
+      "observability": {
+        "audit_logging": true
+      },
+      "cost_controls": {
+        "budget_limit": 5000,
+        "spend_alerting": true
+      },
+      "governance": {
+        "decision_explainability": true,
+        "audit_log_tamper_evident": false
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "rag-ingestion-sensitive-data-filtered": "pass",
+    "prompt-injection-guardrail-active": "pass",
+    "output-leakage-filter-active": "pass",
+    "inference-rate-limit-configured": "pass",
+    "registered-model-registry-entry": "pass",
+    "model-version-pinned": "pass",
+    "user-authn-and-rbac-enforced": "pass",
+    "ai-data-encrypted-at-rest": "pass",
+    "tool-grants-least-privilege": "pass",
+    "mcp-servers-allowlisted": "pass",
+    "no-long-lived-credentials-exposed": "pass",
+    "high-impact-actions-human-approved": "pass",
+    "ai-interaction-audit-logging": "pass",
+    "spend-budget-alerting-configured": "pass",
+    "decision-explainability-metadata": "pass",
+    "decision-audit-tamper-evident": "fail"
+  }
+}

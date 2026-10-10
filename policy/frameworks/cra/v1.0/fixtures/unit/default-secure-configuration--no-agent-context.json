@@ -1,0 +1,13 @@
+{
+  "name": "default-secure-configuration--no-agent-context",
+  "level": "unit",
+  "description": "agent is {}: fails, not errors.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "default-secure-configuration": "fail"
+  }
+}

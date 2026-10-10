@@ -6,7 +6,8 @@
 --   9 platform users (admin, engineers, CISO, ops — matching audit actors)
 --   5 user_roles (tenant-scoped role assignments)
 --   5 agents (Monty Python theme — matches cluster pods, owner_id linked)
---   2 frameworks (EU AI Act, SOC 2) with 6 controls total
+--   4 frameworks: EU AI Act, SOC 2 (6 controls), CIS Kubernetes v1.8.0 (17) and
+--     FINOS AIGF v1.0.0 (16) -- the last two mapped to policy-engine checks
 --   30 agent compliance results (5 agents x 6 controls)
 --   12 audit events
 --   3 violations
@@ -258,42 +259,189 @@ INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, descr
 ON CONFLICT DO NOTHING;
 
 -- CIS Kubernetes Benchmark
+--
+-- Every control below is evaluated by the policy-engine pack `cis-kubernetes`
+-- (policy/frameworks/cis-kubernetes/): the check id is the stable key
+-- (policy_framework_id, policy_check_id) the scan reconciles verdicts onto.
+-- The CEL lives in the pack, never here.  CIS section numbers are CIS
+-- Kubernetes Benchmark v1.8.0 as verified against kube-bench
+-- cfg/cis-1.8/policies.yaml.  The former 5.3.1 NetworkPolicy row (no pod check can
+-- evaluate it) is reused for no-privileged-containers.
 INSERT INTO public.governance_frameworks (
     id, tenant_id, name, version, regulatory_body,
     control_count, activated_by
 ) VALUES (
     'f0000000-0000-0000-0000-000000000003', 'tenant-demo',
     'CIS Kubernetes Benchmark', 'v1.8.0', 'Center for Internet Security',
-    6, 'admin@acme.co'
-) ON CONFLICT DO NOTHING;
+    17, 'admin@acme.co'
+) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
 
--- CIS Kubernetes Benchmark controls
-INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, description, control_order) VALUES
-('c0000000-0000-0000-0000-000000000007', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.2.6 -- Non-Root Execution',
- 'Containers must run as non-root user (runAsNonRoot: true). CEL: object.spec.containers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true)',
- 1),
-('c0000000-0000-0000-0000-000000000008', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.2.5 -- Privilege Escalation Disabled',
- 'Prohibits allowPrivilegeEscalation in containers. CEL: object.spec.containers.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false)',
- 2),
-('c0000000-0000-0000-0000-000000000009', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.7.4 -- Seccomp RuntimeDefault',
- 'Enforces default seccomp profile filtering. CEL: has(object.spec.securityContext) && object.spec.securityContext.seccompProfile.type in [RuntimeDefault, Localhost]',
- 3),
+-- CIS Kubernetes Benchmark controls (17, one per cis-kubernetes check)
+INSERT INTO public.governance_controls (
+    id, tenant_id, framework_id, name, description, control_order,
+    policy_framework_id, policy_check_id
+) VALUES
 ('c0000000-0000-0000-0000-000000000010', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.7.1 -- Automount Service Account Token Disabled',
- 'Disable default ServiceAccount token injection. CEL: !has(object.spec.automountServiceAccountToken) || object.spec.automountServiceAccountToken == false',
- 4),
-('c0000000-0000-0000-0000-000000000011', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.2.2 -- Host Namespace Sharing Prohibited',
- 'Containers must not share host PID, IPC, or network namespaces. CEL: (!has(object.spec.hostPID) || !object.spec.hostPID) && (!has(object.spec.hostIPC) || !object.spec.hostIPC) && (!has(object.spec.hostNetwork) || !object.spec.hostNetwork)',
- 5),
+ 'CIS 5.1.6 -- SA Token Automount Disabled',
+ 'Service account tokens are only mounted where necessary. Evaluated by cis-kubernetes/sa-token-automount-disabled.',
+ 1, 'cis-kubernetes', 'sa-token-automount-disabled'),
 ('c0000000-0000-0000-0000-000000000012', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
- 'CIS 5.3.1 -- Namespace Network Isolation',
- 'Namespace NetworkPolicy isolation. Not tested in Pod CEL -- audited at cluster/namespace level via NetworkPolicy controller. Docs: https://www.cisecurity.org/benchmark/kubernetes',
- 6)
-ON CONFLICT DO NOTHING;
+ 'CIS 5.2.2 -- No Privileged Containers',
+ 'Minimize the admission of privileged containers. Evaluated by cis-kubernetes/no-privileged-containers.',
+ 2, 'cis-kubernetes', 'no-privileged-containers'),
+('c0000000-0000-0000-0000-000000000011', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.3 -- No Host PID',
+ 'Minimize the admission of containers sharing the host process ID namespace. Evaluated by cis-kubernetes/no-host-pid.',
+ 3, 'cis-kubernetes', 'no-host-pid'),
+('c0000000-0000-0000-0000-000000000013', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.4 -- No Host IPC',
+ 'Minimize the admission of containers sharing the host IPC namespace. Evaluated by cis-kubernetes/no-host-ipc.',
+ 4, 'cis-kubernetes', 'no-host-ipc'),
+('c0000000-0000-0000-0000-000000000014', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.5 -- No Host Network',
+ 'Minimize the admission of containers sharing the host network namespace. Evaluated by cis-kubernetes/no-host-network.',
+ 5, 'cis-kubernetes', 'no-host-network'),
+('c0000000-0000-0000-0000-000000000008', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.6 -- No Privilege Escalation',
+ 'Minimize the admission of containers with allowPrivilegeEscalation. Evaluated by cis-kubernetes/no-privilege-escalation.',
+ 6, 'cis-kubernetes', 'no-privilege-escalation'),
+('c0000000-0000-0000-0000-000000000007', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.7 -- No Root Containers',
+ 'Minimize the admission of root containers. Evaluated by cis-kubernetes/no-root-containers.',
+ 7, 'cis-kubernetes', 'no-root-containers'),
+('c0000000-0000-0000-0000-000000000015', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.8 -- No NET_RAW',
+ 'Minimize the admission of containers with the NET_RAW capability. Evaluated by cis-kubernetes/no-net-raw.',
+ 8, 'cis-kubernetes', 'no-net-raw'),
+('c0000000-0000-0000-0000-000000000016', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.9 -- No Added Capabilities',
+ 'Minimize the admission of containers with added capabilities. Evaluated by cis-kubernetes/no-added-capabilities.',
+ 9, 'cis-kubernetes', 'no-added-capabilities'),
+('c0000000-0000-0000-0000-000000000017', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.10 -- Capabilities Dropped ALL',
+ 'Minimize the admission of containers with capabilities assigned. Evaluated by cis-kubernetes/capabilities-dropped-all.',
+ 10, 'cis-kubernetes', 'capabilities-dropped-all'),
+('c0000000-0000-0000-0000-000000000018', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.11 -- No Windows HostProcess',
+ 'Minimize the admission of Windows HostProcess containers. Evaluated by cis-kubernetes/no-windows-hostprocess.',
+ 11, 'cis-kubernetes', 'no-windows-hostprocess'),
+('c0000000-0000-0000-0000-000000000019', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.12 -- No HostPath Volumes',
+ 'Minimize the admission of HostPath volumes. Evaluated by cis-kubernetes/no-hostpath-volumes.',
+ 12, 'cis-kubernetes', 'no-hostpath-volumes'),
+('c0000000-0000-0000-0000-000000000020', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.2.13 -- No Host Ports',
+ 'Minimize the admission of containers which use HostPorts. Evaluated by cis-kubernetes/no-host-ports.',
+ 13, 'cis-kubernetes', 'no-host-ports'),
+('c0000000-0000-0000-0000-000000000021', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.4.1 -- No Secrets in Env',
+ 'Prefer secrets as files over secrets as environment variables. Evaluated by cis-kubernetes/no-secrets-in-env.',
+ 14, 'cis-kubernetes', 'no-secrets-in-env'),
+('c0000000-0000-0000-0000-000000000009', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.2 -- Seccomp RuntimeDefault',
+ 'Ensure the seccomp profile is set to RuntimeDefault in pod definitions. Evaluated by cis-kubernetes/seccomp-runtime-default.',
+ 15, 'cis-kubernetes', 'seccomp-runtime-default'),
+('c0000000-0000-0000-0000-000000000022', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.3 -- Security Context Applied',
+ 'Apply a security context to pods and containers. Evaluated by cis-kubernetes/security-context-applied.',
+ 16, 'cis-kubernetes', 'security-context-applied'),
+('c0000000-0000-0000-0000-000000000023', 'tenant-demo', 'f0000000-0000-0000-0000-000000000003',
+ 'CIS 5.7.4 -- No Default Namespace',
+ 'The default namespace should not be used. Evaluated by cis-kubernetes/no-default-namespace.',
+ 17, 'cis-kubernetes', 'no-default-namespace')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    control_order = EXCLUDED.control_order,
+    policy_framework_id = EXCLUDED.policy_framework_id,
+    policy_check_id = EXCLUDED.policy_check_id;
+
+-- FINOS AI Governance Framework (AIGF), evaluated by the `finos-aigf` pack
+-- against each agent's governance context (see policy_scan.build_agent_policy_context).
+-- A new AIGF check needs only a row here with its check id.
+INSERT INTO public.governance_frameworks (
+    id, tenant_id, name, version, regulatory_body,
+    control_count, activated_by
+) VALUES (
+    'f0000000-0000-0000-0000-000000000004', 'tenant-demo',
+    'FINOS AI Governance Framework', 'v1.0.0', 'FINOS',
+    16, 'admin@acme.co'
+) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
+
+INSERT INTO public.governance_controls (
+    id, tenant_id, framework_id, name, description, control_order,
+    policy_framework_id, policy_check_id
+) VALUES
+('c0000000-0000-0000-0000-000000000027', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-002 RAG ingestion filters sensitive data',
+ 'If the agent uses retrieval-augmented generation (agent.data.rag_enabled is true), sensitive-data filtering must be active on ingestion. Not applicable, and passes, when rag_enabled is false. Undeclared or non-boolean rag_enabled fails. Evaluated by finos-aigf/rag-ingestion-sensitive-data-filtered.',
+ 1, 'finos-aigf', 'rag-ingestion-sensitive-data-filtered'),
+('c0000000-0000-0000-0000-000000000025', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-003 Active prompt injection filter guardrail',
+ 'Enforces real-time input guardrails to detect adversarial prompt injection attacks (agent.guardrails.prompt_injection_filter is true). Evaluated by finos-aigf/prompt-injection-guardrail-active.',
+ 2, 'finos-aigf', 'prompt-injection-guardrail-active'),
+('c0000000-0000-0000-0000-000000000028', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-003 Model output filtered for leakage and harmful content',
+ 'Model responses are inspected for sensitive-data leakage and policy-violating content before they leave the system (agent.guardrails.output_filter is true). Evaluated by finos-aigf/output-leakage-filter-active.',
+ 3, 'finos-aigf', 'output-leakage-filter-active'),
+('c0000000-0000-0000-0000-000000000029', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-008 Inference request rate limit configured',
+ 'A positive per-minute request limit is enforced on the agent (agent.rate_limits.requests_per_minute is a JSON number > 0). Evaluated by finos-aigf/inference-rate-limit-configured.',
+ 4, 'finos-aigf', 'inference-rate-limit-configured'),
+('c0000000-0000-0000-0000-000000000024', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-010 Model catalog registration and approval',
+ 'Verifies AI agent model is registered and actively approved in the enterprise model inventory (agent.registry.model_registered is true). Evaluated by finos-aigf/registered-model-registry-entry.',
+ 5, 'finos-aigf', 'registered-model-registry-entry'),
+('c0000000-0000-0000-0000-000000000030', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-010 Model version pinned, not a floating alias',
+ 'agent.registry.model_version is a non-empty string without whitespace that does not end in a ''latest'' alias segment (case-insensitive, e.g. ''-latest'', '':latest'', or bare ''latest''). Evaluated by finos-aigf/model-version-pinned.',
+ 6, 'finos-aigf', 'model-version-pinned'),
+('c0000000-0000-0000-0000-000000000031', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-012 Caller authentication and RBAC enforced',
+ 'Callers must authenticate (agent.access.authentication_required is true) and role-based authorisation is enforced (agent.access.rbac_enforced is true). Evaluated by finos-aigf/user-authn-and-rbac-enforced.',
+ 7, 'finos-aigf', 'user-authn-and-rbac-enforced'),
+('c0000000-0000-0000-0000-000000000032', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-014 All persistent AI data stores encrypted at rest',
+ 'Every entry of agent.data.persistent_stores has encrypted_at_rest true. An empty list (the agent persists nothing) passes; an absent or non-list field fails. Evaluated by finos-aigf/ai-data-encrypted-at-rest.',
+ 8, 'finos-aigf', 'ai-data-encrypted-at-rest'),
+('c0000000-0000-0000-0000-000000000033', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-018 Tool grants are explicitly scoped, no wildcards',
+ 'Every entry of agent.tools declares a non-empty scopes list of non-empty strings, none ending in ''*'' (no ''*'' or prefix wildcards). An empty tools list passes; an absent or non-list field fails. Evaluated by finos-aigf/tool-grants-least-privilege.',
+ 9, 'finos-aigf', 'tool-grants-least-privilege'),
+('c0000000-0000-0000-0000-000000000034', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-020 Only allow-listed MCP servers connected',
+ 'Every entry of agent.mcp_servers has allowlisted true. An empty list (no MCP servers) passes; an absent or non-list field fails. Evaluated by finos-aigf/mcp-servers-allowlisted.',
+ 10, 'finos-aigf', 'mcp-servers-allowlisted'),
+('c0000000-0000-0000-0000-000000000035', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-023 No long-lived credentials exposed to the agent',
+ 'agent.credentials.long_lived_secrets_exposed is boolean false. Absent or non-boolean fails: lack of a finding is not evidence of protection. Evaluated by finos-aigf/no-long-lived-credentials-exposed.',
+ 11, 'finos-aigf', 'no-long-lived-credentials-exposed'),
+('c0000000-0000-0000-0000-000000000036', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-PREV-024 High-impact tools gated by human approval',
+ 'Every entry of agent.tools either declares impact ''low'' or ''medium'', or has requires_human_approval true. Tools with impact ''high'' or no impact classification are treated as high (fail-closed). Not applicable, and passes, when every tool is low/medium or the list is empty; an absent or non-list field fails. Evaluated by finos-aigf/high-impact-actions-human-approved.',
+ 12, 'finos-aigf', 'high-impact-actions-human-approved'),
+('c0000000-0000-0000-0000-000000000037', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-004 Agent interaction audit logging enabled',
+ 'agent.observability.audit_logging is true. Evaluated by finos-aigf/ai-interaction-audit-logging.',
+ 13, 'finos-aigf', 'ai-interaction-audit-logging'),
+('c0000000-0000-0000-0000-000000000038', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-009 Spend budget and alerting configured',
+ 'agent.cost_controls.budget_limit is a JSON number > 0 and agent.cost_controls.spend_alerting is true. Evaluated by finos-aigf/spend-budget-alerting-configured.',
+ 14, 'finos-aigf', 'spend-budget-alerting-configured'),
+('c0000000-0000-0000-0000-000000000026', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-021 Decision explainability and reasoning trace',
+ 'Requires recorded reasoning traces and explainability metadata for compliance auditing (agent.governance.decision_explainability is true). Evaluated by finos-aigf/decision-explainability-metadata.',
+ 15, 'finos-aigf', 'decision-explainability-metadata'),
+('c0000000-0000-0000-0000-000000000039', 'tenant-demo', 'f0000000-0000-0000-0000-000000000004',
+ 'AIR-DET-021 Decision audit log is tamper-evident',
+ 'agent.governance.audit_log_tamper_evident is true (cryptographic integrity protection on the decision log). Evaluated by finos-aigf/decision-audit-tamper-evident.',
+ 16, 'finos-aigf', 'decision-audit-tamper-evident')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    control_order = EXCLUDED.control_order,
+    policy_framework_id = EXCLUDED.policy_framework_id,
+    policy_check_id = EXCLUDED.policy_check_id;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Agent Compliance Results (30 = 5 agents x 6 controls)

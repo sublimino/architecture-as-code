@@ -1,0 +1,13 @@
+{
+  "name": "resource-limits-set--empty-object",
+  "level": "unit",
+  "description": "object is {} (no pod spec supplied): fails closed instead of erroring.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "resource-limits-set": "fail"
+  }
+}

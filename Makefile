@@ -3594,10 +3594,18 @@ verify-cel-mutation-proof: ## Prove verify-cel-selftest is not decoration: delet
 #
 # Divergences are failures unless individually justified in oracleExceptions,
 # and an exception that stops diverging fails as stale. ~2s, no cluster.
+#
+# Coverage is every pack that reads a workload object, not just CIS:
+# psa_oracle_test.go owns cis-kubernetes/v1.8, allpacks_test.go owns eu-ai-act
+# v1.0/v2.0/v2.1 and nist-800-53 v1.0/v2.0/v2.1 (apkExceptions, same interlock).
+# cra, dora, finos-aigf and nis2 are out of scope because no check in them
+# references object or manifest and no fixture is pod-shaped — re-derived from
+# the policy tree on every run by TestAllPacks_ScopeIsMeasuredNotAsserted, so a
+# pack that grows an object-reading check fails until it is brought in or declared.
 .PHONY: verify-cel-oracle
-verify-cel-oracle: ## Hold the CIS pack against upstream Pod Security Admission (external oracle, no cluster).
+verify-cel-oracle: ## Hold every object-reading pack against upstream Pod Security Admission (external oracle, no cluster).
 	@command -v go >/dev/null || { echo "verify-cel-oracle: go not on PATH"; exit 127; }
-	@echo "==> verify-cel-oracle: CIS pack vs k8s.io/pod-security-admission"
+	@echo "==> verify-cel-oracle: CIS + eu-ai-act + nist-800-53 packs vs k8s.io/pod-security-admission"
 	@cd d2-signalloom/apps/policy-engine/oracle && \
 	  { [ -z "$$(gofmt -l .)" ] || { echo "gofmt: $$(gofmt -l .)"; exit 1; }; } && \
 	  go vet ./... && go test ./... -count=1
@@ -3606,5 +3614,5 @@ verify-cel-oracle: ## Hold the CIS pack against upstream Pod Security Admission 
 .PHONY: verify-cel-oracle-report
 verify-cel-oracle-report: ## Print every pack/PSA divergence, including the ones recorded as accepted.
 	@cd d2-signalloom/apps/policy-engine/oracle && \
-	  go test -count=1 -v -run 'TestPSAOracle_PackAgreesWithPodSecurityAdmission' ./... \
-	  | grep -E 'cases:|divergence:|skipped:|UNEXCUSED|STALE' || true
+	  go test -count=1 -v -run 'TestPSAOracle_PackAgreesWithPodSecurityAdmission|TestAllPacks_AgreeWithPodSecurityAdmission' ./... \
+	  | grep -E 'cases:|divergence:|skipped:|UNEXCUSED|STALE|groups:' || true

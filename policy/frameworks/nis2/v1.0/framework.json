@@ -2,15 +2,18 @@
   "id": "nis2",
   "name": "Network and Information Systems Directive (NIS2)",
   "version": "v1.0.0",
+  "description": "Directive (EU) 2022/2555 (NIS 2), OJ L 333/80, 27.12.2022. Placeholder pack: nothing in it is evaluated. See README.md. NIS2 is a Directive and has no direct effect on entities: the binding obligations are those of each Member State's transposing law, so a finding labelled 'NIS2' is a claim about 27 national regimes. Citations are anchored by cra/catalogue/anchor-test.sh.",
   "status": "placeholder",
   "controlSets": [
     {
       "id": "nis2-cybersecurity",
       "name": "NIS2: Cybersecurity Risk Management",
+      "description": "Article 21 'Cybersecurity risk-management measures', which Member States must impose on essential and important entities. CITES: Article 21",
       "controls": [
         {
           "id": "NIS2-1.0",
           "name": "NIS2-1.0 Cybersecurity Risk Management Measures",
+          "description": "Article 21(2)(d) requires measures covering 'supply chain security, including security-related aspects concerning the relationships between each entity and its direct suppliers or service providers', informed by the coordinated risk assessments of Article 22(1). This control is a placeholder: it asserts nothing about those measures and is never evaluated. CITES: Article 21(2)(d); Article 22(1)",
           "checks": [
             {
               "id": "nis2-supply-chain-risk",

@@ -1,0 +1,13 @@
+{
+  "name": "sbom-verified-provenance--no-agent-context",
+  "level": "unit",
+  "description": "agent is {}: fails, not errors.",
+  "input": {
+    "object": {},
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sbom-verified-provenance": "fail"
+  }
+}

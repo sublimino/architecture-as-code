@@ -58,8 +58,8 @@ func fixtureScanMismatches(t *testing.T, tr scanTransport, packs []*conformanceP
 	var problems []string
 	scanned := 0
 
-	// A scan evaluates every version of a framework; results are attributed to
-	// a pack by frameworkVersion, which must therefore be unique per framework.
+	// A scan selects one pack by version (policyVersion == pack version), so a
+	// pack version must be unique per framework or the selection is ambiguous.
 	versionOwner := map[string]string{}
 	for _, p := range packs {
 		key := p.fw.ID + "@" + p.fw.Version
@@ -73,12 +73,15 @@ func fixtureScanMismatches(t *testing.T, tr scanTransport, packs []*conformanceP
 		for _, f := range p.fixtures {
 			scanned++
 			where := p.label() + "/" + f.Name
+			// policyVersion = the pack's own version selects exactly this
+			// pack's directory (one directory per framework per scan).
 			body, err := json.Marshal(map[string]any{
-				"namespace":  "conformance",
-				"frameworks": []string{p.fw.ID},
-				"object":     f.Input.Object,
-				"agent":      f.Input.Agent,
-				"request":    f.Input.Request,
+				"namespace":     "conformance",
+				"frameworks":    []string{p.fw.ID},
+				"policyVersion": p.fw.Version,
+				"object":        f.Input.Object,
+				"agent":         f.Input.Agent,
+				"request":       f.Input.Request,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -94,11 +97,18 @@ func fixtureScanMismatches(t *testing.T, tr scanTransport, packs []*conformanceP
 			var exposure float64
 			for _, r := range results {
 				tally[r.Status]++
-				if r.Status != VerdictPass {
+				if r.Status == VerdictFail || r.Status == VerdictError {
 					exposure += r.CarriedGBP
 				}
-				if r.Framework == p.fw.ID && r.FrameworkVersion == p.fw.Version {
-					got[r.Check] = append(got[r.Check], r)
+				if r.Framework != p.fw.ID || r.FrameworkVersion != p.fw.Version {
+					problems = append(problems, fmt.Sprintf("%s: check %q from %s@%s, want only %s@%s", where, r.Check, r.Framework, r.FrameworkVersion, p.fw.ID, p.fw.Version))
+					continue
+				}
+				got[r.Check] = append(got[r.Check], r)
+			}
+			for id, rs := range got {
+				if len(rs) > 1 {
+					problems = append(problems, fmt.Sprintf("%s: check %q reported %d times", where, id, len(rs)))
 				}
 			}
 			for _, id := range sortedKeys(f.Expect) {
@@ -122,13 +132,13 @@ func fixtureScanMismatches(t *testing.T, tr scanTransport, packs []*conformanceP
 				problems = append(problems, fmt.Sprintf("%s: %v", where, err))
 				continue
 			}
-			if s.TotalControls != len(results) || s.Passed != tally[VerdictPass] || s.Failed != tally[VerdictFail] || s.Errored != tally[VerdictError] {
-				problems = append(problems, fmt.Sprintf("%s: summary total/passed/failed/errored = %d/%d/%d/%d, scan tally = %d/%d/%d/%d",
-					where, s.TotalControls, s.Passed, s.Failed, s.Errored,
-					len(results), tally[VerdictPass], tally[VerdictFail], tally[VerdictError]))
+			if s.TotalControls != len(results) || s.Passed != tally[VerdictPass] || s.Failed != tally[VerdictFail] || s.Errored != tally[VerdictError] || s.NotEvaluated != tally[VerdictNotEvaluated] {
+				problems = append(problems, fmt.Sprintf("%s: summary total/passed/failed/errored/notEvaluated = %d/%d/%d/%d/%d, scan tally = %d/%d/%d/%d/%d",
+					where, s.TotalControls, s.Passed, s.Failed, s.Errored, s.NotEvaluated,
+					len(results), tally[VerdictPass], tally[VerdictFail], tally[VerdictError], tally[VerdictNotEvaluated]))
 			}
 			if math.Abs(s.TotalExposure-exposure) > 0.01*float64(len(results)+1) {
-				problems = append(problems, fmt.Sprintf("%s: summary exposure %.2f, scan non-pass carried %.2f", where, s.TotalExposure, exposure))
+				problems = append(problems, fmt.Sprintf("%s: summary exposure %.2f, scan fail+error carried %.2f", where, s.TotalExposure, exposure))
 			}
 		}
 	}
@@ -165,18 +175,19 @@ func TestScanIntegration_ConformanceFixtures(t *testing.T) {
 func throwawayRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	controls := func(registeredExpr string) []frameworks.ControlSet {
+	controls := func(version, registeredExpr string) []frameworks.ControlSet {
+		tag := func(c frameworks.Check) frameworks.Check { c.PolicyVersions = []string{version}; return c }
 		return []frameworks.ControlSet{{ID: "CS", Name: "Set", Controls: []frameworks.Control{
-			{ID: "TA-1", Name: "Registered", Checks: []frameworks.Check{packCheck("agent-registered", registeredExpr)}},
-			{ID: "TA-2", Name: "Non-root", Checks: []frameworks.Check{packCheck("object-non-root", "object.spec.securityContext.runAsNonRoot == true")}},
+			{ID: "TA-1", Name: "Registered", Checks: []frameworks.Check{tag(packCheck("agent-registered", registeredExpr))}},
+			{ID: "TA-2", Name: "Non-root", Checks: []frameworks.Check{tag(packCheck("object-non-root", "object.spec.securityContext.runAsNonRoot == true"))}},
 		}}}
 	}
 	writePack(t, root, "throwaway", "v1.0", frameworks.Framework{ID: "throwaway", Version: "v1.0.0",
-		ControlSets: controls("has(agent.registry) && agent.registry.model_registered == true")})
-	// v2.0 inverts the check: if results were not attributed by version, the
-	// v1.0 fixtures would see these verdicts too.
+		ControlSets: controls("v1.0.0", "has(agent.registry) && agent.registry.model_registered == true")})
+	// v2.0 inverts the check and is the newest: if the scan did not select the
+	// v1.0 directory, the v1.0 fixtures would see these verdicts.
 	writePack(t, root, "throwaway", "v2.0", frameworks.Framework{ID: "throwaway", Version: "v2.0.0",
-		ControlSets: controls("!(has(agent.registry) && agent.registry.model_registered == true)")})
+		ControlSets: controls("v2.0.0", "!(has(agent.registry) && agent.registry.model_registered == true)")})
 
 	nonRoot := map[string]any{"spec": map[string]any{"securityContext": map[string]any{"runAsNonRoot": true}}}
 	registered := map[string]any{"registry": map[string]any{"model_registered": true}}

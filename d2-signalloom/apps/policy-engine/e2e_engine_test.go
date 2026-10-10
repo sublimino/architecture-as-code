@@ -204,7 +204,7 @@ func TestE2E_EngineBinary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.TotalControls != len(results) || s.Passed != tally[VerdictPass] || s.Failed != tally[VerdictFail] || s.Errored != tally[VerdictError] {
+		if s.TotalControls != len(results) || s.Passed != tally[VerdictPass] || s.Failed != tally[VerdictFail] || s.Errored != tally[VerdictError] || s.NotEvaluated != tally[VerdictNotEvaluated] {
 			t.Errorf("summary %d/%d/%d/%d does not reflect the finos-aigf scan %d/%d/%d/%d",
 				s.TotalControls, s.Passed, s.Failed, s.Errored, len(results), tally[VerdictPass], tally[VerdictFail], tally[VerdictError])
 		}

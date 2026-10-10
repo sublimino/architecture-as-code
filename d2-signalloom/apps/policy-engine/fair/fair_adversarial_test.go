@@ -57,25 +57,29 @@ func TestRiskTripleValidateRejectsInfinity(t *testing.T) {
 //
 // THE DEFECT. Every SelfCheck comparison uses >=, <, etc. All of these are false when either
 // operand is NaN. So a result with ALE=NaN passes every check:
-//   !(NaN >= NaN) → !(false) → true... but wait, the check is `if !(r.TVaR >= r.VaR95)`.
-//   Actually if TVaR=NaN, VaR95=NaN: !(NaN >= NaN) → !(false) → true, so it DOES error.
-//   But if only ALE=NaN and TVaR/VaR95 are finite: every check involving ALE uses `r.ALE < 0`
-//   which is false for NaN, so the negativity check passes. And `r.TVaR >= r.ALE` is
-//   !(NaN >= finite) → !(false) which would fail... actually let me trace through.
+//
+//	!(NaN >= NaN) → !(false) → true... but wait, the check is `if !(r.TVaR >= r.VaR95)`.
+//	Actually if TVaR=NaN, VaR95=NaN: !(NaN >= NaN) → !(false) → true, so it DOES error.
+//	But if only ALE=NaN and TVaR/VaR95 are finite: every check involving ALE uses `r.ALE < 0`
+//	which is false for NaN, so the negativity check passes. And `r.TVaR >= r.ALE` is
+//	!(NaN >= finite) → !(false) which would fail... actually let me trace through.
 //
 // For ALE=NaN, VaR95=0, TVaR=0, Carried=0:
-//   !(TVaR >= VaR95) → !(0 >= 0) → false → no error
-//   !(TVaR >= ALE) → !(0 >= NaN) → !(false) → true → ERROR "TVaR < ALE"
+//
+//	!(TVaR >= VaR95) → !(0 >= 0) → false → no error
+//	!(TVaR >= ALE) → !(0 >= NaN) → !(false) → true → ERROR "TVaR < ALE"
 //
 // OK so SelfCheck does catch some NaN cases through the ordering comparisons. But the
 // negativity check at the end uses `r.ALE < 0` which is false for NaN, so that check is
 // bypassed.
 //
 // A more direct test: if Carried=NaN but everything else is zero:
-//   !(TVaR >= VaR95) → !(0 >= 0) → false → pass
-//   !(TVaR >= ALE) → !(0 >= 0) → false → pass
-//   Carried < TVaR → NaN < 0 → false → pass
-//   ALE < 0 → false, VaR95 < 0 → false, TVaR < 0 → false → pass
+//
+//	!(TVaR >= VaR95) → !(0 >= 0) → false → pass
+//	!(TVaR >= ALE) → !(0 >= 0) → false → pass
+//	Carried < TVaR → NaN < 0 → false → pass
+//	ALE < 0 → false, VaR95 < 0 → false, TVaR < 0 → false → pass
+//
 // So Carried=NaN passes SelfCheck completely silently.
 func TestSelfCheckCatchesNaN(t *testing.T) {
 	for _, tc := range []struct {

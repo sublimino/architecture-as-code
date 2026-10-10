@@ -1108,8 +1108,12 @@ class PolicyComplianceCheck(BaseModel):
     carried: MoneyResponse | None = None
     # The denomination of ale / var95 / tvar / carriedGbp above.
     currency: str | None = None
-    scanTimestamp: str
-    calibrationSource: str
+    # Both are the engine's own, reported or absent. Null rather than a stand-in:
+    # a defaulted ``calibrationSource`` asserted a calibration provenance the
+    # engine never reported, and a defaulted ``scanTimestamp`` asserted it had
+    # just looked. Consumers must render "unknown", not fill one in.
+    scanTimestamp: str | None = None
+    calibrationSource: str | None = None
     # The agent this verdict is about. Each agent is scanned with its own subject.
     agentId: str | None = None
     agentName: str | None = None
@@ -7087,7 +7091,10 @@ def _policy_scan_summary(
         totalCarriedGbp=total_carried,
         carried=MoneyResponse(amount=total_carried, currency=REPORTING_CURRENCY),
         currency=REPORTING_CURRENCY,
-        scanTimestamp=max((check.scanTimestamp for check in checks), default=_now_iso()),
+        # The latest time any check reports, or -- when none reports one -- this
+        # response's own time. Never a time attributed to a check that had none.
+        scanTimestamp=max((check.scanTimestamp for check in checks if check.scanTimestamp),
+                          default=_now_iso()),
         frameworks=frameworks,
     )
 
@@ -7274,7 +7281,11 @@ async def _db_policy_scan(
                             controlId=str(control_id), stored="pending", reason="no_workload",
                         ))
                 for item in results:
-                    verdict = policy_scan.verdict_of(item)
+                    # M2: a result this API cannot read is one errored check with
+                    # a reason -- not a defaulted figure, and not a 500 that takes
+                    # the whole tenant's scan down with it.
+                    defect = policy_scan.defect_of(item)
+                    verdict = "error" if defect else policy_scan.verdict_of(item)
                     framework = str(item.get("framework", ""))
                     check_id = str(item.get("check", ""))
                     result_version = str(item.get("policyVersion") or request.policyVersion)
@@ -7289,8 +7300,13 @@ async def _db_policy_scan(
                             policy_scan.evidence_ref(framework, check_id, result_version),
                         )
                     # Integer pounds: the engine reports pounds at pence precision (e.g. 1234.57),
-                    # and these response fields are int.
-                    carried_gbp = round(float(item.get("carriedGbp", 0.0)))
+                    # and these response fields are int. A defective result has no
+                    # figure at all; it reports 0 under an ``error`` status, which is
+                    # what says the zero is an absence rather than a measurement.
+                    ale, var95, tvar, carried_gbp = (
+                        round(policy_scan.money_of(item, field) or 0.0)
+                        for field in policy_scan.MONEY_FIELDS
+                    )
                     checks.append(
                         PolicyComplianceCheck(
                             framework=framework,
@@ -7299,18 +7315,18 @@ async def _db_policy_scan(
                             check=check_id,
                             passed=verdict == "pass",
                             policyVersion=result_version,
-                            ale=round(float(item.get("ale", 0.0))),
-                            var95=round(float(item.get("var95", 0.0))),
-                            tvar=round(float(item.get("tvar", 0.0))),
+                            ale=ale,
+                            var95=var95,
+                            tvar=tvar,
                             carriedGbp=carried_gbp,
                             carried=MoneyResponse(amount=carried_gbp, currency=REPORTING_CURRENCY),
                             currency=REPORTING_CURRENCY,
-                            scanTimestamp=str(item.get("scanTimestamp") or _now_iso()),
-                            calibrationSource=str(item.get("calibrationSource") or "industry-indicative"),
+                            scanTimestamp=policy_scan.text_of(item, "scanTimestamp"),
+                            calibrationSource=policy_scan.text_of(item, "calibrationSource"),
                             agentId=str(agent_row["id"]),
                             agentName=agent_row["name"],
                             status=verdict,
-                            error=item.get("error") if verdict == "error" else None,
+                            error=defect or (item.get("error") if verdict == "error" else None),
                             controlId=str(control_id) if control_id is not None else None,
                         )
                     )

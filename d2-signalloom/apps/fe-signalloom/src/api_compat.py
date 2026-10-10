@@ -7106,7 +7106,8 @@ async def _db_policy_scan(
     """
     async with _read(pool) as conn:
         control_rows = await conn.fetch(
-            """SELECT c.id AS control_id, c.policy_framework_id, c.policy_check_id
+            """SELECT c.id AS control_id, c.policy_framework_id, c.policy_check_id,
+                      f.version AS framework_version
                FROM governance_controls c
                JOIN governance_frameworks f ON c.framework_id = f.id
                WHERE c.tenant_id = $1
@@ -7134,6 +7135,18 @@ async def _db_policy_scan(
         for row in control_rows
     }
     frameworks = list(request.frameworks) or sorted({framework for framework, _ in control_for})
+    # The engine evaluates only checks listed for the request's policyVersion,
+    # and each pack is activated at its own version (governance_frameworks.version),
+    # so an agent gets one call per distinct pack version. A requested pack the
+    # tenant has not mapped is asked about at the caller's policyVersion.
+    pack_version = {
+        row["policy_framework_id"]: row["framework_version"]
+        for row in control_rows
+        if row["framework_version"]
+    }
+    calls: dict[str, list[str]] = {}
+    for framework in frameworks:
+        calls.setdefault(pack_version.get(framework, request.policyVersion), []).append(framework)
 
     policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
     scan_url = f"{policy_engine_url}/api/v1/compliance/scan"
@@ -7147,14 +7160,24 @@ async def _db_policy_scan(
     if frameworks and agent_rows:
         async with httpx.AsyncClient(timeout=10.0) as client:
             for agent_row in agent_rows:
-                body = policy_scan.scan_request_body(
-                    namespace=request.namespace,
-                    policy_version=request.policyVersion,
-                    frameworks=frameworks,
-                    obj=policy_scan.build_agent_object(agent_row),
-                    agent=policy_scan.build_agent_policy_context(agent_row),
-                )
-                results = await _scan_one_agent(client, scan_url, tenant_id, body)
+                obj = policy_scan.build_agent_object(agent_row)
+                agent_context = policy_scan.build_agent_policy_context(agent_row)
+                results: list[dict[str, Any]] | None = []
+                for version, version_frameworks in calls.items():
+                    body = policy_scan.scan_request_body(
+                        namespace=request.namespace,
+                        policy_version=version,
+                        frameworks=version_frameworks,
+                        obj=obj,
+                        agent=agent_context,
+                    )
+                    answer = await _scan_one_agent(client, scan_url, tenant_id, body)
+                    if answer is None:
+                        # No partial reconcile: half an assessment would read
+                        # as a complete one.
+                        results = None
+                        break
+                    results.extend(answer)
                 if results is None:
                     agents_failed.append(str(agent_row["id"]))
                     continue

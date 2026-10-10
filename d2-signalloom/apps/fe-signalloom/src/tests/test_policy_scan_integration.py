@@ -58,8 +58,13 @@ CIS = [
     "security-context-applied", "no-default-namespace",
 ]
 AIGF = [
-    "registered-model-registry-entry", "prompt-injection-guardrail-active",
-    "decision-explainability-metadata",
+    "rag-ingestion-sensitive-data-filtered", "prompt-injection-guardrail-active",
+    "output-leakage-filter-active", "inference-rate-limit-configured",
+    "registered-model-registry-entry", "model-version-pinned", "user-authn-and-rbac-enforced",
+    "ai-data-encrypted-at-rest", "tool-grants-least-privilege", "mcp-servers-allowlisted",
+    "no-long-lived-credentials-exposed", "high-impact-actions-human-approved",
+    "ai-interaction-audit-logging", "spend-budget-alerting-configured",
+    "decision-explainability-metadata", "decision-audit-tamper-evident",
 ]
 
 LANCELOT = uuid.UUID("a0000000-0000-0000-0000-000000000001")
@@ -77,11 +82,11 @@ def pod(name: str) -> dict[str, Any]:
 #: What the (mocked) engine answers for each agent, keyed by the workload name
 #: the scan sent.  None = the agent has no workload on record.
 VERDICTS: dict[str | None, dict[str, str]] = {
-    "lancelot": {**{c: "pass" for c in CIS}, "no-privileged-containers": "fail",
+    "lancelot": {**{c: "pass" for c in CIS}, **{c: "pass" for c in AIGF}, "no-privileged-containers": "fail",
                  "no-default-namespace": "fail",
                  "registered-model-registry-entry": "pass", "prompt-injection-guardrail-active": "pass",
                  "decision-explainability-metadata": "fail"},
-    "dennis": {**{c: "fail" for c in CIS}, "sa-token-automount-disabled": "pass",
+    "dennis": {**{c: "fail" for c in CIS}, **{c: "fail" for c in AIGF}, "sa-token-automount-disabled": "pass",
                "registered-model-registry-entry": "pass", "prompt-injection-guardrail-active": "error",
                "decision-explainability-metadata": "fail"},
     "black-knight": {**{c: ("pass" if i < 5 else "fail") for i, c in enumerate(CIS)},
@@ -138,10 +143,10 @@ def engine_answer(request: httpx.Request) -> httpx.Response:
             status = verdicts[check]
             out.append({
                 "framework": framework, "controlSet": "set", "control": check, "check": check,
-                "checkName": check, "controlId": check, "frameworkVersion": "v1.0.0",
+                "checkName": check, "controlId": check, "frameworkVersion": body["policyVersion"],
                 "passed": status == "pass", "status": status,
                 **({"error": "no such key"} if status == "error" else {}),
-                "policyVersion": "v1.0.0", "ale": 0.0, "var95": 0.0, "tvar": 0.0, "carriedGbp": 0.0,
+                "policyVersion": body["policyVersion"], "ale": 0.0, "var95": 0.0, "tvar": 0.0, "carriedGbp": 0.0,
                 "scanTimestamp": "2026-10-10T12:00:00Z", "calibrationSource": "industry-indicative",
             })
     return httpx.Response(200, json=out)
@@ -160,7 +165,7 @@ async def test_seed_maps_every_cis_and_aigf_check_to_one_control(seeded_pool):
     counts = {r["name"]: r["control_count"] for r in await seeded_pool.fetch(
         "SELECT name, control_count FROM governance_frameworks WHERE tenant_id = $1", TENANT)}
     assert counts["CIS Kubernetes Benchmark"] == 17
-    assert counts["FINOS AI Governance Framework"] == 3
+    assert counts["FINOS AI Governance Framework"] == 16
 
 
 @pytest.mark.asyncio
@@ -212,7 +217,7 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
             assert resp.status_code == 200, resp.text
             assert resp.json()["engineInvoked"] is True
             assert resp.json()["agentsScanned"] == 5
-            assert route.call_count == 5
+            assert route.call_count == 10  # five agents x two pack versions
 
             # The agent context each agent was scanned with came from ITS row.
             sent = {json.loads(c.request.content).get("object", {}).get("metadata", {}).get("name"):
@@ -264,4 +269,4 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     new = Counter(VERDICTS[w][c] for w in WORKLOAD.values() for c in CIS + AIGF)
     assert (detail["controls_assessed"], detail["controls_passed"], detail["controls_failed"],
             detail["controls_errored"], detail["agents_scanned"]) == (
-        5 * 20, new["pass"], new["fail"], new["error"], 5)
+        5 * (len(CIS) + len(AIGF)), new["pass"], new["fail"], new["error"], 5)

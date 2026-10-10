@@ -2,15 +2,18 @@
   "id": "dora",
   "name": "Digital Operational Resilience Act (DORA)",
   "version": "v1.0.0",
+  "description": "Regulation (EU) 2022/2554 (DORA), OJ L 333/1, 27.12.2022. Placeholder pack: nothing in it is evaluated. See README.md. Citations are anchored by cra/catalogue/anchor-test.sh.",
   "status": "placeholder",
   "controlSets": [
     {
       "id": "dora-resilience",
       "name": "DORA: ICT Risk Management",
+      "description": "Chapter II of DORA, 'ICT risk management', which binds financial entities. CITES: Article 5; Article 6",
       "controls": [
         {
           "id": "DORA-1.0",
           "name": "DORA-1.0 ICT Risk Management Framework",
+          "description": "Article 6 'ICT risk management framework' requires a financial entity to have 'a sound, comprehensive and well-documented ICT risk management framework'. This control is a placeholder: it asserts nothing about that obligation and is never evaluated. CITES: Article 6",
           "checks": [
             {
               "id": "dora-ict-risk-management",

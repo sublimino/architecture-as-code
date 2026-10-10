@@ -264,11 +264,18 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     counts = Counter(expected.values())
     assert summary["controls_passing"] == counts["pass"]
     assert summary["controls_failing"] == counts["fail"]
-    # error is neither pass nor fail; this contract folds it into pending.
-    assert summary["controls_pending"] == len(expected) - counts["pass"] - counts["fail"]
+    # M4: error is neither pass, fail nor pending. It used to be counted as
+    # pending, which read as "not assessed yet" for a control the engine tried
+    # and could not judge. It has its own count, and is in neither of the
+    # others -- while staying in total_controls and the posture denominator.
+    assert counts["error"] > 0, "this fixture must exercise an errored control"
+    assert summary["controls_errored"] == counts["error"]
+    assert summary["controls_pending"] == (
+        len(expected) - counts["pass"] - counts["fail"] - counts["error"])
+    assert summary["posture_score"] == round(counts["pass"] / len(expected), 2)
 
-    assert (policy["totalChecks"], policy["passed"], policy["failed"]) == (
-        len(expected), counts["pass"], counts["fail"])
+    assert (policy["totalChecks"], policy["passed"], policy["failed"], policy["errored"]) == (
+        len(expected), counts["pass"], counts["fail"], counts["error"])
     frameworks = {f["name"]: f for f in policy["frameworks"]}
     for name, checks in (("CIS Kubernetes Benchmark", CIS), ("FINOS AI Governance Framework", AIGF)):
         per_control = {c: [expected[(a, control_of[c])] for a in WORKLOAD] for c in checks}

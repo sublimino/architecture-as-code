@@ -118,6 +118,11 @@ class ComplianceSummaryInline(BaseModel):
     passing: int
     failing: int
     pending: int
+    #: Controls whose assessment could not evaluate. Folded into ``pending``
+    #: until now, which read as "not assessed yet" for a control the engine
+    #: tried and failed to judge. Additive: counted in ``total_controls``, and
+    #: no longer in ``pending``.
+    errored: int = 0
     posture_score: float | None
 
 
@@ -241,6 +246,9 @@ class AssessmentSummaryMetadata(BaseModel):
     passed_controls: int = 0
     failed_controls: int = 0
     pending_controls: int = 0
+    #: Controls the assessment could not evaluate. Additive, and the reason
+    #: pending_controls no longer silently carries them.
+    errored_controls: int = 0
     normalized_score: float | None = None
 
 
@@ -1009,6 +1017,10 @@ class ComplianceSummaryResponse(BaseModel):
     controls_passing: int
     controls_failing: int
     controls_pending: int
+    #: Controls whose assessment could not evaluate; see
+    #: ``ComplianceSummaryInline.errored``. Additive and excluded from
+    #: ``controls_pending``.
+    controls_errored: int = 0
     posture_score: float | None
 
 
@@ -2360,20 +2372,29 @@ async def _compliance_summary_for_agent(
     passing = 0
     failing = 0
     pending = 0
+    errored = 0
     for row in rows:
         total += row["cnt"]
         if row["status"] == "pass":
             passing += row["cnt"]
         elif row["status"] == "fail":
             failing += row["cnt"]
+        elif row["status"] == "error":
+            errored += row["cnt"]
         else:
             pending += row["cnt"]
+    # Errored controls stay in the denominator, alongside pending. They are
+    # unassessed, and dropping them would raise the posture score of an agent
+    # the engine could not judge -- the one direction a posture figure must
+    # never move on its own. The score is "controls known to pass, of all
+    # controls", which is why it is not a pass rate over assessments.
     posture_score = round(passing / total, 2) if total > 0 else None
     return ComplianceSummaryInline(
         total_controls=total,
         passing=passing,
         failing=failing,
         pending=pending,
+        errored=errored,
         posture_score=posture_score,
     )
 
@@ -2726,10 +2747,13 @@ def _agent_response_from_row(
         passed_controls=compliance.passing,
         failed_controls=compliance.failing,
         pending_controls=compliance.pending,
+        errored_controls=compliance.errored,
         normalized_score=normalized_score,
     )
 
-    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or raw_lifecycle_state in ("error", "failed")) else ("warning" if compliance.pending > 0 else "none")
+    # An errored control warrants the same attention as a pending one: in both
+    # cases nobody knows whether the agent complies.
+    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or raw_lifecycle_state in ("error", "failed")) else ("warning" if (compliance.pending > 0 or compliance.errored > 0) else "none")
     attention = AttentionMetadata(
         level=attention_level,
         highest_issue=f"{compliance.failing} failing controls" if compliance.failing > 0 else None,
@@ -6737,7 +6761,10 @@ async def compliance_summary(
                           WHERE r.tenant_id = $1 AND r.status = 'fail'), 0) AS controls_failing,
                COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
-                          WHERE r.tenant_id = $1 AND r.status NOT IN ('pass', 'fail')), 0) AS controls_pending,
+                          WHERE r.tenant_id = $1 AND r.status = 'error'), 0) AS controls_errored,
+               COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
+                         JOIN agent_registry a ON r.agent_id = a.id
+                          WHERE r.tenant_id = $1 AND r.status NOT IN ('pass', 'fail', 'error')), 0) AS controls_pending,
                COALESCE((SELECT COUNT(DISTINCT r.agent_id)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
                          WHERE r.tenant_id = $1), 0) AS agents_assessed
@@ -6748,7 +6775,9 @@ async def compliance_summary(
     passing = row["controls_passing"]
     failing = row["controls_failing"]
     pending = row["controls_pending"]
-    total_controls = passing + failing + pending
+    errored = row["controls_errored"]
+    # Errored controls stay in the denominator; see _compliance_summary_for_agent.
+    total_controls = passing + failing + pending + errored
     posture_score = round(passing / total_controls, 2) if total_controls > 0 else None
     return ComplianceSummaryResponse(
         total_agents=total_agents,
@@ -6756,6 +6785,7 @@ async def compliance_summary(
         controls_passing=passing,
         controls_failing=failing,
         controls_pending=pending,
+        controls_errored=errored,
         posture_score=posture_score,
     )
 
@@ -7493,13 +7523,13 @@ async def policy_compliance_summary(
         if result.assessed_at is not None
     ]
     return PolicySummaryResponse(
-        totalChecks=summary.controls_passing + summary.controls_failing + summary.controls_pending,
+        totalChecks=(summary.controls_passing + summary.controls_failing
+                     + summary.controls_pending + summary.controls_errored),
         passed=summary.controls_passing,
         failed=summary.controls_failing,
-        # Counted inside controls_pending above (that contract has no error bucket).
-        errored=sum(
-            result.status == "error" for agent in posture.agents for result in agent.results
-        ),
+        # Counted by the same query as the rest, rather than recounted from the
+        # posture rows: the two disagreed whenever the posture read lagged.
+        errored=summary.controls_errored,
         totalAle=0,
         totalVar95=0,
         totalTvar=0,

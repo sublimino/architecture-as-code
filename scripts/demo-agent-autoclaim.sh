@@ -20,6 +20,7 @@ API_BASE_URL="${API_BASE_URL:-http://localhost:8080}"
 DEMO_USER="${DEMO_DEX_USER:-demo-user@signalloom.local}"
 DEMO_PASSWORD="${DEX_DEMO_PASSWORD:-demo-user}"
 DEX_CLIENT="${DEMO_DEX_CLIENT:-signalloom-dashboard}"
+DEMO_TENANT="${DEMO_TENANT:-tenant-demo}"
 TOKEN_BUDGET_LIMIT="${TOKEN_BUDGET_LIMIT:-250000}"
 RESULT_FILE="${SLAC_DEMO_RESULT_FILE:-/tmp/slac-demo-result.json}"
 WAIT_ATTEMPT_TIMEOUT="${WAIT_ATTEMPT_TIMEOUT:-10}"
@@ -323,14 +324,16 @@ PODS_JSON="$(kubectl get pods -n "${AGENT_NAMESPACE}" \
   -l "signalloom.ai/agent=true" -o json)" || \
   die "failed to enumerate agent pods" "Inspect namespace ${AGENT_NAMESPACE}"
 
-READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
+READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" --arg tenant "${DEMO_TENANT}" '
   [.items[]
    | select(.status.phase == "Running")
    | select((.status.containerStatuses // []) | length > 0)
    | select([.status.containerStatuses[] | .ready] | all)
+   | select($only != "" or ((.metadata.labels["signalloom.ai/tenant"] // "") == $tenant))
    | {
        pod: .metadata.name,
        workload: (if .metadata.labels["app.kubernetes.io/name"] == "signalloom-agent" then (.metadata.labels["signalloom.ai/agent-name"] // .metadata.labels["app.kubernetes.io/instance"] // .metadata.name) else (.metadata.labels["app.kubernetes.io/name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name) end),
+       cohort: (.metadata.labels["signalloom.ai/agent-cohort"] // ""),
        # How discovery names this workload in /api/agents (fake-integration-proxy
        # _agent_from_pod): display annotation, then agent-name label, then pod.
        discovered: ((.metadata.annotations // {})["signalloom.ai/agent-display-name"] // .metadata.labels["signalloom.ai/agent-name"] // .metadata.name),
@@ -339,7 +342,7 @@ READY_WORKLOADS="$(jq -c --arg only "${WORKLOAD}" '
        model: (.metadata.labels["signalloom.ai/model"] // (if $only == "" then "anthropic-claude" else "" end))
      }
    | select($only == "" or .workload == $only)]
-  | sort_by([(.workload != "kagent-k8s-reader"), (.workload != "agent-standard-baseline"), .workload])
+  | sort_by([(.cohort != "ephemeral"), (.workload != "agent-standard-baseline"), .workload])
 ' <<<"${PODS_JSON}")" || die "could not parse Kubernetes workload inventory" "Inspect kubectl pod JSON"
 
 while IFS=$'\t' read -r workload pod service_account harness discovered model; do

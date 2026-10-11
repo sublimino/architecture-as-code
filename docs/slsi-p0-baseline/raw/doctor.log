@@ -1,0 +1,72 @@
+# Command: make doctor
+# Pinned SHA: 504405b9e7e91efdf5c97bcd701b6511f712f6db
+./scripts/cluster-debug.sh
+
+[0;36m━━━ CLUSTER INFO ━━━[0m
+  context: kind-signalloom-hub
+  API server: https://127.0.0.1:34788
+Kubernetes control plane is running at https://127.0.0.1:34788
+CoreDNS is running at https://127.0.0.1:34788/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+  nodes: 1
+
+[0;36m━━━ UNHEALTHY PODS (not Running/Completed) ━━━[0m
+[0;32m  all pods healthy[0m
+
+[0;36m━━━ POD RESTART COUNTS (>2) ━━━[0m
+
+[0;36m━━━ RECENT WARNING EVENTS (last 10 min) ━━━[0m
+NAMESPACE            LAST SEEN   TYPE      REASON             OBJECT                                            MESSAGE
+kube-system          57m         Warning   Unhealthy          pod/kube-scheduler-signalloom-hub-control-plane   Readiness probe failed: HTTP probe failed with statuscode: 500
+kube-system          57m         Warning   FailedScheduling   pod/coredns-589f44dc88-m9w7r                      0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+kube-system          57m         Warning   FailedScheduling   pod/coredns-589f44dc88-t4v66                      0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+local-path-storage   57m         Warning   FailedScheduling   pod/local-path-provisioner-855c7b7774-g8qwz       0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+kube-system          57m         Warning   Unhealthy          pod/coredns-589f44dc88-m9w7r                      Readiness probe failed: HTTP probe failed with statuscode: 503
+kube-system          57m         Warning   Unhealthy          pod/coredns-589f44dc88-t4v66                      Readiness probe failed: Get "http://10.245.0.2:8181/ready": dial tcp 10.245.0.2:8181: connect: connection refused
+kube-system          57m         Warning   Unhealthy          pod/sldc-bridge-dns-797676ff69-94c4j              Readiness probe failed: dial tcp 172.18.0.8:30054: connect: connection refused
+kube-system          57m         Warning   Unhealthy          pod/coredns-75f748f556-99zk7                      Readiness probe failed: Get "http://10.245.0.6:8181/ready": dial tcp 10.245.0.6:8181: connect: connection refused
+kube-system          57m         Warning   Unhealthy          pod/coredns-75f748f556-hzsm7                      Readiness probe failed: HTTP probe failed with statuscode: 503
+
+[0;36m━━━ FLUX KUSTOMIZATIONS ━━━[0m
+  0/0 Ready
+
+[0;36m━━━ FLUX RESOURCESETS ━━━[0m
+
+[0;36m━━━ FLUX ERRORS (non-ready sources) ━━━[0m
+  all sources ready
+
+[0;36m━━━ FLUX BUILD FAILURES (kustomize/patch errors) ━━━[0m
+  no kustomize build failures
+
+[0;36m━━━ EXPECTED RESOURCESETS ━━━[0m
+[0;31m  ✗ resourceset/policies MISSING — the foundation cannot converge[0m
+[0;31m  ✗ resourceset/infra MISSING — the foundation cannot converge[0m
+
+[0;36m━━━ NODE RESOURCES ━━━[0m
+  metrics-server not available
+
+[0;36m━━━ IMAGES (InvalidImageName/ImagePullBackOff) ━━━[0m
+  no image-pull failures
+
+[0;36m━━━ ZOT REGISTRY & CACHE ━━━[0m
+[0;31m  ✗ no zot pod in the registry namespace[0m
+
+[0;36m━━━ PULL-THROUGH REGISTRY MIRROR ━━━[0m
+  5/5 pull-through proxies running
+
+[0;36m━━━ SIGNALLOOM SERVICES ━━━[0m
+  fe-signalloom        0/0 pods running
+  inf-signalloom       0/0 pods running
+  inf-bao              0/0 pods running
+
+[0;36m━━━ SLOWEST WAITS (WAIT_STAT ranking) ━━━[0m
+  no WAIT_STAT_FILE — export WAIT_STAT_FILE before a run to rank slow waits
+
+[0;36m━━━ SUMMARY ━━━[0m
+[0;32m  ✓ Cluster healthy[0m
+
+[0;36m━━━ RECOMMENDED NEXT STEPS ━━━[0m
+  Run these read-only inspections before making a change:
+  - resourceset/policies is absent — see FLUX BUILD FAILURES above; the tenants Kustomization likely failed to build.
+  - resourceset/infra is absent — see FLUX BUILD FAILURES above; the tenants Kustomization likely failed to build.
+  - Deploy the registry: make registry

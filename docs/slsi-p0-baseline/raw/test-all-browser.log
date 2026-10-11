@@ -1,0 +1,12 @@
+# COMMAND: make test-all-browser (sha: 504405b9e7e91efdf5c97bcd701b6511f712f6db)
+=== [Browser 1/3] Standalone Harness Browser Specs ===
+make demo-signalloom-supercred-stream-harness
+make[1]: Entering directory '/home/andy/src/.worktrees/32e03/osramp-demo'
+cd test/acceptance && bun install --frozen-lockfile && \
+	bunx playwright test supercred-log-streaming-harness.spec.ts \
+		--project=supercred-log-streaming-harness
+bun install v1.4.0 (34cbb9a40)
+EACCES: Permission denied: could not open the "node_modules" directory (open)
+make[1]: *** [Makefile:1350: demo-signalloom-supercred-stream-harness] Error 1
+make[1]: Leaving directory '/home/andy/src/.worktrees/32e03/osramp-demo'
+make: *** [Makefile:620: test-all-browser] Error 2

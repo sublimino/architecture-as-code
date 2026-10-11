@@ -42,8 +42,17 @@ letter is unfinished.
 | **C** | A prevalence proxy. The source measures how often the misconfiguration is present, not how often it causes a loss. |
 | **D** | No dataset exists. Judgement only. The figure is review-bait and nothing more. |
 
-The letter grades the **weakest** link in the derivation, never the strongest.
-A frequency built from a B base rate and a D conditional factor is D.
+Each **term** carries its own letter. A derivation that reports one letter for
+a whole check hides which part is weak, which is the thing a reviewer needs.
+
+The composite rule follows from that. The confidence of a loss event frequency
+is the letter of its **weakest** term. A frequency built from a B base rate and
+a D conditional factor is D. So almost every frequency in this estate is D,
+because `C_check` is judgement everywhere.
+
+The letter in the family-range table further down grades the **attribution
+share** only. Credential exposure is B there because the share has published
+support, not because its frequency does.
 
 ## What a priced triple actually claims
 

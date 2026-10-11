@@ -346,7 +346,7 @@ Obey these. They are the phase constitution.
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | baseline | On `integration/slsi-v0.1.0` at the cut SHA run the **full end-to-end acceptance stage**: `make test-all-estate` (offline + live-cluster + browser), the engine suites `make test-obscel`, `make test-signal-ingest` and the CEL conformance harness (`cd d2-signalloom/apps/policy-engine && go test -run TestConformance -v .`), then `make test-kusari-e2e`, `make docs-lint`, and `kanban-check.sh doctor --shortcode SLSI`. Record the exact pass/fail/skip totals per suite as the baseline every later card is compared against. A live `kind-osramp` is a precondition for the cluster and browser legs; record a stated skip rather than a silent one if it is absent. **Known-red at cut:** `make docs-lint` carries 21 findings in `policy/frameworks/**` inherited from the `integration/cel-frameworks` merge at `cb0a6d0e`; they are foreign to SLSI and must be recorded as a pre-existing red, not attributed to this board. | - | Every suite's totals recorded; the only failures are the 21 named foreign docs-lint findings; doctor exceptions enumerated | M | antigravity | - | - | - | - | - |
-| P1-PRE | preflight | Audit existing packaging scripts, binary versions (`kind`, `kubectl`, `flux`, `cosign`), and image caching logic (`scripts/lib/demo-images.sh`). Publish a gap table in errata detailing required binary versions, image digests, and sandbox test harnesses. No code changes. | P0 | Gap table in errata naming files, digests, and tool versions | S | antigravity | - | - | - | - | - |
+| P1-PRE | preflight | Audit existing packaging scripts, binary versions (`kind`, `kubectl`, `flux`, `cosign`), and image caching logic (`scripts/lib/demo-images.sh`). Publish a gap table in errata detailing required binary versions, image digests, and sandbox test harnesses. No code changes. | P0 | [`#### Errata — SLSI-P1-PRE`](#errata--slsi-p1-pre) | S | antigravity | 14 capabilities audited: 2 MATCH, 9 DRIFT, 3 ABSENT, 0 UNKNOWN. Contract: `docs/EAP/slsi/p1-pre-contract.json` | - | - | - | - |
 | P1-1 | implementation | Author `scripts/package-tenant-bundle.sh` binary stage: download and pin required Linux x86_64/arm64 binaries (`kind`, `kubectl`, `flux`, `cosign`, `openssl`, `jq`, `envsubst`) into `bundle/bin/`, enforce executable permissions, and generate cryptographic SHA-256 checksum manifest `bundle/bin/checksums.txt`. | P1-PRE | `bash -n scripts/package-tenant-bundle.sh` passes; `sha256sum -c bundle/bin/checksums.txt` exits 0 | M | antigravity | - | - | - | - | - |
 | P1-2 | implementation | Implement offline OCI image bundler module in `scripts/package-tenant-bundle.sh`: export the platform images named in `scripts/foundation-images.txt` and `scripts/kagent-images.txt` (sourced from the `registry-cache.sh` pull-through volumes, ~4 GB) into an OCI layout under `bundle/images/`, and vendor the Flux Operator chart, its manifests artifact and the `ghcr.io/fluxcd` controller images. Record every image by **immutable digest** in `MANIFEST.json` and **sign each one at bundle time with the SLSI release key** via Cosign's `openbao://` KMS URI (Decision 9). Do **not** assert pre-existing vendor signatures on third-party images: nothing upstream signs them for us, so that check fails by construction. The bundle MUST embed only the release public key. | P1-1 | Test script exports every listed image, asserts each is pinned by digest in `MANIFEST.json`, asserts `cosign verify --key <release.pub>` passes for every bundled image, asserts no tag-only reference and no release private key is present in the bundle, and asserts the OCI layout loads with no network (`unshare -n`) | M | antigravity | - | - | - | - | - |
 | P1-3 | implementation | Implement manifest compiler and bundle assembler in `scripts/package-tenant-bundle.sh`: package `d2-osramp-fleet/tenants/local/`, `d2-infra/`, and `init-tenant.sh` into compressed archive `dist/slsi-appliance-<version>.tar.gz`. Generate root `MANIFEST.json` containing bundle metadata, git commit SHA, payload checksums, every image digest, and the release public key fingerprint. The release private key MUST NOT be present. | P1-2 | `tar -ztvf dist/slsi-appliance-*.tar.gz` lists complete filesystem hierarchy; `jq . dist/MANIFEST.json` validates schema | M | antigravity | - | - | - | - | - |
@@ -371,6 +371,109 @@ Obey these. They are the phase constitution.
 
 | Commit | Objective & Deliverable | Primary Artefact | Verification Command |
 | :--- | :--- | :--- | :--- |
+| `504405b9` | SLSI-P1-PRE preflight gap table, binary pins, image digests, and air-gap contract | [`docs/EAP/slsi/p1-pre-contract.json`](docs/EAP/slsi/p1-pre-contract.json) | `jq -e '.pinnedBase.sha=="504405b9"' docs/EAP/slsi/p1-pre-contract.json` |
+
+#### Errata — SLSI-P1-PRE
+
+**Created:** 2026-10-11 20:21:11+01:00
+**Last Updated:** 2026-10-11 20:21:11+01:00
+**Status:** pass
+**Commit:** `504405b9e7e91efdf5c97bcd701b6511f712f6db`
+**Base Ref:** `integration/slsi-v0.1.1` (`504405b9e7e91efdf5c97bcd701b6511f712f6db`, capsule digest `1001c915`)
+**Branch:** `P1-PRE-w1`
+**Checkout Deviation:** Main checkout anchored on `v0.1.0` (CycleInput branch mismatch accepted)
+**Start HEAD:** `504405b9e7e91efdf5c97bcd701b6511f712f6db`
+**End HEAD:** `504405b9e7e91efdf5c97bcd701b6511f712f6db`
+**Upstream Ordering:** Depends on `P0` (`edgeType: ordering-only`, `valuesConsumed: []`). References P0 baseline at `docs/slsi-p0-baseline/baseline.json`.
+
+##### Gap Table
+
+| Capability | Required (with constitution or file:line source) | Observed | Verdict | Proof command or file:line | Owning card |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `kind` binary version | `v0.29.0` (`scripts/setup.sh:20`), `0.29.0` (`scripts/ci/install-ci-tools.sh:228`) | `kind v0.32.0 go1.26.3 linux/amd64` at `/usr/local/bin/kind` (SHA256: `50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54`) | DRIFT | `kind version`; `grep -n 'KIND_VERSION=' scripts/setup.sh scripts/ci/install-ci-tools.sh` | P1-1 |
+| `kubectl` binary version | `v1.33.2` (`scripts/setup.sh:21`), `1.33.2` (`scripts/ci/install-ci-tools.sh:235`) | `v1.36.0` at `/home/linuxbrew/.linuxbrew/bin/kubectl` (SHA256: `45406996ba83fffc282387949bee1070c30ab9b467e315cca337337ae07dcaaf`) | DRIFT | `kubectl version --client -o json \| jq -r .clientVersion.gitVersion`; `grep -n 'KUBECTL_VERSION=' scripts/setup.sh scripts/ci/install-ci-tools.sh` | P1-1 |
+| `flux` binary version | `2.6.4` (`scripts/setup.sh:23`, `scripts/ci/install-ci-tools.sh:261`) | `flux: v2.9.3` at `/usr/local/bin/flux` (SHA256: `b53203027eaff529f8dbc41659ffc1909e367279c618bbc6e725fc4f3c45d5af`) | DRIFT | `flux version --client`; `grep -n 'FLUX_VERSION=' scripts/setup.sh scripts/ci/install-ci-tools.sh` | P1-1 |
+| `cosign` binary version | `v3.0.6` (`scripts/setup.sh:25`), `3.0.6` (`scripts/ci/install-ci-tools.sh:280`) | `v3.0.6` at `/home/linuxbrew/.linuxbrew/bin/cosign` (SHA256: `e8f489d83894c25ef7c45acb33d4a0aab961613a7b3a483aef26c2226816469f`) | MATCH | `cosign version 2>&1 \| grep GitVersion`; `grep -n 'COSIGN_VERSION=' scripts/setup.sh scripts/ci/install-ci-tools.sh` | P1-1 |
+| Binary SHA-256 checksum manifest | `bundle/bin/checksums.txt` verified by `sha256sum -c` (Phase Constitution / Spec P1-1) | No binary manifest exists; `setup.sh:53,75` and `install-ci-tools.sh:231,238,264,283` download bare binaries without checksum verification | ABSENT | `ls bundle/bin/checksums.txt 2>&1; grep -rn 'checksums.txt' scripts/` (parent `.` readable rc=0, target missing rc=2) | P1-1 |
+| Image digest pinning | All images referenced by immutable digest in `MANIFEST.json` signed at bundle time with release key (Decision 9) | `scripts/lib/demo-images.sh` is 371 lines and contains 0 `sha256:` references (tag-shaped `name:tag\|context\|dockerfile`); only 2 of 28 platform images digest-pinned | DRIFT | `grep -c 'sha256:' scripts/lib/demo-images.sh` (=0); `wc -l scripts/lib/demo-images.sh` (=371) | P1-2 |
+| Image OCI export | Platform images exported from registry-cache to OCI layout under `bundle/images/` (Phase Constitution / Spec P1-2) | No OCI layout export mechanism exists; images loaded only into host Docker daemon and transferred via `kind load` (`scripts/lib/demo-images.sh:194`) | ABSENT | `ls -d bundle/images 2>&1; grep -rn 'copy.*oci:' scripts/` (parent `.` readable rc=0, target missing rc=2) | P1-2 |
+| Registry-cache independence | Appliance installation operates with zero network pulls or downloads (Offline Air-Gap Hermeticity) | 5 pull-through cache volumes (`registry-cache-dockerio`, `registry-cache-k8s`, `registry-cache-ghcr`, `registry-cache-quay`, `registry-cache-gcrmirror`) populate from network on demand; `cr.kagent.dev` has no mirror | DRIFT | `grep -n 'REGISTRY_CACHE_MAPPINGS' scripts/registry-cache.sh -A 15`; `grep -n 'cr.kagent.dev' scripts/kagent-images.txt` | P1-2 |
+| Flux Operator chart vendoring | Vendor Flux Operator chart into bundle (Phase Constitution / Spec P1-2) | Manifest configures `OCIRepository` pointing to remote `oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator` | DRIFT | `grep -n 'url: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator' d2-osramp-fleet/clusters/*/flux-system/flux-operator.yaml` | P1-2 |
+| Flux manifests artifact vendoring | Vendor Flux manifests artifact into bundle pinned by digest (Phase Constitution / Spec P1-2) | Manifest references remote mutable artifact `oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:latest` | DRIFT | `grep -n 'flux-operator-manifests:latest' d2-osramp-fleet/clusters/*/flux-system/flux-instance.yaml` | P1-2 |
+| `ghcr.io/fluxcd` controller image vendoring | Vendor controller images into offline bundle layout (Phase Constitution / Spec P1-2) | Manifest sets `registry: "ghcr.io/fluxcd"`; images fetched from external registry if not in Kind cache | DRIFT | `grep -n 'registry: "ghcr.io/fluxcd"' d2-osramp-fleet/clusters/*/flux-system/flux-instance.yaml` | P1-2 |
+| Cosign static-key verification | Static public key verification via `OCIRepository.spec.verify` (`provider: cosign`); Kyverno admission policy across appliance workloads (Phase Constitution / Decision 2) | `flux-operator.yaml:22` uses keyless OIDC (`matchOIDCIdentity`) requiring internet Fulcio/Rekor; `policy/kyverno-verify-images.yaml:20` is scoped only to `admission-demo` namespace | DRIFT | `grep -n -C 5 'matchOIDCIdentity' d2-osramp-fleet/clusters/local/flux-system/flux-operator.yaml`; `grep -n 'admission-demo' policy/kyverno-verify-images.yaml` | P1-2, P2-PRE |
+| Zot artifact-vs-image distinction | `.cache/zot` designated for manifest OCI artifacts; platform container images stored in bundle OCI layout (Phase Constitution / Spec P1-2) | Architecture correctly isolates `.cache/zot` for local fleet manifests (`zot.registry.svc.cluster.local:5000/acme/fleet`); pull-through container images cached in Docker volumes | MATCH | `grep -n 'zot.registry' d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml`; `grep -n 'ZOT_CACHE_DIR' Makefile:66` | P1-2 |
+| Air-gap egress sandbox harness | Hermetic bundle extraction and execution verified in network-isolated sandbox (`unshare -n` / `--net none`) with abort on egress (Phase Constitution / Spec P1-4) | `test/slsi-airgap-bundle.bats` is absent; `unshare -n` fails under nono sandbox (`Operation not permitted`); `docker run --net none` is verified functional | ABSENT | `ls -d test >/dev/null; echo parent_rc=$?; ls test/slsi-airgap-bundle.bats; echo target_rc=$?` (parent_rc=0, target_rc=2); `docker run --rm --net none alpine:3.20 true` (rc=0) | P1-4 |
+
+##### Positive Evidence of Absence (parent-readable / target-missing pairs)
+
+| Target Path | Parent Directory | Parent Status (`parent_rc`) | Target Status (`target_rc`) | Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| `scripts/package-tenant-bundle.sh` | `scripts` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+| `scripts/init-tenant.sh` | `scripts` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+| `scripts/upgrade-tenant.sh` | `scripts` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+| `scripts/export-diagnostics.sh` | `scripts` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+| `test/slsi-airgap-bundle.bats` | `test` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+| `bundle/bin/checksums.txt` | `.` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+| `bundle/images/` | `.` | `0` (readable) | `2` (No such file or directory) | ABSENT |
+
+Confirmation: `ls scripts/package-tenant-bundle.sh scripts/init-tenant.sh scripts/upgrade-tenant.sh scripts/export-diagnostics.sh 2>&1 | grep -c 'No such file'` returns exactly `4`. Zero appliance scripts exist, not even as stubs.
+
+##### Air-Gap Gap Ledger (Egress Sites & Required Offline Replacements)
+
+Across the repository packaging path, 21 external egress sites were identified:
+- `scripts/setup.sh:53`: `fetch_bin` helper (`curl -fsSL "$2" -o "/tmp/$1"`) -> Replace with bundle-local staging from `bundle/bin/` verified against `bundle/bin/checksums.txt`.
+- `scripts/setup.sh:75`: `anchore_bin` tarball fetch -> Replace with pre-bundled binary or descope runtime vulnerability scan.
+- `scripts/setup.sh:98`: kind binary from `kind.sigs.k8s.io` -> Replace with `bundle/bin/kind`.
+- `scripts/setup.sh:99`: kubectl binary from `dl.k8s.io` -> Replace with `bundle/bin/kubectl`.
+- `scripts/setup.sh:100`: jq binary from GitHub releases -> Replace with `bundle/bin/jq`.
+- `scripts/setup.sh:104`: kustomize tarball from GitHub releases -> Replace with `bundle/bin/kustomize`.
+- `scripts/setup.sh:110`: helm tarball from `get.helm.sh` -> Replace with `bundle/bin/helm`.
+- `scripts/setup.sh:116`: flux tarball from `github.com/fluxcd/flux2` -> Replace with `bundle/bin/flux`.
+- `scripts/setup.sh:119`: cosign binary from `github.com/sigstore/cosign` -> Replace with `bundle/bin/cosign`.
+- `scripts/setup.sh:137`: witness tarball from GitHub releases -> Replace with `bundle/bin/witness`.
+- `scripts/setup.sh:144`: go compiler tarball from `go.dev` -> Remove runtime Go compiler requirement in appliance.
+- `scripts/setup.sh:166`: apt/dnf/brew skopeo install -> Vendor standalone binary or perform export on build host.
+- `scripts/setup.sh:194`: crane go install -> Replace with `bundle/bin/crane`.
+- `scripts/setup.sh:198`: bats tarball from GitHub -> Pre-installed test framework on host.
+- `scripts/ci/install-ci-tools.sh:231,238,264,283`: kind, kubectl, flux, cosign fetches -> Replace with bundle-local copies.
+- `d2-osramp-fleet/clusters/local/flux-system/flux-operator.yaml:19`: `url: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator` -> Vendored chart loaded to local Zot registry.
+- `d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml:9`: `registry: "ghcr.io/fluxcd"` -> Local in-cluster Zot registry.
+- `d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml:10`: `artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:latest"` -> Immutable digest-pinned artifact in local Zot.
+
+##### Headline Digest Pin Gap (Decision 9)
+
+`scripts/lib/demo-images.sh` is 371 lines and contains 0 `sha256:` references (`grep -c 'sha256:'` = 0). Entries in `DEMO_IMAGES` are formatted as `name:tag|context|dockerfile` by construction. Under Decision 9, all third-party platform images (28 total across `foundation-images.txt` and `kagent-images.txt`) must be resolved to immutable digests in `MANIFEST.json` and signed at bundle time with the SLSI release key via Cosign's `openbao://` KMS URI. Only 2 images in `scripts/foundation-images.txt` currently specify digest pinning (`netassertv2-l4-client` and `netassertv2-packet-sniffer`).
+
+##### Sentinel-Delimited Section Allocation for `scripts/package-tenant-bundle.sh`
+
+To defuse the four-way concurrent collision across P1-1, P1-2, P1-3, and P1-4, `scripts/package-tenant-bundle.sh` is pre-partitioned into four disjoint sentinel blocks:
+- Landing order: `P1-1 -> P1-2 -> P1-3 -> P1-4`.
+- Shared Preamble: Shebang `#!/usr/bin/env bash`, `set -euo pipefail`, and helper library sourcing (`scripts/lib/wait.sh`, `scripts/lib/image-identity.sh`) are created once by P1-1 and declared read-only thereafter.
+- Block 1 (P1-1): `# >>> SLSI-P1-1: binary staging and sha256 manifest <<<` ... `# <<< SLSI-P1-1 >>>`
+  * Responsibility: Multi-arch binary collection (`kind`, `kubectl`, `flux`, `cosign`, `openssl`, `jq`, `envsubst`) into `bundle/bin/` and `bundle/bin/checksums.txt` generation.
+- Block 2 (P1-2): `# >>> SLSI-P1-2: offline OCI image bundler and digest pinning <<<` ... `# <<< SLSI-P1-2 >>>`
+  * Responsibility: Export platform images from registry-cache volumes into OCI layout under `bundle/images/`, vendor Flux Operator chart, manifests artifact, and controller images, digest pinning in `MANIFEST.json`, and bundle-time Cosign signing.
+- Block 3 (P1-3): `# >>> SLSI-P1-3: manifest compilation and bundle assembly <<<` ... `# <<< SLSI-P1-3 >>>`
+  * Responsibility: Compile tenant fleet overlays (`d2-osramp-fleet/tenants/local/`), `d2-infra/`, and `init-tenant.sh` into `dist/slsi-appliance-<version>.tar.gz` and generate root `MANIFEST.json`.
+- Block 4 (P1-4): `# >>> SLSI-P1-4: packaging validation and dry-run verification <<<` ... `# <<< SLSI-P1-4 >>>`
+  * Responsibility: Packaging verification hooks, archive validation, and integration with `test/slsi-airgap-bundle.bats`.
+
+Forward Note: `scripts/init-tenant.sh` is a separate five-way collision (`P2-1`, `P2-2`, `P2-3`, `P2-4`, `P3-1`) owned by Phase 2 governance.
+
+##### Decision Guards (Verbatim)
+
+- **Decision 8:** Relationship to ADR-12 — the appliance is a superset, and `remote-tenant` is one of its modes. The delivered EAP model (ADR-12, in *Signal Loom Spireless Token-Based Agent Identity Migration (2026-Q4)*, and `docs/EAP/`) puts the platform on a ControlPlane-operated hub and ships the customer only the nine `signalloom-warden` objects plus two **consumer** Secrets copied from the central cluster, keeping the issuers central. SLSI mints its own Cosign, Witness, Orbit and SPIRE roots, so the appliance **is** a hub. Rather than fork the product, the appliance ships the hub components **and** the `signalloom-warden-overlays/remote-tenant` overlay, selected at bootstrap by **`APPLIANCE_MODE=hub|attached`**: `hub` runs its own issuers and local ingest; `attached` renders the warden-only overlay and consumes central issuer credentials exactly as ADR-12 specifies.
+- **Decision 9:** Release trust by digest pin plus bundle-time signing. Third-party platform images are pinned by immutable digest and signed at bundle time with the SLSI release key; no separate release signing pipeline is built. The release **private** key stays in the build environment, in OpenBao transit used via Cosign's `openbao://` KMS URI; the appliance ships only the public half.
+
+##### Recommended Downstream Test Coverage
+
+1. `test_manifest_image_digests_immutable`: Assert every entry in `MANIFEST.json` images array contains a valid `sha256:` immutable digest, zero tag-only references, and valid Cosign signature under release public key.
+2. `test_toolchain_version_consistency`: Assert `scripts/setup.sh` and `scripts/ci/install-ci-tools.sh` pin identical versions of kind, kubectl, flux, and cosign without syntax drift.
+3. `test_offline_bootstrap_egress_abort`: Assert that any outbound network egress attempt during offline bootstrap mode aborts immediately with a non-zero exit code.
+4. `test_host_bind_permissions_strict`: Assert `/opt/tenants/<id>/data/` has permissions `0700` with subdirectories owned by container UIDs (Postgres `70:70`, OpenBao `100:1000`, Zot `65532:65532`) and `/opt/tenants/<id>/.keys/` is mode `0600` owned by root.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 ---
 

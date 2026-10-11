@@ -1,0 +1,545 @@
+{
+  "pinnedBase": {
+    "branch": "integration/slsi-v0.1.1",
+    "sha": "504405b9",
+    "capsuleDigest": "1001c915",
+    "fullSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
+    "checkoutDeviationAccepted": "Main checkout anchored on v0.1.0 (CycleInput branch mismatch accepted)"
+  },
+  "upstreamOrdering": {
+    "dependsOn": "P0",
+    "edgeType": "ordering-only",
+    "valuesConsumed": []
+  },
+  "binaries": {
+    "kind": {
+      "currentPin": "v0.29.0",
+      "pinSource": "scripts/setup.sh:20 (v0.29.0), scripts/ci/install-ci-tools.sh:228 (0.29.0)",
+      "observedVersion": "kind v0.32.0 go1.26.3 linux/amd64",
+      "resolvedPath": "/usr/local/bin/kind",
+      "pathSha256": "50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54",
+      "fetchMechanism": "curl -fsSL https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}",
+      "airgapVerdict": "DRIFT",
+      "syntaxDivergence": "setup.sh uses 'v' prefix ('v0.29.0'); install-ci-tools.sh uses bare '0.29.0' and substring grep match",
+      "sha256ManifestRequired": true
+    },
+    "kubectl": {
+      "currentPin": "v1.33.2",
+      "pinSource": "scripts/setup.sh:21 (v1.33.2), scripts/ci/install-ci-tools.sh:235 (1.33.2)",
+      "observedVersion": "v1.36.0",
+      "resolvedPath": "/home/linuxbrew/.linuxbrew/bin/kubectl",
+      "pathSha256": "45406996ba83fffc282387949bee1070c30ab9b467e315cca337337ae07dcaaf",
+      "fetchMechanism": "curl -fsSL https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl",
+      "airgapVerdict": "DRIFT",
+      "syntaxDivergence": "setup.sh uses 'v' prefix ('v1.33.2'); install-ci-tools.sh uses bare '1.33.2' and substring grep match",
+      "sha256ManifestRequired": true
+    },
+    "flux": {
+      "currentPin": "2.6.4",
+      "pinSource": "scripts/setup.sh:23 (2.6.4), scripts/ci/install-ci-tools.sh:261 (2.6.4)",
+      "observedVersion": "flux: v2.9.3",
+      "resolvedPath": "/usr/local/bin/flux",
+      "pathSha256": "b53203027eaff529f8dbc41659ffc1909e367279c618bbc6e725fc4f3c45d5af",
+      "fetchMechanism": "curl -fsSL https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_${OS}_${ARCH}.tar.gz",
+      "airgapVerdict": "DRIFT",
+      "syntaxDivergence": "Both scripts use bare '2.6.4'; install-ci-tools.sh uses substring grep match",
+      "sha256ManifestRequired": true
+    },
+    "cosign": {
+      "currentPin": "v3.0.6",
+      "pinSource": "scripts/setup.sh:25 (v3.0.6), scripts/ci/install-ci-tools.sh:280 (3.0.6)",
+      "observedVersion": "v3.0.6",
+      "resolvedPath": "/home/linuxbrew/.linuxbrew/bin/cosign",
+      "pathSha256": "e8f489d83894c25ef7c45acb33d4a0aab961613a7b3a483aef26c2226816469f",
+      "fetchMechanism": "curl -fsSL https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-${OS}-${ARCH}",
+      "airgapVerdict": "MATCH",
+      "syntaxDivergence": "setup.sh uses 'v' prefix ('v3.0.6'); install-ci-tools.sh uses bare '3.0.6'",
+      "sha256ManifestRequired": true
+    }
+  },
+  "digestPinGap": {
+    "currentDigestCount": 0,
+    "demoImagesLineCount": 371,
+    "totalAuditedImages": 30,
+    "resolvedDigestCount": 11,
+    "unresolvedDigestCount": 19,
+    "headline": "scripts/lib/demo-images.sh is 371 lines and contains ZERO sha256: references; DEMO_IMAGES entries are name:tag|context|dockerfile by construction. Under Decision 9, all third-party and platform images must be resolved to immutable digests in MANIFEST.json and signed at bundle time with the SLSI release key."
+  },
+  "images": {
+    "docker.io/envoyproxy/envoy:distroless-v1.38.3": {
+      "currentRef": "docker.io/envoyproxy/envoy:distroless-v1.38.3",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "docker.io/envoyproxy/gateway:v1.8.2": {
+      "currentRef": "docker.io/envoyproxy/gateway:v1.8.2",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "docker.io/grafana/grafana:13.1.0": {
+      "currentRef": "docker.io/grafana/grafana:13.1.0",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/controlplaneio-fluxcd/flux-operator:v0.57.0": {
+      "currentRef": "ghcr.io/controlplaneio-fluxcd/flux-operator:v0.57.0",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/fluxcd/helm-controller:v1.6.3": {
+      "currentRef": "ghcr.io/fluxcd/helm-controller:v1.6.3",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/fluxcd/kustomize-controller:v1.9.4": {
+      "currentRef": "ghcr.io/fluxcd/kustomize-controller:v1.9.4",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:2b8bec54ffb6caf421bd2a6c005d27f567d5dd4db7feb55794fb51fcabd69b8f",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/fluxcd/notification-controller:v1.9.2": {
+      "currentRef": "ghcr.io/fluxcd/notification-controller:v1.9.2",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/fluxcd/source-controller:v1.9.3": {
+      "currentRef": "ghcr.io/fluxcd/source-controller:v1.9.3",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/project-zot/zot-linux-amd64:v2.1.2": {
+      "currentRef": "ghcr.io/project-zot/zot-linux-amd64:v2.1.2",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "mirror.gcr.io/aquasec/trivy-operator:0.32.0": {
+      "currentRef": "mirror.gcr.io/aquasec/trivy-operator:0.32.0",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/jetstack/cert-manager-cainjector:v1.20.3": {
+      "currentRef": "quay.io/jetstack/cert-manager-cainjector:v1.20.3",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/jetstack/cert-manager-controller:v1.20.3": {
+      "currentRef": "quay.io/jetstack/cert-manager-controller:v1.20.3",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/jetstack/cert-manager-webhook:v1.20.3": {
+      "currentRef": "quay.io/jetstack/cert-manager-webhook:v1.20.3",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/kiwigrid/k8s-sidecar:2.8.1": {
+      "currentRef": "quay.io/kiwigrid/k8s-sidecar:2.8.1",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/prometheus/node-exporter:v1.11.1-distroless": {
+      "currentRef": "quay.io/prometheus/node-exporter:v1.11.1-distroless",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/prometheus-operator/prometheus-config-reloader:v0.92.1": {
+      "currentRef": "quay.io/prometheus-operator/prometheus-config-reloader:v0.92.1",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/prometheus-operator/prometheus-operator:v0.92.1": {
+      "currentRef": "quay.io/prometheus-operator/prometheus-operator:v0.92.1",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "quay.io/prometheus/prometheus:v3.13.0-distroless": {
+      "currentRef": "quay.io/prometheus/prometheus:v3.13.0-distroless",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1": {
+      "currentRef": "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "registry.k8s.io/metrics-server/metrics-server:v0.8.1": {
+      "currentRef": "registry.k8s.io/metrics-server/metrics-server:v0.8.1",
+      "refKind": "tag",
+      "digestKind": "unresolved",
+      "requiredDigest": "DIGEST-UNRESOLVED: not present in host Docker cache, requires network pull or mirror warm-up",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff": {
+      "currentRef": "docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "refKind": "digest",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04": {
+      "currentRef": "docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "refKind": "digest",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "cr.kagent.dev/kagent-dev/kagent/controller:0.9.9": {
+      "currentRef": "cr.kagent.dev/kagent-dev/kagent/controller:0.9.9",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:0d613a47a04510a76e46728c41ee33663884765cfa3b6218bacd3f6cb7b6a557",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "cr.kagent.dev/kagent-dev/kagent/ui:0.9.9": {
+      "currentRef": "cr.kagent.dev/kagent-dev/kagent/ui:0.9.9",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:c45a9f0cc0e9eeb2ee8b70d3ff78eaf44d24215231e53b50b9cea798dab7e5f9",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/kagent-dev/kagent/tools:0.2.1": {
+      "currentRef": "ghcr.io/kagent-dev/kagent/tools:0.2.1",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:50b431281d3e32666f27a292962fd486aabaac157083a844d037c12137e353aa",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "docker.io/library/postgres:18.3-alpine": {
+      "currentRef": "docker.io/library/postgres:18.3-alpine",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "postgres:16-alpine": {
+      "currentRef": "postgres:16-alpine",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/kagent-dev/kagent/golang-adk:0.9.9": {
+      "currentRef": "ghcr.io/kagent-dev/kagent/golang-adk:0.9.9",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:e01479b52280b0eae9e2808cc68392ba98fd737782496ff256847257e6bb8ed1",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/kagent-dev/kagent/app:0.9.9": {
+      "currentRef": "ghcr.io/kagent-dev/kagent/app:0.9.9",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:348ad33bd8fc0d888c490de7a48e8e21e7ebab8ef0450d4aa8ad3f4bde5e5cde",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "docker.io/mcp/grafana:latest": {
+      "currentRef": "docker.io/mcp/grafana:latest",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    },
+    "ghcr.io/kagent-dev/doc2vec/mcp:1.1.14": {
+      "currentRef": "ghcr.io/kagent-dev/doc2vec/mcp:1.1.14",
+      "refKind": "tag",
+      "digestKind": "manifest",
+      "requiredDigest": "sha256:ace1de323f4abfe93865d558b47613ac4091df63f2045ef3210c6dd391d72f6b",
+      "signer": "SLSI release key at bundle time via openbao:// KMS URI",
+      "provenanceClaim": "Attests bundle build only; does not confer upstream SLSA provenance per Decision 9"
+    }
+  },
+  "harnesses": {
+    "unshare_network_sandbox": {
+      "command": "unshare -n",
+      "available": false,
+      "exitCode": 1,
+      "reason": "Operation not permitted / cannot open /proc/self/uid_map: Permission denied under nono unprivileged process namespace",
+      "scope": "Local user namespace unshare unsupported; requires fallback to docker --net none or containerized sandbox"
+    },
+    "docker_net_none_sandbox": {
+      "command": "docker run --rm --net none alpine:3.20 true",
+      "available": true,
+      "exitCode": 0,
+      "reason": "Verified functional on host Docker daemon; provides isolated hermetic execution without network bridge",
+      "scope": "Recommended air-gap verification harness for P1-4 and downstream BATS suites"
+    },
+    "bats_airgap_suite": {
+      "targetFile": "test/slsi-airgap-bundle.bats",
+      "available": false,
+      "parentReadable": true,
+      "targetMissing": true,
+      "reason": "ABSENT (to be authored by P1-4)"
+    }
+  },
+  "bundlerSections": {
+    "P1-1": {
+      "sentinelStart": "# >>> SLSI-P1-1: binary staging and sha256 manifest <<<",
+      "sentinelEnd": "# <<< SLSI-P1-1 >>>",
+      "responsibility": "Multi-arch binary collection (kind, kubectl, flux, cosign, openssl, jq, envsubst) into bundle/bin/ and bundle/bin/checksums.txt SHA-256 manifest generation"
+    },
+    "P1-2": {
+      "sentinelStart": "# >>> SLSI-P1-2: offline OCI image bundler and digest pinning <<<",
+      "sentinelEnd": "# <<< SLSI-P1-2 >>>",
+      "responsibility": "Export platform images from registry-cache volumes into OCI layout under bundle/images/, vendor Flux Operator chart, manifests artifact, and Flux controller images, digest pinning in MANIFEST.json, and bundle-time Cosign signing"
+    },
+    "P1-3": {
+      "sentinelStart": "# >>> SLSI-P1-3: manifest compilation and bundle assembly <<<",
+      "sentinelEnd": "# <<< SLSI-P1-3 >>>",
+      "responsibility": "Compile tenant fleet overlays (d2-osramp-fleet/tenants/local/), d2-infra/, and init-tenant.sh into compressed archive dist/slsi-appliance-<version>.tar.gz and generate root MANIFEST.json"
+    },
+    "P1-4": {
+      "sentinelStart": "# >>> SLSI-P1-4: packaging validation and dry-run verification <<<",
+      "sentinelEnd": "# <<< SLSI-P1-4 >>>",
+      "responsibility": "Bundle packaging validation hooks, archive integrity verification, and integration with test/slsi-airgap-bundle.bats network-isolated test harness"
+    }
+  },
+  "bundlerCoordination": {
+    "targetFile": "scripts/package-tenant-bundle.sh",
+    "preamblePolicy": "Shebang (#!/usr/bin/env bash), 'set -euo pipefail', and library sourcings (scripts/lib/wait.sh, scripts/lib/image-identity.sh) are created once by P1-1 and declared read-only thereafter.",
+    "landingOrder": [
+      "P1-1",
+      "P1-2",
+      "P1-3",
+      "P1-4"
+    ],
+    "forwardNote": "scripts/init-tenant.sh is a separate five-way collision (P2-1, P2-2, P2-3, P2-4, P3-1) owned by Phase 2 governance."
+  },
+  "decisionGuards": {
+    "decision8": "Decision 8: Relationship to ADR-12 — the appliance is a superset, and `remote-tenant` is one of its modes. The delivered EAP model (ADR-12, in *Signal Loom Spireless Token-Based Agent Identity Migration (2026-Q4)*, and `docs/EAP/`) puts the platform on a ControlPlane-operated hub and ships the customer only the nine `signalloom-warden` objects plus two **consumer** Secrets copied from the central cluster, keeping the issuers central. SLSI mints its own Cosign, Witness, Orbit and SPIRE roots, so the appliance **is** a hub. Rather than fork the product, the appliance ships the hub components **and** the `signalloom-warden-overlays/remote-tenant` overlay, selected at bootstrap by **`APPLIANCE_MODE=hub|attached`**: `hub` runs its own issuers and local ingest; `attached` renders the warden-only overlay and consumes central issuer credentials exactly as ADR-12 specifies.",
+    "decision9": "Decision 9: Release trust by digest pin plus bundle-time signing. Third-party platform images are pinned by immutable digest and signed at bundle time with the SLSI release key; no separate release signing pipeline is built. The release **private** key stays in the build environment, in OpenBao transit used via Cosign's `openbao://` KMS URI; the appliance ships only the public half."
+  },
+  "airgapGapLedger": [
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 53,
+      "mechanism": "fetch_bin helper",
+      "targetEgress": "curl -fsSL $2 -o /tmp/$1",
+      "airgapReplacement": "Stage from pre-bundled bundle/bin/ verified with bundle/bin/checksums.txt; zero runtime curl"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 75,
+      "mechanism": "anchore_bin tarball fetch",
+      "targetEgress": "curl -fsSL -o ${tmp}/$1.tar.gz https://github.com/anchore/$1/releases/download/v$2/...",
+      "airgapReplacement": "Pre-stage scanning binaries in bundle/bin/ with pinned SHA-256 or omit external scan in offline bootstrap"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 98,
+      "mechanism": "fetch_bin kind",
+      "targetEgress": "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}",
+      "airgapReplacement": "bundle/bin/kind verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 99,
+      "mechanism": "fetch_bin kubectl",
+      "targetEgress": "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl",
+      "airgapReplacement": "bundle/bin/kubectl verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 100,
+      "mechanism": "fetch_bin jq",
+      "targetEgress": "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-${OS}-${ARCH}",
+      "airgapReplacement": "bundle/bin/jq verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 104,
+      "mechanism": "curl kustomize tarball",
+      "targetEgress": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/...",
+      "airgapReplacement": "bundle/bin/kustomize verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 110,
+      "mechanism": "curl helm tarball",
+      "targetEgress": "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH}.tar.gz",
+      "airgapReplacement": "bundle/bin/helm verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 116,
+      "mechanism": "curl flux tarball",
+      "targetEgress": "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_${OS}_${ARCH}.tar.gz",
+      "airgapReplacement": "bundle/bin/flux verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 119,
+      "mechanism": "fetch_bin cosign",
+      "targetEgress": "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-${OS}-${ARCH}",
+      "airgapReplacement": "bundle/bin/cosign verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 137,
+      "mechanism": "curl witness tarball",
+      "targetEgress": "https://github.com/in-toto/witness/releases/download/v${WITNESS_VERSION}/...",
+      "airgapReplacement": "bundle/bin/witness verified against bundle/bin/checksums.txt"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 144,
+      "mechanism": "curl go tarball",
+      "targetEgress": "https://go.dev/dl/go${GO_VERSION}.${OS}-${ARCH}.tar.gz",
+      "airgapReplacement": "Eliminate runtime Go compiler installation from appliance runtime"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 166,
+      "mechanism": "apt-get install skopeo",
+      "targetEgress": "apt-get update && apt-get install -y skopeo",
+      "airgapReplacement": "Vendor skopeo binary or perform image bundling purely during host packaging"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 194,
+      "mechanism": "go_install_bin crane",
+      "targetEgress": "github.com/google/go-containerregistry/cmd/crane@v0.20.3",
+      "airgapReplacement": "bundle/bin/crane pre-staged in bundle/bin/"
+    },
+    {
+      "sourceFile": "scripts/setup.sh",
+      "line": 198,
+      "mechanism": "curl bats tarball",
+      "targetEgress": "https://github.com/bats-core/bats-core/archive/refs/tags/${BATS_VERSION}.tar.gz",
+      "airgapReplacement": "Pre-installed test framework on host"
+    },
+    {
+      "sourceFile": "scripts/ci/install-ci-tools.sh",
+      "line": 231,
+      "mechanism": "install_binary kind",
+      "targetEgress": "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-${OS}-${ARCH}",
+      "airgapReplacement": "Pre-bundled local binary"
+    },
+    {
+      "sourceFile": "scripts/ci/install-ci-tools.sh",
+      "line": 238,
+      "mechanism": "install_binary kubectl",
+      "targetEgress": "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl",
+      "airgapReplacement": "Pre-bundled local binary"
+    },
+    {
+      "sourceFile": "scripts/ci/install-ci-tools.sh",
+      "line": 264,
+      "mechanism": "install_from_tarball flux",
+      "targetEgress": "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_...",
+      "airgapReplacement": "Pre-bundled local binary"
+    },
+    {
+      "sourceFile": "scripts/ci/install-ci-tools.sh",
+      "line": 283,
+      "mechanism": "install_binary cosign",
+      "targetEgress": "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-${OS}-${ARCH}",
+      "airgapReplacement": "Pre-bundled local binary"
+    },
+    {
+      "sourceFile": "d2-osramp-fleet/clusters/local/flux-system/flux-operator.yaml",
+      "line": 19,
+      "mechanism": "OCIRepository chart pull",
+      "targetEgress": "oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator",
+      "airgapReplacement": "Vendored local chart loaded to in-cluster Zot registry"
+    },
+    {
+      "sourceFile": "d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml",
+      "line": 9,
+      "mechanism": "FluxInstance controller image pull",
+      "targetEgress": "ghcr.io/fluxcd",
+      "airgapReplacement": "Vendored controller images loaded to in-cluster Zot registry"
+    },
+    {
+      "sourceFile": "d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml",
+      "line": 10,
+      "mechanism": "FluxInstance manifests artifact pull",
+      "targetEgress": "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:latest",
+      "airgapReplacement": "Vendored manifests artifact loaded to in-cluster Zot registry pinned by immutable digest"
+    }
+  ],
+  "recommendedTests": [
+    {
+      "name": "test_manifest_image_digests_immutable",
+      "assertion": "Assert every entry in MANIFEST.json images array contains a valid sha256: immutable digest, zero tag-only references, and valid Cosign signature under release public key"
+    },
+    {
+      "name": "test_toolchain_version_consistency",
+      "assertion": "Assert scripts/setup.sh and scripts/ci/install-ci-tools.sh pin identical versions of kind, kubectl, flux, and cosign without syntax drift"
+    },
+    {
+      "name": "test_offline_bootstrap_egress_abort",
+      "assertion": "Assert that any outbound network egress attempt during offline bootstrap mode aborts immediately with a non-zero exit code"
+    },
+    {
+      "name": "test_host_bind_permissions_strict",
+      "assertion": "Assert /opt/tenants/<id>/data/ has permissions 0700 with subdirectories owned by container UIDs (Postgres 70:70, OpenBao 100:1000, Zot 65532:65532) and /opt/tenants/<id>/.keys/ is mode 0600 owned by root"
+    }
+  ]
+}

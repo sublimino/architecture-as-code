@@ -1,0 +1,5 @@
+# Provenance: cosign public-key --key openbao://slsi-release
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECa/2NBwx+ercWc9SzCqeZACsrxh7
+U1/2mLj3PTLCsW6aKPi5IBYD2pRn8UNxHWkg1yihSWQaS9Ui7OlYxMRYug==
+-----END PUBLIC KEY-----

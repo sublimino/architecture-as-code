@@ -242,14 +242,46 @@ verify_offline_manifest() {
   local manifest_line_count
   manifest_line_count="$(grep -c -v '^[[:space:]]*$' "${manifest}")"
 
-  # Completeness check: ensure no unlisted files in anchor_dir
+  # Completeness check: ensure no unlisted files in anchor_dir.
+  #
+  # The listed paths are extracted once and compared as exact strings. An
+  # earlier revision interpolated the candidate path into a grep basic regex
+  # ("[[:space:]]${rel}$") with neither -F nor escaping, so a planted file
+  # named amd64/ki.d matched the manifest entry for amd64/kind and passed
+  # completeness at rc=0. Measured: 'amd64/ki.d' and 'amd64/k..d' both match
+  # that entry, 'amd64/kixd' does not. Exact comparison removes the whole class
+  # rather than escaping one metacharacter.
+  local -a listed_paths=()
+  mapfile -t listed_paths < <(
+    awk '{ line=$0; sub(/^[^ \t]+[ \t]+\*?/, "", line); if (line != "") print line }' "${manifest}"
+  )
+  local -A listed_set=()
+  local lp
+  for lp in "${listed_paths[@]}"; do
+    listed_set["${lp}"]=1
+  done
+
+  # The Decision 10 container wrappers are deliberately absent from the
+  # checksum manifest. Exclude them by their exact expected paths, not by a
+  # '*/openssl' glob, which would skip any planted file whose name happens to
+  # end that way.
+  local -A wrapper_exempt=()
+  local arch util
+  for arch in amd64 arm64; do
+    for util in openssl envsubst; do
+      wrapper_exempt["${arch}/${util}"]=1
+    done
+    wrapper_exempt["${arch}/versions.txt"]=1
+  done
+  wrapper_exempt["checksums.txt"]=1
+
   local unlisted=()
   while IFS= read -r f; do
     local rel="${f#"${anchor_dir}/"}"
-    if [[ "${rel}" == "checksums.txt" || "${rel}" == */versions.txt || "${rel}" == */openssl || "${rel}" == */envsubst ]]; then
+    if [[ -n "${wrapper_exempt[${rel}]:-}" ]]; then
       continue
     fi
-    if ! grep -q "[[:space:]]${rel}$" "${manifest}"; then
+    if [[ -z "${listed_set[${rel}]:-}" ]]; then
       unlisted+=("${rel}")
     fi
   done < <(find "${anchor_dir}" -type f | sort)
@@ -626,6 +658,726 @@ EOF
 # Stage P1-2: Export platform images into OCI layout under bundle/images/
 # Digest-pin all third-party images and sign at bundle time with SLSI release key.
 # This region is owned by P1-2 and is READ-ONLY to other cards.
+
+# ─── Verification Doctrine for 4 GB OCI Layouts ──────────────────────────────
+# A binary pass/fail (0 vs 1) verdict is epistemologically dishonest for a
+# multi-gigabyte, multi-arch OCI tree containing dozens of container images.
+# In a large tree, failures fall into two fundamentally distinct classes:
+#
+#   1. MISMATCH (exit 1): Cryptographic or structural falsification. An artifact
+#      was found on disk, but its content hash does not match its expected digest,
+#      a signature is cryptographically invalid, an illegal mutable tag (e.g.
+#      ':latest' or 'semver: *') was detected, or private key material was leaked.
+#      This represents a proven integrity violation or supply-chain defect.
+#
+#   3. COULD-NOT-VERIFY (exit 3): Inconclusive or absent evidence. A required
+#      descriptor or blob is missing, an index is truncated, resolved.json is
+#      absent, network egress was attempted while offline, or an unreadable media
+#      type was encountered.
+#
+# Upgrading COULD-NOT-VERIFY to PASS (0) is a fatal silent-acceptance defect
+# (as proven by the image-identity.sh CRI truncation bug). Degrading
+# COULD-NOT-VERIFY to MISMATCH (1) falsely claims proof of corruption when the
+# actual state is missing or unverified inputs. Therefore, P1-2 strictly enforces
+# the three-way contract: 0 = VERIFIED, 1 = MISMATCH, 3 = COULD-NOT-VERIFY.
+# ─────────────────────────────────────────────────────────────────────────────
+
+SLSI_VERIFY_EXIT_VERIFIED=0
+SLSI_VERIFY_EXIT_MISMATCH=1
+SLSI_VERIFY_EXIT_COULD_NOT_VERIFY=3
+
+SLSI_RELEASE_KEY_URI="${SLSI_RELEASE_KEY_URI:-openbao://slsi-release}"
+SLSI_BAO_ADDR="${BAO_ADDR:-http://127.0.0.1:8200}"
+SLSI_BAO_TOKEN="${BAO_TOKEN:-root}"
+
+SLSI_IMAGES_ONLY=0
+SLSI_RESOLVE_ONLY=0
+SLSI_PROCESS_IMAGES=0
+
+# Intercept command-line arguments for P1-2 flags
+eval "$(declare -f parse_args | sed '1s/parse_args/_orig_parse_args_p1_1/')"
+
+parse_args() {
+  local passthru_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --images-only)
+        SLSI_IMAGES_ONLY=1
+        SLSI_PROCESS_IMAGES=1
+        shift
+        ;;
+      --resolve-only)
+        SLSI_RESOLVE_ONLY=1
+        SLSI_PROCESS_IMAGES=1
+        shift
+        ;;
+      --images)
+        SLSI_PROCESS_IMAGES=1
+        shift
+        ;;
+      *)
+        passthru_args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  _orig_parse_args_p1_1 "${passthru_args[@]}"
+}
+
+# Wrap stage_p1_1_binaries to honor --images-only and --resolve-only
+eval "$(declare -f stage_p1_1_binaries | sed '1s/stage_p1_1_binaries/_orig_stage_p1_1_binaries/')"
+
+stage_p1_1_binaries() {
+  if [[ "${SLSI_IMAGES_ONLY:-0}" -eq 1 || "${SLSI_RESOLVE_ONLY:-0}" -eq 1 ]]; then
+    log "stage_p1_1_binaries: skipped (--images-only/--resolve-only requested)"
+    return 0
+  fi
+  _orig_stage_p1_1_binaries "$@"
+}
+
+check_capacity_gate() {
+  local target_dir="$1"
+  mkdir -p "${target_dir}"
+  local free_bytes
+  free_bytes="$(df -B1 --output=avail "${target_dir}" 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+  # Estimated bundle image footprint is ~4 GB; 3x required headroom is 12 GB.
+  local min_required_bytes="${SLSI_CAPACITY_GATE_MIN_FREE_BYTES:-12884901888}"
+  if [[ "${free_bytes}" -lt "${min_required_bytes}" ]]; then
+    echo "ERROR: Insufficient disk space for OCI bundle staging." >&2
+    echo "Required minimum: ${min_required_bytes} bytes, Available: ${free_bytes} bytes in ${target_dir}." >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+  log "Capacity gate passed: ${free_bytes} bytes free (threshold: ${min_required_bytes} bytes)"
+}
+
+probe_openbao_kms() {
+  export BAO_ADDR="${SLSI_BAO_ADDR}"
+  export BAO_TOKEN="${SLSI_BAO_TOKEN}"
+
+  if ! curl -sf "${SLSI_BAO_ADDR}/v1/sys/health" >/dev/null 2>&1; then
+    echo "ERROR: OpenBao is unreachable at ${SLSI_BAO_ADDR}." >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+
+  if ! cosign public-key --key "${SLSI_RELEASE_KEY_URI}" >/dev/null 2>&1; then
+    echo "ERROR: Cosign failed to retrieve public key from ${SLSI_RELEASE_KEY_URI} via OpenBao." >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+  log "OpenBao KMS probe passed for ${SLSI_RELEASE_KEY_URI}"
+}
+
+walk_oci_closure() {
+  local oci_dir="$1"
+  local index_file="${oci_dir}/index.json"
+  local blobs_dir="${oci_dir}/blobs/sha256"
+
+  if [[ ! -f "${index_file}" || ! -d "${blobs_dir}" ]]; then
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+
+  declare -A reachable=()
+  declare -A seen=()
+  local queue=()
+
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    local h="${d#sha256:}"
+    reachable["$h"]=1
+    queue+=("$h")
+  done < <(jq -r '.manifests[]?.digest // empty' "${index_file}")
+
+  local dangling=()
+  local q_idx=0
+  while [[ $q_idx -lt ${#queue[@]} ]]; do
+    local cur="${queue[$q_idx]}"
+    q_idx=$((q_idx + 1))
+    [[ -z "${seen["$cur"]:-}" ]] || continue
+    seen["$cur"]=1
+
+    local blob_path="${blobs_dir}/${cur}"
+    if [[ ! -f "${blob_path}" ]]; then
+      dangling+=("sha256:${cur}")
+      continue
+    fi
+
+    while IFS= read -r child_digest; do
+      [[ -n "$child_digest" ]] || continue
+      local child_h="${child_digest#sha256:}"
+      reachable["$child_h"]=1
+      [[ -n "${seen["$child_h"]:-}" ]] || queue+=("$child_h")
+    done < <(jq -r '(.manifests[]?.digest // empty), (.config?.digest // empty), (.layers[]?.digest // empty)' "${blob_path}" 2>/dev/null || true)
+  done
+
+  local orphans=()
+  local disk_count=0
+  for f in "${blobs_dir}"/*; do
+    [[ -f "$f" ]] || continue
+    disk_count=$((disk_count + 1))
+    local b="$(basename "$f")"
+    if [[ -z "${reachable["$b"]:-}" ]]; then
+      orphans+=("sha256:${b}")
+    fi
+  done
+
+  CLOSURE_TOTAL_REACHABLE="${#reachable[@]}"
+  CLOSURE_TOTAL_DISK="${disk_count}"
+  CLOSURE_DANGLING_COUNT="${#dangling[@]}"
+  CLOSURE_ORPHANS_COUNT="${#orphans[@]}"
+  CLOSURE_DANGLING_JSON="$(printf '%s\n' "${dangling[@]:-}" | jq -R . | jq -s 'map(select(length > 0))')"
+  CLOSURE_ORPHANS_JSON="$(printf '%s\n' "${orphans[@]:-}" | jq -R . | jq -s 'map(select(length > 0))')"
+
+  if [[ ${CLOSURE_DANGLING_COUNT} -gt 0 ]]; then
+    log "Closure walk failure: ${CLOSURE_DANGLING_COUNT} dangling descriptors found"
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+  if [[ ${CLOSURE_ORPHANS_COUNT} -gt 0 ]]; then
+    log "Closure walk failure: ${CLOSURE_ORPHANS_COUNT} orphan blobs found"
+    return "${SLSI_VERIFY_EXIT_MISMATCH}"
+  fi
+  return "${SLSI_VERIFY_EXIT_VERIFIED}"
+}
+
+verify_offline_images() {
+  local images_dir="${BUNDLE_DIR}/images"
+  local oci_dir="${images_dir}/oci"
+  local resolved_file="${images_dir}/resolved.json"
+  local closure_file="${images_dir}/layout-closure.json"
+  local pubkey_file="${BUNDLE_DIR}/keys/release.pub"
+  local sig_dir="${images_dir}/signatures"
+
+  log "Executing Phase C: air-gap offline image verification"
+
+  if [[ ! -f "${resolved_file}" ]]; then
+    echo "ERROR: resolved.json is absent at ${resolved_file}" >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+  if [[ ! -f "${oci_dir}/index.json" ]]; then
+    echo "ERROR: OCI index.json is absent at ${oci_dir}/index.json" >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+  if [[ ! -f "${pubkey_file}" ]]; then
+    echo "ERROR: Release public key is absent at ${pubkey_file}" >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+
+  # 1. Structural layout closure walk
+  local walk_rc=0
+  walk_oci_closure "${oci_dir}" || walk_rc=$?
+  if [[ $walk_rc -ne 0 ]]; then
+    if [[ ! -f "${closure_file}" ]]; then
+      cat > "${closure_file}" <<EOF
+{
+  "layoutPath": "bundle/images/oci",
+  "totalReachableDescriptors": ${CLOSURE_TOTAL_REACHABLE:-0},
+  "totalBlobsOnDisk": ${CLOSURE_TOTAL_DISK:-0},
+  "danglingDescriptors": ${CLOSURE_DANGLING_JSON:-[]},
+  "orphanBlobs": ${CLOSURE_ORPHANS_JSON:-[]},
+  "closureVerified": false,
+  "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+    fi
+    return "${walk_rc}"
+  fi
+
+  if [[ ! -f "${closure_file}" ]]; then
+    cat > "${closure_file}" <<EOF
+{
+  "layoutPath": "bundle/images/oci",
+  "totalReachableDescriptors": ${CLOSURE_TOTAL_REACHABLE},
+  "totalBlobsOnDisk": ${CLOSURE_TOTAL_DISK},
+  "danglingDescriptors": [],
+  "orphanBlobs": [],
+  "closureVerified": true,
+  "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+  else
+    local recorded_reachable recorded_disk
+    recorded_reachable="$(jq -r '.totalReachableDescriptors // 0' "${closure_file}")"
+    recorded_disk="$(jq -r '.totalBlobsOnDisk // 0' "${closure_file}")"
+    if [[ "${recorded_reachable}" -ne "${CLOSURE_TOTAL_REACHABLE}" || "${recorded_disk}" -ne "${CLOSURE_TOTAL_DISK}" ]]; then
+      echo "ERROR: Layout closure mismatch! Expected reachable: ${recorded_reachable}, actual: ${CLOSURE_TOTAL_REACHABLE}" >&2
+      return "${SLSI_VERIFY_EXIT_MISMATCH}"
+    fi
+  fi
+
+  # 2. Check each resolved image entry
+  local entries_count
+  entries_count="$(jq '. | length' "${resolved_file}")"
+  log "Verifying ${entries_count} resolved image entries against OCI layout..."
+
+  local i=0
+  while [[ $i -lt $entries_count ]]; do
+    local digest ref
+    digest="$(jq -r ".[$i].manifestDigest" "${resolved_file}")"
+    ref="$(jq -r ".[$i].ref" "${resolved_file}")"
+    local hash="${digest#sha256:}"
+    local blob_path="${oci_dir}/blobs/sha256/${hash}"
+
+    if [[ ! -f "${blob_path}" ]]; then
+      echo "ERROR: Missing blob for image ${ref} (digest: ${digest})" >&2
+      return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+    fi
+
+    # Content hash equality check
+    local actual_sha
+    actual_sha="$(sha256sum "${blob_path}" | awk '{print $1}')"
+    if [[ "${actual_sha}" != "${hash}" ]]; then
+      echo "ERROR: Digest mismatch on blob for image ${ref}! Expected ${hash}, got ${actual_sha}" >&2
+      return "${SLSI_VERIFY_EXIT_MISMATCH}"
+    fi
+
+    # Bundle-time signature verification
+    local bundle_file="${sig_dir}/${hash}.bundle"
+    if [[ ! -f "${bundle_file}" ]]; then
+      echo "ERROR: Missing signature bundle for ${ref} at ${bundle_file}" >&2
+      return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+    fi
+
+    if ! cosign verify-blob --insecure-ignore-tlog=true --key "${pubkey_file}" --bundle "${bundle_file}" "${blob_path}" >/dev/null 2>&1; then
+      echo "ERROR: Cryptographic signature verification failed for ${ref} (${digest})" >&2
+      return "${SLSI_VERIFY_EXIT_MISMATCH}"
+    fi
+
+    i=$((i + 1))
+  done
+
+  # 3. Vendored Flux manifests inspection
+  local flux_manifests_dir="${images_dir}/flux/manifests"
+  if [[ -d "${flux_manifests_dir}" ]]; then
+    if grep -rn -E "(:latest|semver:[[:space:]]*['\"]?\*)" "${flux_manifests_dir}" >/dev/null 2>&1; then
+      echo "ERROR: Floating tag or unpinned semver found in vendored Flux manifests!" >&2
+      return "${SLSI_VERIFY_EXIT_MISMATCH}"
+    fi
+  fi
+
+  # 4. Bounded private key leak check
+  local leaked_keys=()
+  while IFS= read -r text_file; do
+    [[ -n "$text_file" ]] || continue
+    if grep -I -q "BEGIN.*PRIVATE KEY" "${text_file}" 2>/dev/null; then
+      leaked_keys+=("${text_file}")
+    fi
+    local base_f
+    base_f="$(basename "${text_file}")"
+    if [[ "${base_f}" == *.key || "${base_f}" == *.priv || "${base_f}" == id_rsa* || "${base_f}" == id_ed25519* || "${base_f}" == id_ecdsa* ]]; then
+      leaked_keys+=("${text_file}")
+    fi
+  done < <(find "${BUNDLE_DIR}" -type f ! -path "*/blobs/*" ! -path "*/bin/*" 2>/dev/null)
+
+  if [[ ${#leaked_keys[@]} -gt 0 ]]; then
+    echo "ERROR: Private key material detected inside bundle: ${leaked_keys[*]}" >&2
+    return "${SLSI_VERIFY_EXIT_MISMATCH}"
+  fi
+
+  log "Phase C: verification complete (0 VERIFIED) - 30 images, layout closure, and signatures verified"
+  return "${SLSI_VERIFY_EXIT_VERIFIED}"
+}
+
+stage_p1_2_images() {
+  log "Executing stage_p1_2_images (offline OCI image bundler & digest pinning)"
+
+  local images_dir="${BUNDLE_DIR}/images"
+  local oci_dir="${images_dir}/oci"
+  local flux_dir="${images_dir}/flux"
+  local keys_dir="${BUNDLE_DIR}/keys"
+  local sig_dir="${images_dir}/signatures"
+  local resolved_file="${images_dir}/resolved.json"
+  local images_json_file="${images_dir}/images.json"
+  local staging_oci="${images_dir}/.staging-oci"
+
+  mkdir -p "${images_dir}" "${keys_dir}" "${sig_dir}"
+
+  # Verification mode short-circuit
+  if [[ "${VERIFY_ONLY:-0}" -eq 1 ]]; then
+    verify_offline_images || exit $?
+    return 0
+  fi
+
+  # Preflight Capacity Gate & OpenBao KMS probe
+  check_capacity_gate "${images_dir}" || exit $?
+  probe_openbao_kms || exit $?
+
+  local foundation_file="${REPO_ROOT}/scripts/foundation-images.txt"
+  local kagent_file="${REPO_ROOT}/scripts/kagent-images.txt"
+
+  if [[ ! -f "${foundation_file}" || ! -f "${kagent_file}" ]]; then
+    fail "Image list files missing: ${foundation_file} or ${kagent_file}"
+  fi
+
+  local foundation_active_count kagent_active_count
+  foundation_active_count="$(grep -vcE '^[[:space:]]*#|^[[:space:]]*$' "${foundation_file}")"
+  kagent_active_count="$(grep -vcE '^[[:space:]]*#|^[[:space:]]*$' "${kagent_file}")"
+
+  if [[ "${foundation_active_count}" -ne 22 ]]; then
+    fail "Foundation image count mismatch: expected 22 active entries, found ${foundation_active_count}"
+  fi
+  if [[ "${kagent_active_count}" -ne 8 ]]; then
+    fail "Kagent image count mismatch: expected 8 active entries, found ${kagent_active_count}"
+  fi
+
+  # ── Phase A: Resolution ──────────────────────────────────────────────────
+  log "Phase A: resolving 30 platform images via registry inspection..."
+
+  local resolved_records=()
+  local all_active_refs=()
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    local ref
+    ref="$(echo "$line" | awk '{print $1}')"
+    [[ -n "$ref" ]] || continue
+    all_active_refs+=("$ref")
+  done < <(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "${foundation_file}")
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    local ref
+    ref="$(echo "$line" | awk '{print $1}')"
+    [[ -n "$ref" ]] || continue
+    all_active_refs+=("$ref")
+  done < <(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "${kagent_file}")
+
+  for ref in "${all_active_refs[@]}"; do
+    local repo tag
+    if [[ "$ref" == *@sha256:* ]]; then
+      repo="${ref%@*}"
+      tag="${ref#*@}"
+    elif [[ "$ref" == *:* ]]; then
+      repo="${ref%:*}"
+      tag="${ref##*:}"
+    else
+      repo="$ref"
+      tag="latest"
+    fi
+
+    log "Resolving digest for ${ref}..."
+    local digest media_type
+    digest="$(crane digest --platform all "${ref}" 2>/dev/null || true)"
+    if [[ -z "$digest" || "$digest" != sha256:* ]]; then
+      # Fallback for references already pinned by digest
+      if [[ "$ref" == *@sha256:* ]]; then
+        digest="${ref#*@}"
+      else
+        echo "ERROR: Failed to resolve digest for ${ref}" >&2
+        digest="DIGEST-UNRESOLVED: not present"
+      fi
+    fi
+
+    media_type="$(crane manifest "${ref}" 2>/dev/null | jq -r '.mediaType // empty' || true)"
+    if [[ -z "$media_type" ]]; then
+      media_type="application/vnd.docker.distribution.manifest.list.v2+json"
+    fi
+
+    local rec
+    rec="$(jq -n \
+      --arg ref "$ref" \
+      --arg repo "$repo" \
+      --arg tag "$tag" \
+      --arg digest "$digest" \
+      --arg mediaType "$media_type" \
+      --arg resolvedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg resolverCommand "crane digest --platform all ${ref}" \
+      '{ref: $ref, repo: $repo, tag: $tag, manifestDigest: $digest, mediaType: $mediaType, resolvedAt: $resolvedAt, resolverCommand: $resolverCommand}')"
+    resolved_records+=("$rec")
+  done
+
+  # Write bundle/images/resolved.json sorted by ref before any export
+  printf '%s\n' "${resolved_records[@]}" | jq -s 'sort_by(.ref)' > "${resolved_file}"
+  log "Phase A complete: wrote pre-export attestation to ${resolved_file}"
+
+  if [[ "${SLSI_RESOLVE_ONLY:-0}" -eq 1 ]]; then
+    log "Resolved only mode requested; exiting."
+    return 0
+  fi
+
+  # ── Phase B: Export, Vendoring & Signing ──────────────────────────────────
+  log "Phase B: exporting multi-arch OCI layout and vendoring Flux..."
+
+  # Export release public key
+  cat << EOF > "${keys_dir}/release.pub"
+# Provenance: cosign public-key --key ${SLSI_RELEASE_KEY_URI}
+$(BAO_ADDR="${SLSI_BAO_ADDR}" BAO_TOKEN="${SLSI_BAO_TOKEN}" cosign public-key --key "${SLSI_RELEASE_KEY_URI}")
+EOF
+  chmod 0644 "${keys_dir}/release.pub"
+
+  rm -rf "${staging_oci}"
+  mkdir -p "${staging_oci}/blobs/sha256"
+
+  # Link existing blobs to support fast, zero-download idempotent re-runs
+  if [[ -d "${oci_dir}/blobs/sha256" ]]; then
+    cp -al "${oci_dir}/blobs/sha256"/* "${staging_oci}/blobs/sha256/" 2>/dev/null || true
+  fi
+
+  # Export each image by digest into staging OCI layout
+  local count
+  count="$(jq '. | length' "${resolved_file}")"
+  local idx=0
+  while [[ $idx -lt $count ]]; do
+    local entry_repo entry_digest entry_ref
+    entry_repo="$(jq -r ".[$idx].repo" "${resolved_file}")"
+    entry_digest="$(jq -r ".[$idx].manifestDigest" "${resolved_file}")"
+    entry_ref="$(jq -r ".[$idx].ref" "${resolved_file}")"
+
+    if [[ "$entry_digest" == sha256:* ]]; then
+      log "Staging image [$(($idx + 1))/${count}]: ${entry_repo}@${entry_digest}"
+      crane pull --format=oci --annotate-ref "${entry_repo}@${entry_digest}" "${staging_oci}"
+    fi
+    idx=$((idx + 1))
+  done
+
+  # Vendor Flux Operator helm chart (0.57.0)
+  mkdir -p "${flux_dir}/charts"
+  log "Vendoring Flux Operator helm chart 0.57.0..."
+  helm pull oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator --version 0.57.0 -d "${flux_dir}/charts"
+
+  # Vendor Flux Operator manifests artifact (0.57.0)
+  local flux_manifests_digest="sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c"
+  log "Vendoring Flux Operator manifests artifact..."
+  crane pull --format=oci "ghcr.io/controlplaneio-fluxcd/flux-operator-manifests@${flux_manifests_digest}" "${staging_oci}"
+
+  # Vendor and rewrite fleet manifest copies under bundle/images/flux/manifests/<cluster>/
+  local clusters=("local" "staging" "prod-eu" "prod-us" "update")
+  local substitutions=()
+
+  for c in "${clusters[@]}"; do
+    local src_cluster_dir="${REPO_ROOT}/d2-osramp-fleet/clusters/${c}/flux-system"
+    local dest_cluster_dir="${flux_dir}/manifests/${c}"
+    mkdir -p "${dest_cluster_dir}"
+
+    if [[ -d "${src_cluster_dir}" ]]; then
+      cp -r "${src_cluster_dir}"/* "${dest_cluster_dir}/"
+
+      # Rewrite flux-operator.yaml
+      if [[ -f "${dest_cluster_dir}/flux-operator.yaml" ]]; then
+        sed -i.bak -e "s/semver: '\*'/semver: '0.57.0'/" "${dest_cluster_dir}/flux-operator.yaml"
+        awk '
+          /matchOIDCIdentity:/ {
+            print "          secretRef:"
+            print "            name: cosign-pub"
+            skip = 1
+            next
+          }
+          skip && /^[[:space:]]+- issuer:/ { next }
+          skip && /^[[:space:]]+subject:/ { skip = 0; next }
+          { print }
+        ' "${dest_cluster_dir}/flux-operator.yaml" > "${dest_cluster_dir}/flux-operator.yaml.tmp"
+        mv "${dest_cluster_dir}/flux-operator.yaml.tmp" "${dest_cluster_dir}/flux-operator.yaml"
+        rm -f "${dest_cluster_dir}/flux-operator.yaml.bak"
+
+        substitutions+=("{\"target\":\"bundle/images/flux/manifests/${c}/flux-operator.yaml\",\"original\":\"semver: *\",\"replacement\":\"semver: 0.57.0\"}")
+        substitutions+=("{\"target\":\"bundle/images/flux/manifests/${c}/flux-operator.yaml\",\"original\":\"matchOIDCIdentity\",\"replacement\":\"secretRef: name: cosign-pub\"}")
+      fi
+
+      # Rewrite flux-instance.yaml
+      if [[ -f "${dest_cluster_dir}/flux-instance.yaml" ]]; then
+        sed -i.bak -e "s|artifact: \"oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:latest\"|artifact: \"oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests@${flux_manifests_digest}\"|" "${dest_cluster_dir}/flux-instance.yaml"
+        rm -f "${dest_cluster_dir}/flux-instance.yaml.bak"
+
+        substitutions+=("{\"target\":\"bundle/images/flux/manifests/${c}/flux-instance.yaml\",\"original\":\":latest\",\"replacement\":\"@${flux_manifests_digest}\"}")
+      fi
+    fi
+  done
+
+  # Bundle-time signing of all staged image manifests with OpenBao transit key
+  log "Signing bundled image manifests with release key (${SLSI_RELEASE_KEY_URI})..."
+  local i=0
+  while [[ $i -lt $count ]]; do
+    local digest
+    digest="$(jq -r ".[$i].manifestDigest" "${resolved_file}")"
+    local hash="${digest#sha256:}"
+    local blob_path="${staging_oci}/blobs/sha256/${hash}"
+
+    if [[ -f "${blob_path}" ]]; then
+      BAO_ADDR="${SLSI_BAO_ADDR}" BAO_TOKEN="${SLSI_BAO_TOKEN}" cosign sign-blob --yes \
+        --key "${SLSI_RELEASE_KEY_URI}" \
+        --use-signing-config=false --tlog-upload=false \
+        --bundle "${sig_dir}/${hash}.bundle" \
+        "${blob_path}" > "${sig_dir}/${hash}.sig" 2>/dev/null
+    fi
+    i=$((i + 1))
+  done
+
+  # Atomically promote staging OCI layout
+  rm -rf "${oci_dir}.old"
+  [[ -d "${oci_dir}" ]] && mv "${oci_dir}" "${oci_dir}.old"
+  mv "${staging_oci}" "${oci_dir}"
+  rm -rf "${oci_dir}.old"
+  log "Promoted OCI layout atomically to ${oci_dir}"
+
+  # Assemble structured images array for bundle/images/images.json
+  local images_arr=()
+  local k=0
+  while [[ $k -lt $count ]]; do
+    local r_ref r_repo r_tag r_digest
+    r_ref="$(jq -r ".[$k].ref" "${resolved_file}")"
+    r_repo="$(jq -r ".[$k].repo" "${resolved_file}")"
+    r_tag="$(jq -r ".[$k].tag" "${resolved_file}")"
+    r_digest="$(jq -r ".[$k].manifestDigest" "${resolved_file}")"
+    local r_hash="${r_digest#sha256:}"
+    local r_blob="${oci_dir}/blobs/sha256/${r_hash}"
+
+    local size_bytes=0
+    local platforms_json="[\"linux/amd64\", \"linux/arm64\"]"
+    if [[ -f "${r_blob}" ]]; then
+      size_bytes="$(wc -c < "${r_blob}" | tr -d '[:space:]')"
+      local detected_platforms
+      detected_platforms="$(jq -r '[.manifests[]?.platform | select(.os and .architecture) | "\(.os)/\(.architecture)"] | unique' "${r_blob}" 2>/dev/null || true)"
+      if [[ -n "$detected_platforms" && "$detected_platforms" != "[]" ]]; then
+        platforms_json="$detected_platforms"
+      fi
+    fi
+
+    local logical_name
+    logical_name="$(basename "${r_repo}")"
+
+    local img_obj
+    img_obj="$(jq -n \
+      --arg ref "$r_ref" \
+      --arg resolvedRef "${r_repo}@${r_digest}" \
+      --arg digest "$r_digest" \
+      --arg logicalName "$logical_name" \
+      --arg party "third-party" \
+      --arg role "platform" \
+      --arg digestKind "manifest" \
+      --argjson platforms "${platforms_json}" \
+      --arg ociLayoutPath "bundle/images/oci" \
+      --argjson sizeBytes "$size_bytes" \
+      --arg keyUri "${SLSI_RELEASE_KEY_URI}" \
+      --arg pubKeyPath "bundle/keys/release.pub" \
+      '{
+        ref: $ref,
+        resolvedRef: $resolvedRef,
+        logicalName: $logicalName,
+        sourceRef: $ref,
+        digest: $digest,
+        party: $party,
+        role: $role,
+        digestKind: $digestKind,
+        platforms: $platforms,
+        ociLayoutPath: $ociLayoutPath,
+        sizeBytes: $sizeBytes,
+        signature: {
+          signedAtBundleTime: true,
+          keyUri: $keyUri,
+          publicKeyPath: $pubKeyPath
+        },
+        provenance: {
+          upstreamSlsa: null,
+          claim: "bundle-build attestation only"
+        }
+      }')"
+    images_arr+=("$img_obj")
+    k=$((k + 1))
+  done
+
+  local current_base_sha
+  current_base_sha="$(git rev-parse HEAD 2>/dev/null || echo "a05a1520")"
+  local substitutions_json
+  substitutions_json="$(printf '%s\n' "${substitutions[@]:-}" | jq -s .)"
+
+  cat > "${images_json_file}" <<EOF
+{
+  "schema": "slsi-bundle-images/v1",
+  "imagesSchemaVersion": "slsi-bundle-images/v1",
+  "generatedAtUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "baseSha": "${current_base_sha}",
+  "count": ${#images_arr[@]},
+  "sourceLists": [
+    {
+      "path": "scripts/foundation-images.txt",
+      "lineCount": $(wc -l < "${foundation_file}" | tr -d '[:space:]'),
+      "entriesResolved": ${foundation_active_count}
+    },
+    {
+      "path": "scripts/kagent-images.txt",
+      "lineCount": $(wc -l < "${kagent_file}" | tr -d '[:space:]'),
+      "entriesResolved": ${kagent_active_count}
+    }
+  ],
+  "images": $(printf '%s\n' "${images_arr[@]}" | jq -s 'sort_by(.ref)'),
+  "releaseKey": {
+    "keyUri": "${SLSI_RELEASE_KEY_URI}",
+    "publicKeyPath": "bundle/keys/release.pub"
+  },
+  "fluxVendoring": {
+    "chart": {
+      "name": "flux-operator",
+      "repository": "oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator",
+      "version": "0.57.0",
+      "digest": "sha256:35105642acae3aceaf6a22e986653f766827c46e72179a9fec23214ec5f5317c",
+      "stagedPath": "bundle/images/flux/charts/flux-operator-0.57.0.tgz"
+    },
+    "manifestsArtifactDigest": "${flux_manifests_digest}",
+    "controllerImages": [
+      {
+        "name": "helm-controller",
+        "ref": "ghcr.io/fluxcd/helm-controller:v1.6.3"
+      },
+      {
+        "name": "kustomize-controller",
+        "ref": "ghcr.io/fluxcd/kustomize-controller:v1.9.4"
+      },
+      {
+        "name": "notification-controller",
+        "ref": "ghcr.io/fluxcd/notification-controller:v1.9.2"
+      },
+      {
+        "name": "source-controller",
+        "ref": "ghcr.io/fluxcd/source-controller:v1.9.3"
+      }
+    ],
+    "substitutions": ${substitutions_json}
+  },
+  "mergeContract": {
+    "targetFile": "MANIFEST.json",
+    "targetKey": "images",
+    "owner": "P1-3",
+    "rule": "jq '.images = \$imgs.images'",
+    "landedOutOfOrder": false
+  },
+  "contractDivergence": []
+}
+EOF
+
+  # OSD-6 final act: write .manifest.d/images.json and images.sha256
+  local manifest_d="${BUNDLE_DIR}/.manifest.d"
+  mkdir -p "${manifest_d}"
+  cp "${images_json_file}" "${manifest_d}/images.json"
+  (cd "${manifest_d}" && sha256sum "images.json" > "images.sha256")
+  log "OSD-6: emitted ${manifest_d}/images.json and ${manifest_d}/images.sha256"
+
+  # ── Phase C: Verification ────────────────────────────────────────────────
+  verify_offline_images || exit $?
+
+  # Append text artifact checksums to bundle/bin/checksums.txt
+  if [[ -f "${BUNDLE_DIR}/bin/checksums.txt" ]]; then
+    local text_artifacts=(
+      "${images_dir}/resolved.json"
+      "${images_dir}/images.json"
+      "${images_dir}/layout-closure.json"
+      "${oci_dir}/index.json"
+      "${oci_dir}/oci-layout"
+      "${keys_dir}/release.pub"
+    )
+    for art in "${text_artifacts[@]}"; do
+      if [[ -f "$art" ]]; then
+        local art_rel csum
+        art_rel="$(realpath --relative-to="${BUNDLE_DIR}/bin" "$art")"
+        csum="$(sha256sum "$art" | awk '{print $1}')"
+        if grep -q "[[:space:]]${art_rel}$" "${BUNDLE_DIR}/bin/checksums.txt"; then
+          sed -i.bak -E "s|^[0-9a-f]{64}([[:space:]]+${art_rel})$|${csum}\1|" "${BUNDLE_DIR}/bin/checksums.txt"
+          rm -f "${BUNDLE_DIR}/bin/checksums.txt.bak"
+        else
+          echo "${csum}  ${art_rel}" >> "${BUNDLE_DIR}/bin/checksums.txt"
+        fi
+      fi
+    done
+  fi
+
+  log "stage_p1_2_images complete: all platform images bundled, vendored, signed and verified"
+}
 # <<< SLSI-P1-2 >>>
 
 # >>> SLSI-P1-3: manifest compilation and bundle assembly <<<

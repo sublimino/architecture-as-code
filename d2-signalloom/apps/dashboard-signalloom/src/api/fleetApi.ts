@@ -37,14 +37,60 @@ export interface Edge {
   to: string
 }
 
-export interface RiskSummary {
-  ale: number
-  var95: number
-  trend: 'up' | 'down' | 'stable'
-  previousAle?: number
-  carriedGbp?: number
-  carried?: number
+/**
+ * Whether the thing that produced a RiskSummary was able to price its own
+ * findings, and when it was not, why not.
+ *
+ * Mirrors `FleetPricingStatus` on the Go side (policy-engine,
+ * pkg/compliance/fleet_scan.go). It exists so the refusal is part of the
+ * payload rather than an absence a reader has to notice, and so the dashboard
+ * can show the SERVER's reason instead of guessing at one.
+ *
+ * Optional here because /fleet-api/v1/fleet/topology does not send it yet. A
+ * caller must therefore handle "no figure and no stated reason" as well as "no
+ * figure, here is why" -- see UNPRICED_NO_SERVER_REASON in FleetRiskGauge.
+ */
+export interface FleetPricingStatus {
+  available: boolean
+  reason?: string
+  unmappedChecks?: string[]
 }
+
+/**
+ * The fleet's aggregate risk, which may carry no figures at all.
+ *
+ * `ale` and `var95` were declared `number` (required). A TypeScript type is not
+ * a runtime check: once the pricing routes began omitting these fields --
+ * `*float64` with `omitempty`, so structurally ABSENT rather than zero -- the
+ * required declaration became a claim about a payload nobody verified. The
+ * compiler was satisfied, `bun run typecheck` passed, and every consumer read
+ * `undefined` while believing it held a `number`. `money(undefined as number)`
+ * then renders whatever Intl does with NaN.
+ *
+ * They are optional-and-nullable now so the compiler forces each call site to
+ * say what it does with absence. The two shapes mean the same thing to a
+ * consumer and both occur: `undefined` from an omitempty Go field, `null` from
+ * a JSON null (fe-signalloom's /compliance/policy/* routes report absence that
+ * way). Do NOT reach for `!` or `?? 0` to quiet this: a zero in a money field
+ * reads as "no loss expected", which is a figure, and it is the exact defect
+ * the server-side change removed.
+ */
+export interface RiskSummary {
+  ale?: number | null
+  var95?: number | null
+  trend: 'up' | 'down' | 'stable'
+  previousAle?: number | null
+  carriedGbp?: number | null
+  carried?: number | null
+  pricing?: FleetPricingStatus
+}
+
+// The "is this priced?" predicate lives beside the thing that renders the
+// answer, in components/fleet/FleetRiskGauge.tsx, not here. This module is
+// wholesale-mocked (`vi.mock('../api/fleetApi', () => ({ ... }))`, no
+// importOriginal) by both fleet page suites, so a helper added here is absent
+// at runtime under test and the page crashes on first render with
+// "No \"x\" export is defined on the mock" -- which is how this was found.
 
 export interface CascadeEvent {
   triggerId: string

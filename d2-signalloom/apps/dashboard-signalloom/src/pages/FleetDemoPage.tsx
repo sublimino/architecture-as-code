@@ -6,7 +6,7 @@ import { useAuth0 } from '../auth/oidc'
 import { useServerSuperadmin } from '../auth/superadmin'
 import FleetTopology from '../components/fleet/FleetTopology'
 import RoleViewSelector, { type FleetRole } from '../components/fleet/RoleViewSelector'
-import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
+import FleetRiskGauge, { isPriced } from '../components/fleet/FleetRiskGauge'
 import FleetBadge, { stateToken, trustToken } from '../components/fleet/FleetBadge'
 import HelpHint from '../components/HelpHint'
 import LoadingState, { loadPhase } from '../components/LoadingState'
@@ -26,8 +26,37 @@ import {
   recoverFleet,
   resetFleet,
 } from '../api/fleetApi'
-import { FLEET_DEMO_FIXTURE } from '../api/fakeData'
-import { isDemoMode } from '../api/demoMode'
+import { FLEET_DEMO_FIXTURE, FLEET_DEMO_BASELINE_RISK, FLEET_DEMO_ESCALATED_RISK } from '../api/fakeData'
+import { isProductionEnv, showDemoToggle } from '../api/demoMode'
+
+// ── The demo gate on this page ──────────────────────────────────────────────
+//
+// `isDemoMode` was imported here and NEVER CALLED -- the only reference in the
+// file was the import line itself. `noUnusedLocals` is false in tsconfig.json
+// so nothing complained, and the figure sweep's rule 1 ("a file importing
+// fixture values must also import the gate") was satisfied by the import
+// alone. That is precisely the limitation W3 documented rather than papered
+// over: importing the gate is not applying it.
+//
+// So the fixture was reachable in uat and prod by clicking "Use Demo Fixture",
+// with no environment gate of any kind.
+//
+// `sourceMode` stays a page-local toggle, because an operator demoing against
+// a live cluster wants to flip the data source without flipping the whole
+// app's demo mode. What it may not do is exist at all where demo content is
+// forbidden, hence the conjunction: the ENVIRONMENT decides whether the local
+// toggle is offered, and both must agree before any fixture renders.
+//
+// The environment tier, not `isDemoMode()`: the per-browser localStorage flag
+// is a visibility preference and an operator legitimately wants the fixture
+// with it off. `isProductionEnv` and `showDemoToggle` are the two halves of
+// the tier check -- `isProductionEnv` is the one that cannot be talked out of
+// (it hard-returns false from `isDemoMode` too) and `showDemoToggle` is the
+// positive form, so requiring both means an unrecognised SL_ENV value fails
+// closed rather than open.
+export function demoFixturePermitted(): boolean {
+  return !isProductionEnv && showDemoToggle
+}
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -178,21 +207,34 @@ function chipStyle(selected: boolean): React.CSSProperties {
   }
 }
 
-// ── FAIR Risk Baseline & Escalated Scenarios ─────────────────────────────────
+// ── Where a rendered risk figure came from ───────────────────────────────────
+//
+// Derived from the branch of `useFleetRisk` that produced the value, never
+// asserted beside it. A label written as a constant next to a figure is
+// another claim to verify; a label returned by the code path that computed the
+// figure cannot disagree with it.
+type RiskProvenance =
+  /** The scripted demo scenario, behind the demo gate. */
+  | 'demo-scenario'
+  /** aggregateRisk as reported by /fleet-api/v1/fleet/topology. */
+  | 'fleet-api'
+  /** No figure: the API declined to price, or there is no API answer yet. */
+  | 'unpriced'
 
-const BASELINE_RISK: RiskSummary = {
-  ale: 12400,
-  var95: 58000,
-  trend: 'stable',
-  carriedGbp: 12400,
+interface FleetRisk {
+  summary: RiskSummary
+  provenance: RiskProvenance
 }
 
-const ESCALATED_RISK: RiskSummary = {
-  ale: 847000,
-  var95: 1200000,
-  trend: 'up',
-  previousAle: 12400,
-  carriedGbp: 847000,
+/**
+ * The badge shown on the gauge, or nothing.
+ *
+ * Only the demo path gets a badge. A figure from the API needs no provenance
+ * note -- it IS the measurement -- and the unpriced state already renders the
+ * reason it carries, so a second label would be noise.
+ */
+function provenanceLabel(p: RiskProvenance): string | undefined {
+  return p === 'demo-scenario' ? 'Demo scenario (scripted)' : undefined
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -221,6 +263,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   // Role view state.
   const [activeRole, setActiveRole] = useState<FleetRole>('admin')
+
+  // Whether demo content may render here at all. Read once per render rather
+  // than once per module so a test can mock the gate module.
+  const demoFixtureAllowed = demoFixturePermitted()
 
   // Connection mode and heartbeat state.
   const [sourceMode, setSourceMode] = useState<'live' | 'demo'>('live')
@@ -280,7 +326,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     setTopologyLoading(true)
     setError(null)
 
-    if (activeMode === 'demo') {
+    // Both halves of the gate, not just the local toggle: see
+    // demoFixturePermitted. A demo request in a tier that forbids demo content
+    // falls through to the live fetch rather than silently serving a fixture.
+    if (activeMode === 'demo' && demoFixtureAllowed) {
       setTopology(FLEET_DEMO_FIXTURE)
       setConnectionStatus('demo_fallback')
       setLastHeartbeat(new Date())
@@ -316,7 +365,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     } finally {
       setTopologyLoading(false)
     }
-  }, [sourceMode])
+  }, [sourceMode, demoFixtureAllowed])
 
   // Start polling on mount and clean up on unmount.
   useEffect(() => {
@@ -481,37 +530,87 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   const nonCompliantCount = agents.filter(a => a.state === 'non-compliant').length
   const stunnableAgents = displayedAgents.filter(a => a.type !== 'observability')
 
-  const risk: RiskSummary = useMemo(() => {
-    if (topology && rawAgents.length === 0) {
-      return { ale: 0, var95: 0, trend: 'stable', carriedGbp: 0 }
-    }
-    // Stepwise cascade in progress: recalculate risk as each node cascades into stunned state
-    const cascadeTargets = cascadeInProgress.filter(id => id !== 'agent-monitor')
-    if (cascadeTargets.length > 0 && stunnedCascadeNodes.length > 0) {
-      const baseAle = isScanned ? ESCALATED_RISK.ale : BASELINE_RISK.ale
-      const baseVar = isScanned ? ESCALATED_RISK.var95 : BASELINE_RISK.var95
-      const targetAle = 847000
-      const targetVar = 1200000
+  // ── Risk ────────────────────────────────────────────────────────────────
+  //
+  // This panel used to render BASELINE_RISK / ESCALATED_RISK unconditionally,
+  // in BOTH modes, and never consulted the API at all -- so it had never shown
+  // a real figure in its life. Its empty case returned `{ ale: 0, var95: 0,
+  // carriedGbp: 0 }`, which is worse than nothing: a fabricated zero reads as
+  // "this fleet costs you nothing in a typical year".
+  //
+  // Two paths now, and the gate decides which:
+  //
+  //   demo  -- the scripted cascade, reachable only through the same
+  //            `demoFixtureAllowed` gate as FLEET_DEMO_FIXTURE, and badged at
+  //            the point of display with a label derived from this branch.
+  //   live  -- topology.aggregateRisk and nothing else. When the API carries
+  //            no `ale`, the panel says so and quotes the API's own reason.
+  //
+  // The cascade animation is kept: it is a product feature and the demo path
+  // is allowed to drive it. It cannot run on the live path because there is no
+  // second figure to interpolate towards that the API has given us.
+  const { summary: risk, provenance: riskProvenance } = useMemo<FleetRisk>(() => {
+    const unpriced = (reason?: string): FleetRisk => ({
+      summary: {
+        ale: null,
+        var95: null,
+        carriedGbp: null,
+        trend: 'stable',
+        pricing: { available: false, reason },
+      },
+      provenance: 'unpriced',
+    })
 
-      // Stepwise progression: fraction of nodes stunned so far
-      const stepFraction = Math.min(1, stunnedCascadeNodes.length / cascadeTargets.length)
-      const currentAle = Math.round(baseAle + (targetAle - baseAle) * stepFraction)
-      const currentVar = Math.round(baseVar + (targetVar - baseVar) * stepFraction)
+    if (demoFixtureAllowed && sourceMode === 'demo') {
+      // Stepwise cascade in progress: walk the scenario from its baseline to
+      // its escalated endpoint as each node cascades into stunned state.
+      const cascadeTargets = cascadeInProgress.filter(id => id !== 'agent-monitor')
+      if (cascadeTargets.length > 0 && stunnedCascadeNodes.length > 0) {
+        const from = isScanned ? FLEET_DEMO_ESCALATED_RISK : FLEET_DEMO_BASELINE_RISK
+        const to = FLEET_DEMO_ESCALATED_RISK
+        const stepFraction = Math.min(1, stunnedCascadeNodes.length / cascadeTargets.length)
+        const step = (a: number, b: number) => Math.round(a + (b - a) * stepFraction)
+        // Non-null assertions are wrong here, so the scenario is checked once:
+        // these are our own fixtures and a malformed one is a bug in the
+        // fixture, not an absent measurement.
+        const currentAle = step(from.ale ?? 0, to.ale ?? 0)
+        const currentVar = step(from.var95 ?? 0, to.var95 ?? 0)
+        return {
+          summary: {
+            ale: currentAle,
+            var95: currentVar,
+            trend: 'up',
+            previousAle: FLEET_DEMO_BASELINE_RISK.ale,
+            carriedGbp: currentAle,
+          },
+          provenance: 'demo-scenario',
+        }
+      }
 
       return {
-        ale: currentAle,
-        var95: currentVar,
-        trend: 'up',
-        previousAle: BASELINE_RISK.ale,
-        carriedGbp: currentAle,
+        summary: isScanned || stunnedCount > 0 ? FLEET_DEMO_ESCALATED_RISK : FLEET_DEMO_BASELINE_RISK,
+        provenance: 'demo-scenario',
       }
     }
 
-    if (isScanned || stunnedCount > 0) {
-      return ESCALATED_RISK
-    }
-    return BASELINE_RISK
-  }, [topology, rawAgents.length, isScanned, cascadeInProgress, stunnedCascadeNodes, stunnedCount])
+    // Live. `topology === null` is "no answer yet or the poll failed", which is
+    // not the same as "answered with no price" -- both are unpriced to a
+    // reader, but only the second has a server reason to quote.
+    if (topology === null) return unpriced(undefined)
+    const api = topology.aggregateRisk
+    if (!isPriced(api)) return unpriced(api?.pricing?.reason)
+    return { summary: api, provenance: 'fleet-api' }
+  }, [
+    demoFixtureAllowed,
+    sourceMode,
+    topology,
+    isScanned,
+    cascadeInProgress,
+    stunnedCascadeNodes,
+    stunnedCount,
+  ])
+
+  const riskSourceLabel = provenanceLabel(riskProvenance)
 
   const showControls = superadmin && !audience
 
@@ -651,6 +750,8 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             trend={risk.trend}
             previousAle={risk.previousAle}
             carriedGbp={risk.carriedGbp}
+            unavailableReason={risk.pricing?.reason}
+            sourceLabel={riskSourceLabel}
             stepwise={cascadeInProgress.length > 0}
             cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
             totalCascadeSteps={cascadeInProgress.filter(id => id !== 'agent-monitor').length || undefined}
@@ -722,7 +823,10 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             </span>
           </div>
 
-          {/* Manual mode toggle */}
+          {/* Manual mode toggle. Absent where demo content is forbidden: a
+              control that serves a fixture must not exist in a tier that may
+              not show one. */}
+          {demoFixtureAllowed && (
           <button
             type="button"
             data-testid="fleet-source-toggle"
@@ -736,6 +840,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
           >
             {sourceMode === 'live' ? 'Use Demo Fixture' : 'Use Live Cluster'}
           </button>
+          )}
         </div>
       </div>
 
@@ -841,6 +946,8 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             trend={risk.trend}
             previousAle={risk.previousAle}
             carriedGbp={risk.carriedGbp}
+            unavailableReason={risk.pricing?.reason}
+            sourceLabel={riskSourceLabel}
             stepwise={cascadeInProgress.length > 0}
             cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
             totalCascadeSteps={cascadeInProgress.filter(id => id !== 'agent-monitor').length || undefined}

@@ -631,6 +631,14 @@ export interface FrameworkResponse {
   compliance_deadline: string | null
   control_count: number
   controls: ControlResponse[]
+  // Jurisdiction reporting, read-only: whether this regime is in scope for the
+  // organisation's declared jurisdiction. Nothing is filtered or re-priced on
+  // these -- an out-of-jurisdiction regime is still returned in full.
+  // Optional on the wire because a server that predates them omits them, and a
+  // missing field must read as "in scope", matching the permissive default.
+  territories?: string[]
+  in_jurisdiction?: boolean
+  out_of_jurisdiction_reason?: string | null
 }
 
 export interface AgentComplianceResultResponse {

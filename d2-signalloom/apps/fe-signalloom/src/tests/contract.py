@@ -535,6 +535,12 @@ class FrameworkResponse(BaseModel):
     compliance_deadline: str | None
     control_count: int
     controls: list[ControlResponse]
+    # Jurisdiction reporting, read-only. Mirrors api_compat.FrameworkResponse;
+    # both carry extra="forbid", so a drift between the two declarations is a
+    # red contract test rather than a field the dashboard never receives.
+    territories: list[str] = []
+    in_jurisdiction: bool = True
+    out_of_jurisdiction_reason: str | None = None
 
 
 class AgentComplianceResultResponse(BaseModel):

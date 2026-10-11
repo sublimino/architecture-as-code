@@ -1199,6 +1199,85 @@ class ControlResponse(BaseModel):
     control_order: int
 
 
+#: The territory a framework's obligations actually bite in.
+#:
+#: WHY THIS LIVES HERE AND NOT ON THE ENGINE'S FRAMEWORK STRUCT. The policy
+#: engine's ``frameworks`` package has no territory, jurisdiction or
+#: applicability concept at all -- ``ListFrameworks`` returns
+#: ``map[string][]string`` of id to versions, and there is no ``Regime`` type.
+#: Adding one is in flight as a separate change to ``frameworks/types.go``, and
+#: a second applicability concept alongside it would be precisely the failure
+#: ``model.go`` warns about in its own comment: "a parallel concept would have
+#: meant two answers to 'where is this institution' and eventually two
+#: different answers". So this map is REPORTING-ONLY and deliberately
+#: provisional -- it exists to surface out-of-jurisdiction regimes to an
+#: operator, and it must be replaced by the engine's applicability data once
+#: that lands rather than grown.
+#:
+#: An ABSENT entry means global, matching the engine's own permissive default
+#: (``Scenario.Territories`` omitted means every institution). That is the
+#: behaviour every framework has today, so adding this axis moves nothing.
+FRAMEWORK_TERRITORIES: dict[str, tuple[str, ...]] = {
+    # UK/EU data protection and the EU's AI regulation.
+    "uk-gdpr": ("UK",),
+    "eu-ai-act": ("EU", "DE", "FR"),
+    "gdpr": ("EU", "DE", "FR"),
+    "dora": ("EU", "DE", "FR"),
+    "nis2": ("EU", "DE", "FR"),
+    # US sectoral regimes.
+    "hipaa": ("US",),
+    "sox": ("US",),
+    "ccpa": ("US",),
+    "nist-800-53": ("US",),
+    # Deliberately NOT listed, and therefore global: cis-kubernetes,
+    # finos-aigf, iso-27001, soc2, pci-dss. A control baseline, an industry
+    # framework and three international standards are adopted by choice rather
+    # than imposed by a territory, so scoping them would exclude them from
+    # institutions that genuinely follow them.
+}
+
+#: A tenant or framework that operates everywhere.
+GLOBAL_TERRITORY = "*"
+
+
+def framework_territories(framework_id: str) -> tuple[str, ...]:
+    """The territories a framework is scoped to; empty means global."""
+    return FRAMEWORK_TERRITORIES.get((framework_id or "").strip().lower(), ())
+
+
+def framework_applies_to(territories: tuple[str, ...], jurisdiction: str | None) -> bool:
+    """Ported from ``Scenario.AppliesTo`` (model.go), not reinvented.
+
+    The two semantics that matter and are easy to get backwards:
+
+      * Omitted territories means GLOBAL. The permissive default, on purpose:
+        it is the behaviour every pack already had, so adding this axis moves
+        no existing number. Scoping is an affirmative act.
+      * An institution that does not say where it is matches NO scoped
+        framework. The framework is excluded rather than assumed, because
+        silence must never read as a match.
+
+    Comparison is case-insensitive and whitespace-trimmed: 'uk' and 'UK'
+    naming different things would be a data trap, not a feature.
+
+    ONE DELIBERATE EXTENSION beyond the Go original, flagged because it is a
+    semantic decision and not a port: a tenant whose jurisdiction is ``*``
+    matches EVERY scoped framework. ``AppliesTo`` only ever receives a concrete
+    jurisdiction from a YAML file, so it never had to answer "what if the
+    institution says it operates everywhere" -- under a strict reading such a
+    tenant would match only global frameworks, which would be the opposite of
+    what declaring global operation means. Worth a second opinion.
+    """
+    if not territories or any(t.strip() == GLOBAL_TERRITORY for t in territories):
+        return True
+    j = (jurisdiction or "").strip().upper()
+    if not j:
+        return False
+    if j == GLOBAL_TERRITORY:
+        return True
+    return any(t.strip().upper() == j for t in territories)
+
+
 class FrameworkResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1209,6 +1288,80 @@ class FrameworkResponse(BaseModel):
     compliance_deadline: str | None
     control_count: int
     controls: list[ControlResponse]
+
+    # ── Jurisdiction reporting: READ-ONLY, prices nothing ───────────────────
+    #
+    # These REPORT whether a regime is in scope for the tenant's declared
+    # jurisdiction. Nothing downstream filters, excludes or re-prices on them
+    # yet -- deliberately, because changing what is priced is a separate
+    # decision from telling an operator what looks out of scope, and the
+    # second is useful on its own.
+    #
+    # in_jurisdiction is never None: under the ported semantics an unstated
+    # jurisdiction gives a definite False for a scoped framework, not an
+    # unknown. out_of_jurisdiction_reason carries WHY, for the same reason
+    # magnitudes carry provenance -- an unexplained exclusion is
+    # indistinguishable from an oversight.
+    territories: list[str] = []
+    in_jurisdiction: bool = True
+    out_of_jurisdiction_reason: str | None = None
+
+
+def _with_jurisdiction_reporting(
+    frameworks_list: list[FrameworkResponse], jurisdiction: str | None,
+) -> list[FrameworkResponse]:
+    """Stamp the three reporting fields onto an already-built list.
+
+    Applied as a post-pass over both read paths rather than threaded into each
+    constructor: the in-memory path builds seven literals and the pooled path
+    builds from rows, so one pass over the result is the only shape in which
+    the two cannot disagree about whether a regime is in scope.
+
+    ORDER AND MEMBERSHIP ARE UNCHANGED. Nothing is filtered out -- an
+    out-of-jurisdiction regime is still returned, still with all its controls,
+    and merely carries the reporting fields. Dropping it would change what the
+    compliance board counts, which is a pricing decision and not this one.
+    """
+    stamped = []
+    for framework in frameworks_list:
+        stamped.append(
+            framework.model_copy(
+                update=framework_jurisdiction_fields(framework.id, jurisdiction),
+            ),
+        )
+    return stamped
+
+
+def framework_jurisdiction_fields(
+    framework_id: str, jurisdiction: str | None,
+) -> dict[str, Any]:
+    """The three reporting fields for one framework, in one place.
+
+    Shared by both read paths (pooled and in-memory fixture) so they cannot
+    disagree about whether a regime is in scope.
+    """
+    territories = framework_territories(framework_id)
+    applies = framework_applies_to(territories, jurisdiction)
+    reason: str | None = None
+    if not applies:
+        scoped = ", ".join(territories)
+        if (jurisdiction or "").strip():
+            reason = (
+                f"{framework_id} applies in {scoped}; this organisation declares "
+                f"{jurisdiction}."
+            )
+        else:
+            reason = (
+                f"{framework_id} applies in {scoped}, and this organisation has not "
+                f"declared a jurisdiction. An unstated jurisdiction matches no scoped "
+                f"regime rather than all of them, so declare one to see whether this "
+                f"regime is in scope."
+            )
+    return {
+        "territories": list(territories),
+        "in_jurisdiction": applies,
+        "out_of_jurisdiction_reason": reason,
+    }
 
 
 class AgentComplianceResultResponse(BaseModel):
@@ -7086,7 +7239,9 @@ async def compliance_frameworks(
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
-        return [
+        with _STORE_LOCK:
+            jurisdiction = _TENANT_RISK_PROFILE.get(tenant_id, {}).get("jurisdiction")
+        fixtures = [
             FrameworkResponse(
                 id="eu-ai-act",
                 name="EU AI Act",
@@ -7196,6 +7351,21 @@ async def compliance_frameworks(
                 ],
             ),
         ]
+        return _with_jurisdiction_reporting(fixtures, jurisdiction)
+
+    # A targeted SELECT, deliberately NOT _ensure_tenant_settings: that helper
+    # INSERTs a row when one is absent, and a GET must not write. The first
+    # version of this called it and turned a read-only endpoint into one with a
+    # side-effect (caught by test_tenant_isolation's fake pool, which rightly
+    # refused to serve it).
+    #
+    # A missing row means UNDECLARED, which is a real state the reporting
+    # handles -- not an error, and not an excuse to report everything as in
+    # scope.
+    juris_row = await pool.fetchrow(
+        "SELECT jurisdiction FROM tenant_settings WHERE tenant_id = $1", tenant_id,
+    )
+    jurisdiction = juris_row["jurisdiction"] if juris_row is not None else None
 
     # Both tables are tenant-owned (migration 004). Unfiltered, a tenant saw every
     # other tenant's frameworks, and _policy_framework_summaries -- which groups by
@@ -7231,7 +7401,7 @@ async def compliance_frameworks(
                 controls=controls,
             )
         )
-    return result
+    return _with_jurisdiction_reporting(result, jurisdiction)
 
 
 async def _policy_framework_summaries(

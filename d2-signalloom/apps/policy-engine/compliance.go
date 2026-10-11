@@ -83,9 +83,32 @@ type ComplianceSummary struct {
 	Failed        int `json:"failed"`
 	Errored       int `json:"errored"`
 	// NotEvaluated counts placeholder checks; they are in TotalControls only.
-	NotEvaluated  int     `json:"notEvaluated"`
+	NotEvaluated int `json:"notEvaluated"`
+	// NotInForce counts checks whose regime's obligations do not exist on
+	// AssessmentDate. Like NotEvaluated they are in TotalControls only: not
+	// passed, not failed, not errored and contributing no exposure. A regime
+	// that has not started cannot be breached, so pricing it would be wrong by
+	// statute rather than by opinion.
+	NotInForce    int     `json:"notInForce"`
 	TotalExposure float64 `json:"totalExposureGbp"`
 	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
+
+	// AssessmentDate echoes the as-of date the scan was run with, empty when
+	// the caller supplied none. It is on the summary as well as every row
+	// because it is the one input that makes the verdicts reproducible: a
+	// reader cannot re-derive these counts without knowing which day they are
+	// counts for.
+	AssessmentDate string `json:"assessmentDate,omitempty"`
+	// ApplicabilityGated is true when an assessmentDate was supplied, so the
+	// declared windows were actually applied. False means every check
+	// evaluated regardless of its regime's dates -- see UngatedFrameworks.
+	ApplicabilityGated bool `json:"applicabilityGated"`
+	// UngatedFrameworks names the frameworks in this scan that declare a
+	// VERIFIED applicability window which was NOT applied, because no
+	// assessmentDate was supplied. This is the honest report of the default:
+	// the gate did not fire, these are the regimes where that mattered, and a
+	// reader is told rather than left to assume the dates were checked.
+	UngatedFrameworks []string `json:"ungatedFrameworks,omitempty"`
 
 	// Currency denominates totalExposureGbp. See the note on ComplianceScanResult.
 	Currency money.Currency `json:"currency"`
@@ -243,24 +266,24 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
 
 			results = append(results, ComplianceScanResult{
-				Framework:         cwc.Framework,
-				ControlSet:        cwc.ControlSet,
-				Control:           cwc.Control,
-				Check:             cwc.Check.ID,
-				Passed:            status == VerdictPass,
-				Status:            status,
-				Error:             errText,
-				ControlID:         cwc.controlID,
-				FrameworkVersion:  fw.Version,
-				CheckName:         cwc.Check.Name,
-				PolicyVersion:     req.PolicyVersion,
-				ALE:               roundMoney(risk.ALE, reportingCurrency),
-				VaR95:             roundMoney(risk.VaR95, reportingCurrency),
-				TVaR:              roundMoney(risk.TVaR, reportingCurrency),
-				CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
-				Currency:          reportingCurrency,
-				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
-				ScanTimestamp:     now,
+				Framework:        cwc.Framework,
+				ControlSet:       cwc.ControlSet,
+				Control:          cwc.Control,
+				Check:            cwc.Check.ID,
+				Passed:           status == VerdictPass,
+				Status:           status,
+				Error:            errText,
+				ControlID:        cwc.controlID,
+				FrameworkVersion: fw.Version,
+				CheckName:        cwc.Check.Name,
+				PolicyVersion:    req.PolicyVersion,
+				ALE:              roundMoney(risk.ALE, reportingCurrency),
+				VaR95:            roundMoney(risk.VaR95, reportingCurrency),
+				TVaR:             roundMoney(risk.TVaR, reportingCurrency),
+				CarriedGBP:       roundMoney(risk.CarriedGBP, reportingCurrency),
+				Currency:         reportingCurrency,
+				Carried:          money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
+				ScanTimestamp:    now,
 				// "industry-indicative" until 2026-10-11. It asserted an industry
 				// anchor that does not exist: no public or commercial loss dataset
 				// prices these controls, the 127 shipped triples carry no provenance
@@ -342,6 +365,12 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 			case VerdictNotEvaluated:
 				// A placeholder has no verdict: neither failed, errored nor exposure.
 				summary.NotEvaluated++
+				continue
+			case VerdictNotInForce:
+				// An obligation that does not exist on the assessmentDate cannot
+				// be breached: no failure, no error, no exposure. The row keeps
+				// its own priced figure; the summary declines to add it up.
+				summary.NotInForce++
 				continue
 			case VerdictError:
 				summary.Errored++

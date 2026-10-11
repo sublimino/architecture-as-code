@@ -148,6 +148,70 @@ enters it. So a *passing* row still carries a full-size figure. It is the
 **summary** that excludes passing rows from exposure. The figure is therefore a
 per-check constant, pinned per pack rather than per fixture.
 
+### What the tests prove, and what they cannot
+
+Read [the calibration statement](README.md#the-calibration-statement) with any
+figure out of this engine. Everything below is about the arithmetic over the
+declared inputs. **Nothing below tests that any number is the right number**,
+and nothing can: calibration is an expert-judgement input, not a computable
+property of the code. The table separates the two so neither can be mistaken for
+the other.
+
+| Claim | How it is held | Strength |
+| :--- | :--- | :--- |
+| `ale` is `E[freq] x E[loss]` for the declared triples | Closed form derived from the beta-PERT definition, not from `fair.go`, in `compliance_money_oracle_test.go`. Tolerance is 5 standard errors of the engine's own estimator. Worst observed over the priced checks: **2.71 sigma**, 1.87 % relative, `cis-kubernetes/v1.8 no-host-ports`. | Independent of the implementation |
+| `var95`, `tvar`, `carried` are the figures this engine produced | The per-pack golden files only, plus the closed-form support bounds `[min_f x min_l, max_f x max_l]` and the ordering identities. | **Pinned, not verified.** Three of the four figures the product quotes |
+| `tvar >= var95`, `tvar >= ale`, `carried >= tvar`, all finite and non-negative | `TestConformance_MoneyFigureOrdering` | Property over every shipped check |
+| `carried` is exactly `tvar` plus 10 % of the unrounded tail mean | same test | Property |
+| `tailDominated` is true if and only if `var95 < ale` | `TestConformance_MoneyTailDominatedFlagIsExact`, both directions, plus a reachability sweep | Property, with the sweep pinned at zero |
+| raising `riskTriple.mode` never lowers `carried` | `TestConformance_MoneyExposureMonotoneInRiskMode` | Monotonicity |
+| the same check ID with the same triples prices identically in every pack, and a rename moves every figure | `TestConformance_MoneySeedDerivedFromCheckID` | Determinism |
+| a `not_evaluated` row keeps its figure and adds nothing to summary exposure | `TestConformance_MoneyNotEvaluatedFigureExcludedFromExposure` | Property |
+| `GBP` is the reporting currency and `money` refuses to add across denominations | `TestConformance_MoneyReportingCurrencyIsPinned` | Property |
+| a pack with no frequency triple prices every check at zero | `TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero` | Property, keeps the two zero groups apart |
+| each pack page states its own priced and unpriced counts correctly | `policy/frameworks/pricing-counts-test.sh`, run by `make policy-pricing-counts` | Generated from `framework.json`, fails on one character of drift |
+| **that a triple is the correct estimate for its control** | **nothing** | **No test exists, and none is possible** |
+| **that a magnitude and a frequency were not transposed** | the golden files only. The analytic anchor is blind to it, because `E[F] x E[M]` and the support product are both symmetric in their arguments | Golden-only |
+
+`tailDominated` is **unreachable on the per-check `fair.Simulate` path**, so the
+flag is dead code there. `alpha + beta` is fixed at 6, which bounds the
+attainable skew, and `Simulate` multiplies a *continuous* frequency instead of
+drawing Poisson event counts, so there are no zero-loss years. `P(L <= E[L])`
+sits at about 0.63 to 0.69 across the family, against the 0.95 needed to invert
+the inequality. The signal is live only on the aggregate `Engine.Run` and
+`Engine.RunDistribution` path, which does draw Poisson counts.
+
+The normative Open Group FAIR texts (O-RT 3.0.1 and O-RA 2.0.1) sit behind
+registration and **were not read**. Do not cite them here as if they were. The
+model steward is the FAIR Institute, and the distribution mathematics is
+standard beta-PERT, for which Vose is the usual reference.
+
+### Not additive: never sum `var95`, `tvar` or `carried`
+
+Means add. Percentiles do not. `ale` is an expectation, so the sum over checks
+is the expectation of the total. `var95`, `tvar` and `carried` are tail
+statistics of separate marginal distributions. Adding them assumes the losses
+are perfectly correlated, which overstates the tail, and the result is not the
+95th percentile of anything.
+
+A portfolio figure needs **one joint run**. `fair.Engine.RunDistribution`
+already does this, returns the sorted vector of simulated annual losses, and is
+tested in `fair/distribution_test.go`. Take the quantile of the aggregate with
+`fair.Percentile`. The aggregate path is also the better FAIR model for a second
+reason: it draws Poisson event counts and carries an institution-owned risk
+load, where the per-check path does neither.
+
+Two live call sites in the dashboard sum the per-check quantiles. They are a
+**known defect**, recorded here so the pattern is not copied, and they are
+outside the ownership of this directory:
+
+- `d2-signalloom/apps/dashboard-signalloom/src/api/supercredProjection.ts`
+  lines 319 to 320, `totalVar95` and `totalTvar`, each a `reduce` over the
+  per-check figure.
+- `d2-signalloom/apps/dashboard-signalloom/src/api/fakeComplianceData.ts`
+  lines 248 to 250, `totalVar95`, `totalTvar` and `totalCarried`, each a
+  `sumMoney` over the per-check figure.
+
 ### Golden files
 
 ```
@@ -323,13 +387,19 @@ re-introduce that defect as a test. The honest relation is asserted instead: the
 
 ### Two findings pinned by these tests
 
-1. **66 of 127 checks price at £0.00.** Four shipped packs — `eu-ai-act/v1.0`,
-   `eu-ai-act/v2.0`, `nist-800-53/v1.0`, `nist-800-53/v2.0` — declare a
+1. **73 of 134 checks price at £0.00, so only 61 are priced at all.** The live
+   counts are in the generated block on each pack page and on
+   [`README.md`](README.md#pricing-coverage-across-the-estate), which
+   `make policy-pricing-counts` keeps honest. Four shipped packs —
+   `eu-ai-act/v1.0`, `eu-ai-act/v2.0`, `nist-800-53/v1.0`, `nist-800-53/v2.0` —
+   declare a
    `riskTriple` but **no `freqTriple` at all**. `fair.Simulate` short-circuits an
    all-zero frequency to a zero result. So every check in those packs reports
    `0.00`, and a scan of them reports **zero total exposure however many controls
    fail**. `dora/v1.0` and `nis2/v1.0` also price at zero. They are
-   all-placeholder packs, so for them zero is correct.
+   all-placeholder packs, so for them zero is correct. Three further checks in
+   `nist-800-53/v2.1` are unpriced and are declared as such in
+   `nist-800-53/catalogue/unpriced.tsv`.
    `TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero` keeps the two groups
    apart and pins both. Adding a `freqTriple` turns the golden red, and the new
    figures must then be proved.

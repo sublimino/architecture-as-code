@@ -45,6 +45,8 @@ BAK="$(mktemp -d "${TMPDIR:-/tmp}/j2-mutation-proof.XXXXXX")"
 TARGETS=(
   "$PE/compliance.go"
   "$PE/fair/fair.go"
+  "$PE/money/money.go"
+  "$PE/types.go"
 )
 
 declare -a SURVIVORS=()
@@ -368,6 +370,57 @@ open(p,"w").write(s)
 '
 expect_red M13-profile-not-cached 'TestOneTenantsDeclaredProfileNeverMovesAnotherTenantsRows' \
   "a cached profile must not leak one tenant's declaration into another's scan"
+restore_all
+
+# ── M14: money refuses to add across denominations ───────────────────────────
+apply "$PE/money/money.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	if a.Currency != b.Currency {"""
+assert old in s, "M14 anchor absent"
+open(p,"w").write(s.replace(old,"	if false { // MUTANT M14: denomination check disabled",1))
+'
+expect_red M14-add-mixes-denominations 'TestMoneyStillRefusesToMixDenominationsEverywhereItIsUsed' \
+  "money.Add must refuse two different denominations"
+restore_all
+
+# ── M15 (INVERTED): give the bundle response a denomination as data ──────────
+# The bundle roll-up is denominated only by its json tag. Adding a real currency
+# field is the fix; the characterisation test must then go red.
+apply "$PE/types.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="	TotalExposure float64                `json:\"total_exposure_gbp\"`"
+assert old in s, "M15 anchor absent"
+new=old+"\n	Currency      string                 `json:\"currency\"` // MUTANT M15"
+open(p,"w").write(s.replace(old,new,1))
+'
+expect_red M15-fix-bundle-denomination 'TestTheBundleRollUpIgnoresTheDeclaredProfileAndIsDenominatedByItsFieldName_DEFECT' \
+  "INVERTED: carrying the denomination as data must break the characterisation"
+restore_all
+
+# ── M16 (INVERTED): reject a currency absent from the rate table ─────────────
+# An allow-list is the natural fix for ZZZ/XXX/AAA. The test that measures the
+# gap must go red once the gap is closed.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""		p.Currency = declared
+		p.Declared = true"""
+assert old in s, "M16 anchor absent"
+new="""		// MUTANT M16: allow-list drawn from risk/fx/rates.yaml
+		switch declared {
+		case "USD", "GBP", "EUR", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK",
+			"DKK", "SGD", "HKD", "INR", "ZAR", "AED":
+		default:
+			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: no rate for %s", declared)
+		}
+		p.Currency = declared
+		p.Declared = true"""
+open(p,"w").write(s.replace(old,new,1))
+'
+expect_red M16-fix-unconvertible-currency 'TestAValidShapeIsNotAValidCurrency' \
+  "INVERTED: an FX allow-list must break the unconvertible-label measurement"
 restore_all
 
 echo "---------------------------------------------------------------------------"

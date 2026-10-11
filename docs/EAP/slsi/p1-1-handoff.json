@@ -1,7 +1,7 @@
 {
   "base": {
     "branch": "integration/slsi-v0.1.1",
-    "resolvedSha": "3a7d0f9290e8f4e564da5e8d3f253f285c1660c1"
+    "resolvedSha": "8817ac300dcbeae5fa03c964f81a4233043d0697"
   },
   "sentinels": {
     "P1-1": {
@@ -40,6 +40,39 @@
       "run_stage"
     ]
   },
+  "stageFunctionLiterals": {
+    "P1-1": "stage_p1_1_binaries",
+    "P1-2": "stage_p1_2_images",
+    "P1-3": "stage_p1_3_manifest",
+    "P1-4": "stage_p1_4_validation"
+  },
+  "preamblePolicy": {
+    "sourcedLibraries": [
+      {
+        "path": "scripts/lib/wait.sh",
+        "purpose": "Polling and resilient wait helpers for background task orchestration"
+      },
+      {
+        "path": "scripts/lib/image-identity.sh",
+        "purpose": "Image identity verification, digest resolution, and signing verification",
+        "exitCodeConventions": {
+          "exit0": "Verification succeeded",
+          "exit1": "Verification failed (hard defect / signature invalid)",
+          "exit3": "COULD-NOT-VERIFY (network or missing key/environment dependency; cards P1-2 and P1-4 must conform to this convention rather than reinventing error codes)"
+        }
+      }
+    ],
+    "shellMode": "set -Eeuo pipefail",
+    "ifs": "$'\\n\\t'",
+    "errTrap": "echo ERROR: command failed at line ${LINENO}: ${BASH_COMMAND} >&2; exit 1"
+  },
+  "versionPolicy": {
+    "parameter": "SLSI_VERSION",
+    "flag": "--version, -v",
+    "default": "0.1.0",
+    "validationRegex": "^[0-9A-Za-z][0-9A-Za-z._-]*$",
+    "rules": "Non-empty, starts with alphanumeric [0-9A-Za-z], followed by alphanumeric, dot, underscore, or hyphen; no slashes, no leading dot; exits 1 on failure."
+  },
   "bundleLayout": {
     "root": "bundle",
     "gitignoredGlobs": [
@@ -63,13 +96,16 @@
         "amd64": "c72eda46430f065fb45c5f70e7c957cc9209402ef309294821978677c8fb3284",
         "arm64": "03d45095dbd9cc1689f179a3e5e5da24b77c2d1b257d7645abf1b4174bebcf2a"
       },
-      "verificationMethod": "pinned-literal-upstream",
+      "verificationMethod": "upstream-literal-pre-extraction",
       "elfMachine": {
-        "amd64": "X86-64",
+        "amd64": "Advanced Micro Devices X86-64",
         "arm64": "AArch64"
       },
       "mode": "0755",
-      "bytes": 0
+      "bytes": {
+        "amd64": 11058152,
+        "arm64": 10455803
+      }
     },
     "kubectl": {
       "version": "v1.33.2",
@@ -83,13 +119,16 @@
         "amd64": "33d0cdec6967817468f0a4a90f537dfef394dcf815d91966ca651cc118393eea",
         "arm64": "54dc02c8365596eaa2b576fae4e3ac521db9130e26912385e1e431d156f8344d"
       },
-      "verificationMethod": "pinned-literal-upstream",
+      "verificationMethod": "upstream-literal-pre-extraction",
       "elfMachine": {
-        "amd64": "X86-64",
+        "amd64": "Advanced Micro Devices X86-64",
         "arm64": "AArch64"
       },
       "mode": "0755",
-      "bytes": 0
+      "bytes": {
+        "amd64": 60129464,
+        "arm64": 57671864
+      }
     },
     "flux": {
       "version": "2.6.4",
@@ -99,17 +138,24 @@
         "amd64",
         "arm64"
       ],
-      "sha256": {
+      "archiveSha256": {
         "amd64": "9d3e21ad53baa0d5a062e1bd6f1a22d18b95906c682845bca9ffa272cff8a590",
         "arm64": "674e605f527841bb9b50a692b3ce497752cfc81438f85b4d1523d86aca637353"
       },
-      "verificationMethod": "pinned-literal-upstream",
+      "binarySha256": {
+        "amd64": "c3fe63dad655a8d3b16c722e72e21fcaeb56f53f6b50de2da95290cc34b03028",
+        "arm64": "028abcb4a6e306112459f59f768a0f4da66056f885a6eeaea97a6d9052862e53"
+      },
+      "verificationMethod": "upstream-literal-tarball-plus-binary-pre-install",
       "elfMachine": {
-        "amd64": "X86-64",
+        "amd64": "Advanced Micro Devices X86-64",
         "arm64": "AArch64"
       },
       "mode": "0755",
-      "bytes": 0
+      "bytes": {
+        "amd64": 68313272,
+        "arm64": 64946360
+      }
     },
     "cosign": {
       "version": "v3.0.6",
@@ -123,13 +169,16 @@
         "amd64": "c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74",
         "arm64": "bedac92e8c3729864e13d4a17048007cfafa79d5deca993a43a90ffe018ef2b8"
       },
-      "verificationMethod": "pinned-literal-upstream",
+      "verificationMethod": "upstream-literal-pre-extraction",
       "elfMachine": {
-        "amd64": "X86-64",
+        "amd64": "Advanced Micro Devices X86-64",
         "arm64": "AArch64"
       },
       "mode": "0755",
-      "bytes": 0
+      "bytes": {
+        "amd64": 135178161,
+        "arm64": 127697847
+      }
     },
     "jq": {
       "version": "1.7.1",
@@ -143,54 +192,52 @@
         "amd64": "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
         "arm64": "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5"
       },
-      "verificationMethod": "pinned-literal-upstream",
+      "verificationMethod": "upstream-literal-pre-extraction",
       "elfMachine": {
-        "amd64": "X86-64",
+        "amd64": "Advanced Micro Devices X86-64",
         "arm64": "AArch64"
       },
       "mode": "0755",
-      "bytes": 0
-    },
+      "bytes": {
+        "amd64": 2319424,
+        "arm64": 1709616
+      }
+    }
+  },
+  "containerisedUtilities": {
+    "imageReference": "docker.io/controlplane/slsi-util:v0.1.0",
+    "digestPinObligation": "SLSI-P1-2 is responsible for resolving, digest-pinning, and signing this image into bundle/images/ under Decision 9 and Decision 10.",
     "openssl": {
-      "version": "UNRESOLVED_UPSTREAM_NO_BINARIES",
-      "pinSource": "scripts/setup.sh (absent - platform package per setup.sh:155-156 precedent)",
-      "source": "upstream OpenSSL (openssl.org) publishes source tarballs only; no precompiled Linux binaries",
-      "archs": [
-        "amd64",
-        "arm64"
-      ],
-      "sha256": {
-        "amd64": "UNRESOLVED_NO_UPSTREAM_BINARY_DIGEST",
-        "arm64": "UNRESOLVED_NO_UPSTREAM_BINARY_DIGEST"
-      },
-      "verificationMethod": "unresolvable-blocked",
-      "elfMachine": {
-        "amd64": "X86-64",
-        "arm64": "AArch64"
-      },
-      "mode": "0755",
-      "bytes": 0
+      "resolution": "Decision 10: Containerise openssl and envsubst, re-scope P1-1",
+      "targetLayer": "bundle/images/",
+      "digestPinCard": "SLSI-P1-2",
+      "image": "docker.io/controlplane/slsi-util:v0.1.0",
+      "wrapperPath": "bundle/bin/<arch>/openssl",
+      "wrapperMode": "0755",
+      "wrapperBehavior": "Invokes 'docker run --rm -i --network none -v ${PWD}:${PWD} -w ${PWD} ${SLSI_UTILITY_IMAGE} openssl \"$@\"'. Preflight checks docker and local image inspection; fails loudly with exit 1 naming host remedy 'apt-get install -y openssl' and appliance remedy 'docker load < bundle/images/slsi-util.tar'. Refuses silent fallback to unpinned host binary.",
+      "rationale": "Upstream OpenSSL publishes source code only, zero precompiled Linux release binaries. Distro extraction creates glibc/musl dynamic linking dependencies; static compilation requires cross-compiler toolchains. Served via signed platform image in bundle/images/."
     },
     "envsubst": {
-      "version": "UNRESOLVED_UPSTREAM_NO_BINARIES",
-      "pinSource": "scripts/setup.sh (absent - platform package per setup.sh:155-156 precedent)",
-      "source": "upstream GNU gettext publishes source tarballs only; no precompiled Linux binaries",
-      "archs": [
-        "amd64",
-        "arm64"
-      ],
-      "sha256": {
-        "amd64": "UNRESOLVED_NO_UPSTREAM_BINARY_DIGEST",
-        "arm64": "UNRESOLVED_NO_UPSTREAM_BINARY_DIGEST"
-      },
-      "verificationMethod": "unresolvable-blocked",
-      "elfMachine": {
-        "amd64": "X86-64",
-        "arm64": "AArch64"
-      },
-      "mode": "0755",
-      "bytes": 0
+      "resolution": "Decision 10: Containerise openssl and envsubst, re-scope P1-1",
+      "targetLayer": "bundle/images/",
+      "digestPinCard": "SLSI-P1-2",
+      "image": "docker.io/controlplane/slsi-util:v0.1.0",
+      "wrapperPath": "bundle/bin/<arch>/envsubst",
+      "wrapperMode": "0755",
+      "wrapperBehavior": "Invokes 'docker run --rm -i --network none <exported_env_vars> -v ${PWD}:${PWD} -w ${PWD} ${SLSI_UTILITY_IMAGE} envsubst \"$@\"'. Injects exported caller variables (-e) while preserving GNU gettext restricted-variable allow-list syntax (e.g., envsubst '${VAR}'). Preflight checks docker and local image inspection; fails loudly with exit 1 naming host remedy 'apt-get install -y gettext-base' and appliance remedy 'docker load < bundle/images/slsi-util.tar'. Refuses silent fallback to unpinned host binary.",
+      "rationale": "Upstream GNU gettext publishes source code only, zero precompiled Linux release binaries. Go reimplementations lack GNU restricted-variable syntax. Served via signed platform image in bundle/images/."
     }
+  },
+  "checksumManifestPolicy": {
+    "path": "bundle/bin/checksums.txt",
+    "anchorDirectory": "bundle/bin",
+    "completenessRule": "Every file in anchorDirectory must be accounted for: exactly 10 binary entries listed in checksums.txt, plus explicit allowed non-manifest files (checksums.txt, */versions.txt, */openssl, */envsubst); any unlisted file fails verification immediately.",
+    "countAssertion": "Number of OK entries from sha256sum -c must strictly equal manifest non-empty line count (10)."
+  },
+  "pinVerificationPolicy": {
+    "verificationMethod": "Genuine runtime sha256 comparison against pinned literal constants",
+    "negativeTestBehavior": "Single-byte corruption in any staged binary causes check_pin_entry to return FAIL with expected vs computed digests, failing check_all_pins with non-zero exit code naming the failed binary.",
+    "missingBinaryBehavior": "Absent binary logs UNVERIFIED and fails check_all_pins with non-zero exit code."
   },
   "checksumManifestPath": "bundle/bin/checksums.txt",
   "contractDivergence": [
@@ -219,16 +266,22 @@
       "source": "scripts/setup.sh:25 vs host /home/linuxbrew/.linuxbrew/bin/cosign"
     },
     {
+      "tool": "jq",
+      "contractPin": "1.7.1",
+      "hostVersion": "jq-1.8.1",
+      "source": "scripts/setup.sh:100 vs host /home/linuxbrew/.linuxbrew/bin/jq"
+    },
+    {
       "tool": "openssl",
-      "contractPin": "UNRESOLVED",
+      "contractPin": "Decision 10 (containerised)",
       "hostVersion": "OpenSSL 3.6.2",
-      "source": "Host platform package; upstream OpenSSL publishes no Linux binary releases"
+      "source": "Decision 10; upstream OpenSSL publishes no Linux binary releases"
     },
     {
       "tool": "envsubst",
-      "contractPin": "UNRESOLVED",
+      "contractPin": "Decision 10 (containerised)",
       "hostVersion": "envsubst (GNU gettext-runtime) 0.23.1",
-      "source": "Host platform package; upstream GNU gettext publishes no Linux binary releases"
+      "source": "Decision 10; upstream GNU gettext publishes no Linux binary releases"
     },
     {
       "pattern": "substring-gate-defect",
@@ -243,6 +296,7 @@
   ],
   "decisionGuards": {
     "decision8": "Decision 8: Relationship to ADR-12 — the appliance is a superset, and remote-tenant is one of its modes. Selected at bootstrap by APPLIANCE_MODE=hub|attached.",
-    "decision9": "Decision 9: Release trust by digest pin plus bundle-time signing. Third-party platform images are pinned by immutable digest and signed at bundle time with the SLSI release key; no separate release signing pipeline is built. The release private key stays in the build environment; the appliance ships only the public half."
+    "decision9": "Decision 9: Release trust by digest pin plus bundle-time signing. Third-party platform images are pinned by immutable digest and signed at bundle time with the SLSI release key; no separate release signing pipeline is built. The release private key stays in the build environment; the appliance ships only the public half.",
+    "decision10": "Decision 10: Containerise openssl and envsubst, re-scope P1-1 to five Go utilities. bundle/bin/ is scoped to kind, kubectl, flux, cosign, jq. openssl and envsubst are served by a platform image in bundle/images/, digest-pinned and signed at bundle time under Decision 9."
   }
 }

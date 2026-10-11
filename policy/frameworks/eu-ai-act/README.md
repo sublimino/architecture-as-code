@@ -271,3 +271,31 @@ Three inputs do produce `error`, all of them schema violations:
 | `securityContext.capabilities.drop` as a string instead of an array | `drop-all-capabilities` (v2.0, v2.1) | Pod schema violation; the API server rejects it. Left as-is. |
 | `metadata.annotations` as a string instead of a map | the four `osramp.io/*` annotation checks (v2.0) | Pod schema violation. Note the asymmetry: the `has(object.metadata.labels.x)` idiom used by the label checks *fails* on the same garbage, while the `'k' in object.metadata.annotations` idiom *errors*. Left as-is; recorded. |
 | `request.context.claims` as a scalar instead of a list | `block-unauthorized-host-exec` (v2.1) | `request` is assembled by this repo, not by Kubernetes, so this boundary is ours. Pinned by `block-unauthorized-host-exec--claims-is-a-scalar` as a deliberate `error` expectation, so adding a type guard later is a proven change rather than drift. A `claims` **map** fails closed, which is pinned too. |
+
+## Pricing coverage
+
+The table below is produced from `framework.json`. It is not typed by hand.
+`make policy-pricing-counts` fails if it drifts from the packs.
+
+A check is priced when its `freqTriple` has a non-zero `min`, `mode`, or `max`.
+A check with no frequency triple, or an all-zero one, is unpriced. An unpriced
+check contributes GBP 0.00 to every reported total however often it fails. That
+state is allowed, because a loss magnitude with no calibrated frequency is not a
+price. It is not a small-print detail, because a reader who adds up a scan gets
+a total over the priced checks only.
+
+Read [the calibration statement](../README.md#the-calibration-statement) before you quote
+any figure in this table or any figure the engine produces from this pack.
+
+<!-- pricing-counts:begin -->
+| Version | Checks | Priced | Unpriced | Placeholder |
+| :--- | ---: | ---: | ---: | ---: |
+| `v1.0.0` | 7 | 0 | 7 | 0 |
+| `v2.0.0` | 19 | 0 | 19 | 1 |
+| `v2.1.0` | 11 | 11 | 0 | 0 |
+| **Pack total** | **37** | **11** | **26** | **1** |
+
+An unpriced check contributes GBP 0.00 to every total however often it
+fails. Of 37 check(s) on this page, 11 are priced and 26 are not.
+Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
+<!-- pricing-counts:end -->

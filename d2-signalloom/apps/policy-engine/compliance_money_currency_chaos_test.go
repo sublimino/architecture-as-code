@@ -35,19 +35,43 @@ package main
 // triples are declared expert estimates with no provenance (see the calibration
 // note in policy/frameworks/README.md and the `declared-estimate-unanchored`
 // value every row carries), so converting an unanchored GBP estimate into USD
-// buys arithmetic precision on top of an unmeasured input. A defensible
-// alternative is to refuse any reportingCurrency other than the calibration
-// currency. What is NOT defensible is the third option, which is what ships: a
-// silent relabel that produces a plausible figure, with the wrong label, with no
-// warning -- which money.go calls "the single worst failure mode available here".
+// buys arithmetic precision on top of an unmeasured input.
 //
-// As elsewhere in this chaos work, the _DEFECT tests CHARACTERISE what happens
-// today. They are tripwires, not specifications.
+// THE DECISION TAKEN (fix 3): REFUSE, DO NOT CONVERT. The engine now rejects a
+// declared currency with no rate in risk/fx/rates.yaml, at the API boundary,
+// naming the currency, the table and its as-of date. The allow-list is exactly
+// the table's key set and that equality is asserted against the real YAML by
+// TestTheReportableCurrencyAllowListIsExactlyTheCheckedInRateTable. The
+// reasoning lives beside the list in compliance.go, where the next person will
+// look: converting at four significant figures manufactures rigour the
+// calibration cannot support, and imports the table's `as_of` as a second
+// staleness axis into a figure whose own provenance is already the weak link.
+//
+// SO ZZZ, XXX, AAA, QQQ AND KWD ARE REFUSED -- see
+// TestAShapeValidCurrencyWithNoRateIsRefused, the re-pointed form of what was
+// TestAValidShapeIsNotAValidCurrency. KWD is the instructive row: a perfectly
+// real currency, refused because the TABLE has no entry for it. The allow-list
+// answers "can this repository anchor a figure in this currency?", not "does
+// this currency exist?".
+//
+// WHAT STILL RELABELS, AND IS STILL A _DEFECT. Every currency that IS in the
+// table. A declared USD figure is still a GBP figure wearing a USD label, 21%
+// understated; JPY is 99.5% understated and additionally re-quantises to whole
+// units so it LOOKS as though a rate was applied. That is unchanged and remains
+// characterised by TestADeclaredCurrencyRelabelsWithoutConverting_DEFECT. Fix 3
+// narrowed the set of expressible labels to those the repository could in
+// principle anchor; it did not make the figures right, and no money golden
+// moved -- which is the proof it was a validation change and not a pricing one.
+//
+// As elsewhere in this chaos work, the remaining _DEFECT tests CHARACTERISE what
+// happens today. They are tripwires, not specifications.
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -121,20 +145,50 @@ func scanInCurrency(t *testing.T, h *complianceHandler, cur string) []map[string
 
 // ── 1. The shape check: what it catches, and what it cannot ───────────────────
 
-// TestMalformedReportingCurrenciesAreRefused pins the refusals that DO work.
+// TestMalformedReportingCurrenciesAreRefused pins the refusals that DO work,
+// and the reason it pins the MESSAGE rather than the status is a finding in its
+// own right.
 //
-// money.Currency.Validate enforces exactly three bytes, each in 'A'..'Z'. That
-// byte-range test is stricter than it first looks and is worth pinning
-// explicitly, because the obvious attack on an ISO-4217 shape check is a Unicode
-// lookalike -- and those fail for a reason the code does not state: Validate
-// compares len(c) == 3 on BYTES, so any multi-byte rune makes a visually
-// three-character code length 4 or more. "USＤ" (fullwidth D, 3 runes, 5 bytes)
-// and "ɃTC" (4 bytes) are refused by the length test, never reaching the range
-// test. A no-break space (U+00A0) in "U D" fails the same way.
+// WHAT THIS TEST USED TO CLAIM, AND WHY THAT CLAIM IS NOW FALSE HERE.
+// money.Currency.Validate enforces exactly three bytes, each in 'A'..'Z'. The
+// byte-ness is subtle and used to be load-bearing: `len(c) == 3` counts BYTES,
+// so a Unicode lookalike -- "USＤ" (fullwidth D, 3 runes, 5 bytes), "ɃTC" (4
+// bytes), an NBSP in "U D" -- is refused by the LENGTH test and never reaches
+// the character-range test. This test recorded that cause per case, so that
+// anyone "simplifying" Validate to iterate runes would learn from a red test
+// that the length check mattered.
 //
-// The test records the exact cause for each, so that anyone later "simplifying"
-// Validate to iterate runes instead of bytes learns from a red test that the
-// length check was load-bearing.
+// Fix 3 made that reasoning inapplicable ON THIS PATH. The rate-table allow-list
+// rejects by EXACT SET MEMBERSHIP (`reportableCurrencies[declared]`), which does
+// not care how many bytes a non-member has: "usd", "USＤ", "ɃTC" and "US\x00"
+// are all absent from a 15-element map and all rejected by the same single
+// mechanism. So the allow-list SUBSUMES the shape check as a gate, and deleting
+// Validate from riskProfileFor entirely left this test green -- which the
+// mutation proof caught as a surviving mutant (M4). A test whose subject can be
+// deleted without it noticing is pinning the other guard.
+//
+// SO WHAT IS THE SHAPE CHECK STILL FOR, HERE? Exactly one thing: the DIAGNOSIS.
+// It is NOT the gate any more and this test no longer pretends otherwise. The
+// two refusals demand opposite actions from whoever reads them:
+//
+//	"usd"  -> a typo in the caller's code.      Fix the caller.
+//	"KWD"  -> a real currency with no rate.     Add it to risk/fx/rates.yaml.
+//
+// Reporting the first as the second sends an operator to edit the FX table to
+// accept a lowercase string, which it never will. That is a real, nameable
+// contribution and it is what the assertions below pin -- the message, not the
+// 400, which the allow-list would produce anyway.
+//
+// IT IS ALSO NOT DELETABLE, which settles the question of whether to remove it
+// rather than re-point the test. Validate has eleven other callers inside the
+// money package (Money.Round, Add, Sub, Sum, RateTable.Validate, Rate, Convert)
+// where it IS the only guard, and migration 062's DB CHECK is deliberately
+// `^[A-Z]{3}$` -- a shape check, documented as explicitly NOT a rate-table
+// check, with the semantic set enforced in the app layer. So the database
+// admits a shape-valid ZZZ, the gateway will send it, and this engine's
+// allow-list is the layer that refuses it. The two checks guard different
+// things at different layers; only their OUTCOMES coincide at this one call
+// site.
 func TestMalformedReportingCurrenciesAreRefused(t *testing.T) {
 	h := contractHandler(t)
 
@@ -158,7 +212,7 @@ func TestMalformedReportingCurrenciesAreRefused(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			body := baseScanBody()
 			body["reportingCurrency"] = c.cur
-			code, _ := postScanWithHeaders(t, h, body, map[string]string{"X-Tenant-ID": "t"})
+			code, raw := postScanRaw(t, h, body, map[string]string{"X-Tenant-ID": "t"})
 
 			// A blank-after-trim code is UNDECLARED, not invalid, and is the one
 			// case here that is correctly a 200 -- pinned in the same table so
@@ -171,50 +225,212 @@ func TestMalformedReportingCurrenciesAreRefused(t *testing.T) {
 			}
 			if code != http.StatusBadRequest {
 				t.Fatalf("currency %q (%s): got %d, want 400. A code the engine cannot "+
-					"validate must never be labelled onto a figure.", c.cur, c.because, code)
+					"validate must never be labelled onto a figure. body=%.300q",
+					c.cur, c.because, code, raw)
+			}
+
+			// THE ASSERTION THAT MAKES THE SHAPE CHECK LOAD-BEARING. The 400 above
+			// does not: the allow-list refuses a non-member regardless of how it is
+			// malformed, so deleting money.Currency.Validate from riskProfileFor
+			// leaves every status code in this table unchanged (that is exactly how
+			// M4 survived). What the shape check uniquely buys is the DIAGNOSIS, so
+			// that is what is pinned -- and it is pinned from both sides, because a
+			// malformed code reported as "no rate in the table" sends an operator to
+			// edit risk/fx/rates.yaml to accept a lowercase string.
+			if !strings.Contains(raw, "three-letter ISO 4217 code") {
+				t.Fatalf("currency %q (%s): refused, but not AS MALFORMED. The message must "+
+					"name the shape fault so the caller fixes the caller. body=%.300q",
+					c.cur, c.because, raw)
+			}
+			if strings.Contains(raw, "no rate in risk/fx/rates.yaml") {
+				t.Fatalf("currency %q (%s): a malformed code was diagnosed as a missing RATE. "+
+					"That sends an operator to add %q to the FX table, which will never "+
+					"accept it. body=%.300q", c.cur, c.because, c.cur, raw)
 			}
 		})
 	}
 }
 
-// TestAValidShapeIsNotAValidCurrency is the gap the shape check leaves, stated
-// as a measurement rather than an opinion.
+// postScanRaw is postScanWithHeaders returning the RAW body.
 //
-// Validate's doc comment is explicit and correct about why it does not check
-// ISO-4217 membership: the list changes, and a stale embedded copy would reject
-// a legitimate code with an unactionable message. It then says the binding
-// constraint "IS enforced -- at conversion, with a message naming the missing
-// pair".
+// It exists because the refusals this file now asserts are only visible in the
+// body text -- which currency was named, which table, which as-of date -- and
+// postScanWithHeaders returns nil rows for any non-200, discarding exactly the
+// bytes the assertion needs.
+func postScanRaw(
+	t *testing.T, h *complianceHandler, body map[string]any, headers map[string]string,
+) (int, string) {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/compliance/scan", bytes.NewReader(raw))
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.handleScan(w, req)
+	return w.Code, w.Body.String()
+}
+
+// TestAShapeValidCurrencyWithNoRateIsRefused is the re-pointed form of
+// TestAValidShapeIsNotAValidCurrency.
 //
-// On THIS path there is no conversion, so that sentence does not hold here. ZZZ,
-// XXX and AAA are all shape-valid, all absent from risk/fx/rates.yaml, and all
-// accepted -- producing a full set of figures labelled with a currency the
-// repository's own converter would refuse. XXX is the sharpest case: it is a
-// real ISO-4217 code and its meaning is "no currency".
-func TestAValidShapeIsNotAValidCurrency(t *testing.T) {
+// WHAT IT USED TO MEASURE. money.Currency.Validate enforces an ISO-4217 SHAPE
+// -- exactly three bytes, each 'A'..'Z' -- and deliberately does not check
+// membership of the ISO list, because that list changes and a stale embedded
+// copy would reject a legitimate code. Its own comment said the binding
+// constraint "IS enforced -- at conversion". But this service never converts,
+// so nothing enforced it: ZZZ, XXX, AAA, QQQ and KWD all passed the shape check
+// and came back labelling a full set of figures in a currency the repository's
+// own converter would refuse. XXX was the sharpest case -- a real ISO-4217 code
+// whose meaning is "no currency".
+//
+// WHAT IT PINS NOW. Those same five are REFUSED at the API boundary, with an
+// error a reader can act on. The refusal is checked on four things, each of
+// which a lazier implementation would omit:
+//
+//	the status            400 -- the caller's value, the caller's to fix
+//	the currency named    so the operator knows WHICH input was wrong
+//	rates.yaml named      so they know what has to change to make it work
+//	the as-of date        so they know WHICH table said no
+//
+// And the set is checked from both sides in the same loop: a currency IN the
+// table must still be accepted. A fix that refused everything would satisfy
+// "ZZZ is refused" and break the product, so the accept case is not a separate
+// test.
+//
+// KWD IS THE INTERESTING ROW and the reason this is a rate-table allow-list
+// rather than an ISO-4217 one. KWD is a perfectly real currency -- the Kuwaiti
+// dinar, three minor units, which money.MinorUnits already knows about -- and
+// it is refused anyway, because risk/fx/rates.yaml has no entry for it. The
+// allow-list answers "can this repository anchor a figure in this currency?",
+// not "does this currency exist?". Adding KWD to the table is the supported way
+// to make it reportable.
+func TestAShapeValidCurrencyWithNoRateIsRefused(t *testing.T) {
 	h := contractHandler(t)
 
-	for _, cur := range []string{"ZZZ", "XXX", "AAA", "QQQ", "KWD"} {
-		t.Run(cur, func(t *testing.T) {
-			rows := scanInCurrency(t, h, cur)
-			if rows[0]["currency"] != cur {
-				t.Fatalf("currency = %v, want %v", rows[0]["currency"], cur)
+	for _, tc := range []struct {
+		cur    string
+		accept bool
+		why    string
+	}{
+		{"ZZZ", false, "not a currency at all"},
+		{"XXX", false, "real ISO-4217 code meaning NO CURRENCY"},
+		{"AAA", false, "not a currency at all"},
+		{"QQQ", false, "not a currency at all"},
+		{"KWD", false, "a real currency with no rate in the checked-in table"},
+		{"USD", true, "in the table"},
+		{"JPY", true, "in the table, zero minor units"},
+		{"GBP", true, "in the table, and the calibration currency"},
+	} {
+		t.Run(tc.cur, func(t *testing.T) {
+			// The shape check passes for every one of these, which is what makes
+			// the allow-list the load-bearing guard rather than Validate.
+			if err := money.Currency(tc.cur).Validate(); err != nil {
+				t.Fatalf("%s fails the SHAPE check (%v), so it cannot demonstrate anything "+
+					"about the allow-list", tc.cur, err)
 			}
-			if _, convertible := trueRateFromGBP(money.Currency(cur)); convertible {
-				t.Skipf("%s is in the checked-in table after all; this case no longer "+
-					"demonstrates an unconvertible label", cur)
+
+			body := baseScanBody()
+			body["reportingCurrency"] = tc.cur
+			code, raw := postScanRaw(t, h, body, map[string]string{"X-Tenant-ID": "tenant-fx"})
+
+			if tc.accept {
+				if code != http.StatusOK {
+					t.Fatalf("%s (%s) was refused with %d: %.300q. A currency the table "+
+						"CAN anchor must be reportable.", tc.cur, tc.why, code, raw)
+				}
+				return
 			}
-			// The figure exists, is finite, and is denominated in something the
-			// repository cannot convert to or from.
-			carried, ok := rows[0]["carriedGbp"].(float64)
-			if !ok || math.IsNaN(carried) || math.IsInf(carried, 0) {
-				t.Fatalf("carried = %#v", rows[0]["carriedGbp"])
+
+			if code == http.StatusOK {
+				t.Fatalf("%s (%s) was ACCEPTED. A figure labelled with a currency the "+
+					"repository has no rate for is a relabel nobody can re-derive, and "+
+					"XXX in particular means 'no currency'. body=%.300q", tc.cur, tc.why, raw)
 			}
-			t.Logf("accepted: %.2f labelled %s, which risk/fx/rates.yaml (as of 2026-08-01) "+
-				"has no entry for -- money.Rate would refuse this pair with "+
-				"\"a conversion is never silently assumed to be 1.0\"", carried, cur)
+			if code != http.StatusBadRequest {
+				t.Errorf("%s: got %d, want 400 -- the value came from the caller", tc.cur, code)
+			}
+			// The refusal has to be actionable, not merely present.
+			for _, want := range []string{tc.cur, "rates.yaml", rateTableAsOf} {
+				if !strings.Contains(raw, want) {
+					t.Errorf("%s: refusal does not mention %q, so the operator cannot tell "+
+						"what to change: %.400q", tc.cur, want, raw)
+				}
+			}
+			// And it says what IS reportable.
+			if !strings.Contains(raw, "GBP") || !strings.Contains(raw, "USD") {
+				t.Errorf("%s: refusal does not list the reportable currencies: %.400q", tc.cur, raw)
+			}
+			t.Logf("refused %s (%s): %.200q", tc.cur, tc.why, raw)
 		})
 	}
+}
+
+// TestTheReportableCurrencyAllowListIsExactlyTheCheckedInRateTable is the link
+// between the allow-list in code and the table it claims to be drawn from.
+//
+// WHY THE LIST IS A LITERAL AND NOT A LOAD. The engine runs offline with no
+// cluster, no network and no configuration, so making a REQUEST VALIDATOR
+// depend on a file path would add a deployment-shaped failure mode to a refusal
+// that has to work -- and the failure would be silent in the worst direction
+// (no table found, so nothing refused). The rates themselves are checked in for
+// the same family of reasons.
+//
+// The honest cost of that choice is that two things have to agree, and an
+// agreement nobody checks is an agreement that drifts. So this test reads the
+// REAL risk/fx/rates.yaml through money.LoadRateTable -- the repository's own
+// loader, not a mirror -- and compares the key sets in BOTH directions:
+//
+//	in the table but not the list  -> a real currency is being refused
+//	in the list but not the table  -> a currency is accepted whose figures
+//	                                  cannot be anchored, i.e. the whole defect
+//
+// It also pins rateTableAsOf against the table's own `as_of`, because that date
+// is quoted verbatim in every refusal: an error naming the wrong table is worse
+// than one naming none.
+func TestTheReportableCurrencyAllowListIsExactlyTheCheckedInRateTable(t *testing.T) {
+	const path = "../../../risk/fx/rates.yaml"
+	table, err := money.LoadRateTable(path)
+	if err != nil {
+		t.Fatalf("loading %s: %v. The allow-list claims to be drawn from this file; if the "+
+			"file has moved, this test and the comment on reportableCurrencies are both "+
+			"wrong and the refusal message names a path that does not exist.", path, err)
+	}
+
+	inTable := map[money.Currency]bool{}
+	for _, c := range table.Currencies() {
+		inTable[c] = true
+	}
+	if len(inTable) == 0 {
+		t.Fatal("the rate table reports no currencies; this test would then pass vacuously " +
+			"against an empty allow-list")
+	}
+
+	for c := range inTable {
+		if !reportableCurrencies[c] {
+			t.Errorf("%s is in risk/fx/rates.yaml but NOT in reportableCurrencies, so the "+
+				"engine refuses a currency the repository can anchor. Add it to the "+
+				"allow-list in compliance.go.", c)
+		}
+	}
+	for c := range reportableCurrencies {
+		if !inTable[c] {
+			t.Errorf("%s is in reportableCurrencies but NOT in risk/fx/rates.yaml, so the "+
+				"engine accepts a declared currency it has no rate for -- which is exactly "+
+				"the defect the allow-list exists to close.", c)
+		}
+	}
+
+	if table.AsOf != rateTableAsOf {
+		t.Errorf("rateTableAsOf = %q but the table says %q. That date is quoted verbatim in "+
+			"every refusal, and an error naming the wrong table is worse than one naming "+
+			"no table at all.", rateTableAsOf, table.AsOf)
+	}
+	t.Logf("allow-list and risk/fx/rates.yaml agree on %d currencies, as of %s",
+		len(inTable), table.AsOf)
 }
 
 // ── 2. The defect: relabel, not convert ───────────────────────────────────────

@@ -30,7 +30,7 @@ tags:
   - proposal-2026-q4-slsi-tenant-appliance-bootstrap
 aliases:
   - "#proposal-2026-q4-slsi-tenant-appliance-bootstrap"
-updated: 2026-10-11T15:17
+updated: 2026-10-11T21:20
 ---
 # Proposal — SLSI Signal Loom Design Partner Appliance Self-Initialisation Pipeline (2026-Q4)
 

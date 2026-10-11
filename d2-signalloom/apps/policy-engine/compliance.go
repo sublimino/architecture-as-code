@@ -102,6 +102,94 @@ func (req ComplianceScanRequest) workload() map[string]any {
 // assumed, by TestAnUndeclaredTenantIsPricedExactlyAsBefore.
 const defaultReportingCurrency money.Currency = "GBP"
 
+// ── The reportable-currency allow-list ───────────────────────────────────────
+//
+// WHAT THE ENGINE DOES WITH A DECLARED CURRENCY, STATED PLAINLY: IT RELABELS.
+// `roundMoney(v, profile.Currency)` quantises a GBP-calibrated figure to the
+// declared currency's minor unit and attaches the new label. No rate is looked
+// up, because this service never loads a rate table: there is no RateTable, no
+// LoadRateTable and no Convert anywhere in it, and money.Convert is written,
+// tested and never called from here.
+//
+// That is the first failure mode money.go's own package comment says the money
+// type exists to prevent -- "a UI defaulting to USD over GBP source data would
+// relabel the number rather than convert it" -- and money.go calls it "the
+// single worst failure mode available here": a plausible figure, with the wrong
+// label, with no warning, invisible until someone in the audience does the
+// division. Measured against the checked-in table, a declared JPY understates
+// exposure by 99.5% and visibly re-quantises (18072.92 -> 18073), so it LOOKS
+// as though a rate was applied.
+//
+// WHY THE ANSWER IS REFUSE AND NOT CONVERT. This is a decision, taken
+// deliberately, and the alternative was live:
+//
+//   - The 127 shipped triples are DECLARED EXPERT ESTIMATES anchored to nothing
+//     outside the pack. Every row says so: CalibrationSource is
+//     "declared-estimate-unanchored". Converting such a figure at four
+//     significant figures manufactures rigour the calibration cannot support --
+//     it buys arithmetic precision on top of an unmeasured input and presents
+//     the result with the authority of an FX quote.
+//   - Conversion would also import the table's `as_of` as a SECOND staleness
+//     axis into a figure whose own provenance is already the weak link. A
+//     reader would then have to reconcile two dates, one of which (the triple's)
+//     does not exist, to know what the number means.
+//
+// So a currency the repository cannot anchor is refused at the API boundary,
+// with an error naming the currency, the table's as-of date and what IS
+// reportable. A refusal is legible; a relabel is not. The unconvertible labels
+// the chaos suite found -- ZZZ, XXX, AAA, QQQ, KWD -- are all shape-valid and
+// all absent from the table, and XXX is the real ISO-4217 code for "no
+// currency", which an engine should certainly not be denominating a board
+// figure in.
+//
+// WHAT IS NOT FIXED HERE, deliberately: the relabel itself, for every currency
+// that IS in the table. USD/EUR/JPY figures are still GBP figures wearing a
+// different label, and that remains characterised by
+// TestADeclaredCurrencyRelabelsWithoutConverting_DEFECT. Narrowing the set of
+// expressible labels to those the repository could in principle anchor is a
+// validation fix, not a pricing change -- which is why no money golden moves.
+//
+// RELATED GAP, REPORTED AND NOT FIXED: the bundle path cannot express a
+// declared currency at all. EvaluatePoliciesResponse has no currency field; its
+// total is `TotalExposure float64` tagged `total_exposure_gbp`, so the
+// denomination lives only in a field name. See
+// TestTheBundleRollUpIgnoresTheDeclaredProfileAndIsDenominatedByItsFieldName_DEFECT.
+
+// rateTableAsOf is the effective date of the table the allow-list is drawn from.
+// Quoted in the refusal so an operator reading the error knows which table said
+// no, rather than being told only that their currency is unacceptable.
+const rateTableAsOf = "2026-08-01"
+
+// reportableCurrencies is exactly the key set of `rates` in risk/fx/rates.yaml.
+//
+// It is a literal here rather than a load of that file, for the same reason the
+// rates themselves are checked in rather than fetched: this service runs offline
+// with no cluster, no network and no configuration, and making a request
+// validator depend on a file path would add a deployment-shaped failure mode to
+// a refusal that has to work. The honest cost is that two things must agree, so
+// the agreement is ASSERTED rather than assumed --
+// TestTheReportableCurrencyAllowListIsExactlyTheCheckedInRateTable reads the
+// real YAML through money.LoadRateTable and fails on any drift in either
+// direction. Add a currency to the table and the test tells you to add it here.
+var reportableCurrencies = map[money.Currency]bool{
+	"USD": true, "GBP": true, "EUR": true, "CHF": true, "JPY": true,
+	"CAD": true, "AUD": true, "SEK": true, "NOK": true, "DKK": true,
+	"SGD": true, "HKD": true, "INR": true, "ZAR": true, "AED": true,
+}
+
+// reportableCurrencyList returns the allow-list sorted, for an error message a
+// human reads. Sorted so the refusal text is stable across runs; a message
+// whose contents reorder between two identical requests reads as a different
+// error.
+func reportableCurrencyList() []string {
+	out := make([]string, 0, len(reportableCurrencies))
+	for c := range reportableCurrencies {
+		out = append(out, string(c))
+	}
+	sort.Strings(out)
+	return out
+}
+
 // effectiveRiskProfile is the institution's half of the pricing split as it
 // applies to ONE scan: what a figure is denominated in, and the load carried on
 // top of tail risk.
@@ -133,8 +221,22 @@ func riskProfileFor(req ComplianceScanRequest) (effectiveRiskProfile, error) {
 	p := effectiveRiskProfile{Currency: defaultReportingCurrency, RiskLoad: fair.DefaultRiskLoad}
 
 	if declared := money.Currency(strings.TrimSpace(string(req.ReportingCurrency))); declared != "" {
+		// Order matters, and it is the only reason the shape check is still called
+		// here. The allow-list below would refuse a malformed code too -- it
+		// rejects by exact set membership, and "usd" is no more a member than ZZZ
+		// is -- so running the shape check FIRST is what makes the two refusals
+		// say different things. They demand opposite actions: "usd" is a typo in
+		// the caller, "KWD" is a real currency the rate table has no entry for.
+		// Reporting the first as the second sends an operator to edit rates.yaml
+		// to accept a lowercase string, which it never will.
 		if err := declared.Validate(); err != nil {
 			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: %w", err)
+		}
+		if !reportableCurrencies[declared] {
+			return effectiveRiskProfile{}, fmt.Errorf(
+				"reportingCurrency %s has no rate in risk/fx/rates.yaml (as of %s), so a "+
+					"figure cannot be expressed in it; reportable currencies are %s",
+				declared, rateTableAsOf, strings.Join(reportableCurrencyList(), ", "))
 		}
 		p.Currency = declared
 		p.Declared = true

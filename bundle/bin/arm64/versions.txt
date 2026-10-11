@@ -1,0 +1,8 @@
+kind: v0.29.0
+kubectl: v1.33.2
+flux: 2.6.4
+cosign: v3.0.6
+jq: 1.7.1
+# Decision 10 containerised utilities (bundle/images/):
+openssl: containerised (P1-2)
+envsubst: containerised (P1-2)

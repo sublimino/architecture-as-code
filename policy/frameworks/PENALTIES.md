@@ -43,7 +43,20 @@ The Art. 99(6) inversion is the trap. For an SME the ceiling is the **lower**
 of the absolute amount and the percentage. A model that always takes the higher
 figure overstates the exposure of every small customer.
 
-**Penalties apply from 2 August 2025.**
+**Article 99 penalties apply from 2 August 2025 — but Article 101 is expressly
+excepted** and falls to the general 2 August 2026 date. Article 113 third
+paragraph point (b) reads "...shall apply from 2 August 2025, with the exception of
+Article 101". An earlier revision of this page said "penalties apply from
+2 August 2025" without that carve-out, which over-stated the GPAI provider
+exposure by a year; corrected 2026-10-11 from the primary text.
+
+The high-risk obligations were then deferred by Regulation (EU) 2026/1744
+(OJ 24.7.2026, in force 27 July 2026), whose Article 1 point (40)(b) replaces
+Article 113 third paragraph point (c) with **two** dates: **2 December 2027 for
+Annex III high-risk systems and 2 August 2028 for Annex I**. The pack gates on the
+earlier of the two, because a pack cannot tell an Annex III workload from an
+Annex I one, and over-reporting exposure for eight months is cheaper and more
+visible than erasing exposure that exists.
 
 ## NIS2 Directive
 
@@ -108,7 +121,10 @@ Art. 71 carries the staged dates. The general obligations the `cra` pack
 evaluates do not apply until 11 December 2027.
 
 The three `cra` checks currently price to £256,514.43 of annual expected loss
-between them, read from the pinned money golden.
+(ALE) between them, read from the pinned money golden. The figure that reaches
+reported **exposure** is the carried sum, £781,506.09 — carried is TVaR plus the
+risk load, and it is carried that the summary adds up, so a reader comparing this
+page against a scan response must know which of the two they are looking at.
 **That is wrong by statute, not by calibration.** No penalty
 attaches to those obligations today. The figure is recorded here rather than
 changed, because moving it is a priced-figure decision and belongs to the

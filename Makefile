@@ -3654,6 +3654,61 @@ policy-pricing-counts: ## Check every pack page's priced/unpriced counts against
 policy-pricing-counts-update: ## REWRITE every pack page's priced/unpriced counts block from the packs, then check.
 	policy/frameworks/pricing-counts-test.sh --update
 
+.PHONY: verify-cel-money-chaos verify-cel-money-chaos-mutation-proof verify-cel-money-golden-guard
+
+# Adversarial probes of the tenant risk profile (migration 062) and the money it
+# modulates: reportingCurrency and riskLoad arrive as JSON on the scan request,
+# so NONE of migration 062's CHECK constraints govern this path. These suites ask
+# whether the Go guard that replaces them is the same guard, and pin the places
+# it is not.
+#
+# They are TestConformance-free and live in the engine package, so the engine
+# tier already runs them; this target is for working on the chaos alone. The
+# figures are only READ here -- no triple, no celExpression and no golden value
+# is touched by anything in this section.
+#
+# WHAT THEY FOUND, in one line each, so a reader does not have to run them:
+#   * riskLoad=1e307 overflows carried to +Inf; encoding/json refuses it and
+#     compliance.go:516 has already written 200, so the client gets HTTP 200
+#     with ZERO bytes -- a fabricated all-clear. (_DEFECT, characterised)
+#   * a declared reportingCurrency RELABELS without converting: USD figures are
+#     byte-identical to GBP, and JPY additionally re-quantises to whole units.
+#     (_DEFECT, characterised)
+#   * ZZZ/XXX/AAA pass the shape check and label figures no table can convert.
+#   * published carried cannot be re-derived from published tvar at large loads.
+verify-cel-money-chaos: ## Adversarial probes of the tenant risk profile and its money: numeric poison, currency relabelling, declared zero, tenant isolation, percentile gap.
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v \
+		-run 'Poison|RiskLoad|ReportingCurrenc|Currenc|DeclaredZero|Denomination|Isolation|Percentile|Overflow|Relabel|TailDominated|RiskProfileIsolat' .
+
+# Proves the suites above are not decoration. Ten mutants: seven delete a real
+# guard and must go red, THREE INVERT the proof by fixing a characterised defect
+# -- a `_DEFECT` test that still passes once its subject is fixed was pinning
+# nothing. Restores every file from an explicit cp backup in an EXIT trap and
+# verifies byte-identity by checksum; a missing test is reported as MISSING
+# (exit 3) and never as a surviving mutant, because `go test -run` on a
+# non-matching regex exits 0.
+verify-cel-money-chaos-mutation-proof: ## Prove verify-cel-money-chaos is not decoration: 19 mutants (6 of them inverted fixes) plus 2 negative controls.
+	test/verify-cel-money-chaos-mutation-proof.sh
+
+# Attacks on the MONEY_GOLDEN=update movement guard, which is the only thing
+# between an engine regression and a green suite for three of the four figures
+# the product quotes. The guard lives in compliance_money_test.go and was
+# asserted nowhere; this suite is the test OF the guard.
+#
+# It RUNS UPDATE MODE against the real checked-in goldens and mutates fair.go to
+# make figures move, restoring both from explicit cp backups and verifying
+# byte-identity by checksum. Not in verify-cel: it is slow (one full engine run
+# per attack) and it writes to testdata, so it is an explicit, deliberate run.
+#
+# WHAT IT FOUND: the guard refuses everything it claims to (no reason, a
+# whitespace reason, a wrong count, either field alone) but the count is a
+# CARDINALITY claim with no identity binding -- a reason naming one check was
+# accepted for an engine-wide movement and recorded into 5 golden files. And the
+# `engineMoved` diagnostic ("the ENGINE moved, not the inputs") is computed,
+# printed, and then not used in the decision.
+verify-cel-money-golden-guard: ## Attack the money-golden movement guard: 9 attacks on REASON/CHECKS. Writes to testdata and restores from cp backups; not part of verify-cel.
+	bats test/money-golden-guard.bats
+
 .PHONY: verify-cel-selftest verify-cel-mutation-proof
 
 verify-cel-selftest: ## Prove the verify-cel aggregator can go red: 14 injected conditions (failing tier, zero collection, skip-only, zero fixtures, no Docker, unready Postgres).

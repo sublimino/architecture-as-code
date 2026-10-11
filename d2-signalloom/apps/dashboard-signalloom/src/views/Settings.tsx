@@ -350,6 +350,60 @@ export default function Settings() {
             </div>
           </SectionCard>
 
+          {/* Risk profile — READ-ONLY here on purpose.
+              Declared at onboarding; this card reports what was declared.
+              "Not declared" is shown literally rather than blank or as a
+              plausible default, because an undeclared profile is a real state
+              the engine acts on: it falls back to its own constants, and a
+              figure priced that way must not look like one the tenant chose. */}
+          <SectionCard title="Risk Profile">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <Field
+                label="Sector"
+                value={settings?.sector ?? 'Not declared'}
+              />
+              <Field
+                label="Primary Jurisdiction"
+                value={
+                  settings?.jurisdiction === '*'
+                    ? 'Global / multiple territories'
+                    : settings?.jurisdiction ?? 'Not declared'
+                }
+              />
+              <Field
+                label="Reporting Currency"
+                value={settings?.reporting_currency ?? 'Not declared'}
+                mono
+              />
+              <Field
+                label="Risk Appetite Tolerance"
+                value={
+                  settings?.risk_appetite_tolerance == null
+                    ? 'Not declared'
+                    // Rendered with the tenant's DECLARED reporting currency,
+                    // never the viewer's display currency: this is the figure
+                    // the institution stated, so converting it would show a
+                    // number nobody declared.
+                    : `${settings.risk_appetite_tolerance.toLocaleString()}${
+                        settings.reporting_currency ? ` ${settings.reporting_currency}` : ''
+                      }`
+                }
+              />
+              <Field
+                label="Risk Load"
+                value={
+                  settings?.risk_load == null
+                    ? 'Not declared'
+                    : `${(settings.risk_load * 100).toFixed(1)}%`
+                }
+              />
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+              Declared during onboarding. Where a value is not declared the platform uses its own
+              default, so no figure here moves until you declare one.
+            </div>
+          </SectionCard>
+
           {/* Account */}
           <SectionCard title="Account">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>

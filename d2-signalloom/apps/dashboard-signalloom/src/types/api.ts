@@ -801,6 +801,28 @@ export interface TenantSettingsResponse {
   preferred_scan_cadence_hours: number
   alert_email: string | null
   alert_threshold: number
+  // The declared organisational risk profile (migration 062). null means
+  // UNDECLARED -- not zero, and not "the usual value". The engine falls back to
+  // its own constants in that case, which is what keeps every existing money
+  // figure where it is for a tenant that never declared anything.
+  sector: string | null
+  jurisdiction: string | null
+  reporting_currency: string | null
+  risk_appetite_tolerance: number | null
+  risk_load: number | null
+}
+
+/** PATCH /tenant/settings/risk-profile request body.
+ *
+ * A WHOLE-PROFILE declaration, not a partial merge: an omitted field is
+ * written NULL. See the handler docstring in api_compat.py for why.
+ */
+export interface RiskProfileUpdateRequest {
+  sector?: string | null
+  jurisdiction?: string | null
+  reporting_currency?: string | null
+  risk_appetite_tolerance?: number | null
+  risk_load?: number | null
 }
 
 // PATCH /tenant/settings/preferences request body (Slice 1b, 86cajpvar QA item 4)

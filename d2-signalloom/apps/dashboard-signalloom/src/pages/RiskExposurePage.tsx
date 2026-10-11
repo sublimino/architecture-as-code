@@ -258,17 +258,41 @@ export default function RiskExposurePage() {
     }
 
     const ratio = count / total
+
+    // scaleMoney returns null precisely when the product is not a usable
+    // figure. Each of these used to answer that null with
+    // `{ amount: Math.round(x * ratio) }` — recomputing by hand the number the
+    // money layer had just refused to produce, and defeating the one guard
+    // that exists. `?? 0` in those fallbacks also turned a missing carried
+    // figure into a £0 claim. If any leg cannot be scaled, the apportioned
+    // view is unavailable as a whole.
+    const scaled = {
+      totalAle: scaleMoney(summary.totalAle, ratio),
+      totalVar95: scaleMoney(summary.totalVar95, ratio),
+      totalTvar: scaleMoney(summary.totalTvar, ratio),
+      totalCarried: scaleMoney(summary.totalCarried ?? summary.carried, ratio),
+      carried: scaleMoney(summary.carried ?? summary.totalCarried, ratio),
+    }
+    if (Object.values(scaled).some((m) => m === null)) return null
+
+    const frameworks = summary.frameworks.map((fw) => ({
+      fw,
+      totalExposure: scaleMoney(fw.totalExposure ?? fw.exposure, ratio),
+      exposure: scaleMoney(fw.exposure ?? fw.totalExposure, ratio),
+    }))
+    if (frameworks.some((f) => f.totalExposure === null || f.exposure === null)) return null
+
     return {
       ...summary,
-      totalAle: scaleMoney(summary.totalAle, ratio) ?? { amount: Math.round(summary.totalAle.amount * ratio), currency: summary.currency },
-      totalVar95: scaleMoney(summary.totalVar95, ratio) ?? { amount: Math.round(summary.totalVar95.amount * ratio), currency: summary.currency },
-      totalTvar: scaleMoney(summary.totalTvar, ratio) ?? { amount: Math.round(summary.totalTvar.amount * ratio), currency: summary.currency },
-      totalCarried: scaleMoney(summary.totalCarried ?? summary.carried, ratio) ?? { amount: Math.round((summary.totalCarried?.amount ?? summary.carried?.amount ?? 0) * ratio), currency: summary.currency },
-      carried: scaleMoney(summary.carried ?? summary.totalCarried, ratio) ?? { amount: Math.round((summary.carried?.amount ?? summary.totalCarried?.amount ?? 0) * ratio), currency: summary.currency },
-      frameworks: summary.frameworks.map((fw) => ({
-        ...fw,
-        totalExposure: scaleMoney(fw.totalExposure ?? fw.exposure, ratio) ?? { amount: Math.round((fw.totalExposure?.amount ?? fw.exposure?.amount ?? 0) * ratio), currency: summary.currency },
-        exposure: scaleMoney(fw.exposure ?? fw.totalExposure, ratio) ?? { amount: Math.round((fw.exposure?.amount ?? fw.totalExposure?.amount ?? 0) * ratio), currency: summary.currency },
+      totalAle: scaled.totalAle!,
+      totalVar95: scaled.totalVar95!,
+      totalTvar: scaled.totalTvar!,
+      totalCarried: scaled.totalCarried!,
+      carried: scaled.carried!,
+      frameworks: frameworks.map((f) => ({
+        ...f.fw,
+        totalExposure: f.totalExposure!,
+        exposure: f.exposure!,
       })),
     }
   }, [summary, population, totalAgentCount, governedCount, discoveredCount])

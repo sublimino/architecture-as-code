@@ -34,7 +34,7 @@ per-check figures as a scan of a non-compliant one. Only the summary differs.
 ## 2. A missing frequency triple is silent
 
 A check with no `freqTriple`, or an all-zero one, prices at zero however often
-it fails. 73 of 134 shipped checks are in that state. Today the loader accepts
+it fails. 81 of 134 shipped checks are in that state. Today the loader accepts
 this. The silence is caught after the fact by two tests outside the gate.
 `policy/frameworks/nist-800-53/catalogue/pricing-test.sh` asks whether each
 unpriced check is declared. `policy/frameworks/pricing-counts-test.sh` asks
@@ -137,21 +137,29 @@ The field is still set in Go, by the engine, on every row. It reads the same on
 a priced row and on a row that prices at zero. It cannot distinguish a triple a
 risk function signed off from one an engineer typed.
 
-**0 of the 61 priced checks carry any provenance.** The check shape has no field
-for provenance, author, date, or anchor class. The loader uses
-`DisallowUnknownFields`, so adding one is a loader change rather than a data
-change. A search of the whole tree for the names of the loss datasets a reader
-would expect, and for the phrase "expert judgement", returns nothing.
+The check shape still has no field for provenance, author, date, or anchor
+class. The loader uses `DisallowUnknownFields`, so adding one is a loader change
+rather than a data change. **That change is still open.**
 
-The 73 unpriced checks are declared across three files:
-`policy/frameworks/{cra,eu-ai-act,nist-800-53}/catalogue/unpriced.tsv`. Their
-reason codes are `no-calibrated-frequency` on 70 and a placeholder reason on 3.
-The declarations therefore carry a reason where the priced triples carry none,
-which is the wrong way round.
+What changed on 2026-10-11 is where the provenance lives, not whether the
+schema carries it. All 53 priced checks now have a derivation entry in a
+per-pack `CALIBRATION.md`, keyed by check id. Each entry names the anchor
+classes behind both triples, the `SCN-*` scenario the magnitude is a share of,
+the `P_org`/`S_path`/`C_check` reasoning and a confidence letter. The registry of
+anchor classes is `policy/frameworks/ANCHORS.md`. Before that date, a search of
+the whole tree for the names of the loss datasets a reader would expect
+returned nothing.
 
-The cheapest remedy is an optional provenance block on the triple, carried
-through to the row. The engine-set tag stays as the fallback for a triple that
-has none.
+The 81 unpriced checks are declared across four files, under
+`policy/frameworks/{cra,eu-ai-act,finos-aigf,nist-800-53}/catalogue/`. Their
+reason codes are `no-calibrated-frequency` on 70, `penalty-path-not-technical`
+on 8, and a placeholder reason on 3. The codes are now an allow-list enforced
+by each pack's `pricing-test.sh`, so a free-text reason fails.
+
+The cheapest remaining remedy is an optional provenance block on the triple,
+carried through to the row. Then the row a customer reads names its own anchor
+class. The Markdown derivation is the stopgap and it cannot reach the scan row.
+The engine-set tag stays as the fallback for a triple that has none.
 
 **Known drift:** the dashboard still shows the string `industry-indicative`,
 from its own constants in `supercredProjection.ts`, `fakeComplianceData.ts` and

@@ -14,17 +14,17 @@
         "max": 120000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 77749.44,
-      "var95": 170607.57,
-      "tvar": 202699.54,
-      "carried": 222969.5,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 78166.67,
-      "aleSigma": -0.896
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "automatic-record-keeping",
@@ -35,17 +35,17 @@
         "max": 190000
       },
       "freqTriple": {
-        "min": 0.6,
-        "mode": 2,
-        "max": 5
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 148469.64,
-      "var95": 327948.07,
-      "tvar": 392245.01,
-      "carried": 431469.51,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 148844.44,
-      "aleSigma": -0.411
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "block-unauthorized-host-exec",
@@ -182,17 +182,17 @@
         "max": 250000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 146586.88,
-      "var95": 327678.68,
-      "tvar": 392310.5,
-      "carried": 431541.55,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 147291.67,
-      "aleSigma": -0.763
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "training-data-provenance",
@@ -203,17 +203,17 @@
         "max": 220000
       },
       "freqTriple": {
-        "min": 0.4,
-        "mode": 1.2,
-        "max": 3.5
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 109564.33,
-      "var95": 245999.68,
-      "tvar": 297130.21,
-      "carried": 326843.23,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 109958.33,
-      "aleSigma": -0.569
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "user-instructions-transparency",
@@ -224,17 +224,28 @@
         "max": 90000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 3.5
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 54344.16,
-      "var95": 115807.87,
-      "tvar": 137940.71,
-      "carried": 151734.78,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 54166.67,
-      "aleSigma": 0.556
+      "analyticAle": 0,
+      "aleSigma": 0
     }
-  ]
+  ],
+  "lastMovement": {
+    "reason": "AI governance/documentation checks moved off the technical loss path per docs/fair-methodology-open-decisions.md; a documentation gap does not cause a technical loss event",
+    "checksMoved": 5,
+    "checks": [
+      "annex-iv-technical-documentation",
+      "automatic-record-keeping",
+      "synthetic-content-marking",
+      "training-data-provenance",
+      "user-instructions-transparency"
+    ]
+  }
 }

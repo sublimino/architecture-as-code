@@ -84,8 +84,8 @@ different questions.
 
 Each priced check now carries a derivation entry in its pack's
 `CALIBRATION.md`, keyed by check id. The entry names the `SCN-*` scenario the
-check is a share of, the anchor classes behind its two triples, the
-`P_org`/`S_path`/`C_check` reasoning, and a confidence letter. The registry of
+check is a share of and the anchor classes behind its two triples. It also
+carries the `P_org`/`S_path`/`C_check` reasoning and a confidence letter. The registry of
 anchor classes is [ANCHORS.md](ANCHORS.md). The statutory ceilings, which are a
 `max` and never a `mode`, are in [PENALTIES.md](PENALTIES.md).
 
@@ -116,7 +116,7 @@ that shows a figure.
 | Clause | The fact behind it |
 | :--- | :--- |
 | a FAIR-method simulation | The engine draws from beta-PERT distributions over the two triples. The method is FAIR. The numbers are not FAIR data. |
-| declared expert estimates | Of 134 shipped checks, 132 carry a loss magnitude and 61 carry a frequency. Those are 65 distinct magnitude triples and 26 distinct frequency triples, almost all of them round numbers. The check shape has no field for provenance, author, date, or anchor class, so no triple carries one. |
+| declared expert estimates | Of 134 shipped checks, 132 carry a loss magnitude and 53 carry a frequency. Those are 65 distinct magnitude triples and 25 distinct frequency triples, almost all of them round numbers. The check shape still has no field for provenance, author, date, or anchor class, so the derivation sits in a per-pack `CALIBRATION.md` keyed by check id rather than on the triple. |
 | not measurements | Nothing in this repository tests that any figure is the right figure. Calibration is an input, not a computable property. |
 | no public dataset prices these controls | No public or commercial loss dataset prices "a service-account token was auto-mounted" or "no model card was published". The mapping is expert judgement and cannot be reduced further. |
 | re-estimate against your own incident history | [`risk/org/acme.yaml`](../../risk/org/acme.yaml) is the standard to copy. It names anchor classes, states that each triple is an estimate rather than a measurement, and requires risk sign-off. |
@@ -149,16 +149,16 @@ carries the same table for its own versions.
 | `dora@v1.0.0` | 1 | 0 | 1 | 1 |
 | `eu-ai-act@v1.0.0` | 7 | 0 | 7 | 0 |
 | `eu-ai-act@v2.0.0` | 19 | 0 | 19 | 1 |
-| `eu-ai-act@v2.1.0` | 11 | 11 | 0 | 0 |
-| `finos-aigf@v1.0.0` | 16 | 16 | 0 | 0 |
+| `eu-ai-act@v2.1.0` | 11 | 6 | 5 | 0 |
+| `finos-aigf@v1.0.0` | 16 | 13 | 3 | 0 |
 | `nis2@v1.0.0` | 1 | 0 | 1 | 1 |
 | `nist-800-53@v1.0.0` | 14 | 0 | 14 | 0 |
 | `nist-800-53@v2.0.0` | 28 | 0 | 28 | 0 |
 | `nist-800-53@v2.1.0` | 17 | 14 | 3 | 0 |
-| **Estate total** | **134** | **61** | **73** | **3** |
+| **Estate total** | **134** | **53** | **81** | **3** |
 
 An unpriced check contributes GBP 0.00 to every total however often it
-fails. Of 134 check(s) on this page, 61 are priced and 73 are not.
+fails. Of 134 check(s) on this page, 53 are priced and 81 are not.
 Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
 <!-- pricing-counts:end -->
 

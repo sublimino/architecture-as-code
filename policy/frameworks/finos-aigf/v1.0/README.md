@@ -151,10 +151,10 @@ any figure in this table or any figure the engine produces from this pack.
 <!-- pricing-counts:begin -->
 | Version | Checks | Priced | Unpriced | Placeholder |
 | :--- | ---: | ---: | ---: | ---: |
-| `v1.0.0` | 16 | 16 | 0 | 0 |
-| **Pack total** | **16** | **16** | **0** | **0** |
+| `v1.0.0` | 16 | 13 | 3 | 0 |
+| **Pack total** | **16** | **13** | **3** | **0** |
 
 An unpriced check contributes GBP 0.00 to every total however often it
-fails. Of 16 check(s) on this page, 16 are priced and 0 are not.
+fails. Of 16 check(s) on this page, 13 are priced and 3 are not.
 Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
 <!-- pricing-counts:end -->

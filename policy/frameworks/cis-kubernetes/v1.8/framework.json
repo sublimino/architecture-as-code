@@ -3,6 +3,13 @@
   "name": "CIS Kubernetes Benchmark",
   "version": "v1.8.0",
   "description": "CIS Kubernetes Benchmark v1.8.0, section 5 (Policies): the recommendations evaluable from a single pod spec. Numbering verified against aquasecurity/kube-bench cfg/cis-1.8/policies.yaml.",
+  "applicability": {
+    "inForceFrom": "2023-09-26",
+    "basis": "publication-date",
+    "source": "https://www.cisecurity.org/insights/blog/cis-benchmarks-october-2023-update",
+    "note": "A CIS Benchmark is a published consensus standard, not enforced law, so the basis is publication-date and this window is informational. UNVERIFIED, DELIBERATELY. Only the MONTH is verified: CIS own benchmarks-update blog states \"CIS Benchmarks Updated in September ... CIS Kubernetes Benchmark v1.8.0\". The exact day 26 September 2023 comes ONLY from a third-party verbatim quote of the downloads.cisecurity.org listing; downloads.cisecurity.org requires authentication and workbench.cisecurity.org/benchmarks returned HTTP 302 to a login page, so both primary fetches FAILED and the day is not read from a citable CIS source. TWO CITATION TRAPS, recorded so nobody re-derives a wrong date from them. (1) NIST NCP checklist 766 shows \"Version 1.8.0, Original Publication Date 03/07/2019\" -- that is a long-lived record cut for Kubernetes 1.13 and later re-pointed at v1.8.0; do not cite it. (2) \"CIS Kubernetes 1.8\" in older material often means the benchmark FOR Kubernetes 1.8 (benchmark v1.2.0, circa 2017), which is a different document. Verified lower bounds, which prove existence and nothing more: kube-bench added cfg/cis-1.8 in commit 92a18e7dfd (PR 1527) on 2023-12-02, shipped in release v0.7.0 on 2023-12-19. Because verified is false this window gates nothing. To flip it, read the CIS WorkBench changelog for the Kubernetes Benchmark version line with an authenticated session and cite the day it states.",
+    "verified": false
+  },
   "controlSets": [
     {
       "id": "cis-5.1",

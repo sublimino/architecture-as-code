@@ -86,6 +86,89 @@ const UNIT_CONVERSION = new Set([
   12,                               // months in a year
 ])
 
+// The same vocabulary as individual words, for identifiers that are not a bare
+// vocabulary term. `posture_score` is in FIGURE_PROP; `postureScore` is not,
+// and an exact-match test on a camelCase identifier silently matches nothing.
+// A camelCase `const` is arguably the MORE idiomatic way to write a fabricated
+// figure in TSX than a snake_case object property, so name matching has to
+// decompose the identifier rather than compare it whole.
+// Named FIGURE_WORD_SET rather than FIGURE_WORDS because a sibling rule already
+// owns that name as an ARRAY, joined into the FIGURE_PROP regex above. Both
+// landed in the same integration and git merged them textually without noticing
+// they collide: the file parsed as two `const` declarations of one identifier
+// and every suite in the directory failed to COLLECT, which reads as a broken
+// test rather than as a merge defect. Distinct names, one per representation.
+const FIGURE_WORD_SET = new Set([
+  'score',
+  'percent',
+  'pct',
+  'coverage',
+  'compliance',
+  'total',
+  'totals',
+  'cost',
+  'ale',
+  'var95',
+  // `targetVar = 1200000` sits on the line after `targetAle = 847000` and was
+  // missed while its twin was caught, because the vocabulary held `var95` but
+  // not `var`. A name vocabulary is a denylist however carefully written; the
+  // mitigation is that a miss here is visible as an asymmetry in the findings.
+  'var',
+  'tvar',
+  'exposure',
+  'carried',
+  'savings',
+  'spend',
+  'budget',
+  'revenue',
+  'loss',
+  'passing',
+  'failing',
+  'passed',
+  'failed',
+  'pending',
+  'controls',
+  'posture',
+  'confidence',
+  'likelihood',
+  'impact',
+  'magnitude',
+  'annual',
+  'monthly',
+  'amount',
+  'count',
+  'ratio',
+  'rate',
+  'uptime',
+  'sla',
+  'mttr',
+])
+
+// camelCase / PascalCase / snake_case / SCREAMING_SNAKE → lowercase words.
+// `riskExposureGBP` → [risk, exposure, gbp]; `POSTURE_SCORE` → [posture, score].
+function identWords(ident) {
+  return ident
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase())
+}
+
+function isFigureName(ident) {
+  if (FIGURE_PROP.test(ident)) return true
+  return identWords(ident).some((w) => FIGURE_WORD_SET.has(w))
+}
+
+// Any numeric literal form a developer would actually write, including the
+// two that defeat a naive matcher: digit separators (1_240_000) and exponent
+// notation (1.24e6). Both express the same figure as the plain form.
+const NUM = String.raw`-?\d[\d_]*(?:\.\d*)?(?:[eE][+-]?\d+)?`
+
+function numValue(text) {
+  return Number(text.replace(/_/g, ''))
+}
+
 // Lines that are unambiguously CSS/SVG/layout. A '%' or a number here is
 // presentation, not a figure. Kept broad on purpose: a false negative in this
 // list costs a missed finding, so the planted-literal proof below pins that
@@ -99,7 +182,12 @@ const RENDERED_DIRS = ['pages', 'components', 'views']
 // Every entry is a deliberate, reviewed decision. `reason` is mandatory: an
 // exception without a stated reason is indistinguishable from a defect that
 // someone silenced.
-const EXCEPTIONS = [
+//
+// `detail` is optional. Omitted, the exception covers the whole file; given, it
+// covers only that one finding. Prefer the scoped form: a file-wide exception
+// silences every future figure in the file too, which is how a reviewed
+// decision quietly becomes a blind spot.
+export const EXCEPTIONS = [
   {
     file: 'pages/DesignSystemPage.tsx',
     rule: 'figure-literal',
@@ -111,10 +199,24 @@ const EXCEPTIONS = [
     rule: 'figure-literal',
     reason: 'Page-size options (10/25/50) are UI controls, not measurements.',
   },
+  {
+    file: 'components/CurrencySetting.tsx',
+    rule: 'figure-literal',
+    detail: 'PREVIEW_AMOUNT = 1_284_000',
+    reason:
+      'Specimen for the currency FORMAT preview, documented as arbitrary at the declaration. It is never an estate figure and never leaves the settings row; scoped to this one literal so any other figure in the file still fails.',
+  },
 ]
 
-function isException(rel, rule) {
-  return EXCEPTIONS.some((e) => e.file === rel && e.rule === rule)
+// A file-wide exception (no `detail`) short-circuits the whole file.
+function isFileException(rel, rule) {
+  return EXCEPTIONS.some((e) => e.file === rel && e.rule === rule && !e.detail)
+}
+
+function isDetailException(finding) {
+  return EXCEPTIONS.some(
+    (e) => e.file === finding.file && e.rule === finding.rule && e.detail === finding.detail,
+  )
 }
 
 // ── Walk ───────────────────────────────────────────────────────────────────
@@ -238,7 +340,7 @@ function checkUngatedFixtureImports(rel, src) {
 function checkFigureLiterals(rel, src) {
   const findings = []
   if (!RENDERED_DIRS.some((d) => rel.startsWith(d + '/'))) return findings
-  if (isException(rel, 'figure-literal')) return findings
+  if (isFileException(rel, 'figure-literal')) return findings
 
   // Blank out block-comment bodies while preserving line numbering: a comment
   // that *discusses* a figure ("is not visible in \"67%\"") is not a figure.
@@ -368,11 +470,85 @@ function checkFigureLiterals(rel, src) {
       }
     }
 
+    // Rules 2d-2f filter presentation PER MATCH on the binding name, not per
+    // line. The line-level filter above is too coarse for these shapes:
+    // `<Gauge width={100} score={93} />` matches PRESENTATION on `width` and
+    // would discard the whole line, taking the real finding with it.
+    if (!skip) {
+      // 2d. A figure-named binding assigned a numeric literal.
+      //     `const postureScore = 93`, `let ale = 1_240_000`,
+      //     `var coverage = 87.5`, `state.score = 93`.
+      //     Rule 2b requires a COLON, so it matches object-literal properties
+      //     and nothing else. There was no rule for an assignment at all, and
+      //     every planted-literal proof was written in colon syntax -- so the
+      //     proofs validated the regex against its own preimage and a planted
+      //     `const postureScore = 93` passed all 16 tests.
+      const assign = new RegExp(
+        String.raw`(?:\b(?:const|let|var)\s+)?` +
+          String.raw`([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)` +
+          String.raw`\s*(?::\s*[^=;]+?)?\s*(?<![=!<>+\-*/%&|^])=(?!=)\s*` +
+          `(${NUM})` +
+          String.raw`\s*(?:[;,)\]}]|$)`,
+        'g',
+      )
+      for (const am of t.matchAll(assign)) {
+        const [, path, value] = am
+        const name = path.split('.').pop()
+        if (!isFigureName(name)) continue
+        if (PRESENTATION.test(name)) continue
+        if (numValue(value) === 0) continue
+        findings.push({
+          rule: 'figure-literal',
+          file: rel,
+          line: n,
+          detail: `${name} = ${value}`,
+          why:
+            'A figure-named binding assigned a literal renders the same in live mode as in demo mode. Source it from the API or render an empty state.',
+        })
+      }
+
+      // 2e. A numeric literal interpolated into a template literal. There is
+      //     no property name to gate on: a bare number injected into display
+      //     text is a figure by construction.
+      for (const tm of t.matchAll(/`[^`]*`/g)) {
+        const tpl = tm[0]
+        if (PRESENTATION.test(tpl)) continue
+        for (const im of tpl.matchAll(new RegExp(String.raw`\$\{\s*(${NUM})\s*\}`, 'g'))) {
+          if (numValue(im[1]) === 0) continue
+          findings.push({
+            rule: 'figure-literal',
+            file: rel,
+            line: n,
+            detail: `template interpolation \${${im[1]}}`,
+            why: 'A numeric literal interpolated into rendered text is a fabricated figure.',
+          })
+        }
+      }
+
+      // 2f. A numeric literal passed straight to a figure-named JSX prop:
+      //     `<Gauge score={93} />`.
+      for (const jm of t.matchAll(
+        new RegExp(String.raw`\b([A-Za-z_$][\w$]*)\s*=\s*\{\s*(${NUM})\s*\}`, 'g'),
+      )) {
+        const [, prop, value] = jm
+        if (!isFigureName(prop)) continue
+        if (PRESENTATION.test(prop)) continue
+        if (numValue(value) === 0) continue
+        findings.push({
+          rule: 'figure-literal',
+          file: rel,
+          line: n,
+          detail: `prop ${prop}={${value}}`,
+          why: 'A figure passed as a literal prop renders identically in live mode.',
+        })
+      }
+    }
+
     brace += opens - closes
     if (memoDepth > 0 && brace <= braceAtMemoStart && closes > 0) memoDepth = 0
   })
 
-  return findings
+  return findings.filter((f) => !isDetailException(f))
 }
 
 // ── Driver ─────────────────────────────────────────────────────────────────

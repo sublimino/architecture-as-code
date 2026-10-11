@@ -421,25 +421,26 @@ Confirmation: `ls scripts/package-tenant-bundle.sh scripts/init-tenant.sh script
 
 ##### Air-Gap Gap Ledger (Egress Sites & Required Offline Replacements)
 
-Across the repository packaging path, 21 external egress sites were identified:
+Across `scripts/setup.sh` and `scripts/lib/demo-images.sh`, exactly 19 egress command sites were identified (`grep -nE 'curl|wget|docker pull|crane|skopeo' scripts/setup.sh scripts/lib/demo-images.sh` = 19):
 - `scripts/setup.sh:53`: `fetch_bin` helper (`curl -fsSL "$2" -o "/tmp/$1"`) -> Replace with bundle-local staging from `bundle/bin/` verified against `bundle/bin/checksums.txt`.
 - `scripts/setup.sh:75`: `anchore_bin` tarball fetch -> Replace with pre-bundled binary or descope runtime vulnerability scan.
-- `scripts/setup.sh:98`: kind binary from `kind.sigs.k8s.io` -> Replace with `bundle/bin/kind`.
-- `scripts/setup.sh:99`: kubectl binary from `dl.k8s.io` -> Replace with `bundle/bin/kubectl`.
-- `scripts/setup.sh:100`: jq binary from GitHub releases -> Replace with `bundle/bin/jq`.
 - `scripts/setup.sh:104`: kustomize tarball from GitHub releases -> Replace with `bundle/bin/kustomize`.
 - `scripts/setup.sh:110`: helm tarball from `get.helm.sh` -> Replace with `bundle/bin/helm`.
 - `scripts/setup.sh:116`: flux tarball from `github.com/fluxcd/flux2` -> Replace with `bundle/bin/flux`.
-- `scripts/setup.sh:119`: cosign binary from `github.com/sigstore/cosign` -> Replace with `bundle/bin/cosign`.
 - `scripts/setup.sh:137`: witness tarball from GitHub releases -> Replace with `bundle/bin/witness`.
 - `scripts/setup.sh:144`: go compiler tarball from `go.dev` -> Remove runtime Go compiler requirement in appliance.
-- `scripts/setup.sh:166`: apt/dnf/brew skopeo install -> Vendor standalone binary or perform export on build host.
+- `scripts/setup.sh:155`: skopeo upstream comment reference -> Document offline bundling requirement.
+- `scripts/setup.sh:162`: skopeo command existence check -> Confirm local pre-bundled availability.
+- `scripts/setup.sh:163`: skopeo install log message -> Replace with offline validation.
+- `scripts/setup.sh:166`: apt-get update && apt-get install skopeo -> Vendor standalone binary or export on build host.
+- `scripts/setup.sh:168`: dnf install skopeo -> Vendor standalone binary or export on build host.
+- `scripts/setup.sh:170`: brew install skopeo -> Vendor standalone binary or export on build host.
+- `scripts/setup.sh:172`: skopeo error warning -> Eliminated in offline bundle.
+- `scripts/setup.sh:173`: skopeo upstream install URL -> Eliminated in offline bundle.
+- `scripts/setup.sh:180`: skopeo platform package comment -> Eliminated in offline bundle.
 - `scripts/setup.sh:194`: crane go install -> Replace with `bundle/bin/crane`.
 - `scripts/setup.sh:198`: bats tarball from GitHub -> Pre-installed test framework on host.
-- `scripts/ci/install-ci-tools.sh:231,238,264,283`: kind, kubectl, flux, cosign fetches -> Replace with bundle-local copies.
-- `d2-osramp-fleet/clusters/local/flux-system/flux-operator.yaml:19`: `url: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator` -> Vendored chart loaded to local Zot registry.
-- `d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml:9`: `registry: "ghcr.io/fluxcd"` -> Local in-cluster Zot registry.
-- `d2-osramp-fleet/clusters/local/flux-system/flux-instance.yaml:10`: `artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:latest"` -> Immutable digest-pinned artifact in local Zot.
+- `scripts/setup.sh:208`: tool verification loop containing skopeo -> Verify against `bundle/bin/`.
 
 ##### Headline Digest Pin Gap (Decision 9)
 

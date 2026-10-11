@@ -88,18 +88,32 @@ func TestContract_TopologySchemaMatchesTypeScriptInterfaces(t *testing.T) {
 	}
 
 	// 4. AggregateRisk validation:
+	//
+	// This block used to require ale and var95 to be NUMBERS, which made the contract
+	// test the thing holding the fabrication in place: the only figures available to
+	// satisfy it were authored in fleet.yaml, so a passing test certified that an
+	// authored number reached a risk gauge. Nothing in this repository can compute a
+	// fleet ALE -- see RiskSummary in topology.go for the four checks that establish
+	// that -- so the contract is now that the response REFUSES, and carries the
+	// estate's shared refusal object saying why.
 	risk, ok := raw["aggregateRisk"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected aggregateRisk to be an object")
 	}
-	if _, ok := risk["ale"].(float64); !ok {
-		t.Errorf("aggregateRisk.ale must be a number")
+	for _, key := range []string{"ale", "var95", "previousAle", "trend"} {
+		if v, present := risk[key]; present {
+			t.Errorf("aggregateRisk.%s = %#v, want absent: no computation stands behind it", key, v)
+		}
 	}
-	if _, ok := risk["var95"].(float64); !ok {
-		t.Errorf("aggregateRisk.var95 must be a number")
+	pricing, ok := risk["pricing"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected aggregateRisk.pricing to be the shared refusal object, got %#v", risk["pricing"])
 	}
-	if _, ok := risk["trend"].(string); !ok {
-		t.Errorf("aggregateRisk.trend must be a string")
+	if got := pricing["status"]; got != string(PricingStatusAuthoredNotComputed) {
+		t.Errorf("pricing.status = %#v, want %q", got, PricingStatusAuthoredNotComputed)
+	}
+	if available, _ := pricing["available"].(bool); available {
+		t.Errorf("pricing.available = true while no figure is served")
 	}
 }
 

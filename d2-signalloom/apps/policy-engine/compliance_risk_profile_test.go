@@ -176,6 +176,55 @@ func TestADeclaredReportingCurrencyLabelsEveryFigure(t *testing.T) {
 	}
 }
 
+func TestTheSummaryIsDenominatedByTheScanItSummarises(t *testing.T) {
+	// The gap TestConformance_MoneyReportingCurrencyIsPinned leaves. That test
+	// scans with NO declared profile, so it pins the DEFAULT summary label and
+	// could not see a summary that ignores a declared currency. Without this,
+	// a declared-USD scan could be totalled under a GBP label -- figures and
+	// label disagreeing, which is the worst outcome of the three because it
+	// reads as authoritative.
+	h := contractHandler(t)
+	body := baseScanBody()
+	body["reportingCurrency"] = "USD"
+
+	code, results := postScanWithHeaders(t, h, body, map[string]string{"X-Tenant-ID": "t"})
+	if code != http.StatusOK {
+		t.Fatalf("scan: got %d", code)
+	}
+	if len(results) == 0 {
+		t.Fatal("no results")
+	}
+
+	w := httptest.NewRecorder()
+	h.handleSummary(w, httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("summary: got %d", w.Code)
+	}
+	var summary map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+
+	if summary["currency"] != "USD" {
+		t.Errorf("summary currency = %v, want USD: the total must be labelled in the "+
+			"currency its rows are denominated in", summary["currency"])
+	}
+	exposure, ok := summary["exposure"].(map[string]any)
+	if !ok {
+		t.Fatal("summary exposure is not an object")
+	}
+	if exposure["currency"] != "USD" {
+		t.Errorf("summary exposure currency = %v, want USD", exposure["currency"])
+	}
+	// And every row agrees with the label, so the sum is of like with like.
+	for _, r := range results {
+		if r["currency"] != summary["currency"] {
+			t.Errorf("check %v is in %v but the summary claims %v; a total across "+
+				"denominations is not a total", r["check"], r["currency"], summary["currency"])
+		}
+	}
+}
+
 func TestADeclaredRiskLoadMovesTheCarriedFigureAndNothingElse(t *testing.T) {
 	// Carried is TVaR * (1 + load). A declared load must move Carried and must
 	// NOT move ALE, VaR95 or TVaR, which are properties of the distribution and

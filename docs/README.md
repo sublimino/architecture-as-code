@@ -211,6 +211,7 @@ certifications of each mission. The file prefix is the mission shortcode.
 | :--- | :--- |
 | [Signal Loom CEO Delivery Report, week of 2026-09-08](Signal%20Loom%20—%20CEO%20Delivery%20Report%20—%20Week%20of%202026-09-08.md) | Delivery status for one week |
 | [`amxd-p0-baseline.md`](amxd-p0-baseline.md) | AMXD mission baseline, with machine baselines in [`amxd-p0-baseline/`](amxd-p0-baseline/) |
+| [`slsi-p0-baseline.md`](slsi-p0-baseline.md) | SLSI mission baseline, with machine baselines in [`slsi-p0-baseline/`](slsi-p0-baseline/) |
 | [`ktest-p2-preflight.md`](ktest-p2-preflight.md) | KTEST phase 2 preflight |
 | [`kpai-harness-verification.md`](kpai-harness-verification.md) | KPAI runtime harness verification |
 | [`COLLABORATOR-REVIEW.md`](COLLABORATOR-REVIEW.md) | Review of the KPAI and Antigravity collaborators |

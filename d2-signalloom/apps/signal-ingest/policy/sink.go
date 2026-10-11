@@ -99,7 +99,28 @@ type Sink struct {
 	observer Observer
 	log      *slog.Logger
 	pseudo   store.ActorPseudonymiser
+
+	// decisionDispatcher, when set, is offered every decision together with its
+	// triggering observation (the only site holding both) so a policy FAILURE —
+	// e.g. a verified Landlock denial — can be routed to containment (a stun).
+	// It fires in every mode, including shadow: the dispatcher itself decides
+	// which decisions it acts on and dedups. nil disables the route (today's
+	// default when no stun client is configured). See SetDecisionDispatcher.
+	decisionDispatcher DecisionDispatcher
 }
+
+// DecisionDispatcher routes a policy decision (with its triggering observation)
+// to an external effect such as a stun. It is defined here with only
+// policy-visible types so this package never imports the containment package
+// (no import cycle); main constructs the concrete dispatcher and adapts it.
+type DecisionDispatcher interface {
+	Dispatch(ctx context.Context, d obscel.Decision, trigger model.Observation)
+}
+
+// SetDecisionDispatcher wires the decision→stun route after construction (the
+// stun client is built later in main than the Sink). Not safe to call once
+// ingestion is running; call it during wiring, before Start.
+func (s *Sink) SetDecisionDispatcher(d DecisionDispatcher) { s.decisionDispatcher = d }
 
 // NewSink returns inner wrapped in stage 1 (and stage 2 when opts.Windows is
 // set). The returned sink satisfies collectors.IngestionSink, so it drops into
@@ -272,6 +293,13 @@ func (s *Sink) emitDecision(ctx context.Context, d obscel.Decision, trigger *mod
 		s.metrics.observeDecisionWriteError()
 		s.log.Error("policy decision could not be stored",
 			"decision", d.ID, "window", d.WindowID, "error", err)
+	}
+
+	// Route the decision to containment BEFORE the mode gate: a stun on a
+	// verified Landlock denial must fire even while the bundle is in shadow
+	// (detection→stun is the whole point). The dispatcher gates and dedups.
+	if s.decisionDispatcher != nil && trigger != nil {
+		s.decisionDispatcher.Dispatch(ctx, d, *trigger)
 	}
 
 	if d.Mode == obscel.ModeShadow {

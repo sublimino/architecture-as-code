@@ -197,6 +197,36 @@ var defaultLabelAllowList = map[string]struct{}{
 	// needs (which sensitive file was opened); pseudonymising the whole path would have made
 	// /etc/passwd and /etc/shadow unreadable to an operator for no privacy gain.
 	"target": {},
+
+	// agent-nono (Landlock) audit observations (collectors/agentnono, SLSI). The
+	// agentnono collector projects a signed NonoAuditEvent into an endpoint_host
+	// observation whose labels the landlock-denial CEL bundle reads; without these
+	// a frostdb-tagged signal-ingest refuses every nono denial batch
+	// (DisallowedLabelKeyError), which is the whole nono->FrostDB->CEL->stun path.
+	// All are closed-vocabulary or topology values chosen by no natural person:
+	//   denial_reason/path/event_type/landlock_status: what the kernel denied and
+	//     the file it denied (path shares `target`'s value class; the sentinel
+	//     redactor is not applied here because agentnono paths are system paths,
+	//     not home directories — see TestNonoDenialPersistsToFrostDBEndToEnd).
+	//   landlock_abi/nono_available: enforcement capability scalars.
+	//   agent_id: the workload's own id (the stun idempotency key, keyed here and
+	//     not on the pseudonymised ActorID — correlation/decision_stun.go).
+	//   spiffe_id/verification_status/hash_chain_digest/prev_digest/
+	//     signature_gitoid: the signed-evidence provenance the verifier produced.
+	//   delegation_chain_id: audit-session delegation topology.
+	"denial_reason":       {},
+	"path":                {},
+	"event_type":          {},
+	"landlock_status":     {},
+	"landlock_abi":        {},
+	"nono_available":      {},
+	"agent_id":            {},
+	"spiffe_id":           {},
+	"verification_status": {},
+	"hash_chain_digest":   {},
+	"prev_digest":         {},
+	"signature_gitoid":    {},
+	"delegation_chain_id": {},
 }
 
 // labelValueRedactors are applied to a label VALUE at the Append chokepoint, for the keys whose

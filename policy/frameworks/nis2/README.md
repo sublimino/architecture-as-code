@@ -137,6 +137,21 @@ state is allowed, because a loss magnitude with no calibrated frequency is not a
 price. It is not a small-print detail, because a reader who adds up a scan gets
 a total over the priced checks only.
 
+### The NIS2 amounts are a floor, not a ceiling
+
+This pack holds one placeholder check and prices at zero. Zero is correct
+rather than missing.
+
+NIS2 Art. 34(4) requires **at least** €10,000,000 or 2 per cent of total
+worldwide annual turnover for an essential entity, and Art. 34(5) at least
+€7,000,000 or 1.4 per cent for an important entity. The turnover base is the
+**group** turnover, not the entity's own. The directive sets a floor, so a
+national implementation may go higher. Citations are in
+[PENALTIES.md](../PENALTIES.md#nis2-directive).
+
+A floor is an unusual shape for a `max` and must be stated wherever the figure
+is used. The anchor-class registry is [ANCHORS.md](../ANCHORS.md).
+
 Read [the calibration statement](../README.md#the-calibration-statement) before you quote
 any figure in this table or any figure the engine produces from this pack.
 

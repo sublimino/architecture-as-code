@@ -116,6 +116,13 @@ principal. The fix is a commencement date per regime, applied as a gate on the
 secondary-loss term described in section 4 of
 [the open decisions](../../docs/fair-methodology-open-decisions.md).
 
+**This page does not implement that gate.** The dates above are the statutory
+facts and nothing more. The enforcement mechanism is the date-gated
+applicability metadata being added to the pack schema by a separate card. With
+it in place, a regime whose obligations have not commenced prices at zero
+because the data says so rather than because a document says so. These two
+changes are one story. Read them together.
+
 ## UK regimes
 
 `risk/org/acme.yaml` names UK-GDPR and PCI-DSS as its own regimes. UK-GDPR

@@ -13,9 +13,16 @@ used verbatim.
 
 ## Why this file is here and not in `risk/`
 
-The anchor classes are cited from three places. The `derivation` block on each
-priced check in `policy/frameworks/*/v*/framework.json`, the pack pages beside
-those files, and the `provenance` prose in `risk/org/acme.yaml`.
+The anchor classes are cited from three places. The derivation entry for each
+priced check in its pack's `CALIBRATION.md`, the pack pages beside those files,
+and the `provenance` prose in `risk/org/acme.yaml`.
+
+The derivation is a Markdown file keyed by check id rather than a field on the
+check. The loader runs `DisallowUnknownFields`, so a provenance field is a
+loader change. That change stayed out of this work on purpose. Two other cards
+are adding fields to the same struct concurrently, and a third schema edit on
+the same lines would not merge. The decision is recorded as section 7 of
+[the open decisions](../../docs/fair-methodology-open-decisions.md).
 
 `risk/` holds institution-owned data. One file per organisation, loaded by
 `tools/riskctl`. An anchor class is estate-wide and is loaded by nothing. A new

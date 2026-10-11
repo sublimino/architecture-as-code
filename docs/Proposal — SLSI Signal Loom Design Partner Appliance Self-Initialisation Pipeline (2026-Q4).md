@@ -540,23 +540,20 @@ Binding note for P1-2, which was previously visible only by reading the JSON: **
 - **Settled Decision 9 (Release Trust by Digest Pinning):** Platform images are digest-pinned and signed at bundle time with the release key. The release private key never enters the bundle. Bundle-time signing attests bundle build only and confers no upstream SLSA provenance. `checksums.txt` is an integrity manifest only, not a provenance or SLSA claim.
 - **Settled Decision 10 (Containerise OpenSSL and Envsubst):** Scoped `bundle/bin/` to the five statically-linked Go utilities (`kind`, `kubectl`, `flux`, `cosign`, `jq`). `openssl` and `envsubst` are served via signed platform container images in `bundle/images/` under Decision 9 (P1-2 responsibility).
 
-#### Errata — SLSI-P1-1 (Attempt 2) SLSI-P1-1 bundle binary stage: pinned multi-arch binaries and sha256 manifest
+##### Attempt 2 — Decision 10 Re-scope and Defect Fixes
 **Created:** 2026-10-11 21:20:00+01:00
-**Last Updated:** 2026-10-11 21:22:00+01:00
+**Last Updated:** 2026-10-11 21:30:00+01:00
 **Status:** Passed
-**Commit:** 1698f357599cb591a27e7ca519ef91152069fae7
-**Resolution:** Re-scoped by Decision 10 to stage the five statically-linked Go utilities (`kind`, `kubectl`, `flux`, `cosign`, `jq`) across Linux `amd64` and `arm64`, while delegating `openssl` and `envsubst` to signed platform container images in `bundle/images/` under Decision 10 and Decision 9 (P1-2 responsibility).
+**Commit:** dfeccd35
+**Resolution:** Re-scoped by Decision 10 to stage the five statically-linked Go utilities (`kind`, `kubectl`, `flux`, `cosign`, `jq`) across Linux `amd64` and `arm64`, and containerise `openssl` and `envsubst` via thin wrappers delegating to signed platform container images in `bundle/images/` under Decision 10 and Decision 9 (P1-2 digest-pin responsibility). Resolved confirmed Attempt 1 defects and incorporated P1 design contract preamble requirements.
 **Evidence:**
-- Staged 5 Go utilities for Linux `amd64` and `arm64` into `bundle/bin/<arch>/` with explicit mode `0755` per binary.
-- Verified every binary blob against its independently published upstream literal SHA-256 digest before extraction or installation.
-- Verified ELF machine headers (`readelf -h`): `Advanced Micro Devices X86-64` for `amd64`, `AArch64` for `arm64`.
-- Exact version equality verified against declared pins (`kind v0.29.0`, `kubectl v1.33.2`, `flux 2.6.4`, `cosign v3.0.6`, `jq 1.7.1`) using `== "$`.
-- Generated `bundle/bin/<arch>/versions.txt` for both architectures documenting staged binaries and Decision 10 containerised utilities.
-- Generated `bundle/bin/checksums.txt` with 10 relative path entries; `sha256sum -c bundle/bin/checksums.txt` exits 0.
-- Offline verification (`scripts/package-tenant-bundle.sh --verify-only`) executes with zero network access and exits 0.
-- Preamble strict mode (`set -Eeuo pipefail`, `IFS=$'\n\t'`, ERR trap) and non-nested sentinel boundaries intact; sibling regions for P1-2, P1-3, P1-4 remain empty/comments only.
-- `bash -n scripts/package-tenant-bundle.sh` and `shellcheck -S warning` pass cleanly with zero warnings.
-- Zero binary blobs committed (`bundle/bin/*/*` gitignored; text manifests committed).
+- **Decision 10 Re-scope:** Staged 5 Go utilities for Linux `amd64` and `arm64` into `bundle/bin/<arch>/` with explicit mode `0755` per binary. Verified every binary blob against independently published upstream literal SHA-256 digests before extraction/installation. Verified ELF machine headers (`Advanced Micro Devices X86-64` and `AArch64`). Exact version equality verified against declared pins (`kind v0.29.0`, `kubectl v1.33.2`, `flux 2.6.4`, `cosign v3.0.6`, `jq 1.7.1`) using `== "$`. Generated `bundle/bin/checksums.txt` with 10 relative path entries; `sha256sum -c bundle/bin/checksums.txt` exits 0.
+- **Defect 1 Fix (Bare Invocation & Pin Check):** Bare invocation `./scripts/package-tenant-bundle.sh` with no arguments exits 0 and dispatches all four stages. Replaced unconditional fail paths with log notes that `openssl` and `envsubst` are containerised. `./scripts/package-tenant-bundle.sh --check-pins` exits 0 validating the 5 staged Go pins and logging containerised status for `openssl` and `envsubst`.
+- **Defect 2 Fix (Stage Dispatcher Hardening):** `run_stage` validates stage names against `VALID_STAGES=("stage_p1_1_binaries" "stage_p1_2_images" "stage_p1_3_manifest" "stage_p1_4_validation")`. Invalid stage name (e.g. `run_stage nonexistent`) fails loudly with `ERROR: unknown stage 'nonexistent'` and exit code 1. Pending stages (P1-2, P1-3, P1-4) are logged visibly as `stage <name>: pending (not yet implemented)` and return 0. Zero silent skips.
+- **Preamble Additions:** Sourced helper libraries `scripts/lib/wait.sh` and `scripts/lib/image-identity.sh`. Recorded `image-identity.sh` exit code 3 (`COULD-NOT-VERIFY`) convention in handoff contract so P1-2/P1-4 do not reinvent it. Added `SLSI_VERSION="${SLSI_VERSION:-0.1.0}"` and `--version|-v` argument parsing with regex validation `^[0-9A-Za-z][0-9A-Za-z._-]*$`; invalid versions fail loudly with exit code 1.
+- **Thin Container Wrappers:** Generated mode `0755` executable wrappers for `openssl` and `envsubst` in `bundle/bin/<arch>/`. Wrappers enforce Docker availability and check local presence of utility image (`docker.io/controlplane/slsi-util:v0.1.0`). If absent, wrappers refuse silent fallback to unpinned host tools and fail loudly with exit code 1 naming host package remedies (`apt-get install -y openssl` / `gettext-base`) and appliance load remedy. `envsubst` wrapper uses `compgen -e` to safely inject exported caller environment variables while preserving GNU gettext restricted-variable allow-list syntax (e.g. `envsubst '${VAR}'`).
+- **Offline Integrity Verification:** `./scripts/package-tenant-bundle.sh --verify-only` executes with zero network access and exits 0. `bash -n scripts/package-tenant-bundle.sh` and `shellcheck -S warning` pass cleanly with zero warnings.
+- **Merge Boundary:** Zero binary blobs committed to git (`bundle/bin/*/*` gitignored).
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 ---

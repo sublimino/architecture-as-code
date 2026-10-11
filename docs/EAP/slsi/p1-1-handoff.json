@@ -40,6 +40,39 @@
       "run_stage"
     ]
   },
+  "stageFunctionLiterals": {
+    "P1-1": "stage_p1_1_binaries",
+    "P1-2": "stage_p1_2_images",
+    "P1-3": "stage_p1_3_manifest",
+    "P1-4": "stage_p1_4_validation"
+  },
+  "preamblePolicy": {
+    "sourcedLibraries": [
+      {
+        "path": "scripts/lib/wait.sh",
+        "purpose": "Polling and resilient wait helpers for background task orchestration"
+      },
+      {
+        "path": "scripts/lib/image-identity.sh",
+        "purpose": "Image identity verification, digest resolution, and signing verification",
+        "exitCodeConventions": {
+          "exit0": "Verification succeeded",
+          "exit1": "Verification failed (hard defect / signature invalid)",
+          "exit3": "COULD-NOT-VERIFY (network or missing key/environment dependency; cards P1-2 and P1-4 must conform to this convention rather than reinventing error codes)"
+        }
+      }
+    ],
+    "shellMode": "set -Eeuo pipefail",
+    "ifs": "$'\\n\\t'",
+    "errTrap": "echo ERROR: command failed at line ${LINENO}: ${BASH_COMMAND} >&2; exit 1"
+  },
+  "versionPolicy": {
+    "parameter": "SLSI_VERSION",
+    "flag": "--version, -v",
+    "default": "0.1.0",
+    "validationRegex": "^[0-9A-Za-z][0-9A-Za-z._-]*$",
+    "rules": "Non-empty, starts with alphanumeric [0-9A-Za-z], followed by alphanumeric, dot, underscore, or hyphen; no slashes, no leading dot; exits 1 on failure."
+  },
   "bundleLayout": {
     "root": "bundle",
     "gitignoredGlobs": [
@@ -172,16 +205,26 @@
     }
   },
   "containerisedUtilities": {
+    "imageReference": "docker.io/controlplane/slsi-util:v0.1.0",
+    "digestPinObligation": "SLSI-P1-2 is responsible for resolving, digest-pinning, and signing this image into bundle/images/ under Decision 9 and Decision 10.",
     "openssl": {
       "resolution": "Decision 10: Containerise openssl and envsubst, re-scope P1-1",
       "targetLayer": "bundle/images/",
       "digestPinCard": "SLSI-P1-2",
+      "image": "docker.io/controlplane/slsi-util:v0.1.0",
+      "wrapperPath": "bundle/bin/<arch>/openssl",
+      "wrapperMode": "0755",
+      "wrapperBehavior": "Invokes 'docker run --rm -i --network none -v ${PWD}:${PWD} -w ${PWD} ${SLSI_UTILITY_IMAGE} openssl \"$@\"'. Preflight checks docker and local image inspection; fails loudly with exit 1 naming host remedy 'apt-get install -y openssl' and appliance remedy 'docker load < bundle/images/slsi-util.tar'. Refuses silent fallback to unpinned host binary.",
       "rationale": "Upstream OpenSSL publishes source code only, zero precompiled Linux release binaries. Distro extraction creates glibc/musl dynamic linking dependencies; static compilation requires cross-compiler toolchains. Served via signed platform image in bundle/images/."
     },
     "envsubst": {
       "resolution": "Decision 10: Containerise openssl and envsubst, re-scope P1-1",
       "targetLayer": "bundle/images/",
       "digestPinCard": "SLSI-P1-2",
+      "image": "docker.io/controlplane/slsi-util:v0.1.0",
+      "wrapperPath": "bundle/bin/<arch>/envsubst",
+      "wrapperMode": "0755",
+      "wrapperBehavior": "Invokes 'docker run --rm -i --network none <exported_env_vars> -v ${PWD}:${PWD} -w ${PWD} ${SLSI_UTILITY_IMAGE} envsubst \"$@\"'. Injects exported caller variables (-e) while preserving GNU gettext restricted-variable allow-list syntax (e.g., envsubst '${VAR}'). Preflight checks docker and local image inspection; fails loudly with exit 1 naming host remedy 'apt-get install -y gettext-base' and appliance remedy 'docker load < bundle/images/slsi-util.tar'. Refuses silent fallback to unpinned host binary.",
       "rationale": "Upstream GNU gettext publishes source code only, zero precompiled Linux release binaries. Go reimplementations lack GNU restricted-variable syntax. Served via signed platform image in bundle/images/."
     }
   },

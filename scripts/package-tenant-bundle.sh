@@ -23,6 +23,12 @@ trap 'echo "ERROR: command failed at line ${LINENO}: ${BASH_COMMAND}" >&2; exit 
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Helper library sourcing (P1-PRE contract requirement):
+# shellcheck source=scripts/lib/wait.sh
+source "${REPO_ROOT}/scripts/lib/wait.sh"
+# shellcheck source=scripts/lib/image-identity.sh
+source "${REPO_ROOT}/scripts/lib/image-identity.sh"
+
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
@@ -32,12 +38,26 @@ fail() {
   exit 1
 }
 
+SLSI_VERSION="${SLSI_VERSION:-0.1.0}"
+VERSION_PATTERN='^[0-9A-Za-z][0-9A-Za-z._-]*$'
+
+validate_version_string() {
+  local ver="$1"
+  if [[ -z "${ver}" ]]; then
+    fail "SLSI_VERSION cannot be empty"
+  fi
+  if [[ ! "${ver}" =~ ${VERSION_PATTERN} ]]; then
+    fail "Invalid SLSI_VERSION '${ver}': must match pattern '${VERSION_PATTERN}' (alphanumeric start, only [0-9A-Za-z._-], no slashes, no leading dot)"
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: scripts/package-tenant-bundle.sh [OPTIONS]
 
 Options:
   --bundle-dir DIR   Target directory for bundle (default: <repo-root>/bundle)
+  --version, -v VER  Bundle release version (default: 0.1.0 or $SLSI_VERSION)
   --arch ARCH        Target architecture: amd64, arm64, or all (default: all)
   --only TOOL        Stage or inspect only the specified tool
   --verify-only      Verify existing bundle offline without network calls
@@ -57,6 +77,10 @@ parse_args() {
     case "$1" in
       --bundle-dir)
         BUNDLE_DIR="$2"
+        shift 2
+        ;;
+      --version|-v)
+        SLSI_VERSION="$2"
         shift 2
         ;;
       --arch)
@@ -443,6 +467,10 @@ envsubst: containerised (P1-2)
 EOF
     chmod 0644 "${BUNDLE_DIR}/bin/${arch}/versions.txt"
     log "Wrote ${BUNDLE_DIR}/bin/${arch}/versions.txt"
+
+    # Generate Decision 10 container wrappers for openssl and envsubst
+    generate_container_wrappers "${BUNDLE_DIR}/bin/${arch}"
+    log "Generated Decision 10 container wrappers in ${BUNDLE_DIR}/bin/${arch}"
   done
 
   cat > "${BUNDLE_DIR}/bin/checksums.txt" <<EOF
@@ -463,6 +491,69 @@ EOF
   verify_offline_manifest
   log "stage_p1_1_binaries complete: all tools staged and verified"
 }
+
+generate_container_wrappers() {
+  local target_dir="$1"
+
+  cat > "${target_dir}/openssl" <<'EOF'
+#!/usr/bin/env bash
+# SLSI Decision 10 Container Wrapper for openssl
+# Part of SLSI design partner appliance bundle
+set -Eeuo pipefail
+
+SLSI_UTILITY_IMAGE="${SLSI_UTILITY_IMAGE:-docker.io/controlplane/slsi-util:v0.1.0}"
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: Docker container runtime is required to run containerised 'openssl' (Decision 10)." >&2
+  echo "Host package remedy: apt-get install -y openssl" >&2
+  exit 1
+fi
+
+if ! docker image inspect "${SLSI_UTILITY_IMAGE}" >/dev/null 2>&1; then
+  echo "ERROR: SLSI utility container image '${SLSI_UTILITY_IMAGE}' is absent from local Docker daemon." >&2
+  echo "Decision 10 requirement: refusing silent fallback to host 'openssl' of unknown version." >&2
+  echo "Host package remedy: apt-get install -y openssl" >&2
+  echo "Appliance remedy: preload image into Docker from bundle: docker load < bundle/images/slsi-util.tar" >&2
+  exit 1
+fi
+
+exec docker run --rm -i --network none -v "${PWD}:${PWD}" -w "${PWD}" "${SLSI_UTILITY_IMAGE}" openssl "$@"
+EOF
+  chmod 0755 "${target_dir}/openssl"
+
+  cat > "${target_dir}/envsubst" <<'EOF'
+#!/usr/bin/env bash
+# SLSI Decision 10 Container Wrapper for envsubst
+# Part of SLSI design partner appliance bundle
+set -Eeuo pipefail
+
+SLSI_UTILITY_IMAGE="${SLSI_UTILITY_IMAGE:-docker.io/controlplane/slsi-util:v0.1.0}"
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: Docker container runtime is required to run containerised 'envsubst' (Decision 10)." >&2
+  echo "Host package remedy: apt-get install -y gettext-base" >&2
+  exit 1
+fi
+
+if ! docker image inspect "${SLSI_UTILITY_IMAGE}" >/dev/null 2>&1; then
+  echo "ERROR: SLSI utility container image '${SLSI_UTILITY_IMAGE}' is absent from local Docker daemon." >&2
+  echo "Decision 10 requirement: refusing silent fallback to host 'envsubst' of unknown version." >&2
+  echo "Host package remedy: apt-get install -y gettext-base" >&2
+  echo "Appliance remedy: preload image into Docker from bundle: docker load < bundle/images/slsi-util.tar" >&2
+  exit 1
+fi
+
+env_args=()
+while IFS= read -r var; do
+  if [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$var" != "_" && "$var" != "PATH" ]]; then
+    env_args+=(-e "$var")
+  fi
+done < <(compgen -e)
+
+exec docker run --rm -i --network none "${env_args[@]}" -v "${PWD}:${PWD}" -w "${PWD}" "${SLSI_UTILITY_IMAGE}" envsubst "$@"
+EOF
+  chmod 0755 "${target_dir}/envsubst"
+}
 # <<< SLSI-P1-1 >>>
 
 # >>> SLSI-P1-2: offline OCI image bundler and digest pinning <<<
@@ -482,19 +573,40 @@ EOF
 # <<< SLSI-P1-4 >>>
 
 # ── Stage Dispatcher ─────────────────────────────────────────────────────────
+VALID_STAGES=("stage_p1_1_binaries" "stage_p1_2_images" "stage_p1_3_manifest" "stage_p1_4_validation")
+
 run_stage() {
   local stage_name="$1"
   shift
-  declare -F "${stage_name}" >/dev/null || return 0
-  "${stage_name}" "$@"
+
+  local is_valid=0
+  for valid in "${VALID_STAGES[@]}"; do
+    if [[ "${stage_name}" == "${valid}" ]]; then
+      is_valid=1
+      break
+    fi
+  done
+
+  if [[ ${is_valid} -ne 1 ]]; then
+    fail "unknown stage '${stage_name}'"
+  fi
+
+  if declare -F "${stage_name}" >/dev/null; then
+    log "stage ${stage_name}: running"
+    "${stage_name}" "$@"
+  else
+    log "stage ${stage_name}: pending (not yet implemented)"
+  fi
 }
 
 main() {
   parse_args "$@"
+  validate_version_string "${SLSI_VERSION}"
   run_stage stage_p1_1_binaries
   run_stage stage_p1_2_images
   run_stage stage_p1_3_manifest
   run_stage stage_p1_4_validation
+  log "All declared stages processed."
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

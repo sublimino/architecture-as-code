@@ -46,7 +46,7 @@ teardown() {
 	rm -rf "$MUTANT_DIR"
 }
 
-@test "1. the committed tree passes: every uncovered workload is declared" {
+@test "1. the committed tree passes: every unmanaged workload is declared" {
 	run python3 "$GATE"
 	[ "$status" -eq 0 ]
 	[[ "$output" != *"UNDECLARED"* ]]
@@ -85,7 +85,7 @@ teardown() {
 
 	run python3 "$GATE"
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"UNDECLARED UNCOVERED WORKLOAD"* ]]
+	[[ "$output" == *"UNDECLARED UNMANAGED WORKLOAD"* ]]
 	[[ "$output" == *"zz-coverage-mutation-probe"* ]]
 
 	rm -rf "$MUTANT_DIR"
@@ -109,7 +109,7 @@ teardown() {
 
 	run python3 "$GATE"
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"UNDECLARED UNCOVERED WORKLOAD: ${victim}"* ]]
+	[[ "$output" == *"UNDECLARED UNMANAGED WORKLOAD: ${victim}"* ]]
 }
 
 @test "4. MUTATION an exception for a path that no longer exists FAILS as stale" {
@@ -130,24 +130,24 @@ teardown() {
 }
 
 @test "5. MUTATION an exception for a manifest Flux DOES reconcile FAILS as stale" {
-	# Pre-authorising a covered path would let a future regression hide behind
+	# Pre-authorising a Flux-managed path would let a future regression hide behind
 	# an entry that was already true. signal-ingest is reconciled by the
 	# fe-signalloom `apps` Kustomization.
-	local covered="d2-signalloom/apps/signal-ingest/base/deployment.yaml"
-	test -f "${REPO_ROOT}/${covered}"
+	local managed="d2-signalloom/apps/signal-ingest/base/deployment.yaml"
+	test -f "${REPO_ROOT}/${managed}"
 
-	python3 - "$EXC" "$covered" <<-'PY'
+	python3 - "$EXC" "$managed" <<-'PY'
 		import sys, yaml
-		path, covered = sys.argv[1], sys.argv[2]
+		path, managed = sys.argv[1], sys.argv[2]
 		doc = yaml.safe_load(open(path))
-		doc['exceptions'].append({'path': covered, 'class': 'gap',
+		doc['exceptions'].append({'path': managed, 'class': 'gap',
 		                          'reason': 'mutation probe', 'applied_by': 'nothing'})
 		yaml.safe_dump(doc, open(path, 'w'))
 	PY
 
 	run python3 "$GATE"
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"STALE EXCEPTION: ${covered}"* ]]
+	[[ "$output" == *"STALE EXCEPTION: ${managed}"* ]]
 }
 
 @test "6. MUTATION an exception with no reason FAILS as malformed" {

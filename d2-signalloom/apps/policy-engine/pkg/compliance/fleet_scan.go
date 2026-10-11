@@ -28,6 +28,63 @@ type AgentCheckResult struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// EvaluationMode names the code path that decided the verdicts in a response.
+//
+// WHY THIS IS ON THE WIRE. EvaluateAgentCheck has two branches. One reads a supplied pod spec and
+// is a real evaluation. The other, taken when no pod spec is supplied, decides pass and fail by
+// matching the agent's ID against two hardcoded strings -- agent-txn-pipeline fails
+// securityContext, agent-llm-classifier fails dropCapabilities, everything else passes. That
+// branch is a demonstration fixture: its verdicts are not a function of any input describing the
+// agent, so neither is the compliance posture derived from them.
+//
+// That matters here more than it would elsewhere, because this route now carries a carefully
+// worded refusal to price its findings, grounded in what the risk pack declares. A refusal in that
+// register reads as the output of a calibrated system. If the layer feeding it is a string match,
+// the refusal lends the string match credibility it has not earned. Labelling the layer is the
+// cheap half of the fix and it is in scope; replacing the fixture needs a third "not evaluated"
+// verdict state and would move the `compliant` boolean the dashboard renders, which is a product
+// decision and is not.
+//
+// The label is derived from the branch each check actually took and folded upwards, never set from
+// a constant -- see evaluateAgentCheck and foldEvaluationMode.
+type EvaluationMode string
+
+const (
+	// EvaluationModePodSpec: every verdict came from reading a supplied pod spec.
+	EvaluationModePodSpec EvaluationMode = "pod-spec"
+	// EvaluationModeDemoFixture: every verdict came from the agent-ID fixture.
+	EvaluationModeDemoFixture EvaluationMode = "demo-fixture"
+	// EvaluationModeMixed: both branches ran. Neither label is true of the whole, and picking
+	// either would misdescribe half of it.
+	EvaluationModeMixed EvaluationMode = "mixed"
+)
+
+// foldEvaluationMode reduces the modes of a response's parts to the mode of the whole.
+func foldEvaluationMode(modes []EvaluationMode) EvaluationMode {
+	sawPodSpec, sawFixture := false, false
+	for _, m := range modes {
+		switch m {
+		case EvaluationModePodSpec:
+			sawPodSpec = true
+		case EvaluationModeDemoFixture:
+			sawFixture = true
+		case EvaluationModeMixed:
+			sawPodSpec, sawFixture = true, true
+		}
+	}
+	switch {
+	case sawPodSpec && sawFixture:
+		return EvaluationModeMixed
+	case sawPodSpec:
+		return EvaluationModePodSpec
+	default:
+		// An empty fleet runs no evaluation at all. The fixture is this route's default path,
+		// and claiming pod-spec evaluation for a response with no evaluations in it would be the
+		// one direction of error that flatters the payload.
+		return EvaluationModeDemoFixture
+	}
+}
+
 // AgentScanResult represents the compliance posture of an agent, and its priced risk exposure if
 // and only if this scan was able to price its own findings.
 //
@@ -35,23 +92,76 @@ type AgentCheckResult struct {
 // point: the previous implementation wrote 0.0 for every compliant agent, which asserts that a
 // compliant agent carries no risk. It does not; the scan simply has no figure for it. An absent
 // field says so, a zero does not. See the refusal note on summariseFleetPosture.
+//
+// EvaluationMode records which branch decided this agent's checks. See EvaluationMode.
 type AgentScanResult struct {
-	AgentID      string             `json:"agentId"`
-	Compliant    bool               `json:"compliant"`
-	Checks       []AgentCheckResult `json:"checks"`
-	RiskExposure *float64           `json:"riskExposureGbp,omitempty"`
+	AgentID        string             `json:"agentId"`
+	Compliant      bool               `json:"compliant"`
+	EvaluationMode EvaluationMode     `json:"evaluationMode"`
+	Checks         []AgentCheckResult `json:"checks"`
+	RiskExposure   *float64           `json:"riskExposureGbp,omitempty"`
 }
 
-// FleetPricingStatus states whether this scan was able to price its own findings, and when it was
-// not, why not and which of its checks had no declared price.
+// PricingStatus is the machine-readable cause of a route declining to report a money figure.
 //
-// It exists so the refusal is part of the payload rather than an absence a reader has to notice.
+// WHY A STATUS AND NOT AN ABSENCE. Three routes in this estate withhold the same class of figure,
+// and until this type existed they said so three different ways: this one omitted the fields,
+// fe-signalloom's GET /compliance/policy/summary and /compliance/policy/frameworks returned null,
+// and older paths returned 0. An API that signals one condition three ways invites the reader to
+// ask whether any of it is deliberate.
+//
+// Worse, structural absence is not self-describing. A missing field is indistinguishable from a
+// field this version does not implement, from version skew between client and server, from a
+// serialisation bug, and from a crash midway through encoding. Omission makes a field silent, not
+// honest; the reader fills in the blank themselves, and a dashboard fills it in with zero. So the
+// value is still absent -- the figure must not be forgeable -- but the absence is now accompanied
+// by a status saying who withheld it and why.
+//
+// WHY TWO REFUSAL VALUES AND NOT ONE. The two causes demand different operator actions. A missing
+// loss-event frequency is fixed by declaring a control mapping in the policy pack. A missing risk
+// data plane is fixed by putting a priced scan behind the route. Collapsing them would repeat the
+// mistake the currency path already made and fixed: one label over two facts, which reads as
+// authoritative precisely because it is uniform.
+type PricingStatus string
+
+const (
+	// PricingStatusPriced: a figure is present and was computed from declared inputs.
+	PricingStatusPriced PricingStatus = "PRICED"
+	// PricingStatusNoDeclaredLossFrequency: the checks evaluated resolve to no control in the
+	// risk pack, so no loss-event frequency is declared for these findings and no figure can be
+	// derived. Operator action: declare the mapping in risk/packs/agent-policy/<version>/pack.yaml.
+	PricingStatusNoDeclaredLossFrequency PricingStatus = "NO_DECLARED_LOSS_FREQUENCY"
+	// PricingStatusNoRiskDataPlane: the route answers from a store that holds no money at all, so
+	// there is nothing to aggregate. Used by fe-signalloom's two persisted-summary routes, whose
+	// rows come from agent_compliance_results (migration 004, no money column). Operator action:
+	// run a priced scan, or give the route a risk data plane.
+	PricingStatusNoRiskDataPlane PricingStatus = "NO_RISK_DATA_PLANE"
+)
+
+// Available reports whether a figure accompanies this status.
+//
+// FleetPricingStatus.Available is derived through this method rather than set beside the status,
+// because two hand-maintained fields carrying one fact eventually disagree -- and a boolean that
+// disagrees with the status beside it is worse than either alone.
+func (s PricingStatus) Available() bool { return s == PricingStatusPriced }
+
+// FleetPricingStatus is the refusal object. Its key set is deliberately identical on all three
+// routes that withhold money, so a client has one shape to deserialise and one to render.
+//
 // Unmapped is derived from the checks this scan actually ran, so the refusal varies with its
-// inputs instead of being a fixed string.
+// inputs instead of being a fixed string. It is always allocated, never nil: nil marshals to
+// `null` and an empty slice to `[]`, and the point of the shared shape is that every key is
+// present with the same type on every route.
 type FleetPricingStatus struct {
-	Available bool     `json:"available"`
-	Reason    string   `json:"reason,omitempty"`
-	Unmapped  []string `json:"unmappedChecks,omitempty"`
+	Available bool          `json:"available"`
+	Status    PricingStatus `json:"status"`
+	Reason    string        `json:"reason"`
+	// UnpricedFields names the money fields this response withheld, by their JSON names, so a
+	// client can tell "withheld" from "this version has no such field" without a schema.
+	UnpricedFields []string `json:"unpricedFields"`
+	// Unmapped names the checks that resolved to no declared control. Empty where the refusal is
+	// not per-check -- the two persisted-summary routes, whose cause is the absent data plane.
+	Unmapped []string `json:"unmappedChecks"`
 }
 
 // FleetFairRiskSummary carries the fleet's compliance counts and, when the findings can be priced,
@@ -78,12 +188,24 @@ type FleetFairRiskSummary struct {
 }
 
 // FleetScanResponse is the JSON response schema for /api/v1/compliance/scan-fleet.
+//
+// EvaluationMode is the fold of the per-agent modes: it tells a reader whether the compliance
+// posture in this response was evaluated or fixtured. See EvaluationMode.
 type FleetScanResponse struct {
-	Compliant bool                 `json:"compliant"`
-	Summary   FleetFairRiskSummary `json:"summary"`
-	Agents    []AgentScanResult    `json:"agents"`
-	ScannedAt string               `json:"scannedAt"`
+	Compliant      bool                 `json:"compliant"`
+	EvaluationMode EvaluationMode       `json:"evaluationMode"`
+	Summary        FleetFairRiskSummary `json:"summary"`
+	Agents         []AgentScanResult    `json:"agents"`
+	ScannedAt      string               `json:"scannedAt"`
 }
+
+// unpricedMoneyFields is every money field this response type can carry, by JSON name: four on
+// the summary and one per agent. It is the list the refusal reports as withheld.
+//
+// A test marshals a refusing response and fails if any name here is actually present in it, and
+// also fails if a name is missing from the refusal -- so adding a sixth money field without
+// listing it breaks the build's tests rather than shipping a refusal that quietly under-reports.
+var unpricedMoneyFields = []string{"ale", "var95", "tvar", "carriedGbp", "riskExposureGbp"}
 
 // Standard 5-agent fleet profiles used when no custom agents are provided.
 var StandardFleet = []string{
@@ -103,11 +225,36 @@ var DefaultFleetChecks = []string{
 
 // EvaluateAgentCheck evaluates a single security check against an agent and its optional PodSpec.
 func EvaluateAgentCheck(agentID string, checkName string, podSpec map[string]interface{}) AgentCheckResult {
-	if podSpec != nil && len(podSpec) > 0 {
-		return evaluatePodSpecCheck(checkName, podSpec)
-	}
+	res, _ := evaluateAgentCheck(agentID, checkName, podSpec)
+	return res
+}
 
-	// Calibrated defaults for the 5 standard demonstration agents
+// evaluateAgentCheck is EvaluateAgentCheck plus the mode of the branch it took.
+//
+// The mode is returned BY the dispatch rather than recomputed from podSpec by the caller. That is
+// the point: if the two were computed independently from the same predicate they could drift, and
+// if the caller recomputed it, a change to the dispatch condition would leave the label behind
+// while the verdicts moved. Reporting it from inside means the label cannot describe a branch
+// other than the one that ran.
+func evaluateAgentCheck(
+	agentID string,
+	checkName string,
+	podSpec map[string]interface{},
+) (AgentCheckResult, EvaluationMode) {
+	if len(podSpec) > 0 {
+		return evaluatePodSpecCheck(checkName, podSpec), EvaluationModePodSpec
+	}
+	return evaluateFixtureCheck(agentID, checkName), EvaluationModeDemoFixture
+}
+
+// evaluateFixtureCheck decides a verdict by matching the agent's ID.
+//
+// This is not an evaluation. Nothing about the agent is read: the result is a function of the
+// agent's name and the check's name and nothing else, so it is identical for a hardened agent and
+// a root-running one that happen to share an ID. It is retained because the five-agent
+// demonstration fleet has no pod specs to read and the dashboard renders its verdicts; responses
+// that reach it are labelled EvaluationModeDemoFixture so a consumer is told as much.
+func evaluateFixtureCheck(agentID string, checkName string) AgentCheckResult {
 	switch checkName {
 	case "securityContext":
 		if agentID == "agent-txn-pipeline" {
@@ -239,10 +386,12 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 
 		agentPassed := true
 		checkResults := make([]AgentCheckResult, 0, len(checksToRun))
+		checkModes := make([]EvaluationMode, 0, len(checksToRun))
 		for _, c := range checksToRun {
 			checksRun[c] = struct{}{}
-			res := EvaluateAgentCheck(spec.AgentID, c, spec.PodSpec)
+			res, mode := evaluateAgentCheck(spec.AgentID, c, spec.PodSpec)
 			checkResults = append(checkResults, res)
+			checkModes = append(checkModes, mode)
 			if !res.Pass {
 				agentPassed = false
 			}
@@ -256,11 +405,20 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 
 		// RiskExposure is left nil: this scan does not price its findings, so no agent gets a
 		// figure -- compliant or not. See summariseFleetPosture.
+		//
+		// EvaluationMode is folded from the branches this agent's own checks took, so it reports
+		// what decided these verdicts and not what decided the fleet's.
 		agentResults = append(agentResults, AgentScanResult{
-			AgentID:   spec.AgentID,
-			Compliant: agentPassed,
-			Checks:    checkResults,
+			AgentID:        spec.AgentID,
+			Compliant:      agentPassed,
+			EvaluationMode: foldEvaluationMode(checkModes),
+			Checks:         checkResults,
 		})
+	}
+
+	agentModes := make([]EvaluationMode, 0, len(agentResults))
+	for _, a := range agentResults {
+		agentModes = append(agentModes, a.EvaluationMode)
 	}
 
 	// Sorted so the refusal text is stable across runs; an unordered list read as a diff is noise.
@@ -275,10 +433,11 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 	fleetCompliant := nonCompliantCount == 0
 
 	return FleetScanResponse{
-		Compliant: fleetCompliant,
-		Summary:   summary,
-		Agents:    agentResults,
-		ScannedAt: time.Now().UTC().Format(time.RFC3339),
+		Compliant:      fleetCompliant,
+		EvaluationMode: foldEvaluationMode(agentModes),
+		Summary:        summary,
+		Agents:         agentResults,
+		ScannedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -326,13 +485,18 @@ const unpricedReason = "this scan cannot price its findings: pricing a finding r
 // Restoring any figure to this function means first declaring the inputs in the two files named in
 // unpricedReason. A test reads this source file and fails if the old literals reappear in it.
 func summariseFleetPosture(total, compliant, nonCompliant int, unmappedChecks []string) FleetFairRiskSummary {
+	status := PricingStatusNoDeclaredLossFrequency
 	return FleetFairRiskSummary{
 		// ALE, VaR95, TVaR, CarriedGBP and Currency are deliberately left at their zero values so
-		// that omitempty drops them from the response entirely. Absent, not zero.
+		// that omitempty drops them from the response entirely. Absent, not zero -- and now
+		// absent WITH a status saying so, because an omission alone is silent rather than honest.
 		Pricing: FleetPricingStatus{
-			Available: false,
-			Reason:    unpricedReason,
-			Unmapped:  unmappedChecks,
+			// Derived, never written beside the status. See PricingStatus.Available.
+			Available:      status.Available(),
+			Status:         status,
+			Reason:         unpricedReason,
+			UnpricedFields: unpricedMoneyFields,
+			Unmapped:       unmappedChecks,
 		},
 		TotalAgents:        total,
 		CompliantAgents:    compliant,

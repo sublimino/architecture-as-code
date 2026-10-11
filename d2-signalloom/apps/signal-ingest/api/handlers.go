@@ -1009,8 +1009,14 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 	agentIDs := h.FairService.AgentIDs()
 	if len(agentIDs) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"currency":   "GBP",
-			"agentCount": 0,
+			"currency": "GBP",
+			// An empty fleet carries a genuine zero: there is nothing to assess,
+			// so the totals cover the whole (empty) population. The coverage
+			// fields are emitted here too so a consumer never has to treat
+			// their absence as meaningful.
+			"agentCount":       0,
+			"agentsAssessed":   0,
+			"agentsUnassessed": []string{},
 			"exposure": map[string]any{
 				"ale":     map[string]any{"amount": 0.0, "currency": "GBP"},
 				"var95":   map[string]any{"amount": 0.0, "currency": "GBP"},
@@ -1032,10 +1038,20 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 
 	var totalALE, totalPML, totalTVaR, totalCarried float64
 	var scoredAgents []topAgent
+	// An agent that cannot be assessed is skipped, so the totals below cover a
+	// SUBSET of the fleet. That subset is reported explicitly: a fleet exposure
+	// figure is the most quotable number this service publishes, and one that
+	// silently omits agents while being labelled with the full fleet size
+	// understates risk in a way no consumer can detect. Collected, not just
+	// counted, so the gap is actionable.
+	agentsUnassessed := make([]string, 0)
 
 	for _, id := range agentIDs {
 		ass, err := h.FairService.Assess(id, fair.Options{})
 		if err != nil {
+			slog.Warn("fleet risk: agent excluded from totals",
+				"agent", id, "error", err)
+			agentsUnassessed = append(agentsUnassessed, id)
 			continue
 		}
 		totalALE += ass.ALE
@@ -1066,8 +1082,15 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"currency":   "GBP",
-		"agentCount": len(agentIDs),
+		"currency": "GBP",
+		// Fleet size, which is NOT the population of the totals below whenever
+		// an agent could not be assessed. The two are reported separately
+		// rather than conflated: agentsAssessed is the figure the exposure
+		// actually covers, and agentCount == agentsAssessed is the only case in
+		// which the totals describe the whole fleet.
+		"agentCount":       len(agentIDs),
+		"agentsAssessed":   len(scoredAgents),
+		"agentsUnassessed": agentsUnassessed,
 		"exposure": map[string]any{
 			"ale":     map[string]any{"amount": totalALE, "currency": "GBP"},
 			"var95":   map[string]any{"amount": totalPML, "currency": "GBP"},

@@ -819,7 +819,10 @@ export default function AgentOverviewTab({
                               fontFamily: 'monospace',
                               fontSize: 11,
                               overflowX: 'auto',
-                              color: '#e2e8f0',
+                              // Was the bare hex #e2e8f0, which is a light
+                              // foreground on var(--surface) and so renders
+                              // near-invisible in the light theme.
+                              color: 'var(--text)',
                             }}
                           >
                             <code>{policy.celExpression}</code>

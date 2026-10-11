@@ -42,6 +42,29 @@ export const DEMO_VERSIONS: FrameworkVersion[] = [
   { frameworkId: 'soc2-type-ii', name: 'SOC 2 Type II', version: 'v2.1', status: 'active', isDefault: false },
 ]
 
+/**
+ * Why the per-agent carried exposure column shows no figure.
+ *
+ * It used to show `failing * 12000`. That is a worse shape than a displayed
+ * constant and it is worth being precise about why: £12,000 per failing
+ * control is a fabricated UNIT RATE, so the output moved with a real count and
+ * therefore looked derived. A reviewer reading the column saw figures that
+ * responded correctly to the data and had no way to tell that the coefficient
+ * was invented -- the same property that made the discarded Monte Carlo hard
+ * to spot.
+ *
+ * No per-control rate is declared anywhere: not in `risk/packs/agent-policy`,
+ * not on any response this page receives, not in the policy engine's output.
+ * Whether one SHOULD exist is a calibration decision for the risk owner, not
+ * something a dashboard may assume, so the column reports the failing-control
+ * count -- which is real and is what the API actually sends -- and declines
+ * the money.
+ */
+const PER_CONTROL_RATE_UNDECLARED =
+  'Not priced: no per-control loss rate is declared in risk/packs/agent-policy, and no ' +
+  'response to this page carries a per-agent exposure figure. The failing-control count ' +
+  'below is the real number this row has.'
+
 interface PopulationAgent {
   id: string
   agent_id?: string
@@ -660,7 +683,13 @@ export default function RiskExposurePage() {
               key: 'exposure',
               label: 'Carried Exposure',
               sortable: true,
-              accessor: (a) => (a.compliance_summary?.failing ?? 0) * 12000,
+              // Sorts on the failing-control COUNT, which is a real number
+              // this row actually has. It used to sort on `failing * 12000`,
+              // which is the same ordering derived from a fabricated rate --
+              // see the note on PER_CONTROL_RATE_UNDECLARED below. Sorting by
+              // the count is honest and gives the identical order, because
+              // multiplying every row by one constant cannot reorder them.
+              accessor: (a) => a.compliance_summary?.failing ?? 0,
             },
           ]}
           renderRow={(agent) => {
@@ -668,7 +697,6 @@ export default function RiskExposurePage() {
             const agentName = agent.name || agent.agent_name || agentId || 'Unnamed'
             const state = agent.lifecycle_state || 'Governed'
             const failing = agent.compliance_summary?.failing ?? 0
-            const exposureAmt = failing * 12000
             return (
               <tr key={agent.id} style={{ borderBottom: '1px solid var(--border)' }} data-testid={`fair-agent-row-${agent.id}`}>
                 <td style={td}>
@@ -717,9 +745,16 @@ export default function RiskExposurePage() {
                   </span>
                 </td>
                 <td style={td}>
-                  <span style={{ fontWeight: 600, color: exposureAmt > 0 ? colors.amber : colors.tealLoom }}>
-                    {fmtMoney({ amount: exposureAmt, currency: effectiveSummary?.currency ?? 'GBP' })}
+                  <span
+                    data-testid={`risk-agent-exposure-${agent.id}`}
+                    style={{ fontWeight: 600, color: exposureAccent(null) }}
+                    title={PER_CONTROL_RATE_UNDECLARED}
+                  >
+                    {fmtMoney(null)}
                   </span>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    {failing} failing {failing === 1 ? 'control' : 'controls'}
+                  </div>
                 </td>
               </tr>
             )

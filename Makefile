@@ -3597,7 +3597,7 @@ verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan in
 #   dashboard-signalloom/src/api/fakeComplianceData.ts:248-250 (totalVar95,
 #     totalTvar, totalCarried, each a sumMoney over the per-check figure)
 # See the "Not additive" section of policy/frameworks/CONFORMANCE.md.
-verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 134 pinned checks across 11 packs, of which 61 are priced).
+verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 134 pinned checks across 11 packs, of which 53 are priced).
 	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
 
 # Pins a NEW check's figures in one command. REFUSES to rewrite an
@@ -3627,7 +3627,7 @@ verify-cel-money-independent: ## Cross-check the priced figures against an indep
 
 # How many checks are priced at all is the most load-bearing number on a pack
 # page: a reader who takes the check count for the priced count reads a scan
-# total as over twice the coverage it has (61 of 134 today). So the counts are
+# total as over twice the coverage it has (53 of 134 today). So the counts are
 # not typed. Each pack page carries a block written from framework.json, and
 # these targets make it drift and regenerate. Same family as the sibling
 # policy/frameworks/nist-800-53/catalogue/pricing-test.sh, which asks whether an

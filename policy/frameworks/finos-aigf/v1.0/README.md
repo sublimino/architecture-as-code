@@ -120,16 +120,41 @@ state is allowed, because a loss magnitude with no calibrated frequency is not a
 price. It is not a small-print detail, because a reader who adds up a scan gets
 a total over the priced checks only.
 
+### What these figures are a share of
+
+A `riskTriple` mode here is the **attributable share of one loss event assigned
+to one failed control**. It is not the cost of the loss event. Published
+single-event loss medians sit one to two orders of magnitude above these modes
+(IRIS 2022, <https://www.cyentia.com/iris-2022/>). The event-level figures are
+the `SCN-*` magnitudes in [`risk/org/acme.yaml`](../../../../risk/org/acme.yaml).
+
+Every priced check carries a derivation entry in `CALIBRATION.md` beside this
+pack. It names the anchor classes behind both triples, the scenario the check
+is a share of, and a confidence letter. The registry is
+[ANCHORS.md](../../ANCHORS.md). Statutory ceilings are a `max` and never a
+`mode`, and they are in [PENALTIES.md](../../PENALTIES.md).
+
+This pack's AI-guardrail frequencies are the weakest in the estate.
+`AC-AI-LOSS` is an empty anchor class. **No public or commercial dataset
+prices prompt injection, model exfiltration or unauthorised agent action.**
+Those frequencies are judgement at confidence D and the derivation says so.
+
+Three checks in this pack were moved off the technical loss path on
+2026-10-11. `registered-model-registry-entry`, `model-version-pinned` and
+`decision-explainability-metadata` defend against a penalty rather than a
+breach. They are declared in `catalogue/unpriced.tsv` with the reason code
+`penalty-path-not-technical`.
+
 Read [the calibration statement](../../README.md#the-calibration-statement) before you quote
 any figure in this table or any figure the engine produces from this pack.
 
 <!-- pricing-counts:begin -->
 | Version | Checks | Priced | Unpriced | Placeholder |
 | :--- | ---: | ---: | ---: | ---: |
-| `v1.0.0` | 16 | 16 | 0 | 0 |
-| **Pack total** | **16** | **16** | **0** | **0** |
+| `v1.0.0` | 16 | 13 | 3 | 0 |
+| **Pack total** | **16** | **13** | **3** | **0** |
 
 An unpriced check contributes GBP 0.00 to every total however often it
-fails. Of 16 check(s) on this page, 16 are priced and 0 are not.
+fails. Of 16 check(s) on this page, 13 are priced and 3 are not.
 Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
 <!-- pricing-counts:end -->

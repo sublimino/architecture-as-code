@@ -1,0 +1,40 @@
+# Checks in this pack that are DECLARED UNPRICED.
+#
+# A check with an all-zero frequency triple contributes exactly nothing to
+# reported exposure however often it fails. That is a legitimate state -- a
+# magnitude without a calibrated frequency is not a price -- but it must be
+# SAID, not inferred from a field of zeros. pricing-test.sh fails any check
+# that is neither priced nor listed here, so the silence cannot return.
+#
+# This file was created on 2026-10-11, when three governance and documentation
+# checks were moved off the technical loss path. Before that, all 16 checks in
+# this pack were priced and the pack had no catalogue directory. The test is
+# added with the declaration so that the pack is covered from the first line,
+# and so a future unpriced check cannot arrive silently.
+#
+# Each declared check also writes "freqTriple": {"min": 0, "mode": 0,
+# "max": 0} into framework.json, so the zero is declared in the pack data as
+# well as here rather than arriving as a Go zero value. An `unpriced` schema
+# key cannot be used: the loader runs DisallowUnknownFields, so a new key
+# breaks pack loading.
+#
+# REASON CODES. This is the allow-list. pricing-test.sh fails any other value.
+#
+#   no-calibrated-frequency      Carries a magnitude but no calibrated annual
+#                                frequency. Calibration is the principal's call.
+#   placeholder-not-evaluated    status: placeholder. The check is never
+#                                evaluated, so zero exposure is correct.
+#   penalty-path-not-technical   The control defends against a statutory penalty
+#                                rather than against a technical loss event.
+#                                Pricing it needs the secondary-loss model that
+#                                docs/fair-methodology-open-decisions.md
+#                                section 4 describes and the engine lacks.
+#
+# Removing a line requires adding a real freqTriple to that check, and the
+# test fails a line whose check has since been priced, so this list cannot rot.
+# Calibration is the principal's call. Do not invent triples to empty this file.
+#
+# version	check	reason-code	note
+v1.0	registered-model-registry-entry	penalty-path-not-technical	Moved off the technical loss path on 2026-10-11. A missing model-registry entry is a governance and documentation gap. It does not cause a technical loss event, and its previous frequency of 0.5/1.5/4.0 asserted that it did. Pricing it needs the secondary-loss model the engine does not have. See ../../ANCHORS.md and ../v1.0/CALIBRATION.md.
+v1.0	model-version-pinned	penalty-path-not-technical	Moved off the technical loss path on 2026-10-11. Version pinning is a documentation and reproducibility control. It does not cause a technical loss event, and its previous frequency of 0.5/1.5/4.0 asserted that it did. Pricing it needs the secondary-loss model the engine does not have. See ../../ANCHORS.md and ../v1.0/CALIBRATION.md.
+v1.0	decision-explainability-metadata	penalty-path-not-technical	Moved off the technical loss path on 2026-10-11. Explainability metadata is an audit and transparency artefact. It does not cause a technical loss event, and its previous frequency of 0.5/1.6/4.5 asserted that it did. Pricing it needs the secondary-loss model the engine does not have. See ../../ANCHORS.md and ../v1.0/CALIBRATION.md.

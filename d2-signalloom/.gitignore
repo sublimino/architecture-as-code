@@ -1,0 +1,10 @@
+# Real nono binary staged into build contexts by the swarm-*-nono-image
+# Makefile targets (cp "$(command -v nono)" .../nono.real). It is ~30 MB,
+# host-specific, and must never be committed — it is staged at build time and a
+# network fetch mid-build would be non-hermetic.
+**/nono.real
+
+# Compiled Go binaries that `go build ./...` drops into a main-package dir
+# during local verification. Build artifacts, never committed.
+apps/cpai-engineer/cpai-engineer
+apps/nono-containment-probe/nono-containment-probe

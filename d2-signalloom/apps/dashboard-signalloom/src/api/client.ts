@@ -374,24 +374,56 @@ export async function req<T>(
   return applyDemoProjection(method, path, await joinInflight<T>(url, entry, signal))
 }
 
+// ── The client boundary must not re-fabricate what the server refused ───────
+//
+// THIS IS THE DEFECT THESE TWO FUNCTIONS EXISTED TO CAUSE, stated plainly
+// because it is easy to read past: both normalisers ended in
+// `: { amount: 0, currency }`. So when the server reported `null` -- which it
+// now does, deliberately, because `agent_compliance_results` has no money
+// column and these routes cannot compute a figure -- the client turned that
+// null back into a zero before any page saw the response.
+//
+// Two services and a database-backed route were changed to stop fabricating
+// zeros. One `?? { amount: 0 }` at the edge reinstated every one of them. A
+// page then rendered "£0 total exposure", which reads as a clean posture, and
+// no test anywhere could see it because the fabrication happened after the
+// fetch and before the assertion.
+//
+// `null` now propagates. money/format.ts is null-safe by construction --
+// `formatMoney(null)` returns MONEY_UNAVAILABLE -- so absence survives all the
+// way to the glyph without any caller doing anything, and the four accent
+// colours that compared `amount > 0` get a third state instead of silently
+// scoring absence as "clean".
+
+/** A `Money` if the payload carried one, else `null`. Never a manufactured zero. */
+function moneyOrNull(
+  primary: Money | number | null | undefined,
+  fallback: Money | number | null | undefined,
+  legacyNumber: number | null | undefined,
+  currency: CurrencyCode,
+): Money | null {
+  for (const v of [primary, fallback]) {
+    if (v && typeof v === 'object' && 'amount' in v && typeof v.amount === 'number') return v
+    if (typeof v === 'number') return { amount: v, currency }
+  }
+  if (typeof legacyNumber === 'number') return { amount: legacyNumber, currency }
+  return null
+}
+
 export function normalizeFrameworkSummary(
   fw: FrameworkSummary,
   defaultCurrency: CurrencyCode = 'GBP',
 ): FrameworkSummary {
-  const exp: Money =
-    fw.totalExposure && typeof fw.totalExposure === 'object' && 'amount' in fw.totalExposure
-      ? fw.totalExposure
-      : fw.exposure && typeof fw.exposure === 'object' && 'amount' in fw.exposure
-        ? fw.exposure
-        : typeof fw.totalExposureGbp === 'number'
-          ? { amount: fw.totalExposureGbp, currency: defaultCurrency }
-          : { amount: 0, currency: defaultCurrency }
+  const exp = moneyOrNull(fw.totalExposure, fw.exposure, fw.totalExposureGbp, defaultCurrency)
 
   return {
     ...fw,
     totalExposure: exp,
     exposure: exp,
-    totalExposureGbp: fw.totalExposureGbp ?? exp.amount,
+    // `?? null`, not `?? exp.amount`: the legacy bare-number twin must agree
+    // with the denominated one about ABSENCE too, or a consumer gets to pick
+    // which half to believe.
+    totalExposureGbp: fw.totalExposureGbp ?? exp?.amount ?? null,
   }
 }
 
@@ -399,20 +431,10 @@ export function normalizePostureSummary(sum: PostureSummary): PostureSummary {
   if (!sum) return sum
   const docCurrency: CurrencyCode = sum.currency ?? 'GBP'
 
-  const carried: Money =
-    sum.totalCarried && typeof sum.totalCarried === 'object' && 'amount' in sum.totalCarried
-      ? sum.totalCarried
-      : sum.carried && typeof sum.carried === 'object' && 'amount' in sum.carried
-        ? sum.carried
-        : typeof sum.totalCarriedGbp === 'number'
-          ? { amount: sum.totalCarriedGbp, currency: docCurrency }
-          : { amount: 0, currency: docCurrency }
+  const carried = moneyOrNull(sum.totalCarried, sum.carried, sum.totalCarriedGbp, docCurrency)
 
-  const toMoneyField = (val: Money | number | undefined): Money => {
-    if (val && typeof val === 'object' && 'amount' in val) return val
-    if (typeof val === 'number') return { amount: val, currency: docCurrency }
-    return { amount: 0, currency: docCurrency }
-  }
+  const toMoneyField = (val: Money | number | null | undefined): Money | null =>
+    moneyOrNull(val, undefined, undefined, docCurrency)
 
   const frameworks = Array.isArray(sum.frameworks)
     ? sum.frameworks.map((fw) => normalizeFrameworkSummary(fw, docCurrency))
@@ -423,7 +445,7 @@ export function normalizePostureSummary(sum: PostureSummary): PostureSummary {
     currency: docCurrency,
     totalCarried: carried,
     carried,
-    totalCarriedGbp: sum.totalCarriedGbp ?? carried.amount,
+    totalCarriedGbp: sum.totalCarriedGbp ?? carried?.amount ?? null,
     totalAle: toMoneyField(sum.totalAle),
     totalVar95: toMoneyField(sum.totalVar95),
     totalTvar: toMoneyField(sum.totalTvar),

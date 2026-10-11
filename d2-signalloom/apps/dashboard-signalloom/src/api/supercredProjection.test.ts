@@ -21,7 +21,7 @@ import type {
   TenantSettingsResponse,
 } from '../types/api'
 import type { FrameworkSummary, PostureSummary } from '../types/compliance'
-import { money } from '../money/money'
+import { money, requirePriced } from '../money/money'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -309,7 +309,7 @@ describe('projectPolicySummary — Policy Compliance stat cards', () => {
 
   it('spikes carried exposure at step 3 and contains it at step 4', () => {
     const carriedAt = (phase: SuperCredPhase) =>
-      projectPolicySummary(basePolicySummary, stateAt(phase)).totalCarried.amount
+      requirePriced(projectPolicySummary(basePolicySummary, stateAt(phase)).totalCarried, "projected totalCarried").amount
 
     expect(carriedAt('credentialed')).toBe(98700)
     expect(carriedAt('non-compliant')).toBe(98700 + carriedGbp('non-compliant'))
@@ -333,10 +333,10 @@ describe('projectPolicySummary — Policy Compliance stat cards', () => {
       const s = projectPolicySummary(basePolicySummary, stateAt(phase))
       const fwControls = s.frameworks.reduce((n, f) => n + f.totalControls, 0)
       const fwPassed = s.frameworks.reduce((n, f) => n + f.passedControls, 0)
-      const fwExposure = s.frameworks.reduce((n, f) => n + f.totalExposure.amount, 0)
+      const fwExposure = s.frameworks.reduce((n, f) => n + requirePriced(f.totalExposure, "f.totalExposure").amount, 0)
       expect(fwControls).toBe(s.totalChecks)
       expect(fwPassed).toBe(s.passed)
-      expect(fwExposure).toBe(s.totalCarried.amount)
+      expect(fwExposure).toBe(requirePriced(s.totalCarried, "s.totalCarried").amount)
     }
   })
 })

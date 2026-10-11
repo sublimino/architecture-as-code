@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import { colors } from '../styles/tokens'
+import { colors, exposureAccent } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
@@ -591,7 +591,7 @@ export default function CompliancePolicyPage() {
               <StatCard label="Total Checks" value={String(summary.totalChecks)} sub={`${summary.passed} passed`} accent={colors.cyanLoom} />
               <StatCard label="Passed" value={String(summary.passed)} sub={fmtPct(summary.passed, summary.totalChecks)} accent={colors.tealLoom} />
               <StatCard label="Failed" value={String(summary.failed)} sub={fmtPct(summary.failed, summary.totalChecks)} accent={summary.failed > 0 ? colors.red : colors.tealLoom} />
-              <StatCard label="Total Exposure" value={fmtMoney(summary.totalCarried ?? summary.carried)} sub="carried risk" accent={(summary.totalCarried?.amount ?? summary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom} />
+              <StatCard label="Total Exposure" value={fmtMoney(summary.totalCarried ?? summary.carried)} sub="carried risk" accent={exposureAccent(summary.totalCarried ?? summary.carried)} />
             </div>
           )}
 

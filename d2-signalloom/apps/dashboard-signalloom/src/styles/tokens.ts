@@ -1,3 +1,20 @@
+/**
+ * The accent for a money figure, which has THREE states and not two.
+ *
+ * Every exposure StatCard in the product used to read
+ * `(m?.amount ?? 0) > 0 ? amber : teal`, so an absent figure took the same
+ * green as a measured zero -- absence scored as a clean posture, in colour,
+ * which is the one channel a reader takes in before any text. The `?? 0` made
+ * the two indistinguishable at the point where the distinction matters most.
+ *
+ * Muted for absence is deliberate: it matches FleetRiskGauge's unpriced
+ * needle colour, so "no figure" looks the same wherever it appears.
+ */
+export function exposureAccent(m: { amount: number } | null | undefined): string {
+  if (!m || !Number.isFinite(m.amount)) return 'var(--muted)'
+  return m.amount > 0 ? 'var(--amber)' : 'var(--teal)'
+}
+
 export const colors = {
   deepMidnight: 'var(--bg)',
   slateDark: 'var(--surface)',

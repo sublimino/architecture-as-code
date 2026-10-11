@@ -153,6 +153,23 @@ func TestChaosDate_AcceptedInputsRoundTripExactly(t *testing.T) {
 	}
 }
 
+// THE CORPUS MUST STAY PLAIN TEXT. A raw NUL in column 1 reads back perfectly
+// in Go and makes the whole file a "binary file" to grep, cut and bash — which
+// silently broke the bats coverage diff with an encoding artefact that looked
+// exactly like a lost row. Escapes only, and this is what keeps it that way.
+func TestChaosDate_CorpusIsPlainText(t *testing.T) {
+	raw, err := os.ReadFile(chaosCorpusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, b := range raw {
+		if b < 0x09 || (b > 0x0d && b < 0x20) {
+			t.Fatalf("%s byte %d is the control character %#x: write it as a backslash escape instead, "+
+				"or every shell-side assertion about this file degrades to a binary-file message", chaosCorpusPath, i, b)
+		}
+	}
+}
+
 // THE ROUND-TRIP GUARD'S STATED JUSTIFICATION IS WRONG, and the guard is right
 // anyway. ParseDate's comment says "time.Parse normalises 2027-02-30 to
 // 2027-03-02 rather than rejecting it", which was true of much older Go: the

@@ -2,7 +2,14 @@
   "id": "cra",
   "name": "Cyber Resilience Act (CRA)",
   "version": "v1.0.0",
-  "description": "Regulation (EU) 2024/2847 (Cyber Resilience Act), OJ L, 2024/2847, 20.11.2024. Applies from 11 December 2027 (Article 71(2)); Article 14 from 11 September 2026. Citations are anchored by catalogue/anchor-test.sh. Scope caveat: the CRA binds manufacturers placing a product with digital elements on the Union market, not operators of a running workload, so this pack evidences product properties an agent manifest happens to assert, never conformity.",
+  "description": "Regulation (EU) 2024/2847 (Cyber Resilience Act), OJ L, 2024/2847, 20.11.2024. Applies from 11 December 2027 (Article 71(2)); Article 14 from 11 September 2026 and Chapter IV (Articles 35 to 51) from 11 June 2026 (Article 71(2), second subparagraph). Citations are anchored by catalogue/anchor-test.sh. Scope caveat: the CRA binds manufacturers placing a product with digital elements on the Union market, not operators of a running workload, so this pack evidences product properties an agent manifest happens to assert, never conformity.",
+  "applicability": {
+    "inForceFrom": "2027-12-11",
+    "basis": "enforcement-date",
+    "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32024R2847",
+    "note": "Article 71(2), first subparagraph: 'This Regulation shall apply from 11 December 2027.' Read verbatim from the EUR-Lex primary text. The second subparagraph carves out two earlier dates -- Article 14 from 11 September 2026 and Chapter IV (Articles 35 to 51) from 11 June 2026 -- so this framework-level window is correct ONLY for the Annex I essential requirements. Every check this pack currently ships evidences an Annex I requirement (Part I point (2)(b), Part II point (1), Part II point (7) and Part I point (2)(f)), so none of them is governed by either carve-out and the framework window is the right level today. The moment an Article 14 reporting check or a Chapter IV conformity-assessment check is added it MUST carry its own check-level or controlSet-level window, because a flat 11 December 2027 would over-gate it by 15 and 18 months respectively. Note the carve-outs sit in the second subparagraph of Article 71(2), not in a separate Article 71(3).",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "cra-sec-design",

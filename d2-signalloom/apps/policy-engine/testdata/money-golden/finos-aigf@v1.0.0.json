@@ -77,17 +77,17 @@
         "max": 130000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.6,
-        "max": 4.5
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 83559.34,
-      "var95": 188054.32,
-      "tvar": 229723.4,
-      "carried": 252695.74,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 83916.67,
-      "aleSigma": -0.664
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "high-impact-actions-human-approved",
@@ -161,17 +161,17 @@
         "max": 90000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 53413.83,
-      "var95": 117985.22,
-      "tvar": 142541.47,
-      "carried": 156795.62,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 53375,
-      "aleSigma": 0.116
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "no-long-lived-credentials-exposed",
@@ -266,17 +266,17 @@
         "max": 140000
       },
       "freqTriple": {
-        "min": 0.5,
-        "mode": 1.5,
-        "max": 4
+        "min": 0,
+        "mode": 0,
+        "max": 0
       },
-      "ale": 84069.85,
-      "var95": 186761.53,
-      "tvar": 228955.9,
-      "carried": 251851.49,
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
       "tailDominated": false,
-      "analyticAle": 84000,
-      "aleSigma": 0.133
+      "analyticAle": 0,
+      "aleSigma": 0
     },
     {
       "check": "spend-budget-alerting-configured",
@@ -341,5 +341,14 @@
       "analyticAle": 79750,
       "aleSigma": -0.411
     }
-  ]
+  ],
+  "lastMovement": {
+    "reason": "AI governance/documentation checks moved off the technical loss path per docs/fair-methodology-open-decisions.md; a documentation gap does not cause a technical loss event",
+    "checksMoved": 3,
+    "checks": [
+      "decision-explainability-metadata",
+      "model-version-pinned",
+      "registered-model-registry-entry"
+    ]
+  }
 }

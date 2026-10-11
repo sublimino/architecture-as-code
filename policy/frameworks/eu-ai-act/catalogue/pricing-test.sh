@@ -34,7 +34,12 @@
 #      real frequency triple. Forces the declaration to be removed when the
 #      check is calibrated, so the list cannot rot into a blanket exemption.
 #   3. PHANTOM DECLARATION — a declaration naming a version or check that does
-#      not exist, e.g. left behind when a check was renamed.
+#      not exist, for instance left behind when a check was renamed.
+#   4. UNKNOWN REASON CODE — a declaration whose third column is not in the
+#      allow-list below. Added 2026-10-11 with penalty-path-not-technical. A
+#      free-text reason code is a reason code nobody can count, and the whole
+#      point of the file is that the unpriced population is auditable by
+#      category rather than by reading 29 notes.
 #
 # Usage: ./pricing-test.sh    (exit 0 = pass, 1 = failures, 2 = harness problem)
 set -e
@@ -72,11 +77,20 @@ awk -F'\t' -v decl="$DECL" '
 function fail(msg) { problems[++np] = msg }
 
 BEGIN {
+	# The reason-code allow-list. Keep it in step with the REASON CODES block
+	# in unpriced.tsv. A new code is a deliberate decision about a new kind of
+	# unpriced check, so it is added here and documented there together.
+	allowed["no-calibrated-frequency"] = 1
+	allowed["placeholder-not-evaluated"] = 1
+	allowed["penalty-path-not-technical"] = 1
+
 	while ((getline line < decl) > 0) {
 		if (line ~ /^#/ || line == "") continue
 		split(line, d, "\t")
 		if (d[1] == "" || d[2] == "") continue
 		declared[d[1] "\t" d[2]] = 1
+		if (!(d[3] in allowed))
+			fail(d[1] "/" d[2] ": reason code \"" d[3] "\" is not in the allow-list. Add it to the allow-list in this script and to the REASON CODES block in unpriced.tsv, or use an existing code.")
 		ndecl++
 	}
 	close(decl)

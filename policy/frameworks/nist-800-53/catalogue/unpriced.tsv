@@ -6,6 +6,21 @@
 # SAID, not inferred from a field of zeros. pricing-test.sh fails any check
 # that is neither priced nor listed here, so the silence cannot return.
 #
+# REASON CODES. This is the allow-list. pricing-test.sh fails any other value.
+#
+#   no-calibrated-frequency      Carries a magnitude but no calibrated annual
+#                                frequency. Calibration is the principal's call.
+#   placeholder-not-evaluated    status: placeholder. The check is never
+#                                evaluated, so zero exposure is correct.
+#   penalty-path-not-technical   The control defends against a statutory penalty
+#                                rather than against a technical loss event.
+#                                Pricing it needs the secondary-loss model that
+#                                docs/fair-methodology-open-decisions.md
+#                                section 4 describes and the engine lacks.
+#                                No check in this pack uses it. It is listed
+#                                because the allow-list is shared by all three
+#                                version-keyed packs and must read the same.
+#
 # Removing a line requires adding a real freqTriple to that check, and the
 # test fails a line whose check has since been priced, so this list cannot rot.
 # Calibration is the principal's call. Do not invent triples to empty this file.

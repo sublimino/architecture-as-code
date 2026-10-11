@@ -132,9 +132,9 @@
                 "max": 140000
               },
               "freqTriple": {
-                "min": 0.5,
-                "mode": 1.5,
-                "max": 4
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"
@@ -153,9 +153,9 @@
                 "max": 90000
               },
               "freqTriple": {
-                "min": 0.5,
-                "mode": 1.5,
-                "max": 4
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"
@@ -412,9 +412,9 @@
                 "max": 130000
               },
               "freqTriple": {
-                "min": 0.5,
-                "mode": 1.6,
-                "max": 4.5
+                "min": 0,
+                "mode": 0,
+                "max": 0
               },
               "policyVersions": [
                 "v1.0.0"

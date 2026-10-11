@@ -175,7 +175,7 @@ the other.
 
 `tailDominated` is **unreachable on the per-check `fair.Simulate` path**, so the
 flag is dead code there. `alpha + beta` is fixed at 6, which bounds the
-attainable skew, and `Simulate` multiplies a *continuous* frequency instead of
+attainable skew. `Simulate` also multiplies a *continuous* frequency instead of
 drawing Poisson event counts, so there are no zero-loss years. `P(L <= E[L])`
 sits at about 0.63 to 0.69 across the family, against the 0.95 needed to invert
 the inequality. The signal is live only on the aggregate `Engine.Run` and
@@ -197,9 +197,9 @@ are perfectly correlated, which overstates the tail, and the result is not the
 A portfolio figure needs **one joint run**. `fair.Engine.RunDistribution`
 already does this, returns the sorted vector of simulated annual losses, and is
 tested in `fair/distribution_test.go`. Take the quantile of the aggregate with
-`fair.Percentile`. The aggregate path is also the better FAIR model for a second
-reason: it draws Poisson event counts and carries an institution-owned risk
-load, where the per-check path does neither.
+`fair.Percentile`. The aggregate path is also the better FAIR model. It draws
+Poisson event counts and carries an institution-owned risk load. The per-check
+path does neither.
 
 Two live call sites in the dashboard sum the per-check quantiles. They are a
 **known defect**, recorded here so the pattern is not copied, and they are

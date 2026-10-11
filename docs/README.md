@@ -144,6 +144,7 @@ These are living documents. They describe the current rules.
 | :--- | :--- |
 | [`documentation-style.md`](documentation-style.md) | The writing rules for this repository and the `make docs-lint` check |
 | [`DESIGN.md`](DESIGN.md) | Visual design, information architecture, Starlight theming, and diagram standards |
+| [`fair-methodology-open-decisions.md`](fair-methodology-open-decisions.md) | The open methodology decisions on the priced-risk engine, and two recorded defects |
 
 ## 5 · Decision records
 

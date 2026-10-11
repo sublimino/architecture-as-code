@@ -72,7 +72,7 @@ do not write a shorter version for a single page.
 > regulatory, or financial use.
 
 Every other document in this repository links to this section rather than
-restating it. The places that must carry it are the pack pages under
+restating it. Three places must carry it. The pack pages under
 `policy/frameworks/`, the money section of
 [`CONFORMANCE.md`](CONFORMANCE.md#pinning-money), and any report or dashboard
 that shows a figure.

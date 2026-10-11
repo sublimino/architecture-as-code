@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom'
 import type { AgentResponse, SourceHealthMap, AgentComplianceResultResponse } from '../types/api'
 import { colors } from '../styles/tokens'
 import AgentCockpitSection from './AgentCockpitSection'
-import { DEFAULT_BUNDLES } from '../pages/CompliancePolicyPage'
+import { DEMO_BUNDLES } from '../pages/CompliancePolicyPage'
+import { isDemoMode } from '../api/demoMode'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -27,11 +28,28 @@ interface ControlPolicyMetadata {
   testedSeparatelyNote?: string
 }
 
-function lookupPolicyForControl(controlName: string, frameworkName: string): ControlPolicyMetadata {
+/**
+ * Resolve the policy rule behind a compliance result.
+ *
+ * `AgentComplianceResultResponse` carries only control_id, control_name,
+ * framework_name, status, assessed_at and evidence_ref — it does NOT carry the
+ * CEL expression, severity, remediation or docs URL that this panel displays.
+ * Those can therefore only come from the seeded demo bundles, so the lookup is
+ * gated: in live mode it returns null and the caller renders an explicit
+ * "rule detail unavailable" instead of attributing a demo CEL expression to a
+ * real failing control. Serving rule metadata alongside a compliance result is
+ * an API gap, not something the client can honestly fill in.
+ */
+export function lookupPolicyForControl(
+  controlName: string,
+  frameworkName: string,
+): ControlPolicyMetadata | null {
+  if (!isDemoMode()) return null
+
   const slug = getControlSlug(controlName)
 
   // 1. CIS Kubernetes Benchmark
-  const cisBundle = DEFAULT_BUNDLES['k8s-cis-benchmark']
+  const cisBundle = DEMO_BUNDLES['k8s-cis-benchmark']
   if (cisBundle) {
     const cisRule = cisBundle.rules.find(r => {
       const rSlug = r.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -55,7 +73,7 @@ function lookupPolicyForControl(controlName: string, frameworkName: string): Con
 
   // 2. EU AI Act
   if (frameworkName.toLowerCase().includes('eu ai act') || controlName.toLowerCase().includes('art.')) {
-    const euBundle = DEFAULT_BUNDLES['eu-ai-act']
+    const euBundle = DEMO_BUNDLES['eu-ai-act']
     if (euBundle) {
       let rule = euBundle.rules[0]
       if (controlName.includes('9')) rule = euBundle.rules.find(r => r.id === 'audit-trail-logging') || rule
@@ -77,7 +95,7 @@ function lookupPolicyForControl(controlName: string, frameworkName: string): Con
 
   // 3. SOC 2 or NIST
   if (frameworkName.toLowerCase().includes('soc') || frameworkName.toLowerCase().includes('nist')) {
-    const nistBundle = DEFAULT_BUNDLES['nist-800-53']
+    const nistBundle = DEMO_BUNDLES['nist-800-53']
     if (nistBundle) {
       let rule = nistBundle.rules[0]
       if (controlName.includes('CC6.1') || controlName.includes('Access')) {
@@ -100,7 +118,7 @@ function lookupPolicyForControl(controlName: string, frameworkName: string): Con
 
   // 4. CRA (Cyber Resilience Act)
   if (frameworkName.toLowerCase().includes('cra') || frameworkName.toLowerCase().includes('cyber resilience') || controlName.toLowerCase().includes('cra') || controlName.toLowerCase().includes('port')) {
-    const craBundle = DEFAULT_BUNDLES['cra']
+    const craBundle = DEMO_BUNDLES['cra']
     if (craBundle) {
       const craRule = craBundle.rules.find(r => {
         const rSlug = r.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -121,17 +139,11 @@ function lookupPolicyForControl(controlName: string, frameworkName: string): Con
     }
   }
 
-  // Fallback
-  return {
-    ruleId: slug,
-    ruleName: controlName,
-    frameworkId: frameworkName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    frameworkName: frameworkName,
-    celExpression: 'object.spec.metadata.name != ""',
-    severity: 'medium',
-    remediation: `Remediate findings for ${controlName}.`,
-    docsUrl: 'https://kubernetes.io/docs/concepts/security/',
-  }
+  // No seeded rule matched. There is nothing to synthesise: the previous
+  // fallback asserted a CEL expression ('object.spec.metadata.name != ""'),
+  // a severity of 'medium' and generic remediation text for any unmatched
+  // control, none of which any engine had evaluated.
+  return null
 }
 
 function fmtDate(iso: string | null) {
@@ -773,61 +785,81 @@ export default function AgentOverviewTab({
                       </span>
                     </div>
 
-                    {/* CEL Expression */}
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
-                        CEL Policy Rule ({policy.ruleId}):
-                      </div>
-                      <pre
-                        data-testid={`cel-rule-expression-${slug}`}
-                        style={{
-                          margin: 0,
-                          padding: '8px 12px',
-                          background: 'var(--surface)',
-                          borderRadius: 4,
-                          border: '1px solid var(--border)',
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          overflowX: 'auto',
-                          color: '#e2e8f0',
-                        }}
+                    {policy === null ? (
+                      /* The compliance result carries no rule metadata, so
+                         there is nothing truthful to show here. Say that
+                         plainly rather than printing a plausible rule. */
+                      <div
+                        data-testid={`cel-rule-unavailable-${slug}`}
+                        style={{ marginTop: 10, fontSize: 11, color: 'var(--muted)' }}
                       >
-                        <code>{policy.celExpression}</code>
-                      </pre>
-                    </div>
-
-                    {/* Remediation & Audit notes */}
-                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text)' }}>
-                      <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Remediation: </span>
-                      {policy.remediation}
-                    </div>
-
-                    {policy.testedSeparately && (
-                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--cyan)' }}>
-                        ℹ️ {policy.testedSeparatelyNote || 'Audited at cluster / namespace scope separately.'}
+                        Rule detail unavailable: this result does not carry the evaluated
+                        policy rule.
+                        {res.evidence_ref ? (
+                          <>
+                            {' '}Evidence: <code>{res.evidence_ref}</code>
+                          </>
+                        ) : null}
                       </div>
+                    ) : (
+                      <>
+                        {/* CEL Expression */}
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+                            CEL Policy Rule ({policy.ruleId}):
+                          </div>
+                          <pre
+                            data-testid={`cel-rule-expression-${slug}`}
+                            style={{
+                              margin: 0,
+                              padding: '8px 12px',
+                              background: 'var(--surface)',
+                              borderRadius: 4,
+                              border: '1px solid var(--border)',
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              overflowX: 'auto',
+                              color: '#e2e8f0',
+                            }}
+                          >
+                            <code>{policy.celExpression}</code>
+                          </pre>
+                        </div>
+
+                        {/* Remediation & Audit notes */}
+                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text)' }}>
+                          <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Remediation: </span>
+                          {policy.remediation}
+                        </div>
+
+                        {policy.testedSeparately && (
+                          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--cyan)' }}>
+                            ℹ️ {policy.testedSeparatelyNote || 'Audited at cluster / namespace scope separately.'}
+                          </div>
+                        )}
+
+                        {/* Links */}
+                        <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
+                          <Link
+                            to={`/policies?framework=${policy.frameworkId}&rule=${policy.ruleId}`}
+                            data-testid={`cel-drilldown-link-${slug}`}
+                            className="btn btn-secondary"
+                            style={{ fontSize: 11, padding: '4px 10px', textDecoration: 'none' }}
+                          >
+                            Drill down to CEL Policy Rule →
+                          </Link>
+                          <a
+                            href={policy.docsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid={`compliance-docs-link-${slug}`}
+                            style={{ color: 'var(--teal)', fontSize: 11, textDecoration: 'none', fontWeight: 600 }}
+                          >
+                            Official Benchmark Documentation ↗
+                          </a>
+                        </div>
+                      </>
                     )}
-
-                    {/* Links */}
-                    <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
-                      <Link
-                        to={`/policies?framework=${policy.frameworkId}&rule=${policy.ruleId}`}
-                        data-testid={`cel-drilldown-link-${slug}`}
-                        className="btn btn-secondary"
-                        style={{ fontSize: 11, padding: '4px 10px', textDecoration: 'none' }}
-                      >
-                        Drill down to CEL Policy Rule →
-                      </Link>
-                      <a
-                        href={policy.docsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        data-testid={`compliance-docs-link-${slug}`}
-                        style={{ color: 'var(--teal)', fontSize: 11, textDecoration: 'none', fontWeight: 600 }}
-                      >
-                        Official Benchmark Documentation ↗
-                      </a>
-                    </div>
                   </div>
                 )
               })}

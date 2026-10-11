@@ -12,6 +12,8 @@ import type { PolicyBundle, PolicyBundleSummary, VersionHistoryItem } from '../t
 import { useMoney } from '../money/CurrencyContext'
 import ConversionNote from '../components/ConversionNote'
 import PolicyEditor from '../components/PolicyEditor'
+import EmptyState from '../components/EmptyState'
+import { isDemoMode } from '../api/demoMode'
 
 function fmtPct(n: number, d: number) {
   if (d === 0) return '0%'
@@ -39,7 +41,17 @@ function VersionPill({ version, status }: { version: string; status: 'satisfied'
   )
 }
 
-export const DEFAULT_BUNDLES: Record<string, PolicyBundle> = {
+/**
+ * Demo-only policy bundle catalogue.
+ *
+ * `api.policies.list` has no fixture route, so demo mode cannot obtain bundle
+ * content through the api client's fixture gate. These bundles are therefore
+ * seeded here and reachable ONLY when `isDemoMode()` is true (see
+ * `currentBundle` below). In live mode a framework with no registered bundle
+ * renders an explicit empty state: the versions, checksums and CEL rules
+ * below were authored for the demo and are not evidence of anything.
+ */
+export const DEMO_BUNDLES: Record<string, PolicyBundle> = {
   'eu-ai-act': {
     id: 'eu-ai-act-v2.1.0',
     framework_id: 'eu-ai-act',
@@ -341,7 +353,26 @@ export default function CompliancePolicyPage() {
       if (sum.status === 'fulfilled') setSummary(sum.value)
       if (pol.status === 'fulfilled' && Array.isArray(pol.value)) setPolicySummaries(pol.value)
 
-      setError(null)
+      // allSettled never throws, so a rejected leg used to be indistinguishable
+      // from one that legitimately returned nothing — and the unconditional
+      // setError(null) below cleared any earlier error too. Surface the
+      // rejections instead: a page that cannot load its figures must say so.
+      const failures = [
+        fw.status === 'rejected' ? 'frameworks' : null,
+        sum.status === 'rejected' ? 'posture summary' : null,
+        pol.status === 'rejected' ? 'policy bundles' : null,
+      ].filter((x): x is string => x !== null)
+
+      if (failures.length > 0) {
+        const first = [fw, sum, pol].find((r) => r.status === 'rejected') as
+          | PromiseRejectedResult
+          | undefined
+        const detail =
+          first?.reason instanceof Error ? `: ${first.reason.message}` : ''
+        setError(`Failed to load ${failures.join(', ')}${detail}`)
+      } else {
+        setError(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load compliance data')
     }
@@ -370,51 +401,43 @@ export default function CompliancePolicyPage() {
     return policySummaries.find((s) => s.framework_id === selectedFrameworkId)
   }, [policySummaries, selectedFrameworkId])
 
-  const currentBundle: PolicyBundle = useMemo(() => {
+  // null means "no bundle is registered for this framework". Only demo mode
+  // substitutes the seeded catalogue; live mode renders an empty state so a
+  // demo bundle is never mistaken for the active policy (it was previously
+  // editable and savable straight back to the live API).
+  const currentBundle: PolicyBundle | null = useMemo(() => {
     if (activeBundleSummary?.active_bundle) {
       return activeBundleSummary.active_bundle
     }
-    return DEFAULT_BUNDLES[selectedFrameworkId] || {
-      id: `${selectedFrameworkId}-v1.0.0`,
-      framework_id: selectedFrameworkId,
-      version: 'v1.0.0',
-      author: 'system',
-      description: `${selectedFrameworkId.toUpperCase()} Policy Bundle`,
-      created_at: new Date().toISOString(),
-      checksum: '',
-      rules: [],
-    }
+    return isDemoMode() ? DEMO_BUNDLES[selectedFrameworkId] ?? null : null
   }, [activeBundleSummary, selectedFrameworkId])
 
   const versionHistory: VersionHistoryItem[] = useMemo(() => {
     if (activeBundleSummary?.version_history?.length) {
       return activeBundleSummary.version_history
     }
-    return [
-      {
-        version: currentBundle.version,
-        author: currentBundle.author || 'system',
-        description: currentBundle.description || 'Active bundle',
-        created_at: currentBundle.created_at || new Date().toISOString(),
-        rule_count: currentBundle.rules.length,
-        checksum: currentBundle.checksum || '',
-      },
-    ]
-  }, [activeBundleSummary, currentBundle])
+    // No synthesised history: a single entry derived from the bundle on screen
+    // is a restatement, not a record of versions the registry actually holds.
+    return []
+  }, [activeBundleSummary])
 
   const availableFrameworkOptions = useMemo(() => {
-    const defaultList = [
-      { id: 'eu-ai-act', name: 'EU AI Act' },
-      { id: 'nist-800-53', name: 'NIST SP 800-53' },
-      { id: 'cra', name: 'Cyber Resilience Act (CRA)' },
-      { id: 'finos-aigf', name: 'FINOS AIGF' },
-      { id: 'dora', name: 'DORA (Placeholder)' },
-      { id: 'nis2', name: 'NIS2 (Placeholder)' },
-    ]
-    if (frameworks.length === 0) return defaultList
-    const map = new Map<string, string>()
-    for (const item of defaultList) map.set(item.id, item.name)
-    for (const fw of frameworks) {
+    const live = frameworks.map((fw) => ({ id: fw.id, name: fw.name }))
+    if (!isDemoMode()) {
+      // Live mode lists exactly the frameworks the API registered. The former
+      // default list was unioned in even when the API answered, so two entries
+      // literally labelled "(Placeholder)" appeared in a live selector.
+      return live
+    }
+    const map = new Map<string, string>([
+      ['eu-ai-act', 'EU AI Act'],
+      ['nist-800-53', 'NIST SP 800-53'],
+      ['cra', 'Cyber Resilience Act (CRA)'],
+      ['finos-aigf', 'FINOS AIGF'],
+      ['dora', 'DORA (Placeholder)'],
+      ['nis2', 'NIS2 (Placeholder)'],
+    ])
+    for (const fw of live) {
       if (!map.has(fw.id)) map.set(fw.id, fw.name)
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
@@ -541,14 +564,21 @@ export default function CompliancePolicyPage() {
       {activeTab === 'editor' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Section title="Policy-as-Code Editor" hint="Client-side syntax diagnostics with authoritative Go CEL engine">
-            <PolicyEditor
-              bundle={currentBundle}
-              versionHistory={versionHistory}
-              availableFrameworks={availableFrameworkOptions}
-              onSelectFramework={setSelectedFrameworkId}
-              onSave={handleSaveBundle}
-              onRollback={handleRollbackBundle}
-            />
+            {currentBundle ? (
+              <PolicyEditor
+                bundle={currentBundle}
+                versionHistory={versionHistory}
+                availableFrameworks={availableFrameworkOptions}
+                onSelectFramework={setSelectedFrameworkId}
+                onSave={handleSaveBundle}
+                onRollback={handleRollbackBundle}
+              />
+            ) : (
+              <EmptyState
+                kicker="No policy bundle registered"
+                body={`The policy registry holds no active bundle for "${selectedFrameworkId}". Register one to edit its CEL rules here.`}
+              />
+            )}
           </Section>
         </div>
       )}

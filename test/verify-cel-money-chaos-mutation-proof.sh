@@ -308,6 +308,68 @@ expect_red M10-percentile-off-by-one 'TestAnOffByOnePercentileIndexMovesEveryTai
   "an off-by-one in the TVaR index must move a figure a test reads"
 restore_all
 
+# ── M11 (INVERTED): fix the empty summary ─────────────────────────────────────
+# Same buffer-then-check at the summary's encode site. The persistent-empty
+# characterisation must go red.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(summary)"""
+assert old in s, "M11 anchor absent"
+new="""	// MUTANT M11: buffer-then-check on the summary.
+	if encoded, err := json.Marshal(summary); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unrenderable total: " + err.Error()})
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write(encoded)
+	}"""
+open(p,"w").write(s.replace(old,new,1))
+'
+expect_red M11-fix-empty-summary 'TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT' \
+  "INVERTED: fixing the empty summary must break its characterisation"
+restore_all
+
+# ── M12: the summary reads the shared cross-tenant slot ───────────────────────
+# Stop handleSummary reading ch.lastResults. The cross-tenant leak test must go
+# red: if it survives, it is not actually demonstrating that the slot is shared.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	results := ch.lastResults
+	ungated := ch.lastUngated"""
+assert old in s, "M12 anchor absent"
+new="""	var results []ComplianceScanResult // MUTANT M12: shared slot not read
+	ungated := ch.lastUngated"""
+open(p,"w").write(s.replace(old,new,1))
+'
+expect_red M12-summary-shared-slot 'TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT' \
+  "the leak test must depend on handleSummary reading the shared slot"
+restore_all
+
+# ── M13: per-scan profile isolation ───────────────────────────────────────────
+# Cache the resolved profile on the handler, so one tenant's declaration leaks
+# into the next tenant's scan. The isolation test must catch it.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	p := effectiveRiskProfile{Currency: defaultReportingCurrency, RiskLoad: fair.DefaultRiskLoad}"""
+assert old in s, "M13 anchor absent"
+new="""	p := effectiveRiskProfile{Currency: defaultReportingCurrency, RiskLoad: fair.DefaultRiskLoad}
+	if mutantLastProfile.Declared { // MUTANT M13: leak the previous declaration
+		p = mutantLastProfile
+	}
+	defer func() { mutantLastProfile = p }()"""
+s=s.replace(old,new,1)
+s=s.replace("const defaultReportingCurrency money.Currency = \"GBP\"",
+            "const defaultReportingCurrency money.Currency = \"GBP\"\n\nvar mutantLastProfile effectiveRiskProfile // MUTANT M13",1)
+open(p,"w").write(s)
+'
+expect_red M13-profile-not-cached 'TestOneTenantsDeclaredProfileNeverMovesAnotherTenantsRows' \
+  "a cached profile must not leak one tenant's declaration into another's scan"
+restore_all
+
 echo "---------------------------------------------------------------------------"
 echo "killed: ${#KILLED[@]}   survived: ${#SURVIVORS[@]}   missing: ${#MISSING[@]}"
 

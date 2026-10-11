@@ -3555,6 +3555,20 @@ verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s),
 verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
 	$(VERIFY_CEL) db
 
+.PHONY: verify-cel-applicability-chaos
+
+# The enforcement windows and the as-of date, attacked. Two Go suites (a 66-case
+# on-disk date corpus, and the scan path's boundaries/resolution/exposure/
+# determinism/replay properties) plus the bats suite that proves they are not
+# vacuous: full corpus walk compared as SETS, a trimmed corpus going red, and
+# every chaos test paired with a mutation that breaks the guard it names.
+#
+# The Go suites already run inside `verify-cel-engine` (tier 1 is `go test
+# ./...`). This target adds what that tier CANNOT tell you: whether those tests
+# can fail at all. ~90s, dominated by the 22 mutation compile-and-run cycles.
+verify-cel-applicability-chaos: ## Applicability-window chaos suites PLUS their mutation proof — 22 guards, each shown to go red (90s). Needs bats and go only.
+	bats test/applicability-chaos.bats
+
 .PHONY: verify-cel-money verify-cel-money-golden verify-cel-money-golden-acknowledged verify-cel-money-independent
 
 # The priced figures (ale, var95, tvar, carriedGbp) are pinned by one golden

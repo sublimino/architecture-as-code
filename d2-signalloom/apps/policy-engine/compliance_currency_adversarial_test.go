@@ -84,12 +84,12 @@ func TestRoundMoneyPassesThroughNonFinite(t *testing.T) {
 }
 
 // TestComplianceScanResultCurrencyFieldIsConsistent verifies that the Currency field
-// on ComplianceScanResult is populated and matches reportingCurrency.
+// on ComplianceScanResult is populated and matches defaultReportingCurrency.
 func TestComplianceScanResultCurrencyFieldIsConsistent(t *testing.T) {
-	if reportingCurrency == "" {
-		t.Fatal("reportingCurrency is empty; it must be a valid ISO 4217 code")
+	if defaultReportingCurrency == "" {
+		t.Fatal("defaultReportingCurrency is empty; it must be a valid ISO 4217 code")
 	}
-	if err := reportingCurrency.Validate(); err != nil {
-		t.Fatalf("reportingCurrency %q is not valid: %v", reportingCurrency, err)
+	if err := defaultReportingCurrency.Validate(); err != nil {
+		t.Fatalf("defaultReportingCurrency %q is not valid: %v", defaultReportingCurrency, err)
 	}
 }

@@ -125,11 +125,11 @@ func (f moneyFigures) String() string {
 func engineFigures(chk frameworks.Check) moneyFigures {
 	r := fair.Simulate(chk.RiskTriple, chk.FreqTriple, checkSeed(chk.ID))
 	return moneyFigures{
-		ALE:      roundMoney(r.ALE, reportingCurrency),
-		VaR95:    roundMoney(r.VaR95, reportingCurrency),
-		TVaR:     roundMoney(r.TVaR, reportingCurrency),
-		Carried:  roundMoney(r.CarriedGBP, reportingCurrency),
-		Currency: reportingCurrency,
+		ALE:      roundMoney(r.ALE, defaultReportingCurrency),
+		VaR95:    roundMoney(r.VaR95, defaultReportingCurrency),
+		TVaR:     roundMoney(r.TVaR, defaultReportingCurrency),
+		Carried:  roundMoney(r.CarriedGBP, defaultReportingCurrency),
+		Currency: defaultReportingCurrency,
 	}
 }
 
@@ -152,7 +152,7 @@ func goldenRowFor(chk frameworks.Check) moneyGoldenRow {
 
 func goldenFor(p *conformancePack) moneyGolden {
 	g := moneyGolden{
-		Framework: p.fw.ID, Version: p.fw.Version, Currency: reportingCurrency,
+		Framework: p.fw.ID, Version: p.fw.Version, Currency: defaultReportingCurrency,
 		Iterations: simulateIterations, Note: moneyGoldenNote,
 	}
 	ids := append([]string(nil), p.order...)
@@ -201,8 +201,8 @@ func TestConformance_MoneyGoldenMatchesEngine(t *testing.T) {
 		if g.Framework != p.fw.ID || g.Version != p.fw.Version {
 			t.Errorf("%s: golden names %s@%s", path, g.Framework, g.Version)
 		}
-		if g.Currency != reportingCurrency {
-			t.Errorf("%s: golden currency %q, want %q", path, g.Currency, reportingCurrency)
+		if g.Currency != defaultReportingCurrency {
+			t.Errorf("%s: golden currency %q, want %q", path, g.Currency, defaultReportingCurrency)
 		}
 		if g.Iterations != simulateIterations {
 			t.Errorf("%s: golden iterations %d, want %d", path, g.Iterations, simulateIterations)
@@ -279,12 +279,12 @@ func TestConformance_MoneyGoldenMatchesScan(t *testing.T) {
 				continue // version selection: not every pinned check carries this version
 			}
 			got := moneyFigures{ALE: r.ALE, VaR95: r.VaR95, TVaR: r.TVaR, Carried: r.CarriedGBP, Currency: r.Currency}
-			pinned := moneyFigures{ALE: want.ALE, VaR95: want.VaR95, TVaR: want.TVaR, Carried: want.Carried, Currency: reportingCurrency}
+			pinned := moneyFigures{ALE: want.ALE, VaR95: want.VaR95, TVaR: want.TVaR, Carried: want.Carried, Currency: defaultReportingCurrency}
 			if got != pinned {
 				t.Errorf("%s: check %q over the wire: pinned %s, scan reports %s", p.label(), want.Check, pinned, got)
 			}
-			if (r.Carried != money.Money{Amount: r.CarriedGBP, Currency: reportingCurrency}) {
-				t.Errorf("%s: check %q: carried %v disagrees with carriedGbp %.2f/%s", p.label(), want.Check, r.Carried, r.CarriedGBP, reportingCurrency)
+			if (r.Carried != money.Money{Amount: r.CarriedGBP, Currency: defaultReportingCurrency}) {
+				t.Errorf("%s: check %q: carried %v disagrees with carriedGbp %.2f/%s", p.label(), want.Check, r.Carried, r.CarriedGBP, defaultReportingCurrency)
 			}
 		}
 	}
@@ -320,7 +320,7 @@ func TestConformance_MoneyAnalyticAnchor(t *testing.T) {
 
 			if zeroFrequency(chk.FreqTriple) {
 				zero++
-				if f != (moneyFigures{Currency: reportingCurrency}) {
+				if f != (moneyFigures{Currency: defaultReportingCurrency}) {
 					t.Errorf("%s: zero frequency must price at zero, got %s", where, f)
 				}
 				continue
@@ -449,7 +449,7 @@ func TestConformance_MoneyFigureOrdering(t *testing.T) {
 			// because "carried" is the figure the product actually bills, and a
 			// load that silently moved would move every price in the estate.
 			raw := fair.Simulate(chk.RiskTriple, chk.FreqTriple, checkSeed(id))
-			if want := roundMoney(raw.TVaR*1.10, reportingCurrency); want != f.Carried {
+			if want := roundMoney(raw.TVaR*1.10, defaultReportingCurrency); want != f.Carried {
 				t.Errorf("%s: carried %.2f, want tvar+10%% = %.2f", where, f.Carried, want)
 			}
 			for _, v := range []struct {
@@ -667,8 +667,8 @@ func TestConformance_MoneyNotEvaluatedFigureExcludedFromExposure(t *testing.T) {
 	row := func(v Verdict, carried float64) ComplianceScanResult {
 		return ComplianceScanResult{
 			Check: "synthetic", Status: v, Passed: v == VerdictPass,
-			CarriedGBP: carried, Currency: reportingCurrency,
-			Carried: money.Money{Amount: carried, Currency: reportingCurrency},
+			CarriedGBP: carried, Currency: defaultReportingCurrency,
+			Carried: money.Money{Amount: carried, Currency: defaultReportingCurrency},
 		}
 	}
 	h := &complianceHandler{lastResults: []ComplianceScanResult{
@@ -703,14 +703,14 @@ func TestConformance_MoneyNotEvaluatedFigureExcludedFromExposure(t *testing.T) {
 // already pinned by compliance_adversarial_scan_test.go; the summary side is
 // not, so it is covered here.
 func TestConformance_MoneyReportingCurrencyIsPinned(t *testing.T) {
-	if reportingCurrency != "GBP" {
-		t.Fatalf("reportingCurrency is %q, want GBP: every golden figure and the carriedGbp wire field assume GBP", reportingCurrency)
+	if defaultReportingCurrency != "GBP" {
+		t.Fatalf("defaultReportingCurrency is %q, want GBP: every golden figure and the carriedGbp wire field assume GBP", defaultReportingCurrency)
 	}
-	if err := reportingCurrency.Validate(); err != nil {
-		t.Fatalf("reportingCurrency does not validate: %v", err)
+	if err := defaultReportingCurrency.Validate(); err != nil {
+		t.Fatalf("defaultReportingCurrency does not validate: %v", err)
 	}
-	if reportingCurrency.MinorUnits() != 2 {
-		t.Fatalf("reportingCurrency minor units = %d, want 2: the golden figures are written to 2dp", reportingCurrency.MinorUnits())
+	if defaultReportingCurrency.MinorUnits() != 2 {
+		t.Fatalf("defaultReportingCurrency minor units = %d, want 2: the golden figures are written to 2dp", defaultReportingCurrency.MinorUnits())
 	}
 	if _, err := money.Add(money.Money{Amount: 1, Currency: "GBP"}, money.Money{Amount: 1, Currency: "USD"}); err == nil {
 		t.Error("money.Add accepted GBP + USD: the cross-currency guard the summary would inherit is gone")
@@ -739,10 +739,10 @@ func TestConformance_MoneyReportingCurrencyIsPinned(t *testing.T) {
 			t.Errorf("%s: %v", p.label(), err)
 			continue
 		}
-		if s.Currency != reportingCurrency {
-			t.Errorf("%s: summary currency %q, want %q", p.label(), s.Currency, reportingCurrency)
+		if s.Currency != defaultReportingCurrency {
+			t.Errorf("%s: summary currency %q, want %q", p.label(), s.Currency, defaultReportingCurrency)
 		}
-		if s.Exposure != (money.Money{Amount: s.TotalExposure, Currency: reportingCurrency}) {
+		if s.Exposure != (money.Money{Amount: s.TotalExposure, Currency: defaultReportingCurrency}) {
 			t.Errorf("%s: summary exposure %v disagrees with totalExposureGbp %.2f", p.label(), s.Exposure, s.TotalExposure)
 		}
 	}
@@ -791,7 +791,7 @@ func TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero(t *testing.T) {
 			}
 			zero++
 			zeroChecks++
-			if f := engineFigures(chk); f != (moneyFigures{Currency: reportingCurrency}) {
+			if f := engineFigures(chk); f != (moneyFigures{Currency: defaultReportingCurrency}) {
 				t.Errorf("%s: check %q has no frequency triple but prices at %s", p.label(), id, f)
 			}
 		}

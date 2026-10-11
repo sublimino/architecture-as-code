@@ -17,7 +17,7 @@ data:
   # Unlike the evidenced demo agent, this ConfigMap carries NO entrypoint script:
   # enforcement is baked into the image's nono-wrap ENTRYPOINT, so there is no
   # unconfined fallback path to script here. The agent honours PORT and
-  # HOSTILE_PATH; the hostile-write target stays inside /tmp, the only path the
-  # kusari-enforce.toml Landlock profile leaves writable.
+  # HOSTILE_PATH; the hostile-write target stays inside /tmp, the one directory
+  # the real nono allow-list (-a /tmp in the image ENTRYPOINT) leaves writable.
   PORT: "8080"
   HOSTILE_PATH: "/tmp/hostile-test.txt"

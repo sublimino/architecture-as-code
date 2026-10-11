@@ -54,11 +54,12 @@ spec:
           type: RuntimeDefault
       containers:
         - name: agent
-          # Enforcement image built from Dockerfile.nono. Its ENTRYPOINT is the
-          # nono-wrap shim (nono --profile /etc/nono/kusari-enforce.toml --
-          # /kusari-agent), so there is no command override here and no
-          # unconfined fallback: the Landlock ruleset is installed before the
-          # agent runs. imagePullPolicy Never — the lead loads the local image.
+          # Enforcement image built from Dockerfile.nono. Its ENTRYPOINT wraps
+          # PID 1 in the REAL nono binary (nono run --listen-port 8080 -r /usr
+          # ... -- /kusari-agent), so a capability allow-list is installed at the
+          # kernel Landlock LSM before the agent runs: no shim, no simulation, no
+          # unconfined fallback. imagePullPolicy Never — the lead loads the local
+          # image onto the kind node.
           image: kusari-agent-nono:latest
           imagePullPolicy: Never
           ports:
@@ -72,6 +73,20 @@ spec:
               value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-kusari"
             - name: SPIFFE_SOCKET
               value: "/run/spire/sockets/agent.sock"
+            # nono (the parent, before it applies the sandbox) persists session
+            # state. The root filesystem is read-only, so point every XDG dir at
+            # a dedicated writable emptyDir. It is /var/nono-state, which is NOT
+            # in the child's allow-list, so the sandboxed agent cannot read its
+            # own sandbox internals. HOME stays /home/nono (not writable, not
+            # allowed) so nono's deny_credentials paths don't overlap an allow.
+            - name: HOME
+              value: "/home/nono"
+            - name: XDG_STATE_HOME
+              value: "/var/nono-state/state"
+            - name: XDG_CONFIG_HOME
+              value: "/var/nono-state/config"
+            - name: XDG_CACHE_HOME
+              value: "/var/nono-state/cache"
           resources:
             requests:
               cpu: 10m
@@ -90,10 +105,14 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            - name: nono-state
+              mountPath: /var/nono-state
       volumes:
         - name: spiffe-workload-api
           hostPath:
             path: /run/spire/sockets
             type: Directory
         - name: tmp
+          emptyDir: {}
+        - name: nono-state
           emptyDir: {}

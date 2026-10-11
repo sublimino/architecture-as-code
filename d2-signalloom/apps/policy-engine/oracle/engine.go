@@ -46,6 +46,14 @@ const (
 	VerdictFail         Verdict = "fail"
 	VerdictError        Verdict = "error"
 	VerdictNotEvaluated Verdict = "not_evaluated"
+	// VerdictNotInForce mirrors the engine's applicability gate. The ORACLE
+	// NEVER PRODUCES IT: this tier compares pack verdicts against
+	// k8s.io/pod-security-admission on a workload, which has no as-of date and
+	// no notion of a regime's enforcement window. The constant exists so the
+	// mirror stays complete for TestDrift_VerdictVocabulary, which is the whole
+	// point of that tripwire -- a vocabulary the oracle does not know about is
+	// a vocabulary whose comparisons could silently stop matching.
+	VerdictNotInForce Verdict = "not_in_force"
 )
 
 // statusPlaceholder marks a pack or check that is not yet evaluable.

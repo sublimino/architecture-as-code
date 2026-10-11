@@ -103,6 +103,7 @@ func TestDrift_VerdictVocabulary(t *testing.T) {
 	mirror := map[string]bool{
 		string(VerdictPass): true, string(VerdictFail): true,
 		string(VerdictError): true, string(VerdictNotEvaluated): true,
+		string(VerdictNotInForce): true,
 	}
 	if len(values) != len(mirror) {
 		t.Errorf("../bindings.go declares %d verdicts %v, the oracle mirror has %d", len(values), values, len(mirror))

@@ -1,0 +1,25 @@
+# COMMAND: make docs-lint (sha: 504405b9e7e91efdf5c97bcd701b6511f712f6db)
+./scripts/docs-lint.sh
+policy/frameworks/CONFORMANCE.md:3: long: 31 words (max 25): A check is "correct" when a fixture that should fail it fails, a fixtu
+policy/frameworks/CONFORMANCE.md:28: semicolon: use two sentences: Write numeric comparisons that hold for both int and double (CODE is f
+policy/frameworks/CONFORMANCE.md:41: long: 27 words (max 25): A check that errors on an ordinary, valid input is a defect in the che
+policy/frameworks/CONFORMANCE.md:95: semicolon: use two sentences:  **mutation**: the change made to the CEL (or fixture) and the failing
+policy/frameworks/README.md:76: semicolon: use two sentences:  Every shipped pack is a single CODE; no pack carries a CODE
+policy/frameworks/README.md:100: long: 32 words (max 25):  A per-container security control (privileged, privilege escalation, c
+policy/frameworks/cis-kubernetes/v1.8/README.md:18: semicolon: use two sentences: "All containers" means CODE, CODE and CODE together; every per-contain
+policy/frameworks/cis-kubernetes/v1.8/README.md:44: semicolon: use two sentences: The exemption keys on CODE only; a Windows pod that relies on a CODE n
+policy/frameworks/cis-kubernetes/v1.8/README.md:51: semicolon: use two sentences: Per-container checks pass vacuously because nothing runs; pod-level ch
+policy/frameworks/cis-kubernetes/v1.8/README.md:76: semicolon: use two sentences: Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en
+policy/frameworks/cis-kubernetes/v1.8/README.md:76: long: 38 words (max 25): Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en
+policy/frameworks/cis-kubernetes/v1.8/README.md:84: long: 35 words (max 25):  CODE: each fixture is the Linux or Windows baseline with one fact   c
+policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md:19: semicolon: use two sentences:  Only the boolean CODE passes a bool path; the string CODE fails.
+policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:17: semicolon: use two sentences: A container of the wrong type, such as a string or a list, makes its  
+policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:17: long: 32 words (max 25): A container of the wrong type, such as a string or a list, makes its  
+policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:61: semicolon: use two sentences: Extend this document; never rename a field in it.
+policy/frameworks/finos-aigf/v1.0/README.md:34: path: no such path in the tree: docs/_config.yml
+policy/frameworks/finos-aigf/v1.0/README.md:36: path: no such path in the tree: docs/_includes/mitigation-id.html
+policy/frameworks/finos-aigf/v1.0/README.md:67: long: 46 words (max 25): Re-checked against all   25 mitigations at a149dd1e after the cross-ve
+policy/frameworks/finos-aigf/v1.0/README.md:81: semicolon: use two sentences: When the key is absent the check now fails; before, it raised an error
+policy/frameworks/finos-aigf/v1.0/README.md:87: semicolon: use two sentences: They are left out on purpose; this pack does not approximate them.
+docs-lint: 21 finding(s). Rules: docs/documentation-style.md
+make: *** [Makefile:976: docs-lint] Error 1

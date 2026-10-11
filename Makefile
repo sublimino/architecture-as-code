@@ -3640,7 +3640,7 @@ policy-pricing-counts: ## Check every pack page's priced/unpriced counts against
 policy-pricing-counts-update: ## REWRITE every pack page's priced/unpriced counts block from the packs, then check.
 	policy/frameworks/pricing-counts-test.sh --update
 
-.PHONY: verify-cel-money-chaos verify-cel-money-chaos-mutation-proof
+.PHONY: verify-cel-money-chaos verify-cel-money-chaos-mutation-proof verify-cel-money-golden-guard
 
 # Adversarial probes of the tenant risk profile (migration 062) and the money it
 # modulates: reportingCurrency and riskLoad arrive as JSON on the scan request,
@@ -3673,8 +3673,27 @@ verify-cel-money-chaos: ## Adversarial probes of the tenant risk profile and its
 # verifies byte-identity by checksum; a missing test is reported as MISSING
 # (exit 3) and never as a surviving mutant, because `go test -run` on a
 # non-matching regex exits 0.
-verify-cel-money-chaos-mutation-proof: ## Prove verify-cel-money-chaos is not decoration: 10 mutants (3 of them inverted fixes) must each turn a named test red.
+verify-cel-money-chaos-mutation-proof: ## Prove verify-cel-money-chaos is not decoration: 19 mutants (6 of them inverted fixes) plus 2 negative controls.
 	test/verify-cel-money-chaos-mutation-proof.sh
+
+# Attacks on the MONEY_GOLDEN=update movement guard, which is the only thing
+# between an engine regression and a green suite for three of the four figures
+# the product quotes. The guard lives in compliance_money_test.go and was
+# asserted nowhere; this suite is the test OF the guard.
+#
+# It RUNS UPDATE MODE against the real checked-in goldens and mutates fair.go to
+# make figures move, restoring both from explicit cp backups and verifying
+# byte-identity by checksum. Not in verify-cel: it is slow (one full engine run
+# per attack) and it writes to testdata, so it is an explicit, deliberate run.
+#
+# WHAT IT FOUND: the guard refuses everything it claims to (no reason, a
+# whitespace reason, a wrong count, either field alone) but the count is a
+# CARDINALITY claim with no identity binding -- a reason naming one check was
+# accepted for an engine-wide movement and recorded into 5 golden files. And the
+# `engineMoved` diagnostic ("the ENGINE moved, not the inputs") is computed,
+# printed, and then not used in the decision.
+verify-cel-money-golden-guard: ## Attack the money-golden movement guard: 9 attacks on REASON/CHECKS. Writes to testdata and restores from cp backups; not part of verify-cel.
+	bats test/money-golden-guard.bats
 
 .PHONY: verify-cel-selftest verify-cel-mutation-proof
 

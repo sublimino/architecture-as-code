@@ -3597,7 +3597,7 @@ verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan in
 #   dashboard-signalloom/src/api/fakeComplianceData.ts:248-250 (totalVar95,
 #     totalTvar, totalCarried, each a sumMoney over the per-check figure)
 # See the "Not additive" section of policy/frameworks/CONFORMANCE.md.
-verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 127 pinned checks).
+verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 134 pinned checks across 11 packs, of which 61 are priced).
 	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
 
 # Pins a NEW check's figures in one command. REFUSES to rewrite an

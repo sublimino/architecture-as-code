@@ -31,6 +31,7 @@ import type {
   PlatformUsersResponse,
   PostureResponse,
   PreferencesUpdateRequest,
+  RiskProfileUpdateRequest,
   ReassessmentResponse,
   RevokeCredentialResponse,
   RotateApiKeyResponse,
@@ -751,6 +752,12 @@ export const api = {
 
   patchPreferences: (token: string, body: PreferencesUpdateRequest) =>
     req<TenantSettingsResponse>('/tenant/settings/preferences', token, {
+      method: 'PATCH',
+      data: body,
+    }),
+
+  patchRiskProfile: (token: string, body: RiskProfileUpdateRequest) =>
+    req<TenantSettingsResponse>('/tenant/settings/risk-profile', token, {
       method: 'PATCH',
       data: body,
     }),

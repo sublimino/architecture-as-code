@@ -41,6 +41,32 @@ func (ht handlerTransport) scan(body []byte) ([]ComplianceScanResult, error) {
 	return out, json.Unmarshal(w.Body.Bytes(), &out)
 }
 
+// handlerRemembering builds a handler whose ONLY remembered scan is the rows
+// given, stored under the anonymous tenant.
+//
+// It replaces `&complianceHandler{lastResults: rows}`, which stopped compiling
+// when the single unkeyed results slot became a map keyed by tenant (fix 2 --
+// handleSummary used to serve the last scanner's figures to every caller). The
+// tests that use it are white-box summary-arithmetic tests: they need rows in
+// the store without running a scan, and they do not care whose rows they are.
+// The anonymous key is the right one because handlerTransport.summary sends no
+// tenant header, so what it stores is exactly what that request reads back.
+func handlerRemembering(rows []ComplianceScanResult) *complianceHandler {
+	h := &complianceHandler{}
+	h.rememberScan("", rows, nil)
+	return h
+}
+
+// mustScan returns the anonymous tenant's remembered rows, panicking if there
+// are none -- a test that asks for rows it never stored has a bug in the test.
+func (ch *complianceHandler) mustScan() tenantScan {
+	s, ok := ch.scanFor("")
+	if !ok {
+		panic("no remembered scan for the anonymous tenant")
+	}
+	return s
+}
+
 func (ht handlerTransport) summary() (ComplianceSummary, error) {
 	w := httptest.NewRecorder()
 	ht.h.handleSummary(w, httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil))

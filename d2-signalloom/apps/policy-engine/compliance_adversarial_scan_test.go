@@ -163,27 +163,59 @@ func TestScanIdempotent(t *testing.T) {
 	}
 }
 
-// TestSummaryBeforeScan_ReturnsZeros verifies the summary endpoint returns
-// zero-valued summary before any scan (not an error, but clearly empty).
-func TestSummaryBeforeScan_ReturnsZeros(t *testing.T) {
+// TestSummaryBeforeScan_Is404AndNotAZeroedSummary pins the CONTRACT CHANGE made
+// by fix 2, and it is a deliberate change rather than a side effect.
+//
+// WHAT THIS TEST USED TO ASSERT. A summary requested before any scan returned
+// HTTP 200 with a zero-valued ComplianceSummary -- "not an error, but clearly
+// empty". That reading only held while there was one global slot: "nothing has
+// been scanned" was a fact about the process and a zeroed document described it
+// accurately.
+//
+// WHY IT NO LONGER HOLDS. The slot is now keyed by tenant, so the same request
+// means "show me MY summary", and the honest answers to that are a summary or a
+// refusal -- never a zeroed document. A zeroed summary is indistinguishable
+// from a real one: totalControls 0, failed 0, totalExposureGbp 0 renders as a
+// clean compliance posture, and a tenant whose scan has not run (or has been
+// evicted from the bounded store) would be shown one. That is the same class of
+// fabrication as the empty 200 fix 1 removed, which is why both go the same way.
+//
+// So: 404, with a body that says which tenant has no scan and what to do about
+// it. Asserted on the status AND the body, because a 404 with no document is
+// only marginally better than a 200 with none.
+func TestSummaryBeforeScan_Is404AndNotAZeroedSummary(t *testing.T) {
 	h := testComplianceHandler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
 	w := httptest.NewRecorder()
 	h.handleSummary(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	if w.Code == http.StatusOK {
+		t.Fatalf("expected 404, got 200 with %.300q. A zeroed summary is indistinguishable "+
+			"from a real clean one and must never be served for a tenant that has not "+
+			"scanned.", w.Body.String())
+	}
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %.300q", w.Code, w.Body.String())
+	}
+	if w.Body.Len() == 0 {
+		t.Fatal("404 carries no body: a refusal an operator cannot read is barely better " +
+			"than a fabricated success")
 	}
 
-	var summary ComplianceSummary
-	json.NewDecoder(w.Body).Decode(&summary)
-
-	if summary.TotalControls != 0 {
-		t.Fatalf("expected 0 total controls before any scan, got %d", summary.TotalControls)
+	// It is NOT a summary document. A client that unmarshals optimistically must
+	// not find usable counts in the refusal.
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("404 body is not JSON: %v (%.300q)", err, w.Body.String())
 	}
-	if summary.ScanTimestamp != "" {
-		t.Fatalf("expected empty scan timestamp before any scan, got %q", summary.ScanTimestamp)
+	if body["error"] != "no_scan_for_tenant" {
+		t.Errorf("error = %v, want no_scan_for_tenant", body["error"])
+	}
+	for _, leaked := range []string{"totalControls", "totalExposureGbp", "passed", "failed"} {
+		if _, present := body[leaked]; present {
+			t.Errorf("refusal carries %q: no count may be reported for a scan that never ran", leaked)
+		}
 	}
 }
 

@@ -238,16 +238,92 @@ type ComplianceSummary struct {
 	Exposure money.Money `json:"exposure"`
 }
 
+// tenantScan is ONE tenant's most recent scan, as the summary endpoint needs
+// it: the rows, and the scan-level fact that is not a property of any row.
+type tenantScan struct {
+	results []ComplianceScanResult
+	// ungated names frameworks of this scan that declared a verified window
+	// which was not applied because no assessmentDate was supplied. Kept beside
+	// the rows because it is a property of the scan, not of a row.
+	ungated []string
+	// seq is the insertion order, used only for eviction. See maxRememberedTenants.
+	seq uint64
+}
+
+// maxRememberedTenants bounds the scan store.
+//
+// THE GROWTH DECISION, STATED RATHER THAN LEFT IMPLICIT. Keying the stored
+// results by tenant turns one slot into a map, and a map keyed by a value the
+// CALLER supplies, with no eviction, is a slow memory leak with an unauthenticated
+// trigger: `X-Tenant-ID: <random>` on each scan grows the map forever. The tenant
+// id here is not checked against anything -- the engine has no database and no
+// token introspection -- so "only real tenants appear" is not a property this
+// code can rely on.
+//
+// So the store is bounded and evicts the OLDEST scan when full. The consequence
+// is honest and small: a tenant whose scan has been evicted gets the same 404 as
+// a tenant that never scanned, which is the correct answer to "show me my
+// summary" when the engine no longer has one. The alternative -- refusing new
+// scans once full -- would let one caller deny the endpoint to everyone else.
+//
+// THIS IS IN-MEMORY, PER-PROCESS, NON-DURABLE STATE, and that is unchanged by
+// this fix. It does not survive a restart, it is not shared between replicas,
+// and behind more than one replica a tenant's summary is only visible on the
+// replica that served its scan. That was true of the single slot too; the fix
+// was to stop serving one tenant's money to another, not to make the state
+// durable. A durable, per-tenant scan history is a store, not a cache, and
+// belongs to the fe gateway which already has the database.
+const maxRememberedTenants = 1024
+
 // complianceHandler holds framework data and scan state.
 type complianceHandler struct {
-	policyRoot  string
-	celEngine   *CELEngine
-	mu          sync.RWMutex
-	lastResults []ComplianceScanResult
-	// lastUngated names frameworks of the last scan that declared a verified
-	// window which was not applied because no assessmentDate was supplied. Kept
-	// beside lastResults because it is a property of the scan, not of a row.
-	lastUngated []string
+	policyRoot string
+	celEngine  *CELEngine
+	mu         sync.RWMutex
+	// scans is the most recent scan PER TENANT, keyed by the id extractTenant
+	// resolves from the request. The empty key is the caller that presented no
+	// tenant at all: its own bucket, not a wildcard, so an anonymous scan can
+	// never be read back as a named tenant's and vice versa.
+	//
+	// It replaces a single unkeyed slot (`lastResults`/`lastUngated`) that
+	// handleSummary read with no tenant input of any kind -- so
+	// GET /compliance/summary meant "the summary of whichever scan this process
+	// served most recently", including another tenant's, with that tenant's
+	// declared currency and declared load baked into every figure. The mutex
+	// made that race-free; it did not make it tenant-scoped.
+	scans   map[string]tenantScan
+	scanSeq uint64
+}
+
+// rememberScan stores one tenant's scan, evicting the oldest when the store is
+// full. See maxRememberedTenants for why it is bounded at all.
+func (ch *complianceHandler) rememberScan(tenantID string, results []ComplianceScanResult, ungated []string) {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	if ch.scans == nil {
+		ch.scans = make(map[string]tenantScan, 8)
+	}
+	ch.scanSeq++
+	if _, replacing := ch.scans[tenantID]; !replacing && len(ch.scans) >= maxRememberedTenants {
+		oldestKey, oldestSeq := "", ^uint64(0)
+		for k, v := range ch.scans {
+			if v.seq < oldestSeq {
+				oldestKey, oldestSeq = k, v.seq
+			}
+		}
+		delete(ch.scans, oldestKey)
+		slog.Warn("scan store full; evicted the oldest tenant's summary",
+			"evicted_tenant", oldestKey, "cap", maxRememberedTenants)
+	}
+	ch.scans[tenantID] = tenantScan{results: results, ungated: ungated, seq: ch.scanSeq}
+}
+
+// scanFor returns a tenant's remembered scan, and whether there is one.
+func (ch *complianceHandler) scanFor(tenantID string) (tenantScan, bool) {
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
+	s, ok := ch.scans[tenantID]
+	return s, ok
 }
 
 func newComplianceHandler(policyRoot string, optEngine ...*CELEngine) (*complianceHandler, error) {
@@ -526,10 +602,10 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			"frameworks", strings.Join(ungatedList, ","))
 	}
 
-	ch.mu.Lock()
-	ch.lastResults = results
-	ch.lastUngated = ungatedList
-	ch.mu.Unlock()
+	// Stored UNDER THE SCANNING TENANT. tenantID was resolved at the top of this
+	// handler and is the empty string for a caller that presented none, which is
+	// its own bucket rather than a wildcard.
+	ch.rememberScan(tenantID, results, ungatedList)
 
 	writeJSONChecked(w, http.StatusOK, results)
 }
@@ -571,10 +647,35 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 
 // handleSummary returns aggregate posture from the last scan.
 func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Request) {
-	ch.mu.RLock()
-	results := ch.lastResults
-	ungated := ch.lastUngated
-	ch.mu.RUnlock()
+	// WHOSE summary. handleSummary used to take no tenant input of any kind and
+	// read a single unkeyed slot, so it served the last scanner's figures --
+	// under the last scanner's declared currency -- to every caller, including
+	// one presenting a different tenant and one presenting none.
+	//
+	// extractTenant is the same resolution handleScan performs, so a tenant
+	// reads back exactly what it stored and nothing else.
+	tenantID := extractTenant(r)
+	scan, ok := ch.scanFor(tenantID)
+	if !ok {
+		// 404, NOT an empty 200. A tenant with no scan has no summary, and the
+		// counts on this response are a total, a pass count and a fail count --
+		// so a client that defaults absent numbers to zero would render an
+		// empty 200 as zero controls, zero failures and zero exposure: a clean
+		// posture nobody computed. The same reasoning as writeJSONChecked, one
+		// level up. It is also deliberately NOT another tenant's figures, which
+		// is the whole of this fix.
+		writeJSONChecked(w, http.StatusNotFound, map[string]any{
+			"error":  "no_scan_for_tenant",
+			"tenant": tenantID,
+			"message": "no scan has been run for this tenant on this engine instance; " +
+				"POST /api/v1/compliance/scan first. Scan state is in-memory and " +
+				"per-process, so it does not survive a restart and is not shared " +
+				"between replicas.",
+		})
+		return
+	}
+	results := scan.results
+	ungated := scan.ungated
 
 	// The summary is denominated by the scan it summarises, not by a constant.
 	// Results carry their own currency now, so reading it from them is what

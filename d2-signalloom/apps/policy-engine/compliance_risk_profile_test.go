@@ -195,10 +195,14 @@ func TestTheSummaryIsDenominatedByTheScanItSummarises(t *testing.T) {
 		t.Fatal("no results")
 	}
 
+	// Read back AS THE SCANNING TENANT. Fix 2 keyed the stored results by
+	// tenant, so an unheadered fetch is a different caller and correctly 404s.
 	w := httptest.NewRecorder()
-	h.handleSummary(w, httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil))
+	sReq := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
+	sReq.Header.Set("X-Tenant-ID", "t")
+	h.handleSummary(w, sReq)
 	if w.Code != http.StatusOK {
-		t.Fatalf("summary: got %d", w.Code)
+		t.Fatalf("summary: got %d (%.200q)", w.Code, w.Body.String())
 	}
 	var summary map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &summary); err != nil {

@@ -259,13 +259,13 @@ func TestSummary_NotInForceExcludedFromFailedErroredAndExposure(t *testing.T) {
 			Carried: money.Money{Amount: carried, Currency: defaultReportingCurrency},
 		}
 	}
-	h := &complianceHandler{lastResults: []ComplianceScanResult{
+	h := handlerRemembering([]ComplianceScanResult{
 		row(VerdictNotInForce, 256_514.43),
 		row(VerdictNotEvaluated, 12_345.67),
 		row(VerdictPass, 98_765.43),
 		row(VerdictFail, 1_000),
 		row(VerdictError, 500),
-	}}
+	})
 	s, err := handlerTransport{h}.summary()
 	if err != nil {
 		t.Fatal(err)
@@ -290,7 +290,7 @@ func TestSummary_NotInForceExcludedFromFailedErroredAndExposure(t *testing.T) {
 	// The row keeps its own figure. Same honesty as the not_evaluated case: the
 	// money is input-independent, so the ROW still carries a real number; it is
 	// the SUMMARY that declines to add it up.
-	if h.lastResults[0].CarriedGBP != 256_514.43 {
+	if h.mustScan().results[0].CarriedGBP != 256_514.43 {
 		t.Error("summarising mutated the not_in_force row's figure")
 	}
 }

@@ -3,10 +3,15 @@ package compliance
 import (
 	"bytes"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -246,33 +251,274 @@ func TestFleetScan_UnmappedChecksAreDerivedFromTheRequest(t *testing.T) {
 	}
 }
 
-// TestFleetScanSource_ContainsNoCalibratedMoneyLiterals reads the implementation and fails if any
-// of the fabricated figures reappears in it. The figures were literals, so the only durable way to
-// pin their absence is to look at the source: a behavioural test can be satisfied by a literal
-// routed through one more variable.
+// ── The money-literal invariant ─────────────────────────────────────────────
 //
-// If this test fails on a legitimate change, the fix is to declare the inputs in the two files
-// named by unpricedReason and compute the figure -- not to add an exemption here.
-func TestFleetScanSource_ContainsNoCalibratedMoneyLiterals(t *testing.T) {
-	const path = "fleet_scan.go"
-	src, err := os.ReadFile(path)
+// WHAT THIS REPLACED, AND WHY
+//
+// A test named TestFleetScanSource_ContainsNoCalibratedMoneyLiterals stood here. Its comment
+// claimed "a figure must be a function of its inputs or absent". It actually proved "these 8
+// exact strings are absent", by strings.Contains over the raw file. An audit walked past it
+// four ways, each of which compiles, vets, and expresses a denylisted figure:
+//
+//	var w8A = 847_000.0                      // digit separator: valid Go, different bytes
+//	var w8B = 8.47e5                         // exponent notation: same value, no "847000"
+//	var w8E = 0xCEC98                        // hex: 847000
+//	var calibratedCarriedExposure = 923400.0 // a brand-new figure the denylist never knew
+//
+// A denylist can only ever recognise figures someone already wrote down. Normalising digit
+// separators and catching exponents would have closed three of those four and left the fourth
+// -- the one that matters most, because a fabricated figure that has not been audited yet is
+// the only kind anyone will add on purpose.
+//
+// WHAT IT ASSERTS NOW
+//
+// No numeric literal of money magnitude is BOUND anywhere in this package's non-test source,
+// whatever it is called. Two clauses:
+//
+//	FLOAT or IMAG literal     -> finding unless the value is exactly zero
+//	INT literal               -> finding if |value| >= intMoneyFloor
+//
+// The check walks the go/ast rather than matching text, which is what makes it an invariant
+// rather than a better denylist. A *ast.BasicLit is a literal by construction, so the walk
+// structurally cannot match digits inside an identifier (VaR95), inside a string ("var95",
+// time.RFC3339), or inside a comment -- the three false-positive sources that push a text
+// matcher towards exemptions. It also normalises every spelling for free, because the Go
+// scanner and strconv do it: 847000, 847_000.0, 8.47e5 and 0xCEC98 are one value by the time
+// the walk sees them, and a future literal form would be too.
+//
+// The float clause is absolute (bar zero) because every money field on this type is a
+// *float64 and the package today contains no float literal at all. A legitimate calibrated
+// constant -- the 1.10 risk-load style -- tripping this is the gate working, not a false
+// positive: that constant is exactly the thing that has to be declared as an input and
+// computed, which is what unpricedReason tells the caller.
+//
+// WHAT IT IS NOT LOAD-BEARING FOR
+//
+// When a figure actually reaches the wire the behavioural tests catch it: injecting a literal
+// into CarriedGBP turns five named tests red. This guard is the sole defence for a money
+// literal that never reaches the wire, and that is the case it was failing. It deliberately
+// does not duplicate the behavioural coverage.
+//
+// If this fails on a legitimate change, the fix is to declare the inputs in the two files named
+// by unpricedReason and compute the figure. An exemption is the last resort and needs a reason.
+
+// intMoneyFloor is the magnitude at or above which a bare integer literal is treated as money.
+//
+// 1000, chosen as follows:
+//
+//   - Every fabricated figure in the audited set was >= 9800 (9800, 11200, 12400, 350000,
+//     497000, 615000, 742000, 847000). 1000 sits an order of magnitude below the smallest, so
+//     a money figure written deliberately small is still caught.
+//   - Everything this domain legitimately spells as a small integer sits below it: HTTP status
+//     codes (200, 400, 405), percentages and posture scores (0-100), bit widths (32, 64), agent
+//     and check counts, and slice capacities. The package's largest real integer literal today
+//     is 5.
+//   - GBP at fleet scale is four digits or more by nature. A three-digit "money" literal is
+//     below the noise floor of the figures this guard exists for, and pricing the gate lower
+//     buys nothing for the false positives it would cost.
+//
+// The floor is live, not aspirational: the package contains zero integer literals at or above
+// it, so it holds with margin and any new large constant has to be justified.
+const intMoneyFloor = 1000
+
+// moneyLiteralExemption pins a single literal in a single file. `Reason` is mandatory: an
+// exemption without a stated reason is indistinguishable from a defect someone silenced.
+type moneyLiteralExemption struct {
+	File   string
+	Lit    string
+	Reason string
+}
+
+// Empty on purpose. Adding a row is a reviewed decision, not a way past a red test.
+var moneyLiteralExemptions = []moneyLiteralExemption{}
+
+type moneyLitFinding struct {
+	File string
+	Line int
+	Lit  string
+	Val  float64
+}
+
+// findMoneyMagnitudeLiterals parses src and returns every bound numeric literal of money
+// magnitude. Exported shape kept test-local: this is test infrastructure, not production code.
+func findMoneyMagnitudeLiterals(filename string, src []byte) ([]moneyLitFinding, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filename, src, 0)
 	if err != nil {
-		t.Fatalf("reading %s failed: %v", path, err)
+		return nil, err
 	}
-	body := string(src)
 
-	// The fabricated fleet figures, and the two per-agent exposures paid by agent-ID string match.
-	fabricated := []string{"847000", "742000", "615000", "12400", "11200", "9800", "350000", "497000"}
-
-	var found []string
-	for _, lit := range fabricated {
-		if strings.Contains(body, lit) {
-			found = append(found, lit)
+	var found []moneyLitFinding
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok {
+			return true
 		}
+
+		var val float64
+		switch lit.Kind {
+		case token.INT:
+			// ParseInt with base 0 understands 0x, 0o, 0b and underscores.
+			i, err := strconv.ParseInt(strings.TrimSuffix(lit.Value, "i"), 0, 64)
+			if err != nil {
+				return true
+			}
+			if abs64(float64(i)) < intMoneyFloor {
+				return true
+			}
+			val = float64(i)
+		case token.FLOAT, token.IMAG:
+			f, err := strconv.ParseFloat(strings.TrimSuffix(lit.Value, "i"), 64)
+			if err != nil {
+				return true
+			}
+			// Zero is honest absence, in any spelling: 0.0, 0., 0e0.
+			if f == 0 {
+				return true
+			}
+			val = f
+		default:
+			return true
+		}
+
+		for _, ex := range moneyLiteralExemptions {
+			if ex.File == filepath.Base(filename) && ex.Lit == lit.Value {
+				return true
+			}
+		}
+
+		found = append(found, moneyLitFinding{
+			File: filepath.Base(filename),
+			Line: fset.Position(lit.Pos()).Line,
+			Lit:  lit.Value,
+			Val:  val,
+		})
+		return true
+	})
+	return found, nil
+}
+
+func abs64(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
+}
+
+// TestFleetScanSource_BindsNoMoneyMagnitudeLiterals enforces the invariant over every non-test
+// Go file in the package, not just fleet_scan.go: a new file is the cheapest place to smuggle a
+// figure past a guard that names one file.
+func TestFleetScanSource_BindsNoMoneyMagnitudeLiterals(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package dir failed: %v", err)
+	}
+
+	scanned := 0
+	var found []moneyLitFinding
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("reading %s failed: %v", name, err)
+		}
+		hits, err := findMoneyMagnitudeLiterals(name, src)
+		if err != nil {
+			t.Fatalf("parsing %s failed: %v", name, err)
+		}
+		scanned++
+		found = append(found, hits...)
+	}
+
+	// Absence needs positive evidence. A guard that scanned nothing reports "no findings" in
+	// exactly the same way as a guard over clean source, and the two demand opposite responses.
+	if scanned == 0 {
+		t.Fatal("scanned 0 non-test Go files: the guard cannot have proved anything")
+	}
+
+	for _, f := range found {
+		t.Errorf("%s:%d binds money-magnitude literal %s (= %.2f); a figure must be a function of its inputs or absent",
+			f.File, f.Line, f.Lit, f.Val)
 	}
 	if len(found) > 0 {
-		t.Fatalf("%s contains fabricated money literal(s) %v; a figure must be a function of its inputs or absent",
-			path, found)
+		t.Logf("declare the inputs in the two files named by unpricedReason and compute the figure; see intMoneyFloor for the threshold rationale")
+	}
+}
+
+// TestMoneyLiteralGuard_SelfTest proves the instrument. The guard it replaced was authored from
+// a list of 8 strings and proved only that those 8 strings were absent; a clean run looked like
+// success. So every shape that defeated the old guard is planted here and asserted caught, in
+// the syntaxes the old author had not used.
+func TestMoneyLiteralGuard_SelfTest(t *testing.T) {
+	caught := []struct {
+		name string
+		src  string
+	}{
+		{"plain int", "package p\n\nvar x = 847000\n"},
+		{"digit separator float", "package p\n\nvar x = 847_000.0\n"},
+		{"digit separator int", "package p\n\nvar x = 847_000\n"},
+		{"exponent notation", "package p\n\nvar x = 8.47e5\n"},
+		{"hex", "package p\n\nvar x = 0xCEC98\n"},
+		{"octal", "package p\n\nvar x = 0o3146230\n"},
+		{"binary", "package p\n\nvar x = 0b11001110110010011000\n"},
+		{"renamed, never denylisted", "package p\n\nvar calibratedCarriedExposure = 923400.0\n"},
+		{"small float below the int floor", "package p\n\nvar x = 9.8\n"},
+		{"risk-load style constant", "package p\n\nconst riskLoad = 1.10\n"},
+		{"negated", "package p\n\nvar x = -847000.0\n"},
+		{"inside a struct literal", "package p\n\ntype T struct{ A float64 }\n\nvar x = T{A: 847000.0}\n"},
+		{"inside a func body", "package p\n\nfunc f() float64 { return 847000.0 }\n"},
+		{"inside a map value", "package p\n\nvar x = map[string]float64{\"a\": 847000.0}\n"},
+		{"returned via a pointer helper", "package p\n\nfunc f() *float64 { v := 847000.0; return &v }\n"},
+	}
+	for _, c := range caught {
+		t.Run("caught/"+c.name, func(t *testing.T) {
+			got, err := findMoneyMagnitudeLiterals("fleet_scan.go", []byte(c.src))
+			if err != nil {
+				t.Fatalf("parse failed: %v", err)
+			}
+			if len(got) == 0 {
+				t.Fatalf("mutant survived: %q", c.src)
+			}
+		})
+	}
+
+	// Negative controls. The three false-positive sources that push a text matcher towards
+	// exemptions -- digits in an identifier, in a string, in a comment -- plus the legitimate
+	// small integers this domain is full of.
+	clean := []struct {
+		name string
+		src  string
+	}{
+		{"digits in an identifier", "package p\n\ntype T struct{ VaR95 float64 }\n\nfunc f(t T) float64 { return t.VaR95 }\n"},
+		{"digits in a string", "package p\n\nvar fields = []string{\"var95\", \"ale\", \"847000\"}\n"},
+		{"digits in a comment", "package p\n\n// the fabricated 847000 and 1_240_000 figures\nvar x = 0\n"},
+		{"time layout constant", "package p\n\nimport \"time\"\n\nvar x = time.RFC3339\n"},
+		{"http status codes", "package p\n\nvar codes = []int{200, 400, 405, 500}\n"},
+		{"percentages and bit widths", "package p\n\nvar a, b, c = 95, 64, 5\n"},
+		{"honest zero in every spelling", "package p\n\nvar a, b, c = 0.0, 0., 0e0\n"},
+		{"slice capacity", "package p\n\nvar x = make([]int, 0, 64)\n"},
+	}
+	for _, c := range clean {
+		t.Run("clean/"+c.name, func(t *testing.T) {
+			got, err := findMoneyMagnitudeLiterals("fleet_scan.go", []byte(c.src))
+			if err != nil {
+				t.Fatalf("parse failed: %v", err)
+			}
+			if len(got) > 0 {
+				t.Fatalf("false positive on %q: %+v", c.src, got)
+			}
+		})
+	}
+}
+
+func TestMoneyLiteralExemptions_HaveReasons(t *testing.T) {
+	for _, ex := range moneyLiteralExemptions {
+		if len(ex.Reason) <= 20 {
+			t.Errorf("exemption %s %s needs a stated reason, got %q", ex.File, ex.Lit, ex.Reason)
+		}
 	}
 }
 

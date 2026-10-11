@@ -584,6 +584,41 @@ Binding note for P1-2, which was previously visible only by reading the JSON: **
 - **Consumer Contract:** Published `docs/EAP/slsi/p1-2-handoff.json` documenting exact merge rule, digest invariants, layout map, and error conventions.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+#### Errata — SLSI-P1-3
+
+- **Status:** INCOMPLETE (recorded by the lead, not by the card)
+- **Authored by:** the lead, from the card's committed evidence. **Both attempts stopped without writing an errata**, so this block is adjudication rather than self-report and is marked as such.
+- **Branch / commit:** `P1-3-w1` at `bda32e0d`, clean tree, 3,626 insertions
+- **Attempts:** 2 of 2. Both ended `awaiting_review` with the process hung after output stopped (run 1: 6 tool calls over 88 minutes; run 2: 2 tool calls over 26 minutes). Both reaped with `kanban-check.sh stop`; both recorded `exit 0`.
+
+##### What was built, and verified present
+
+| Deliverable | Size | Verification |
+| :--- | ---: | :--- |
+| `scripts/package-tenant-bundle.sh` P1-3 region | +562 lines | `bash -n` clean; `stage_p1_3_manifest` defined under **exactly** the name `main()` dispatches, so the `run_stage` silent-skip trap is avoided |
+| `schemas/slsi-appliance-manifest-schema.json` | 431 lines | valid JSON, `$schema` draft 2020-12, 8 top-level keys |
+| `scripts/lib/json-schema-lite.jq` | 5,736 bytes | present; the suite depends on it and it exists |
+| `test/slsi-bundle-manifest.bats` | 216 lines, 15 tests | runs; **0 skips**; fails loudly when no bundle exists |
+| `test/slsi-bundle-seal-falsification.sh` | 161 lines | `bash -n` clean |
+| `test/fixtures/slsi/expected-toplevel.txt` | 7 lines | present |
+
+##### What could NOT be verified, and why
+
+The suite requires `dist/MANIFEST.json` and `dist/slsi-appliance-*.tar.gz`, so it needs a **built** bundle. Building needs the ten staged binaries (network) and `bundle/images/` (7.4 GB, correctly gitignored, absent on a clean checkout). On this tree the suite reports **1 passed, 14 failed, 0 skipped**, every failure being `[ -f "$MANIFEST_JSON" ]`. `--only kind` cannot substitute: it stages one binary, then the P1-1 verify path checks the full ten-entry manifest and fails at `sha256sum -c` before `stage_p1_3_manifest` is reached.
+
+Therefore **unverified rather than failed**: that the stage emits a conforming `MANIFEST.json`; that the seven gates fire and can fail; byte-for-byte reproducibility; and the corrected three-part coverage gate.
+
+##### Credit where the card earned it
+
+Two things were right without prompting twice. The suite **fails rather than skips** on a missing precondition, which is the discipline whose absence let an 81-test suite read green for two commits elsewhere in this repo. And `test/slsi-bundle-seal-falsification.sh` exists as a standalone falsification harness, which is negative evidence rather than a happy-path check.
+
+##### Lead assessment
+
+The shape is right: symbol contract, schema and validator are all in place. The behaviour is unproven, and **unproven is not proven**. Per the governor contract this card is INCOMPLETE, INCOMPLETE is as fatal as FAIL, and it must not be advanced. Closing it requires a build on a networked host with the image layout present, which is the same clean-checkout limitation already recorded against P1-1's evidence column.
+
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+
 ---
 
 ## Open Scope Decisions (AJM, raised 2026-10-11 by the P1-3 council)

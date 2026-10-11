@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { fairApi } from '../api/fairApi'
-import { colors } from '../styles/tokens'
+import { colors, exposureAccent } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import AgentSuperFilterTable, { formatFullTimestamp } from '../components/AgentSuperFilterTable'
@@ -300,7 +300,13 @@ export default function RiskExposurePage() {
   // Reactive loss exceedance curve recalculated under 250ms
   const exceedanceCurve = useMemo(() => {
     if (!effectiveSummary) return []
-    return fairApi.calculateLossExceedance(effectiveSummary.totalAle.amount, effectiveSummary.totalTvar.amount)
+    // No curve from an unpriced summary. A curve drawn through zeros is not an
+    // empty chart, it is a chart asserting zero loss at every exceedance
+    // probability -- the most confident possible statement of a figure nobody
+    // computed.
+    const { totalAle, totalTvar } = effectiveSummary
+    if (!totalAle || !totalTvar) return []
+    return fairApi.calculateLossExceedance(totalAle.amount, totalTvar.amount)
   }, [effectiveSummary])
 
   function handleVersionChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -534,7 +540,7 @@ export default function RiskExposurePage() {
           </div>
           <div className="card" style={{ flex: 1, minWidth: 180, padding: '16px 18px' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Carried Risk</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: (effectiveSummary.totalCarried?.amount ?? effectiveSummary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom, lineHeight: 1 }}>{fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: exposureAccent(effectiveSummary.totalCarried ?? effectiveSummary.carried), lineHeight: 1 }}>{fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
               residual from failing controls
               <span className="tag" style={{ background: tint('var(--cyan)', 0.12), color: 'var(--cyan)', marginLeft: 8 }}>
@@ -744,7 +750,7 @@ export default function RiskExposurePage() {
               <StatCard label="ALE" value={fmtMoney(effectiveSummary.totalAle)} sub={`at ${selectedVersion}`} accent={colors.amber} />
               <StatCard label="VaR95" value={fmtMoney(effectiveSummary.totalVar95)} sub={`at ${selectedVersion}`} accent={colors.red} />
               <StatCard label="TVaR" value={fmtMoney(effectiveSummary.totalTvar)} sub={`at ${selectedVersion}`} accent={colors.red} />
-              <StatCard label="Carried" value={fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)} sub={`at ${selectedVersion}`} accent={(effectiveSummary.totalCarried?.amount ?? effectiveSummary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom} />
+              <StatCard label="Carried" value={fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)} sub={`at ${selectedVersion}`} accent={exposureAccent(effectiveSummary.totalCarried ?? effectiveSummary.carried)} />
             </div>
           )}
         </div>

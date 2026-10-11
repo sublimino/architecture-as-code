@@ -24,7 +24,7 @@ import {
 } from './fakeComplianceData'
 import type { ComplianceCheck } from '../types/compliance'
 import type { CurrencyCode } from '../money/currency'
-import { sumMoney } from '../money/money'
+import { sumMoney, requirePriced } from '../money/money'
 
 const EXPECTED_FRAMEWORKS = [
   'EU AI Act',
@@ -140,22 +140,22 @@ describe('fakeComplianceData — framework coverage', () => {
       expect(fw.totalControls).toBe(rows.length)
       expect(fw.passedControls).toBe(rows.filter((c) => c.passed).length)
       expect(fw.failedControls).toBe(rows.length - fw.passedControls)
-      expect(fw.totalExposure.amount).toBe(
+      expect(requirePriced(fw.totalExposure, "fw.totalExposure").amount).toBe(
         rows.reduce((sum, c) => sum + c.carried.amount, 0),
       )
     }
   })
 
   it('makes the document totals equal the sum of the framework totals', () => {
-    const perFramework = POSTURE_SUMMARY.frameworks.reduce((s, f) => s + f.totalExposure.amount, 0)
-    expect(POSTURE_SUMMARY.totalCarried.amount).toBe(perFramework)
+    const perFramework = POSTURE_SUMMARY.frameworks.reduce((s, f) => s + requirePriced(f.totalExposure, "f.totalExposure").amount, 0)
+    expect(requirePriced(POSTURE_SUMMARY.totalCarried, "POSTURE_SUMMARY.totalCarried").amount).toBe(perFramework)
     expect(POSTURE_SUMMARY.totalChecks).toBe(ALL_CHECKS.length)
     expect(POSTURE_SUMMARY.passed + POSTURE_SUMMARY.failed).toBe(ALL_CHECKS.length)
   })
 
   it('keeps the document ALE < VaR95 < TVaR at the aggregate level too', () => {
-    expect(POSTURE_SUMMARY.totalAle.amount).toBeLessThan(POSTURE_SUMMARY.totalVar95.amount)
-    expect(POSTURE_SUMMARY.totalVar95.amount).toBeLessThan(POSTURE_SUMMARY.totalTvar.amount)
+    expect(requirePriced(POSTURE_SUMMARY.totalAle, "POSTURE_SUMMARY.totalAle").amount).toBeLessThan(requirePriced(POSTURE_SUMMARY.totalVar95, "POSTURE_SUMMARY.totalVar95").amount)
+    expect(requirePriced(POSTURE_SUMMARY.totalVar95, "POSTURE_SUMMARY.totalVar95").amount).toBeLessThan(requirePriced(POSTURE_SUMMARY.totalTvar, "POSTURE_SUMMARY.totalTvar").amount)
   })
 })
 
@@ -216,10 +216,10 @@ describe('fakeComplianceData — multi-currency documents', () => {
     // Value assertions, not formatted-string assertions: under jsdom's en-US
     // locale a GBP figure and a USD figure can format to the same glyphs.
     expect(doc.currency).toBe(currency)
-    expect(doc.totalCarried.currency).toBe(currency)
-    expect(doc.totalCarried.amount).toBe(POSTURE_SUMMARY.totalCarried.amount)
+    expect(requirePriced(doc.totalCarried, "doc.totalCarried").currency).toBe(currency)
+    expect(requirePriced(doc.totalCarried, "doc.totalCarried").amount).toBe(requirePriced(POSTURE_SUMMARY.totalCarried, "POSTURE_SUMMARY.totalCarried").amount)
     for (const fw of doc.frameworks) {
-      expect(fw.totalExposure.currency).toBe(currency)
+      expect(requirePriced(fw.totalExposure, "fw.totalExposure").currency).toBe(currency)
     }
   })
 
@@ -237,7 +237,7 @@ describe('fakeComplianceData — multi-currency documents', () => {
     // An all-passing document has nothing to take a currency from, so the
     // fallback is the only thing keeping the zero denominated.
     const doc = buildPostureSummary(checksForVersion('v1.0'))
-    expect(doc.totalCarried.amount).toBe(0)
-    expect(doc.totalCarried.currency).toBe(DEMO_CURRENCY)
+    expect(requirePriced(doc.totalCarried, "doc.totalCarried").amount).toBe(0)
+    expect(requirePriced(doc.totalCarried, "doc.totalCarried").currency).toBe(DEMO_CURRENCY)
   })
 })

@@ -257,8 +257,16 @@ function toCheck(control: SuperCredControl, state: SuperCredDemoState): Complian
  * rather than corrupting the total, and the SuperCred rows still appear as
  * their own denominated checks.
  */
-function addInSourceCurrency(base: Money | number | undefined, delta: number): Money {
-  if (base === undefined || base === null) return money(delta, SUPERCRED_CURRENCY)
+// An absent base yields an absent total, NOT the delta alone.
+//
+// This used to return `money(delta)` when the base was absent, which reports
+// the SuperCred contribution as if it were the whole estate's figure. A sum
+// with an unknown summand is unknown; the projection cannot know what it is
+// adding to. The SuperCred rows still appear as their own denominated checks
+// either way, so nothing is lost by declining -- the same reasoning the
+// mismatched-currency branch below already applies.
+function addInSourceCurrency(base: Money | number | null | undefined, delta: number): Money | null {
+  if (base === undefined || base === null) return null
   if (typeof base === 'number') return money(base + delta, SUPERCRED_CURRENCY)
   if (base.currency !== SUPERCRED_CURRENCY) return base
   return money(base.amount + delta, base.currency)

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import AgentDeepLink from '../components/AgentDeepLink'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import { colors } from '../styles/tokens'
+import { colors, exposureAccent } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import SignalBadge, { FIDELITY_COLORS, FIDELITY_LABELS } from '../components/SignalBadge'
@@ -452,7 +452,7 @@ export default function AgentPosturePage() {
           label="Total Exposure"
           value={totalExposure ? fmtMoney(totalExposure) : MONEY_UNAVAILABLE}
           sub="carried risk from failures"
-          accent={(totalExposure?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom}
+          accent={exposureAccent(totalExposure)}
         />
       </div>
 

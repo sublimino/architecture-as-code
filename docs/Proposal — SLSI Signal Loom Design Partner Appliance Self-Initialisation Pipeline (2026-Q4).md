@@ -375,6 +375,11 @@ Obey these. They are the phase constitution.
 
 #### Errata — SLSI-P0
 
+**Created:** 2026-10-11T16:30:00+01:00
+**Last Updated:** 2026-10-11T17:00:00+01:00
+**Status:** pass
+**Commit:** `326c76a5e6b5b118470053a6ebaa9108a687d230`
+
 - **Cut-SHA vs Branch Tip Drift:** P0 anchored to `504405b9e7e91efdf5c97bcd701b6511f712f6db` on re-cut branch `integration/slsi-v0.1.1` via dedicated worker branch `P0-w1`. The original `integration/slsi-v0.1.0` branch drifted concurrently (`504405b9` → `ecee0eb7`), which was isolated by pinning to `v0.1.1`. `refs/heads/integration/slsi-v0.1.1` remains un-advanced; Governor will advance upon certification.
 - **Kubeconfig & Dual Context Reachability:** `Makefile:15,28` pins `KUBECONFIG ?= /tmp/osramp-kubeconfig.yaml` (SHA256: `c3186c480f7e91cf5f2d82f1e30a06ea6f3e60c876245f10143b5c47503ff831`). Contexts `kind-osramp` and `kind-signalloom-hub` were verified healthy with `/readyz` returning HTTP 200 `ok`. Image tag `src-e2763e591d984701` verified aligned between running pod and `scripts/signal-ingest-image-tag.sh`.
 - **Foreign Docs-Lint Defect Allow-list:** `make docs-lint` failed with exactly 21 findings, 100% confined to `policy/frameworks/**`. All 21 findings were proven foreign, introduced by merge `cb0a6d0e4a3d6130bf37c101542d0d4a382e16b0` (`integration/cel-frameworks`). Downstream cards diff against this canonical list.
@@ -382,6 +387,8 @@ Obey these. They are the phase constitution.
 - **Dual-Cluster Containment Verification:** `make test-e2e-dual-cluster-containment` scored 4/6 passed (66.7%). Steps 2 (registration), 3 (provocation), 5 (freeze & CPU flatline), and 6 (authorized recovery via fleet-manager) passed. Step 1 failed on Flux rollout timeout (Kusari workload not reconciled), and Step 4 failed on `actor_id` null. Detailed in `docs/slsi-p0-baseline/dual-cluster-containment.json`.
 - **Authoritative Baseline Artefacts:** Full machine-readable record is sealed at [`docs/slsi-p0-baseline/baseline.json`](docs/slsi-p0-baseline/baseline.json) (schema `slsi-baseline/v1`) with human-readable companion note [`docs/slsi-p0-baseline.md`](docs/slsi-p0-baseline.md) and raw logs in `docs/slsi-p0-baseline/raw/`.
 - **Lead adjudication amendment (2026-10-11, applied as a follow-up commit, never an amend):** the original commit `1385bded` tagged five suites `RED_INHERITED` — `test-all-offline`, `test-all-cluster`, `test-all-browser`, `test-all-estate` and `dual-cluster-containment`. That was wrong: `RED_INHERITED` is reserved for the 21 `policy/frameworks/**` docs-lint findings from `cb0a6d0e`, and tagging anything else foreign launders a real red. All five are now `RED_NEW` with `attribution: not-inherited` and a `failureNote` naming the true cause: `bun install --frozen-lockfile` fails `EACCES: could not open the node_modules directory` in this linked worktree (offline leg at `Makefile:701`, browser leg at `Makefile:1350`), the cluster leg trips the anti-vacuity gate (`cannot run is not a suite that passed`, `Makefile:498`) after all 8 tests skip on the stated `namespace/frontend not deployed` precondition, the estate leg is the aggregate, and containment 4/6 is the documented empty-hub precondition. Corrected counts: `inheritedFindings: 1`, `newFindings: 5`. Two further lead fixes in the same commit: this errata heading was written with a double hyphen so `done-check` could not find its own completion marker, and the P0 row still named the superseded `integration/slsi-v0.1.0` as its base.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 ---
 

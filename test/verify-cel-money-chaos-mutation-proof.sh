@@ -16,11 +16,19 @@
 # SURVIVOR and fails this script: it means the named test does not actually
 # depend on the guard it claims to pin.
 #
-# THREE MUTANTS DELIBERATELY INVERT THE DIRECTION OF PROOF. M3, M8 and M9 do not
-# break the code — they FIX a defect the suites characterise. The test that
-# pins the defect must then go red, because a characterisation test whose
-# subject has been fixed and which still passes is pinning nothing. This is the
-# only way to prove a `_DEFECT` test is a tripwire rather than a tautology.
+# SOME MUTANTS DELIBERATELY INVERT THE DIRECTION OF PROOF. M8, M15, M17 and M18
+# do not break the code — they FIX a defect the suites still characterise. The
+# test that pins the defect must then go red, because a characterisation test
+# whose subject has been fixed and which still passes is pinning nothing. This is
+# the only way to prove a `_DEFECT` test is a tripwire rather than a tautology.
+#
+# M3, M11, M12 AND M16 USED TO BE INVERTED AND ARE NOW ORDINARY FORWARD MUTANTS,
+# because the three defects they described have been fixed for real (F4): the
+# empty-200 on an unrenderable figure, the unkeyed cross-tenant summary slot, and
+# a declared currency with no rate in the table. A mutant that applies a fix and
+# a mutant that removes one are the same instrument pointed in opposite
+# directions; which direction is correct depends only on whether the fix is in
+# the tree, so these flipped when it landed.
 #
 # SAFETY. Every mutated file is restored from an explicit `cp` backup taken at
 # the top, never from git — the suites under proof are untracked while this
@@ -212,31 +220,55 @@ expect_red M2-negative-guard 'TestTheEngineGuardAndTheDatabaseCheckDisagreeOnOve
   "riskProfileFor must refuse a negative load"
 restore_all
 
-# ── M3 (INVERTED): fix the empty-200 defect ───────────────────────────────────
-# Encode into a buffer and check the error BEFORE committing a status line.
-# This is one of the three fixes the DEFECT test's comment proposes. The DEFECT
-# test must go red — if it survives, it is not pinning the defect.
+# ── M3: the application-time refusal of an unapplicable load ──────────────────
+# WAS INVERTED (it used to APPLY the buffer-then-check fix and require the
+# characterisation test to go red). The fix is real now, so this is an ordinary
+# forward mutant: delete the guard and the test that pins the refusal must fail.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(results)"""
-assert old in s, "M3 anchor absent"
-new="""	// MUTANT M3: buffer-then-check, the proposed fix.
-	if encoded, err := json.Marshal(results); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unrenderable figure: " + err.Error()})
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write(encoded)
-	}"""
-open(p,"w").write(s.replace(old,new,1))
+i=s.index("			if bad := nonFiniteFigure(risk); bad != \"\" {")
+j=s.index("				return\n			}",i)+len("				return\n			}")
+open(p,"w").write(s[:i]+"			// MUTANT M3: application-time overflow refusal deleted"+s[j:])
 '
-expect_red M3-fix-empty-200 'TestAnOverflowingRiskLoadIsServedAs200WithAnEmptyBody_DEFECT' \
-  "INVERTED: fixing the empty-200 must break its characterisation test"
+expect_red M3-overflow-refused 'TestAnOverflowingRiskLoadIsRefusedAndNeverServedAsAnEmptySuccess' \
+  "a load whose application overflows must be refused where it is applied"
 restore_all
 
-# ── M4: the currency shape check ──────────────────────────────────────────────
+# ── M3b: the same guard, proved from the summary's blast radius ───────────────
+# Without the refusal an unrenderable figure is STORED in ch.lastResults, so
+# every subsequent summary -- for every caller -- is affected. That is a wider
+# claim than M3 makes and it needs its own mutant.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("			if bad := nonFiniteFigure(risk); bad != \"\" {")
+j=s.index("				return\n			}",i)+len("				return\n			}")
+open(p,"w").write(s[:i]+"			// MUTANT M3b: refusal deleted; the +Inf reaches the stored slot"+s[j:])
+'
+expect_red M3b-summary-blast-radius 'TestAnOverflowingScanLeavesEverySubsequentSummaryIntact' \
+  "an unrenderable figure must never reach the slot every caller's summary reads"
+restore_all
+
+# ── M4: the currency shape check, which is now a DIAGNOSIS and not a gate ────
+#
+# THIS MUTANT SURVIVED WHEN THE ALLOW-LIST LANDED, and the reason is worth
+# recording because the fix was to the TEST'S CLAIM, not to the test's strength.
+#
+# Fix 3 added a rate-table allow-list that rejects by exact set membership. A
+# malformed code is not a member, so it is refused whether or not Validate runs:
+# the allow-list SUBSUMES the shape check as a gate at this call site, and
+# `code == 400` stopped depending on Validate at all. The old assertion was
+# pinning the allow-list while claiming to pin the shape check.
+#
+# It was NOT resurrected by inventing an assertion. The shape check still makes
+# exactly one contribution here -- it distinguishes "usd" (a typo; fix the
+# caller) from "KWD" (a real currency with no rate; add it to rates.yaml), which
+# are opposite operator actions -- and that is what the test now pins. Nor is
+# deleting Validate an option: it has eleven other callers in the money package
+# where it IS the only guard, and migration 062's DB CHECK is deliberately
+# `^[A-Z]{3}$` with the semantic set enforced one layer up, so the two checks
+# guard different things and only their outcomes coincide at this one site.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
@@ -246,8 +278,8 @@ old="""		if err := declared.Validate(); err != nil {
 assert old in s, "M4 anchor absent"
 open(p,"w").write(s.replace(old,"		// MUTANT M4: currency validation deleted",1))
 '
-expect_red M4-currency-shape 'TestMalformedReportingCurrenciesAreRefused' \
-  "a malformed currency code must be refused, not labelled onto figures"
+expect_red M4-currency-shape-diagnosis 'TestMalformedReportingCurrenciesAreRefused' \
+  "a malformed code must be DIAGNOSED as malformed, not reported as rate-less"
 restore_all
 
 # ── M5: the summary reads its currency from the results ───────────────────────
@@ -406,44 +438,92 @@ expect_green_in "$PE" M10c-ale-oracle-is-blind \
   "NEGATIVE CONTROL: the closed-form ale anchor cannot see a one-rank error" './'
 restore_all
 
-# ── M11 (INVERTED): fix the empty summary ─────────────────────────────────────
-# Same buffer-then-check at the summary's encode site. The persistent-empty
-# characterisation must go red.
+# ── M11: buffer-then-check before committing a status line ───────────────────
+# WAS INVERTED. Now a forward mutant on the real guard: make writeJSONChecked
+# commit the status BEFORE it knows the document can be produced -- which is
+# verbatim the `WriteHeader` then discarded-`Encode` shape the defect had. Every
+# StatusOK site in compliance.go routes through this helper, so one mutant
+# covers all four.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(summary)"""
+old="""func writeJSONChecked(w http.ResponseWriter, status int, v any) {
+	encoded, err := json.Marshal(v)"""
 assert old in s, "M11 anchor absent"
-new="""	// MUTANT M11: buffer-then-check on the summary.
-	if encoded, err := json.Marshal(summary); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unrenderable total: " + err.Error()})
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write(encoded)
-	}"""
+new="""func writeJSONChecked(w http.ResponseWriter, status int, v any) {
+	// MUTANT M11: status committed first, encode error discarded.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+	if true {
+		return
+	}
+	encoded, err := json.Marshal(v)"""
 open(p,"w").write(s.replace(old,new,1))
 '
-expect_red M11-fix-empty-summary 'TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT' \
-  "INVERTED: fixing the empty summary must break its characterisation"
+expect_red M11-buffer-then-check 'TestWriteJSONCheckedNeverCommitsASuccessItCannotRender' \
+  "a status line must never be committed before the document is known to marshal"
 restore_all
 
-# ── M12: the summary reads the shared cross-tenant slot ───────────────────────
-# Stop handleSummary reading ch.lastResults. The cross-tenant leak test must go
-# red: if it survives, it is not actually demonstrating that the slot is shared.
+# ── M12: the summary is scoped to the CALLING tenant ─────────────────────────
+# WAS INVERTED (it used to stop handleSummary reading the shared slot, so that
+# the leak characterisation had to go red). The slot is keyed by tenant now, so
+# this is an ordinary forward mutant: make the lookup ignore the key and return
+# the most recent scan instead -- verbatim the old defect -- and the test that
+# pins the scoping must fail.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""	results := ch.lastResults
-	ungated := ch.lastUngated"""
+old="""	s, ok := ch.scans[tenantID]
+	return s, ok"""
 assert old in s, "M12 anchor absent"
-new="""	var results []ComplianceScanResult // MUTANT M12: shared slot not read
-	ungated := ch.lastUngated"""
+new="""	// MUTANT M12: tenant key ignored; the most recent scan is served to anyone.
+	_ = tenantID
+	var newest tenantScan
+	var found bool
+	for _, v := range ch.scans {
+		if !found || v.seq > newest.seq {
+			newest, found = v, true
+		}
+	}
+	return newest, found"""
 open(p,"w").write(s.replace(old,new,1))
 '
-expect_red M12-summary-shared-slot 'TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT' \
-  "the leak test must depend on handleSummary reading the shared slot"
+expect_red M12-summary-tenant-scoped 'TestTheSummaryIsScopedToTheCallingTenant' \
+  "a tenant must read back its OWN scan, never the most recent one"
+restore_all
+
+# ── M12b: a tenant with no scan gets a refusal, not a zeroed summary ─────────
+# The other half of the same fix, and a different claim: the ABSENCE of a scan
+# must not be expressible as a document full of zeroes, because zero exposure is
+# a real and meaningful answer on this product and the two must not be
+# confusable. Serve an empty summary instead of the 404.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("	scan, ok := ch.scanFor(tenantID)")
+j=s.index("		return\n	}",i)+len("		return\n	}")
+new="""	scan, _ := ch.scanFor(tenantID) // MUTANT M12b: no scan is a zeroed 200"""
+open(p,"w").write(s[:i]+new+s[j:])
+'
+expect_red M12b-no-scan-is-not-zeroes 'TestComplianceSummary_NoScan|TestSummaryBeforeScan_Is404AndNotAZeroedSummary' \
+  "an absent scan must not be served as a zeroed summary a client reads as clean"
+restore_all
+
+# ── M12c: the scan store is bounded ──────────────────────────────────────────
+# Keying by tenant made the store grow on a caller-supplied string. Remove the
+# eviction and the bound test must fail -- otherwise "it is bounded" is a claim
+# in a comment rather than a property of the code.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("	if _, replacing := ch.scans[tenantID]; !replacing && len(ch.scans) >= maxRememberedTenants {")
+j=s.index("			\"evicted_tenant\", oldestKey, \"cap\", maxRememberedTenants)\n	}",i)
+j=s.index("\n	}",j)+len("\n	}")
+open(p,"w").write(s[:i]+"	// MUTANT M12c: eviction removed; the store grows without bound"+s[j:])
+'
+expect_red M12c-store-is-bounded 'TestTheScanStoreIsBoundedAndEvictsTheOldest' \
+  "the per-tenant store must be bounded; its key comes straight off the request"
 restore_all
 
 # ── M13: per-scan profile isolation ───────────────────────────────────────────
@@ -495,28 +575,52 @@ expect_red M15-fix-bundle-denomination 'TestTheBundleRollUpIgnoresTheDeclaredPro
   "INVERTED: carrying the denomination as data must break the characterisation"
 restore_all
 
-# ── M16 (INVERTED): reject a currency absent from the rate table ─────────────
-# An allow-list is the natural fix for ZZZ/XXX/AAA. The test that measures the
-# gap must go red once the gap is closed.
+# ── M16: a declared currency with no rate is refused ─────────────────────────
+# WAS INVERTED (it used to ADD the allow-list so the "unconvertible label is
+# accepted" measurement had to go red). The allow-list is real now, so this is
+# an ordinary forward mutant: delete it and the refusal test must fail.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""		p.Currency = declared
-		p.Declared = true"""
-assert old in s, "M16 anchor absent"
-new="""		// MUTANT M16: allow-list drawn from risk/fx/rates.yaml
-		switch declared {
-		case "USD", "GBP", "EUR", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK",
-			"DKK", "SGD", "HKD", "INR", "ZAR", "AED":
-		default:
-			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: no rate for %s", declared)
-		}
-		p.Currency = declared
-		p.Declared = true"""
+i=s.index("		if !reportableCurrencies[declared] {")
+j=s.index("		}",s.index("reportableCurrencyList()",i))+len("		}")
+open(p,"w").write(s[:i]+"		// MUTANT M16: rate-table allow-list deleted"+s[j:])
+'
+expect_red M16-currency-has-a-rate 'TestAShapeValidCurrencyWithNoRateIsRefused' \
+  "a declared currency with no rate in risk/fx/rates.yaml must be refused, not labelled on"
+restore_all
+
+# ── M16b: the allow-list IS the checked-in table ─────────────────────────────
+# The allow-list is a literal in Go, deliberately (an offline request validator
+# must not depend on a file path). The cost of that choice is that two things
+# have to agree, and an agreement nobody checks is one that drifts -- so drop a
+# currency that IS in the table and the drift test must fail. Without this
+# mutant "drawn from risk/fx/rates.yaml" is a claim in a comment.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	"SGD": true, "HKD": true, "INR": true, "ZAR": true, "AED": true,"""
+assert old in s, "M16b anchor absent"
+new="""	"SGD": true, "HKD": true, "INR": true, "ZAR": true, // MUTANT M16b: AED dropped"""
 open(p,"w").write(s.replace(old,new,1))
 '
-expect_red M16-fix-unconvertible-currency 'TestAValidShapeIsNotAValidCurrency' \
-  "INVERTED: an FX allow-list must break the unconvertible-label measurement"
+expect_red M16b-allowlist-matches-table 'TestTheReportableCurrencyAllowListIsExactlyTheCheckedInRateTable' \
+  "the allow-list must be exactly the rate table's key set, checked in both directions"
+restore_all
+
+# ── M16c: the refusal names the table it was refused by ──────────────────────
+# A refusal an operator cannot act on is barely better than a silent relabel.
+# Strip the detail from the message and the test must notice.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("			return effectiveRiskProfile{}, fmt.Errorf(\n				\"reportingCurrency %s has no rate")
+j=s.index("strings.Join(reportableCurrencyList(), \", \"))",i)+len("strings.Join(reportableCurrencyList(), \", \"))")
+new="""			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: unsupported") // MUTANT M16c"""
+open(p,"w").write(s[:i]+new+s[j:])
+'
+expect_red M16c-refusal-is-actionable 'TestAShapeValidCurrencyWithNoRateIsRefused' \
+  "the refusal must name the currency, the rate table and its as-of date"
 restore_all
 
 # ── M17 (INVERTED): make a declared zero expressible in signal-ingest ────────

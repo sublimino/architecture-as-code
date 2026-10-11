@@ -671,11 +671,11 @@ func TestConformance_MoneyNotEvaluatedFigureExcludedFromExposure(t *testing.T) {
 			Carried: money.Money{Amount: carried, Currency: defaultReportingCurrency},
 		}
 	}
-	h := &complianceHandler{lastResults: []ComplianceScanResult{
+	h := handlerRemembering([]ComplianceScanResult{
 		row(VerdictNotEvaluated, 12_345.67),
 		row(VerdictPass, 98_765.43),
 		row(VerdictFail, 1_000),
-	}}
+	})
 	s, err := handlerTransport{h}.summary()
 	if err != nil {
 		t.Fatal(err)
@@ -691,7 +691,7 @@ func TestConformance_MoneyNotEvaluatedFigureExcludedFromExposure(t *testing.T) {
 	// is the honest statement of the "pass carries zero exposure" property —
 	// the money is input-independent, so a passing ROW still carries a real
 	// figure; it is the SUMMARY that excludes it.
-	if h.lastResults[0].CarriedGBP != 12_345.67 || h.lastResults[1].CarriedGBP != 98_765.43 {
+	if h.mustScan().results[0].CarriedGBP != 12_345.67 || h.mustScan().results[1].CarriedGBP != 98_765.43 {
 		t.Error("summarising mutated a row's figure")
 	}
 }

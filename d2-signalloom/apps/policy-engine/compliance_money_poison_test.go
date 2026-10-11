@@ -17,18 +17,19 @@ package main
 // this path. The engine re-implements the guard in Go (riskProfileFor), and the
 // question this file asks is whether the Go guard is the same guard.
 //
-// It is not, in one specific way, and the consequence is the worst outcome in
+// It WAS not, in one specific way, and the consequence was the worst outcome in
 // the brief: a figure that is not a number reaching the renderer. The guard
-// rejects a load that IS NaN or Inf. It cannot reject a load that is finite but
-// whose PRODUCT with tvar is not -- `tvar * (1 + riskLoad)` at fair.go:164 has no
-// overflow check, and tvar is ~1.8e4 for a priced check, so any declared load
-// above ~1e304 overflows carried to +Inf.
+// rejects a load that IS NaN or Inf. It could not reject a load that is finite
+// but whose PRODUCT with tvar is not -- `tvar * (1 + riskLoad)` in
+// fair.SimulateWithLoad has no overflow check, and tvar is ~1.8e4 for a priced
+// check, so any declared load above a measured 1.0000000000000005e+304
+// overflowed carried to +Inf.
 //
-// What a client sees then is the thing that cannot be eyeballed, and it is not
-// "+Inf" on a dashboard. It is worse. encoding/json REFUSES to marshal +Inf, and
-// compliance.go:516-517 writes `WriteHeader(StatusOK)` BEFORE `Encode(results)`
-// and DISCARDS the encoder's error. So the status line is already committed when
-// the marshal fails, and the client receives:
+// What a client saw then was the thing that cannot be eyeballed, and it was not
+// "+Inf" on a dashboard. It was worse. encoding/json REFUSES to marshal +Inf,
+// and compliance.go wrote `WriteHeader(StatusOK)` BEFORE `Encode(results)` and
+// DISCARDED the encoder's error. So the status line was already committed when
+// the marshal failed, and the client received:
 //
 //	HTTP/1.1 200 OK
 //	Content-Type: application/json
@@ -36,17 +37,27 @@ package main
 //
 // A 200 with an empty body is indistinguishable, to a lenient client, from a
 // scan that found nothing to report -- which renders as a CLEAN COMPLIANCE
-// POSTURE. The failure is silent at every layer: no 5xx, no error field, no log
+// POSTURE. The failure was silent at every layer: no 5xx, no error field, no log
 // line, no partial row to raise suspicion. That is why it is pinned by byte
 // count and status code together, which is the only way to see it.
 //
-// WHAT THESE TESTS ARE. Every assertion below is a CHARACTERISATION of behaviour
-// observed on this commit, not a statement of what is correct. Where current
-// behaviour is wrong it is pinned under a name containing DEFECT and the comment
-// says what correct behaviour would be. The brief for this work was to probe and
-// report, not to change the money path, so the defect is recorded rather than
-// fixed -- and pinned, so that fixing it is a deliberate act that breaks a named
-// test rather than a silent improvement nobody notices.
+// FIXED, IN TWO INDEPENDENT HALVES (F4 fix 1). Both are pinned below and both
+// can regress on their own, which is why there are two tests and not one:
+//
+//  1. handleScan REFUSES a load it cannot apply, at the point of application,
+//     with a 400 naming riskLoad, the check and the figure that overflowed.
+//     The rule and the reason no sanity bound sits above it are documented on
+//     nonFiniteFigure in compliance.go.
+//  2. writeJSONChecked marshals into a buffer and checks the error BEFORE
+//     committing any status line, at every site in compliance.go that used to
+//     write a status and then encode. A marshal failure is a 500 with a real
+//     body; a discarded encode error after a committed status is the defect and
+//     must never come back.
+//
+// WHAT THESE TESTS ARE. Everything in this file that does not concern the two
+// fixes above remains a CHARACTERISATION of behaviour observed on this commit,
+// not a statement of what is correct -- in particular the reconciliation gap at
+// large loads, which is reported and not fixed.
 
 import (
 	"bytes"
@@ -297,68 +308,192 @@ func TestAHugeButFiniteRiskLoadIsPricedWithoutComplaint(t *testing.T) {
 		tvar, carried, r["currency"])
 }
 
-// ── 3. The defect: overflow to +Inf, served as a 200 with no body ─────────────
+// ── 3. The fix: an overflowing load is REFUSED, never served as a 200 ─────────
 
-// TestAnOverflowingRiskLoadIsServedAs200WithAnEmptyBody_DEFECT pins the worst
-// behaviour on this path, exactly as observed.
+// TestAnOverflowingRiskLoadIsRefusedAndNeverServedAsAnEmptySuccess is the
+// re-pointed form of what was TestAnOverflowingRiskLoadIsServedAs200WithAnEmptyBody_DEFECT.
 //
-// THIS IS A DEFECT, NOT A SPECIFICATION. Correct behaviour would be one of:
+// WHAT IT USED TO PIN. `riskLoad: 1e308` overflowed `tvar * (1 + riskLoad)` to
+// +Inf, encoding/json refused to marshal it, and compliance.go had ALREADY
+// written `WriteHeader(StatusOK)` and discarded the encoder's error, so the
+// client received:
 //
-//   - riskProfileFor rejects a load that cannot be applied without overflow
-//     (400, naming the field -- consistent with every other refusal here); or
-//   - the overflow is detected where it happens, at fair.go:164, the way
-//     money.Add already detects its own overflow and returns an error; or
-//   - at minimum, compliance.go:516 encodes into a buffer and checks the error
-//     BEFORE committing a status line, so a marshal failure becomes a 500 with
-//     a message instead of a 200 with nothing.
+//	HTTP/1.1 200 OK
+//	Content-Type: application/json
+//	<zero bytes>
 //
-// Until one of those lands, this test is the tripwire. It asserts the full shape
-// of the failure -- status 200, zero bytes, and a `Content-Type: application/json`
-// header promising a document that is not there -- because any ONE of those
-// alone reads as something else:
+// Any ONE of those three facts reads as something benign and the pair
+// (200, zero bytes) reads as a fabricated all-clear:
 //
-//	a 200 alone        reads as success
+//	a 200 alone         reads as success
 //	an empty body alone reads as "nothing to report"
-//	the pair           is a fabricated all-clear
+//	the pair            is a clean compliance posture nobody computed
 //
-// The bound is measured, not assumed: tvar for the contract pack's priced checks
-// is ~1.8e4, so overflow begins around 1e304. 1e307 and 1e308 are both over it;
-// 1e300 is under (and is covered by the finite sweep above). If the pack's
-// triples are ever recalibrated the threshold moves, which is why this test
-// drives the two values furthest into the overflowing region rather than
+// WHAT IT PINS NOW. The same three facts, inverted, plus the one that was
+// previously impossible to state: that the response is a REFUSAL a caller can
+// see. The assertion set is deliberately kept at full strength rather than
+// reduced to `code != 200`, because the shape of the old failure is exactly
+// what a regression would re-create:
+//
+//  1. the status is 400 and not 200    -- a load that cannot be applied is the
+//     caller's value and the caller's to fix
+//  2. the body is NOT EMPTY            -- the single fact that made the old
+//     behaviour invisible
+//  3. it parses as JSON, and names     -- so the refusal is actionable rather
+//     riskLoad, the check, and the        than a bare status code
+//     figure that overflowed
+//  4. no row, total or figure is       -- a partial document would be worse
+//     present                             than none
+//
+// A regression that re-introduced `WriteHeader` then an unchecked `Encode`
+// fails (2). A regression that dropped the application-time refusal but kept
+// the buffer-then-check fails (1) with a 500, which is still visible -- the two
+// halves of the fix fail independently and this test distinguishes them, which
+// is why the 500 case is asserted ON PURPOSE as a distinct, named outcome
+// below rather than folded into "not 200".
+//
+// The bound is measured, not assumed: tvar for the contract pack's priced
+// checks is ~1.8e4, so overflow begins around 1e304. 1e307 and 1e308 are both
+// over it; 1e300 is under and is covered by the finite sweep above. If the
+// pack's triples are ever recalibrated the threshold moves, which is why this
+// test drives the two values furthest into the overflowing region rather than
 // probing for the edge.
-func TestAnOverflowingRiskLoadIsServedAs200WithAnEmptyBody_DEFECT(t *testing.T) {
+func TestAnOverflowingRiskLoadIsRefusedAndNeverServedAsAnEmptySuccess(t *testing.T) {
 	h := contractHandler(t)
-	hdr := map[string]string{"X-Tenant-ID": "tenant-poison"}
 
 	for _, frag := range []string{`"riskLoad":1e307`, `"riskLoad":1e308`} {
 		t.Run(frag, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/compliance/scan",
 				bytes.NewReader([]byte(rawScanBodyWith(t, frag))))
-			req.Header.Set("X-Tenant-ID", hdr["X-Tenant-ID"])
+			req.Header.Set("X-Tenant-ID", "tenant-poison")
 			w := httptest.NewRecorder()
 			h.handleScan(w, req)
 
-			// 1. The status line claims success.
-			if w.Code != http.StatusOK {
-				t.Fatalf("status = %d, want 200. If this is now a 4xx or 5xx the DEFECT IS FIXED: "+
-					"delete this test and keep TestFiniteRiskLoadsArePricedAndTheFigureIsAlwaysAFiniteNumber, "+
-					"extending its sweep to cover %s.", w.Code, frag)
+			// 1. The status line does NOT claim success. 400 specifically: the
+			//    value came from the caller, exactly like every other refusal on
+			//    this handler. A 500 here would mean the application-time guard
+			//    was lost and only the buffer-then-check caught it -- still
+			//    visible, but a different and weaker fix, so it is named.
+			switch w.Code {
+			case http.StatusOK:
+				t.Fatalf("status = 200 for %s. THE EMPTY-200 DEFECT IS BACK: an overflowing "+
+					"load must never be answered with a success. body=%d bytes %.200q",
+					frag, w.Body.Len(), w.Body.String())
+			case http.StatusBadRequest:
+				// The intended outcome.
+			case http.StatusInternalServerError:
+				t.Errorf("status = 500 for %s: the overflow reached the encoder, so the "+
+					"application-time refusal in handleScan has been lost and only "+
+					"writeJSONChecked is holding the line. The response is at least not "+
+					"empty, but the figure should have been refused before it was priced. "+
+					"body=%.300q", frag, w.Body.String())
+			default:
+				t.Fatalf("status = %d for %s, want 400", w.Code, frag)
 			}
-			// 2. The body is empty. Not truncated, not partial -- zero bytes,
-			//    because Encode discovers the +Inf before it writes anything.
-			if n := w.Body.Len(); n != 0 {
-				t.Fatalf("body length = %d, want 0. Behaviour has changed; re-characterise it. "+
-					"body=%.300q", n, w.Body.String())
+
+			// 2. The body is NOT empty. This is the assertion the old test could
+			//    not make and the one fact that made the defect invisible.
+			if w.Body.Len() == 0 {
+				t.Fatalf("body is ZERO BYTES with status %d for %s. A status line without a "+
+					"document is the defect this test exists to catch, whatever the code.",
+					w.Code, frag)
 			}
-			// 3. The header promises JSON that was never written. This is the part
-			//    that makes a lenient client render the empty response as data.
 			if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 				t.Errorf("Content-Type = %q, want application/json", ct)
 			}
-			t.Logf("DEFECT CONFIRMED for %s: HTTP %d, Content-Type %q, %d bytes of body",
-				frag, w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+
+			// 3. It is a document, and it names what to change.
+			var body map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("refusal body is not JSON: %v (body=%.300q)", err, w.Body.String())
+			}
+			if body["error"] != "unapplicable_risk_load" {
+				t.Errorf("error = %v, want unapplicable_risk_load", body["error"])
+			}
+			if body["field"] != "riskLoad" {
+				t.Errorf("field = %v, want riskLoad; a refusal that does not name the "+
+					"offending field is not actionable", body["field"])
+			}
+			if body["figure"] != "carriedGbp" {
+				t.Errorf("figure = %v, want carriedGbp -- the overflow is in the carried "+
+					"product and the refusal should say so", body["figure"])
+			}
+			for _, k := range []string{"check", "riskLoad", "message"} {
+				if v, ok := body[k].(string); !ok || v == "" {
+					t.Errorf("refusal body has no usable %q: %#v", k, body[k])
+				}
+			}
+
+			// 4. And no figure escaped. A partial document -- some rows priced,
+			//    the overflowing one dropped -- would be the worst of the three
+			//    outcomes, because it reads as a complete scan.
+			for _, leaked := range []string{"carriedGbp", "tvar", "totalExposureGbp", "ale", "var95"} {
+				if _, present := body[leaked]; present {
+					t.Errorf("refusal body carries %q: no figure may be reported for a scan "+
+						"the engine refused to price", leaked)
+				}
+			}
+			t.Logf("REFUSED for %s: HTTP %d, %d bytes, error=%v field=%v figure=%v check=%v",
+				frag, w.Code, w.Body.Len(), body["error"], body["field"], body["figure"], body["check"])
 		})
+	}
+}
+
+// TestWriteJSONCheckedNeverCommitsASuccessItCannotRender is the second half of
+// the fix, tested in isolation from the first.
+//
+// The two halves fail independently and that is the whole reason this test
+// exists beside the one above. The application-time refusal stops an
+// overflowing riskLoad from ever being priced; writeJSONChecked stops ANY
+// unrenderable value -- from a future field, a different code path, a figure
+// nobody has thought of -- from being served as a status line with no document.
+// A test that only drove HTTP could not tell which half was holding.
+//
+// So this drives the helper directly with a value encoding/json refuses, and
+// requires a 500 WITH a body. The old behaviour, reproduced here for contrast,
+// was `WriteHeader(200)` then a discarded `Encode` error: a 200 with zero
+// bytes.
+func TestWriteJSONCheckedNeverCommitsASuccessItCannotRender(t *testing.T) {
+	// The value the old code path committed a 200 for.
+	unrenderable := map[string]any{"carriedGbp": math.Inf(1)}
+	if _, err := json.Marshal(unrenderable); err == nil {
+		t.Fatal("encoding/json now marshals +Inf; this test's premise is gone and the " +
+			"empty-200 explanation must be re-derived")
+	}
+
+	w := httptest.NewRecorder()
+	writeJSONChecked(w, http.StatusOK, unrenderable)
+
+	if w.Code == http.StatusOK {
+		t.Errorf("status = 200: writeJSONChecked committed a success for a document it "+
+			"could not produce (body=%d bytes)", w.Body.Len())
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+	if w.Body.Len() == 0 {
+		t.Fatal("body is zero bytes: a status line with no document is the defect, " +
+			"and a 500 with nothing in it is the same defect wearing a different code")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("500 body is not JSON: %v (%.200q)", err, w.Body.String())
+	}
+	if body["error"] != "unrenderable_response" {
+		t.Errorf("error = %v, want unrenderable_response", body["error"])
+	}
+
+	// And the happy path is byte-identical to what json.Encoder.Encode wrote,
+	// so adopting the helper moved no response. Trailing newline included --
+	// that is the byte Encode appends and Marshal does not.
+	ok := httptest.NewRecorder()
+	writeJSONChecked(ok, http.StatusOK, map[string]string{"a": "b"})
+	if got := ok.Body.String(); got != "{\"a\":\"b\"}\n" {
+		t.Errorf("rendered %q, want %q -- the helper must be byte-identical to "+
+			"json.NewEncoder(w).Encode on the success path", got, "{\"a\":\"b\"}\n")
+	}
+	if ok.Code != http.StatusOK {
+		t.Errorf("happy path status = %d, want 200", ok.Code)
 	}
 }
 

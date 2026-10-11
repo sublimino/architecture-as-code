@@ -8,46 +8,61 @@ package main
 // the NEXT response, and to whose. Those are different failure modes and only
 // the second one crosses a tenant boundary.
 //
-// THE STRUCTURE THAT MAKES IT POSSIBLE. compliance.go:510-512 stores every
-// scan's results in ONE slot on the handler:
+// THE STRUCTURE THAT MADE IT POSSIBLE. handleScan used to store every scan's
+// results in ONE slot on the handler:
 //
 //	ch.mu.Lock()
 //	ch.lastResults = results
 //	ch.lastUngated = ungatedList
 //	ch.mu.Unlock()
 //
-// and handleSummary (compliance.go:560-564) reads that slot back. The slot has
-// no tenant key, and handleSummary takes no tenant parameter and reads no
-// header -- there is nowhere for a tenant to be checked even if someone wanted
-// to. The mutex makes the access race-free; it does not make it tenant-scoped.
-// Race-free sharing of the wrong tenant's money is still the wrong tenant's
-// money.
+// and handleSummary read that slot back. The slot had no tenant key, and
+// handleSummary took no tenant parameter and read no header -- there was nowhere
+// for a tenant to be checked even if someone had wanted to. The mutex made the
+// access race-free; it did not make it tenant-scoped. Race-free sharing of the
+// wrong tenant's money is still the wrong tenant's money.
 //
-// So GET /compliance/summary does not mean "my summary". It means "the summary
-// of whichever scan this process served most recently", including a scan run by
+// So GET /compliance/summary did not mean "my summary". It meant "the summary of
+// whichever scan this process served most recently", including a scan run by
 // another tenant, with that tenant's declared currency and declared load baked
-// into every figure. Three consequences are pinned below, in increasing order of
-// how badly they read:
+// into every figure.
 //
-//  1. B's own ROWS are clean. The per-scan path is properly isolated: the
-//     profile is resolved per request and never cached, so an undeclared scan is
-//     byte-identical whether or not another tenant declared anything. This is
-//     the good news and it is asserted first, because it bounds the defect.
-//  2. B's SUMMARY is A's summary -- A's total, under A's currency label.
-//  3. If A's scan overflowed, the summary is an empty 200 for EVERYONE, and
-//     stays that way until some other scan replaces the slot.
+// FIXED (fix 2): the store is a map keyed by the tenant extractTenant resolves
+// from the request -- the same resolution handleScan performs -- so a tenant
+// reads back exactly what it stored and nothing else. The empty key is the
+// anonymous caller's own bucket, not a wildcard. A tenant with no scan gets a
+// 404 carrying no counts, never a zeroed 200 and never another tenant's
+// figures; see TestComplianceSummary_NoScan for why a zeroed 200 is the
+// forbidden answer. The store is bounded, because its key comes straight off
+// an unauthenticated request; see maxRememberedTenants and
+// TestTheScanStoreIsBoundedAndEvictsTheOldest.
 //
-// (3) is the one with no tell. A dashboard polling /compliance/summary gets HTTP
+// Three consequences are pinned below, in the order they are easiest to reason
+// about:
+//
+//  1. B's own ROWS were always clean. The per-scan path is properly isolated:
+//     the profile is resolved per request and never cached, so an undeclared
+//     scan is byte-identical whether or not another tenant declared anything.
+//     This bounded the defect to the summary endpoint and it still holds.
+//  2. B's SUMMARY was A's summary -- A's total, under A's currency label. Now
+//     each tenant reads its own and only its own.
+//  3. If A's scan overflowed, the summary WAS an empty 200 for EVERYONE, and
+//     stayed that way until some other scan replaced the slot. FIXED by F4 fix
+//     1: the overflowing scan is refused at the point of application, so no
+//     unrenderable figure is ever stored, and every encode site buffers and
+//     checks before committing a status. Pinned by
+//     TestAnOverflowingScanLeavesEverySubsequentSummaryIntact, which compares
+//     the post-attack summary field by field against a pre-attack snapshot --
+//     not merely "not empty".
+//
+// (3) was the one with no tell. A dashboard polling /compliance/summary got HTTP
 // 200 and zero bytes, and a client that treats an empty body as an empty result
 // renders zero controls, zero failures and zero exposure -- a clean compliance
 // posture, fabricated, persisting, and triggered by a different tenant.
-//
-// As with the poison suite, every assertion here CHARACTERISES observed
-// behaviour on this commit. The two tests whose names end in _DEFECT are
-// tripwires on behaviour that is wrong, not statements that it is right.
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -67,10 +82,20 @@ import (
 //
 // That is the same hazard this suite is about, one level up: the most convenient
 // instrument reports the wrong failure, and reports it confidently.
-func getSummaryRaw(t *testing.T, h *complianceHandler) (int, string) {
+func getSummaryRaw(t *testing.T, h *complianceHandler, headers ...map[string]string) (int, string) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	h.handleSummary(w, httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
+	// Variadic rather than a required argument: most callers want the anonymous
+	// caller, and fix 2 made WHICH tenant asks a load-bearing part of the
+	// request. Before it, handleSummary read no tenant at all and a header here
+	// would have been decoration.
+	for _, hdr := range headers {
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+	}
+	h.handleSummary(w, req)
 	return w.Code, w.Body.String()
 }
 
@@ -151,26 +176,55 @@ func TestOneTenantsDeclaredProfileNeverMovesAnotherTenantsRows(t *testing.T) {
 	}
 }
 
-// ── 2. The defect: the summary belongs to whoever scanned last ────────────────
+// ── 2. FIXED: the summary belongs to the tenant that asked ────────────────────
 
-// TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT pins the
-// cross-tenant leak.
+// TestTheSummaryIsScopedToTheCallingTenant is the re-pointed form of
+// TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT, and it is the
+// heart of fix 2.
 //
-// THIS IS A DEFECT. Correct behaviour would key the stored results by tenant and
-// have handleSummary resolve the caller's tenant the way handleScan already
-// does, returning 404 (or an empty summary) when that tenant has not scanned.
-// The fix is not attempted here -- the brief was to probe and report -- but the
-// shape of it matters for the report: handleSummary currently has NO tenant
-// input of any kind, so this is a missing parameter, not a mis-used one.
+// WHAT IT USED TO PIN. handleSummary read ONE unkeyed slot and took no tenant
+// input of any kind -- no header, no query parameter, no argument. So
+// GET /compliance/summary did not mean "my summary"; it meant "the summary of
+// whichever scan this process served most recently". Measured: tenant A's total
+// of 136473.64, under A's DECLARED USD label and A's declared load of 0.25, was
+// served verbatim to a caller presenting tenant B's header and to a caller
+// presenting no header at all. The mutex made that access race-free. Race-free
+// sharing of the wrong tenant's money is still the wrong tenant's money.
 //
-// What is asserted: tenant A scans with a declared profile; a caller presenting
-// tenant B's header (and then no header at all) receives A's total under A's
-// currency label. The assertion is on the CURRENCY and the TOTAL together,
-// because either alone is deniable -- a GBP label on a GBP-denominated default
-// scan proves nothing, and a matching total could be coincidence. A USD label on
-// a summary served to B is not deniable.
-func TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT(t *testing.T) {
+// WHAT IT PINS NOW, and every clause is load-bearing:
+//
+//  1. A reads back A's OWN figures -- A's total under A's declared currency. If
+//     this fails the fix has broken the endpoint rather than scoped it.
+//  2. B, who has also scanned, reads B's OWN figures -- B's total under B's
+//     currency. Not A's, and specifically NOT A's declared USD label, which is
+//     the undeniable tell: a GBP label on a GBP-denominated default scan would
+//     prove nothing, and a matching total could be coincidence.
+//  3. A tenant that has NOT scanned, and a caller presenting no tenant at all,
+//     get 404 -- not A's figures, and not a zeroed 200. See
+//     TestComplianceSummary_NoScan for why a zeroed 200 is the forbidden answer.
+//  4. The anonymous caller is its own bucket, not a wildcard: it cannot read a
+//     named tenant's scan, and a named tenant cannot read an anonymous scan.
+//
+// (4) is the clause a plausible wrong fix would fail. Treating an absent tenant
+// header as "any tenant" -- or as a key that matches the most recent scan --
+// would satisfy (1), (2) and (3) and reinstate the whole leak for every
+// unauthenticated caller, which is exactly who the original defect exposed it
+// to.
+func TestTheSummaryIsScopedToTheCallingTenant(t *testing.T) {
 	h := contractHandler(t)
+
+	carriedTotal := func(rows []map[string]any) float64 {
+		var total float64
+		for _, r := range rows {
+			if status, _ := r["status"].(string); status == "pass" || status == "not_evaluated" || status == "not_in_force" {
+				continue
+			}
+			if c, ok := r["carriedGbp"].(float64); ok {
+				total += c
+			}
+		}
+		return total
+	}
 
 	// Tenant A: declared USD, declared load 0.25.
 	aBody := baseScanBody()
@@ -180,66 +234,110 @@ func TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT(t *testing.T)
 	if code != http.StatusOK {
 		t.Fatalf("tenant A scan: got %d", code)
 	}
+	aTotal := carriedTotal(aRows)
 
-	var aTotal float64
-	for _, r := range aRows {
-		if status, _ := r["status"].(string); status == "pass" || status == "not_evaluated" || status == "not_in_force" {
-			continue
+	// Tenant B: declared EUR, declared load 0.5. A DIFFERENT currency and a
+	// different load, so B reading A's figures would be visible in two
+	// independent fields rather than one.
+	bBody := baseScanBody()
+	bBody["reportingCurrency"] = "EUR"
+	bBody["riskLoad"] = 0.5
+	code, bRows := postScanWithHeaders(t, h, bBody, map[string]string{"X-Tenant-ID": "tenant-b"})
+	if code != http.StatusOK {
+		t.Fatalf("tenant B scan: got %d", code)
+	}
+	bTotal := carriedTotal(bRows)
+
+	if aTotal == bTotal {
+		t.Fatalf("both tenants total %.2f, so this test cannot tell a leak from a "+
+			"correct answer; the declared loads must differ in effect", aTotal)
+	}
+
+	// 1 and 2: each tenant reads its own. B scanned LAST, so A reading back A's
+	// own figures is precisely the clause that failed under the shared slot.
+	for _, tc := range []struct {
+		tenant   string
+		wantCur  string
+		wantTotl float64
+	}{
+		{"tenant-a", "USD", aTotal},
+		{"tenant-b", "EUR", bTotal},
+	} {
+		sCode, sBody := getSummaryRaw(t, h, map[string]string{"X-Tenant-ID": tc.tenant})
+		if sCode != http.StatusOK {
+			t.Fatalf("summary for %s: got %d (%.200q)", tc.tenant, sCode, sBody)
 		}
-		if c, ok := r["carriedGbp"].(float64); ok {
-			aTotal += c
+		s := parseSummary(t, sBody)
+		if s["currency"] != tc.wantCur {
+			t.Errorf("summary for %s is labelled %v, want %v -- it is being served another "+
+				"tenant's denomination", tc.tenant, s["currency"], tc.wantCur)
+		}
+		if got, ok := s["totalExposureGbp"].(float64); !ok || math.Abs(got-tc.wantTotl) > 0.01 {
+			t.Errorf("summary for %s totals %v, want its own %v", tc.tenant, s["totalExposureGbp"], tc.wantTotl)
 		}
 	}
 
-	sCode, sBody := getSummaryRaw(t, h)
-	if sCode != http.StatusOK {
-		t.Fatalf("summary: got %d", sCode)
-	}
-	s := parseSummary(t, sBody)
-
-	if s["currency"] != "USD" {
-		t.Fatalf("summary currency = %v, want USD; tenant A's scan should be in the slot "+
-			"and this test cannot demonstrate a leak otherwise", s["currency"])
-	}
-	if got, ok := s["totalExposureGbp"].(float64); !ok || math.Abs(got-aTotal) > 0.01 {
-		t.Fatalf("summary total = %v, want A's %v", s["totalExposureGbp"], aTotal)
-	}
-
-	// The leak: the same summary is served to a caller identifying as tenant B,
-	// and to a caller identifying as nobody. handleSummary reads no tenant, so
-	// the header is decoration -- which is exactly the finding.
+	// 3 and 4: a tenant that never scanned, and the anonymous caller, get 404 --
+	// never the last scanner's figures.
 	for _, hdr := range []map[string]string{
-		{"X-Tenant-ID": "tenant-b"},
+		{"X-Tenant-ID": "tenant-c-never-scanned"},
 		{},
 	} {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
-		for k, v := range hdr {
-			req.Header.Set(k, v)
-		}
-		h.handleSummary(w, req)
-		if w.Code != http.StatusOK {
-			t.Errorf("summary for %v: got %d. If this is now a 404 or 403 the DEFECT IS "+
-				"FIXED -- delete this test.", hdr, w.Code)
+		sCode, sBody := getSummaryRaw(t, h, hdr)
+		if sCode == http.StatusOK {
+			s := parseSummary(t, sBody)
+			t.Errorf("summary for %v returned 200 labelled %v totalling %v. THE CROSS-TENANT "+
+				"LEAK IS BACK: a caller with no scan of its own is being served somebody "+
+				"else's figures.", hdr, s["currency"], s["totalExposureGbp"])
 			continue
 		}
-		other := parseSummary(t, w.Body.String())
-		if other["currency"] != "USD" {
-			t.Errorf("summary for %v is labelled %v; the leak may be fixed -- re-read this test",
-				hdr, other["currency"])
+		if sCode != http.StatusNotFound {
+			t.Errorf("summary for %v: got %d, want 404", hdr, sCode)
+			continue
 		}
-		if got, ok := other["totalExposureGbp"].(float64); !ok || math.Abs(got-aTotal) > 0.01 {
-			t.Errorf("summary for %v totals %v, not A's %v", hdr, other["totalExposureGbp"], aTotal)
+		// And the refusal does not quietly carry a figure, so "no scan for you"
+		// cannot be read as "scanned, nothing found".
+		body := parseSummary(t, sBody)
+		for _, leaked := range []string{"totalExposureGbp", "currency", "totalControls", "exposure"} {
+			if _, present := body[leaked]; present {
+				t.Errorf("the 404 for %v carries %q", hdr, leaked)
+			}
 		}
 	}
-	t.Logf("DEFECT CONFIRMED: tenant A scanned declaring USD + load 0.25; "+
-		"GET /compliance/summary returns total %.2f USD to tenant-b and to an "+
-		"unauthenticated caller alike. handleSummary takes no tenant input at all.", aTotal)
+
+	// 4, the other direction: an ANONYMOUS scan is not readable by a named
+	// tenant, and does not become readable by being the most recent.
+	anonCode, anonRows := postScanWithHeaders(t, h, baseScanBody(), nil)
+	if anonCode != http.StatusOK {
+		t.Fatalf("anonymous scan: got %d", anonCode)
+	}
+	anonTotal := carriedTotal(anonRows)
+	if c, b := getSummaryRaw(t, h, map[string]string{"X-Tenant-ID": "tenant-c-never-scanned"}); c != http.StatusNotFound {
+		t.Errorf("after an anonymous scan, tenant-c's summary is %d (%.200q); the anonymous "+
+			"bucket must not be a wildcard", c, b)
+	}
+	aCode, aBodyAfter := getSummaryRaw(t, h, map[string]string{"X-Tenant-ID": "tenant-a"})
+	if aCode != http.StatusOK {
+		t.Fatalf("tenant A's summary after an anonymous scan: got %d", aCode)
+	}
+	aAfter := parseSummary(t, aBodyAfter)
+	if got, ok := aAfter["totalExposureGbp"].(float64); !ok || math.Abs(got-aTotal) > 0.01 {
+		t.Errorf("tenant A's total moved to %v (its own is %v, the anonymous scan's is %v) "+
+			"because a later scan by somebody else replaced the slot A reads",
+			aAfter["totalExposureGbp"], aTotal, anonTotal)
+	}
+	if aAfter["currency"] != "USD" {
+		t.Errorf("tenant A's summary is now labelled %v, not its declared USD", aAfter["currency"])
+	}
+
+	t.Logf("FIXED: A reads %.2f USD, B reads %.2f EUR, an unscanned tenant and the "+
+		"anonymous caller both get 404, and a later anonymous scan of %.2f GBP moved "+
+		"neither.", aTotal, bTotal, anonTotal)
 }
 
 // TestTheSummaryNeverMixesDenominations is the property that DOES hold, and it
-// is the reason the leak above is a confidentiality problem rather than also an
-// arithmetic one.
+// was the reason the leak above was a confidentiality problem rather than also
+// an arithmetic one.
 //
 // Every row of a single scan is priced with one resolved profile, so one scan's
 // rows share a denomination and the summary's sum is of like with like. The
@@ -273,9 +371,14 @@ func TestTheSummaryNeverMixesDenominations(t *testing.T) {
 			if code != http.StatusOK {
 				t.Fatalf("scan: got %d", code)
 			}
-			sCode, sBody := getSummaryRaw(t, h)
+			// The summary is read AS THE SCANNING TENANT. Before fix 2 this
+			// header was decoration -- handleSummary read no tenant at all --
+			// so an unheadered fetch happened to return a declared-currency
+			// scan's figures. It now correctly 404s, which is why the header
+			// has to be passed through here.
+			sCode, sBody := getSummaryRaw(t, h, headers)
 			if sCode != http.StatusOK {
-				t.Fatalf("summary: got %d", sCode)
+				t.Fatalf("summary as %v: got %d (%.200q)", headers, sCode, sBody)
 			}
 			s := parseSummary(t, sBody)
 
@@ -302,38 +405,57 @@ func TestTheSummaryNeverMixesDenominations(t *testing.T) {
 	}
 }
 
-// ── 3. The defect that persists: one overflowing scan empties every summary ───
+// ── 3. The fix: an overflowing scan leaves every subsequent summary INTACT ────
 
-// TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT is the summary
-// leg of the empty-200 finding, and it is strictly worse than the scan leg.
+// TestAnOverflowingScanLeavesEverySubsequentSummaryIntact is the re-pointed
+// form of TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT.
 //
-// On the scan endpoint the empty 200 is confined to the request that caused it:
-// the caller sent an absurd load and got nothing back. On the summary endpoint it
-// is not confined at all. The overflowing +Inf is stored in ch.lastResults and
-// summed into TotalExposure on every subsequent summary request, so EVERY
-// caller's summary is an empty 200 until some other scan overwrites the slot.
-// The caller who sent the bad load may never call the summary; the tenants who
-// do never sent anything wrong.
+// WHAT IT USED TO PIN, and why it was the worst finding in this file. On the
+// scan endpoint an empty 200 was confined to the request that caused it. On the
+// summary endpoint it was not confined at all: the overflowing +Inf was STORED
+// in ch.lastResults and summed into TotalExposure on every subsequent summary
+// request, so EVERY caller's summary became an HTTP 200 with zero bytes until
+// an unrelated healthy scan happened to overwrite the slot. The caller who sent
+// the bad load might never read a summary; the tenants who did had sent nothing
+// wrong.
 //
-// And an empty summary reads worse than an empty scan. The scan response is an
-// array, so an empty body at least has no plausible reading as "zero rows" in a
-// strict client. The summary is a single object whose fields are counts and a
-// total -- totalControls, passed, failed, totalExposureGbp -- so a client that
-// defaults absent numbers to zero renders a complete, confident, entirely
-// fabricated clean posture.
+// And an empty summary read worse than an empty scan. The scan response is an
+// array, so an empty body has no plausible reading as "zero rows" in a strict
+// client. The summary is a single object whose fields are counts and a total --
+// totalControls, passed, failed, totalExposureGbp -- so a client that defaults
+// absent numbers to zero rendered a complete, confident, entirely fabricated
+// clean posture.
 //
-// THIS IS A DEFECT. The fix is the same buffer-then-check at compliance.go:608
-// as at :516, plus not storing an unrenderable figure in the first place.
-func TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT(t *testing.T) {
+// WHAT IT PINS NOW. Both halves of fix 1, plus the containment fix 2 added:
+//
+//   - the poison scan is REFUSED (400 with a body), so no +Inf is ever stored;
+//   - an innocent tenant that HAS scanned reads its own summary back
+//     UNDISTURBED -- compared field by field against a pre-attack snapshot, so
+//     a change that merely stopped the emptiness while letting the refused scan
+//     disturb stored state would still fail;
+//   - the poisoner and an anonymous caller, neither of whom has a successful
+//     scan, get a 404 carrying no counts -- not an empty 200, and not the
+//     innocent tenant's figures.
+//
+// The third clause is where fix 2 narrowed the blast radius and the test had to
+// follow. Before fix 2 "every caller sees the same thing" was itself the
+// defect: one slot, no tenant input, so the poison emptied everyone's summary
+// AND a healthy scan handed its figures to everyone. Now each tenant can only
+// be shown its own, which means the correct post-attack answer differs by
+// caller -- and the test asserts all three answers rather than one.
+func TestAnOverflowingScanLeavesEverySubsequentSummaryIntact(t *testing.T) {
 	h := contractHandler(t)
 
-	// A healthy scan first, so there is a good summary to contrast against and
-	// the emptiness below cannot be mistaken for "nothing has been scanned yet".
-	code, _ := postScanWithHeaders(t, h, baseScanBody(), nil)
+	const innocent = "tenant-innocent"
+
+	// A healthy scan by an innocent tenant, so there is a good summary to
+	// contrast against and any later emptiness cannot be mistaken for "nothing
+	// has been scanned yet".
+	code, _ := postScanWithHeaders(t, h, baseScanBody(), map[string]string{"X-Tenant-ID": innocent})
 	if code != http.StatusOK {
 		t.Fatalf("healthy scan: got %d", code)
 	}
-	okCode, okBody := getSummaryRaw(t, h)
+	okCode, okBody := getSummaryRaw(t, h, map[string]string{"X-Tenant-ID": innocent})
 	if okCode != http.StatusOK || len(okBody) == 0 {
 		t.Fatalf("healthy summary: got %d with %d bytes", okCode, len(okBody))
 	}
@@ -341,56 +463,166 @@ func TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT(t *testing.T)
 	if _, ok := healthy["totalExposureGbp"].(float64); !ok {
 		t.Fatalf("healthy summary has no numeric total: %.200q", okBody)
 	}
-	t.Logf("before: summary is %d bytes, totalControls=%v, totalExposureGbp=%v",
-		len(okBody), healthy["totalControls"], healthy["totalExposureGbp"])
+	t.Logf("before: %s's summary is %d bytes, totalControls=%v, totalExposureGbp=%v",
+		innocent, len(okBody), healthy["totalControls"], healthy["totalExposureGbp"])
 
-	// One tenant sends an overflowing load. Its own scan response is the empty
-	// 200 already pinned in the poison suite; what matters here is the residue.
+	// Another tenant sends an overflowing load. It is now refused with a
+	// document, which is pinned in full by
+	// TestAnOverflowingRiskLoadIsRefusedAndNeverServedAsAnEmptySuccess.
 	poison := rawScanBodyWith(t, `"riskLoad":1e308`)
 	pCode, pBody := postRawScan(t, h, poison, map[string]string{"X-Tenant-ID": "tenant-poison"})
-	if pCode != http.StatusOK || len(pBody) != 0 {
-		t.Fatalf("expected the characterised empty 200 from the scan, got %d with %d bytes",
-			pCode, len(pBody))
+	if pCode == http.StatusOK {
+		t.Fatalf("the overflowing scan was answered with a 200 (%d bytes). If this is a 200 "+
+			"with ZERO bytes the empty-200 defect is back; if it is a 200 with rows, a "+
+			"non-finite figure is being served as money.", len(pBody))
+	}
+	if len(pBody) == 0 {
+		t.Fatalf("the overflowing scan returned %d with zero bytes: a status line with no "+
+			"document is the defect, whatever the code", pCode)
 	}
 
-	// Now every summary, for every caller, is an empty 200.
-	for i, hdr := range []map[string]string{
-		{"X-Tenant-ID": "tenant-innocent"},
-		{},
+	// The innocent tenant's summary is UNDISTURBED -- not merely non-empty.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
+	req.Header.Set("X-Tenant-ID", innocent)
+	h.handleSummary(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%s's summary after the attack: status %d, want 200 (%.300q)",
+			innocent, w.Code, w.Body.String())
+	}
+	if w.Body.Len() == 0 {
+		t.Fatal("the innocent tenant's summary is ZERO BYTES: another tenant's overflowing " +
+			"load has again emptied it")
+	}
+	after := parseSummary(t, w.Body.String())
+	for _, field := range []string{"totalControls", "passed", "failed", "errored",
+		"notEvaluated", "notInForce", "totalExposureGbp", "currency"} {
+		if after[field] != healthy[field] {
+			t.Errorf("%s: %s = %v, want the pre-attack %v. The refused scan disturbed the "+
+				"stored state, so the attack still moves an innocent caller's figures.",
+				innocent, field, after[field], healthy[field])
+		}
+	}
+	t.Logf("after: %s -> HTTP %d, %d bytes, totalExposureGbp=%v",
+		innocent, w.Code, w.Body.Len(), after["totalExposureGbp"])
+
+	// And the two callers with no successful scan of their own get a 404 that
+	// carries no counts -- never the innocent tenant's figures, and never a
+	// zeroed 200 that would read as a clean posture.
+	for _, hdr := range []map[string]string{
 		{"X-Tenant-ID": "tenant-poison"},
+		{},
 	} {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
-		for k, v := range hdr {
-			req.Header.Set(k, v)
-		}
-		h.handleSummary(w, req)
-		if w.Code != http.StatusOK {
-			t.Errorf("call %d (%v): status %d, want 200. A non-200 means the DEFECT IS "+
-				"FIXED -- delete this test and extend TestTheSummaryNeverMixesDenominations.",
-				i, hdr, w.Code)
+		c, b := getSummaryRaw(t, h, hdr)
+		if c == http.StatusOK {
+			s := parseSummary(t, b)
+			t.Errorf("summary for %v returned 200 labelled %v totalling %v; a caller whose "+
+				"only scan was REFUSED has no summary and must not be shown another "+
+				"tenant's", hdr, s["currency"], s["totalExposureGbp"])
 			continue
 		}
-		if n := w.Body.Len(); n != 0 {
-			t.Errorf("call %d (%v): body is %d bytes, want 0; behaviour has changed and must "+
-				"be re-characterised: %.200q", i, hdr, n, w.Body.String())
+		if c != http.StatusNotFound {
+			t.Errorf("summary for %v: got %d, want 404", hdr, c)
 			continue
 		}
-		t.Logf("after: call %d (%v) -> HTTP %d, Content-Type %q, %d bytes",
-			i, hdr, w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+		if len(b) == 0 {
+			t.Errorf("the 404 for %v has no body", hdr)
+			continue
+		}
+		ref := parseSummary(t, b)
+		for _, leaked := range []string{"totalExposureGbp", "totalControls", "currency"} {
+			if _, present := ref[leaked]; present {
+				t.Errorf("the 404 for %v carries %q, making 'no scan' readable as "+
+					"'scanned, nothing found'", hdr, leaked)
+			}
+		}
 	}
 
-	// And it is persistent, not transient: the slot still holds the +Inf.
-	// A healthy scan by anyone clears it, which is the only recovery.
-	if c, _ := postScanWithHeaders(t, h, baseScanBody(), nil); c != http.StatusOK {
+	// And a later healthy scan still works, so nothing was left wedged by the
+	// refusal.
+	if c, _ := postScanWithHeaders(t, h, baseScanBody(), map[string]string{"X-Tenant-ID": innocent}); c != http.StatusOK {
 		t.Fatalf("recovery scan: got %d", c)
 	}
-	rCode, rBody := getSummaryRaw(t, h)
+	rCode, rBody := getSummaryRaw(t, h, map[string]string{"X-Tenant-ID": innocent})
 	if rCode != http.StatusOK || len(rBody) == 0 {
-		t.Errorf("after a healthy scan the summary is still %d with %d bytes; the slot "+
-			"should have been overwritten", rCode, len(rBody))
+		t.Errorf("after a further healthy scan the summary is %d with %d bytes", rCode, len(rBody))
 	}
-	t.Logf("DEFECT CONFIRMED: one tenant's riskLoad=1e308 made GET /compliance/summary "+
-		"return HTTP 200 with 0 bytes for EVERY caller, persisting until an unrelated "+
-		"healthy scan replaced ch.lastResults. Recovered body is %d bytes.", len(rBody))
+	t.Logf("FIXED: riskLoad=1e308 is refused with a document; %s's summary was undisturbed "+
+		"and the poisoner and the anonymous caller both got 404. Final body %d bytes.",
+		innocent, len(rBody))
+}
+
+// ── 4. The growth the tenant key introduces, and its bound ────────────────────
+
+// TestTheScanStoreIsBoundedAndEvictsTheOldest pins the cost of fix 2, because
+// keying by tenant is not free and the bill is paid in memory.
+//
+// THE HAZARD. The key is `X-Tenant-ID` (or `?tenant=`) straight off the
+// request. The engine has no database and no token introspection, so it cannot
+// check that a tenant id corresponds to anything -- "only real tenants appear"
+// is not a property this code can rely on. An unkeyed slot could not grow; a
+// map keyed by a caller-supplied string with no eviction grows forever, on an
+// unauthenticated trigger, one entry per distinct header value.
+//
+// THE BOUND, AND WHY EVICTION RATHER THAN REFUSAL. The store holds at most
+// maxRememberedTenants scans and discards the OLDEST when full. The alternative
+// -- refusing new scans once full -- would let one caller with a loop deny the
+// scan endpoint to every real tenant, which is a worse failure than losing an
+// old summary. The consequence is stated rather than hidden: an evicted tenant
+// gets the same 404 as one that never scanned, which is the correct answer to
+// "show me my summary" when the engine no longer has one.
+//
+// What is asserted: the map never exceeds the cap; the most recent scanner is
+// still readable; the first scanner has been evicted and 404s rather than
+// returning somebody else's figures. The last clause is the one that matters --
+// eviction must not degrade into a leak.
+func TestTheScanStoreIsBoundedAndEvictsTheOldest(t *testing.T) {
+	h := &complianceHandler{}
+	row := ComplianceScanResult{Check: "synthetic", Status: VerdictFail, CarriedGBP: 1}
+
+	// One more than the cap, so exactly one eviction is forced.
+	for i := 0; i < maxRememberedTenants+1; i++ {
+		h.rememberScan(fmt.Sprintf("tenant-%d", i), []ComplianceScanResult{row}, nil)
+	}
+
+	h.mu.RLock()
+	size := len(h.scans)
+	h.mu.RUnlock()
+	if size > maxRememberedTenants {
+		t.Errorf("store holds %d scans, cap is %d: the map is unbounded and one caller can "+
+			"grow it forever with arbitrary X-Tenant-ID values", size, maxRememberedTenants)
+	}
+
+	// The newest is readable.
+	newest := fmt.Sprintf("tenant-%d", maxRememberedTenants)
+	if _, ok := h.scanFor(newest); !ok {
+		t.Errorf("%s was evicted; eviction must drop the OLDEST, not the newest", newest)
+	}
+	// The oldest is gone.
+	if _, ok := h.scanFor("tenant-0"); ok {
+		t.Errorf("tenant-0 survived %d later scans with a cap of %d",
+			maxRememberedTenants, maxRememberedTenants)
+	}
+
+	// And an evicted tenant gets 404 -- NOT another tenant's figures. Eviction
+	// must not reopen the leak it sits beside.
+	c, b := getSummaryRaw(t, h, map[string]string{"X-Tenant-ID": "tenant-0"})
+	if c != http.StatusNotFound {
+		t.Errorf("an evicted tenant's summary is %d (%.200q), want 404", c, b)
+	}
+
+	// Re-scanning an existing tenant REPLACES rather than adds, so a single
+	// tenant polling the scan endpoint cannot evict everyone else.
+	before := size
+	h.rememberScan(newest, []ComplianceScanResult{row, row}, nil)
+	h.mu.RLock()
+	after := len(h.scans)
+	h.mu.RUnlock()
+	if after != before {
+		t.Errorf("re-scanning an existing tenant changed the store size %d -> %d; a repeat "+
+			"scanner must replace its own entry, not add one", before, after)
+	}
+	if s, _ := h.scanFor(newest); len(s.results) != 2 {
+		t.Errorf("%s has %d rows, want the 2 from its latest scan", newest, len(s.results))
+	}
 }

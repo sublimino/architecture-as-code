@@ -3667,27 +3667,43 @@ policy-pricing-counts-update: ## REWRITE every pack page's priced/unpriced count
 # figures are only READ here -- no triple, no celExpression and no golden value
 # is touched by anything in this section.
 #
-# WHAT THEY FOUND, in one line each, so a reader does not have to run them:
-#   * riskLoad=1e307 overflows carried to +Inf; encoding/json refuses it and
-#     compliance.go:516 has already written 200, so the client gets HTTP 200
-#     with ZERO bytes -- a fabricated all-clear. (_DEFECT, characterised)
-#   * a declared reportingCurrency RELABELS without converting: USD figures are
-#     byte-identical to GBP, and JPY additionally re-quantises to whole units.
-#     (_DEFECT, characterised)
-#   * ZZZ/XXX/AAA pass the shape check and label figures no table can convert.
-#   * published carried cannot be re-derived from published tvar at large loads.
+# WHAT THEY FOUND, in one line each, so a reader does not have to run them.
+# THREE OF THE FOUR ARE NOW FIXED and the suites assert the fix rather than the
+# defect; the characterisation tests were re-pointed, not deleted, so each still
+# has a named mutant proving it is a tripwire.
+#   * FIXED: riskLoad=1e307 overflowed carried to +Inf; encoding/json refuses it
+#     and compliance.go had already written 200, so the client got HTTP 200 with
+#     ZERO bytes -- a fabricated all-clear. The load is now refused where it is
+#     applied (400, naming the field and the figure), and every encode site
+#     buffers and checks before committing a status.
+#   * FIXED: GET /compliance/summary read one unkeyed slot and took no tenant
+#     input, so it served the last scanner's total under the last scanner's
+#     declared currency to every caller. Now keyed by tenant, 404 with no counts
+#     for a tenant that has not scanned, and bounded.
+#   * FIXED: ZZZ/XXX/AAA/QQQ/KWD passed the shape check and labelled figures no
+#     table can convert. Refused by an allow-list equal to risk/fx/rates.yaml's
+#     key set, with that equality asserted against the real file.
+#   * STILL OPEN (_DEFECT, characterised): a declared reportingCurrency that IS
+#     in the table RELABELS without converting -- USD figures are byte-identical
+#     to GBP, JPY additionally re-quantises to whole units. Refuse-not-convert
+#     was the decision; the relabel for table currencies is unchanged.
+#   * STILL OPEN: published carried cannot be re-derived from published tvar at
+#     large loads (the engine rounds tvar for display and computes carried from
+#     the unrounded value).
 verify-cel-money-chaos: ## Adversarial probes of the tenant risk profile and its money: numeric poison, currency relabelling, declared zero, tenant isolation, percentile gap.
 	cd d2-signalloom/apps/policy-engine && go test -count=1 -v \
-		-run 'Poison|RiskLoad|ReportingCurrenc|Currenc|DeclaredZero|Denomination|Isolation|Percentile|Overflow|Relabel|TailDominated|RiskProfileIsolat' .
+		-run 'Poison|RiskLoad|ReportingCurrenc|Currenc|DeclaredZero|Denomination|Isolation|Percentile|Overflow|Relabel|TailDominated|RiskProfileIsolat|WriteJSONChecked|SummaryIntact|ScopedToTheCallingTenant|ScanStoreIsBounded|RateTable|NoRateIsRefused' .
 
-# Proves the suites above are not decoration. Ten mutants: seven delete a real
-# guard and must go red, THREE INVERT the proof by fixing a characterised defect
-# -- a `_DEFECT` test that still passes once its subject is fixed was pinning
-# nothing. Restores every file from an explicit cp backup in an EXIT trap and
+# Proves the suites above are not decoration. Twenty-four mutants: twenty delete
+# a real guard and must go red, FOUR INVERT the proof by fixing a defect the
+# suites still characterise -- a `_DEFECT` test that still passes once its
+# subject is fixed was pinning nothing. Four mutants that used to be inverted
+# (M3, M11, M12, M16) are now ordinary forward mutants, because the defects they
+# described have been fixed for real. Restores every file from an explicit cp backup in an EXIT trap and
 # verifies byte-identity by checksum; a missing test is reported as MISSING
 # (exit 3) and never as a surviving mutant, because `go test -run` on a
 # non-matching regex exits 0.
-verify-cel-money-chaos-mutation-proof: ## Prove verify-cel-money-chaos is not decoration: 19 mutants (6 of them inverted fixes) plus 2 negative controls.
+verify-cel-money-chaos-mutation-proof: ## Prove verify-cel-money-chaos is not decoration: 24 mutants (4 of them inverted fixes) plus 2 negative controls.
 	test/verify-cel-money-chaos-mutation-proof.sh
 
 # Attacks on the MONEY_GOLDEN=update movement guard, which is the only thing

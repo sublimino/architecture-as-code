@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/pkg/compliance"
 )
 
 // GET /api/v1/fleet/topology used to serve aggregateRisk.ale and .var95 as required
@@ -86,8 +84,8 @@ func TestAggregateRiskCarriesW6RefusalShape(t *testing.T) {
 		t.Errorf("pricing.available = true while no figure is served")
 	}
 
-	if got := pricing["status"]; got != string(compliance.PricingStatusAuthoredNotComputed) {
-		t.Errorf("pricing.status = %#v, want %q", got, compliance.PricingStatusAuthoredNotComputed)
+	if got := pricing["status"]; got != string(PricingStatusAuthoredNotComputed) {
+		t.Errorf("pricing.status = %#v, want %q", got, PricingStatusAuthoredNotComputed)
 	}
 
 	// The reason must name the cause, not merely assert one. An operator reading it should
@@ -127,9 +125,9 @@ func TestAggregateRiskCarriesW6RefusalShape(t *testing.T) {
 // contradict the status beside it is a fabrication waiting to happen, so the constructor
 // must offer no way to write it.
 func TestPricingAvailableIsDerivedFromStatus(t *testing.T) {
-	p := compliance.NewAuthoredNotComputedPricing("because", []string{"ale"})
+	p := newAuthoredNotComputedPricing("because", []string{"ale"})
 
-	if p.Available != compliance.PricingStatusAuthoredNotComputed.Available() {
+	if p.Available != PricingStatusAuthoredNotComputed.Available() {
 		t.Errorf("Available = %v, want the value the status implies", p.Available)
 	}
 	if p.Available {
@@ -143,15 +141,15 @@ func TestPricingAvailableIsDerivedFromStatus(t *testing.T) {
 // risk model at all. One label over three facts reads as authoritative precisely because
 // it is uniform.
 func TestAuthoredNotComputedIsADistinctStatus(t *testing.T) {
-	third := compliance.PricingStatusAuthoredNotComputed
+	third := PricingStatusAuthoredNotComputed
 
-	if third == compliance.PricingStatusNoDeclaredLossFrequency {
+	if third == PricingStatusNoDeclaredLossFrequency {
 		t.Errorf("the authored-figure refusal collapsed into NO_DECLARED_LOSS_FREQUENCY")
 	}
-	if third == compliance.PricingStatusNoRiskDataPlane {
+	if third == PricingStatusNoRiskDataPlane {
 		t.Errorf("the authored-figure refusal collapsed into NO_RISK_DATA_PLANE")
 	}
-	if third == compliance.PricingStatusPriced {
+	if third == PricingStatusPriced {
 		t.Errorf("a refusal is equal to PRICED")
 	}
 	if third.Available() {

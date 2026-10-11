@@ -7,9 +7,112 @@ import (
 	"sync"
 	"time"
 
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/pkg/compliance"
 	"gopkg.in/yaml.v3"
 )
+
+// PricingStatus is the machine-readable cause of a route declining to report a money
+// figure. It is the fleet-manager copy of the estate's shared refusal vocabulary.
+//
+// WHY A LOCAL COPY AND NOT AN IMPORT. policy-engine's pkg/compliance owns the original.
+// fleet-manager is an independently deployable service in its own Go module, and a
+// require+replace across that boundary would couple two deployables for the sake of five
+// small types, invisibly to anyone reading either service alone. fe-signalloom faced the
+// same boundary between Go and Python and resolved it the same way: declare the shape
+// locally, then pin the agreement with a test that reads the other side's declaration out
+// of its source. See TestRefusalShapeParityWithPolicyEngine, and
+// fe-signalloom/src/tests/test_refusal_shape_parity.py for the pattern.
+//
+// The duplication is the lesser cost; the parity test is what makes it safe. A client
+// deserialising one service's refusal must deserialise the other's without branching on
+// which service answered, so the KEY SET and the STATUS STRINGS are the contract -- not
+// these Go types.
+type PricingStatus string
+
+const (
+	// PricingStatusPriced: a figure is present and was computed from declared inputs.
+	// Declared here for vocabulary parity with the engine; this service never emits it,
+	// because it has nothing to compute a fleet figure from.
+	PricingStatusPriced PricingStatus = "PRICED"
+	// PricingStatusNoDeclaredLossFrequency and PricingStatusNoRiskDataPlane are the
+	// engine's two refusal causes. This service never emits either — its cause is
+	// different, see below — but the whole vocabulary is declared on both sides so that a
+	// client reading either service branches on one set of strings, and so that a
+	// respelling on one side fails the parity test rather than silently falling through
+	// every client branch.
+	//
+	// NO_DECLARED_LOSS_FREQUENCY: the checks evaluated resolve to no control in the risk
+	// pack. Operator action: declare the mapping in the pack.
+	PricingStatusNoDeclaredLossFrequency PricingStatus = "NO_DECLARED_LOSS_FREQUENCY"
+	// NO_RISK_DATA_PLANE: the route answers from a store that holds no money at all.
+	// Operator action: run a priced scan, or give the route a risk data plane.
+	PricingStatusNoRiskDataPlane PricingStatus = "NO_RISK_DATA_PLANE"
+	// PricingStatusAuthoredNotComputed: a figure for this field exists, but it was
+	// AUTHORED — typed into a manifest by a human — and no computation stands behind it.
+	// Emitted by GET /api/v1/fleet/topology, whose aggregateRisk was read straight out of
+	// fleet.yaml and rendered on a risk gauge. Operator action: build a fleet risk model
+	// that declares loss magnitude and loss-event frequency per agent, because nothing in
+	// risk/packs maps an agent's riskClass to either.
+	//
+	// WHY A THIRD VALUE AND NOT ONE OF THE ENGINE'S TWO. Both of those describe a MISSING
+	// input: no control in the risk pack maps to the checks evaluated
+	// (NO_DECLARED_LOSS_FREQUENCY), or there is no risk data plane to read from
+	// (NO_RISK_DATA_PLANE). This one describes a PRESENT datum of the wrong kind. The
+	// number is right there in the config, which is exactly why it was served for so long
+	// and why it is the more dangerous case — nothing looked missing. The operator actions
+	// differ accordingly: declaring a control mapping or wiring up a priced scan will not
+	// help here, and a reader told NO_DECLARED_LOSS_FREQUENCY would go hunting in the risk
+	// pack for a figure that was never going to be there.
+	PricingStatusAuthoredNotComputed PricingStatus = "AUTHORED_NOT_COMPUTED"
+)
+
+// Available reports whether a figure accompanies this status.
+//
+// FleetPricingStatus.Available is derived through this method rather than set beside the
+// status, because two hand-maintained fields carrying one fact eventually disagree — and a
+// boolean that disagrees with the status beside it is worse than either alone. Here it
+// would be particularly bad: `available: true` next to a refusing status is exactly the
+// field a client already reads and trusts.
+func (s PricingStatus) Available() bool { return s == PricingStatusPriced }
+
+// FleetPricingStatus is the refusal object. Its key set is deliberately identical to the
+// policy engine's and fe-signalloom's, so a client has one shape to deserialise and one to
+// render across every route in the estate that withholds money.
+type FleetPricingStatus struct {
+	Available bool          `json:"available"`
+	Status    PricingStatus `json:"status"`
+	Reason    string        `json:"reason"`
+	// UnpricedFields names the money fields this response withheld, by their JSON names,
+	// so a client can tell "withheld" from "this version has no such field" without a
+	// schema.
+	UnpricedFields []string `json:"unpricedFields"`
+	// Unmapped names the checks that resolved to no declared control. Empty on this route,
+	// whose refusal is not per-check — but always allocated, never nil: nil marshals to
+	// `null` and an empty slice to `[]`, and the shared shape promises one type per key on
+	// every route.
+	Unmapped []string `json:"unmappedChecks"`
+}
+
+// newAuthoredNotComputedPricing builds the refusal for a figure that was authored in a
+// manifest rather than computed.
+//
+// There is deliberately NO parameter for Available. Its only source is the status, and a
+// constructor that accepted it would let a caller write a boolean contradicting the status
+// beside it — which is how a refusal comes to claim a figure is available. A test asserts
+// this signature, so the property cannot be lost by a later edit.
+func newAuthoredNotComputedPricing(reason string, unpricedFields []string) FleetPricingStatus {
+	status := PricingStatusAuthoredNotComputed
+	if unpricedFields == nil {
+		unpricedFields = []string{}
+	}
+	return FleetPricingStatus{
+		// Derived, never written beside the status. See PricingStatus.Available.
+		Available:      status.Available(),
+		Status:         status,
+		Reason:         reason,
+		UnpricedFields: unpricedFields,
+		Unmapped:       []string{},
+	}
+}
 
 // DefaultAgentState is the state an agent is reported in when the fleet config
 // does not say otherwise.
@@ -111,9 +214,8 @@ type AuthoredRiskInputs struct {
 // claim "no loss expected", which is itself a figure. Trend goes with them: "up" asserts
 // that an ALE rose, and with no ALE computed there is no movement to report.
 //
-// Pricing is the shared refusal object from policy-engine's compliance package — the
-// same type, not a copy, so there is one definition and the estate's three other
-// withholding routes cannot drift from this one.
+// Pricing carries the estate's shared refusal shape, declared locally and held in
+// agreement with the policy engine's by TestRefusalShapeParityWithPolicyEngine.
 type RiskSummary struct {
 	ALE         *float64 `json:"ale,omitempty"`
 	Var95       *float64 `json:"var95,omitempty"`
@@ -123,7 +225,7 @@ type RiskSummary struct {
 	// money field is indistinguishable from a field this version does not implement,
 	// from version skew, and from a crash midway through encoding. The status says who
 	// withheld the figure and why.
-	Pricing compliance.FleetPricingStatus `json:"pricing"`
+	Pricing FleetPricingStatus `json:"pricing"`
 }
 
 // authoredRiskRefusalReason is the operator-facing explanation. It names the two things
@@ -150,7 +252,7 @@ func refusedAggregateRisk() RiskSummary {
 		// ALE, Var95, PreviousALE and Trend are left at their zero values so omitempty
 		// drops them from the response entirely. Absent, not zero — and absent WITH a
 		// status saying so.
-		Pricing: compliance.NewAuthoredNotComputedPricing(
+		Pricing: newAuthoredNotComputedPricing(
 			authoredRiskRefusalReason,
 			authoredRiskUnpricedFields,
 		),

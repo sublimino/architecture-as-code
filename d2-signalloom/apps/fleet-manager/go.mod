@@ -3,7 +3,6 @@ module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-ma
 go 1.27.0
 
 require (
-	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine v0.0.0-unpublished
 	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel v0.0.0-unpublished
 	github.com/google/cel-go v0.30.0
 	github.com/spiffe/go-spiffe/v2 v2.7.0
@@ -18,11 +17,13 @@ require (
 
 replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel => ../stun-sentinel
 
-// pkg/compliance owns the estate's shared money-refusal shape (FleetPricingStatus). It is
-// imported rather than copied so that the four routes which withhold a figure cannot drift
-// apart; the package is a single stdlib-only file, so this adds no transitive dependency.
-// signal-ingest/go.mod requires policy-engine the same way.
-replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine => ../policy-engine
+// NOTE: fleet-manager deliberately does NOT depend on apps/policy-engine, though it shares
+// the money-refusal wire shape with it. The two are independently deployable services, and a
+// require+replace here would couple them for the sake of five small types while being
+// invisible to anyone reading either service alone. The shape is declared locally in
+// topology.go and held in agreement by TestRefusalShapeParityWithPolicyEngine, which reads
+// the engine's own declaration out of its source. Duplication plus a parity test, not a
+// module edge.
 
 require (
 	cel.dev/expr v0.25.2 // indirect

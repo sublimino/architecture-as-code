@@ -1,0 +1,26 @@
+{
+  "name": "sbom-verified-provenance--sbom-is-a-list",
+  "level": "unit",
+  "description": "agent.sbom is a JSON list, not a map. Every other field is compliant, so the only reason to fail is the container's type. Guarded by type(agent.sbom) == map: before that guard the list form returned error, not fail, which is a verdict a scan reports as neither passed nor failed.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": [
+        {
+          "format": "CycloneDX",
+          "verified": true
+        }
+      ],
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "sbom-verified-provenance": "fail"
+  }
+}

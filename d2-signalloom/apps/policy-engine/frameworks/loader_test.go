@@ -2,6 +2,7 @@ package frameworks
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,8 +301,10 @@ func TestAllRegulatoryRules_TableDrivenAllowDeny(t *testing.T) {
 		},
 		{
 			FrameworkID: "eu-ai-act", Version: "v2.1", CheckID: "resource-limits-set",
-			AllowFixture: map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "500m"}}}}}}},
-			DenyFixture:  map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{}}}}}},
+			// cpu alone is no longer an ALLOW: resource-limits-set requires both
+			// cpu and memory, because its name says "CPU and memory limits defined".
+			AllowFixture: map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "500m", "memory": "512Mi"}}}}}}},
+			DenyFixture:  map[string]any{"object": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "500m"}}}}}}},
 		},
 		{
 			FrameworkID: "eu-ai-act", Version: "v2.1", CheckID: "deployer-monitoring-active",
@@ -557,6 +560,94 @@ func TestLoad_RejectsDuplicateCheckID(t *testing.T) {
 	}
 }
 
+// A malformed triple must fail to LOAD, not price silently.
+//
+// Every case here was invisible before frameworks.validate called
+// fair.RiskTriple.Validate: an adversarial audit edited a shipped pack to
+// freqTriple{min: 4, mode: 1.5, max: 0.5} and riskTriple{min: -100000, ...},
+// ran every pack test, and got a clean suite — because fair.Simulate never
+// validates its inputs and samplePERT quietly absorbs both shapes (span <= 0
+// returns min, so an inverted triple prices at its own maximum; a negative draw
+// is clamped to zero per iteration).
+//
+// These are SHAPE errors. The pricing gate deliberately abstains from
+// calibration — whether 120,000 is the right modal loss is a judgement nothing
+// here can referee — but min > mode, a negative loss and a non-finite value
+// have no defensible reading at all.
+func TestLoad_RejectsMalformedTriple(t *testing.T) {
+	for name, tc := range map[string]struct{ from, to, want string }{
+		"risk min above mode": {
+			`"riskTriple":{"min":1,"mode":2,"max":3}`, `"riskTriple":{"min":3,"mode":2,"max":3}`,
+			"min <= mode <= max",
+		},
+		"risk mode above max": {
+			`"riskTriple":{"min":1,"mode":2,"max":3}`, `"riskTriple":{"min":1,"mode":9,"max":3}`,
+			"min <= mode <= max",
+		},
+		"risk min negative": {
+			`"riskTriple":{"min":1,"mode":2,"max":3}`, `"riskTriple":{"min":-100000,"mode":2,"max":3}`,
+			"min must be >= 0",
+		},
+		// The exact triple the auditor injected.
+		"freq fully inverted": {
+			`"freqTriple":{"min":0.1,"mode":0.2,"max":0.3}`, `"freqTriple":{"min":4,"mode":1.5,"max":0.5}`,
+			"min <= mode <= max",
+		},
+		"freq min negative": {
+			`"freqTriple":{"min":0.1,"mode":0.2,"max":0.3}`, `"freqTriple":{"min":-1,"mode":0.2,"max":0.3}`,
+			"min must be >= 0",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(canonicalJSON, tc.from, tc.to, 1)
+			if body == canonicalJSON {
+				t.Fatalf("fixture did not apply: %q not found in canonicalJSON", tc.from)
+			}
+			_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.json": body}), "x", "v1.0")
+			if err == nil {
+				t.Fatalf("a pack with %s loaded; its figures would be fabricated", name)
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), `"ok"`) {
+				t.Fatalf("want an error naming check \"ok\" and %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// NaN and Inf are unrepresentable in JSON but entirely writable in YAML, and a
+// non-finite triple propagates NaN into every figure the product quotes. (The
+// shape clamp in samplePERT catches a NaN alpha; it does not catch a NaN min,
+// which is added to the sample unconditionally.)
+func TestLoad_RejectsNonFiniteTripleFromYAML(t *testing.T) {
+	const tmpl = `id: x
+name: X
+version: v1.0.0
+controlSets:
+  - id: cs
+    name: CS
+    controls:
+      - id: c1
+        name: C1
+        checks:
+          - id: ok
+            name: ok
+            celExpression: "true"
+            riskTriple: {min: %s, mode: 2, max: 3}
+`
+	for _, v := range []string{".nan", ".inf", "-.inf"} {
+		t.Run(v, func(t *testing.T) {
+			body := fmt.Sprintf(tmpl, v)
+			_, err := Load(writePack(t, "x", "v1.0", map[string]string{"framework.yaml": body}), "x", "v1.0")
+			if err == nil {
+				t.Fatalf("a pack with a %s triple bound loaded; every figure it prices is NaN or Inf", v)
+			}
+			if !strings.Contains(err.Error(), "finite") && !strings.Contains(err.Error(), "min must be >= 0") {
+				t.Fatalf("want a finiteness or non-negativity error, got %v", err)
+			}
+		})
+	}
+}
+
 // A misspelt key would otherwise decode to a zero value (empty expression,
 // zero risk) without a word.
 func TestLoad_RejectsUnknownJSONField(t *testing.T) {
@@ -688,8 +779,8 @@ func TestLoad_LegacyTiersConverted(t *testing.T) {
 	}{
 		{"eu-ai-act", "v1.0", "v1.0.0", "container-run-as-non-root", 7, 2000, 10000, 50000},
 		{"eu-ai-act", "v2.0", "v2.0.0", "no-privileged-mode", 19, 8000, 40000, 150000},
-		{"nist-800-53", "v1.0", "v1.0.0", "no-automount-sa-token", 11, 2000, 10000, 40000},
-		{"nist-800-53", "v2.0", "v2.0.0", "no-privilege-escalation", 27, 8000, 40000, 150000},
+		{"nist-800-53", "v1.0", "v1.0.0", "no-automount-sa-token", 14, 2000, 10000, 40000},
+		{"nist-800-53", "v2.0", "v2.0.0", "no-privilege-escalation", 28, 8000, 40000, 150000},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id+"/"+tc.ver, func(t *testing.T) {

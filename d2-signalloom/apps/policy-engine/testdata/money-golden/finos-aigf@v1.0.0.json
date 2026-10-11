@@ -1,0 +1,354 @@
+{
+  "framework": "finos-aigf",
+  "version": "v1.0.0",
+  "currency": "GBP",
+  "iterations": 10000,
+  "note": "Engine-reported risk figures for every check in this pack. ale/var95/tvar/carried are compared EXACTLY (see compliance_money_test.go); analyticAle is the closed-form E[freq]*E[loss] from the beta-PERT triples and aleSigma is the deviation of ale from it in standard errors (see compliance_money_oracle_test.go). Regenerate with: make verify-cel-money-golden — which pins a NEW check's figures freely but REFUSES to rewrite an already-pinned figure without MONEY_GOLDEN_MOVE_REASON and MONEY_GOLDEN_MOVE_CHECKS, recorded in lastMovement.",
+  "checks": [
+    {
+      "check": "ai-data-encrypted-at-rest",
+      "seed": 18347281602134318920,
+      "riskTriple": {
+        "min": 9000,
+        "mode": 38000,
+        "max": 150000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.8,
+        "max": 2.5
+      },
+      "ale": 50702.3,
+      "var95": 116566.66,
+      "tvar": 143721.47,
+      "carried": 158093.62,
+      "tailDominated": false,
+      "analyticAle": 50969.44,
+      "aleSigma": -0.792
+    },
+    {
+      "check": "ai-interaction-audit-logging",
+      "seed": 8171235623366475564,
+      "riskTriple": {
+        "min": 6000,
+        "mode": 25000,
+        "max": 100000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 1.6,
+        "max": 4.5
+      },
+      "ale": 65832.42,
+      "var95": 150558.96,
+      "tvar": 180819.31,
+      "carried": 198901.25,
+      "tailDominated": false,
+      "analyticAle": 65233.33,
+      "aleSigma": 1.448
+    },
+    {
+      "check": "decision-audit-tamper-evident",
+      "seed": 10125107959607310571,
+      "riskTriple": {
+        "min": 6000,
+        "mode": 28000,
+        "max": 110000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 3
+      },
+      "ale": 45976.52,
+      "var95": 104048.16,
+      "tvar": 125844.14,
+      "carried": 138428.56,
+      "tailDominated": false,
+      "analyticAle": 46233.33,
+      "aleSigma": -0.855
+    },
+    {
+      "check": "decision-explainability-metadata",
+      "seed": 15567007473760560757,
+      "riskTriple": {
+        "min": 7000,
+        "mode": 32000,
+        "max": 130000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "high-impact-actions-human-approved",
+      "seed": 10620351980317243168,
+      "riskTriple": {
+        "min": 25000,
+        "mode": 100000,
+        "max": 400000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.8,
+        "max": 2.5
+      },
+      "ale": 136008.69,
+      "var95": 313350.03,
+      "tvar": 381480.9,
+      "carried": 419628.99,
+      "tailDominated": false,
+      "analyticAle": 135208.33,
+      "aleSigma": 0.895
+    },
+    {
+      "check": "inference-rate-limit-configured",
+      "seed": 8347459324447602302,
+      "riskTriple": {
+        "min": 4000,
+        "mode": 18000,
+        "max": 80000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 2,
+        "max": 6
+      },
+      "ale": 63000.06,
+      "var95": 149021.34,
+      "tvar": 183167.19,
+      "carried": 201483.91,
+      "tailDominated": false,
+      "analyticAle": 62833.33,
+      "aleSigma": 0.391
+    },
+    {
+      "check": "mcp-servers-allowlisted",
+      "seed": 13074371134924108783,
+      "riskTriple": {
+        "min": 12000,
+        "mode": 55000,
+        "max": 220000
+      },
+      "freqTriple": {
+        "min": 0.2,
+        "mode": 0.9,
+        "max": 2.8
+      },
+      "ale": 83249.96,
+      "var95": 192308.27,
+      "tvar": 233811.68,
+      "carried": 257192.84,
+      "tailDominated": false,
+      "analyticAle": 82866.67,
+      "aleSigma": 0.687
+    },
+    {
+      "check": "model-version-pinned",
+      "seed": 17989004992481768856,
+      "riskTriple": {
+        "min": 5000,
+        "mode": 22000,
+        "max": 90000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "no-long-lived-credentials-exposed",
+      "seed": 12661894190706548470,
+      "riskTriple": {
+        "min": 20000,
+        "mode": 85000,
+        "max": 350000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 3
+      },
+      "ale": 145423.95,
+      "var95": 335474.13,
+      "tvar": 408517.18,
+      "carried": 449368.9,
+      "tailDominated": false,
+      "analyticAle": 143972.22,
+      "aleSigma": 1.543
+    },
+    {
+      "check": "output-leakage-filter-active",
+      "seed": 11740623285691635029,
+      "riskTriple": {
+        "min": 12000,
+        "mode": 50000,
+        "max": 200000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1.2,
+        "max": 3.5
+      },
+      "ale": 97619.48,
+      "var95": 224775.86,
+      "tvar": 270531.36,
+      "carried": 297584.5,
+      "tailDominated": false,
+      "analyticAle": 98422.22,
+      "aleSigma": -1.251
+    },
+    {
+      "check": "prompt-injection-guardrail-active",
+      "seed": 1315044869373093900,
+      "riskTriple": {
+        "min": 18000,
+        "mode": 75000,
+        "max": 300000
+      },
+      "freqTriple": {
+        "min": 0.4,
+        "mode": 1.4,
+        "max": 4.2
+      },
+      "ale": 176315.46,
+      "var95": 403183.56,
+      "tvar": 488545.98,
+      "carried": 537400.58,
+      "tailDominated": false,
+      "analyticAle": 175100,
+      "aleSigma": 1.068
+    },
+    {
+      "check": "rag-ingestion-sensitive-data-filtered",
+      "seed": 16280629341535813042,
+      "riskTriple": {
+        "min": 10000,
+        "mode": 45000,
+        "max": 180000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1,
+        "max": 3
+      },
+      "ale": 75053.37,
+      "var95": 171109.71,
+      "tvar": 206677.19,
+      "carried": 227344.91,
+      "tailDominated": false,
+      "analyticAle": 75027.78,
+      "aleSigma": 0.052
+    },
+    {
+      "check": "registered-model-registry-entry",
+      "seed": 16905711950482697826,
+      "riskTriple": {
+        "min": 8000,
+        "mode": 35000,
+        "max": 140000
+      },
+      "freqTriple": {
+        "min": 0,
+        "mode": 0,
+        "max": 0
+      },
+      "ale": 0,
+      "var95": 0,
+      "tvar": 0,
+      "carried": 0,
+      "tailDominated": false,
+      "analyticAle": 0,
+      "aleSigma": 0
+    },
+    {
+      "check": "spend-budget-alerting-configured",
+      "seed": 13710498243757582303,
+      "riskTriple": {
+        "min": 3000,
+        "mode": 15000,
+        "max": 70000
+      },
+      "freqTriple": {
+        "min": 0.5,
+        "mode": 2,
+        "max": 6
+      },
+      "ale": 53515.59,
+      "var95": 128077.14,
+      "tvar": 157857.94,
+      "carried": 173643.74,
+      "tailDominated": false,
+      "analyticAle": 53569.44,
+      "aleSigma": -0.145
+    },
+    {
+      "check": "tool-grants-least-privilege",
+      "seed": 15844599906066171831,
+      "riskTriple": {
+        "min": 15000,
+        "mode": 60000,
+        "max": 250000
+      },
+      "freqTriple": {
+        "min": 0.3,
+        "mode": 1.1,
+        "max": 3.2
+      },
+      "ale": 111434.15,
+      "var95": 255627.22,
+      "tvar": 311994.84,
+      "carried": 343194.32,
+      "tailDominated": false,
+      "analyticAle": 110819.44,
+      "aleSigma": 0.85
+    },
+    {
+      "check": "user-authn-and-rbac-enforced",
+      "seed": 17906003687095057855,
+      "riskTriple": {
+        "min": 10000,
+        "mode": 40000,
+        "max": 160000
+      },
+      "freqTriple": {
+        "min": 0.4,
+        "mode": 1.2,
+        "max": 3.5
+      },
+      "ale": 79542.1,
+      "var95": 177052.62,
+      "tvar": 214557.81,
+      "carried": 236013.6,
+      "tailDominated": false,
+      "analyticAle": 79750,
+      "aleSigma": -0.411
+    }
+  ],
+  "lastMovement": {
+    "reason": "AI governance/documentation checks moved off the technical loss path per docs/fair-methodology-open-decisions.md; a documentation gap does not cause a technical loss event",
+    "checksMoved": 3,
+    "checks": [
+      "decision-explainability-metadata",
+      "model-version-pinned",
+      "registered-model-registry-entry"
+    ]
+  }
+}

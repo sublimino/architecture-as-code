@@ -84,6 +84,7 @@ const baseSettings: TenantSettingsResponse = {
   billing_tier: 'enterprise', api_key_status: 'active', selected_frameworks: ['eu-ai-act'],
   consent_required: false, cookie_preferences: null, preferred_scan_cadence_hours: 24,
   alert_email: null, alert_threshold: 1,
+  sector: null, jurisdiction: null, reporting_currency: null, risk_appetite_tolerance: null, risk_load: null,
 }
 
 // ─── /agents ─────────────────────────────────────────────────────────────────

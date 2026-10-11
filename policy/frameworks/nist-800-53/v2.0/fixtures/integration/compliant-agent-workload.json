@@ -200,6 +200,7 @@
     "audit-label": "pass",
     "log-volume-mount": "pass",
     "log-format-annotation": "pass",
-    "owner-label": "pass"
+    "owner-label": "pass",
+    "no-host-ipc": "pass"
   }
 }

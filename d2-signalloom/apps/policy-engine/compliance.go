@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +33,53 @@ type ComplianceScanRequest struct {
 	Object  map[string]any `json:"object"`
 	Agent   map[string]any `json:"agent"`
 	Request map[string]any `json:"request"`
+
+	// AssessmentDate is the AS-OF DATE the scan is run for, YYYY-MM-DD. It is
+	// the only input that lets an applicability window gate anything, and the
+	// reason the engine never reads the clock: the caller states the day it is
+	// asking about, so the same request replays to identical verdicts forever.
+	// Same convention as `as_of` on risk/fx/rates.yaml.
+	//
+	// ABSENT IS A DELIBERATE DEFAULT, not an oversight -- see
+	// TestScan_NoAssessmentDateLeavesEveryCheckEvaluatedAndSaysSo. A scan with
+	// no assessmentDate applies no window at all, behaves exactly as it did
+	// before windows existed, and reports that fact on the summary via
+	// applicabilityGated and ungatedFrameworks. Substituting today here would
+	// make a stored scan irreproducible; refusing the request outright would
+	// break every caller outside this change.
+	AssessmentDate string `json:"assessmentDate,omitempty"`
+	// ── The institution's declared risk posture (migration 062) ─────────────
+	//
+	// Both are OPTIONAL and both omitted is the overwhelmingly common case. The
+	// caller that fills them is the fe gateway, which holds the tenant's
+	// tenant_settings row; the engine has no database and never looks one up.
+	//
+	// ReportingCurrency is empty when undeclared. RiskLoad is a POINTER on
+	// purpose: 0 is a coherent declared posture ("carry the tail with no load on
+	// top") and a plain float64 could not tell it apart from absent, which would
+	// silently price a declared zero as the 0.10 default.
+	ReportingCurrency money.Currency `json:"reportingCurrency,omitempty"`
+	RiskLoad          *float64       `json:"riskLoad,omitempty"`
+}
+
+// ApplicabilityReport is the row-level audit record of the window that governed
+// a check. It is emitted whenever a window governs the check, even when it did
+// not fire, so a reader can tell "no window" from "a window the engine declined
+// to act on" from "a window that gated this verdict" without reading the pack.
+type ApplicabilityReport struct {
+	// Status is what the declared dates say about AssessmentDate. "unknown"
+	// when no as-of date was supplied.
+	Status frameworks.WindowStatus `json:"status"`
+	// Gated is true iff this window actually forced the verdict. A window with
+	// verified:false always reports gated:false, which is how an unverified
+	// date is proved inert from the response alone.
+	Gated          bool   `json:"gated"`
+	InForceFrom    string `json:"inForceFrom,omitempty"`
+	SupersededFrom string `json:"supersededFrom,omitempty"`
+	Basis          string `json:"basis,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Jurisdiction   string `json:"jurisdiction,omitempty"`
+	Verified       bool   `json:"verified"`
 }
 
 // workload returns the object every check reads as `object` (and `manifest`).
@@ -43,8 +92,70 @@ func (req ComplianceScanRequest) workload() map[string]any {
 	return req.Manifest
 }
 
-// reportingCurrency denominates every figure this service reports.
-const reportingCurrency money.Currency = "GBP"
+// defaultReportingCurrency denominates every figure this service reports when
+// the institution has NOT declared a reporting currency of its own.
+//
+// It was `const reportingCurrency = "GBP"`, applied to every tenant
+// unconditionally. Renaming it is the honest description of what it now is: a
+// fallback, not a fact about the product. A tenant that declares nothing is
+// still reported in GBP, so no existing figure moves -- which is asserted, not
+// assumed, by TestAnUndeclaredTenantIsPricedExactlyAsBefore.
+const defaultReportingCurrency money.Currency = "GBP"
+
+// effectiveRiskProfile is the institution's half of the pricing split as it
+// applies to ONE scan: what a figure is denominated in, and the load carried on
+// top of tail risk.
+//
+// Both fields are always populated -- resolution happens once, at the top of
+// handleScan, so no code further down has to remember a fallback. The zero
+// value is deliberately NOT usable: resolve it through riskProfileFor.
+type effectiveRiskProfile struct {
+	Currency money.Currency
+	RiskLoad float64
+	// Declared records whether the institution stated any of this. It exists so
+	// the engine can say which figures reflect a declared posture and which
+	// reflect its own defaults; a figure priced by a default must never be
+	// presented as one the institution chose.
+	Declared bool
+}
+
+// riskProfileFor resolves the profile a scan request should be priced with.
+//
+// An absent or blank field means UNDECLARED and falls back to the engine's own
+// constant. That is what guarantees no existing figure moves: a request that
+// says nothing is priced byte-for-byte as it was before these fields existed.
+//
+// Invalid is NOT the same as absent and is not silently defaulted -- an
+// unparseable currency or a non-finite load is a caller error, because pricing
+// a figure with a value the caller did not mean is the failure this whole
+// change exists to prevent.
+func riskProfileFor(req ComplianceScanRequest) (effectiveRiskProfile, error) {
+	p := effectiveRiskProfile{Currency: defaultReportingCurrency, RiskLoad: fair.DefaultRiskLoad}
+
+	if declared := money.Currency(strings.TrimSpace(string(req.ReportingCurrency))); declared != "" {
+		if err := declared.Validate(); err != nil {
+			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: %w", err)
+		}
+		p.Currency = declared
+		p.Declared = true
+	}
+
+	if req.RiskLoad != nil {
+		load := *req.RiskLoad
+		if math.IsNaN(load) || math.IsInf(load, 0) {
+			return effectiveRiskProfile{}, fmt.Errorf("riskLoad must be a finite number, got %g", load)
+		}
+		if load < 0 {
+			return effectiveRiskProfile{}, fmt.Errorf(
+				"riskLoad must be >= 0, got %g; a negative load would make carried risk "+
+					"less than tail risk, which is not a coherent risk posture", load)
+		}
+		p.RiskLoad = load
+		p.Declared = true
+	}
+
+	return p, nil
+}
 
 type ComplianceScanResult struct {
 	Framework  string `json:"framework"`
@@ -66,15 +177,26 @@ type ComplianceScanResult struct {
 	// Carried is CarriedGBP with its denomination attached. Same number, self-describing.
 	Carried money.Money `json:"carried"`
 
-	// Status is the verdict: pass, fail, error or not_evaluated. An expression
-	// that cannot evaluate is error, never fail; a placeholder check is
-	// not_evaluated and is never evaluated.
+	// Status is the verdict: pass, fail, error, not_evaluated or not_in_force.
+	// An expression that cannot evaluate is error, never fail; a placeholder
+	// check is not_evaluated and is never evaluated; a check whose regime's
+	// obligations do not exist on AssessmentDate is not_in_force and is never
+	// evaluated. A placeholder of a future regime is not_evaluated: having no
+	// expression outranks having no obligation.
 	Status Verdict `json:"status"`
 	// Error is the CEL error text when Status is error.
 	Error            string `json:"error,omitempty"`
 	ControlID        string `json:"controlId"`
 	FrameworkVersion string `json:"frameworkVersion"`
 	CheckName        string `json:"checkName"`
+
+	// AssessmentDate echoes the as-of date this verdict is for, empty when the
+	// caller supplied none. Carried on the ROW and not only the summary so a
+	// single row lifted into an evidence bundle still states the day it is
+	// evidence for.
+	AssessmentDate string `json:"assessmentDate,omitempty"`
+	// Applicability is the window that governed this check, if any.
+	Applicability *ApplicabilityReport `json:"applicability,omitempty"`
 }
 
 type ComplianceSummary struct {
@@ -83,9 +205,32 @@ type ComplianceSummary struct {
 	Failed        int `json:"failed"`
 	Errored       int `json:"errored"`
 	// NotEvaluated counts placeholder checks; they are in TotalControls only.
-	NotEvaluated  int     `json:"notEvaluated"`
+	NotEvaluated int `json:"notEvaluated"`
+	// NotInForce counts checks whose regime's obligations do not exist on
+	// AssessmentDate. Like NotEvaluated they are in TotalControls only: not
+	// passed, not failed, not errored and contributing no exposure. A regime
+	// that has not started cannot be breached, so pricing it would be wrong by
+	// statute rather than by opinion.
+	NotInForce    int     `json:"notInForce"`
 	TotalExposure float64 `json:"totalExposureGbp"`
 	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
+
+	// AssessmentDate echoes the as-of date the scan was run with, empty when
+	// the caller supplied none. It is on the summary as well as every row
+	// because it is the one input that makes the verdicts reproducible: a
+	// reader cannot re-derive these counts without knowing which day they are
+	// counts for.
+	AssessmentDate string `json:"assessmentDate,omitempty"`
+	// ApplicabilityGated is true when an assessmentDate was supplied, so the
+	// declared windows were actually applied. False means every check
+	// evaluated regardless of its regime's dates -- see UngatedFrameworks.
+	ApplicabilityGated bool `json:"applicabilityGated"`
+	// UngatedFrameworks names the frameworks in this scan that declare a
+	// VERIFIED applicability window which was NOT applied, because no
+	// assessmentDate was supplied. This is the honest report of the default:
+	// the gate did not fire, these are the regimes where that mattered, and a
+	// reader is told rather than left to assume the dates were checked.
+	UngatedFrameworks []string `json:"ungatedFrameworks,omitempty"`
 
 	// Currency denominates totalExposureGbp. See the note on ComplianceScanResult.
 	Currency money.Currency `json:"currency"`
@@ -99,6 +244,10 @@ type complianceHandler struct {
 	celEngine   *CELEngine
 	mu          sync.RWMutex
 	lastResults []ComplianceScanResult
+	// lastUngated names frameworks of the last scan that declared a verified
+	// window which was not applied because no assessmentDate was supplied. Kept
+	// beside lastResults because it is a property of the scan, not of a row.
+	lastUngated []string
 }
 
 func newComplianceHandler(policyRoot string, optEngine ...*CELEngine) (*complianceHandler, error) {
@@ -137,11 +286,59 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Which institution this scan is priced for. extractTenant has existed since
+	// the handler package was written and nothing on this path ever called it,
+	// so until now a scan carried no notion of whose money it was reporting.
+	//
+	// The tenant id is NOT a lookup key here -- the engine has no database. It
+	// is used to refuse an incoherent request: a declared risk posture with no
+	// tenant to attribute it to is a caller bug, and pricing it anyway would
+	// produce a figure attributed to nobody.
+	tenantID := extractTenant(r)
+
+	profile, err := riskProfileFor(req)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid risk profile: " + err.Error()})
+		return
+	}
+	if profile.Declared && tenantID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "a declared risk profile requires a tenant: send X-Tenant-ID " +
+				"(or ?tenant=), because a priced figure has to belong to someone",
+		})
+		return
+	}
+
 	if len(req.Frameworks) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "at least one framework is required"})
 		return
+	}
+
+	// The as-of date, parsed strictly. A date the engine cannot read is a 400:
+	// the caller asserted a day, and silently falling back to today (or to no
+	// gate at all) would answer a question nobody asked. A ZERO asOf means the
+	// caller supplied none, which is the documented default and gates nothing.
+	var asOf frameworks.Date
+	if req.AssessmentDate != "" {
+		parsed, err := frameworks.ParseDate(req.AssessmentDate)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":          "invalid_assessment_date",
+				"assessmentDate": req.AssessmentDate,
+				"detail":         err.Error(),
+				"message":        "assessmentDate must be a calendar day in YYYY-MM-DD form; omit it to apply no applicability window",
+			})
+			return
+		}
+		asOf = parsed
 	}
 
 	available, err := frameworks.ListFrameworks(ch.policyRoot)
@@ -213,50 +410,106 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
-	inputMap := celBindings(req.workload(), req.Agent, req.Request)
+	// An object the engine cannot judge must not yield a pass. workload_shape.go
+	// normalises supported controller kinds and refuses the rest; checks that do
+	// not read the workload are unaffected.
+	shaped := shapeWorkload(req.workload())
+	if shaped.err != nil {
+		slog.Warn("scan object is not pod-shaped: object-reading checks report error", "error", shaped.err)
+	}
+	inputMap := celBindings(shaped.object, req.Agent, req.Request)
+
+	// Frameworks whose verified window went unapplied because the caller sent
+	// no assessmentDate. Reported on the summary so the default is visible.
+	ungated := map[string]bool{}
 
 	for _, sel := range packs {
 		fw := sel.fw
 		for _, cwc := range sel.checks {
+			// The window is resolved and REPORTED regardless of whether it
+			// fires, so a response always says what the pack declares.
+			window, gateStatus, gated := applicabilityOf(cwc.applicability, asOf)
+			if window != nil && !gated && window.Verified && asOf.IsZero() {
+				ungated[cwc.Framework] = true
+			}
+
 			status := VerdictNotEvaluated
 			var errText string
-			if !isPlaceholder(fw.Status, cwc.Check.Status) {
-				passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
-				status = verdictOf(passed, err)
-				if err != nil {
-					errText = err.Error()
+			switch {
+			// Placeholder outranks the window: having no expression at all is
+			// the primary, pack-intrinsic reason a check is not evaluated, and
+			// it is true at every as-of date.
+			case isPlaceholder(fw.Status, cwc.Check.Status):
+			case gated:
+				status, errText = gateVerdict(gateStatus)
+			default:
+				if v, msg, guarded := shaped.verdictFor(cwc.Check.CELExpression); guarded {
+					status, errText = v, msg
+				} else {
+					passed, _, err := ch.celEngine.Evaluate(r.Context(), cwc.Check.CELExpression, inputMap)
+					status = verdictOf(passed, err)
+					if err != nil {
+						errText = err.Error()
+					}
 				}
 			}
 
 			seed := checkSeed(cwc.Check.ID)
-			risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
+			// SimulateWithLoad, not Simulate: the load is the institution's, and
+			// profile.RiskLoad is fair.DefaultRiskLoad unless this tenant
+			// declared otherwise -- so an undeclared tenant takes the identical
+			// code path with the identical value it always did.
+			risk := fair.SimulateWithLoad(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed, profile.RiskLoad)
 
 			results = append(results, ComplianceScanResult{
-				Framework:         cwc.Framework,
-				ControlSet:        cwc.ControlSet,
-				Control:           cwc.Control,
-				Check:             cwc.Check.ID,
-				Passed:            status == VerdictPass,
-				Status:            status,
-				Error:             errText,
-				ControlID:         cwc.controlID,
-				FrameworkVersion:  fw.Version,
-				CheckName:         cwc.Check.Name,
-				PolicyVersion:     req.PolicyVersion,
-				ALE:               roundMoney(risk.ALE, reportingCurrency),
-				VaR95:             roundMoney(risk.VaR95, reportingCurrency),
-				TVaR:              roundMoney(risk.TVaR, reportingCurrency),
-				CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
-				Currency:          reportingCurrency,
-				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
-				ScanTimestamp:     now,
-				CalibrationSource: "industry-indicative",
+				Framework:        cwc.Framework,
+				ControlSet:       cwc.ControlSet,
+				Control:          cwc.Control,
+				Check:            cwc.Check.ID,
+				Passed:           status == VerdictPass,
+				Status:           status,
+				Error:            errText,
+				ControlID:        cwc.controlID,
+				FrameworkVersion: fw.Version,
+				CheckName:        cwc.Check.Name,
+				PolicyVersion:    req.PolicyVersion,
+				ALE:              roundMoney(risk.ALE, profile.Currency),
+				VaR95:            roundMoney(risk.VaR95, profile.Currency),
+				TVaR:             roundMoney(risk.TVaR, profile.Currency),
+				CarriedGBP:       roundMoney(risk.CarriedGBP, profile.Currency),
+				Currency:         profile.Currency,
+				Carried:          money.Money{Amount: roundMoney(risk.CarriedGBP, profile.Currency), Currency: profile.Currency},
+				ScanTimestamp:    now,
+				// "industry-indicative" until 2026-10-11. It asserted an industry
+				// anchor that does not exist: no public or commercial loss dataset
+				// prices these controls, the 127 shipped triples carry no provenance
+				// field, author, date or anchor class, and this tag is applied by the
+				// engine rather than by the author of a triple. The replacement states
+				// what is true of every row -- a declared expert estimate, anchored to
+				// nothing outside the pack. It still reads the same on a row that
+				// prices at zero, which is a known imprecision; per-triple provenance
+				// is an open decision in docs/fair-methodology-open-decisions.md.
+				// The calibration statement: policy/frameworks/README.md.
+				CalibrationSource: "declared-estimate-unanchored",
+				AssessmentDate:    req.AssessmentDate,
+				Applicability:     window,
 			})
 		}
 	}
 
+	ungatedList := make([]string, 0, len(ungated))
+	for id := range ungated {
+		ungatedList = append(ungatedList, id)
+	}
+	sort.Strings(ungatedList)
+	if len(ungatedList) > 0 {
+		slog.Warn("applicability windows not applied: no assessmentDate supplied",
+			"frameworks", strings.Join(ungatedList, ","))
+	}
+
 	ch.mu.Lock()
 	ch.lastResults = results
+	ch.lastUngated = ungatedList
 	ch.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -307,11 +560,23 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Request) {
 	ch.mu.RLock()
 	results := ch.lastResults
+	ungated := ch.lastUngated
 	ch.mu.RUnlock()
 
-	summary := ComplianceSummary{Currency: reportingCurrency}
+	// The summary is denominated by the scan it summarises, not by a constant.
+	// Results carry their own currency now, so reading it from them is what
+	// stops a declared-currency scan being totalled under the default's label --
+	// a sum whose figures and whose label disagree is the worst of the three
+	// possible outcomes, because it reads as authoritative.
+	summary := ComplianceSummary{Currency: defaultReportingCurrency, UngatedFrameworks: ungated}
 	if len(results) > 0 {
 		summary.ScanTimestamp = results[0].ScanTimestamp
+		summary.Currency = results[0].Currency
+		// Every row of a scan carries the same as-of date, so row 0 is the
+		// scan's. Read from the rows rather than kept as separate state so the
+		// summary can never claim a date the rows were not evaluated at.
+		summary.AssessmentDate = results[0].AssessmentDate
+		summary.ApplicabilityGated = summary.AssessmentDate != ""
 		for _, r := range results {
 			summary.TotalControls++
 			switch r.Status {
@@ -322,6 +587,12 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 				// A placeholder has no verdict: neither failed, errored nor exposure.
 				summary.NotEvaluated++
 				continue
+			case VerdictNotInForce:
+				// An obligation that does not exist on the assessmentDate cannot
+				// be breached: no failure, no error, no exposure. The row keeps
+				// its own priced figure; the summary declines to add it up.
+				summary.NotInForce++
+				continue
 			case VerdictError:
 				summary.Errored++
 			default:
@@ -331,7 +602,7 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 			summary.TotalExposure += r.CarriedGBP
 		}
 	}
-	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: reportingCurrency}
+	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: summary.Currency}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -363,6 +634,10 @@ func evaluateCEL(expr string, manifest map[string]any) bool {
 type scanCheck struct {
 	frameworks.CheckWithContext
 	controlID string
+	// applicability is the ONE window governing this check, resolved
+	// check > control > control set > framework at selection time so the
+	// evaluation loop never has to walk the hierarchy again.
+	applicability *frameworks.Applicability
 }
 
 // checksWithControlIDs is frameworks.ChecksForVersion with each check's control
@@ -374,11 +649,39 @@ func checksWithControlIDs(fw *frameworks.Framework, policyVersion string) []scan
 		for _, ctrl := range cs.Controls {
 			one := &frameworks.Framework{ID: fw.ID, ControlSets: []frameworks.ControlSet{{Name: cs.Name, Controls: []frameworks.Control{ctrl}}}}
 			for _, cwc := range frameworks.ChecksForVersion(one, policyVersion) {
-				out = append(out, scanCheck{CheckWithContext: cwc, controlID: ctrl.ID})
+				out = append(out, scanCheck{
+					CheckWithContext: cwc,
+					controlID:        ctrl.ID,
+					applicability:    frameworks.ResolveApplicability(fw, cs, ctrl, cwc.Check),
+				})
 			}
 		}
 	}
 	return out
+}
+
+// applicabilityOf turns a resolved window and an as-of date into the row's
+// audit record, the status to act on and whether the engine may act on it.
+//
+// It is the single place the gate decision is made, so there is exactly one
+// answer to "did this window change the verdict?" and the response carries it.
+// A window is reported even when it does nothing, which is what lets a reader
+// distinguish a pack with no declared date from one whose date is unverified.
+func applicabilityOf(a *frameworks.Applicability, asOf frameworks.Date) (*ApplicabilityReport, frameworks.WindowStatus, bool) {
+	if a == nil {
+		return nil, frameworks.WindowUnknown, false
+	}
+	st, gates := a.Gates(asOf)
+	return &ApplicabilityReport{
+		Status:         a.StatusAt(asOf),
+		Gated:          gates,
+		InForceFrom:    a.InForceFrom,
+		SupersededFrom: a.SupersededFrom,
+		Basis:          a.Basis,
+		Source:         a.Source,
+		Jurisdiction:   a.Jurisdiction,
+		Verified:       a.Verified,
+	}, st, gates
 }
 
 func checkSeed(id string) uint64 {

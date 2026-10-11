@@ -1,0 +1,23 @@
+# Checks in the cra, dora and nis2 packs that are DECLARED UNPRICED.
+#
+# A check with an all-zero frequency triple contributes exactly nothing to
+# reported exposure however often it fails. That is a legitimate state -- a
+# magnitude without a calibrated frequency is not a price -- but it must be
+# SAID, not inferred from a field of zeros. pricing-test.sh fails any check
+# that is neither priced nor listed here, so the silence cannot return.
+#
+# Removing a line requires adding a real freqTriple to that check, and the
+# test fails a line whose check has since been priced, so this list cannot rot.
+# Calibration is the principal's call. Do not invent triples to empty this file.
+#
+# Note what is NOT here: all three cra/v1.0 checks carry frequency triples and
+# price non-zero, so this pack family contributes nothing to the estate's
+# silent-zero finding. The two rows below are placeholder checks whose all-zero
+# magnitude AND frequency are deliberate and correct -- they are never
+# evaluated, so there is no exposure to price. They are declared anyway so that
+# the gate covers every check in all three packs without exception, and so that
+# adding a real check to either pack cannot inherit the exemption.
+#
+# pack/version	check id	why
+dora/v1.0	dora-ict-risk-management	placeholder: celExpression is the literal false and the check is never evaluated; zero exposure is correct, not missing
+nis2/v1.0	nis2-supply-chain-risk	placeholder: celExpression is the literal false and the check is never evaluated; zero exposure is correct, not missing

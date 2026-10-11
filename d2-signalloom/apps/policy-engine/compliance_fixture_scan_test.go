@@ -189,7 +189,10 @@ func throwawayRoot(t *testing.T) string {
 	writePack(t, root, "throwaway", "v2.0", frameworks.Framework{ID: "throwaway", Version: "v2.0.0",
 		ControlSets: controls("v2.0.0", "!(has(agent.registry) && agent.registry.model_registered == true)")})
 
-	nonRoot := map[string]any{"spec": map[string]any{"securityContext": map[string]any{"runAsNonRoot": true}}}
+	// containers is required by the Pod schema, so the shape guard in
+	// workload_shape.go requires it of any spec it is given (an empty list is a
+	// caller asserting there are no containers, which is judgeable).
+	nonRoot := map[string]any{"spec": map[string]any{"containers": []any{}, "securityContext": map[string]any{"runAsNonRoot": true}}}
 	registered := map[string]any{"registry": map[string]any{"model_registered": true}}
 	write := func(name string, f map[string]any) {
 		dir := filepath.Join(root, "frameworks", "throwaway", "v1.0", "fixtures", "unit")

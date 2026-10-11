@@ -1,0 +1,127 @@
+{
+  "name": "host-ipc-shm-model-server",
+  "level": "integration",
+  "description": "Hardened Triton model-server pod that nonetheless shares the host IPC namespace so an on-node client can attach to its POSIX shared-memory regions. Everything else is at the restricted profile, so hostIPC is the single attributable deviation.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "triton-model-server-4m2x",
+        "namespace": "ai-inference",
+        "labels": {
+          "app.kubernetes.io/name": "triton-model-server"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "triton-model-server",
+        "automountServiceAccountToken": false,
+        "hostIPC": true,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 65532,
+          "runAsGroup": 65532,
+          "fsGroup": 65532,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "model-server",
+            "image": "registry.internal/triton-model-server@sha256:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "args": [
+              "tritonserver",
+              "--model-repository=/models"
+            ],
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 8000
+              },
+              {
+                "name": "metrics",
+                "containerPort": 8002
+              }
+            ],
+            "env": [
+              {
+                "name": "TRITON_SHM_REGION",
+                "value": "/dev/shm/triton"
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "4Gi"
+              },
+              "limits": {
+                "memory": "8Gi"
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/v2/health/ready",
+                "port": 8000
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "models",
+                "mountPath": "/models",
+                "readOnly": true
+              },
+              {
+                "name": "dshm",
+                "mountPath": "/dev/shm"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "models",
+            "emptyDir": {}
+          },
+          {
+            "name": "dshm",
+            "emptyDir": {
+              "medium": "Memory",
+              "sizeLimit": "2Gi"
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "fail",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "pass",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

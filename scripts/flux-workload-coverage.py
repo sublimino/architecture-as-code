@@ -88,6 +88,11 @@ WORKLOAD_KINDS = {
 
 SKIP_DIRS = {'.git', '.claude', 'node_modules', 'vendor', '.venv', 'testdata'}
 
+# An exception must say WHAT KIND of exception it is. `gap` is an admission of
+# drift, not an exemption -- see docs/flux-coverage-exceptions.yaml.
+EXCEPTION_CLASSES = {'bootstrap', 'out-of-band-lab', 'runtime-template',
+                     'test-fixture', 'gap'}
+
 
 def tokenise(match):
     return 'ZZ' + re.sub(r'[^A-Za-z0-9]', '_', match.group(1).strip()) + 'ZZ'
@@ -347,10 +352,18 @@ def main():
     covered = [r for r in rows if r['file'] in reached]
     uncovered = [r for r in rows if r['file'] not in reached]
 
-    allowed = {}
+    allowed, malformed = {}, []
     if os.path.isfile(args.exceptions):
         doc = yaml.safe_load(open(args.exceptions, encoding='utf-8')) or {}
         for entry in (doc.get('exceptions') or []):
+            if not isinstance(entry, dict) or 'path' not in entry:
+                malformed.append(('missing-path', repr(entry)[:80]))
+                continue
+            missing = [k for k in ('class', 'reason', 'applied_by') if not entry.get(k)]
+            if missing:
+                malformed.append((entry['path'], 'missing: ' + ','.join(missing)))
+            elif entry['class'] not in EXCEPTION_CLASSES:
+                malformed.append((entry['path'], 'unknown class: ' + str(entry['class'])))
             allowed[entry['path']] = entry
     stale = sorted(p for p in allowed
                    if p in reached or not os.path.exists(p))
@@ -365,6 +378,8 @@ def main():
         'flux_roots': len(roots),
         'undeclared_uncovered': undeclared,
         'stale_exceptions': stale,
+        'malformed_exceptions': [list(m) for m in malformed],
+        'declared_gaps': sorted(p for p, e in allowed.items() if e.get('class') == 'gap'),
         'dangling_paths': [list(d) for d in dangling],
         'resolution_problems': [list(p) for p in sorted(set(problems))],
     }
@@ -388,16 +403,19 @@ def main():
               % (result['flux_roots'], result['set_b_reached_files']))
         print('covered: %d   uncovered: %d (declared exceptions: %d)'
               % (len(covered), len(uncovered), len(allowed)))
+        print('declared gaps (open decisions): %d' % len(result['declared_gaps']))
         for label, items in (('UNDECLARED UNCOVERED WORKLOAD', undeclared),
                              ('STALE EXCEPTION', stale)):
             for item in items:
                 print('%s: %s' % (label, item))
+        for path, why in malformed:
+            print('MALFORMED EXCEPTION: %s (%s)' % (path, why))
         for path, origin in dangling:
             print('DANGLING FLUX PATH: %s (from %s)' % (path, origin))
         for problem in sorted(set(problems)):
             print('RESOLUTION PROBLEM: %s' % (problem,))
 
-    bad = undeclared or stale or dangling or problems
+    bad = undeclared or stale or dangling or problems or malformed
     return 1 if bad else 0
 
 

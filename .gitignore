@@ -227,3 +227,12 @@ d2-signalloom/bun/
 bundle/bin/*/*
 !bundle/bin/*/versions.txt
 !bundle/bin/checksums.txt
+
+# SLSI-P1-2: offline OCI image layout (blobs, staging directories, signatures, and archives ignored)
+bundle/images/oci/blobs/
+bundle/images/.staging*
+bundle/images/*.tar
+bundle/images/*.tar.gz
+bundle/images/signatures/
+bundle/images/flux/charts/*.tgz
+

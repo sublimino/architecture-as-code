@@ -111,8 +111,11 @@ func TestComplianceScan_BasicPass(t *testing.T) {
 		if r.ScanTimestamp == "" {
 			t.Fatal("scanTimestamp should not be empty")
 		}
-		if r.CalibrationSource != "industry-indicative" {
-			t.Fatalf("expected calibrationSource 'industry-indicative', got %q", r.CalibrationSource)
+		// Not "industry-indicative". That tag claimed an industry anchor no
+		// shipped triple has. See the comment at the assignment in compliance.go
+		// and policy/frameworks/README.md for the calibration statement.
+		if r.CalibrationSource != "declared-estimate-unanchored" {
+			t.Fatalf("expected calibrationSource 'declared-estimate-unanchored', got %q", r.CalibrationSource)
 		}
 	}
 }

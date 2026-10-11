@@ -216,3 +216,30 @@ a three-check pack that says which three.
 Every check reads `agent` only; no check reads `object`, so this pack is out of
 scope for the Pod Security Admission oracle. Paths, types and absent-field
 semantics: `v1.0/AGENT-CONTEXT.md`.
+
+## Pricing coverage
+
+The table below is produced from `framework.json`. It is not typed by hand.
+`make policy-pricing-counts` fails if it drifts from the packs.
+
+A check is priced when its `freqTriple` has a non-zero `min`, `mode`, or `max`.
+A check with no frequency triple, or an all-zero one, is unpriced. An unpriced
+check contributes GBP 0.00 to every reported total however often it fails. That
+state is allowed, because a loss magnitude with no calibrated frequency is not a
+price. It is not a small-print detail, because a reader who adds up a scan gets
+a total over the priced checks only.
+
+Read [the calibration statement](../README.md#the-calibration-statement) before
+you quote any figure in this table or any figure the engine produces from this
+pack.
+
+<!-- pricing-counts:begin -->
+| Version | Checks | Priced | Unpriced | Placeholder |
+| :--- | ---: | ---: | ---: | ---: |
+| `v1.0.0` | 3 | 3 | 0 | 0 |
+| **Pack total** | **3** | **3** | **0** | **0** |
+
+An unpriced check contributes GBP 0.00 to every total however often it
+fails. Of 3 check(s) on this page, 3 are priced and 0 are not.
+Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
+<!-- pricing-counts:end -->

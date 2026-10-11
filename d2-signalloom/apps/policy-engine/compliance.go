@@ -261,7 +261,17 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 				Currency:          reportingCurrency,
 				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
 				ScanTimestamp:     now,
-				CalibrationSource: "industry-indicative",
+				// "industry-indicative" until 2026-10-11. It asserted an industry
+				// anchor that does not exist: no public or commercial loss dataset
+				// prices these controls, the 127 shipped triples carry no provenance
+				// field, author, date or anchor class, and this tag is applied by the
+				// engine rather than by the author of a triple. The replacement states
+				// what is true of every row -- a declared expert estimate, anchored to
+				// nothing outside the pack. It still reads the same on a row that
+				// prices at zero, which is a known imprecision; per-triple provenance
+				// is an open decision in docs/fair-methodology-open-decisions.md.
+				// The calibration statement: policy/frameworks/README.md.
+				CalibrationSource: "declared-estimate-unanchored",
 			})
 		}
 	}

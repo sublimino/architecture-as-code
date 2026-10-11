@@ -124,3 +124,29 @@ Three integration fixtures exist and each expects `not_evaluated` for the one
 check, which is the only expectation the harness permits for a placeholder
 (`frameworks_conformance_test.go`, `validatePack`). The coverage gate correctly
 does not demand pass and fail fixtures for an all-placeholder pack.
+
+## Pricing coverage
+
+The table below is produced from `framework.json`. It is not typed by hand.
+`make policy-pricing-counts` fails if it drifts from the packs.
+
+A check is priced when its `freqTriple` has a non-zero `min`, `mode`, or `max`.
+A check with no frequency triple, or an all-zero one, is unpriced. An unpriced
+check contributes GBP 0.00 to every reported total however often it fails. That
+state is allowed, because a loss magnitude with no calibrated frequency is not a
+price. It is not a small-print detail, because a reader who adds up a scan gets
+a total over the priced checks only.
+
+Read [the calibration statement](../README.md#the-calibration-statement) before you quote
+any figure in this table or any figure the engine produces from this pack.
+
+<!-- pricing-counts:begin -->
+| Version | Checks | Priced | Unpriced | Placeholder |
+| :--- | ---: | ---: | ---: | ---: |
+| `v1.0.0` | 1 | 0 | 1 | 1 |
+| **Pack total** | **1** | **0** | **1** | **1** |
+
+An unpriced check contributes GBP 0.00 to every total however often it
+fails. Of 1 check(s) on this page, 0 are priced and 1 are not.
+Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
+<!-- pricing-counts:end -->

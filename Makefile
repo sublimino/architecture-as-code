@@ -3577,7 +3577,27 @@ verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan in
 #             So for three of the four figures the product quotes, the
 #             deterministic golden is the gate, and the guard on how a golden may
 #             be rewritten (below) is what makes that gate worth anything.
-verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 127 pinned checks).
+#
+# WHAT NO TIER COVERS: whether a figure is the RIGHT figure. Every triple in
+# every pack is a declared expert estimate with no provenance field, no author,
+# no date and no anchor class, and no public dataset prices these controls. The
+# oracles pin the arithmetic over those inputs. Calibration is an input, not a
+# computable property, so nothing here can test it. Quote the single calibration
+# statement in policy/frameworks/README.md with any figure. The scan field
+# calibrationSource reads `declared-estimate-unanchored` and says exactly this.
+#
+# NEVER SUM var95, tvar OR carried ACROSS CHECKS. Means add; percentiles do not.
+# Summing per-check quantiles assumes the losses are perfectly correlated and
+# overstates the tail. Only `ale` is additive. For a portfolio figure make ONE
+# joint run through fair.Engine.RunDistribution and take the quantile of the
+# aggregate, which fair/fair.go already implements and tests. Two live call sites
+# in the dashboard do sum them and are a known defect, not a pattern to copy:
+#   dashboard-signalloom/src/api/supercredProjection.ts:319-320 (totalVar95,
+#     totalTvar, each a .reduce over the per-check figure)
+#   dashboard-signalloom/src/api/fakeComplianceData.ts:248-250 (totalVar95,
+#     totalTvar, totalCarried, each a sumMoney over the per-check figure)
+# See the "Not additive" section of policy/frameworks/CONFORMANCE.md.
+verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 134 pinned checks across 11 packs, of which 61 are priced).
 	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
 
 # Pins a NEW check's figures in one command. REFUSES to rewrite an
@@ -3602,6 +3622,23 @@ verify-cel-money-golden-acknowledged: ## Move already-pinned prices deliberately
 
 verify-cel-money-independent: ## Cross-check the priced figures against an independent NumPy derivation (needs NumPy; not part of verify-cel).
 	python3 scripts/verify-cel-money-independent.py
+
+.PHONY: policy-pricing-counts policy-pricing-counts-update
+
+# How many checks are priced at all is the most load-bearing number on a pack
+# page: a reader who takes the check count for the priced count reads a scan
+# total as over twice the coverage it has (61 of 134 today). So the counts are
+# not typed. Each pack page carries a block written from framework.json, and
+# these targets make it drift and regenerate. Same family as the sibling
+# policy/frameworks/nist-800-53/catalogue/pricing-test.sh, which asks whether an
+# unpriced check is DECLARED rather than whether the page counts it correctly.
+# Neither is in verify-cel yet. Wiring them into the gate is an open decision in
+# docs/fair-methodology-open-decisions.md.
+policy-pricing-counts: ## Check every pack page's priced/unpriced counts against its framework.json. No cluster, no Go.
+	policy/frameworks/pricing-counts-test.sh
+
+policy-pricing-counts-update: ## REWRITE every pack page's priced/unpriced counts block from the packs, then check.
+	policy/frameworks/pricing-counts-test.sh --update
 
 .PHONY: verify-cel-selftest verify-cel-mutation-proof
 

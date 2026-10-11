@@ -1,0 +1,37 @@
+# Kusari verified Landlock denial containment policy.
+#
+# Mode is `shadow`: the stage-1 rule can ship without enabling the mode-gated
+# webhook alerter. Stage 2 still produces and stores its decision, and the
+# dedicated decision-to-stun dispatcher routes that decision to containment.
+#
+# The collector emits verification_status as uppercase `VERIFIED`, while the
+# original policy specification used lowercase `verified`. The explicit OR
+# accepts both producer and specification values without relying on optional
+# CEL string extensions.
+
+id: kusari-landlock-denial
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+rules:
+  - id: landlock-verified-denial
+    name: Verified in-kernel Landlock denial
+    severity: high
+    expression: |-
+      obs.layer == "endpoint_host" &&
+      has(obs.labels.verification_status) &&
+      (obs.labels.verification_status == "verified" || obs.labels.verification_status == "VERIFIED") &&
+      has(obs.labels.denial_reason) &&
+      obs.labels.denial_reason != ""
+
+windows:
+  # A single VERIFIED in-kernel Landlock denial is already high-signal, so the
+  # first finding triggers containment. The five-minute per-tenant, per-agent
+  # window debounces a burst from one agent down to one decision.
+  - id: landlock-denial-burst
+    over_rule: landlock-verified-denial
+    key: [tenant_id, labels.agent_id]
+    window: 5m
+    threshold: 1
+    severity: high

@@ -241,8 +241,8 @@ describe('CompliancePolicyPage', () => {
   })
 
   it('includes K8s CIS benchmark bundle with CEL policies and cluster-level audit controls', async () => {
-    const { DEFAULT_BUNDLES } = await import('./CompliancePolicyPage')
-    const cisBundle = DEFAULT_BUNDLES['k8s-cis-benchmark']
+    const { DEMO_BUNDLES } = await import('./CompliancePolicyPage')
+    const cisBundle = DEMO_BUNDLES['k8s-cis-benchmark']
     expect(cisBundle).toBeDefined()
     expect(cisBundle.version).toBe('v1.8.0')
     expect(cisBundle.official_docs_url).toContain('cisecurity.org')

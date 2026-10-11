@@ -473,6 +473,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'CIS Kubernetes Benchmark',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
       {
         agent_id: 'agent-hostile-root',
@@ -481,6 +482,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'CIS Kubernetes Benchmark',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
       {
         agent_id: 'agent-hostile-hijacker',
@@ -489,6 +491,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'CIS Kubernetes Benchmark',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
       {
         agent_id: 'agent-hostile-syscall',
@@ -497,6 +500,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'CIS Kubernetes Benchmark',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
       {
         agent_id: 'agent-hostile-token',
@@ -505,6 +509,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'CIS Kubernetes Benchmark',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
       {
         agent_id: 'agent-hostile-ports',
@@ -513,6 +518,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'Cyber Resilience Act (CRA)',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
       {
         agent_id: 'agent-hostile-rogue',
@@ -521,6 +527,7 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
         framework_name: 'EU AI Act',
         status: 'fail',
         assessed_at: '2026-10-10T12:00:00Z',
+        evidence_ref: null,
       },
     ]
 

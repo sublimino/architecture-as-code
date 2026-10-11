@@ -250,7 +250,25 @@ expect_red M3b-summary-blast-radius 'TestAnOverflowingScanLeavesEverySubsequentS
   "an unrenderable figure must never reach the slot every caller's summary reads"
 restore_all
 
-# ── M4: the currency shape check ──────────────────────────────────────────────
+# ── M4: the currency shape check, which is now a DIAGNOSIS and not a gate ────
+#
+# THIS MUTANT SURVIVED WHEN THE ALLOW-LIST LANDED, and the reason is worth
+# recording because the fix was to the TEST'S CLAIM, not to the test's strength.
+#
+# Fix 3 added a rate-table allow-list that rejects by exact set membership. A
+# malformed code is not a member, so it is refused whether or not Validate runs:
+# the allow-list SUBSUMES the shape check as a gate at this call site, and
+# `code == 400` stopped depending on Validate at all. The old assertion was
+# pinning the allow-list while claiming to pin the shape check.
+#
+# It was NOT resurrected by inventing an assertion. The shape check still makes
+# exactly one contribution here -- it distinguishes "usd" (a typo; fix the
+# caller) from "KWD" (a real currency with no rate; add it to rates.yaml), which
+# are opposite operator actions -- and that is what the test now pins. Nor is
+# deleting Validate an option: it has eleven other callers in the money package
+# where it IS the only guard, and migration 062's DB CHECK is deliberately
+# `^[A-Z]{3}$` with the semantic set enforced one layer up, so the two checks
+# guard different things and only their outcomes coincide at this one site.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
@@ -260,8 +278,8 @@ old="""		if err := declared.Validate(); err != nil {
 assert old in s, "M4 anchor absent"
 open(p,"w").write(s.replace(old,"		// MUTANT M4: currency validation deleted",1))
 '
-expect_red M4-currency-shape 'TestMalformedReportingCurrenciesAreRefused' \
-  "a malformed currency code must be refused, not labelled onto figures"
+expect_red M4-currency-shape-diagnosis 'TestMalformedReportingCurrenciesAreRefused' \
+  "a malformed code must be DIAGNOSED as malformed, not reported as rate-less"
 restore_all
 
 # ── M5: the summary reads its currency from the results ───────────────────────
@@ -557,28 +575,52 @@ expect_red M15-fix-bundle-denomination 'TestTheBundleRollUpIgnoresTheDeclaredPro
   "INVERTED: carrying the denomination as data must break the characterisation"
 restore_all
 
-# ── M16 (INVERTED): reject a currency absent from the rate table ─────────────
-# An allow-list is the natural fix for ZZZ/XXX/AAA. The test that measures the
-# gap must go red once the gap is closed.
+# ── M16: a declared currency with no rate is refused ─────────────────────────
+# WAS INVERTED (it used to ADD the allow-list so the "unconvertible label is
+# accepted" measurement had to go red). The allow-list is real now, so this is
+# an ordinary forward mutant: delete it and the refusal test must fail.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""		p.Currency = declared
-		p.Declared = true"""
-assert old in s, "M16 anchor absent"
-new="""		// MUTANT M16: allow-list drawn from risk/fx/rates.yaml
-		switch declared {
-		case "USD", "GBP", "EUR", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK",
-			"DKK", "SGD", "HKD", "INR", "ZAR", "AED":
-		default:
-			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: no rate for %s", declared)
-		}
-		p.Currency = declared
-		p.Declared = true"""
+i=s.index("		if !reportableCurrencies[declared] {")
+j=s.index("		}",s.index("reportableCurrencyList()",i))+len("		}")
+open(p,"w").write(s[:i]+"		// MUTANT M16: rate-table allow-list deleted"+s[j:])
+'
+expect_red M16-currency-has-a-rate 'TestAShapeValidCurrencyWithNoRateIsRefused' \
+  "a declared currency with no rate in risk/fx/rates.yaml must be refused, not labelled on"
+restore_all
+
+# ── M16b: the allow-list IS the checked-in table ─────────────────────────────
+# The allow-list is a literal in Go, deliberately (an offline request validator
+# must not depend on a file path). The cost of that choice is that two things
+# have to agree, and an agreement nobody checks is one that drifts -- so drop a
+# currency that IS in the table and the drift test must fail. Without this
+# mutant "drawn from risk/fx/rates.yaml" is a claim in a comment.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	"SGD": true, "HKD": true, "INR": true, "ZAR": true, "AED": true,"""
+assert old in s, "M16b anchor absent"
+new="""	"SGD": true, "HKD": true, "INR": true, "ZAR": true, // MUTANT M16b: AED dropped"""
 open(p,"w").write(s.replace(old,new,1))
 '
-expect_red M16-fix-unconvertible-currency 'TestAValidShapeIsNotAValidCurrency' \
-  "INVERTED: an FX allow-list must break the unconvertible-label measurement"
+expect_red M16b-allowlist-matches-table 'TestTheReportableCurrencyAllowListIsExactlyTheCheckedInRateTable' \
+  "the allow-list must be exactly the rate table's key set, checked in both directions"
+restore_all
+
+# ── M16c: the refusal names the table it was refused by ──────────────────────
+# A refusal an operator cannot act on is barely better than a silent relabel.
+# Strip the detail from the message and the test must notice.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("			return effectiveRiskProfile{}, fmt.Errorf(\n				\"reportingCurrency %s has no rate")
+j=s.index("strings.Join(reportableCurrencyList(), \", \"))",i)+len("strings.Join(reportableCurrencyList(), \", \"))")
+new="""			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: unsupported") // MUTANT M16c"""
+open(p,"w").write(s[:i]+new+s[j:])
+'
+expect_red M16c-refusal-is-actionable 'TestAShapeValidCurrencyWithNoRateIsRefused' \
+  "the refusal must name the currency, the rate table and its as-of date"
 restore_all
 
 # ── M17 (INVERTED): make a declared zero expressible in signal-ingest ────────

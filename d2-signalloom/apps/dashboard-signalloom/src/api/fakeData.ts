@@ -45,7 +45,7 @@ import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTests
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 import { simulatedAgentIdentity } from './supercredTypes'
 import { FAKE_CODING_AGENT_TELEMETRY, FAKE_CODING_AGENT_AGGREGATE } from './fakeCodingAgentData'
-import type { FleetTopology } from './fleetApi'
+import type { FleetTopology, RiskSummary } from './fleetApi'
 import {
   TRUST_ZONES,
   FEDERATIONS,
@@ -1630,6 +1630,35 @@ type Match = {
 }
 
 const re = (r: RegExp) => (path: string) => r.test(path)
+
+// ── Fleet demo risk scenario ────────────────────────────────────────────────
+//
+// The two endpoints of the scripted cascade the Fleet page animates. These
+// lived as `BASELINE_RISK` / `ESCALATED_RISK` literals INSIDE
+// pages/FleetDemoPage.tsx, which meant they rendered identically in live mode
+// and in demo mode -- that page never read the API for these figures, so it had
+// never shown a real one. They are demo data, so they live in the demo fixture
+// module with everything else behind the same gate.
+//
+// The cascade animation interpolates from BASELINE to ESCALATED. It used to
+// interpolate towards a second, duplicated pair of literals (`targetAle =
+// 847000`, `targetVar = 1200000`) written inline in the useMemo, so the
+// scenario's endpoint was stated twice and could drift. There is one statement
+// of it now.
+export const FLEET_DEMO_BASELINE_RISK: RiskSummary = {
+  ale: 12400,
+  var95: 58000,
+  trend: 'stable',
+  carriedGbp: 12400,
+}
+
+export const FLEET_DEMO_ESCALATED_RISK: RiskSummary = {
+  ale: 847000,
+  var95: 1200000,
+  trend: 'up',
+  previousAle: 12400,
+  carriedGbp: 847000,
+}
 
 export const FLEET_DEMO_FIXTURE: FleetTopology = {
   agents: [

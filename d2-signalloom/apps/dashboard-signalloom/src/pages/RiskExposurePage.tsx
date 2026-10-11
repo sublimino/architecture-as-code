@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { fairApi } from '../api/fairApi'
-import { colors } from '../styles/tokens'
+import { colors, exposureAccent } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import AgentSuperFilterTable, { formatFullTimestamp } from '../components/AgentSuperFilterTable'
@@ -41,6 +41,29 @@ export const DEMO_VERSIONS: FrameworkVersion[] = [
   { frameworkId: 'finos-aigf', name: 'FINOS AI Governance Framework', version: 'v1.0', status: 'retired', isDefault: false },
   { frameworkId: 'soc2-type-ii', name: 'SOC 2 Type II', version: 'v2.1', status: 'active', isDefault: false },
 ]
+
+/**
+ * Why the per-agent carried exposure column shows no figure.
+ *
+ * It used to show `failing * 12000`. That is a worse shape than a displayed
+ * constant and it is worth being precise about why: £12,000 per failing
+ * control is a fabricated UNIT RATE, so the output moved with a real count and
+ * therefore looked derived. A reviewer reading the column saw figures that
+ * responded correctly to the data and had no way to tell that the coefficient
+ * was invented -- the same property that made the discarded Monte Carlo hard
+ * to spot.
+ *
+ * No per-control rate is declared anywhere: not in `risk/packs/agent-policy`,
+ * not on any response this page receives, not in the policy engine's output.
+ * Whether one SHOULD exist is a calibration decision for the risk owner, not
+ * something a dashboard may assume, so the column reports the failing-control
+ * count -- which is real and is what the API actually sends -- and declines
+ * the money.
+ */
+const PER_CONTROL_RATE_UNDECLARED =
+  'Not priced: no per-control loss rate is declared in risk/packs/agent-policy, and no ' +
+  'response to this page carries a per-agent exposure figure. The failing-control count ' +
+  'below is the real number this row has.'
 
 interface PopulationAgent {
   id: string
@@ -300,7 +323,13 @@ export default function RiskExposurePage() {
   // Reactive loss exceedance curve recalculated under 250ms
   const exceedanceCurve = useMemo(() => {
     if (!effectiveSummary) return []
-    return fairApi.calculateLossExceedance(effectiveSummary.totalAle.amount, effectiveSummary.totalTvar.amount)
+    // No curve from an unpriced summary. A curve drawn through zeros is not an
+    // empty chart, it is a chart asserting zero loss at every exceedance
+    // probability -- the most confident possible statement of a figure nobody
+    // computed.
+    const { totalAle, totalTvar } = effectiveSummary
+    if (!totalAle || !totalTvar) return []
+    return fairApi.calculateLossExceedance(totalAle.amount, totalTvar.amount)
   }, [effectiveSummary])
 
   function handleVersionChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -534,7 +563,7 @@ export default function RiskExposurePage() {
           </div>
           <div className="card" style={{ flex: 1, minWidth: 180, padding: '16px 18px' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Carried Risk</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: (effectiveSummary.totalCarried?.amount ?? effectiveSummary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom, lineHeight: 1 }}>{fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: exposureAccent(effectiveSummary.totalCarried ?? effectiveSummary.carried), lineHeight: 1 }}>{fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
               residual from failing controls
               <span className="tag" style={{ background: tint('var(--cyan)', 0.12), color: 'var(--cyan)', marginLeft: 8 }}>
@@ -654,7 +683,13 @@ export default function RiskExposurePage() {
               key: 'exposure',
               label: 'Carried Exposure',
               sortable: true,
-              accessor: (a) => (a.compliance_summary?.failing ?? 0) * 12000,
+              // Sorts on the failing-control COUNT, which is a real number
+              // this row actually has. It used to sort on `failing * 12000`,
+              // which is the same ordering derived from a fabricated rate --
+              // see the note on PER_CONTROL_RATE_UNDECLARED below. Sorting by
+              // the count is honest and gives the identical order, because
+              // multiplying every row by one constant cannot reorder them.
+              accessor: (a) => a.compliance_summary?.failing ?? 0,
             },
           ]}
           renderRow={(agent) => {
@@ -662,7 +697,6 @@ export default function RiskExposurePage() {
             const agentName = agent.name || agent.agent_name || agentId || 'Unnamed'
             const state = agent.lifecycle_state || 'Governed'
             const failing = agent.compliance_summary?.failing ?? 0
-            const exposureAmt = failing * 12000
             return (
               <tr key={agent.id} style={{ borderBottom: '1px solid var(--border)' }} data-testid={`fair-agent-row-${agent.id}`}>
                 <td style={td}>
@@ -711,9 +745,16 @@ export default function RiskExposurePage() {
                   </span>
                 </td>
                 <td style={td}>
-                  <span style={{ fontWeight: 600, color: exposureAmt > 0 ? colors.amber : colors.tealLoom }}>
-                    {fmtMoney({ amount: exposureAmt, currency: effectiveSummary?.currency ?? 'GBP' })}
+                  <span
+                    data-testid={`risk-agent-exposure-${agent.id}`}
+                    style={{ fontWeight: 600, color: exposureAccent(null) }}
+                    title={PER_CONTROL_RATE_UNDECLARED}
+                  >
+                    {fmtMoney(null)}
                   </span>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    {failing} failing {failing === 1 ? 'control' : 'controls'}
+                  </div>
                 </td>
               </tr>
             )
@@ -744,7 +785,7 @@ export default function RiskExposurePage() {
               <StatCard label="ALE" value={fmtMoney(effectiveSummary.totalAle)} sub={`at ${selectedVersion}`} accent={colors.amber} />
               <StatCard label="VaR95" value={fmtMoney(effectiveSummary.totalVar95)} sub={`at ${selectedVersion}`} accent={colors.red} />
               <StatCard label="TVaR" value={fmtMoney(effectiveSummary.totalTvar)} sub={`at ${selectedVersion}`} accent={colors.red} />
-              <StatCard label="Carried" value={fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)} sub={`at ${selectedVersion}`} accent={(effectiveSummary.totalCarried?.amount ?? effectiveSummary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom} />
+              <StatCard label="Carried" value={fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)} sub={`at ${selectedVersion}`} accent={exposureAccent(effectiveSummary.totalCarried ?? effectiveSummary.carried)} />
             </div>
           )}
         </div>

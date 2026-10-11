@@ -37,14 +37,91 @@ export interface Edge {
   to: string
 }
 
-export interface RiskSummary {
-  ale: number
-  var95: number
-  trend: 'up' | 'down' | 'stable'
-  previousAle?: number
-  carriedGbp?: number
-  carried?: number
+/**
+ * The machine-readable cause of a route declining to report a money figure.
+ *
+ * Mirrors `PricingStatus` in policy-engine/pkg/compliance/fleet_scan.go, and
+ * the key set is identical on all three routes that withhold money, so there
+ * is one shape to deserialise and one to render.
+ *
+ * The two refusal values are NOT interchangeable and must not be collapsed in
+ * UI copy: they demand different operator actions. A missing loss-event
+ * frequency is fixed by declaring a control mapping in the policy pack; a
+ * missing risk data plane is fixed by putting a priced scan behind the route.
+ * See `unpricedAction` in FleetRiskGauge, which is the one place that mapping
+ * is written down client-side.
+ */
+export type PricingStatus =
+  /** A figure is present and was computed from declared inputs. */
+  | 'PRICED'
+  /** The checks evaluated resolve to no control in the risk pack. */
+  | 'NO_DECLARED_LOSS_FREQUENCY'
+  /** The route answers from a store that holds no money at all. */
+  | 'NO_RISK_DATA_PLANE'
+
+/**
+ * The refusal object. Every key is always present on the wire.
+ *
+ * `status` is the ONLY thing to branch on. `available` is still sent and still
+ * read by clients, but on the Go side it is DERIVED from the status through a
+ * method precisely so two hand-maintained fields cannot carry one fact and
+ * drift apart -- a test asserts the constructor offers no way to set it.
+ * Branching on both here would write a disagreement the server cannot
+ * produce, so this client never reads `available` at all.
+ *
+ * `status` is typed as the union widened with `string`: a client older than
+ * the server must treat an unrecognised status as "not priced" rather than
+ * failing to compile against it or, worse, coercing it to PRICED.
+ *
+ * The whole object is optional only because a pre-contract producer may not
+ * send it yet (fleet-manager's /topology at the time of writing; W7 is
+ * applying the same shape there). `isPriced` handles that case explicitly.
+ */
+export interface FleetPricingStatus {
+  available: boolean
+  status: PricingStatus | string
+  reason: string
+  /** The money fields this response withheld, by their JSON names. */
+  unpricedFields: string[]
+  /** The checks that resolved to no declared control; empty when not per-check. */
+  unmappedChecks: string[]
 }
+
+/**
+ * The fleet's aggregate risk, which may carry no figures at all.
+ *
+ * `ale` and `var95` were declared `number` (required). A TypeScript type is not
+ * a runtime check: once the pricing routes began omitting these fields --
+ * `*float64` with `omitempty`, so structurally ABSENT rather than zero -- the
+ * required declaration became a claim about a payload nobody verified. The
+ * compiler was satisfied, `bun run typecheck` passed, and every consumer read
+ * `undefined` while believing it held a `number`. `money(undefined as number)`
+ * then renders whatever Intl does with NaN.
+ *
+ * They are optional-and-nullable now so the compiler forces each call site to
+ * say what it does with absence. The two shapes mean the same thing to a
+ * consumer and both occur: `undefined` from an omitempty Go field, `null` from
+ * a JSON null (fe-signalloom's /compliance/policy/* routes report absence that
+ * way). Do NOT reach for `!` or `?? 0` to quiet this: a zero in a money field
+ * reads as "no loss expected", which is a figure, and it is the exact defect
+ * the server-side change removed.
+ */
+export interface RiskSummary {
+  ale?: number | null
+  var95?: number | null
+  trend: 'up' | 'down' | 'stable'
+  previousAle?: number | null
+  carriedGbp?: number | null
+  carried?: number | null
+  pricing?: FleetPricingStatus
+}
+
+// The "is this priced?" predicate lives beside the thing that renders the
+// answer, in components/fleet/FleetRiskGauge.tsx, not here. This module is
+// wholesale-mocked (`vi.mock('../api/fleetApi', () => ({ ... }))`, no
+// importOriginal) by both fleet page suites, so a helper added here is absent
+// at runtime under test and the page crashes on first render with
+// "No \"x\" export is defined on the mock" -- which is how this was found.
 
 export interface CascadeEvent {
   triggerId: string

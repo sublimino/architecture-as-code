@@ -602,11 +602,23 @@ Binding note for P1-2, which was previously visible only by reading the JSON: **
 | `test/slsi-bundle-seal-falsification.sh` | 161 lines | `bash -n` clean |
 | `test/fixtures/slsi/expected-toplevel.txt` | 7 lines | present |
 
-##### What could NOT be verified, and why
+##### Verified by a lead-run build (2026-10-12)
 
-The suite requires `dist/MANIFEST.json` and `dist/slsi-appliance-*.tar.gz`, so it needs a **built** bundle. Building needs the ten staged binaries (network) and `bundle/images/` (7.4 GB, correctly gitignored, absent on a clean checkout). On this tree the suite reports **1 passed, 14 failed, 0 skipped**, every failure being `[ -f "$MANIFEST_JSON" ]`. `--only kind` cannot substitute: it stages one binary, then the P1-1 verify path checks the full ten-entry manifest and fails at `sha256sum -c` before `stage_p1_3_manifest` is reached.
+The earlier INCOMPLETE verdict was lifted by actually building. The bundle was assembled in a detached worktree at `bda32e0d` with P1-2's populated `bundle/` hardlinked in (`cp -al`, 0.02 s, 926 blobs, no extra disk), then built twice from the same commit.
 
-Therefore **unverified rather than failed**: that the stage emits a conforming `MANIFEST.json`; that the seven gates fire and can fail; byte-for-byte reproducibility; and the corrected three-part coverage gate.
+| Check | Result |
+| :--- | :--- |
+| Full build | **rc=0**, produced `dist/slsi-appliance-0.1.0.tar.gz` and `dist/MANIFEST.json` in ~4 minutes |
+| `bats test/slsi-bundle-manifest.bats` | **15 passed, 0 failed, 0 skipped** |
+| `MANIFEST.json` | schema `slsi-bundle/v1`; **31 images**, matching the corrected audit total exactly; **4** `coverageExclusions`; **0** `DIGEST-UNRESOLVED` sentinels; 1,122 payload entries; `git.commit` pinned to the build commit |
+| Coverage gate | passes **under the corrected three-part definition**, including the Decision 10 utility image and the Flux controllers digest-pinned, so GH-3's remedy is implemented |
+| `test/slsi-bundle-seal-falsification.sh` | **8 passed, 1 failed** |
+| Reproducibility | two builds, **1,061 of 1,122 payload entries byte-identical (94.6%)**; archive entry lists identical at 1,212 |
+
+##### Two residual defects, both measured
+
+1. **No declared volatile set, so reproducibility cannot be checked without guessing.** The 61 differing payload entries are exactly **60 Cosign signature files** (`images/signatures/*.sig` and `*.bundle`) plus the derivative `MANIFEST.sha256`. ECDSA signing uses a random nonce, so re-signing the same payload can never be byte-identical: this is correct cryptography, not a bug. Excluding those 61 paths makes the payload hashes **identical**, confirmed. But `MANIFEST.json` contains no `volatileSet` field, so P1-GOV would have to invent which differences to forgive, which is precisely what the reproducibility gate forbids. **Fix: declare the volatile set in the manifest.** Until then the gate is INCOMPLETE rather than passing.
+2. **One falsification case does not fire.** `absent_utility_image_fails_loudly` exits with a command failure at line 8 instead of demonstrating the loud failure it exists to prove. The other eight cases pass, including `sentinel_digest_fails_build`, `tag_only_image_reference_fails_build`, `planted_private_key_fails_build` and `invalid_coverage_exclusion_reason_fails_schema`.
 
 ##### Credit where the card earned it
 
@@ -614,7 +626,9 @@ Two things were right without prompting twice. The suite **fails rather than ski
 
 ##### Lead assessment
 
-The shape is right: symbol contract, schema and validator are all in place. The behaviour is unproven, and **unproven is not proven**. Per the governor contract this card is INCOMPLETE, INCOMPLETE is as fatal as FAIL, and it must not be advanced. Closing it requires a build on a networked host with the image layout present, which is the same clean-checkout limitation already recorded against P1-1's evidence column.
+The implementation is **verified working**: it builds, its own 15-test suite passes with zero skips, the manifest carries the corrected 31-image total with zero unresolved sentinels, and the coverage gate passes under the corrected definition including the utility image that GH-3 flagged. Eight of nine falsification cases fire.
+
+The card nevertheless stays **not advanceable**, for two narrow and measured reasons: the manifest declares no volatile set, so the reproducibility gate cannot be evaluated without the governor inventing which differences to forgive; and one falsification case errors instead of proving its negative. Both are small, both are specified above, and neither is a design problem. P1-GOV must not certify Phase 1 until the volatile set is declared, because a reproducibility gate that forgives undeclared differences is the tautological pass this proposal exists to prevent.
 
 <!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
 

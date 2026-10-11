@@ -116,6 +116,8 @@ parse_args() {
 # Arches: amd64, arm64
 # Decision 10: openssl and envsubst are containerised in bundle/images/ (P1-2)
 # and are not staged as host binaries in bundle/bin/.
+SLSI_UTILITY_IMAGE_REF="docker.io/controlplane/slsi-util:v0.1.0"
+SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION="SLSI-P1-2"
 
 PIN_KIND_VERSION="v0.29.0"
 PIN_KUBECTL_VERSION="v1.33.2"
@@ -176,35 +178,99 @@ verify_exact_version_equality() {
   fail "Version mismatch for ${tool}: expected exact ${expected_ver}, got ${actual_ver}"
 }
 
-check_all_pins() {
-  log "Validating declared pin table for 5 staged Go utilities..."
-  log "kind [amd64]: PASS (pinned literal ${KIND_AMD64_SHA256})"
-  log "kind [arm64]: PASS (pinned literal ${KIND_ARM64_SHA256})"
-  log "kubectl [amd64]: PASS (pinned literal ${KUBECTL_AMD64_SHA256})"
-  log "kubectl [arm64]: PASS (pinned literal ${KUBECTL_ARM64_SHA256})"
-  log "flux [amd64]: PASS (pinned archive ${FLUX_AMD64_ARCHIVE_SHA256}, binary ${FLUX_AMD64_BINARY_SHA256})"
-  log "flux [arm64]: PASS (pinned archive ${FLUX_ARM64_ARCHIVE_SHA256}, binary ${FLUX_ARM64_BINARY_SHA256})"
-  log "cosign [amd64]: PASS (pinned literal ${COSIGN_AMD64_SHA256})"
-  log "cosign [arm64]: PASS (pinned literal ${COSIGN_ARM64_SHA256})"
-  log "jq [amd64]: PASS (pinned literal ${JQ_AMD64_SHA256})"
-  log "jq [arm64]: PASS (pinned literal ${JQ_ARM64_SHA256})"
+check_pin_entry() {
+  local tool="$1"
+  local arch="$2"
+  local expected_sha="$3"
+  local bin_path="${BUNDLE_DIR}/bin/${arch}/${tool}"
 
-  # Decision 10 check:
-  log "openssl [amd64/arm64]: CONTAINERIZED (Decision 10: served by platform image in bundle/images/, pinned by P1-2)"
-  log "envsubst [amd64/arm64]: CONTAINERIZED (Decision 10: served by platform image in bundle/images/, pinned by P1-2)"
+  if [[ ! -f "${bin_path}" ]]; then
+    log "${tool} [${arch}]: UNVERIFIED (artefact absent at ${bin_path})"
+    return 1
+  fi
+
+  local actual_sha
+  actual_sha="$(sha256sum "${bin_path}" | awk '{print $1}')"
+
+  if [[ "${actual_sha}" == "${expected_sha}" ]]; then
+    log "${tool} [${arch}]: PASS (computed sha256 matches pinned literal ${expected_sha})"
+    return 0
+  else
+    log "${tool} [${arch}]: FAIL (digest mismatch for ${bin_path}: expected ${expected_sha}, computed ${actual_sha})"
+    return 1
+  fi
+}
+
+check_all_pins() {
+  log "Validating declared pin table for 5 staged Go utilities against bundle/bin/..."
+  local failures=0
+
+  check_pin_entry "kind" "amd64" "${KIND_AMD64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "kind" "arm64" "${KIND_ARM64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "kubectl" "amd64" "${KUBECTL_AMD64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "kubectl" "arm64" "${KUBECTL_ARM64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "flux" "amd64" "${FLUX_AMD64_BINARY_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "flux" "arm64" "${FLUX_ARM64_BINARY_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "cosign" "amd64" "${COSIGN_AMD64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "cosign" "arm64" "${COSIGN_ARM64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "jq" "amd64" "${JQ_AMD64_SHA256}" || failures=$((failures + 1))
+  check_pin_entry "jq" "arm64" "${JQ_ARM64_SHA256}" || failures=$((failures + 1))
+
+  # Decision 10 containerised utility image declarations:
+  log "openssl [amd64/arm64]: CONTAINERIZED (Decision 10: image ref ${SLSI_UTILITY_IMAGE_REF}, digest pin obligation: ${SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION})"
+  log "envsubst [amd64/arm64]: CONTAINERIZED (Decision 10: image ref ${SLSI_UTILITY_IMAGE_REF}, digest pin obligation: ${SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION})"
+
+  if [[ ${failures} -ne 0 ]]; then
+    fail "Pin table validation failed: ${failures} binary pin check(s) failed or unverified"
+  fi
   return 0
 }
 
 verify_offline_manifest() {
-  local manifest="${BUNDLE_DIR}/bin/checksums.txt"
-  if [[ ! -f "$manifest" ]]; then
+  local anchor_dir="${BUNDLE_DIR}/bin"
+  local manifest="${anchor_dir}/checksums.txt"
+
+  if [[ ! -d "${anchor_dir}" ]]; then
+    fail "Anchor directory not found: ${anchor_dir}"
+  fi
+  if [[ ! -f "${manifest}" ]]; then
     fail "Manifest not found: ${manifest}"
   fi
-  log "Verifying bundle integrity offline from ${BUNDLE_DIR}/bin..."
-  (
-    cd "${BUNDLE_DIR}/bin"
-    sha256sum -c checksums.txt
-  )
+
+  log "Verifying bundle integrity offline with anchor directory ${anchor_dir}..."
+
+  local manifest_line_count
+  manifest_line_count="$(grep -c -v '^[[:space:]]*$' "${manifest}")"
+
+  # Completeness check: ensure no unlisted files in anchor_dir
+  local unlisted=()
+  while IFS= read -r f; do
+    local rel="${f#"${anchor_dir}/"}"
+    if [[ "${rel}" == "checksums.txt" || "${rel}" == */versions.txt || "${rel}" == */openssl || "${rel}" == */envsubst ]]; then
+      continue
+    fi
+    if ! grep -q "[[:space:]]${rel}$" "${manifest}"; then
+      unlisted+=("${rel}")
+    fi
+  done < <(find "${anchor_dir}" -type f | sort)
+
+  if [[ ${#unlisted[@]} -gt 0 ]]; then
+    fail "Completeness violation: unlisted file(s) present in ${anchor_dir}: ${unlisted[*]}"
+  fi
+
+  # Explicitly execute from the anchor directory
+  local check_output
+  check_output="$(cd "${anchor_dir}" && sha256sum -c "checksums.txt")"
+  echo "${check_output}"
+
+  local ok_count
+  ok_count="$(grep -c ': OK$' <<< "${check_output}")"
+
+  if [[ "${ok_count}" -ne "${manifest_line_count}" ]]; then
+    fail "Manifest verification mismatch: expected ${manifest_line_count} OK results, got ${ok_count}"
+  fi
+
+  log "Manifest verification succeeded: all ${ok_count} entries verified and anchor complete"
 }
 
 stage_single_tool() {

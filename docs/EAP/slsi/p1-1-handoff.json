@@ -228,6 +228,17 @@
       "rationale": "Upstream GNU gettext publishes source code only, zero precompiled Linux release binaries. Go reimplementations lack GNU restricted-variable syntax. Served via signed platform image in bundle/images/."
     }
   },
+  "checksumManifestPolicy": {
+    "path": "bundle/bin/checksums.txt",
+    "anchorDirectory": "bundle/bin",
+    "completenessRule": "Every file in anchorDirectory must be accounted for: exactly 10 binary entries listed in checksums.txt, plus explicit allowed non-manifest files (checksums.txt, */versions.txt, */openssl, */envsubst); any unlisted file fails verification immediately.",
+    "countAssertion": "Number of OK entries from sha256sum -c must strictly equal manifest non-empty line count (10)."
+  },
+  "pinVerificationPolicy": {
+    "verificationMethod": "Genuine runtime sha256 comparison against pinned literal constants",
+    "negativeTestBehavior": "Single-byte corruption in any staged binary causes check_pin_entry to return FAIL with expected vs computed digests, failing check_all_pins with non-zero exit code naming the failed binary.",
+    "missingBinaryBehavior": "Absent binary logs UNVERIFIED and fails check_all_pins with non-zero exit code."
+  },
   "checksumManifestPath": "bundle/bin/checksums.txt",
   "contractDivergence": [
     {

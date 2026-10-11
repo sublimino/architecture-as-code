@@ -662,6 +662,17 @@ test-kusari-e2e: ## Run the Kusari AWS signal e2e suite, both store modes (offli
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./e2e/... -v -count=1
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./e2e/... -v -count=1
 
+.PHONY: test-kusari-behaviours
+# The SLSI runtime-behaviour coverage gate: drives each of the five kusari-agent
+# malicious behaviours (GPU access, GPU write-intent, GPU-mount probe, paste
+# exfil egress, kube token-read + egress, /proc+/etc recon) through the real
+# stun-sentinel correlator and FAILS unless, after N runs, every corresponding
+# detection fired and nothing over-triggered. -v prints which detections fired.
+# CGO is on because the package includes the native-compiled prefilter
+# agreement test (bpf/path_prefilter.h compiled by cc).
+test-kusari-behaviours: ## Run the SLSI kusari malicious-behaviour detection-coverage gate (offline).
+	cd d2-signalloom/apps/stun-sentinel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} go test ./pkg/correlator/ -run 'TestKusariBehaviour|TestKusariWriteMode' -v -count=1
+
 # SLDP-P2-2: tenant isolation is a SERVER behaviour, so the only evidence that counts comes from a
 # server. This target stands one up, runs the hostile-context suite against it, and tears it down.
 # Without it the identity suite asserts on migration text, which passes identically whether the

@@ -54,6 +54,13 @@ const (
 	offType     = 28
 	offFamily   = 30
 	offDport    = 32
+	// offFlags holds the openat(2) flags argument. It occupies four bytes of
+	// the struct's former _pad1 gap (offset 36, 4-aligned, between dport and
+	// daddr), so SyscallEventSize is unchanged and the BTF offset map below
+	// (which does not list flags) still agrees with the committed object. A
+	// record from a probe built before this field carries zero there, which
+	// decodes to O_RDONLY — write-mode false, no false positive.
+	offFlags    = 36
 	offDaddr    = 40
 	offComm     = 56
 	offFilename = 72
@@ -79,6 +86,10 @@ type SyscallEvent struct {
 	Type        EventType `json:"type"`
 	Comm        string    `json:"comm"`
 	Filename    string    `json:"filename,omitempty"`
+	// Flags is the openat(2) flags argument (O_RDONLY/O_WRONLY/O_RDWR | ...),
+	// set only for EventOpenat. EventOpenat2's flags live in a struct open_how
+	// the probe does not dereference, so it is left zero there.
+	Flags       uint32 `json:"flags,omitempty"`
 	Family      uint16    `json:"family,omitempty"`
 	DestPort    uint16    `json:"dest_port,omitempty"`
 	DestAddr    net.IP    `json:"dest_addr,omitempty"`
@@ -114,6 +125,7 @@ func DecodeSyscallEvent(raw []byte) (*SyscallEvent, error) {
 		Type:        EventType(raw[offType]),
 		Comm:        cString(raw[offComm : offComm+commLen]),
 		Filename:    cString(raw[offFilename : offFilename+filenameLen]),
+		Flags:       ne.Uint32(raw[offFlags:]),
 		ExeIno:      ne.Uint64(raw[offExeIno:]),
 		ExeSize:     ne.Uint64(raw[offExeSize:]),
 	}

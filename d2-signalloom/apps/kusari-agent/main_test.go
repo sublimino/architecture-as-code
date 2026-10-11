@@ -114,9 +114,15 @@ func TestConfigFromEnv(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// /act/* defaults are covered by TestActConfigFromEnv
+			// /act/* defaults are covered by TestActConfigFromEnv and
+			// TestMaliciousConfigFromEnv (in malicious_test.go)
 			tc.want.passwdPath, tc.want.shadowPath = defaultPasswdPath, defaultShadowPath
 			tc.want.actHold, tc.want.burnMax = defaultActHold, defaultBurnMax
+			tc.want.gpuDevicePath = defaultGPUDevicePath
+			tc.want.exfilTarget = defaultExfilTarget
+			tc.want.saTokenPath = defaultSATokenPath
+			tc.want.kubeAPITarget = defaultKubeAPITarget
+			tc.want.dialTimeout = defaultDialTimeout
 			if got != tc.want {
 				t.Fatalf("config = %+v, want %+v", got, tc.want)
 			}

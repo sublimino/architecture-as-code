@@ -60,6 +60,25 @@ var DefaultSensitivePrefixes = []string{
 	"/var/run/secrets/kubernetes.io/serviceaccount",
 	"/run/secrets/kubernetes.io/serviceaccount", // /var/run is a symlink to /run
 	"/root/.ssh",
+
+	// GPU control surface (SLSI kusari behaviours): opening an NVIDIA control
+	// device node from a workload that has no business touching the GPU is a
+	// resource-abuse / crypto-mining signal. Enumerated exactly because the
+	// matcher is component-exact: "/dev/nvidia" would NOT cover "/dev/nvidia0".
+	"/dev/nvidiactl",
+	"/dev/nvidia-uvm",
+	"/dev/nvidia0",
+	"/proc/driver/nvidia", // version/gpus discovery files live beneath it
+
+	// Container-escape and host reconnaissance. Each is a deliberately narrow
+	// component so ordinary workload opens are not swept in: /proc/1/root is the
+	// init mount namespace, /proc/sys/kernel holds core_pattern (an escape
+	// primitive), /proc/self/environ leaks injected secrets, and
+	// /etc/kubernetes is the node's control-plane credential directory.
+	"/proc/1/root",
+	"/proc/sys/kernel",
+	"/proc/self/environ",
+	"/etc/kubernetes",
 }
 
 // Regex to extract pod UUIDs from systemd or cgroupfs cgroup paths
@@ -922,6 +941,18 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 		obs.TenantID = m.tenants.Resolve(pod.Namespace, pod.Spec.ServiceAccountName)
 	}
 
+	// write_mode marks an openat that requested write access (O_WRONLY/O_RDWR)
+	// on a sensitive target: a GPU-control write or a credential/tamper write,
+	// distinct from a passive read of the same node. Only openat carries flags
+	// (openat2's live in a struct the probe does not dereference), and a probe
+	// built before flags were captured sends zero, which is read-only.
+	if raw.Type == SyscallTypeOpenat && IsWriteOpen(raw.Flags) {
+		if obs.Labels == nil {
+			obs.Labels = map[string]string{}
+		}
+		obs.Labels[LabelWriteMode] = "true"
+	}
+
 	return obs
 }
 
@@ -993,6 +1024,7 @@ func (m *SentinelProbeManager) handleRecord(sample []byte) (TelemetryObservation
 	raw.Type = uint8(ev.Type)
 	copy(raw.Comm[:], ev.Comm)
 	copy(raw.Filename[:], ev.Filename)
+	raw.Flags = ev.Flags
 	raw.Family, raw.DestPort, raw.DestAddr = ev.Family, ev.DestPort, ev.DestAddr
 	filename := ev.Filename
 	targetPID := ev.PID

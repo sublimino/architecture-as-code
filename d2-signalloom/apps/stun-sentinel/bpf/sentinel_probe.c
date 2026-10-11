@@ -84,7 +84,15 @@ struct syscall_event_t {
 	__u8 _pad0;
 	__u16 family;
 	__u16 dport;
-	__u8 _pad1[6];
+	__u8 _pad1[2];
+	/*
+	 * openat(2) flags argument, set only for an openat (see emit_open_event).
+	 * Placed in two of the six former _pad1 bytes at offset 36 (4-aligned),
+	 * so sizeof stays 344 and daddr stays at 40 -- the asserts below are
+	 * unchanged. The userspace decoder reads it at offFlags (pkg/ebpf/event.go)
+	 * and the correlator derives write_mode from its access-mode bits.
+	 */
+	__u32 flags;
 	__u8 daddr[16];
 	char comm[SENTINEL_COMM_LEN];
 	char filename[SENTINEL_FILENAME_LEN];
@@ -291,7 +299,7 @@ static __always_inline void count_prefiltered(void)
  * candidate, as before. execve is not filtered: its RATE is a signal
  * (evasive-burst detection), whatever the path.
  */
-static __always_inline int emit_open_event(struct trace_event_raw_sys_enter *ctx, __u8 type)
+static __always_inline int emit_open_event(struct trace_event_raw_sys_enter *ctx, __u8 type, __u32 flags)
 {
 	__u64 pid_tgid = bpf_get_current_pid_tgid();
 	__u32 tgid = traced_tgid(pid_tgid);
@@ -316,6 +324,7 @@ static __always_inline int emit_open_event(struct trace_event_raw_sys_enter *ctx
 	e = reserve_event(pid_tgid, tgid, type);
 	if (!e)
 		return 0;
+	e->flags = flags;
 	__builtin_memcpy(e->filename, s->path, sizeof(e->filename));
 	bpf_ringbuf_submit(e, 0);
 	return 0;
@@ -325,14 +334,20 @@ SEC("tracepoint/syscalls/sys_enter_openat")
 int trace_enter_openat(struct trace_event_raw_sys_enter *ctx)
 {
 	/* openat(int dfd, const char *filename, int flags, umode_t mode) */
-	return emit_open_event(ctx, SENTINEL_EVT_OPENAT);
+	return emit_open_event(ctx, SENTINEL_EVT_OPENAT, (__u32)ctx->args[2]);
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat2")
 int trace_enter_openat2(struct trace_event_raw_sys_enter *ctx)
 {
-	/* openat2(int dfd, const char *filename, struct open_how *how, size_t usize) */
-	return emit_open_event(ctx, SENTINEL_EVT_OPENAT2);
+	/*
+	 * openat2(int dfd, const char *filename, struct open_how *how, size_t usize)
+	 * -- args[2] is a pointer to open_how, NOT the flags int, so write-mode is
+	 * not derivable here without a bounded bpf_probe_read_user of how->flags;
+	 * flags stay zero (read-only) until that is added. openat is the common
+	 * path and carries the signal.
+	 */
+	return emit_open_event(ctx, SENTINEL_EVT_OPENAT2, 0);
 }
 
 SEC("tracepoint/syscalls/sys_enter_execve")

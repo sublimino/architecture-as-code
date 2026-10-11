@@ -176,3 +176,31 @@ deliberately do not: the Kubernetes API **forbids** `resources`,
 non-sidecar init containers. Requiring them there would produce a check no
 admissible pod could pass — the mirror image of the admissibility error.
 Per-version detail in each `AGENT-CONTEXT.md`.
+
+## Pricing coverage
+
+The table below is produced from `framework.json`. It is not typed by hand.
+`make policy-pricing-counts` fails if it drifts from the packs.
+
+A check is priced when its `freqTriple` has a non-zero `min`, `mode`, or `max`.
+A check with no frequency triple, or an all-zero one, is unpriced. An unpriced
+check contributes GBP 0.00 to every reported total however often it fails. That
+state is allowed, because a loss magnitude with no calibrated frequency is not a
+price. It is not a small-print detail, because a reader who adds up a scan gets
+a total over the priced checks only.
+
+Read [the calibration statement](../README.md#the-calibration-statement) before you quote
+any figure in this table or any figure the engine produces from this pack.
+
+<!-- pricing-counts:begin -->
+| Version | Checks | Priced | Unpriced | Placeholder |
+| :--- | ---: | ---: | ---: | ---: |
+| `v1.0.0` | 14 | 0 | 14 | 0 |
+| `v2.0.0` | 28 | 0 | 28 | 0 |
+| `v2.1.0` | 17 | 14 | 3 | 0 |
+| **Pack total** | **59** | **14** | **45** | **0** |
+
+An unpriced check contributes GBP 0.00 to every total however often it
+fails. Of 59 check(s) on this page, 14 are priced and 45 are not.
+Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
+<!-- pricing-counts:end -->

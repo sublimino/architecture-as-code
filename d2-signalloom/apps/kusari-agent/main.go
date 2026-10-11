@@ -27,6 +27,36 @@
 //	POST /act/cpu-burn       provocation: busy-loop ?threads=N (default
 //	                         GOMAXPROCS) for ?duration=D (default 5s, clamped
 //	                         to ACT_BURN_MAX, default 60s).
+//	POST /act/gpu-open       provocation: openat(2) a GPU control device (default
+//	                         /dev/nvidiactl, GPU_DEVICE_PATH) read-only and hold
+//	                         the fd like read-passwd does. ?write=1 opens it
+//	                         O_RDWR (falling back to O_WRONLY) to signal WRITE
+//	                         INTENT and reports write_mode:true. attempted=true
+//	                         even when the device node is absent (distroless) —
+//	                         the openat is the signal; device bytes are never
+//	                         returned.
+//	POST /act/gpu-probe      provocation: stat+open each of the NVIDIA discovery
+//	                         set (/dev/nvidiactl, /dev/nvidia-uvm, /dev/nvidia0,
+//	                         /proc/driver/nvidia/version, /proc/driver/nvidia/gpus)
+//	                         on one traced thread and report how many exist
+//	                         (count + the paths touched). GPU-mount discovery.
+//	POST /act/exfil          provocation: TCP-dial a paste service (default
+//	                         pastebin.com:443, EXFIL_TARGET) with a short,
+//	                         overridable timeout (ACT_DIAL_TIMEOUT). The outbound
+//	                         connect attempt is the signal, so a refused or
+//	                         timed-out dial is still ok=true. No data is uploaded.
+//	POST /act/kube-enum      provocation: open the service-account token (default
+//	                         /var/run/secrets/kubernetes.io/serviceaccount/token,
+//	                         SA_TOKEN_PATH) and record whether it was readable and
+//	                         its byte length (never the token value), then TCP-dial
+//	                         the in-cluster apiserver (default
+//	                         kubernetes.default.svc:443, KUBE_API_TARGET).
+//	POST /act/recon          provocation: open each of a container-escape recon
+//	                         set (/proc/1/root, /proc/sys/kernel/core_pattern,
+//	                         /proc/self/environ, /etc/kubernetes/admin.conf,
+//	                         /etc/shadow) on one traced thread and report how many
+//	                         were openable (count + list). Contents are never
+//	                         returned.
 //
 // The /act/* routes are the deliberate adversarial triggers the SLDC five-step
 // containment suite (test/e2e-dual-cluster-containment.bats) fires.
@@ -44,6 +74,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -87,7 +118,34 @@ const (
 	maxBurnThreads      = 64
 	maxActReadBytes     = 1 << 20
 	maxActDefer         = 10 * time.Second
+
+	// Additional /act/* provocation defaults. Each target/path is overridable
+	// via the env var named alongside it so tests can point at local fixtures
+	// and the SLDC suite can retarget without a rebuild.
+	defaultGPUDevicePath = "/dev/nvidiactl"                                      // GPU_DEVICE_PATH
+	defaultExfilTarget   = "pastebin.com:443"                                    // EXFIL_TARGET
+	defaultSATokenPath   = "/var/run/secrets/kubernetes.io/serviceaccount/token" // SA_TOKEN_PATH
+	defaultKubeAPITarget = "kubernetes.default.svc:443"                          // KUBE_API_TARGET
+	defaultDialTimeout   = 2 * time.Second                                       // ACT_DIAL_TIMEOUT
 )
+
+// defaultGPUProbePaths is the NVIDIA mount-discovery set /act/gpu-probe walks.
+var defaultGPUProbePaths = []string{
+	"/dev/nvidiactl",
+	"/dev/nvidia-uvm",
+	"/dev/nvidia0",
+	"/proc/driver/nvidia/version",
+	"/proc/driver/nvidia/gpus",
+}
+
+// defaultReconPaths is the container-escape recon set /act/recon walks.
+var defaultReconPaths = []string{
+	"/proc/1/root",
+	"/proc/sys/kernel/core_pattern",
+	"/proc/self/environ",
+	"/etc/kubernetes/admin.conf",
+	"/etc/shadow",
+}
 
 // fallbackQuotes keep the agent answering when egress is denied, which it is
 // by default in fe-signalloom-agents.
@@ -113,6 +171,14 @@ type config struct {
 	shadowPath string
 	actHold    time.Duration
 	burnMax    time.Duration
+
+	// additional /act/* provocation settings (scalars only, so config stays
+	// comparable with ==; the gpu-probe/recon path sets live on the agent)
+	gpuDevicePath string
+	exfilTarget   string
+	saTokenPath   string
+	kubeAPITarget string
+	dialTimeout   time.Duration
 }
 
 func envOr(getenv func(string) string, key, fallback string) string {
@@ -135,6 +201,18 @@ func configFromEnv(getenv func(string) string) (config, error) {
 		shadowPath:    defaultShadowPath,
 		actHold:       defaultActHold,
 		burnMax:       defaultBurnMax,
+		gpuDevicePath: envOr(getenv, "GPU_DEVICE_PATH", defaultGPUDevicePath),
+		exfilTarget:   envOr(getenv, "EXFIL_TARGET", defaultExfilTarget),
+		saTokenPath:   envOr(getenv, "SA_TOKEN_PATH", defaultSATokenPath),
+		kubeAPITarget: envOr(getenv, "KUBE_API_TARGET", defaultKubeAPITarget),
+		dialTimeout:   defaultDialTimeout,
+	}
+	if v := getenv("ACT_DIAL_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return cfg, fmt.Errorf("ACT_DIAL_TIMEOUT must be a positive duration, got %q", v)
+		}
+		cfg.dialTimeout = d
 	}
 	if v := getenv("ACT_HOLD"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -222,6 +300,12 @@ type statsResponse struct {
 	HostileWrites int64  `json:"hostile_writes"`
 	HostileEvery  int64  `json:"hostile_every"`
 	HostilePath   string `json:"hostile_path"`
+	// per-provocation counters, same ground-truth role as hostile_writes
+	GPUOpens  int64 `json:"gpu_opens"`
+	GPUProbes int64 `json:"gpu_probes"`
+	Exfils    int64 `json:"exfils"`
+	KubeEnums int64 `json:"kube_enums"`
+	Recons    int64 `json:"recons"`
 }
 
 type agent struct {
@@ -234,9 +318,20 @@ type agent struct {
 	logMu sync.Mutex
 	logW  io.Writer
 
+	// gpu-probe/recon discovery sets; seeded from the package defaults so tests
+	// can point them at fixtures without mutating package state.
+	gpuProbePaths []string
+	reconPaths    []string
+
 	requests      atomic.Int64
 	hostileWrites atomic.Int64
 	skipUntil     atomic.Int64 // unix nanos; upstream is not dialled before this
+
+	gpuOpens  atomic.Int64
+	gpuProbes atomic.Int64
+	exfils    atomic.Int64
+	kubeEnums atomic.Int64
+	recons    atomic.Int64
 }
 
 var errCoolingDown = errors.New("upstream cooling down after failure")
@@ -244,12 +339,14 @@ var errCoolingDown = errors.New("upstream cooling down after failure")
 func newAgent(cfg config, logW io.Writer) *agent {
 	host, _ := os.Hostname()
 	return &agent{
-		cfg:      cfg,
-		upstream: cfg.upstreamURL(),
-		client:   &http.Client{Timeout: cfg.quoteTimeout},
-		now:      time.Now,
-		hostname: host,
-		logW:     logW,
+		cfg:           cfg,
+		upstream:      cfg.upstreamURL(),
+		client:        &http.Client{Timeout: cfg.quoteTimeout},
+		now:           time.Now,
+		hostname:      host,
+		logW:          logW,
+		gpuProbePaths: append([]string(nil), defaultGPUProbePaths...),
+		reconPaths:    append([]string(nil), defaultReconPaths...),
 	}
 }
 
@@ -383,6 +480,11 @@ func (a *agent) handleStats(w http.ResponseWriter, _ *http.Request) {
 		HostileWrites: a.hostileWrites.Load(),
 		HostileEvery:  a.cfg.hostileEvery,
 		HostilePath:   a.cfg.hostilePath,
+		GPUOpens:      a.gpuOpens.Load(),
+		GPUProbes:     a.gpuProbes.Load(),
+		Exfils:        a.exfils.Load(),
+		KubeEnums:     a.kubeEnums.Load(),
+		Recons:        a.recons.Load(),
 	})
 }
 
@@ -413,6 +515,37 @@ type actResult struct {
 	Pod          string `json:"pod,omitempty"`
 	StartedAt    string `json:"started_at"`
 	FinishedAt   string `json:"finished_at"`
+
+	// gpu-open: whether the device was opened for write (WRITE INTENT signal).
+	WriteMode bool `json:"write_mode,omitempty"`
+
+	// gpu-probe / recon: how many paths were touched and how many were openable,
+	// with the per-path outcomes. Contents are never read into the envelope.
+	Count  int          `json:"count,omitempty"`
+	Found  int          `json:"found,omitempty"`
+	Probes []probeEntry `json:"probes,omitempty"`
+
+	// exfil / kube-enum: the outbound TCP dial outcome.
+	Host        string `json:"host,omitempty"`         // the dial target (host:port)
+	Address     string `json:"address,omitempty"`      // resolved addr on success, attempted target otherwise
+	Connected   bool   `json:"connected,omitempty"`    // true only when the TCP connect succeeded
+	DialOutcome string `json:"dial_outcome,omitempty"` // connected | refused | timeout | error
+	DialError   string `json:"dial_error,omitempty"`
+
+	// kube-enum: the service-account token read outcome. The token value is
+	// never recorded — only whether it was readable and how many bytes it was.
+	TokenPath     string `json:"token_path,omitempty"`
+	TokenReadable bool   `json:"token_readable,omitempty"`
+	TokenBytes    int    `json:"token_bytes,omitempty"`
+}
+
+// probeEntry is one path visited by /act/gpu-probe or /act/recon. It carries the
+// discovery signal (did it exist, could it be opened) but never any contents.
+type probeEntry struct {
+	Path     string `json:"path"`
+	Exists   bool   `json:"exists"`
+	Openable bool   `json:"openable,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func (a *agent) postOnly(action string, h http.HandlerFunc) http.HandlerFunc {
@@ -560,6 +693,187 @@ func (a *agent) handleCPUBurn(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// handleGPUOpen opens a GPU control device and holds the descriptor, like
+// readAndHold, but never reads it. ?write=1 opens it for write to signal intent.
+func (a *agent) handleGPUOpen(w http.ResponseWriter, r *http.Request) {
+	a.gpuOpens.Add(1)
+	write := r.URL.Query().Get("write") == "1"
+	res := a.openAndHoldDevice("gpu-open", a.cfg.gpuDevicePath, write)
+	writeJSON(w, http.StatusOK, res)
+}
+
+// openAndHoldDevice opens path from the calling OS thread (so the openat is
+// attributed to the traced thread) and holds the descriptor for actHold. With
+// write set it opens O_RDWR, falling back to O_WRONLY, to signal write intent.
+// The openat is the signal: attempted is always true, even when the node is
+// absent (distroless), and the device is never read.
+func (a *agent) openAndHoldDevice(action, path string, write bool) actResult {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	res := actResult{
+		Action: action, Path: path, Attempted: true, WriteMode: write,
+		PID: os.Getpid(), TID: syscall.Gettid(),
+	}
+	res.StartedAt = a.now().UTC().Format(time.RFC3339Nano)
+
+	var (
+		f   *os.File
+		err error
+	)
+	if write {
+		if f, err = os.OpenFile(path, os.O_RDWR, 0); err != nil {
+			// A control node may reject O_RDWR but allow O_WRONLY; either way the
+			// openat with a write flag is the write-intent signal we want traced.
+			f, err = os.OpenFile(path, os.O_WRONLY, 0)
+		}
+	} else {
+		f, err = os.OpenFile(path, os.O_RDONLY, 0)
+	}
+	if err != nil {
+		res.Error = err.Error()
+	} else {
+		held := time.Now()
+		if a.cfg.actHold > 0 {
+			time.Sleep(a.cfg.actHold)
+		}
+		res.HeldMS = time.Since(held).Milliseconds()
+		_ = f.Close()
+		res.OK = true
+	}
+	res.FinishedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.logEvent("act", map[string]any{
+		"action": action, "path": path, "write_mode": write,
+		"ok": res.OK, "tid": res.TID, "error": res.Error,
+	})
+	return res
+}
+
+func (a *agent) handleGPUProbe(w http.ResponseWriter, _ *http.Request) {
+	a.gpuProbes.Add(1)
+	writeJSON(w, http.StatusOK, a.probePaths("gpu-probe", a.gpuProbePaths))
+}
+
+func (a *agent) handleRecon(w http.ResponseWriter, _ *http.Request) {
+	a.recons.Add(1)
+	writeJSON(w, http.StatusOK, a.probePaths("recon", a.reconPaths))
+}
+
+// probePaths stats and opens every path in the set on a single traced OS thread
+// so each openat can be attributed, and reports how many were openable. Found
+// counts the openable paths; Count is the number touched. Contents are never
+// read into the envelope.
+func (a *agent) probePaths(action string, paths []string) actResult {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	res := actResult{
+		Action: action, Attempted: true, OK: true,
+		PID: os.Getpid(), TID: syscall.Gettid(),
+	}
+	res.StartedAt = a.now().UTC().Format(time.RFC3339Nano)
+	for _, p := range paths {
+		entry := probeEntry{Path: p}
+		if _, serr := os.Stat(p); serr == nil {
+			entry.Exists = true
+		}
+		if f, oerr := os.Open(p); oerr == nil {
+			entry.Openable = true
+			res.Found++
+			_ = f.Close()
+		} else {
+			entry.Error = oerr.Error()
+		}
+		res.Probes = append(res.Probes, entry)
+	}
+	res.Count = len(paths)
+	res.FinishedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.logEvent("act", map[string]any{
+		"action": action, "count": res.Count, "found": res.Found, "tid": res.TID,
+	})
+	return res
+}
+
+func (a *agent) handleExfil(w http.ResponseWriter, _ *http.Request) {
+	a.exfils.Add(1)
+	res := actResult{Action: "exfil", Attempted: true, OK: true, PID: os.Getpid()}
+	res.StartedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.dial(&res, a.cfg.exfilTarget)
+	res.FinishedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.logEvent("act", map[string]any{
+		"action": "exfil", "host": res.Host, "connected": res.Connected,
+		"dial_outcome": res.DialOutcome, "dial_error": res.DialError,
+	})
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (a *agent) handleKubeEnum(w http.ResponseWriter, _ *http.Request) {
+	a.kubeEnums.Add(1)
+	res := actResult{Action: "kube-enum", Attempted: true, OK: true, PID: os.Getpid()}
+	res.StartedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.readSATokenMeta(&res, a.cfg.saTokenPath)
+	a.dial(&res, a.cfg.kubeAPITarget)
+	res.FinishedAt = a.now().UTC().Format(time.RFC3339Nano)
+	a.logEvent("act", map[string]any{
+		"action": "kube-enum", "token_path": res.TokenPath,
+		"token_readable": res.TokenReadable, "token_bytes": res.TokenBytes,
+		"host": res.Host, "connected": res.Connected, "dial_outcome": res.DialOutcome,
+	})
+	writeJSON(w, http.StatusOK, res)
+}
+
+// readSATokenMeta opens the service-account token on a traced OS thread and
+// records whether it was readable and its byte length. The token value is
+// counted, never returned or logged.
+func (a *agent) readSATokenMeta(res *actResult, tokenPath string) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	res.TokenPath = tokenPath
+	res.TID = syscall.Gettid()
+	f, err := os.Open(tokenPath)
+	if err != nil {
+		res.TokenReadable = false
+		return
+	}
+	data, rerr := io.ReadAll(io.LimitReader(f, maxActReadBytes))
+	_ = f.Close()
+	if rerr != nil {
+		res.TokenReadable = false
+		return
+	}
+	res.TokenReadable = true
+	res.TokenBytes = len(data)
+}
+
+// dial makes one short, bounded outbound TCP connect to target and records the
+// outcome on res. The connect attempt is the provocation, so a refused or
+// timed-out dial is reported without clearing ok. No payload is ever sent.
+func (a *agent) dial(res *actResult, target string) {
+	res.Host = target
+	res.Address = target // attempted address unless a successful connect resolves one
+	conn, err := net.DialTimeout("tcp", target, a.cfg.dialTimeout)
+	if err != nil {
+		res.Connected = false
+		res.DialError = err.Error()
+		res.DialOutcome = classifyDial(err)
+		return
+	}
+	res.Connected = true
+	res.DialOutcome = "connected"
+	res.Address = conn.RemoteAddr().String()
+	_ = conn.Close()
+}
+
+// classifyDial labels a failed dial for the envelope without leaking the target.
+func classifyDial(err error) string {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return "timeout"
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "refused"
+	}
+	return "error"
+}
+
 func (a *agent) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/quote", getOnly(a.handleQuote))
@@ -569,6 +883,11 @@ func (a *agent) routes() http.Handler {
 	mux.HandleFunc("/act/read-passwd", a.postOnly("read-passwd", a.handleReadPasswd))
 	mux.HandleFunc("/act/read-shadow", a.postOnly("read-shadow", a.handleReadShadow))
 	mux.HandleFunc("/act/cpu-burn", a.postOnly("cpu-burn", a.handleCPUBurn))
+	mux.HandleFunc("/act/gpu-open", a.postOnly("gpu-open", a.handleGPUOpen))
+	mux.HandleFunc("/act/gpu-probe", a.postOnly("gpu-probe", a.handleGPUProbe))
+	mux.HandleFunc("/act/exfil", a.postOnly("exfil", a.handleExfil))
+	mux.HandleFunc("/act/kube-enum", a.postOnly("kube-enum", a.handleKubeEnum))
+	mux.HandleFunc("/act/recon", a.postOnly("recon", a.handleRecon))
 	return mux
 }
 

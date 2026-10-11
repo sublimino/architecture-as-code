@@ -49,9 +49,32 @@ type SyscallEvent struct {
 	Type     uint8
 	Comm     [16]byte
 	Filename [256]byte
+	// Flags is the openat(2) flags argument, set only for an openat. The low
+	// two bits are the access mode: O_RDONLY (0), O_WRONLY (1), O_RDWR (2).
+	Flags    uint32
 	Family   uint16 // AF_INET or AF_INET6; 0 for a non-connect
 	DestPort uint16
 	DestAddr net.IP
+}
+
+// openat(2) access-mode bits (asm-generic/fcntl.h, stable UAPI). Used to tell
+// a write-intent GPU/device open from a read: the signal a mining or
+// tampering workload gives that a passive read does not.
+const (
+	oAccMode = 0x3 // O_ACCMODE
+	oWronly  = 0x1 // O_WRONLY
+	oRdwr    = 0x2 // O_RDWR
+
+	// LabelWriteMode marks an openat whose access mode is not read-only.
+	LabelWriteMode = "write_mode"
+)
+
+// IsWriteOpen reports whether an openat's flags request write access
+// (O_WRONLY or O_RDWR). O_RDONLY, and a zero value from a probe built before
+// flags were captured, are not writes.
+func IsWriteOpen(flags uint32) bool {
+	m := flags & oAccMode
+	return m == oWronly || m == oRdwr
 }
 
 // RemoteEndpoint formats a connect's destination as host:port ("[v6]:port"

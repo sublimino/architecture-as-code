@@ -24,7 +24,8 @@ type probeSyscallEventT struct {
 	Pad0     uint8
 	Family   uint16
 	Dport    uint16
-	Pad1     [6]uint8
+	Pad1     [2]uint8
+	Flags    uint32
 	Daddr    [16]uint8
 	Comm     [16]int8
 	Filename [256]int8

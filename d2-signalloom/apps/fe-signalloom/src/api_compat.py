@@ -1066,7 +1066,12 @@ class PolicyFrameworkSummaryResponse(BaseModel):
     #: response. Zero on the persisted summary, which reports no per-agent rows.
     #: Additive, so a consumer reading only totalControls is unaffected.
     totalResults: int = 0
-    totalExposureGbp: int
+    #: ``None`` means NOT COMPUTED, and is not interchangeable with ``0``.
+    #: A scan response prices every check it evaluated, so this is a real sum
+    #: there. The persisted summary is read from ``agent_compliance_results``,
+    #: which stores no money, so no exposure figure exists to report and the
+    #: route says so rather than emitting a zero a client renders as "clean".
+    totalExposureGbp: int | None
     # Denominated twin of totalExposureGbp. Additive on purpose: the *Gbp fields stay until every
     # consumer has migrated, because a breaking rename would take the dashboard down mid-flight.
     # New consumers should read `exposure` and treat `totalExposureGbp` as deprecated -- its name
@@ -1080,10 +1085,16 @@ class PolicySummaryResponse(BaseModel):
     totalChecks: int
     passed: int
     failed: int
-    totalAle: int
-    totalVar95: int
-    totalTvar: int
-    totalCarriedGbp: int
+    # The four money figures below are ``None`` when the serving route has no
+    # risk data plane behind it, and a real sum when it does. ``None`` is NOT a
+    # synonym for ``0``: a zero here is an affirmative claim that exposure was
+    # calculated and came to nothing, which is exactly how an HTTP 200 carrying
+    # no risk data gets quoted as a clean posture. Only the scan path computes
+    # these; the persisted summary reads rows that carry no money at all.
+    totalAle: int | None
+    totalVar95: int | None
+    totalTvar: int | None
+    totalCarriedGbp: int | None
     # Denominated twin of totalCarriedGbp; see PolicyFrameworkSummaryResponse.exposure.
     carried: MoneyResponse | None = None
     # The denomination of totalAle / totalVar95 / totalTvar / totalCarriedGbp above.
@@ -7432,12 +7443,15 @@ async def _policy_framework_summaries(
                     any(status in {"fail", "failing"} for status in statuses)
                     for statuses in controls.values()
                 ),
-                # The governance API has no risk-calculation data plane. Zero states
-                # that no exposure value is available; it does not fabricate fixture risk.
-                totalExposureGbp=0,
-                # Zero still needs a denomination: a bare 0 is addable to anything, and a consumer
-                # that later sums it against a real figure must be able to see they agree.
-                exposure=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+                # The governance API has no risk-calculation data plane: these
+                # summaries are built from `compliance_posture`, whose rows carry
+                # statuses and no money. Previously this reported 0 with a comment
+                # saying zero meant "unavailable" -- but a comment is not on the
+                # wire. A consumer receives an int it can add, chart and quote, and
+                # 0 exposure reads as "no risk carried". None is unrenderable as a
+                # currency amount, so absence survives the serialization boundary.
+                totalExposureGbp=None,
+                exposure=None,
             )
         )
     return summaries
@@ -7929,11 +7943,20 @@ async def policy_compliance_summary(
         # Counted by the same query as the rest, rather than recounted from the
         # posture rows: the two disagreed whenever the posture read lagged.
         errored=summary.controls_errored,
-        totalAle=0,
-        totalVar95=0,
-        totalTvar=0,
-        totalCarriedGbp=0,
-        carried=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+        # NOT COMPUTED, and reported as such. This route answers from
+        # `agent_compliance_results`, which has no money column (see
+        # db/migrations/004_agent_governance_schema.sql) -- there is no priced
+        # scan behind it to aggregate. These were hardcoded zeros, so the same
+        # four field names were a true sum on POST /compliance/policy/scan and a
+        # literal 0 here, with nothing on the wire to tell the two apart.
+        totalAle=None,
+        totalVar95=None,
+        totalTvar=None,
+        totalCarriedGbp=None,
+        carried=None,
+        # The tenant's reporting denomination is a real fact even with no amount
+        # to denominate, so it stays: a consumer that later receives a figure
+        # from the scan path can confirm the two agree on currency.
         currency=REPORTING_CURRENCY,
         scanTimestamp=max(assessed_at, default=_now_iso()),
         frameworks=await _policy_framework_summaries(tenant_id),

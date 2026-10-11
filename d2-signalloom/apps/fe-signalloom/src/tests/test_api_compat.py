@@ -264,6 +264,56 @@ def test_current_compatibility_contracts_are_typed_and_tenant_scoped(client):
         model.model_validate(response.json())
 
 
+def test_policy_summary_reports_uncomputed_exposure_as_null_not_zero(client):
+    """A figure this route cannot compute must say so, not report 0.
+
+    GET /compliance/policy/summary is served from ``agent_compliance_results``,
+    which has no money column (see 004_agent_governance_schema.sql): there is no
+    risk data plane behind this route, so ALE, VaR95, TVaR and carried exposure
+    are genuinely unavailable here. They used to be hardcoded to ``0``, which is
+    indistinguishable on the wire from a real, computed zero -- a clean posture.
+    That is the worst available outcome: the same field name is a true sum on
+    the POST /compliance/policy/scan path and a literal zero here, and a viewer
+    reading "total exposure GBP 0" quotes it as "we carry no risk".
+
+    ``null`` is not addable and cannot render as a currency amount, so a
+    consumer is forced to distinguish "not computed" from "computed as zero".
+    The key SET is unchanged -- this is a value contract change, not a field
+    removal -- so the dashboard keeps deserializing the same shape.
+    """
+    headers = bearer(token_for("alice"))
+    summary = client.get("/api/compliance/policy/summary", headers=headers).json()
+    frameworks = client.get("/api/compliance/policy/frameworks", headers=headers).json()
+
+    for field in ("totalAle", "totalVar95", "totalTvar", "totalCarriedGbp"):
+        assert summary[field] is None, (
+            f"{field} must be null when this route cannot compute it; "
+            f"got {summary[field]!r}, which a client renders as a real figure"
+        )
+    assert summary["carried"] is None, (
+        "carried must be absent rather than a denominated zero: a "
+        "MoneyResponse(amount=0) asserts an exposure of zero was calculated"
+    )
+    # The reporting denomination is still a fact about this tenant even when no
+    # amount exists to denominate, so `currency` stays populated.
+    assert summary["currency"] == "GBP"
+
+    for framework in frameworks:
+        assert framework["totalExposureGbp"] is None, (
+            "per-framework exposure comes from the same absent data plane"
+        )
+        assert framework["exposure"] is None
+
+    # The counts on this route ARE computed from stored rows, so they must stay
+    # real -- this test must not be satisfiable by nulling the whole response.
+    assert summary["totalChecks"] == (
+        summary["passed"] + summary["failed"] + summary["errored"]
+        + (summary["totalChecks"] - summary["passed"] - summary["failed"] - summary["errored"])
+    )
+    assert isinstance(summary["totalChecks"], int)
+    assert isinstance(summary["passed"], int)
+
+
 def test_policy_compliance_compatibility_routes_match_dashboard_contract(client):
     headers = bearer(token_for("alice"))
 
@@ -300,11 +350,28 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     # A denominated figure must actually be denominated: a null currency here would mean the new
     # fields are decoration and a consumer still has nothing to convert from.
     assert summary.json()["currency"] == "GBP"
-    assert summary.json()["carried"]["currency"] == "GBP"
-    assert frameworks.json()[0]["exposure"]["currency"] == "GBP"
-    # And the twins must agree with the legacy fields they mirror, or the two will drift.
-    assert summary.json()["carried"]["amount"] == summary.json()["totalCarriedGbp"]
-    assert frameworks.json()[0]["exposure"]["amount"] == frameworks.json()[0]["totalExposureGbp"]
+
+    # The twins must agree with the legacy fields they mirror, or the two will
+    # drift -- and they must agree about ABSENCE too. This route computes no
+    # exposure (no money column behind it), so both halves of each pair are
+    # null together; the failure this guards against is one half going null
+    # while the other reports 0, which would let a consumer pick the zero and
+    # render a fabricated clean posture. See
+    # test_policy_summary_reports_uncomputed_exposure_as_null_not_zero.
+    def assert_twins_agree(denominated, legacy):
+        if legacy is None:
+            assert denominated is None, (
+                "a null *Gbp figure must not keep a denominated zero beside it"
+            )
+            return
+        assert denominated is not None
+        assert denominated["currency"] == "GBP"
+        assert denominated["amount"] == legacy
+
+    assert_twins_agree(summary.json()["carried"], summary.json()["totalCarriedGbp"])
+    assert_twins_agree(
+        frameworks.json()[0]["exposure"], frameworks.json()[0]["totalExposureGbp"]
+    )
 
 
 def test_discovery_detail_reads_persisted_tenant_account(client, monkeypatch):

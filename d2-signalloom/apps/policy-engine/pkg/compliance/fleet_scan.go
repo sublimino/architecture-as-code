@@ -136,21 +136,6 @@ const (
 	// rows come from agent_compliance_results (migration 004, no money column). Operator action:
 	// run a priced scan, or give the route a risk data plane.
 	PricingStatusNoRiskDataPlane PricingStatus = "NO_RISK_DATA_PLANE"
-	// PricingStatusAuthoredNotComputed: a figure for this field exists, but it was AUTHORED --
-	// typed into a manifest by a human -- and no computation stands behind it. Used by
-	// fleet-manager's GET /api/v1/fleet/topology, whose aggregateRisk was read straight out of
-	// fleet.yaml and rendered on a risk gauge. Operator action: build a fleet risk model that
-	// declares loss magnitude and loss-event frequency per agent, because nothing in risk/packs
-	// maps an agent's riskClass to either.
-	//
-	// WHY A THIRD VALUE AND NOT ONE OF THE TWO ABOVE. Both existing refusals describe a MISSING
-	// input: no control mapping, or no data plane to read from. This one describes a PRESENT
-	// datum of the wrong kind -- the number is right there in the config, which is exactly why
-	// it was served for so long and why it is the more dangerous case. The operator actions
-	// differ accordingly: declaring a mapping or wiring a scan will not help here, and a reader
-	// told NO_DECLARED_LOSS_FREQUENCY would go looking in the risk pack for a figure that was
-	// never going to be there.
-	PricingStatusAuthoredNotComputed PricingStatus = "AUTHORED_NOT_COMPUTED"
 )
 
 // Available reports whether a figure accompanies this status.
@@ -177,32 +162,6 @@ type FleetPricingStatus struct {
 	// Unmapped names the checks that resolved to no declared control. Empty where the refusal is
 	// not per-check -- the two persisted-summary routes, whose cause is the absent data plane.
 	Unmapped []string `json:"unmappedChecks"`
-}
-
-// NewAuthoredNotComputedPricing builds the refusal for a route whose figure was authored in a
-// manifest rather than computed. See PricingStatusAuthoredNotComputed.
-//
-// There is deliberately NO parameter for Available. Its only source is the status, and a
-// constructor that accepted it would let a caller write a boolean that contradicts the status
-// beside it -- which is how a refusal comes to claim a figure is available. The field is derived
-// here and cannot be passed in.
-//
-// Unmapped is allocated empty rather than left nil: nil marshals to `null` where an empty slice
-// marshals to `[]`, and the whole point of the shared shape is one type per key on every route.
-// This refusal is not per-check, so there is nothing to name -- but it is still a list.
-func NewAuthoredNotComputedPricing(reason string, unpricedFields []string) FleetPricingStatus {
-	status := PricingStatusAuthoredNotComputed
-	if unpricedFields == nil {
-		unpricedFields = []string{}
-	}
-	return FleetPricingStatus{
-		// Derived, never written beside the status. See PricingStatus.Available.
-		Available:      status.Available(),
-		Status:         status,
-		Reason:         reason,
-		UnpricedFields: unpricedFields,
-		Unmapped:       []string{},
-	}
 }
 
 // FleetFairRiskSummary carries the fleet's compliance counts and, when the findings can be priced,

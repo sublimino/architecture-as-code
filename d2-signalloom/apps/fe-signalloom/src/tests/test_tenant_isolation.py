@@ -518,6 +518,11 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "/api/tenant/settings/preferences",
         {"preferred_scan_cadence_hours": 24, "alert_threshold": 3},
     ),
+    (
+        "PATCH",
+        "/api/tenant/settings/risk-profile",
+        {"jurisdiction": "UK", "reporting_currency": "GBP", "risk_load": 0.1},
+    ),
     ("PATCH", "/api/user/preferences", {"display_currency": "GBP"}),
     ("POST", "/api/support", {"subject": "probe", "urgency": "low", "message": "probe"}),
     ("POST", f"/api/tenants/{TENANT_A}/api-keys/initial", None),

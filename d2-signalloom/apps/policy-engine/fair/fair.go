@@ -95,8 +95,22 @@ type RiskResult struct {
 // precisely the well-governed case a client most wants to see. The inversion is now surfaced via
 // TailDominated instead. See regression_test.go.
 func Simulate(loss, freq RiskTriple, seed uint64) RiskResult {
-	return SimulateWithLoad(loss, freq, seed, 0.10)
+	return SimulateWithLoad(loss, freq, seed, DefaultRiskLoad)
 }
+
+// DefaultRiskLoad is the load used when the institution has NOT declared one.
+//
+// It was the bare literal 0.10 inside Simulate. Naming it changes no figure --
+// that is the point. The load belongs to the institution's risk posture, not to
+// the engine, so once a tenant can declare one (tenant_settings.risk_load,
+// migration 062) the engine needs a single named stand-in for "nobody has
+// declared, so keep doing exactly what we did before". A second literal
+// elsewhere would be how the declared path and the default path start to
+// disagree.
+//
+// Changing this value moves every priced figure for every tenant that has
+// declared nothing, which is every tenant today. The money goldens pin it.
+const DefaultRiskLoad = 0.10
 
 // SimulateWithLoad is Simulate with an explicit risk load. Never charge the mean; the load belongs
 // to the institution (its risk posture), not to the engine.

@@ -2,7 +2,8 @@
  * The onboarding wizard, in the order a new tenant operator needs things:
  *
  *   welcome (not a persisted step)
- *   0 Organization & Identity   TenantIdentityStep        saved in wizard state
+ *   0 Organization & Identity   TenantIdentityStep        PATCH /api/tenant/settings/risk-profile
+ *                                                         (the declared risk half only -- see below)
  *   1 Identity Provider          IdpLinkageStep            Test Connection -> GET /api/v1/me
  *   2 Scan preferences           PreferencesStep           PATCH /api/tenant/settings/preferences
  *   3 API key (opt-in reveal)    ApiKeyStep                POST /api/tenants/{id}/api-keys/initial
@@ -12,7 +13,14 @@
  * (tenant_onboarding.wizard_state), so a user resumes where they left off on
  * another device. Preferences persist through the tenant settings API, which is
  * the same row the Settings page edits, so what the wizard saves is what
- * Settings shows.
+ * Settings shows. The declared risk profile (sector, jurisdiction, reporting
+ * currency, risk appetite) now does too.
+ *
+ * STILL NOT PERSISTED, stated so it is not mistaken for done: the identity half
+ * of step 0 -- organizationName, workspaceId, adminEmail, environment,
+ * description. Those five have no column to land in and remain wizard-local, so
+ * they are still lost on reload. Giving them one is a separate change; what was
+ * fixed here is that the step no longer discards EVERYTHING it collects.
  *
  * Not rendered here: ProviderSelectStep, ProviderConfigureStep and SummaryStep.
  * They drive the connectors API and live on the Connectors page, which already
@@ -95,6 +103,8 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
     environment: 'production',
     description: 'Enterprise autonomous agent governance, runtime confinement, and tamper-evident audit.',
   })
+
+  const [tenantProfileError, setTenantProfileError] = useState<string | undefined>(undefined)
 
   const [idpConfig, setIdpConfig] = useState<IdpConfigData>({
     providerId: 'dex',
@@ -233,8 +243,45 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
     [getAccessTokenSilently],
   )
 
-  const handleTenantIdentityNext = (data: TenantProfileData) => {
+  const handleTenantIdentityNext = async (data: TenantProfileData) => {
     setTenantProfile(data)
+    setTenantProfileError(undefined)
+
+    // THE BUG THIS FIXES: tenantProfile was React state and nothing ever sent
+    // it anywhere -- not to the risk profile columns, not even into
+    // wizard_state. A tenant typed its organisation identity, clicked Next, and
+    // the whole thing evaporated on reload.
+    //
+    // The declared risk half now persists. The identity half (organizationName,
+    // workspaceId, adminEmail, environment, description) still does not have a
+    // column to land in, and inventing one was out of scope here -- so it is
+    // still wizard-local, and that is a KNOWN remaining gap rather than a fixed
+    // one.
+    //
+    // A failure here does NOT block the step. The whole profile is optional and
+    // the step is skippable, so refusing to advance because an optional
+    // declaration did not save would be a worse product than advancing with a
+    // visible warning. Silence would be worse than both, which is why the error
+    // is surfaced rather than swallowed.
+    const tolerance = data.riskAppetiteTolerance?.trim()
+    try {
+      const token = await getAccessTokenSilently()
+      await api.patchRiskProfile(token, {
+        sector: data.sector ?? null,
+        jurisdiction: data.jurisdiction ?? null,
+        reporting_currency: data.reportingCurrency ?? null,
+        risk_appetite_tolerance: tolerance ? Number(tolerance) : null,
+        // Not collected by this form: an actuarial parameter, not something an
+        // operator can state at onboarding. Sent as null so the PATCH stays a
+        // whole-profile declaration rather than a partial merge.
+        risk_load: null,
+      })
+    } catch (err) {
+      setTenantProfileError(
+        errorMessage(err, 'Could not save the risk profile. You can set it later in Settings.'),
+      )
+    }
+
     goTo(STEP_IDP)
   }
 
@@ -391,6 +438,18 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
       {apiError && (
         <div style={{ maxWidth: 760, margin: '0 auto 20px', padding: '0 20px' }}>
           <ValidationErrorBanner errors={[apiError]} onDismiss={() => setApiError(null)} />
+        </div>
+      )}
+
+      {/* The risk profile is optional, so a failed save warns and lets the user
+          carry on -- but it must never fail silently, or they would believe a
+          declaration landed when it did not. */}
+      {tenantProfileError && (
+        <div style={{ maxWidth: 760, margin: '0 auto 20px', padding: '0 20px' }}>
+          <ValidationErrorBanner
+            errors={[tenantProfileError]}
+            onDismiss={() => setTenantProfileError(undefined)}
+          />
         </div>
       )}
 

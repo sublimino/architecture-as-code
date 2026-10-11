@@ -35,20 +35,20 @@ per-check figures as a scan of a non-compliant one. Only the summary differs.
 
 A check with no `freqTriple`, or an all-zero one, prices at zero however often
 it fails. 73 of 134 shipped checks are in that state. Today the loader accepts
-this, and the silence is caught after the fact by two tests outside the gate:
+this. The silence is caught after the fact by two tests outside the gate.
 `policy/frameworks/nist-800-53/catalogue/pricing-test.sh` asks whether each
-unpriced check is declared, and `policy/frameworks/pricing-counts-test.sh` asks
+unpriced check is declared. `policy/frameworks/pricing-counts-test.sh` asks
 whether each pack page counts them correctly.
 
 The precedent is in the same codebase. `money/money.go` makes a missing exchange
-rate an error rather than a zero, for the same reason: a zero that means
+rate an error rather than a zero. The reason is the same. A zero that means
 "unknown" is indistinguishable from a zero that means "nothing".
 
 The cheapest remedy is a loader error for an undeclared missing triple, with an
 explicit `unpriced` status on the check for the deliberate case.
 
 **Cost of not doing it:** the next pack authored to the current instructions
-reaches a customer with every figure at zero, and no gate stops it.
+reaches a customer with every figure at zero. No gate stops it.
 
 ## 3. `Simulate` does not draw event counts
 
@@ -91,8 +91,9 @@ parameter. It belongs to the institution, not to the engine, and it is the kind
 of number a risk function sets once and reviews annually.
 
 The `riskctl` aggregate path gets this right. It reads `risk_load` from the
-organisation file, rejects a value that is not finite or is negative, and prints
-the load beside the figure it produced. `risk/org/acme.yaml` sets **0.15**.
+organisation file and rejects a value that is not finite or is negative. It
+prints the load beside the figure it produced. `risk/org/acme.yaml` sets
+**0.15**.
 
 Three code paths ignore that file and use **0.10**:
 
@@ -103,19 +104,19 @@ Three code paths ignore that file and use **0.10**:
 | `pkg/compliance/fleet_scan.go:281` | the same, second call site |
 
 So the only organisation file in the repository declares a load the scan path
-does not apply, and the two numbers differ by half the load again. The cheapest
-remedy is to thread the organisation value through, keeping 0.10 as the fallback
+does not apply. The two numbers differ by half the load again. The cheapest
+remedy is to thread the organisation value through. Keep 0.10 as the fallback,
 so no figure moves until someone sets one.
 
 **Cost of not doing it:** the `carried` figure a scan reports is not the
-`carried` figure the institution's own policy asks for, and nobody reading
-either number can tell.
+`carried` figure the institution's own policy asks for. Nobody reading either
+number can tell.
 
 ## 6. There is no loss exceedance curve
 
 A loss exceedance curve is the standard FAIR output and the one artefact a risk
 committee recognises on sight. It answers "what is the chance of losing more
-than X in a year", which is the question a board asks, and it shows the
+than X in a year", which is the question a board asks. It also shows the
 uncertainty instead of hiding it behind a single number.
 
 Everything needed already ships. `Engine.RunDistribution` returns the sorted
@@ -133,11 +134,11 @@ Every scan row carries `calibrationSource`. Until 2026-10-11 it read
 now reads `declared-estimate-unanchored`.
 
 The field is still set in Go, by the engine, on every row. It reads the same on
-a priced row and on a row that prices at zero, and it cannot distinguish a
-triple a risk function signed off from one an engineer typed.
+a priced row and on a row that prices at zero. It cannot distinguish a triple a
+risk function signed off from one an engineer typed.
 
 **0 of the 61 priced checks carry any provenance.** The check shape has no field
-for provenance, author, date, or anchor class, and the loader uses
+for provenance, author, date, or anchor class. The loader uses
 `DisallowUnknownFields`, so adding one is a loader change rather than a data
 change. A search of the whole tree for the names of the loss datasets a reader
 would expect, and for the phrase "expert judgement", returns nothing.
@@ -149,7 +150,7 @@ The declarations therefore carry a reason where the priced triples carry none,
 which is the wrong way round.
 
 The cheapest remedy is an optional provenance block on the triple, carried
-through to the row, with the engine-set tag as the fallback for a triple that
+through to the row. The engine-set tag stays as the fallback for a triple that
 has none.
 
 **Known drift:** the dashboard still shows the string `industry-indicative`,
@@ -168,12 +169,12 @@ The cheapest remedy is to add them to the aggregator and to continuous
 integration, which needs `jq` on the runner.
 
 **Cost of not doing it:** a pack page can go stale, or a pack can ship with an
-undeclared unpriced check, and the gate stays green.
+undeclared unpriced check. The gate stays green either way.
 
 ## 9. A live route returns fabricated money
 
-This one is a defect, not a modelling choice, and it is recorded here with
-precision because the same figures are quoted in a customer-facing proposal.
+This one is a defect, not a modelling choice. It is recorded with precision
+because the same figures are quoted in a customer-facing proposal.
 **Do not change the code.** The remedy is the principal's decision.
 
 `POST /api/v1/compliance/scan-fleet` is routed at `main.go:219` to
@@ -229,5 +230,5 @@ A reader who compares two totals for the same estate can get three answers.
 
 So `totalCarried` is a real sum on one route and a literal zero on another, and
 the two real sums are over different populations. The cheapest remedy is to pick
-one population, name it in the field, and have the `GET` route either compute it
+one population and name it in the field. The `GET` route should then compute it,
 or return no field at all rather than a zero that reads as "no exposure".

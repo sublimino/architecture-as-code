@@ -836,7 +836,11 @@ export function CollaboratorGainsLinks({
 export default function CollusionAccessPage() {
   const [demo, setDemo] = useState(isDemoMode())
   const { getAccessTokenSilently } = useAuth0()
+  // Seeding from fixtures is a demo-mode affordance and must honour the same
+  // gate as the api client. Unconditionally, this seeded the agent list with
+  // fixture agents in live mode too, before any request was made.
   const [agents, setAgents] = useState<AgentResponse[]>(() => {
+    if (!isDemoMode()) return []
     try {
       return (resolveFake('GET', '/agents') as { agents: AgentResponse[] } | undefined)?.agents ?? []
     } catch {

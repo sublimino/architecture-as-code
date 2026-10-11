@@ -238,13 +238,13 @@ func TestScanResultsHaveCurrency(t *testing.T) {
 		if r.Currency == "" {
 			t.Fatalf("result %d (%s) has empty currency", i, r.Check)
 		}
-		if r.Currency != reportingCurrency {
+		if r.Currency != defaultReportingCurrency {
 			t.Fatalf("result %d (%s) has currency %q, expected %q",
-				i, r.Check, r.Currency, reportingCurrency)
+				i, r.Check, r.Currency, defaultReportingCurrency)
 		}
-		if r.Carried.Currency != reportingCurrency {
+		if r.Carried.Currency != defaultReportingCurrency {
 			t.Fatalf("result %d (%s) carried.currency is %q, expected %q",
-				i, r.Check, r.Carried.Currency, reportingCurrency)
+				i, r.Check, r.Carried.Currency, defaultReportingCurrency)
 		}
 	}
 }

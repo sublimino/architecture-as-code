@@ -145,6 +145,9 @@
     "drop-all-capabilities": "fail",
     "read-only-rootfs": "fail",
     "image-digest-required": "fail",
-    "audit-label": "fail"
+    "audit-label": "fail",
+    "no-host-ipc": "pass",
+    "no-host-pid": "pass",
+    "no-host-network": "pass"
   }
 }

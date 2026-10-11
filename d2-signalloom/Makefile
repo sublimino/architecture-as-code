@@ -28,6 +28,30 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	cd proof-helper && go test ./...
 	cd apps/cardvault && go test ./...
 	cd apps/policy-engine && go test ./...
+	@# GLOB, not a hand-maintained list, for the reason this file already states
+	@# twice below. The line above cannot reach a NESTED go module: the externally
+	@# anchored tiers live in their own modules (apps/policy-engine/oracle, which
+	@# holds the CIS pack against upstream k8s.io/pod-security-admission, and
+	@# apps/policy-engine/aigf-oracle) precisely so a test-only dependency cannot
+	@# move the engine's signed-image dependency graph. The cost of that isolation
+	@# is that `go test ./...` skips them, so for a while the only externally
+	@# anchored verification in the repo ran when a human typed `make verify-cel`
+	@# and in no CI path at all -- you could revert six admissibility fixes and
+	@# every gate stayed green. Found by an adversarial audit, 2026-10-10.
+	@set -e; mods=$$(find apps/policy-engine -mindepth 2 -name go.mod -not -path '*/node_modules/*' | sort); \
+	  [ -n "$$mods" ] || { echo "nested policy-engine modules: none found -- the glob is broken, not the tree"; exit 2; }; \
+	  for m in $$mods; do echo "==> $$(dirname $$m)"; (cd $$(dirname $$m) && go test ./... -count=1); done
+	@# GLOB again, same reason. The policy packs carry their own anchoring gates --
+	@# scripts that hold a pack's control identifiers against the PUBLISHER's
+	@# machine-readable text (NIST's OSCAL catalogue, the Publications Office
+	@# Cellar XHTML for the EU regulations) and its pricing against a
+	@# declare-or-calibrate rule. They are plain sh+jq, need no cluster and run in
+	@# about a second, and until now nothing automated ran them at all: a
+	@# fabricated control ID or a silently unpriced check would ship green. Found
+	@# by the worker that wrote the second one, 2026-10-10.
+	@set -e; gates=$$(find ../policy/frameworks -name run-tests.sh -path '*/catalogue/*' | sort); \
+	  [ -n "$$gates" ] || { echo "policy-pack catalogue gates: none found -- the glob is broken, not the tree"; exit 2; }; \
+	  for g in $$gates; do echo "==> $$g"; (cd $$(dirname $$g)/.. && sh catalogue/run-tests.sh); done
 	cd apps/cardvault-agent && go test ./...
 	cd apps/cpai-engineer && go test ./...
 	cd apps/signalloom-stun-sentinel && go test ./...

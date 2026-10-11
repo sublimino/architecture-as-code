@@ -3,6 +3,7 @@
 Specifically verifies that policy scan invokes policy-engine with real manifests
 and reconciles verdicts into database, flipping the latent defect to PASS.
 """
+import json
 import uuid
 
 import pytest
@@ -17,6 +18,10 @@ from conftest import eap_bearer, EAP_ALICE, EAP_TENANT_A
 
 EAP_AUTHENTICATED = True
 AGENT_ID = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
+#: A pod-shaped workload, so the agent is one the object-reading packs can judge.
+WORKLOAD = {"apiVersion": "v1", "kind": "Pod",
+            "metadata": {"name": "sentinel", "namespace": "agents"},
+            "spec": {"containers": [{"name": "runtime", "image": "ghcr.io/x/sentinel:1"}]}}
 
 
 class MockConnection:
@@ -35,8 +40,11 @@ class MockConnection:
              "framework_version": None},
             ]
         if "FROM agent_registry" in query:
+            # H1: an agent with no observed workload is not sent to an
+            # object-only pack at all (eu-ai-act is one), so this agent needs a
+            # recorded workload for the engine to be asked about it.
             return [{"id": AGENT_ID, "name": "Sentinel Agent", "model_approved": True,
-                      "policy_context": None, "workload_spec": None}]
+                      "policy_context": None, "workload_spec": json.dumps(WORKLOAD)}]
         raise AssertionError(f"unexpected fetch: {query}")
 
     async def execute(self, query, *args):

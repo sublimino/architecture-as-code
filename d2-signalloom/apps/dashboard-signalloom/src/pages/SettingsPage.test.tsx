@@ -61,6 +61,11 @@ function makeSettings(overrides: Partial<TenantSettingsResponse> = {}): TenantSe
     preferred_scan_cadence_hours: 24,
     alert_email: null,
     alert_threshold: 1,
+    sector: null,
+    jurisdiction: null,
+    reporting_currency: null,
+    risk_appetite_tolerance: null,
+    risk_load: null,
     ...overrides,
   }
 }

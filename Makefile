@@ -3522,3 +3522,165 @@ install-git-hooks: ## Install the pre-push hook that runs scan-secrets.
 	@chmod +x .git/hooks/pre-push
 	@echo "installed .git/hooks/pre-push -> make scan-secrets"
 	@echo "  bypass: git push --no-verify   or   SKIP_SECRET_SCAN=1 git push"
+
+##@ CEL policy verification
+
+# One entry point, five tiers, parallel by default, honest aggregation. The
+# tier map, the measured wall clock of each, how the fe suite was parallelised
+# and which two files had to stay serial are all documented in the header of
+# scripts/verify-cel.sh; test/verify-cel.bats proves the aggregator goes red.
+VERIFY_CEL = scripts/verify-cel.sh
+
+.PHONY: verify-cel verify-cel-engine verify-cel-conformance verify-cel-fe verify-cel-db
+
+# verify-cel runs the external-oracle tier (below) BEFORE the parallel tiers.
+# Ordering is load-bearing, not cosmetic: with the oracle last, the script printed
+# its own `verify-cel: PASS` line and the oracle's FAIL appeared underneath it. The
+# exit code was correct (2) but a human reading top-down saw PASS above a failure,
+# which is the exact dishonesty the aggregator was built to prevent. Proven by
+# injecting a t.Fatal into the oracle and reading the output, not just the status.
+verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s). Runs the external PSA oracle FIRST so a red oracle can never sit under a printed PASS.
+	@$(MAKE) --no-print-directory verify-cel-oracle
+	$(VERIFY_CEL) all
+
+verify-cel-engine: ## CEL tier 1 alone: go test ./... -count=1 in apps/policy-engine (14-20s, 1105 tests).
+	$(VERIFY_CEL) engine
+
+verify-cel-conformance: ## CEL tier 2 alone: -run TestConformance, every framework fixture through the real engine (0.8s, 755 fixtures). Fast enough to run on save.
+	$(VERIFY_CEL) conformance
+
+verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s), then the whole fe pytest suite parallel (40s, 3443 passed — 404s serial).
+	$(VERIFY_CEL) fe
+
+verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
+	$(VERIFY_CEL) db
+
+.PHONY: verify-cel-money verify-cel-money-golden verify-cel-money-golden-acknowledged verify-cel-money-independent
+
+# The priced figures (ale, var95, tvar, carriedGbp) are pinned by one golden
+# file per pack under d2-signalloom/apps/policy-engine/testdata/money-golden/ and
+# anchored to a closed-form beta-PERT oracle. The assertions run inside the
+# conformance tier (they are TestConformance_Money*), so `verify-cel` already
+# covers them; these targets are for working on the money alone.
+#
+# WHAT THE ORACLES ACTUALLY COVER, stated plainly because the difference matters:
+#
+#   ale     — pinned by a CLOSED FORM independent of fair.go (E[freq]*E[loss]
+#             from the beta-PERT moments, to within 5 standard errors of the
+#             engine's own estimator) AND by the golden.
+#   var95   — pinned by the GOLDEN, by the closed-form support bounds, and by
+#   tvar      the ordering identities. There is no closed form for a quantile of
+#   carried   a product of two beta-PERT variates, and the only independent
+#             numerical treatment available (verify-cel-money-independent) is
+#             bounded by the engine's OWN 10,000-iteration quantile noise, which
+#             is several per cent — the same order as a one-rank percentile error.
+#             So for three of the four figures the product quotes, the
+#             deterministic golden is the gate, and the guard on how a golden may
+#             be rewritten (below) is what makes that gate worth anything.
+#
+# WHAT NO TIER COVERS: whether a figure is the RIGHT figure. Every triple in
+# every pack is a declared expert estimate with no provenance field, no author,
+# no date and no anchor class, and no public dataset prices these controls. The
+# oracles pin the arithmetic over those inputs. Calibration is an input, not a
+# computable property, so nothing here can test it. Quote the single calibration
+# statement in policy/frameworks/README.md with any figure. The scan field
+# calibrationSource reads `declared-estimate-unanchored` and says exactly this.
+#
+# NEVER SUM var95, tvar OR carried ACROSS CHECKS. Means add; percentiles do not.
+# Summing per-check quantiles assumes the losses are perfectly correlated and
+# overstates the tail. Only `ale` is additive. For a portfolio figure make ONE
+# joint run through fair.Engine.RunDistribution and take the quantile of the
+# aggregate, which fair/fair.go already implements and tests. Two live call sites
+# in the dashboard do sum them and are a known defect, not a pattern to copy:
+#   dashboard-signalloom/src/api/supercredProjection.ts:319-320 (totalVar95,
+#     totalTvar, each a .reduce over the per-check figure)
+#   dashboard-signalloom/src/api/fakeComplianceData.ts:248-250 (totalVar95,
+#     totalTvar, totalCarried, each a sumMoney over the per-check figure)
+# See the "Not additive" section of policy/frameworks/CONFORMANCE.md.
+verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 134 pinned checks across 11 packs, of which 53 are priced).
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
+
+# Pins a NEW check's figures in one command. REFUSES to rewrite an
+# already-pinned figure — it prints a per-figure delta table and writes nothing,
+# because `MONEY_GOLDEN=update` used to absorb an engine regression and turn the
+# whole suite green (one character in fair.go moved 64 figures across 5 packs by
+# 4-5%). Use verify-cel-money-golden-acknowledged for a deliberate movement.
+verify-cel-money-golden: ## REGENERATE the money goldens for NEW checks, then verify. Refuses to move an existing price; prints the deltas.
+	cd d2-signalloom/apps/policy-engine && MONEY_GOLDEN=update go test -count=1 -v -run TestWriteMoneyGolden .
+	@$(MAKE) --no-print-directory verify-cel-money
+
+# Target-specific exports rather than inline assignments, so a REASON
+# containing spaces, quotes or a shell metacharacter reaches the test verbatim.
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN = update
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN_MOVE_REASON = $(REASON)
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN_MOVE_CHECKS = $(CHECKS)
+verify-cel-money-golden-acknowledged: ## Move already-pinned prices deliberately: make ... REASON="why" CHECKS=<n>. Both are recorded into each golden's lastMovement and land in the commit.
+	@[ -n "$(REASON)" ] || { echo 'verify-cel-money-golden-acknowledged: REASON="<why these prices moved>" is required'; exit 2; }
+	@[ -n "$(CHECKS)" ] || { echo 'verify-cel-money-golden-acknowledged: CHECKS=<exact number of checks expected to move> is required; run verify-cel-money-golden to see the table'; exit 2; }
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run TestWriteMoneyGolden .
+	@$(MAKE) --no-print-directory verify-cel-money
+
+verify-cel-money-independent: ## Cross-check the priced figures against an independent NumPy derivation (needs NumPy; not part of verify-cel).
+	python3 scripts/verify-cel-money-independent.py
+
+.PHONY: policy-pricing-counts policy-pricing-counts-update
+
+# How many checks are priced at all is the most load-bearing number on a pack
+# page: a reader who takes the check count for the priced count reads a scan
+# total as over twice the coverage it has (53 of 134 today). So the counts are
+# not typed. Each pack page carries a block written from framework.json, and
+# these targets make it drift and regenerate. Same family as the sibling
+# policy/frameworks/nist-800-53/catalogue/pricing-test.sh, which asks whether an
+# unpriced check is DECLARED rather than whether the page counts it correctly.
+# Neither is in verify-cel yet. Wiring them into the gate is an open decision in
+# docs/fair-methodology-open-decisions.md.
+policy-pricing-counts: ## Check every pack page's priced/unpriced counts against its framework.json. No cluster, no Go.
+	policy/frameworks/pricing-counts-test.sh
+
+policy-pricing-counts-update: ## REWRITE every pack page's priced/unpriced counts block from the packs, then check.
+	policy/frameworks/pricing-counts-test.sh --update
+
+.PHONY: verify-cel-selftest verify-cel-mutation-proof
+
+verify-cel-selftest: ## Prove the verify-cel aggregator can go red: 14 injected conditions (failing tier, zero collection, skip-only, zero fixtures, no Docker, unready Postgres).
+	bats test/verify-cel.bats
+
+verify-cel-mutation-proof: ## Prove verify-cel-selftest is not decoration: delete each gate from the runner and require the one test that pins it to go red (6 mutants).
+	test/verify-cel-mutation-proof.sh
+# verify-cel-oracle holds the CIS Kubernetes pack against an EXTERNAL oracle:
+# k8s.io/pod-security-admission, the module the API server itself runs to
+# enforce the Pod Security Standards, plus two rules transcribed from
+# kubernetes/kubernetes v1.34.0 (seccomp localhostProfile validation, and
+# hostNetwork hostPort defaulting). Every other CEL tier compares an expression
+# against a fixture written by the same author in the same sitting, so this is
+# the only tier whose oracle nobody here wrote.
+#
+# It lives in its own Go module (d2-signalloom/apps/policy-engine/oracle) so the
+# engine's production module graph does not carry 17 test-only dependencies into
+# a signed image. That is also why it is not reached by the engine's own
+# `go test ./...` and needs a target of its own.
+#
+# Divergences are failures unless individually justified in oracleExceptions,
+# and an exception that stops diverging fails as stale. ~2s, no cluster.
+#
+# Coverage is every pack that reads a workload object, not just CIS:
+# psa_oracle_test.go owns cis-kubernetes/v1.8, allpacks_test.go owns eu-ai-act
+# v1.0/v2.0/v2.1 and nist-800-53 v1.0/v2.0/v2.1 (apkExceptions, same interlock).
+# cra, dora, finos-aigf and nis2 are out of scope because no check in them
+# references object or manifest and no fixture is pod-shaped — re-derived from
+# the policy tree on every run by TestAllPacks_ScopeIsMeasuredNotAsserted, so a
+# pack that grows an object-reading check fails until it is brought in or declared.
+.PHONY: verify-cel-oracle
+verify-cel-oracle: ## Hold every object-reading pack against upstream Pod Security Admission (external oracle, no cluster).
+	@command -v go >/dev/null || { echo "verify-cel-oracle: go not on PATH"; exit 127; }
+	@echo "==> verify-cel-oracle: CIS + eu-ai-act + nist-800-53 packs vs k8s.io/pod-security-admission"
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  { [ -z "$$(gofmt -l .)" ] || { echo "gofmt: $$(gofmt -l .)"; exit 1; }; } && \
+	  go vet ./... && go test ./... -count=1
+	@echo "==> verify-cel-oracle: agrees with Pod Security Admission, or diverges only where recorded"
+
+.PHONY: verify-cel-oracle-report
+verify-cel-oracle-report: ## Print every pack/PSA divergence, including the ones recorded as accepted.
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  go test -count=1 -v -run 'TestPSAOracle_PackAgreesWithPodSecurityAdmission|TestAllPacks_AgreeWithPodSecurityAdmission' ./... \
+	  | grep -E 'cases:|divergence:|skipped:|UNEXCUSED|STALE|groups:' || true

@@ -1,0 +1,24 @@
+{
+  "name": "sbom-verified-provenance--format-lowercase",
+  "level": "unit",
+  "description": "agent.sbom.format is 'cyclonedx'. The comparison is case-sensitive, so the lowercase spelling of an accepted format fails.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "cyclonedx",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "sbom-verified-provenance": "fail"
+  }
+}

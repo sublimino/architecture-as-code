@@ -2,6 +2,13 @@
   "id": "nist-800-53",
   "name": "NIST SP 800-53 Rev. 5",
   "version": "v2.1.0",
+  "applicability": {
+    "inForceFrom": "2026-05-11",
+    "basis": "publication-date",
+    "source": "policy/frameworks/nist-800-53/catalogue/PROVENANCE.md",
+    "note": "NIST SP 800-53 Rev 5 is a PUBLISHED STANDARD, not enforced law: it carries no penalty, no applicability article and no date on which an obligation begins, so the basis is publication-date and nothing here is an enforcement claim. The date is NOT typed from a secondary source -- it is the OSCAL catalogue metadata the pack is already anchored to: metadata.last-modified 2026-05-11T16:01:09.00000-00:00 at metadata.version 5.2.0, catalog UUID ea7c7688-79c5-463b-a91b-0650f2d98623, recorded in catalogue/PROVENANCE.md and used by catalogue/anchor-test.sh to resolve this pack control references. TestNIST80053WindowMatchesTheCatalogueMetadata holds this field equal to the date in PROVENANCE.md, so a catalogue refresh that moves last-modified turns the suite red rather than leaving a stale date behind -- the catalogue moving is a signal, not a nuisance, which is the workflow PROVENANCE.md already states. verified:true means the date matches the catalogue record, nothing more: a publication date gates nothing that anyone can be penalised for.",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "ac-access-control",
@@ -54,6 +61,72 @@
                 "v2.0.0",
                 "v2.1.0"
               ]
+            },
+            {
+              "id": "no-host-ipc",
+              "name": "Host IPC namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostIPC) && object.spec.hostIPC == true)",
+              "severity": "high",
+              "remediation": "Remove spec.hostIPC (or set it false) so the pod does not share the host IPC namespace.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-host-pid",
+              "name": "Host PID namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
+              "severity": "high",
+              "remediation": "Remove spec.hostPID (or set it false) so the pod does not share the host PID namespace.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-host-network",
+              "name": "Host network namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
+              "severity": "high",
+              "remediation": "Remove spec.hostNetwork (or set it false) so the pod does not share the host network namespace.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
             }
           ]
         },
@@ -93,7 +166,7 @@
               "id": "container-run-as-non-root",
               "name": "Container runs as non-root",
               "description": "Enforces least privilege execution preventing root user execution.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == false) && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) && object.spec.securityContext.runAsUser == 0) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0))",
               "severity": "high",
               "remediation": "Configure runAsNonRoot: true in container securityContext.",
               "riskTriple": {
@@ -115,7 +188,7 @@
               "id": "no-privilege-escalation",
               "name": "Privilege escalation disabled",
               "description": "Blocks privilege escalation flag across all containers in the pod.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((!has(object.spec.os) || !has(object.spec.os.name) || object.spec.os.name != 'windows') ? (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false) : true)",
               "severity": "critical",
               "remediation": "Set allowPrivilegeEscalation: false in container securityContext.",
               "riskTriple": {
@@ -232,7 +305,7 @@
       "controls": [
         {
           "id": "IA-2",
-          "name": "IA-2 Identification and Authentication",
+          "name": "IA-2 Identification and Authentication (Organizational Users)",
           "checks": [
             {
               "id": "mfa-spiffe-svid-required",
@@ -271,8 +344,8 @@
             {
               "id": "drop-all-capabilities",
               "name": "All capabilities dropped",
-              "description": "Strips Linux kernel capabilities to establish strict container isolation boundary.",
-              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d.matches('(?i)^all$')))",
+              "description": "Strips Linux kernel capabilities to establish strict container isolation boundary. The ALL token is compared exactly, as Pod Security Admission compares it: a lowercase \"all\" is rejected by a restricted namespace, so it fails here.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL') && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a == 'NET_BIND_SERVICE')))",
               "severity": "high",
               "remediation": "Add ALL to securityContext.capabilities.drop.",
               "riskTriple": {

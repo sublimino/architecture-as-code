@@ -1,7 +1,7 @@
 {
   "name": "seccomp-profile--containers-override-pod-unconfined",
   "level": "unit",
-  "description": "Pod sets Unconfined but every container (app and init) sets RuntimeDefault: each container's own profile wins, so the check passes.",
+  "description": "Pod sets seccompProfile.type: Unconfined; every container and init container overrides to RuntimeDefault. Pod Security Admission flags the pod-level Unconfined on its own, independent of container overrides (seccompProfile_baseline inspects spec.securityContext.seccompProfile.type directly), so a baseline namespace rejects this pod. Previously expected pass: that was a false-compliant verdict pinned by a fixture.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -183,6 +183,6 @@
     "request": {}
   },
   "expect": {
-    "seccomp-profile": "pass"
+    "seccomp-profile": "fail"
   }
 }

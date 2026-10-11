@@ -1,0 +1,24 @@
+{
+  "name": "signed-cryptographic-updates--slsa-level-numeric",
+  "level": "unit",
+  "description": "slsa_level is the number 3, not the string SLSA_LEVEL_3: fails, not errors.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": 3
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "signed-cryptographic-updates": "fail"
+  }
+}

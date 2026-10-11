@@ -1051,6 +1051,116 @@ class MoneyResponse(BaseModel):
     currency: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
 
 
+class PricingStatus(str, enum.Enum):
+    """Why a route is or is not reporting a money figure.
+
+    WHY A STATUS AND NOT AN ABSENCE. Three routes withhold the same class of figure --
+    the policy engine's ``POST /api/v1/compliance/scan-fleet`` and the two persisted
+    summaries below -- and until this existed they said so three different ways: omitted
+    fields, ``null``, and ``0`` on older paths. An API that signals one condition three
+    ways invites the reader to ask whether any of it is deliberate.
+
+    And ``null`` alone is not self-describing. It is indistinguishable from a field this
+    version does not implement, from version skew between client and server, from a
+    serialisation bug, and from a crash midway through encoding. Null makes a field
+    silent, not honest -- the reader fills in the blank themselves, and a dashboard fills
+    it in with zero. So the value stays ``None``, because the figure must not be
+    forgeable, but the absence now travels with a status saying who withheld it and why.
+
+    WHY TWO REFUSAL VALUES. The causes demand different operator actions, so one label
+    over both would repeat the mistake the currency path already made and fixed.
+
+    The vocabulary is shared with ``PricingStatus`` in the Go engine's
+    ``pkg/compliance/fleet_scan.go``; ``tests/test_refusal_shape_parity.py`` fails if the
+    two drift.
+    """
+
+    #: A figure is present and was computed from declared inputs.
+    PRICED = "PRICED"
+    #: The checks evaluated resolve to no control in the risk pack, so no loss-event
+    #: frequency is declared for these findings. Operator action: declare the mapping in
+    #: ``risk/packs/agent-policy/<version>/pack.yaml``. Emitted by the Go engine.
+    NO_DECLARED_LOSS_FREQUENCY = "NO_DECLARED_LOSS_FREQUENCY"
+    #: The route answers from a store that holds no money at all, so there is nothing to
+    #: aggregate. Operator action: run a priced scan, or give the route a risk data plane.
+    NO_RISK_DATA_PLANE = "NO_RISK_DATA_PLANE"
+
+
+class PricingRefusalResponse(BaseModel):
+    """The refusal object, with the key set the Go engine emits.
+
+    Identical on all three refusing routes so a client has one shape to deserialise and
+    one to render, rather than three conditions to recognise.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Derived from ``status`` -- see ``of``. Kept because it predates ``status`` and
+    #: today's clients read it.
+    available: bool
+    status: PricingStatus
+    #: For the operator, where ``status`` is for the machine. Says what is missing and
+    #: where it would be declared, so a reader knows the next action.
+    reason: str
+    #: The money fields this response withheld, by their JSON names, so a client can tell
+    #: "withheld" from "this version has no such field" without consulting a schema.
+    unpricedFields: list[str] = Field(default_factory=list)
+    #: Checks that resolved to no declared control. Empty where the refusal is not
+    #: per-check, which is both of this app's routes: their cause is the absent data
+    #: plane, not any particular check. Always present, never ``null``, so the key set is
+    #: genuinely identical across the three routes rather than merely similar.
+    unmappedChecks: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def of(
+        cls,
+        status: PricingStatus,
+        *,
+        reason: str,
+        unpriced_fields: list[str],
+        unmapped_checks: list[str] | None = None,
+    ) -> PricingRefusalResponse:
+        """Build a refusal with ``available`` derived from ``status``.
+
+        There is deliberately no way to pass ``available``. Two hand-maintained fields
+        carrying one fact eventually disagree, and a boolean that disagrees with the
+        status beside it is worse than either alone -- it is a fabrication carried by the
+        field clients already read.
+        """
+        return cls(
+            available=status is PricingStatus.PRICED,
+            status=status,
+            reason=reason,
+            unpricedFields=list(unpriced_fields),
+            unmappedChecks=list(unmapped_checks or []),
+        )
+
+
+#: The money fields on ``PolicySummaryResponse``, by JSON name.
+SUMMARY_MONEY_FIELDS = ["totalAle", "totalVar95", "totalTvar", "totalCarriedGbp", "carried"]
+#: The money fields on ``PolicyFrameworkSummaryResponse``, by JSON name.
+FRAMEWORK_MONEY_FIELDS = ["totalExposureGbp", "exposure"]
+
+#: The refusal text for both persisted-summary routes. Names the store and the migration
+#: that defines it, so an operator reading the response knows what is missing rather than
+#: only that something is.
+NO_RISK_DATA_PLANE_REASON = (
+    "this route cannot report a money figure: it answers from the governance store "
+    "(agent_compliance_results, defined in db/migrations/004_agent_governance_schema.sql), "
+    "whose rows record a control status and carry no money column, so there is no priced "
+    "scan behind this response to aggregate. Priced figures come from "
+    "POST /compliance/policy/scan, which prices each check it evaluates; this summary "
+    "reports the counts it genuinely has and withholds the figures it does not"
+)
+
+#: The accompanying statement on the priced path. The key set is identical on both, so
+#: this field is populated there too rather than left to mean "refusal" by its presence.
+PRICED_REASON = (
+    "these figures are the sum of the per-check figures the policy engine returned for "
+    "this scan; each check's own ale, var95, tvar and carriedGbp are reported alongside it"
+)
+
+
 class PolicyFrameworkSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1077,6 +1187,10 @@ class PolicyFrameworkSummaryResponse(BaseModel):
     # New consumers should read `exposure` and treat `totalExposureGbp` as deprecated -- its name
     # is a lie the moment a tenant reports in anything other than sterling.
     exposure: MoneyResponse | None = None
+    # Why the two fields above are populated, or are not. The same shape the Go engine's
+    # scan-fleet route emits, so one condition has one signal across the estate.
+    # `None` only for a client constructing this model itself; every route sets it.
+    pricing: PricingRefusalResponse | None = None
 
 
 class PolicySummaryResponse(BaseModel):
@@ -1097,6 +1211,11 @@ class PolicySummaryResponse(BaseModel):
     totalCarriedGbp: int | None
     # Denominated twin of totalCarriedGbp; see PolicyFrameworkSummaryResponse.exposure.
     carried: MoneyResponse | None = None
+    # Why the five money fields above are populated, or are not. Previously the only
+    # signal was that they were `null`, which a reader cannot distinguish from a field
+    # this version does not implement, from version skew, or from a serialisation fault.
+    # The same shape the Go engine's scan-fleet route emits; see PricingStatus.
+    pricing: PricingRefusalResponse | None = None
     # The denomination of totalAle / totalVar95 / totalTvar / totalCarriedGbp above.
     currency: str | None = None
     scanTimestamp: str
@@ -7452,6 +7571,14 @@ async def _policy_framework_summaries(
                 # currency amount, so absence survives the serialization boundary.
                 totalExposureGbp=None,
                 exposure=None,
+                # The absence, stated. `None` above keeps the figure unforgeable; this
+                # says which of the three possible causes produced it and what an
+                # operator would do about it.
+                pricing=PricingRefusalResponse.of(
+                    PricingStatus.NO_RISK_DATA_PLANE,
+                    reason=NO_RISK_DATA_PLANE_REASON,
+                    unpriced_fields=FRAMEWORK_MONEY_FIELDS,
+                ),
             )
         )
     return summaries
@@ -7511,6 +7638,14 @@ def _policy_scan_summary(
                 failedControls=sum(any(v == "fail" for v in verdicts) for verdicts in controls.values()),
                 totalExposureGbp=exposure,
                 exposure=MoneyResponse(amount=exposure, currency=REPORTING_CURRENCY),
+                # Priced. The same key set as the refusal, carrying the affirmative
+                # value -- so a client branches on one field rather than inferring from
+                # whether an object is present.
+                pricing=PricingRefusalResponse.of(
+                    PricingStatus.PRICED,
+                    reason=PRICED_REASON,
+                    unpriced_fields=[],
+                ),
             )
         )
     total_carried = sum(check.carriedGbp for check in checks)
@@ -7528,6 +7663,11 @@ def _policy_scan_summary(
         totalTvar=total_tvar,
         totalCarriedGbp=total_carried,
         carried=MoneyResponse(amount=total_carried, currency=REPORTING_CURRENCY),
+        pricing=PricingRefusalResponse.of(
+            PricingStatus.PRICED,
+            reason=PRICED_REASON,
+            unpriced_fields=[],
+        ),
         currency=REPORTING_CURRENCY,
         # The latest time any check reports, or -- when none reports one -- this
         # response's own time. Never a time attributed to a check that had none.
@@ -7954,6 +8094,15 @@ async def policy_compliance_summary(
         totalTvar=None,
         totalCarriedGbp=None,
         carried=None,
+        # The absence, stated. The four `None`s above keep the figures unforgeable; this
+        # distinguishes "this route has no risk data plane" from the three other things a
+        # null could mean, and names a different operator action from the engine's
+        # NO_DECLARED_LOSS_FREQUENCY -- which is why there are two refusal statuses.
+        pricing=PricingRefusalResponse.of(
+            PricingStatus.NO_RISK_DATA_PLANE,
+            reason=NO_RISK_DATA_PLANE_REASON,
+            unpriced_fields=SUMMARY_MONEY_FIELDS,
+        ),
         # The tenant's reporting denomination is a real fact even with no amount
         # to denominate, so it stays: a consumer that later receives a figure
         # from the scan path can confirm the two agree on currency.

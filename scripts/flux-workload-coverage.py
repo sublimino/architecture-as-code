@@ -3,6 +3,21 @@
 
     scripts/flux-workload-coverage.py [--json] [--exceptions FILE] [--list-sets]
 
+WHAT THIS MEASURES, AND WHAT IT DOES NOT
+----------------------------------------
+Whether a manifest is MANAGED BY FLUX: reachable from a fleet overlay, so a
+rebuild replays it. That is a GitOps-management property and nothing more.
+
+It reports NOTHING about whether a workload is secure, hardened, or compliant.
+An unmanaged workload is not an insecure one, and a Flux-managed one is not a
+hardened one -- the two questions have different owners and different fixes.
+This output said "covered" until 2026-10-11, and in a repository that also
+carries a compliance engine, a risk pack and a policy-scan API, "coverage"
+reads as security coverage. The words are now "managed" and "unmanaged"
+throughout; the metric, the exception semantics and every exit code are
+unchanged. The file names keep "coverage" so existing references and the docs
+index resolve.
+
 WHY THIS EXISTS
 ---------------
 A manifest that exists is not a manifest Flux applies. This repo delivers
@@ -184,7 +199,7 @@ def resolve_cluster(cluster, walker, problems, roots):
 
     # 1. Which fleet manifest files are in play for this cluster? Only the ones
     #    its root Kustomization's overlay actually lists -- tenants/local omits
-    #    olly.yaml, so olly must not count as covered on this cluster.
+    #    olly.yaml, so olly must not count as managed by Flux on this cluster.
     fleet = Walker()
     for directory in [os.path.dirname(p) for p in
                       glob.glob('d2-osramp-fleet/clusters/%s/**/kustomization.yaml' % cluster,
@@ -349,8 +364,8 @@ def main():
 
     reached = set(os.path.normpath(p) for p in walker.reached)
     rows = set_a()
-    covered = [r for r in rows if r['file'] in reached]
-    uncovered = [r for r in rows if r['file'] not in reached]
+    managed = [r for r in rows if r['file'] in reached]
+    unmanaged = [r for r in rows if r['file'] not in reached]
 
     allowed, malformed = {}, []
     if os.path.isfile(args.exceptions):
@@ -367,16 +382,23 @@ def main():
             allowed[entry['path']] = entry
     stale = sorted(p for p in allowed
                    if p in reached or not os.path.exists(p))
-    undeclared = sorted({r['file'] for r in uncovered} - set(allowed))
+    undeclared = sorted({r['file'] for r in unmanaged} - set(allowed))
     dangling = sorted(set(walker.dangling))
 
+    # NAMING. These keys and the lines printed below used to say "covered" and
+    # "uncovered". This gate measures whether a manifest is RECONCILED BY FLUX -- a
+    # GitOps-management fact -- and "coverage" in a repository that also carries a
+    # compliance engine, a risk pack and a policy-scan API reads as SECURITY coverage.
+    # An unmanaged workload is not an insecure one and a managed one is not a hardened
+    # one; the two questions have different owners and different remediations. The
+    # metric is unchanged, and so is every exit code: only the words are.
     result = {
         'set_a_docs': len(rows),
         'set_b_reached_files': len(reached),
-        'covered_docs': len(covered),
-        'uncovered_docs': len(uncovered),
+        'managed_docs': len(managed),
+        'unmanaged_docs': len(unmanaged),
         'flux_roots': len(roots),
-        'undeclared_uncovered': undeclared,
+        'undeclared_unmanaged': undeclared,
         'stale_exceptions': stale,
         'malformed_exceptions': [list(m) for m in malformed],
         'declared_gaps': sorted(p for p, e in allowed.items() if e.get('class') == 'gap'),
@@ -401,10 +423,10 @@ def main():
         print('set A (workload docs declared): %d' % result['set_a_docs'])
         print('set B (flux roots / reached files): %d / %d'
               % (result['flux_roots'], result['set_b_reached_files']))
-        print('covered: %d   uncovered: %d (declared exceptions: %d)'
-              % (len(covered), len(uncovered), len(allowed)))
+        print('managed by flux: %d   unmanaged: %d (declared exceptions: %d)'
+              % (len(managed), len(unmanaged), len(allowed)))
         print('declared gaps (open decisions): %d' % len(result['declared_gaps']))
-        for label, items in (('UNDECLARED UNCOVERED WORKLOAD', undeclared),
+        for label, items in (('UNDECLARED UNMANAGED WORKLOAD', undeclared),
                              ('STALE EXCEPTION', stale)):
             for item in items:
                 print('%s: %s' % (label, item))

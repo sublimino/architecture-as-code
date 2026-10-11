@@ -1,8 +1,26 @@
-# Flux coverage: what GitOps actually reconciles
+# Flux management: which workloads GitOps actually reconciles
 
 Audited 2026-10-11 against base commit `19d7bf03`.
 
 Short answer: no, not everything runs with Flux CD.
+
+## What "managed" means here, and what it does not
+
+This measures one thing: whether a manifest is **managed by Flux** — reachable
+from a fleet overlay, so a rebuild replays it. It says **nothing** about whether
+a workload is secure, hardened, or compliant. An unmanaged workload is not an
+insecure one, and a Flux-managed one is not a hardened one.
+
+This page and the gate said "covered" and "uncovered" until 2026-10-11. In a
+repository that also carries a compliance engine, a risk pack and a policy-scan
+API, "coverage" is read as *security* coverage, and the two questions have
+different owners and different remediations — a GitOps gap is fixed by wiring a
+Kustomization, a hardening gap by changing a pod spec. The words are now
+"managed" and "unmanaged" throughout, including the JSON keys
+(`managed_docs`, `unmanaged_docs`, `undeclared_unmanaged`) and the gate's
+`UNDECLARED UNMANAGED WORKLOAD` line. The metric, the exception semantics and
+every exit code are unchanged. The file names keep "coverage" so existing
+references resolve.
 
 ## How this was established
 
@@ -33,8 +51,8 @@ directory a Flux object actually reconciles.
 | Set A, workload documents in delivery roots | 105 |
 | Set B, Flux Kustomization roots | 56 |
 | Files reached from those roots | 266 |
-| Covered documents | 79 |
-| Uncovered documents, A minus B | 26 |
+| Documents managed by Flux | 79 |
+| Unmanaged documents, A minus B | 26 |
 | Declared exceptions in the register | 25 |
 | Of those, admitted gaps | 10 |
 
@@ -139,7 +157,7 @@ reason, and the thing that applies it. Classes are `bootstrap`,
 `out-of-band-lab`, `runtime-template`, `test-fixture`, and `gap`.
 
 The register cannot be used as a waiver. The gate fails on an undeclared
-uncovered workload. It also fails on a stale entry, meaning one whose file is
+unmanaged workload. It also fails on a stale entry, meaning one whose file is
 gone or whose manifest is now genuinely reconciled. An entry with no reason
 fails as malformed.
 

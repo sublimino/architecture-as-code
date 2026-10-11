@@ -574,11 +574,38 @@ func buildPolicyPipeline(
 	// ahead of the atomic Append.
 	httpStore := policy.NewStoreWithDeduper(signalStore, sink.(*policy.Sink), deduper)
 
+	// Route verified Landlock-denial policy decisions to a REAL stun. The client
+	// targets the stun-sentinel quarantine API at STUN_SENTINEL_URL; the
+	// dispatcher gates on the landlock-denial rule/window, keys idempotency on
+	// the agent_id label (never the pseudonymised ActorID), and dedups per
+	// workload/window. Remote cross-cluster stun is enabled by supplying a
+	// RemoteStunRequester (nil here: single-cluster, the local client is the
+	// live containment). This is the production wire for policy-failure→stun.
+	landlockStun := correlation.NewDecisionStunDispatcher(
+		correlation.NewHTTPStunClient(correlation.StunClientOptions{}),
+		nil,
+		correlation.DispatchOptions{ClusterID: os.Getenv("CLUSTER_ID"), Logger: slog.Default()},
+	)
+	sink.(*policy.Sink).SetDecisionDispatcher(landlockDecisionAdapter{d: landlockStun})
+	slog.Info("landlock-denial policy decisions routed to stun",
+		"stun_url_env", "STUN_SENTINEL_URL", "remote", "disabled (single-cluster)")
+
 	slog.Info("observation policy wired at the shared ingestion sink",
 		"bundles", len(bundles), "windows", windows.Len(),
 		"warmup_findings", windows.WarmedCount(), "warmup_horizon", windows.LongestWindow().String(),
 		"dedupe_order", "binder>dedupe>policy>store")
 	return ingestSink, httpStore, alerter
+}
+
+// landlockDecisionAdapter adapts correlation.DecisionStunDispatcher to the
+// policy.DecisionDispatcher interface (defined with only policy-visible types
+// so the policy package never imports correlation). The dispatcher logs its own
+// outcome and errors; the adapter discards the return so a stun failure never
+// blocks the decision write.
+type landlockDecisionAdapter struct{ d *correlation.DecisionStunDispatcher }
+
+func (a landlockDecisionAdapter) Dispatch(ctx context.Context, d obscel.Decision, trigger model.Observation) {
+	_, _ = a.d.Dispatch(ctx, d, trigger)
 }
 
 func main() {

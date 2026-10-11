@@ -1,0 +1,33 @@
+== kind-osramp
+ok
+namespace/agent-trust-acme-payments
+namespace/agent-trust-acme-risk
+namespace/agent-trust-northstar-investigations
+namespace/agent-trust-platform
+namespace/agent-trust-tenant-acme-control
+namespace/agent-trust-tenant-northstar-control
+namespace/cert-manager
+namespace/default
+namespace/fe-k8s-afm
+namespace/fe-signalloom
+namespace/fe-signalloom-agents
+namespace/flux-system
+namespace/inf-bao
+namespace/inf-signalloom
+namespace/ingress
+namespace/kagent
+namespace/knative-eventing
+namespace/knative-serving
+namespace/kourier-system
+namespace/kube-node-lease
+namespace/kube-public
+namespace/kube-system
+namespace/local-path-storage
+namespace/registry
+== kind-signalloom-hub
+ok
+namespace/default
+namespace/kube-node-lease
+namespace/kube-public
+namespace/kube-system
+namespace/local-path-storage

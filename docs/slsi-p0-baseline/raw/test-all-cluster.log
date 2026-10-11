@@ -1,0 +1,35 @@
+# COMMAND: make test-all-cluster (sha: 504405b9e7e91efdf5c97bcd701b6511f712f6db)
+=== [Cluster] Live Kind Cluster Slices & Runtime Tests ===
+make test
+make[1]: Entering directory '/home/andy/src/.worktrees/32e03/osramp-demo'
+# Wrapped, because on 2026-08-18 this target exited 0 with 8 tests and 8
+# skips ("namespace/frontend not deployed") while six live-data failures
+# were in front of a user. Every line was `ok`, so it read as a pass. The
+# wrapper fails a run in which nothing actually executed.
+./scripts/assert-bats-ran-something.sh make -C d2-osramp-apps test
+make[2]: Entering directory '/home/andy/src/.worktrees/32e03/osramp-demo/d2-osramp-apps'
+cd test && bats osramp.bats
+1..8
+ok 1 reset the debug file # skip namespace/frontend not deployed
+ok 2 example test with setup/retry and pipes # skip namespace/frontend not deployed
+ok 3 uptime check: NATS # skip namespace/frontend not deployed
+ok 4 end-to-end NATS listener and processor integration # skip namespace/frontend not deployed
+ok 5 PURL processing with cache behavior # skip namespace/frontend not deployed
+ok 6 PURL processing with nocache option # skip namespace/frontend not deployed
+ok 7 archiver task result storage and retrieval # skip namespace/frontend not deployed
+ok 8 SBOM generation and archival integration end-to-end # skip namespace/frontend not deployed
+make[2]: Leaving directory '/home/andy/src/.worktrees/32e03/osramp-demo/d2-osramp-apps'
+
+ERROR: all 8 test(s) skipped — the suite proved nothing.
+       Exit 0 here would report an untested system as a passing one.
+       Command: make -C d2-osramp-apps test
+
+       Reasons given:
+               8 # skip namespace/frontend not deployed
+
+       If the target slice is genuinely not deployed, deploy it and
+       re-run. Do not silence this by removing the guard: a suite that
+       cannot run is not a suite that passed.
+make[1]: *** [Makefile:498: test] Error 1
+make[1]: Leaving directory '/home/andy/src/.worktrees/32e03/osramp-demo'
+make: *** [Makefile:605: test-all-cluster] Error 2

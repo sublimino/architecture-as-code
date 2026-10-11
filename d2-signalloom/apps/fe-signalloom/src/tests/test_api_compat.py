@@ -304,6 +304,46 @@ def test_policy_summary_reports_uncomputed_exposure_as_null_not_zero(client):
         )
         assert framework["exposure"] is None
 
+    # The null is necessary and was not sufficient. A reader cannot tell a deliberate
+    # "not computed" null from a field this version does not implement, from client/server
+    # version skew, from a serialisation bug, or from a crash midway through encoding --
+    # so the null alone made the field silent, not honest, and the blank got filled in by
+    # whoever read it. The refusal below states the cause explicitly, in the same shape
+    # the Go engine's scan-fleet route emits.
+    for carrier, unpriced in (
+        (summary, {"totalAle", "totalVar95", "totalTvar", "totalCarriedGbp", "carried"}),
+        *((fw, {"totalExposureGbp", "exposure"}) for fw in frameworks),
+    ):
+        pricing = carrier.get("pricing")
+        assert pricing is not None, (
+            "pricing absent: the refusal must be a field in the payload, not an absence "
+            "the reader has to notice and interpret"
+        )
+        # NO_RISK_DATA_PLANE, and specifically not the engine's
+        # NO_DECLARED_LOSS_FREQUENCY. The two name different missing things and different
+        # operator actions -- stand up a priced scan, versus declare a control mapping in
+        # the policy pack -- so collapsing them would repeat the mistake the currency path
+        # already made and fixed.
+        assert pricing["status"] == "NO_RISK_DATA_PLANE", (
+            f"status is {pricing['status']!r}; this route's figures are missing because the "
+            "store behind it has no money column, which is a different fault from the "
+            "engine's unmapped-control refusal"
+        )
+        assert pricing["available"] is False
+        # Says what is missing and where, so the reader knows the next action.
+        assert "agent_compliance_results" in pricing["reason"]
+        assert set(pricing["unpricedFields"]) == unpriced, (
+            f"unpricedFields {pricing['unpricedFields']} does not name exactly the money "
+            f"fields this object withheld ({sorted(unpriced)})"
+        )
+        # Empty, not absent: the key set is identical on all three refusing routes, and
+        # this route's cause is not attributable to any particular check.
+        assert pricing["unmappedChecks"] == []
+        # The refusal must not be readable as a figure -- the property that separates it
+        # from an omission and from a zero.
+        with pytest.raises((ValueError, TypeError)):
+            float(pricing["status"])
+
     # The counts on this route ARE computed from stored rows, so they must stay
     # real -- this test must not be satisfiable by nulling the whole response.
     assert summary["totalChecks"] == (
@@ -336,14 +376,25 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     # ``totalResults`` is likewise additive: ``totalControls`` used to be the
     # number of (agent, check) assessment rows, which grows with the fleet, so
     # it now counts distinct controls and the row count has a field of its own.
+    #
+    # ``pricing`` is the third additive change, and a conscious contract decision made
+    # here rather than noticed later. It carries WHY the money fields above hold a figure
+    # or hold nothing. Nulling them was the previous fix and it was only half of one: a
+    # null is indistinguishable from a field this version does not implement, from
+    # version skew, from a serialisation bug and from a crash mid-encode, so it makes a
+    # field silent rather than honest and a dashboard fills the blank in with zero. The
+    # values stay null -- the figure must not be forgeable -- and the absence now travels
+    # with a machine-readable status and a human reason. The same object appears on the Go
+    # engine's scan-fleet route, so one condition has one signal across all three places
+    # that withhold money; tests/test_refusal_shape_parity.py fails if the two drift.
     assert set(frameworks.json()[0]) == {
         "id", "name", "versions", "totalControls", "totalResults", "passedControls",
-        "failedControls", "totalExposureGbp", "exposure",
+        "failedControls", "totalExposureGbp", "exposure", "pricing",
     }
     assert set(summary.json()) == {
         "totalChecks", "passed", "failed", "totalAle", "totalVar95",
         "totalTvar", "totalCarriedGbp", "scanTimestamp", "frameworks",
-        "carried", "currency", "errored", "notEvaluated",
+        "carried", "currency", "errored", "notEvaluated", "pricing",
     }
     assert summary.json()["frameworks"] == frameworks.json()
 

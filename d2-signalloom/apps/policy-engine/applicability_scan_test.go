@@ -1,10 +1,216 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/money"
 )
+
+// scanAt POSTs a scan for one framework at one as-of date. An empty asOf omits
+// the field entirely rather than sending "", so the default path is exercised
+// the way a client that predates this feature exercises it.
+func scanAt(t *testing.T, tr handlerTransport, fwID, policyVersion, asOf string) []ComplianceScanResult {
+	t.Helper()
+	body := map[string]any{"frameworks": []string{fwID}, "policyVersion": policyVersion}
+	if asOf != "" {
+		body["assessmentDate"] = asOf
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := tr.scan(raw)
+	if err != nil {
+		t.Fatalf("scan %s at %q: %v", fwID, asOf, err)
+	}
+	return out
+}
+
+func newScanTransport(t *testing.T) handlerTransport {
+	t.Helper()
+	h, err := newComplianceHandler(conformancePolicyRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handlerTransport{h}
+}
+
+// syntheticWindowHandler builds a one-check pack in a temp policy root with the
+// given applicability fragment and framework status. Synthetic rather than a
+// shipped pack so the gate's behaviour is pinned independently of whatever
+// dates the shipped packs happen to declare -- these properties must hold after
+// the CRA's dates are corrected, or a regime is added, or one is retired.
+func syntheticWindowHandler(t *testing.T, applicabilityFragment, frameworkStatus string) *complianceHandler {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "frameworks", "synthetic", "v1.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status := ""
+	if frameworkStatus != "" {
+		status = `"status":"` + frameworkStatus + `",`
+	}
+	pack := `{"id":"synthetic","name":"S","version":"v1.0.0",` + status + applicabilityFragment + `
+      "controlSets":[{"id":"cs","name":"CS","controls":[{"id":"c1","name":"C1","checks":[
+        {"id":"always-true","name":"t","celExpression":"true","riskTriple":{"min":1,"mode":2,"max":3},"freqTriple":{"min":0.1,"mode":0.2,"max":0.3},"policyVersions":["v1.0.0"]}]}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "framework.json"), []byte(pack), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h, err := newComplianceHandler(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// A malformed as-of date is a 400, never a silent fallback to today and never a
+// silently ungated scan. The caller asserted a date; if the engine cannot read
+// it, the only honest answer is to refuse.
+func TestScan_RejectsMalformedAssessmentDate(t *testing.T) {
+	tr := newScanTransport(t)
+	for _, bad := range []string{"today", "2027-13-01", "11 Dec 2027", "2027-12-11T00:00:00Z", "2027-12"} {
+		raw, err := json.Marshal(map[string]any{"frameworks": []string{"cra"}, "assessmentDate": bad})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := httptest.NewRecorder()
+		tr.h.handleScan(w, httptest.NewRequest(http.MethodPost, "/api/v1/compliance/scan", bytes.NewReader(raw)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("assessmentDate %q: HTTP %d, want 400 (body %s)", bad, w.Code, w.Body.String())
+			continue
+		}
+		if !bytes.Contains(w.Body.Bytes(), []byte("invalid_assessment_date")) {
+			t.Errorf("assessmentDate %q: 400 body does not name the error: %s", bad, w.Body.String())
+		}
+	}
+}
+
+// THE DEFAULT, pinned. An absent assessmentDate leaves every check evaluating
+// exactly as it did before this feature existed -- and says so on the summary
+// rather than leaving a reader to assume the dates were checked.
+//
+// Three alternatives were available and all three are worse:
+//
+//   - SUBSTITUTE TODAY. The same request would replay differently next year,
+//     which is the exact failure mode ADR-0006 and the FAIR seed exist to
+//     prevent. The engine must never read the clock.
+//   - FAIL LOUDLY ON EVERY REQUEST. A breaking API change on a path owned by
+//     callers outside this card (pkg/compliance/fleet_scan.go, fe-signalloom,
+//     the dashboard, every one of the conformance fixtures).
+//   - A PACK-LEVEL DEFAULT DATE. A date the engine supplies is the same
+//     fabrication as now(), just staler and harder to spot.
+//
+// So: an absent assessmentDate means the caller has not asserted an as-of date,
+// and a gate that cannot be dated does not fire.
+func TestScan_NoAssessmentDateLeavesEveryCheckEvaluatedAndSaysSo(t *testing.T) {
+	// A synthetic pack with a VERIFIED future window, so the gate would
+	// certainly have fired had a date been supplied. Synthetic rather than a
+	// shipped pack so this property holds whatever the shipped dates become.
+	tr := handlerTransport{syntheticWindowHandler(t, `"applicability":{"inForceFrom":"2099-01-01","basis":"enforcement-date","source":"s","verified":true},`, "")}
+	rows := scanAt(t, tr, "synthetic", "v1.0.0", "")
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, r := range rows {
+		if r.Status == VerdictNotInForce {
+			t.Errorf("check %q reported not_in_force with no assessmentDate: the gate fired on a date nobody supplied", r.Check)
+		}
+		if r.AssessmentDate != "" {
+			t.Errorf("check %q echoed assessmentDate %q when none was sent", r.Check, r.AssessmentDate)
+		}
+		if r.Applicability == nil {
+			t.Errorf("check %q carries no applicability report; the declared window must still be visible", r.Check)
+			continue
+		}
+		if r.Applicability.Gated {
+			t.Errorf("check %q reports gated=true with no assessmentDate", r.Check)
+		}
+		if r.Applicability.Status != "unknown" {
+			t.Errorf("check %q window status %q, want unknown with no as-of date", r.Check, r.Applicability.Status)
+		}
+	}
+
+	s, err := tr.summary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ApplicabilityGated {
+		t.Error("summary claims applicabilityGated with no assessmentDate")
+	}
+	if s.AssessmentDate != "" {
+		t.Errorf("summary assessmentDate = %q, want empty", s.AssessmentDate)
+	}
+	if len(s.UngatedFrameworks) != 1 || s.UngatedFrameworks[0] != "synthetic" {
+		t.Errorf("ungatedFrameworks = %v, want [synthetic]: a verified window went unapplied and the summary must name it", s.UngatedFrameworks)
+	}
+	if s.NotInForce != 0 {
+		t.Errorf("notInForce = %d, want 0", s.NotInForce)
+	}
+}
+
+// Reproducibility, stated as a test because it is the hard requirement: the
+// same request at the same as-of date must produce byte-identical verdicts, and
+// the engine must not consult the clock to get there.
+func TestScan_SameAsOfDateReplaysIdentically(t *testing.T) {
+	tr := newScanTransport(t)
+	first := scanAt(t, tr, "cra", "v1.0.0", "2026-10-11")
+	second := scanAt(t, tr, "cra", "v1.0.0", "2026-10-11")
+	norm := func(rows []ComplianceScanResult) []byte {
+		for i := range rows {
+			// scanTimestamp IS a clock read, and is deliberately not part of the
+			// verdict. Blanking it is the point: everything else must match.
+			rows[i].ScanTimestamp = ""
+		}
+		raw, err := json.Marshal(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	if a, b := norm(first), norm(second); !bytes.Equal(a, b) {
+		t.Errorf("two scans at the same as-of date disagree:\n%s\n%s", a, b)
+	}
+}
+
+// An UNVERIFIED window must not change a verdict even on the scan path. Proved
+// end to end against a synthetic pack rather than only at the unit level,
+// because the scan path is where a mistake would actually cost money.
+func TestScan_UnverifiedWindowDoesNotGateTheScan(t *testing.T) {
+	h := syntheticWindowHandler(t, `"applicability":{"inForceFrom":"2099-01-01","basis":"enforcement-date","source":"s","note":"primary text not read","verified":false},`, "")
+	rows := scanAt(t, handlerTransport{h}, "synthetic", "v1.0.0", "2026-10-11")
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	if rows[0].Status != VerdictPass {
+		t.Errorf("status %q, want pass: an unverified future window must not gate", rows[0].Status)
+	}
+	// And the report tells the truth about why it did not: the declared window
+	// says not-yet-in-force, and the engine declined to act on it.
+	a := rows[0].Applicability
+	if a == nil || a.Status != "not_yet_in_force" || a.Gated || a.Verified {
+		t.Errorf("applicability report %+v: want status not_yet_in_force, gated false, verified false", a)
+	}
+}
+
+// Precedence. A placeholder check of a future-dated regime reports
+// not_evaluated, not not_in_force: having no expression at all is the primary
+// and pack-intrinsic reason it was not evaluated, and it is true at every as-of
+// date. Stated explicitly because two reasonable people would order these
+// differently and a silent choice would be a silent bug.
+func TestScan_PlaceholderBeatsNotInForce(t *testing.T) {
+	h := syntheticWindowHandler(t, `"applicability":{"inForceFrom":"2099-01-01","basis":"enforcement-date","source":"s","verified":true},`, "placeholder")
+	rows := scanAt(t, handlerTransport{h}, "synthetic", "v1.0.0", "2026-10-11")
+	if len(rows) != 1 || rows[0].Status != VerdictNotEvaluated {
+		t.Fatalf("status %q, want not_evaluated: a placeholder is not evaluated for a reason that outranks the window", rows[0].Status)
+	}
+}
 
 // WHY A FOURTH VERDICT AND NOT A REUSE OF not_evaluated.
 //

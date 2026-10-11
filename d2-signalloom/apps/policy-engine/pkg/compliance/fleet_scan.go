@@ -483,7 +483,10 @@ const unpricedReason = "this scan cannot price its findings: pricing a finding r
 // between the engine default and the load the org posture declares.
 //
 // Restoring any figure to this function means first declaring the inputs in the two files named in
-// unpricedReason. A test reads this source file and fails if the old literals reappear in it.
+// unpricedReason. A test parses every non-test file in this package and fails if ANY numeric
+// literal of money magnitude is bound in it -- not just the figures that were removed. It walks
+// the AST, so renaming the binding, using a digit separator (847_000.0), exponent notation
+// (8.47e5) or hex does not get past it. See TestFleetScanSource_BindsNoMoneyMagnitudeLiterals.
 func summariseFleetPosture(total, compliant, nonCompliant int, unmappedChecks []string) FleetFairRiskSummary {
 	status := PricingStatusNoDeclaredLossFrequency
 	return FleetFairRiskSummary{

@@ -22,6 +22,41 @@ import (
 // CollectorName is the canonical registration identifier.
 const CollectorName = "agentnono"
 
+// defaultNonoSource is the attribution of last resort, used only when an event
+// carries no identity to derive a source from. Observation.Validate requires a
+// non-empty Source, so this guarantees one.
+const defaultNonoSource = "agent-nono-evidenced"
+
+// Environment variables that supply trust material to a live collector whose
+// CollectorConfig was built without any (the live registry adapter passes only
+// a FilePath). Sourcing the SPIFFE/SPIRE CA here is what lets a genuinely
+// tailed audit stream VERIFY rather than downgrade to UNVERIFIED.
+const (
+	// EnvTrustBundlePath names a file holding the PEM trust bundle (the CA the
+	// workloads' SVIDs are issued from).
+	EnvTrustBundlePath = "AGENTNONO_TRUST_BUNDLE"
+	// EnvTrustDomain names the SPIFFE trust domain; empty falls back to
+	// DefaultTrustDomain inside the verifier.
+	EnvTrustDomain = "AGENTNONO_TRUST_DOMAIN"
+)
+
+// sourceForEvent derives the Observation.Source from the event's own verified
+// identity so a second nono-enforced agent's denials (agent-nono-kusari) are
+// attributed to it rather than mis-labelled as the evidenced agent (R8). The
+// AgentID is the stable workload identity; the SPIFFE id is the fallback when
+// AgentID is absent; the constant is the last resort so Source is never empty.
+func sourceForEvent(event *NonoAuditEvent) string {
+	if event != nil {
+		if id := strings.TrimSpace(event.AgentID); id != "" {
+			return id
+		}
+		if id := strings.TrimSpace(event.SPIFFEID); id != "" {
+			return id
+		}
+	}
+	return defaultNonoSource
+}
+
 // IngestionSink receives converted model observations.
 type IngestionSink interface {
 	IngestObservation(ctx context.Context, obs *model.Observation) error
@@ -61,6 +96,31 @@ func NewCollector(mode string, sink IngestionSink, cfg CollectorConfig) *Collect
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
+	}
+
+	// Real-path trust wiring (nono de-mock). The live registry adapter builds
+	// this collector with only a FilePath, so a genuinely tailed audit stream
+	// would arrive with no trust material and every signed denial would
+	// downgrade to UNVERIFIED — the downstream CEL policy keys on
+	// verification_status=verified, so the real path would never fire. When the
+	// caller supplied no bundle we source one from the environment. Absent or
+	// unreadable env leaves trust empty, i.e. exactly today's behaviour, so this
+	// is additive and fail-safe: it can only turn an UNVERIFIED into a VERIFIED,
+	// never the reverse.
+	if len(cfg.TrustBundlePEM) == 0 {
+		if path := strings.TrimSpace(os.Getenv(EnvTrustBundlePath)); path != "" {
+			if pem, err := os.ReadFile(path); err != nil {
+				cfg.Logger.Warn("agent-nono trust bundle path set but unreadable; live audit events will not verify",
+					"path", path, "error", err)
+			} else {
+				cfg.TrustBundlePEM = pem
+			}
+		}
+	}
+	if cfg.TrustDomain == "" {
+		if td := strings.TrimSpace(os.Getenv(EnvTrustDomain)); td != "" {
+			cfg.TrustDomain = td
+		}
 	}
 
 	verifierCfg := VerifierConfig{
@@ -252,7 +312,7 @@ func (c *Collector) processEvent(ctx context.Context, event *NonoAuditEvent) {
 		Timestamp:      event.Timestamp,
 		Layer:          model.LayerEndpointHost,
 		Fidelity:       fidelity,
-		Source:         "agent-nono-evidenced",
+		Source:         sourceForEvent(event),
 		Confidence:     confidence,
 		ActorHint:      event.SPIFFEID,
 		RawEvidenceRef: fmt.Sprintf("nono://session/%s/event/%d", event.AuditSessionID, event.Seq),

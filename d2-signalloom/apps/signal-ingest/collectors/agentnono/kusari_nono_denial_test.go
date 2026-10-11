@@ -154,12 +154,12 @@ func TestKusariNonoDenialProjectsObservation(t *testing.T) {
 		t.Errorf("agent_id label: want agent-nono-kusari, got %q", obs.Labels["agent_id"])
 	}
 
-	// KNOWN FINDING (not fixed here): collector.go hardcodes Source to
-	// "agent-nono-evidenced" regardless of the emitting agent, so the kusari
-	// denial is attributed to the evidenced source. Asserted so the test tracks
-	// the behaviour the lead is recording rather than silently masking it.
-	if obs.Source != "agent-nono-evidenced" {
-		t.Errorf("source (hardcoded, known finding): want agent-nono-evidenced, got %q", obs.Source)
+	// R8 FIXED: Source is now derived from the emitting agent's identity, so a
+	// kusari denial is attributed to agent-nono-kusari rather than bleeding into
+	// the evidenced source. (Was a known finding; see
+	// TestSourceDerivedFromEventIdentity for the dedicated attribution proof.)
+	if obs.Source != "agent-nono-kusari" {
+		t.Errorf("source (R8): want agent-nono-kusari, got %q", obs.Source)
 	}
 }
 

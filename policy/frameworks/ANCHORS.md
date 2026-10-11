@@ -297,7 +297,7 @@ must stay marked until someone reads the source.
 
 | Item | State |
 | :--- | :--- |
-| A "$10M" per-record overstatement figure attributed to Cyentia in an earlier brief | **Not Cyentia's published framing and could not be found.** Their published form is the 74 per cent and 37 per cent error-probability pair in `AC-MAG-ANTI-PATTERN`. The "$10M" figure is withdrawn. |
+| A "$10M" per-record overstatement figure attributed to Cyentia in the research brief that commissioned this registry | **Withdrawn. It is not Cyentia's published framing and could not be substantiated.** The brief that asked for this page carried the figure, and the figure does not survive checking. Cyentia's published form is the 74 per cent and 37 per cent error-probability pair recorded under `AC-MAG-ANTI-PATTERN`. The error is recorded here rather than quietly dropped, because a registry that silently corrects its own commissioning brief teaches nobody anything. |
 | Verizon DBIR 2026 entry-vector percentages | **Unverified.** Rendered as images in the report. Ordering only. |
 | Whether any EU AI Act fine has yet been issued | **Unverified.** Nine mutually contradictory secondary sources were found, several of them apparently machine-generated, none official. |
 | The Digital Omnibus delay of high-risk obligations to 2 December 2027 | **Unverified.** Treat the dates in [PENALTIES.md](PENALTIES.md) as the citable ones. |

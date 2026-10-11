@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-nono-kusari-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/instance: agent-nono-kusari
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: agent-nono-kusari
+    signalloom.io/agent: demo
+    signalloom.io/workload-profile: nono-kusari-enforced
+data:
+  # Non-secret runtime config consumed by the kusari-agent binary via envFrom.
+  # Unlike the evidenced demo agent, this ConfigMap carries NO entrypoint script:
+  # enforcement is baked into the image's nono-wrap ENTRYPOINT, so there is no
+  # unconfined fallback path to script here. The agent honours PORT and
+  # HOSTILE_PATH; the hostile-write target stays inside /tmp, the only path the
+  # kusari-enforce.toml Landlock profile leaves writable.
+  PORT: "8080"
+  HOSTILE_PATH: "/tmp/hostile-test.txt"

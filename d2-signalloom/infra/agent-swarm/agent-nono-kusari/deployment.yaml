@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-nono-kusari
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/instance: agent-nono-kusari
+    signalloom.ai/agent: "true"
+    signalloom.ai/tenant: "tenant-demo"
+    signalloom.ai/agent-name: agent-nono-kusari
+    signalloom.ai/agent-type: demo
+    signalloom.ai/framework: custom
+    signalloom.ai/model: claude-sonnet-4
+    signalloom.ai/state: "active"
+    signalloom.io/agent: demo
+    signalloom.io/workload-profile: nono-kusari-enforced
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: agent-nono-kusari
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signalloom-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom
+        app.kubernetes.io/instance: agent-nono-kusari
+        signalloom.ai/agent: "true"
+        signalloom.ai/tenant: "tenant-demo"
+        signalloom.ai/agent-name: agent-nono-kusari
+        signalloom.ai/agent-type: demo
+        signalloom.ai/framework: custom
+        signalloom.ai/model: claude-sonnet-4
+        signalloom.ai/state: "active"
+        signalloom.io/agent: demo
+        signalloom.io/workload-profile: nono-kusari-enforced
+      annotations:
+        signalloom.ai/agent-display-name: "Kusari Agent (Nono Enforced)"
+        signalloom.ai/description: "Kusari pilot stub under fail-closed Linux Landlock enforcement via the nono shim; its /act/* provocations are denied at the kernel LSM and surface as denial observations."
+        signalloom.ai/model-full: "anthropic/claude-sonnet-4"
+        spiffe.io/spiffe-id: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-kusari"
+        signalloom.io/workload-profile: "nono-kusari-enforced"
+    spec:
+      serviceAccountName: agent-nono-kusari
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          # Enforcement image built from Dockerfile.nono. Its ENTRYPOINT is the
+          # nono-wrap shim (nono --profile /etc/nono/kusari-enforce.toml --
+          # /kusari-agent), so there is no command override here and no
+          # unconfined fallback: the Landlock ruleset is installed before the
+          # agent runs. imagePullPolicy Never — the lead loads the local image.
+          image: kusari-agent-nono:latest
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: agent-nono-kusari-config
+          env:
+            - name: SPIFFE_ID
+              value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-kusari"
+            - name: SPIFFE_SOCKET
+              value: "/run/spire/sockets/agent.sock"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: spiffe-workload-api
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+        - name: tmp
+          emptyDir: {}

@@ -461,6 +461,25 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			// code path with the identical value it always did.
 			risk := fair.SimulateWithLoad(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed, profile.RiskLoad)
 
+			// A load that cannot be applied is refused, naming the field and the
+			// figure it destroyed. See nonFiniteFigure for the rule and for why
+			// no sanity bound sits above it. 400 rather than 500: the value came
+			// from the caller and is the caller's to correct, which is how every
+			// other refusal of this request is reported.
+			if bad := nonFiniteFigure(risk); bad != "" {
+				writeJSONChecked(w, http.StatusBadRequest, map[string]any{
+					"error":    "unapplicable_risk_load",
+					"field":    "riskLoad",
+					"riskLoad": fmt.Sprintf("%g", profile.RiskLoad),
+					"check":    cwc.Check.ID,
+					"figure":   bad,
+					"message": "riskLoad is finite but applying it to this check's tail risk " +
+						"overflows to a value that is not a number; no figure is reported " +
+						"rather than one that cannot be rendered",
+				})
+				return
+			}
+
 			results = append(results, ComplianceScanResult{
 				Framework:        cwc.Framework,
 				ControlSet:       cwc.ControlSet,
@@ -512,9 +531,7 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	ch.lastUngated = ungatedList
 	ch.mu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(results)
+	writeJSONChecked(w, http.StatusOK, results)
 }
 
 // handleFrameworks returns available frameworks and their versions, or 404 for non-existent framework ID.
@@ -542,18 +559,14 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 			})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSONChecked(w, http.StatusOK, map[string]any{
 			"id":       subpath,
 			"versions": versions,
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(fws)
+	writeJSONChecked(w, http.StatusOK, fws)
 }
 
 // handleSummary returns aggregate posture from the last scan.
@@ -604,9 +617,7 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 	}
 	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: summary.Currency}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(summary)
+	writeJSONChecked(w, http.StatusOK, summary)
 }
 
 // evaluateCEL compiles and evaluates a CEL expression against a manifest.
@@ -692,6 +703,100 @@ func checkSeed(id string) uint64 {
 
 func roundMoney(v float64, c money.Currency) float64 {
 	return money.Money{Amount: v, Currency: c}.Round().Amount
+}
+
+// writeJSONChecked marshals BEFORE committing a status line.
+//
+// WHY THIS EXISTS, AND WHY `WriteHeader` THEN `Encode` IS NOT AN ACCEPTABLE
+// SHORTHAND ANYWHERE ON THIS PATH.
+//
+// `w.WriteHeader(http.StatusOK)` followed by `json.NewEncoder(w).Encode(v)`
+// with the error discarded commits the status line before anyone knows whether
+// the document can be produced. encoding/json refuses to marshal +Inf and NaN,
+// so one unrenderable figure anywhere in `v` yields:
+//
+//	HTTP/1.1 200 OK
+//	Content-Type: application/json
+//	<zero bytes>
+//
+// A 200 with an empty body is, to a lenient client -- or to any client that
+// defaults absent numbers to zero -- a scan that found nothing to report, which
+// renders as a CLEAN COMPLIANCE POSTURE. Fabricated, silent at every layer, and
+// invisible in a status code. That failure was observed on this path and is
+// what this helper exists to make impossible.
+//
+// So: marshal to a buffer, and only then write a status. A marshal failure
+// becomes a 500 with a real error body, which is a failure a caller can see.
+// Never reintroduce a discarded encode error after a committed status.
+//
+// The trailing newline matches json.Encoder.Encode byte for byte, so swapping a
+// site over to this helper does not move a single byte of a successful
+// response. Escaping also matches: Marshal and Encoder both escape HTML by
+// default.
+func writeJSONChecked(w http.ResponseWriter, status int, v any) {
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		slog.Error("response is unrenderable as JSON; refusing to serve an empty success",
+			"status_withheld", status, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		// This one IS safe to encode directly: the value is a string map with no
+		// floats in it, so it cannot hit the branch above.
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":  "unrenderable_response",
+			"detail": err.Error(),
+			"message": "the engine produced a figure that cannot be expressed as JSON " +
+				"(NaN or +/-Inf); no partial or empty success was served",
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(append(encoded, '\n'))
+}
+
+// nonFiniteFigure names the first figure of a simulated result that is not a
+// real number, or "" when all of them are.
+//
+// THE OVERFLOW RULE, AND WHY IT LIVES HERE RATHER THAN IN riskProfileFor.
+//
+// riskProfileFor refuses a load that IS NaN or Inf. It cannot refuse a finite
+// load whose PRODUCT with tail risk is not, because overflow is a property of
+// the product and riskProfileFor has never seen a triple. Any ceiling placed on
+// the load alone would be arbitrary in the literal sense: it would be a number
+// chosen to be below 1.8e308/tvar for whatever tvar the shipped pack happens to
+// price today, and a recalibration would move it without anyone noticing.
+//
+// So the refusal happens where the overflow is observable -- at application --
+// and the rule is exactly: A LOAD THAT CANNOT BE APPLIED IS REFUSED. It is the
+// same precedent money.Add sets for its own overflow: return an error naming the
+// operands rather than a figure that is not a figure.
+//
+// NO SANITY BOUND IS IMPOSED, DELIBERATELY. riskLoad is a multiplier on tail
+// risk supplied by the institution, and there is no principled ceiling on it: a
+// load of 9.0 (carry ten times the tail) is unusual but coherent, so any limit
+// below the arithmetic one would be this engine substituting its own risk
+// appetite for its customer's. The consequence is accepted and pinned by
+// TestAHugeButFiniteRiskLoadIsPricedWithoutComplaint: riskLoad=1e9 still prices
+// an ~18,000 exposure at ~18,072,923,605,440 and the response says nothing
+// about it. That is a declared posture the caller asked for. +Inf is not a
+// posture at all -- it is the absence of an answer -- which is the whole of the
+// distinction being drawn.
+func nonFiniteFigure(r fair.RiskResult) string {
+	for _, f := range []struct {
+		name string
+		v    float64
+	}{
+		{"ale", r.ALE},
+		{"var95", r.VaR95},
+		{"tvar", r.TVaR},
+		{"carriedGbp", r.CarriedGBP},
+	} {
+		if math.IsNaN(f.v) || math.IsInf(f.v, 0) {
+			return f.name
+		}
+	}
+	return ""
 }
 
 // writeFrameworkError reports frameworks a scan could not evaluate.

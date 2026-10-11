@@ -34,17 +34,19 @@ package main
 //     byte-identical whether or not another tenant declared anything. This is
 //     the good news and it is asserted first, because it bounds the defect.
 //  2. B's SUMMARY is A's summary -- A's total, under A's currency label.
-//  3. If A's scan overflowed, the summary is an empty 200 for EVERYONE, and
-//     stays that way until some other scan replaces the slot.
+//  3. If A's scan overflowed, the summary WAS an empty 200 for EVERYONE, and
+//     stayed that way until some other scan replaced the slot. FIXED by F4 fix
+//     1: the overflowing scan is refused at the point of application, so no
+//     unrenderable figure is ever stored, and every encode site buffers and
+//     checks before committing a status. Pinned by
+//     TestAnOverflowingScanLeavesEverySubsequentSummaryIntact, which compares
+//     the post-attack summary field by field against a pre-attack snapshot --
+//     not merely "not empty".
 //
-// (3) is the one with no tell. A dashboard polling /compliance/summary gets HTTP
+// (3) was the one with no tell. A dashboard polling /compliance/summary got HTTP
 // 200 and zero bytes, and a client that treats an empty body as an empty result
 // renders zero controls, zero failures and zero exposure -- a clean compliance
 // posture, fabricated, persisting, and triggered by a different tenant.
-//
-// As with the poison suite, every assertion here CHARACTERISES observed
-// behaviour on this commit. The two tests whose names end in _DEFECT are
-// tripwires on behaviour that is wrong, not statements that it is right.
 
 import (
 	"encoding/json"
@@ -302,33 +304,46 @@ func TestTheSummaryNeverMixesDenominations(t *testing.T) {
 	}
 }
 
-// ── 3. The defect that persists: one overflowing scan empties every summary ───
+// ── 3. The fix: an overflowing scan leaves every subsequent summary INTACT ────
 
-// TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT is the summary
-// leg of the empty-200 finding, and it is strictly worse than the scan leg.
+// TestAnOverflowingScanLeavesEverySubsequentSummaryIntact is the re-pointed
+// form of TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT.
 //
-// On the scan endpoint the empty 200 is confined to the request that caused it:
-// the caller sent an absurd load and got nothing back. On the summary endpoint it
-// is not confined at all. The overflowing +Inf is stored in ch.lastResults and
-// summed into TotalExposure on every subsequent summary request, so EVERY
-// caller's summary is an empty 200 until some other scan overwrites the slot.
-// The caller who sent the bad load may never call the summary; the tenants who
-// do never sent anything wrong.
+// WHAT IT USED TO PIN, and why it was the worst finding in this file. On the
+// scan endpoint an empty 200 was confined to the request that caused it. On the
+// summary endpoint it was not confined at all: the overflowing +Inf was STORED
+// in ch.lastResults and summed into TotalExposure on every subsequent summary
+// request, so EVERY caller's summary became an HTTP 200 with zero bytes until
+// an unrelated healthy scan happened to overwrite the slot. The caller who sent
+// the bad load might never read a summary; the tenants who did had sent nothing
+// wrong.
 //
-// And an empty summary reads worse than an empty scan. The scan response is an
-// array, so an empty body at least has no plausible reading as "zero rows" in a
-// strict client. The summary is a single object whose fields are counts and a
-// total -- totalControls, passed, failed, totalExposureGbp -- so a client that
-// defaults absent numbers to zero renders a complete, confident, entirely
-// fabricated clean posture.
+// And an empty summary read worse than an empty scan. The scan response is an
+// array, so an empty body has no plausible reading as "zero rows" in a strict
+// client. The summary is a single object whose fields are counts and a total --
+// totalControls, passed, failed, totalExposureGbp -- so a client that defaults
+// absent numbers to zero rendered a complete, confident, entirely fabricated
+// clean posture.
 //
-// THIS IS A DEFECT. The fix is the same buffer-then-check at compliance.go:608
-// as at :516, plus not storing an unrenderable figure in the first place.
-func TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT(t *testing.T) {
+// WHAT IT PINS NOW. Both halves of the fix, at their full original strength:
+//
+//   - the poison scan is REFUSED (400 with a body), so no +Inf is ever stored;
+//   - the slot therefore still holds the healthy scan, and every subsequent
+//     summary -- for the innocent tenant, for an unauthenticated caller, and
+//     for the poisoner itself -- is a complete document with the SAME figures
+//     as before the attack.
+//
+// The second clause is the one that matters and it is stronger than "not
+// empty": the summary is compared field by field against the pre-attack
+// snapshot, so a fix that merely stopped the emptiness while letting the poison
+// scan disturb the stored state would still fail. The cross-caller loop is kept
+// because the blast radius -- every caller, not just the poisoner -- was the
+// finding.
+func TestAnOverflowingScanLeavesEverySubsequentSummaryIntact(t *testing.T) {
 	h := contractHandler(t)
 
 	// A healthy scan first, so there is a good summary to contrast against and
-	// the emptiness below cannot be mistaken for "nothing has been scanned yet".
+	// any later emptiness cannot be mistaken for "nothing has been scanned yet".
 	code, _ := postScanWithHeaders(t, h, baseScanBody(), nil)
 	if code != http.StatusOK {
 		t.Fatalf("healthy scan: got %d", code)
@@ -344,16 +359,23 @@ func TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT(t *testing.T)
 	t.Logf("before: summary is %d bytes, totalControls=%v, totalExposureGbp=%v",
 		len(okBody), healthy["totalControls"], healthy["totalExposureGbp"])
 
-	// One tenant sends an overflowing load. Its own scan response is the empty
-	// 200 already pinned in the poison suite; what matters here is the residue.
+	// One tenant sends an overflowing load. It is now refused with a document,
+	// which is the first half of the fix and is pinned in full by
+	// TestAnOverflowingRiskLoadIsRefusedAndNeverServedAsAnEmptySuccess.
 	poison := rawScanBodyWith(t, `"riskLoad":1e308`)
 	pCode, pBody := postRawScan(t, h, poison, map[string]string{"X-Tenant-ID": "tenant-poison"})
-	if pCode != http.StatusOK || len(pBody) != 0 {
-		t.Fatalf("expected the characterised empty 200 from the scan, got %d with %d bytes",
-			pCode, len(pBody))
+	if pCode == http.StatusOK {
+		t.Fatalf("the overflowing scan was answered with a 200 (%d bytes). If this is a 200 "+
+			"with ZERO bytes the empty-200 defect is back; if it is a 200 with rows, a "+
+			"non-finite figure is being served as money.", len(pBody))
+	}
+	if len(pBody) == 0 {
+		t.Fatalf("the overflowing scan returned %d with zero bytes: a status line with no "+
+			"document is the defect, whatever the code", pCode)
 	}
 
-	// Now every summary, for every caller, is an empty 200.
+	// Now every summary, for every caller, is still the healthy one -- same
+	// bytes, same counts, same total. Not merely non-empty: UNDISTURBED.
 	for i, hdr := range []map[string]string{
 		{"X-Tenant-ID": "tenant-innocent"},
 		{},
@@ -366,31 +388,38 @@ func TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT(t *testing.T)
 		}
 		h.handleSummary(w, req)
 		if w.Code != http.StatusOK {
-			t.Errorf("call %d (%v): status %d, want 200. A non-200 means the DEFECT IS "+
-				"FIXED -- delete this test and extend TestTheSummaryNeverMixesDenominations.",
-				i, hdr, w.Code)
+			t.Errorf("call %d (%v): status %d, want 200 -- the healthy scan is still the "+
+				"last one and its summary must still be served", i, hdr, w.Code)
 			continue
 		}
-		if n := w.Body.Len(); n != 0 {
-			t.Errorf("call %d (%v): body is %d bytes, want 0; behaviour has changed and must "+
-				"be re-characterised: %.200q", i, hdr, n, w.Body.String())
+		if w.Body.Len() == 0 {
+			t.Errorf("call %d (%v): body is ZERO BYTES. One tenant's overflowing load has "+
+				"again emptied every caller's summary.", i, hdr)
 			continue
 		}
-		t.Logf("after: call %d (%v) -> HTTP %d, Content-Type %q, %d bytes",
-			i, hdr, w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+		after := parseSummary(t, w.Body.String())
+		for _, field := range []string{"totalControls", "passed", "failed", "errored",
+			"notEvaluated", "notInForce", "totalExposureGbp", "currency"} {
+			if after[field] != healthy[field] {
+				t.Errorf("call %d (%v): %s = %v, want the pre-attack %v. The refused scan "+
+					"disturbed the stored state, so the attack still moves an innocent "+
+					"caller's figures.", i, hdr, field, after[field], healthy[field])
+			}
+		}
+		t.Logf("after: call %d (%v) -> HTTP %d, %d bytes, totalExposureGbp=%v",
+			i, hdr, w.Code, w.Body.Len(), after["totalExposureGbp"])
 	}
 
-	// And it is persistent, not transient: the slot still holds the +Inf.
-	// A healthy scan by anyone clears it, which is the only recovery.
+	// And a later healthy scan still works, so nothing was left in a wedged
+	// state by the refusal.
 	if c, _ := postScanWithHeaders(t, h, baseScanBody(), nil); c != http.StatusOK {
 		t.Fatalf("recovery scan: got %d", c)
 	}
 	rCode, rBody := getSummaryRaw(t, h)
 	if rCode != http.StatusOK || len(rBody) == 0 {
-		t.Errorf("after a healthy scan the summary is still %d with %d bytes; the slot "+
-			"should have been overwritten", rCode, len(rBody))
+		t.Errorf("after a further healthy scan the summary is %d with %d bytes", rCode, len(rBody))
 	}
-	t.Logf("DEFECT CONFIRMED: one tenant's riskLoad=1e308 made GET /compliance/summary "+
-		"return HTTP 200 with 0 bytes for EVERY caller, persisting until an unrelated "+
-		"healthy scan replaced ch.lastResults. Recovered body is %d bytes.", len(rBody))
+	t.Logf("FIXED: riskLoad=1e308 is refused with a document; GET /compliance/summary "+
+		"returned the undisturbed healthy summary to all three callers. Final body %d bytes.",
+		len(rBody))
 }

@@ -212,28 +212,34 @@ expect_red M2-negative-guard 'TestTheEngineGuardAndTheDatabaseCheckDisagreeOnOve
   "riskProfileFor must refuse a negative load"
 restore_all
 
-# ── M3 (INVERTED): fix the empty-200 defect ───────────────────────────────────
-# Encode into a buffer and check the error BEFORE committing a status line.
-# This is one of the three fixes the DEFECT test's comment proposes. The DEFECT
-# test must go red — if it survives, it is not pinning the defect.
+# ── M3: the application-time refusal of an unapplicable load ──────────────────
+# WAS INVERTED (it used to APPLY the buffer-then-check fix and require the
+# characterisation test to go red). The fix is real now, so this is an ordinary
+# forward mutant: delete the guard and the test that pins the refusal must fail.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(results)"""
-assert old in s, "M3 anchor absent"
-new="""	// MUTANT M3: buffer-then-check, the proposed fix.
-	if encoded, err := json.Marshal(results); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unrenderable figure: " + err.Error()})
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write(encoded)
-	}"""
-open(p,"w").write(s.replace(old,new,1))
+i=s.index("			if bad := nonFiniteFigure(risk); bad != \"\" {")
+j=s.index("				return\n			}",i)+len("				return\n			}")
+open(p,"w").write(s[:i]+"			// MUTANT M3: application-time overflow refusal deleted"+s[j:])
 '
-expect_red M3-fix-empty-200 'TestAnOverflowingRiskLoadIsServedAs200WithAnEmptyBody_DEFECT' \
-  "INVERTED: fixing the empty-200 must break its characterisation test"
+expect_red M3-overflow-refused 'TestAnOverflowingRiskLoadIsRefusedAndNeverServedAsAnEmptySuccess' \
+  "a load whose application overflows must be refused where it is applied"
+restore_all
+
+# ── M3b: the same guard, proved from the summary's blast radius ───────────────
+# Without the refusal an unrenderable figure is STORED in ch.lastResults, so
+# every subsequent summary -- for every caller -- is affected. That is a wider
+# claim than M3 makes and it needs its own mutant.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("			if bad := nonFiniteFigure(risk); bad != \"\" {")
+j=s.index("				return\n			}",i)+len("				return\n			}")
+open(p,"w").write(s[:i]+"			// MUTANT M3b: refusal deleted; the +Inf reaches the stored slot"+s[j:])
+'
+expect_red M3b-summary-blast-radius 'TestAnOverflowingScanLeavesEverySubsequentSummaryIntact' \
+  "an unrenderable figure must never reach the slot every caller's summary reads"
 restore_all
 
 # ── M4: the currency shape check ──────────────────────────────────────────────
@@ -406,27 +412,31 @@ expect_green_in "$PE" M10c-ale-oracle-is-blind \
   "NEGATIVE CONTROL: the closed-form ale anchor cannot see a one-rank error" './'
 restore_all
 
-# ── M11 (INVERTED): fix the empty summary ─────────────────────────────────────
-# Same buffer-then-check at the summary's encode site. The persistent-empty
-# characterisation must go red.
+# ── M11: buffer-then-check before committing a status line ───────────────────
+# WAS INVERTED. Now a forward mutant on the real guard: make writeJSONChecked
+# commit the status BEFORE it knows the document can be produced -- which is
+# verbatim the `WriteHeader` then discarded-`Encode` shape the defect had. Every
+# StatusOK site in compliance.go routes through this helper, so one mutant
+# covers all four.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(summary)"""
+old="""func writeJSONChecked(w http.ResponseWriter, status int, v any) {
+	encoded, err := json.Marshal(v)"""
 assert old in s, "M11 anchor absent"
-new="""	// MUTANT M11: buffer-then-check on the summary.
-	if encoded, err := json.Marshal(summary); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unrenderable total: " + err.Error()})
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write(encoded)
-	}"""
+new="""func writeJSONChecked(w http.ResponseWriter, status int, v any) {
+	// MUTANT M11: status committed first, encode error discarded.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+	if true {
+		return
+	}
+	encoded, err := json.Marshal(v)"""
 open(p,"w").write(s.replace(old,new,1))
 '
-expect_red M11-fix-empty-summary 'TestAnOverflowingScanLeavesEverySubsequentSummaryEmpty_DEFECT' \
-  "INVERTED: fixing the empty summary must break its characterisation"
+expect_red M11-buffer-then-check 'TestWriteJSONCheckedNeverCommitsASuccessItCannotRender' \
+  "a status line must never be committed before the document is known to marshal"
 restore_all
 
 # ── M12: the summary reads the shared cross-tenant slot ───────────────────────

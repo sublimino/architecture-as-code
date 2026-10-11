@@ -1,1643 +1,1655 @@
 {
-  "$schema": "slsi-baseline/v1",
-  "identity": {
-    "branch": "P0-w1",
-    "tipSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
-    "expectedSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
-    "deltaCommits": [],
-    "mergeBase": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
-    "worktreePath": "/home/andy/src/.worktrees/32e03/osramp-demo",
-    "dirty": false,
-    "capturedAtUtc": "2026-10-11T15:20:00Z"
-  },
-  "toolchain": {
-    "go": "go version go1.26.2 linux/amd64",
-    "kubectl": "v1.36.0",
-    "kind": "kind v0.32.0 go1.26.2 linux/amd64",
-    "flux": "flux version 2.9.3",
-    "cosign": "cosign version 3.0.6",
-    "openssl": "OpenSSL 3.6.2 3 Feb 2026 (Library: OpenSSL 3.6.2 3 Feb 2026)",
-    "jq": "jq-1.8.1",
-    "envsubst": "envsubst (GNU gettext-runtime) 0.23.1",
-    "bats": "Bats 1.13.0",
-    "make": "GNU Make 4.4.1",
-    "git": "git version 2.54.0",
-    "docker": "Docker version 29.9.0, build f415da8"
-  },
-  "kubeconfig": {
-    "path": "/tmp/osramp-kubeconfig.yaml",
-    "sha256": "c3186c480f7e91cf5f2d82f1e30a06ea6f3e60c876245f10143b5c47503ff831",
-    "mtime": "2026-10-11 16:03:00 +0100",
-    "contexts": [
-      "kind-osramp",
-      "kind-signalloom-hub"
-    ]
-  },
-  "clusters": {
-    "kind-osramp": {
-      "kindName": "osramp",
-      "nodeImages": [
-        "kindest/node:v1.36.1"
-      ],
-      "runningImages": [
-        {
-          "namespace": "knative-serving",
-          "workload": "knative-serving",
-          "container": "activator",
-          "ref": "sha256:5a1ea825ab40ecf9743d06ce502ab5ef77021ae1ec2d83168d4c9d625d6311f7",
-          "digest": "sha256:80b2e4bf6df496c692f8e148b3a72afcb88165cb7428e52b788fa53075989655"
-        },
-        {
-          "namespace": "fe-k8s-afm",
-          "workload": "afm-platform",
-          "container": "afm",
-          "ref": "docker.io/library/kubesec-afm:latest",
-          "digest": "sha256:43cdb75aa307daa1773cc88e1d02ac2beec073261c7b42adefcaa0911a5da6f9"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "signalloom-agent",
-          "container": "agent",
-          "ref": "docker.io/bitnamilegacy/kubectl:1.31",
-          "digest": "sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "cpai-engineer",
-          "container": "agent",
-          "ref": "docker.io/library/cpai-engineer:local",
-          "digest": "sha256:04199f3ee2bf20b4bf5931a7cb5fce0de3c15158e7e60504154d1af300bfce23"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "signalloom-agent",
-          "container": "agent",
-          "ref": "docker.io/library/kusari-agent-nono:latest",
-          "digest": "sha256:e05001d6d294ecf22679fdbb138dd2ed2ed5cfb0512ee6e583295ff1f1131489"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "kusari-agent",
-          "container": "agent",
-          "ref": "docker.io/library/kusari-agent:latest",
-          "digest": "sha256:e193ece152c8dfb3584c7aacac7d5fd2da11a38493442244c2e0847ba8d9b42e"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "signalloom-agent",
-          "container": "agent",
-          "ref": "ghcr.io/stefanprodan/podinfo:6.7.1",
-          "digest": "sha256:862ca45e61b32392f7941a1bdfdbe5ff8b6899070135f1bdca1c287d0057fc94"
-        },
-        {
-          "namespace": "knative-serving",
-          "workload": "knative-serving",
-          "container": "autoscaler",
-          "ref": "sha256:453798f74462ba9d7ae7d07efca1350fa56aab70c9996011e6c0ad3460cb75ec",
-          "digest": "sha256:6ff1f7816c67954f4533edd7a7e35882e2d52613cc3343594ff3eddfd0c1fca2"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "cardvault",
-          "container": "cardvault",
-          "ref": "docker.io/library/cardvault:local",
-          "digest": "sha256:21b2f7b6974aa03667ecaa7932142fb6f7ae8d056d1255f86b33ff89b6499d6b"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "agent-cardvault",
-          "container": "cardvault-agent",
-          "ref": "docker.io/library/cardvault-agent:local",
-          "digest": "none"
-        },
-        {
-          "namespace": "cert-manager",
-          "workload": "cainjector",
-          "container": "cert-manager-cainjector",
-          "ref": "quay.io/jetstack/cert-manager-cainjector:v1.20.3",
-          "digest": "sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd"
-        },
-        {
-          "namespace": "cert-manager",
-          "workload": "cert-manager",
-          "container": "cert-manager-controller",
-          "ref": "quay.io/jetstack/cert-manager-controller:v1.20.3",
-          "digest": "sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4"
-        },
-        {
-          "namespace": "cert-manager",
-          "workload": "webhook",
-          "container": "cert-manager-webhook",
-          "ref": "quay.io/jetstack/cert-manager-webhook:v1.20.3",
-          "digest": "sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "openbao-agent-generic-role",
-          "container": "configure",
-          "ref": "quay.io/openbao/openbao:2.1.1",
-          "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "openbao-fleet-manager-bootstrap-pr4d4",
-          "container": "configure",
-          "ref": "quay.io/openbao/openbao:2.1.1",
-          "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "openbao-spire-bootstrap-jgdfq",
-          "container": "configure",
-          "ref": "quay.io/openbao/openbao:2.1.1",
-          "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "openbao-supercred-bootstrap-ccvzc",
-          "container": "configure",
-          "ref": "quay.io/openbao/openbao:2.1.1",
-          "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
-        },
-        {
-          "namespace": "kagent",
-          "workload": "kagent",
-          "container": "controller",
-          "ref": "cr.kagent.dev/kagent-dev/kagent/controller:0.9.9",
-          "digest": "sha256:f87c105ad7000000b633e3be317d318b3d22f474c84180f33d76ee4bf0d3db59"
-        },
-        {
-          "namespace": "knative-serving",
-          "workload": "knative-serving",
-          "container": "controller",
-          "ref": "sha256:6cf8c9cfabcea9b75f8a6ea9a7c8adf6345c2521eb3509a53949812ad639279d",
-          "digest": "sha256:d4c6a0f926509e8d34795003635fdb8625dd3d4648ec55fe2ce781e0b8750e04"
-        },
-        {
-          "namespace": "knative-serving",
-          "workload": "net-kourier-controller",
-          "container": "controller",
-          "ref": "sha256:9d009a0da512f13e21da733a88eea9c25889005ab185102799fb7a718aa7311e",
-          "digest": "sha256:15a601147ef4574386e296c4b2456bb1e230d2dc110254295dddb56e5118b5a8"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "coredns-7cc9bc4f7f-gw56m",
-          "container": "coredns",
-          "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "coredns-7cc9bc4f7f-k9pf6",
-          "container": "coredns",
-          "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "sldc-bridge-dns",
-          "container": "coredns",
-          "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
-          "digest": "none"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "dashboard-signalloom",
-          "container": "dashboard",
-          "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest",
-          "digest": "sha256:6185dcef7937bf333a80444a976afa8de2fd8c391c1617afaa6b1701deeb9e65"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "dex",
-          "container": "dex",
-          "ref": "ghcr.io/dexidp/dex:v2.41.1",
-          "digest": "sha256:bc7cfce7c17f52864e2bb2a4dc1d2f86a41e3019f6d42e81d92a301fad0c8a1d"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "fe-signalloom",
-          "container": "discovery-portal",
-          "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest",
-          "digest": "sha256:98b4a2deaea82446c1185fa80edf435df9da81a9b4346bc143df1aa061b00da3"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "docs-signalloom",
-          "container": "docs",
-          "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/docs-signalloom:latest",
-          "digest": "sha256:768aea26c8d3e047c791fb02565907534a288c0e974a401a7f815cba24204ac4"
-        },
-        {
-          "namespace": "ingress",
-          "workload": "envoy",
-          "container": "envoy",
-          "ref": "docker.io/envoyproxy/envoy:distroless-v1.38.3",
-          "digest": "sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8"
-        },
-        {
-          "namespace": "ingress",
-          "workload": "gateway-helm",
-          "container": "envoy-gateway",
-          "ref": "docker.io/envoyproxy/gateway:v1.8.2",
-          "digest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "etcd-osramp-control-plane",
-          "container": "etcd",
-          "ref": "registry.k8s.io/etcd:3.6.8-0",
-          "digest": "none"
-        },
-        {
-          "namespace": "knative-eventing",
-          "workload": "knative-eventing",
-          "container": "eventing-controller",
-          "ref": "sha256:9fce51bce023e88b1eaa8254fd81e3baa1aef3951a7b48c24408107f4ff08c6f",
-          "digest": "sha256:cd73cc800e69ab4882a9375e1162fbf4fcece32bcb35a44895d7d7a3e3cb57ae"
-        },
-        {
-          "namespace": "knative-eventing",
-          "workload": "knative-eventing",
-          "container": "eventing-webhook",
-          "ref": "sha256:ad6c9f42b265fba263e93f3bbb12077bfc2923511575dfb334f9a50d71cefeca",
-          "digest": "sha256:8ac0e069ef27fae74235db03b2379865e65e5eb7a23c067e54190d4af344c0f1"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "fake-integration-proxy",
-          "container": "fake-integration-proxy",
-          "ref": "docker.io/library/fake-integration-proxy:dev",
-          "digest": "sha256:b25c823b7c954d80b343eaedbae5021ec14d7d7b297e8810d42caf936e991b6e"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "cardvault-agent",
-          "container": "fixture",
-          "ref": "docker.io/library/netassert-runner:local",
-          "digest": "sha256:ebabae70a0eab602947311b3252d9a35474eefd38b6fad3312377d484e49ba80"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "netassert-generic-agent-fixture-545f77f844-2nmmm",
-          "container": "fixture",
-          "ref": "docker.io/library/netassert-runner:local",
-          "digest": "sha256:ebabae70a0eab602947311b3252d9a35474eefd38b6fad3312377d484e49ba80"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "fleet-manager",
-          "container": "fleet-manager",
-          "ref": "docker.io/library/fleet-manager:local",
-          "digest": "sha256:5e6c104a4ae696474601664f3c63b6887e1c96627f981cbf8f6d71c7298b492f"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "agent-trust-investigator",
-          "container": "investigator",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "knative-eventing",
-          "workload": "knative-eventing",
-          "container": "job-sink",
-          "ref": "sha256:e6bc9896d1c5dea832acb507ef8723cfef560bd8cb0b21b94d88c90e8afb3158",
-          "digest": "sha256:6de75509134f099f16b49e2f7f082951f23180ac14171c34bb201b918d1ad148"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "bao-spire-negative-proof-r2j56",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "fleet-manager",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "cpai-engineer",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prod-deploy-gate",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prompt-commit-summarizer-00001",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "swarm-governor",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "zulip-chat-agent",
-          "container": "jwt-svid",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kindnet",
-          "container": "kindnet-cni",
-          "ref": "docker.io/kindest/kindnetd:v20260528-9350166c",
-          "digest": "none"
-        },
-        {
-          "namespace": "kourier-system",
-          "workload": "3scale-kourier-gateway",
-          "container": "kourier-gateway",
-          "ref": "docker.io/envoyproxy/envoy:v1.34-latest",
-          "digest": "sha256:cfc0678bc03cca19cbb031688acb31d510bff501ff97e163026a375fe0515d69"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-apiserver-osramp-control-plane",
-          "container": "kube-apiserver",
-          "ref": "registry.k8s.io/kube-apiserver-amd64:v1.36.1",
-          "digest": "sha256:48e12aa71c24cf624334ae6f0373f1e1b85825254085475eda149111a926e33c"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-controller-manager-osramp-control-plane",
-          "container": "kube-controller-manager",
-          "ref": "registry.k8s.io/kube-controller-manager-amd64:v1.36.1",
-          "digest": "sha256:3fb749e08554fac4cde5dc53397de761b92939d34ead7e3c89248a8bf5b621e4"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-proxy-wzdvj",
-          "container": "kube-proxy",
-          "ref": "registry.k8s.io/kube-proxy-amd64:v1.36.1",
-          "digest": "sha256:834d6b8414308aed626e67979c4665f21b3651e5d8d04ae68d960a4f844b4e81"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-scheduler-osramp-control-plane",
-          "container": "kube-scheduler",
-          "ref": "registry.k8s.io/kube-scheduler-amd64:v1.36.1",
-          "digest": "sha256:77add4a58677c7fa1a02b42381a024adc860f8d6bbdf38a89d7f8803c116e43c"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "fe-signalloom",
-          "container": "kubectl-proxy",
-          "ref": "docker.io/bitnamilegacy/kubectl:1.31",
-          "digest": "sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48"
-        },
-        {
-          "namespace": "local-path-storage",
-          "workload": "local-path-provisioner",
-          "container": "local-path-provisioner",
-          "ref": "docker.io/kindest/local-path-provisioner:v20260521-9fb22683",
-          "digest": "none"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "hosted-daytona-coder",
-          "container": "manager",
-          "ref": "docker.io/library/hosted-daytona-coder:local",
-          "digest": "sha256:a486cc01d29fb6d50201af9d8db0fbf222b05ccb3d2c782235bacfb6d1518c4b"
-        },
-        {
-          "namespace": "flux-system",
-          "workload": "flux-operator",
-          "container": "manager",
-          "ref": "ghcr.io/controlplaneio-fluxcd/flux-operator:v0.61.0",
-          "digest": "sha256:71041d9fff7f7b05f1a8123ebe73c73b7b156f4aacfe1e8e19b5aa953a98892c"
-        },
-        {
-          "namespace": "flux-system",
-          "workload": "kustomize-controller",
-          "container": "manager",
-          "ref": "sha256:2721e20fea908f545366fbc29108e682c1a48416f4934964ea548222a17d6f3e",
-          "digest": "sha256:2ebeaa341da77d52b6abbbba5efcee0450d47f8b42f0e6f33b08f9020262d606"
-        },
-        {
-          "namespace": "flux-system",
-          "workload": "helm-controller",
-          "container": "manager",
-          "ref": "sha256:67f8ec24b1d7a5abe5cc4527bf7b6269b15844a7320448c22a947d831087c835",
-          "digest": "sha256:0d52fff5c4d476277b8fcb6beb9041e269adb5db943fe69f5a806ea0c92b1511"
-        },
-        {
-          "namespace": "flux-system",
-          "workload": "notification-controller",
-          "container": "manager",
-          "ref": "sha256:7f4e4a4b9729f963713992b2712fa7201cdc4fd2769a61fd7a9be90bc57733e0",
-          "digest": "sha256:840f318265ee26f0d2c48a158bf7896b22aa4e998e320a18646309f0e40b15da"
-        },
-        {
-          "namespace": "flux-system",
-          "workload": "source-controller",
-          "container": "manager",
-          "ref": "sha256:bf3f9ea5cdd555c820c07a1168b9d5a5a6d5f68514b85ded864458bce7b7aa1b",
-          "digest": "sha256:6a6693172589f8ff26123a231d5fa6ceb194a6efb4dc647cdf057c959f76a2e3"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "minio",
-          "container": "minio",
-          "ref": "docker.io/minio/minio:latest",
-          "digest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "netassert-controller",
-          "container": "netassert-controller",
-          "ref": "docker.io/library/netassert-controller:dev",
-          "digest": "sha256:da8390aa536cff36baa104af2653aa5d7f5e5bcf58be08928d858c9bc0e655ab"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "spiffe-csi-driver",
-          "container": "node-driver-registrar",
-          "ref": "sha256:b572095c12f71ea7db92a3c1f9279854919e0908a6e1a5d95a72182a390a76e0",
-          "digest": "sha256:c53535af8a7f7e3164609838c4b191b42b2d81238d75c1b2a2b582ada62a9780"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "openbao",
-          "container": "openbao",
-          "ref": "quay.io/openbao/openbao:2.1.1",
-          "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "fleet-manager",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "agent-cardvault",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "cpai-engineer",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prod-deploy-gate",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prompt-commit-summarizer-00001",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "swarm-governor",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "zulip-chat-agent",
-          "container": "openbao-agent",
-          "ref": "docker.io/openbao/openbao:2.1.0",
-          "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "agent-trust-planner",
-          "container": "planner",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "policy-engine",
-          "container": "policy-engine",
-          "ref": "docker.io/library/policy-engine:local",
-          "digest": "none"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "policy-engine",
-          "container": "policy-engine",
-          "ref": "docker.io/library/policy-engine:local",
-          "digest": "none"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "postgresql",
-          "container": "postgresql",
-          "ref": "docker.io/library/postgres:16-alpine",
-          "digest": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
-        },
-        {
-          "namespace": "kagent",
-          "workload": "kagent",
-          "container": "postgresql",
-          "ref": "docker.io/library/postgres:18.3-alpine",
-          "digest": "none"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "agent-trust-planner",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "agent-trust-planner",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-planner-29860590-wzxsl",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-planner-29860595-mc2pj",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-planner-29862200-krz9j",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-planner-29862205-rttc8",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-triage-29860590-sxhfc",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-triage-29860595-j7f4s",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-triage-29862200-zq54t",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "spiffe-triage-29862205-hqt6n",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "cross-project-denied-29861695-f5bgm",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "cross-project-denied-29861990-cfbln",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "cross-project-denied-29862200-n6lvq",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "cross-project-denied-29862205-sl8n9",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "spiffe-risk-reader-29860590-r9lxd",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "spiffe-risk-reader-29860595-rtb2c",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "spiffe-risk-reader-29862200-nkgr2",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "spiffe-risk-reader-29862205-c9qs7",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "cross-tenant-denied-29860775-nrxdj",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "cross-tenant-denied-29861080-99scp",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "cross-tenant-denied-29862200-dg79b",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "cross-tenant-denied-29862205-fvpqs",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "spiffe-investigator-29860590-h95lh",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "spiffe-investigator-29860595-rhxx8",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "spiffe-investigator-29862200-vk97w",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "agent-trust-northstar-investigations",
-          "workload": "spiffe-investigator-29862205-w2lvd",
-          "container": "probe",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "default",
-          "workload": "probe",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "nono-containment-probe",
-          "container": "probe",
-          "ref": "docker.io/library/nono-containment-probe:latest",
-          "digest": "sha256:4e1f20dbbd053deed5a9ef44073725c9be315bdb63ac4bde8c672d743999cebd"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prod-deploy-gate",
-          "container": "prod-deploy-gate",
-          "ref": "docker.io/library/prod-deploy-gate:latest",
-          "digest": "none"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "bao-spire-positive-proof-qr6th",
-          "container": "proof",
-          "ref": "quay.io/openbao/openbao:2.1.1",
-          "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prompt-commit-summarizer-00001",
-          "container": "queue-proxy",
-          "ref": "sha256:a014fbc01fb1f1f98cf70729ad01ddab591d1b7baf92d86d984dddee506ea0c2",
-          "digest": "sha256:cab5d14e0910c5e2e2f2be736e44724ecb38c72c211ac43c9e7977468f4934cc"
-        },
-        {
-          "namespace": "inf-signalloom",
-          "workload": "redis",
-          "container": "redis",
-          "ref": "docker.io/library/redis:7-alpine",
-          "digest": "sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "spire-agent-swarm-entries",
-          "container": "register",
-          "ref": "docker.io/bitnamilegacy/kubectl:1.31",
-          "digest": "sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48"
-        },
-        {
-          "namespace": "agent-trust-acme-risk",
-          "workload": "agent-trust-risk-reader",
-          "container": "risk-reader",
-          "ref": "docker.io/library/busybox:1.36",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "supercred-demo-runner",
-          "container": "runner",
-          "ref": "docker.io/library/supercred-demo-runner:local",
-          "digest": "none"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "signalloom-warden",
-          "container": "sentinel",
-          "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden:src-24c2a5005f5f",
-          "digest": "sha256:dbdc71e15c218fc1654f23736b25f9818fa2df19c223a5e68e67cebbb53f6af9"
-        },
-        {
-          "namespace": "ingress",
-          "workload": "envoy",
-          "container": "shutdown-manager",
-          "ref": "docker.io/envoyproxy/gateway:v1.8.2",
-          "digest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26"
-        },
-        {
-          "namespace": "fe-signalloom",
-          "workload": "signal-ingest",
-          "container": "signal-ingest",
-          "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signal-ingest:src-e2763e591d984701",
-          "digest": "sha256:0d98dfe3288180005b1bffee82c578fc74cd9e626d32a00ccf8eecea2397b2f2"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "spiffe-csi-driver",
-          "container": "spiffe-csi-driver",
-          "ref": "sha256:17c6458addde4ea991d55dc0dcb7fdf153d0edaf3fdc7d969b4ec378f78eb263",
-          "digest": "sha256:65335d2e6b2055f4bcbd94332ccaa4f753644a19d894b51fe2ff6b9ccec30010"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "spire-agent",
-          "container": "spire-agent",
-          "ref": "ghcr.io/spiffe/spire-agent:1.11.1",
-          "digest": "sha256:3468d6c06da4a36c2b85f61c116935cc32dfdeec669ee7b09ad4f49566cea881"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "spire-server",
-          "container": "spire-oidc-provider",
-          "ref": "ghcr.io/spiffe/oidc-discovery-provider:1.11.1",
-          "digest": "sha256:4d273da48fb48a14b2105688378f365466beb902260817f5ae7df65e3e9c95ac"
-        },
-        {
-          "namespace": "inf-bao",
-          "workload": "spire-server",
-          "container": "spire-server",
-          "ref": "ghcr.io/spiffe/spire-server:1.11.1",
-          "digest": "sha256:f48d3d766d862de9e7232544737be0aa9d2ece600567fdcaf6439167ca9cef5f"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "swarm-governor",
-          "container": "swarm-governor",
-          "ref": "docker.io/library/swarm-governor:latest",
-          "digest": "none"
-        },
-        {
-          "namespace": "kagent",
-          "workload": "kagent-tools",
-          "container": "tools",
-          "ref": "ghcr.io/kagent-dev/kagent/tools:0.2.1",
-          "digest": "none"
-        },
-        {
-          "namespace": "agent-trust-acme-payments",
-          "workload": "agent-trust-triage",
-          "container": "triage",
-          "ref": "docker.io/library/signalloom-spire-helper:local",
-          "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
-        },
-        {
-          "namespace": "kagent",
-          "workload": "kagent",
-          "container": "ui",
-          "ref": "cr.kagent.dev/kagent-dev/kagent/ui:0.9.9",
-          "digest": "none"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "prompt-commit-summarizer-00001",
-          "container": "user-container-0",
-          "ref": "docker.io/library/prompt-commit-summarizer:latest",
-          "digest": "sha256:823c64369b64726fac85c90d85a56dd0f4fcbe8def4eff000a0672c31b136943"
-        },
-        {
-          "namespace": "knative-serving",
-          "workload": "knative-serving",
-          "container": "webhook",
-          "ref": "sha256:a179216bf38dae65083ef73b78597f0173e896883e5bf62acd2b9d953176985c",
-          "digest": "sha256:6fb473eb7641c3f7174ed4064e6c3f5eeeb05e1420f5af425bbec33af53f4f92"
-        },
-        {
-          "namespace": "registry",
-          "workload": "zot",
-          "container": "zot",
-          "ref": "ghcr.io/project-zot/zot-linux-amd64:v2.1.2",
-          "digest": "sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71"
-        },
-        {
-          "namespace": "fe-signalloom-agents",
-          "workload": "zulip-chat-agent",
-          "container": "zulip-chat-agent",
-          "ref": "docker.io/library/zulip-chat-agent:latest",
-          "digest": "sha256:8f82bc1bea07107d3c9f6c3845262bae94f9277e4c23f43bc4a672ffc490ae87"
-        }
-      ]
+ "$schema": "slsi-baseline/v1",
+ "identity": {
+  "branch": "P0-w1",
+  "tipSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
+  "expectedSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
+  "deltaCommits": [],
+  "mergeBase": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
+  "worktreePath": "/home/andy/src/.worktrees/32e03/osramp-demo",
+  "dirty": false,
+  "capturedAtUtc": "2026-10-11T15:20:00Z"
+ },
+ "toolchain": {
+  "go": "go version go1.26.2 linux/amd64",
+  "kubectl": "v1.36.0",
+  "kind": "kind v0.32.0 go1.26.2 linux/amd64",
+  "flux": "flux version 2.9.3",
+  "cosign": "cosign version 3.0.6",
+  "openssl": "OpenSSL 3.6.2 3 Feb 2026 (Library: OpenSSL 3.6.2 3 Feb 2026)",
+  "jq": "jq-1.8.1",
+  "envsubst": "envsubst (GNU gettext-runtime) 0.23.1",
+  "bats": "Bats 1.13.0",
+  "make": "GNU Make 4.4.1",
+  "git": "git version 2.54.0",
+  "docker": "Docker version 29.9.0, build f415da8"
+ },
+ "kubeconfig": {
+  "path": "/tmp/osramp-kubeconfig.yaml",
+  "sha256": "c3186c480f7e91cf5f2d82f1e30a06ea6f3e60c876245f10143b5c47503ff831",
+  "mtime": "2026-10-11 16:03:00 +0100",
+  "contexts": [
+   "kind-osramp",
+   "kind-signalloom-hub"
+  ]
+ },
+ "clusters": {
+  "kind-osramp": {
+   "kindName": "osramp",
+   "nodeImages": [
+    "kindest/node:v1.36.1"
+   ],
+   "runningImages": [
+    {
+     "namespace": "knative-serving",
+     "workload": "knative-serving",
+     "container": "activator",
+     "ref": "sha256:5a1ea825ab40ecf9743d06ce502ab5ef77021ae1ec2d83168d4c9d625d6311f7",
+     "digest": "sha256:80b2e4bf6df496c692f8e148b3a72afcb88165cb7428e52b788fa53075989655"
     },
-    "kind-signalloom-hub": {
-      "kindName": "signalloom-hub",
-      "nodeImages": [
-        "kindest/node:v1.36.1"
-      ],
-      "runningImages": [
-        {
-          "namespace": "kube-system",
-          "workload": "coredns-75f748f556-99zk7",
-          "container": "coredns",
-          "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "coredns-75f748f556-hzsm7",
-          "container": "coredns",
-          "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "sldc-bridge-dns",
-          "container": "coredns",
-          "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "etcd-signalloom-hub-control-plane",
-          "container": "etcd",
-          "ref": "registry.k8s.io/etcd:3.6.8-0",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kindnet",
-          "container": "kindnet-cni",
-          "ref": "docker.io/kindest/kindnetd:v20260528-9350166c",
-          "digest": "none"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-apiserver-signalloom-hub-control-plane",
-          "container": "kube-apiserver",
-          "ref": "registry.k8s.io/kube-apiserver-amd64:v1.36.1",
-          "digest": "sha256:48e12aa71c24cf624334ae6f0373f1e1b85825254085475eda149111a926e33c"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-controller-manager-signalloom-hub-control-plane",
-          "container": "kube-controller-manager",
-          "ref": "registry.k8s.io/kube-controller-manager-amd64:v1.36.1",
-          "digest": "sha256:3fb749e08554fac4cde5dc53397de761b92939d34ead7e3c89248a8bf5b621e4"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-proxy-dfrxt",
-          "container": "kube-proxy",
-          "ref": "registry.k8s.io/kube-proxy-amd64:v1.36.1",
-          "digest": "sha256:834d6b8414308aed626e67979c4665f21b3651e5d8d04ae68d960a4f844b4e81"
-        },
-        {
-          "namespace": "kube-system",
-          "workload": "kube-scheduler-signalloom-hub-control-plane",
-          "container": "kube-scheduler",
-          "ref": "registry.k8s.io/kube-scheduler-amd64:v1.36.1",
-          "digest": "sha256:77add4a58677c7fa1a02b42381a024adc860f8d6bbdf38a89d7f8803c116e43c"
-        },
-        {
-          "namespace": "local-path-storage",
-          "workload": "local-path-provisioner",
-          "container": "local-path-provisioner",
-          "ref": "docker.io/kindest/local-path-provisioner:v20260521-9fb22683",
-          "digest": "none"
-        },
-        {
-          "namespace": "default",
-          "workload": "probe",
-          "container": "probe",
-          "ref": "docker.io/library/busybox:1.36.1",
-          "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        }
-      ]
+    {
+     "namespace": "fe-k8s-afm",
+     "workload": "afm-platform",
+     "container": "afm",
+     "ref": "docker.io/library/kubesec-afm:latest",
+     "digest": "sha256:43cdb75aa307daa1773cc88e1d02ac2beec073261c7b42adefcaa0911a5da6f9"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "signalloom-agent",
+     "container": "agent",
+     "ref": "docker.io/bitnamilegacy/kubectl:1.31",
+     "digest": "sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "cpai-engineer",
+     "container": "agent",
+     "ref": "docker.io/library/cpai-engineer:local",
+     "digest": "sha256:04199f3ee2bf20b4bf5931a7cb5fce0de3c15158e7e60504154d1af300bfce23"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "signalloom-agent",
+     "container": "agent",
+     "ref": "docker.io/library/kusari-agent-nono:latest",
+     "digest": "sha256:e05001d6d294ecf22679fdbb138dd2ed2ed5cfb0512ee6e583295ff1f1131489"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "kusari-agent",
+     "container": "agent",
+     "ref": "docker.io/library/kusari-agent:latest",
+     "digest": "sha256:e193ece152c8dfb3584c7aacac7d5fd2da11a38493442244c2e0847ba8d9b42e"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "signalloom-agent",
+     "container": "agent",
+     "ref": "ghcr.io/stefanprodan/podinfo:6.7.1",
+     "digest": "sha256:862ca45e61b32392f7941a1bdfdbe5ff8b6899070135f1bdca1c287d0057fc94"
+    },
+    {
+     "namespace": "knative-serving",
+     "workload": "knative-serving",
+     "container": "autoscaler",
+     "ref": "sha256:453798f74462ba9d7ae7d07efca1350fa56aab70c9996011e6c0ad3460cb75ec",
+     "digest": "sha256:6ff1f7816c67954f4533edd7a7e35882e2d52613cc3343594ff3eddfd0c1fca2"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "cardvault",
+     "container": "cardvault",
+     "ref": "docker.io/library/cardvault:local",
+     "digest": "sha256:21b2f7b6974aa03667ecaa7932142fb6f7ae8d056d1255f86b33ff89b6499d6b"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "agent-cardvault",
+     "container": "cardvault-agent",
+     "ref": "docker.io/library/cardvault-agent:local",
+     "digest": "none"
+    },
+    {
+     "namespace": "cert-manager",
+     "workload": "cainjector",
+     "container": "cert-manager-cainjector",
+     "ref": "quay.io/jetstack/cert-manager-cainjector:v1.20.3",
+     "digest": "sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd"
+    },
+    {
+     "namespace": "cert-manager",
+     "workload": "cert-manager",
+     "container": "cert-manager-controller",
+     "ref": "quay.io/jetstack/cert-manager-controller:v1.20.3",
+     "digest": "sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4"
+    },
+    {
+     "namespace": "cert-manager",
+     "workload": "webhook",
+     "container": "cert-manager-webhook",
+     "ref": "quay.io/jetstack/cert-manager-webhook:v1.20.3",
+     "digest": "sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "openbao-agent-generic-role",
+     "container": "configure",
+     "ref": "quay.io/openbao/openbao:2.1.1",
+     "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "openbao-fleet-manager-bootstrap-pr4d4",
+     "container": "configure",
+     "ref": "quay.io/openbao/openbao:2.1.1",
+     "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "openbao-spire-bootstrap-jgdfq",
+     "container": "configure",
+     "ref": "quay.io/openbao/openbao:2.1.1",
+     "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "openbao-supercred-bootstrap-ccvzc",
+     "container": "configure",
+     "ref": "quay.io/openbao/openbao:2.1.1",
+     "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
+    },
+    {
+     "namespace": "kagent",
+     "workload": "kagent",
+     "container": "controller",
+     "ref": "cr.kagent.dev/kagent-dev/kagent/controller:0.9.9",
+     "digest": "sha256:f87c105ad7000000b633e3be317d318b3d22f474c84180f33d76ee4bf0d3db59"
+    },
+    {
+     "namespace": "knative-serving",
+     "workload": "knative-serving",
+     "container": "controller",
+     "ref": "sha256:6cf8c9cfabcea9b75f8a6ea9a7c8adf6345c2521eb3509a53949812ad639279d",
+     "digest": "sha256:d4c6a0f926509e8d34795003635fdb8625dd3d4648ec55fe2ce781e0b8750e04"
+    },
+    {
+     "namespace": "knative-serving",
+     "workload": "net-kourier-controller",
+     "container": "controller",
+     "ref": "sha256:9d009a0da512f13e21da733a88eea9c25889005ab185102799fb7a718aa7311e",
+     "digest": "sha256:15a601147ef4574386e296c4b2456bb1e230d2dc110254295dddb56e5118b5a8"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "coredns-7cc9bc4f7f-gw56m",
+     "container": "coredns",
+     "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+     "digest": "none"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "coredns-7cc9bc4f7f-k9pf6",
+     "container": "coredns",
+     "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+     "digest": "none"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "sldc-bridge-dns",
+     "container": "coredns",
+     "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+     "digest": "none"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "dashboard-signalloom",
+     "container": "dashboard",
+     "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest",
+     "digest": "sha256:6185dcef7937bf333a80444a976afa8de2fd8c391c1617afaa6b1701deeb9e65"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "dex",
+     "container": "dex",
+     "ref": "ghcr.io/dexidp/dex:v2.41.1",
+     "digest": "sha256:bc7cfce7c17f52864e2bb2a4dc1d2f86a41e3019f6d42e81d92a301fad0c8a1d"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "fe-signalloom",
+     "container": "discovery-portal",
+     "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest",
+     "digest": "sha256:98b4a2deaea82446c1185fa80edf435df9da81a9b4346bc143df1aa061b00da3"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "docs-signalloom",
+     "container": "docs",
+     "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/docs-signalloom:latest",
+     "digest": "sha256:768aea26c8d3e047c791fb02565907534a288c0e974a401a7f815cba24204ac4"
+    },
+    {
+     "namespace": "ingress",
+     "workload": "envoy",
+     "container": "envoy",
+     "ref": "docker.io/envoyproxy/envoy:distroless-v1.38.3",
+     "digest": "sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8"
+    },
+    {
+     "namespace": "ingress",
+     "workload": "gateway-helm",
+     "container": "envoy-gateway",
+     "ref": "docker.io/envoyproxy/gateway:v1.8.2",
+     "digest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "etcd-osramp-control-plane",
+     "container": "etcd",
+     "ref": "registry.k8s.io/etcd:3.6.8-0",
+     "digest": "none"
+    },
+    {
+     "namespace": "knative-eventing",
+     "workload": "knative-eventing",
+     "container": "eventing-controller",
+     "ref": "sha256:9fce51bce023e88b1eaa8254fd81e3baa1aef3951a7b48c24408107f4ff08c6f",
+     "digest": "sha256:cd73cc800e69ab4882a9375e1162fbf4fcece32bcb35a44895d7d7a3e3cb57ae"
+    },
+    {
+     "namespace": "knative-eventing",
+     "workload": "knative-eventing",
+     "container": "eventing-webhook",
+     "ref": "sha256:ad6c9f42b265fba263e93f3bbb12077bfc2923511575dfb334f9a50d71cefeca",
+     "digest": "sha256:8ac0e069ef27fae74235db03b2379865e65e5eb7a23c067e54190d4af344c0f1"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "fake-integration-proxy",
+     "container": "fake-integration-proxy",
+     "ref": "docker.io/library/fake-integration-proxy:dev",
+     "digest": "sha256:b25c823b7c954d80b343eaedbae5021ec14d7d7b297e8810d42caf936e991b6e"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "cardvault-agent",
+     "container": "fixture",
+     "ref": "docker.io/library/netassert-runner:local",
+     "digest": "sha256:ebabae70a0eab602947311b3252d9a35474eefd38b6fad3312377d484e49ba80"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "netassert-generic-agent-fixture-545f77f844-2nmmm",
+     "container": "fixture",
+     "ref": "docker.io/library/netassert-runner:local",
+     "digest": "sha256:ebabae70a0eab602947311b3252d9a35474eefd38b6fad3312377d484e49ba80"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "fleet-manager",
+     "container": "fleet-manager",
+     "ref": "docker.io/library/fleet-manager:local",
+     "digest": "sha256:5e6c104a4ae696474601664f3c63b6887e1c96627f981cbf8f6d71c7298b492f"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "agent-trust-investigator",
+     "container": "investigator",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "knative-eventing",
+     "workload": "knative-eventing",
+     "container": "job-sink",
+     "ref": "sha256:e6bc9896d1c5dea832acb507ef8723cfef560bd8cb0b21b94d88c90e8afb3158",
+     "digest": "sha256:6de75509134f099f16b49e2f7f082951f23180ac14171c34bb201b918d1ad148"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "bao-spire-negative-proof-r2j56",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "fleet-manager",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "cpai-engineer",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prod-deploy-gate",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prompt-commit-summarizer-00001",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "swarm-governor",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "zulip-chat-agent",
+     "container": "jwt-svid",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "kindnet",
+     "container": "kindnet-cni",
+     "ref": "docker.io/kindest/kindnetd:v20260528-9350166c",
+     "digest": "none"
+    },
+    {
+     "namespace": "kourier-system",
+     "workload": "3scale-kourier-gateway",
+     "container": "kourier-gateway",
+     "ref": "docker.io/envoyproxy/envoy:v1.34-latest",
+     "digest": "sha256:cfc0678bc03cca19cbb031688acb31d510bff501ff97e163026a375fe0515d69"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "kube-apiserver-osramp-control-plane",
+     "container": "kube-apiserver",
+     "ref": "registry.k8s.io/kube-apiserver-amd64:v1.36.1",
+     "digest": "sha256:48e12aa71c24cf624334ae6f0373f1e1b85825254085475eda149111a926e33c"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "kube-controller-manager-osramp-control-plane",
+     "container": "kube-controller-manager",
+     "ref": "registry.k8s.io/kube-controller-manager-amd64:v1.36.1",
+     "digest": "sha256:3fb749e08554fac4cde5dc53397de761b92939d34ead7e3c89248a8bf5b621e4"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "kube-proxy-wzdvj",
+     "container": "kube-proxy",
+     "ref": "registry.k8s.io/kube-proxy-amd64:v1.36.1",
+     "digest": "sha256:834d6b8414308aed626e67979c4665f21b3651e5d8d04ae68d960a4f844b4e81"
+    },
+    {
+     "namespace": "kube-system",
+     "workload": "kube-scheduler-osramp-control-plane",
+     "container": "kube-scheduler",
+     "ref": "registry.k8s.io/kube-scheduler-amd64:v1.36.1",
+     "digest": "sha256:77add4a58677c7fa1a02b42381a024adc860f8d6bbdf38a89d7f8803c116e43c"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "fe-signalloom",
+     "container": "kubectl-proxy",
+     "ref": "docker.io/bitnamilegacy/kubectl:1.31",
+     "digest": "sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48"
+    },
+    {
+     "namespace": "local-path-storage",
+     "workload": "local-path-provisioner",
+     "container": "local-path-provisioner",
+     "ref": "docker.io/kindest/local-path-provisioner:v20260521-9fb22683",
+     "digest": "none"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "hosted-daytona-coder",
+     "container": "manager",
+     "ref": "docker.io/library/hosted-daytona-coder:local",
+     "digest": "sha256:a486cc01d29fb6d50201af9d8db0fbf222b05ccb3d2c782235bacfb6d1518c4b"
+    },
+    {
+     "namespace": "flux-system",
+     "workload": "flux-operator",
+     "container": "manager",
+     "ref": "ghcr.io/controlplaneio-fluxcd/flux-operator:v0.61.0",
+     "digest": "sha256:71041d9fff7f7b05f1a8123ebe73c73b7b156f4aacfe1e8e19b5aa953a98892c"
+    },
+    {
+     "namespace": "flux-system",
+     "workload": "kustomize-controller",
+     "container": "manager",
+     "ref": "sha256:2721e20fea908f545366fbc29108e682c1a48416f4934964ea548222a17d6f3e",
+     "digest": "sha256:2ebeaa341da77d52b6abbbba5efcee0450d47f8b42f0e6f33b08f9020262d606"
+    },
+    {
+     "namespace": "flux-system",
+     "workload": "helm-controller",
+     "container": "manager",
+     "ref": "sha256:67f8ec24b1d7a5abe5cc4527bf7b6269b15844a7320448c22a947d831087c835",
+     "digest": "sha256:0d52fff5c4d476277b8fcb6beb9041e269adb5db943fe69f5a806ea0c92b1511"
+    },
+    {
+     "namespace": "flux-system",
+     "workload": "notification-controller",
+     "container": "manager",
+     "ref": "sha256:7f4e4a4b9729f963713992b2712fa7201cdc4fd2769a61fd7a9be90bc57733e0",
+     "digest": "sha256:840f318265ee26f0d2c48a158bf7896b22aa4e998e320a18646309f0e40b15da"
+    },
+    {
+     "namespace": "flux-system",
+     "workload": "source-controller",
+     "container": "manager",
+     "ref": "sha256:bf3f9ea5cdd555c820c07a1168b9d5a5a6d5f68514b85ded864458bce7b7aa1b",
+     "digest": "sha256:6a6693172589f8ff26123a231d5fa6ceb194a6efb4dc647cdf057c959f76a2e3"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "minio",
+     "container": "minio",
+     "ref": "docker.io/minio/minio:latest",
+     "digest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "netassert-controller",
+     "container": "netassert-controller",
+     "ref": "docker.io/library/netassert-controller:dev",
+     "digest": "sha256:da8390aa536cff36baa104af2653aa5d7f5e5bcf58be08928d858c9bc0e655ab"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "spiffe-csi-driver",
+     "container": "node-driver-registrar",
+     "ref": "sha256:b572095c12f71ea7db92a3c1f9279854919e0908a6e1a5d95a72182a390a76e0",
+     "digest": "sha256:c53535af8a7f7e3164609838c4b191b42b2d81238d75c1b2a2b582ada62a9780"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "openbao",
+     "container": "openbao",
+     "ref": "quay.io/openbao/openbao:2.1.1",
+     "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "fleet-manager",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "agent-cardvault",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "cpai-engineer",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prod-deploy-gate",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prompt-commit-summarizer-00001",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "swarm-governor",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "zulip-chat-agent",
+     "container": "openbao-agent",
+     "ref": "docker.io/openbao/openbao:2.1.0",
+     "digest": "sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "agent-trust-planner",
+     "container": "planner",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "policy-engine",
+     "container": "policy-engine",
+     "ref": "docker.io/library/policy-engine:local",
+     "digest": "none"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "policy-engine",
+     "container": "policy-engine",
+     "ref": "docker.io/library/policy-engine:local",
+     "digest": "none"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "postgresql",
+     "container": "postgresql",
+     "ref": "docker.io/library/postgres:16-alpine",
+     "digest": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+    },
+    {
+     "namespace": "kagent",
+     "workload": "kagent",
+     "container": "postgresql",
+     "ref": "docker.io/library/postgres:18.3-alpine",
+     "digest": "none"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "agent-trust-planner",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "agent-trust-planner",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-planner-29860590-wzxsl",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-planner-29860595-mc2pj",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-planner-29862200-krz9j",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-planner-29862205-rttc8",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-triage-29860590-sxhfc",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-triage-29860595-j7f4s",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-triage-29862200-zq54t",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "spiffe-triage-29862205-hqt6n",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "cross-project-denied-29861695-f5bgm",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "cross-project-denied-29861990-cfbln",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "cross-project-denied-29862200-n6lvq",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "cross-project-denied-29862205-sl8n9",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "spiffe-risk-reader-29860590-r9lxd",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "spiffe-risk-reader-29860595-rtb2c",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "spiffe-risk-reader-29862200-nkgr2",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "spiffe-risk-reader-29862205-c9qs7",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "cross-tenant-denied-29860775-nrxdj",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "cross-tenant-denied-29861080-99scp",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "cross-tenant-denied-29862200-dg79b",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "cross-tenant-denied-29862205-fvpqs",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "spiffe-investigator-29860590-h95lh",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "spiffe-investigator-29860595-rhxx8",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "spiffe-investigator-29862200-vk97w",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "agent-trust-northstar-investigations",
+     "workload": "spiffe-investigator-29862205-w2lvd",
+     "container": "probe",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "default",
+     "workload": "probe",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "nono-containment-probe",
+     "container": "probe",
+     "ref": "docker.io/library/nono-containment-probe:latest",
+     "digest": "sha256:4e1f20dbbd053deed5a9ef44073725c9be315bdb63ac4bde8c672d743999cebd"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prod-deploy-gate",
+     "container": "prod-deploy-gate",
+     "ref": "docker.io/library/prod-deploy-gate:latest",
+     "digest": "none"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "bao-spire-positive-proof-qr6th",
+     "container": "proof",
+     "ref": "quay.io/openbao/openbao:2.1.1",
+     "digest": "sha256:af40ca17625ec44aa1ffe3698f85162d71d9cc97adc9e97821ef393ac94b6e42"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prompt-commit-summarizer-00001",
+     "container": "queue-proxy",
+     "ref": "sha256:a014fbc01fb1f1f98cf70729ad01ddab591d1b7baf92d86d984dddee506ea0c2",
+     "digest": "sha256:cab5d14e0910c5e2e2f2be736e44724ecb38c72c211ac43c9e7977468f4934cc"
+    },
+    {
+     "namespace": "inf-signalloom",
+     "workload": "redis",
+     "container": "redis",
+     "ref": "docker.io/library/redis:7-alpine",
+     "digest": "sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "spire-agent-swarm-entries",
+     "container": "register",
+     "ref": "docker.io/bitnamilegacy/kubectl:1.31",
+     "digest": "sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48"
+    },
+    {
+     "namespace": "agent-trust-acme-risk",
+     "workload": "agent-trust-risk-reader",
+     "container": "risk-reader",
+     "ref": "docker.io/library/busybox:1.36",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "supercred-demo-runner",
+     "container": "runner",
+     "ref": "docker.io/library/supercred-demo-runner:local",
+     "digest": "none"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "signalloom-warden",
+     "container": "sentinel",
+     "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden:src-24c2a5005f5f",
+     "digest": "sha256:dbdc71e15c218fc1654f23736b25f9818fa2df19c223a5e68e67cebbb53f6af9"
+    },
+    {
+     "namespace": "ingress",
+     "workload": "envoy",
+     "container": "shutdown-manager",
+     "ref": "docker.io/envoyproxy/gateway:v1.8.2",
+     "digest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26"
+    },
+    {
+     "namespace": "fe-signalloom",
+     "workload": "signal-ingest",
+     "container": "signal-ingest",
+     "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signal-ingest:src-e2763e591d984701",
+     "digest": "sha256:0d98dfe3288180005b1bffee82c578fc74cd9e626d32a00ccf8eecea2397b2f2"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "spiffe-csi-driver",
+     "container": "spiffe-csi-driver",
+     "ref": "sha256:17c6458addde4ea991d55dc0dcb7fdf153d0edaf3fdc7d969b4ec378f78eb263",
+     "digest": "sha256:65335d2e6b2055f4bcbd94332ccaa4f753644a19d894b51fe2ff6b9ccec30010"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "spire-agent",
+     "container": "spire-agent",
+     "ref": "ghcr.io/spiffe/spire-agent:1.11.1",
+     "digest": "sha256:3468d6c06da4a36c2b85f61c116935cc32dfdeec669ee7b09ad4f49566cea881"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "spire-server",
+     "container": "spire-oidc-provider",
+     "ref": "ghcr.io/spiffe/oidc-discovery-provider:1.11.1",
+     "digest": "sha256:4d273da48fb48a14b2105688378f365466beb902260817f5ae7df65e3e9c95ac"
+    },
+    {
+     "namespace": "inf-bao",
+     "workload": "spire-server",
+     "container": "spire-server",
+     "ref": "ghcr.io/spiffe/spire-server:1.11.1",
+     "digest": "sha256:f48d3d766d862de9e7232544737be0aa9d2ece600567fdcaf6439167ca9cef5f"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "swarm-governor",
+     "container": "swarm-governor",
+     "ref": "docker.io/library/swarm-governor:latest",
+     "digest": "none"
+    },
+    {
+     "namespace": "kagent",
+     "workload": "kagent-tools",
+     "container": "tools",
+     "ref": "ghcr.io/kagent-dev/kagent/tools:0.2.1",
+     "digest": "none"
+    },
+    {
+     "namespace": "agent-trust-acme-payments",
+     "workload": "agent-trust-triage",
+     "container": "triage",
+     "ref": "docker.io/library/signalloom-spire-helper:local",
+     "digest": "sha256:4e5b559491608d9aad8e3e260f20c6cd0e9708b3311af2375bb7c0307a1fb8cb"
+    },
+    {
+     "namespace": "kagent",
+     "workload": "kagent",
+     "container": "ui",
+     "ref": "cr.kagent.dev/kagent-dev/kagent/ui:0.9.9",
+     "digest": "none"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "prompt-commit-summarizer-00001",
+     "container": "user-container-0",
+     "ref": "docker.io/library/prompt-commit-summarizer:latest",
+     "digest": "sha256:823c64369b64726fac85c90d85a56dd0f4fcbe8def4eff000a0672c31b136943"
+    },
+    {
+     "namespace": "knative-serving",
+     "workload": "knative-serving",
+     "container": "webhook",
+     "ref": "sha256:a179216bf38dae65083ef73b78597f0173e896883e5bf62acd2b9d953176985c",
+     "digest": "sha256:6fb473eb7641c3f7174ed4064e6c3f5eeeb05e1420f5af425bbec33af53f4f92"
+    },
+    {
+     "namespace": "registry",
+     "workload": "zot",
+     "container": "zot",
+     "ref": "ghcr.io/project-zot/zot-linux-amd64:v2.1.2",
+     "digest": "sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71"
+    },
+    {
+     "namespace": "fe-signalloom-agents",
+     "workload": "zulip-chat-agent",
+     "container": "zulip-chat-agent",
+     "ref": "docker.io/library/zulip-chat-agent:latest",
+     "digest": "sha256:8f82bc1bea07107d3c9f6c3845262bae94f9277e4c23f43bc4a672ffc490ae87"
     }
+   ]
   },
-  "suites": [
+  "kind-signalloom-hub": {
+   "kindName": "signalloom-hub",
+   "nodeImages": [
+    "kindest/node:v1.36.1"
+   ],
+   "runningImages": [
     {
-      "id": "test-obscel",
-      "command": "make test-obscel",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 0,
-      "pass": 42,
-      "fail": 0,
-      "skip": 0,
-      "assertionsObserved": 42,
-      "vacuous": false,
-      "state": "GREEN",
-      "skipReason": null,
-      "durationSeconds": 0.36,
-      "logPath": "docs/slsi-p0-baseline/raw/test-obscel.log",
-      "logSha256": "d32f7802b8e9626ebbc1b521f65fa7bae9a7794c5e00eafa582e5d9448f1703f"
+     "namespace": "kube-system",
+     "workload": "coredns-75f748f556-99zk7",
+     "container": "coredns",
+     "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+     "digest": "none"
     },
     {
-      "id": "test-signal-ingest",
-      "command": "make test-signal-ingest",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 0,
-      "pass": 1354,
-      "fail": 0,
-      "skip": 44,
-      "assertionsObserved": 1354,
-      "vacuous": false,
-      "state": "GREEN",
-      "skipReason": "44 stated skips: IDENTITY_TEST_DATABASE_URL not set (36), SLDP_PG_DSN not set (8)",
-      "durationSeconds": 25.22,
-      "logPath": "docs/slsi-p0-baseline/raw/test-signal-ingest.log",
-      "logSha256": "a9cc2f46a41e5f20d60aba18d91f982f43c84427383cbba02a4c0064f9f6aa04"
+     "namespace": "kube-system",
+     "workload": "coredns-75f748f556-hzsm7",
+     "container": "coredns",
+     "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+     "digest": "none"
     },
     {
-      "id": "cel-conformance",
-      "command": "cd d2-signalloom/apps/policy-engine && GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath CGO_ENABLED=0 go test -run TestConformance -v .",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo/d2-signalloom/apps/policy-engine",
-      "exitCode": 0,
-      "pass": 776,
-      "fail": 0,
-      "skip": 0,
-      "assertionsObserved": 776,
-      "vacuous": false,
-      "state": "GREEN",
-      "skipReason": null,
-      "durationSeconds": 0.19,
-      "logPath": "docs/slsi-p0-baseline/raw/cel-conformance.log",
-      "logSha256": "9dd4b2d8ee672f7642f0a267e560e1e15bdff6a30d6da701948a46c098dc8e82"
+     "namespace": "kube-system",
+     "workload": "sldc-bridge-dns",
+     "container": "coredns",
+     "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+     "digest": "none"
     },
     {
-      "id": "test-kusari-e2e",
-      "command": "make test-kusari-e2e",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 0,
-      "pass": 41,
-      "fail": 0,
-      "skip": 0,
-      "assertionsObserved": 41,
-      "vacuous": false,
-      "state": "GREEN",
-      "skipReason": null,
-      "durationSeconds": 4.3,
-      "logPath": "docs/slsi-p0-baseline/raw/test-kusari-e2e.log",
-      "logSha256": "26c5a99cebc2fac0712ddabf0853bc0830a5f59f12e35fd76ef0b509a5a536c4"
+     "namespace": "kube-system",
+     "workload": "etcd-signalloom-hub-control-plane",
+     "container": "etcd",
+     "ref": "registry.k8s.io/etcd:3.6.8-0",
+     "digest": "none"
     },
     {
-      "id": "docs-lint",
-      "command": "make docs-lint",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 2,
-      "pass": 0,
-      "fail": 21,
-      "skip": 0,
-      "assertionsObserved": 21,
-      "vacuous": false,
-      "state": "RED_INHERITED",
-      "skipReason": null,
-      "durationSeconds": 7.25,
-      "logPath": "docs/slsi-p0-baseline/raw/docs-lint.log",
-      "logSha256": "e1cb30c5f0ef3d466ceeb5c3957a82e0d84e31294b5e73becf947c6df8037cb7"
+     "namespace": "kube-system",
+     "workload": "kindnet",
+     "container": "kindnet-cni",
+     "ref": "docker.io/kindest/kindnetd:v20260528-9350166c",
+     "digest": "none"
     },
     {
-      "id": "test-all-offline",
-      "command": "make test-all-offline",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 2,
-      "pass": 1417,
-      "fail": 1,
-      "skip": 0,
-      "assertionsObserved": 1417,
-      "vacuous": false,
-      "state": "RED_INHERITED",
-      "skipReason": null,
-      "durationSeconds": 47.11,
-      "logPath": "docs/slsi-p0-baseline/raw/test-all-offline.log",
-      "logSha256": "1061373f1631a77b47dfac465a7d58203466da636a01731e837dfd613e45a2f5"
+     "namespace": "kube-system",
+     "workload": "kube-apiserver-signalloom-hub-control-plane",
+     "container": "kube-apiserver",
+     "ref": "registry.k8s.io/kube-apiserver-amd64:v1.36.1",
+     "digest": "sha256:48e12aa71c24cf624334ae6f0373f1e1b85825254085475eda149111a926e33c"
     },
     {
-      "id": "test-all-cluster",
-      "command": "make test-all-cluster",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 2,
-      "pass": 0,
-      "fail": 1,
-      "skip": 8,
-      "assertionsObserved": 8,
-      "vacuous": true,
-      "state": "RED_INHERITED",
-      "skipReason": "All 8 tests skipped on stated precondition: namespace/frontend not deployed",
-      "durationSeconds": 0.5,
-      "logPath": "docs/slsi-p0-baseline/raw/test-all-cluster.log",
-      "logSha256": "4e0cf1ce0e06f1046774c2913f327c35227ae8c2b166fc9909c10b639e8e8ada"
+     "namespace": "kube-system",
+     "workload": "kube-controller-manager-signalloom-hub-control-plane",
+     "container": "kube-controller-manager",
+     "ref": "registry.k8s.io/kube-controller-manager-amd64:v1.36.1",
+     "digest": "sha256:3fb749e08554fac4cde5dc53397de761b92939d34ead7e3c89248a8bf5b621e4"
     },
     {
-      "id": "test-all-browser",
-      "command": "make test-all-browser",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 2,
-      "pass": 0,
-      "fail": 1,
-      "skip": 0,
-      "assertionsObserved": 0,
-      "vacuous": true,
-      "state": "RED_INHERITED",
-      "skipReason": null,
-      "durationSeconds": 0.02,
-      "logPath": "docs/slsi-p0-baseline/raw/test-all-browser.log",
-      "logSha256": "e497be976a42e55846539ed98533bf45319a5be6e5ffa164f92e7acb0f57a624"
+     "namespace": "kube-system",
+     "workload": "kube-proxy-dfrxt",
+     "container": "kube-proxy",
+     "ref": "registry.k8s.io/kube-proxy-amd64:v1.36.1",
+     "digest": "sha256:834d6b8414308aed626e67979c4665f21b3651e5d8d04ae68d960a4f844b4e81"
     },
     {
-      "id": "test-all-estate",
-      "command": "make test-all-estate",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 2,
-      "pass": 1417,
-      "fail": 1,
-      "skip": 0,
-      "assertionsObserved": 1417,
-      "vacuous": false,
-      "state": "RED_INHERITED",
-      "skipReason": null,
-      "durationSeconds": 26.77,
-      "logPath": "docs/slsi-p0-baseline/raw/test-all-estate.log",
-      "logSha256": "2ce5d8c6429e96a8fd74f6ae404199dc031fb640060afda632f7edfbc605cdc7"
+     "namespace": "kube-system",
+     "workload": "kube-scheduler-signalloom-hub-control-plane",
+     "container": "kube-scheduler",
+     "ref": "registry.k8s.io/kube-scheduler-amd64:v1.36.1",
+     "digest": "sha256:77add4a58677c7fa1a02b42381a024adc860f8d6bbdf38a89d7f8803c116e43c"
     },
     {
-      "id": "doctor",
-      "command": "make doctor",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 0,
-      "pass": 1,
-      "fail": 0,
-      "skip": 0,
-      "assertionsObserved": 1,
-      "vacuous": false,
-      "state": "GREEN",
-      "skipReason": null,
-      "durationSeconds": 0.79,
-      "logPath": "docs/slsi-p0-baseline/raw/doctor.log",
-      "logSha256": "62ffd8ba221c32b24f8c69ddd740e42ea5ac1344cda56801be2d10d570b5fe6c"
+     "namespace": "local-path-storage",
+     "workload": "local-path-provisioner",
+     "container": "local-path-provisioner",
+     "ref": "docker.io/kindest/local-path-provisioner:v20260521-9fb22683",
+     "digest": "none"
     },
     {
-      "id": "dual-cluster-containment",
-      "command": "make test-e2e-dual-cluster-containment",
-      "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
-      "exitCode": 1,
-      "pass": 4,
-      "fail": 2,
-      "skip": 0,
-      "assertionsObserved": 6,
-      "vacuous": false,
-      "state": "RED_INHERITED",
-      "skipReason": null,
-      "durationSeconds": 196.92,
-      "logPath": "docs/slsi-p0-baseline/raw/dual-cluster-containment.log",
-      "logSha256": "8def53c04639734e2922e3694abf2f45fb4084657acde5a839f99139ab5f6cfd"
+     "namespace": "default",
+     "workload": "probe",
+     "container": "probe",
+     "ref": "docker.io/library/busybox:1.36.1",
+     "digest": "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
     }
-  ],
-  "foreignFailures": [
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/CONFORMANCE.md",
-      "line": 3,
-      "rule": "long",
-      "text": "31 words (max 25): A check is \"correct\" when a fixture that should fail it fails, a fixtu",
-      "finding": "policy/frameworks/CONFORMANCE.md:3: long: 31 words (max 25): A check is \"correct\" when a fixture that should fail it fails, a fixtu",
-      "path": "policy/frameworks/CONFORMANCE.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/CONFORMANCE.md",
-      "line": 28,
-      "rule": "semicolon",
-      "text": "use two sentences: Write numeric comparisons that hold for both int and double (CODE is f",
-      "finding": "policy/frameworks/CONFORMANCE.md:28: semicolon: use two sentences: Write numeric comparisons that hold for both int and double (CODE is f",
-      "path": "policy/frameworks/CONFORMANCE.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/CONFORMANCE.md",
-      "line": 41,
-      "rule": "long",
-      "text": "27 words (max 25): A check that errors on an ordinary, valid input is a defect in the che",
-      "finding": "policy/frameworks/CONFORMANCE.md:41: long: 27 words (max 25): A check that errors on an ordinary, valid input is a defect in the che",
-      "path": "policy/frameworks/CONFORMANCE.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/CONFORMANCE.md",
-      "line": 95,
-      "rule": "semicolon",
-      "text": "use two sentences:  **mutation**: the change made to the CEL (or fixture) and the failing",
-      "finding": "policy/frameworks/CONFORMANCE.md:95: semicolon: use two sentences:  **mutation**: the change made to the CEL (or fixture) and the failing",
-      "path": "policy/frameworks/CONFORMANCE.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/README.md",
-      "line": 76,
-      "rule": "semicolon",
-      "text": "use two sentences:  Every shipped pack is a single CODE; no pack carries a CODE",
-      "finding": "policy/frameworks/README.md:76: semicolon: use two sentences:  Every shipped pack is a single CODE; no pack carries a CODE",
-      "path": "policy/frameworks/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/README.md",
-      "line": 100,
-      "rule": "long",
-      "text": "32 words (max 25):  A per-container security control (privileged, privilege escalation, c",
-      "finding": "policy/frameworks/README.md:100: long: 32 words (max 25):  A per-container security control (privileged, privilege escalation, c",
-      "path": "policy/frameworks/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "line": 18,
-      "rule": "semicolon",
-      "text": "use two sentences: \"All containers\" means CODE, CODE and CODE together; every per-contain",
-      "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:18: semicolon: use two sentences: \"All containers\" means CODE, CODE and CODE together; every per-contain",
-      "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "line": 44,
-      "rule": "semicolon",
-      "text": "use two sentences: The exemption keys on CODE only; a Windows pod that relies on a CODE n",
-      "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:44: semicolon: use two sentences: The exemption keys on CODE only; a Windows pod that relies on a CODE n",
-      "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "line": 51,
-      "rule": "semicolon",
-      "text": "use two sentences: Per-container checks pass vacuously because nothing runs; pod-level ch",
-      "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:51: semicolon: use two sentences: Per-container checks pass vacuously because nothing runs; pod-level ch",
-      "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "line": 76,
-      "rule": "semicolon",
-      "text": "use two sentences: Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
-      "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:76: semicolon: use two sentences: Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
-      "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "line": 76,
-      "rule": "long",
-      "text": "38 words (max 25): Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
-      "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:76: long: 38 words (max 25): Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
-      "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "line": 84,
-      "rule": "long",
-      "text": "35 words (max 25):  CODE: each fixture is the Linux or Windows baseline with one fact   c",
-      "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:84: long: 35 words (max 25):  CODE: each fixture is the Linux or Windows baseline with one fact   c",
-      "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md",
-      "line": 19,
-      "rule": "semicolon",
-      "text": "use two sentences:  Only the boolean CODE passes a bool path; the string CODE fails.",
-      "finding": "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md:19: semicolon: use two sentences:  Only the boolean CODE passes a bool path; the string CODE fails.",
-      "path": "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-      "line": 17,
-      "rule": "semicolon",
-      "text": "use two sentences: A container of the wrong type, such as a string or a list, makes its  ",
-      "finding": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:17: semicolon: use two sentences: A container of the wrong type, such as a string or a list, makes its  ",
-      "path": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-      "line": 17,
-      "rule": "long",
-      "text": "32 words (max 25): A container of the wrong type, such as a string or a list, makes its  ",
-      "finding": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:17: long: 32 words (max 25): A container of the wrong type, such as a string or a list, makes its  ",
-      "path": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-      "line": 61,
-      "rule": "semicolon",
-      "text": "use two sentences: Extend this document; never rename a field in it.",
-      "finding": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:61: semicolon: use two sentences: Extend this document; never rename a field in it.",
-      "path": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "line": 34,
-      "rule": "path",
-      "text": "no such path in the tree: docs/_config.yml",
-      "finding": "policy/frameworks/finos-aigf/v1.0/README.md:34: path: no such path in the tree: docs/_config.yml",
-      "path": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "line": 36,
-      "rule": "path",
-      "text": "no such path in the tree: docs/_includes/mitigation-id.html",
-      "finding": "policy/frameworks/finos-aigf/v1.0/README.md:36: path: no such path in the tree: docs/_includes/mitigation-id.html",
-      "path": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "line": 67,
-      "rule": "long",
-      "text": "46 words (max 25): Re-checked against all   25 mitigations at a149dd1e after the cross-ve",
-      "finding": "policy/frameworks/finos-aigf/v1.0/README.md:67: long: 46 words (max 25): Re-checked against all   25 mitigations at a149dd1e after the cross-ve",
-      "path": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "line": 81,
-      "rule": "semicolon",
-      "text": "use two sentences: When the key is absent the check now fails; before, it raised an error",
-      "finding": "policy/frameworks/finos-aigf/v1.0/README.md:81: semicolon: use two sentences: When the key is absent the check now fails; before, it raised an error",
-      "path": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    },
-    {
-      "suite": "docs-lint",
-      "file": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "line": 87,
-      "rule": "semicolon",
-      "text": "use two sentences: They are left out on purpose; this pack does not approximate them.",
-      "finding": "policy/frameworks/finos-aigf/v1.0/README.md:87: semicolon: use two sentences: They are left out on purpose; this pack does not approximate them.",
-      "path": "policy/frameworks/finos-aigf/v1.0/README.md",
-      "owner": "foreign",
-      "originCommit": "cb0a6d0e",
-      "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
-      "ownedBySLSI": false
-    }
-  ],
-  "doctorExceptions": [
-    {
-      "code": "DOC-5",
-      "message": "ORPHAN WORKTREE(S) (DOC-5) \u2014 26 worktree(s) not attached to any active card against 561+ total worktrees",
-      "disposition": "RETAIN_UNTOUCHED",
-      "count": 26,
-      "items": [
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a0d026d0b4ed958d8",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a103f2110ccbcbf67",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a206bb89509db9d38",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a2472486ef498f427",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a31df8e279ed860a2",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a4011c4e018d3f4e4",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a45cfc6397491fcf8",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a5aebeb7d802d664e",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a6a3470364eb507a5",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a73720c2c3997fc47",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a7bbecb95a0078ce6",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a7c5c5d852ad025ea",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a7def60753c53986b",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a8038c34c7d724ccc",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a81c75fe4b2f3cae5",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a84235ab4d22c3d4d",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a8d0365f37110ff3b",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-aa65f01fbd3ce3fdb",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-aad674bdbf90b128f",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ab3518f8434910c70",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ad1ed812f25748d15",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ad6ddbe471af82603",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ad9aafd5218743fc2",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-adff68218fbbbeaaa",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ae64e41befa26c777",
-        "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-afae5e4c52d79379f"
-      ]
-    },
-    {
-      "code": "DOC-7",
-      "message": "DANGLING / UNREFERENCED COMMITS (DOC-7) \u2014 7 unreferenced commit(s) from prior card lifecycles",
-      "disposition": "RETAIN_UNTOUCHED",
-      "count": 7,
-      "items": [
-        {
-          "sha": "72e4d8bcc075e676f5c5f2d323b4ab12f2ef77bf",
-          "shortSha": "72e4d8bc",
-          "authored": "2026-09-11 09:16:33 +0100",
-          "author": "Andrew Martin",
-          "subject": "feat(signalloom): certify SFAS Phase 4 Governor and record final Programme sign-off",
-          "forensicVerdict": "Rebase/amend leftover from SFAS Programme certification; content already integrated at HEAD."
-        },
-        {
-          "sha": "8a22944847fde0fe51bcb40d40729f6ce0bf098c",
-          "shortSha": "8a229448",
-          "authored": "2026-09-10 22:28:09 +0100",
-          "author": "Andrew Martin",
-          "subject": "feat(signalloom): implement real-time temporal delegation edge revocation on stun containment",
-          "forensicVerdict": "Prior iteration of temporal edge revocation commit; integrated via subsequent merge commit at HEAD."
-        },
-        {
-          "sha": "3c7ca8744710409f07290e8a1c9c74df045c26d2",
-          "shortSha": "3c7ca874",
-          "authored": "2026-09-10 21:59:35 +0100",
-          "author": "Andrew Martin",
-          "subject": "feat(signalloom): wire Tab 5 timeline audit events to interactive cryptographic authorization proof drawer",
-          "forensicVerdict": "Prior amend iteration of timeline audit drawer wiring; integrated at HEAD."
-        },
-        {
-          "sha": "82e70cea98368b78205d7fe360a57c8491cba662",
-          "shortSha": "82e70cea",
-          "authored": "2026-09-10 21:45:42 +0100",
-          "author": "Andrew Martin",
-          "subject": "feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2",
-          "forensicVerdict": "Draft commit superseded by subsequent amended commit in SLAC mission; changes present at HEAD."
-        },
-        {
-          "sha": "fab8555a21c896f18f0d8d9ce5af437dde14f90d",
-          "shortSha": "fab8555a",
-          "authored": "2026-09-10 21:45:00 +0100",
-          "author": "Andrew Martin",
-          "subject": "feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2",
-          "forensicVerdict": "Pre-amend parent of 82e70cea; superseded during authoring and integrated at HEAD."
-        },
-        {
-          "sha": "5209a692b7bb5f24d0b7036fe5b062fe47cf31b0",
-          "shortSha": "5209a692",
-          "authored": "2026-09-09 15:58:34 +0100",
-          "author": "Andrew Martin",
-          "subject": "fix(signalloom): preserve previous pod logs on step 2 failure and broaden 40x regex",
-          "forensicVerdict": "Bugfix rebased into main line during SLAC Phase 2; changes integrated at HEAD."
-        },
-        {
-          "sha": "827819374fe8827df0f9b1f61baecc7f2ea56efa",
-          "shortSha": "82781937",
-          "authored": "2026-09-09 01:36:41 +0100",
-          "author": "Andrew Martin",
-          "subject": "docs(signalloom): record Phase 3 discovery preflight proof (SLAC-P3-PRE)",
-          "forensicVerdict": "Preflight proof document commit amended into subsequent release; proof content present at HEAD."
-        }
-      ]
-    }
-  ],
-  "classification": {
-    "inheritedFindings": 21,
-    "newFindings": 0
-  },
-  "nonVacuityVerdict": {
-    "verdict": "VERIFIED_NON_VACUOUS",
-    "details": "All green suites executed real assertions with non-zero assertion counts (test-obscel: 42, test-signal-ingest: 1354, cel-conformance: 776, test-kusari-e2e: 41, dual-cluster-containment: 4 pass / 2 fail). Red suites failed on genuine unmet preconditions (docs-lint: 21 stylistic rule violations in policy/frameworks/, test-all-offline: bun install EACCES sandbox boundary, test-all-cluster: assert-bats aborted on 8 stated skips for namespace/frontend not deployed). Vacuous assertion scanner exited 1 on dead allowlist entries for VAC007/VAC008, confirming no undocumented passes."
-  },
-  "collisionMap": {
-    "scripts": [
-      {
-        "name": "package-tenant-bundle.sh",
-        "path": "scripts/package-tenant-bundle.sh",
-        "authoringCard": "P1-1",
-        "status": "ABSENT_VERIFIED"
-      },
-      {
-        "name": "init-tenant.sh",
-        "path": "scripts/init-tenant.sh",
-        "authoringCard": "P2-1",
-        "status": "ABSENT_VERIFIED"
-      },
-      {
-        "name": "upgrade-tenant.sh",
-        "path": "scripts/upgrade-tenant.sh",
-        "authoringCard": "P3-2",
-        "status": "ABSENT_VERIFIED"
-      },
-      {
-        "name": "export-diagnostics.sh",
-        "path": "scripts/export-diagnostics.sh",
-        "authoringCard": "P3-3",
-        "status": "ABSENT_VERIFIED"
-      }
-    ],
-    "verification": "All 4 appliance scripts confirmed absent at commit 504405b9. Downstream cards own their respective script authoring."
-  },
-  "decisionGuards": {
-    "decision8": {
-      "status": "SETTLED",
-      "title": "Relationship to ADR-12 \u2014 appliance is a superset, remote-tenant is one of its modes",
-      "directive": "APPLIANCE_MODE=hub|attached selects mode. hub runs local issuers/ingest; attached renders signalloom-warden-overlays/remote-tenant and consumes central issuer secrets. ADR-12 is not superseded; no separate product line is permitted."
-    },
-    "decision9": {
-      "status": "SETTLED",
-      "title": "Release trust by digest pin plus bundle-time signing",
-      "directive": "Platform images are pinned by immutable digest and signed at bundle time with SLSI release key; no separate release signing pipeline. Release private key stays in OpenBao transit KMS; appliance ships only public key. Tag-only references are forbidden."
-    }
-  },
-  "handoff": {
-    "contract": "Downstream cards P1-PRE through P3-GOV diff their acceptance test results against this baseline.",
-    "baselineSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
-    "allowedDeviations": {
-      "docsLintFindings": 21,
-      "docsLintAllowlist": [
-        "policy/frameworks/CONFORMANCE.md",
-        "policy/frameworks/CONFORMANCE.md",
-        "policy/frameworks/CONFORMANCE.md",
-        "policy/frameworks/CONFORMANCE.md",
-        "policy/frameworks/README.md",
-        "policy/frameworks/README.md",
-        "policy/frameworks/cis-kubernetes/v1.8/README.md",
-        "policy/frameworks/cis-kubernetes/v1.8/README.md",
-        "policy/frameworks/cis-kubernetes/v1.8/README.md",
-        "policy/frameworks/cis-kubernetes/v1.8/README.md",
-        "policy/frameworks/cis-kubernetes/v1.8/README.md",
-        "policy/frameworks/cis-kubernetes/v1.8/README.md",
-        "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md",
-        "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-        "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-        "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
-        "policy/frameworks/finos-aigf/v1.0/README.md",
-        "policy/frameworks/finos-aigf/v1.0/README.md",
-        "policy/frameworks/finos-aigf/v1.0/README.md",
-        "policy/frameworks/finos-aigf/v1.0/README.md",
-        "policy/frameworks/finos-aigf/v1.0/README.md"
-      ],
-      "doctorExceptions": [
-        "DOC-5",
-        "DOC-7"
-      ]
-    },
-    "zeroDiffPolicy": "Functional platform manifests, Makefile, and existing test suites were not altered during baseline capture."
+   ]
   }
+ },
+ "suites": [
+  {
+   "id": "test-obscel",
+   "command": "make test-obscel",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 0,
+   "pass": 42,
+   "fail": 0,
+   "skip": 0,
+   "assertionsObserved": 42,
+   "vacuous": false,
+   "state": "GREEN",
+   "skipReason": null,
+   "durationSeconds": 0.36,
+   "logPath": "docs/slsi-p0-baseline/raw/test-obscel.log",
+   "logSha256": "d32f7802b8e9626ebbc1b521f65fa7bae9a7794c5e00eafa582e5d9448f1703f"
+  },
+  {
+   "id": "test-signal-ingest",
+   "command": "make test-signal-ingest",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 0,
+   "pass": 1354,
+   "fail": 0,
+   "skip": 44,
+   "assertionsObserved": 1354,
+   "vacuous": false,
+   "state": "GREEN",
+   "skipReason": "44 stated skips: IDENTITY_TEST_DATABASE_URL not set (36), SLDP_PG_DSN not set (8)",
+   "durationSeconds": 25.22,
+   "logPath": "docs/slsi-p0-baseline/raw/test-signal-ingest.log",
+   "logSha256": "a9cc2f46a41e5f20d60aba18d91f982f43c84427383cbba02a4c0064f9f6aa04"
+  },
+  {
+   "id": "cel-conformance",
+   "command": "cd d2-signalloom/apps/policy-engine && GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath CGO_ENABLED=0 go test -run TestConformance -v .",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo/d2-signalloom/apps/policy-engine",
+   "exitCode": 0,
+   "pass": 776,
+   "fail": 0,
+   "skip": 0,
+   "assertionsObserved": 776,
+   "vacuous": false,
+   "state": "GREEN",
+   "skipReason": null,
+   "durationSeconds": 0.19,
+   "logPath": "docs/slsi-p0-baseline/raw/cel-conformance.log",
+   "logSha256": "9dd4b2d8ee672f7642f0a267e560e1e15bdff6a30d6da701948a46c098dc8e82"
+  },
+  {
+   "id": "test-kusari-e2e",
+   "command": "make test-kusari-e2e",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 0,
+   "pass": 41,
+   "fail": 0,
+   "skip": 0,
+   "assertionsObserved": 41,
+   "vacuous": false,
+   "state": "GREEN",
+   "skipReason": null,
+   "durationSeconds": 4.3,
+   "logPath": "docs/slsi-p0-baseline/raw/test-kusari-e2e.log",
+   "logSha256": "26c5a99cebc2fac0712ddabf0853bc0830a5f59f12e35fd76ef0b509a5a536c4"
+  },
+  {
+   "id": "docs-lint",
+   "command": "make docs-lint",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 2,
+   "pass": 0,
+   "fail": 21,
+   "skip": 0,
+   "assertionsObserved": 21,
+   "vacuous": false,
+   "state": "RED_INHERITED",
+   "skipReason": null,
+   "durationSeconds": 7.25,
+   "logPath": "docs/slsi-p0-baseline/raw/docs-lint.log",
+   "logSha256": "e1cb30c5f0ef3d466ceeb5c3957a82e0d84e31294b5e73becf947c6df8037cb7",
+   "attribution": "inherited: cb0a6d0e integration/cel-frameworks"
+  },
+  {
+   "id": "test-all-offline",
+   "command": "make test-all-offline",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 2,
+   "pass": 1417,
+   "fail": 1,
+   "skip": 0,
+   "assertionsObserved": 1417,
+   "vacuous": false,
+   "state": "RED_NEW",
+   "skipReason": null,
+   "durationSeconds": 47.11,
+   "logPath": "docs/slsi-p0-baseline/raw/test-all-offline.log",
+   "logSha256": "1061373f1631a77b47dfac465a7d58203466da636a01731e837dfd613e45a2f5",
+   "failureNote": "environment: `bun install --frozen-lockfile` failed with EACCES \"could not open the node_modules directory\" in this linked worktree (Makefile:701 test-dashboard-weave). Not a code failure and NOT inherited from cb0a6d0e; re-measure once node_modules is writable in a linked worktree.",
+   "attribution": "not-inherited"
+  },
+  {
+   "id": "test-all-cluster",
+   "command": "make test-all-cluster",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 2,
+   "pass": 0,
+   "fail": 1,
+   "skip": 8,
+   "assertionsObserved": 8,
+   "vacuous": true,
+   "state": "RED_NEW",
+   "skipReason": "All 8 tests skipped on stated precondition: namespace/frontend not deployed",
+   "durationSeconds": 0.5,
+   "logPath": "docs/slsi-p0-baseline/raw/test-all-cluster.log",
+   "logSha256": "4e0cf1ce0e06f1046774c2913f327c35227ae8c2b166fc9909c10b639e8e8ada",
+   "failureNote": "environment: the anti-vacuity gate fired (\"cannot run is not a suite that passed\", Makefile:498) because all 8 tests skipped on the stated precondition namespace/frontend not deployed. Not a code failure and NOT inherited.",
+   "attribution": "not-inherited"
+  },
+  {
+   "id": "test-all-browser",
+   "command": "make test-all-browser",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 2,
+   "pass": 0,
+   "fail": 1,
+   "skip": 0,
+   "assertionsObserved": 0,
+   "vacuous": true,
+   "state": "RED_NEW",
+   "skipReason": null,
+   "durationSeconds": 0.02,
+   "logPath": "docs/slsi-p0-baseline/raw/test-all-browser.log",
+   "logSha256": "e497be976a42e55846539ed98533bf45319a5be6e5ffa164f92e7acb0f57a624",
+   "failureNote": "environment: same node_modules EACCES, at Makefile:1350 demo-signalloom-supercred-stream-harness. Not a code failure and NOT inherited.",
+   "attribution": "not-inherited"
+  },
+  {
+   "id": "test-all-estate",
+   "command": "make test-all-estate",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 2,
+   "pass": 1417,
+   "fail": 1,
+   "skip": 0,
+   "assertionsObserved": 1417,
+   "vacuous": false,
+   "state": "RED_NEW",
+   "skipReason": null,
+   "durationSeconds": 26.77,
+   "logPath": "docs/slsi-p0-baseline/raw/test-all-estate.log",
+   "logSha256": "2ce5d8c6429e96a8fd74f6ae404199dc031fb640060afda632f7edfbc605cdc7",
+   "failureNote": "environment: aggregate of the offline and browser node_modules EACCES faults; the composite aborts on first failing leg. Not inherited.",
+   "attribution": "not-inherited"
+  },
+  {
+   "id": "doctor",
+   "command": "make doctor",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 0,
+   "pass": 1,
+   "fail": 0,
+   "skip": 0,
+   "assertionsObserved": 1,
+   "vacuous": false,
+   "state": "GREEN",
+   "skipReason": null,
+   "durationSeconds": 0.79,
+   "logPath": "docs/slsi-p0-baseline/raw/doctor.log",
+   "logSha256": "62ffd8ba221c32b24f8c69ddd740e42ea5ac1344cda56801be2d10d570b5fe6c"
+  },
+  {
+   "id": "dual-cluster-containment",
+   "command": "make test-e2e-dual-cluster-containment",
+   "cwd": "/home/andy/src/.worktrees/32e03/osramp-demo",
+   "exitCode": 1,
+   "pass": 4,
+   "fail": 2,
+   "skip": 0,
+   "assertionsObserved": 6,
+   "vacuous": false,
+   "state": "RED_NEW",
+   "skipReason": null,
+   "durationSeconds": 196.92,
+   "logPath": "docs/slsi-p0-baseline/raw/dual-cluster-containment.log",
+   "logSha256": "8def53c04639734e2922e3694abf2f45fb4084657acde5a839f99139ab5f6cfd",
+   "failureNote": "precondition: 4/6. Steps 1 and 4 fail because kind-signalloom-hub carries only kube-system (no signal-ingest, no fleet-manager). A documented environment precondition, NOT inherited from cb0a6d0e.",
+   "attribution": "not-inherited"
+  }
+ ],
+ "foreignFailures": [
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/CONFORMANCE.md",
+   "line": 3,
+   "rule": "long",
+   "text": "31 words (max 25): A check is \"correct\" when a fixture that should fail it fails, a fixtu",
+   "finding": "policy/frameworks/CONFORMANCE.md:3: long: 31 words (max 25): A check is \"correct\" when a fixture that should fail it fails, a fixtu",
+   "path": "policy/frameworks/CONFORMANCE.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/CONFORMANCE.md",
+   "line": 28,
+   "rule": "semicolon",
+   "text": "use two sentences: Write numeric comparisons that hold for both int and double (CODE is f",
+   "finding": "policy/frameworks/CONFORMANCE.md:28: semicolon: use two sentences: Write numeric comparisons that hold for both int and double (CODE is f",
+   "path": "policy/frameworks/CONFORMANCE.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/CONFORMANCE.md",
+   "line": 41,
+   "rule": "long",
+   "text": "27 words (max 25): A check that errors on an ordinary, valid input is a defect in the che",
+   "finding": "policy/frameworks/CONFORMANCE.md:41: long: 27 words (max 25): A check that errors on an ordinary, valid input is a defect in the che",
+   "path": "policy/frameworks/CONFORMANCE.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/CONFORMANCE.md",
+   "line": 95,
+   "rule": "semicolon",
+   "text": "use two sentences:  **mutation**: the change made to the CEL (or fixture) and the failing",
+   "finding": "policy/frameworks/CONFORMANCE.md:95: semicolon: use two sentences:  **mutation**: the change made to the CEL (or fixture) and the failing",
+   "path": "policy/frameworks/CONFORMANCE.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/README.md",
+   "line": 76,
+   "rule": "semicolon",
+   "text": "use two sentences:  Every shipped pack is a single CODE; no pack carries a CODE",
+   "finding": "policy/frameworks/README.md:76: semicolon: use two sentences:  Every shipped pack is a single CODE; no pack carries a CODE",
+   "path": "policy/frameworks/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/README.md",
+   "line": 100,
+   "rule": "long",
+   "text": "32 words (max 25):  A per-container security control (privileged, privilege escalation, c",
+   "finding": "policy/frameworks/README.md:100: long: 32 words (max 25):  A per-container security control (privileged, privilege escalation, c",
+   "path": "policy/frameworks/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "line": 18,
+   "rule": "semicolon",
+   "text": "use two sentences: \"All containers\" means CODE, CODE and CODE together; every per-contain",
+   "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:18: semicolon: use two sentences: \"All containers\" means CODE, CODE and CODE together; every per-contain",
+   "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "line": 44,
+   "rule": "semicolon",
+   "text": "use two sentences: The exemption keys on CODE only; a Windows pod that relies on a CODE n",
+   "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:44: semicolon: use two sentences: The exemption keys on CODE only; a Windows pod that relies on a CODE n",
+   "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "line": 51,
+   "rule": "semicolon",
+   "text": "use two sentences: Per-container checks pass vacuously because nothing runs; pod-level ch",
+   "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:51: semicolon: use two sentences: Per-container checks pass vacuously because nothing runs; pod-level ch",
+   "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "line": 76,
+   "rule": "semicolon",
+   "text": "use two sentences: Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
+   "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:76: semicolon: use two sentences: Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
+   "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "line": 76,
+   "rule": "long",
+   "text": "38 words (max 25): Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
+   "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:76: long: 38 words (max 25): Fixture CODE (4 init + 5 main + 1 ephemeral container, each with 25 en",
+   "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "line": 84,
+   "rule": "long",
+   "text": "35 words (max 25):  CODE: each fixture is the Linux or Windows baseline with one fact   c",
+   "finding": "policy/frameworks/cis-kubernetes/v1.8/README.md:84: long: 35 words (max 25):  CODE: each fixture is the Linux or Windows baseline with one fact   c",
+   "path": "policy/frameworks/cis-kubernetes/v1.8/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md",
+   "line": 19,
+   "rule": "semicolon",
+   "text": "use two sentences:  Only the boolean CODE passes a bool path; the string CODE fails.",
+   "finding": "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md:19: semicolon: use two sentences:  Only the boolean CODE passes a bool path; the string CODE fails.",
+   "path": "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+   "line": 17,
+   "rule": "semicolon",
+   "text": "use two sentences: A container of the wrong type, such as a string or a list, makes its  ",
+   "finding": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:17: semicolon: use two sentences: A container of the wrong type, such as a string or a list, makes its  ",
+   "path": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+   "line": 17,
+   "rule": "long",
+   "text": "32 words (max 25): A container of the wrong type, such as a string or a list, makes its  ",
+   "finding": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:17: long: 32 words (max 25): A container of the wrong type, such as a string or a list, makes its  ",
+   "path": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+   "line": 61,
+   "rule": "semicolon",
+   "text": "use two sentences: Extend this document; never rename a field in it.",
+   "finding": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md:61: semicolon: use two sentences: Extend this document; never rename a field in it.",
+   "path": "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "line": 34,
+   "rule": "path",
+   "text": "no such path in the tree: docs/_config.yml",
+   "finding": "policy/frameworks/finos-aigf/v1.0/README.md:34: path: no such path in the tree: docs/_config.yml",
+   "path": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "line": 36,
+   "rule": "path",
+   "text": "no such path in the tree: docs/_includes/mitigation-id.html",
+   "finding": "policy/frameworks/finos-aigf/v1.0/README.md:36: path: no such path in the tree: docs/_includes/mitigation-id.html",
+   "path": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "line": 67,
+   "rule": "long",
+   "text": "46 words (max 25): Re-checked against all   25 mitigations at a149dd1e after the cross-ve",
+   "finding": "policy/frameworks/finos-aigf/v1.0/README.md:67: long: 46 words (max 25): Re-checked against all   25 mitigations at a149dd1e after the cross-ve",
+   "path": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "line": 81,
+   "rule": "semicolon",
+   "text": "use two sentences: When the key is absent the check now fails; before, it raised an error",
+   "finding": "policy/frameworks/finos-aigf/v1.0/README.md:81: semicolon: use two sentences: When the key is absent the check now fails; before, it raised an error",
+   "path": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  },
+  {
+   "suite": "docs-lint",
+   "file": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "line": 87,
+   "rule": "semicolon",
+   "text": "use two sentences: They are left out on purpose; this pack does not approximate them.",
+   "finding": "policy/frameworks/finos-aigf/v1.0/README.md:87: semicolon: use two sentences: They are left out on purpose; this pack does not approximate them.",
+   "path": "policy/frameworks/finos-aigf/v1.0/README.md",
+   "owner": "foreign",
+   "originCommit": "cb0a6d0e",
+   "attributedTo": "cb0a6d0e integration/cel-frameworks merge",
+   "ownedBySLSI": false
+  }
+ ],
+ "doctorExceptions": [
+  {
+   "code": "DOC-5",
+   "message": "ORPHAN WORKTREE(S) (DOC-5) \u2014 26 worktree(s) not attached to any active card against 561+ total worktrees",
+   "disposition": "RETAIN_UNTOUCHED",
+   "count": 26,
+   "items": [
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a0d026d0b4ed958d8",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a103f2110ccbcbf67",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a206bb89509db9d38",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a2472486ef498f427",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a31df8e279ed860a2",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a4011c4e018d3f4e4",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a45cfc6397491fcf8",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a5aebeb7d802d664e",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a6a3470364eb507a5",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a73720c2c3997fc47",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a7bbecb95a0078ce6",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a7c5c5d852ad025ea",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a7def60753c53986b",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a8038c34c7d724ccc",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a81c75fe4b2f3cae5",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a84235ab4d22c3d4d",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-a8d0365f37110ff3b",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-aa65f01fbd3ce3fdb",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-aad674bdbf90b128f",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ab3518f8434910c70",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ad1ed812f25748d15",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ad6ddbe471af82603",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ad9aafd5218743fc2",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-adff68218fbbbeaaa",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-ae64e41befa26c777",
+    "/home/andy/src/cp/osramp-demo/.claude/worktrees/agent-afae5e4c52d79379f"
+   ]
+  },
+  {
+   "code": "DOC-7",
+   "message": "DANGLING / UNREFERENCED COMMITS (DOC-7) \u2014 7 unreferenced commit(s) from prior card lifecycles",
+   "disposition": "RETAIN_UNTOUCHED",
+   "count": 7,
+   "items": [
+    {
+     "sha": "72e4d8bcc075e676f5c5f2d323b4ab12f2ef77bf",
+     "shortSha": "72e4d8bc",
+     "authored": "2026-09-11 09:16:33 +0100",
+     "author": "Andrew Martin",
+     "subject": "feat(signalloom): certify SFAS Phase 4 Governor and record final Programme sign-off",
+     "forensicVerdict": "Rebase/amend leftover from SFAS Programme certification; content already integrated at HEAD."
+    },
+    {
+     "sha": "8a22944847fde0fe51bcb40d40729f6ce0bf098c",
+     "shortSha": "8a229448",
+     "authored": "2026-09-10 22:28:09 +0100",
+     "author": "Andrew Martin",
+     "subject": "feat(signalloom): implement real-time temporal delegation edge revocation on stun containment",
+     "forensicVerdict": "Prior iteration of temporal edge revocation commit; integrated via subsequent merge commit at HEAD."
+    },
+    {
+     "sha": "3c7ca8744710409f07290e8a1c9c74df045c26d2",
+     "shortSha": "3c7ca874",
+     "authored": "2026-09-10 21:59:35 +0100",
+     "author": "Andrew Martin",
+     "subject": "feat(signalloom): wire Tab 5 timeline audit events to interactive cryptographic authorization proof drawer",
+     "forensicVerdict": "Prior amend iteration of timeline audit drawer wiring; integrated at HEAD."
+    },
+    {
+     "sha": "82e70cea98368b78205d7fe360a57c8491cba662",
+     "shortSha": "82e70cea",
+     "authored": "2026-09-10 21:45:42 +0100",
+     "author": "Andrew Martin",
+     "subject": "feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2",
+     "forensicVerdict": "Draft commit superseded by subsequent amended commit in SLAC mission; changes present at HEAD."
+    },
+    {
+     "sha": "fab8555a21c896f18f0d8d9ce5af437dde14f90d",
+     "shortSha": "fab8555a",
+     "authored": "2026-09-10 21:45:00 +0100",
+     "author": "Andrew Martin",
+     "subject": "feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2",
+     "forensicVerdict": "Pre-amend parent of 82e70cea; superseded during authoring and integrated at HEAD."
+    },
+    {
+     "sha": "5209a692b7bb5f24d0b7036fe5b062fe47cf31b0",
+     "shortSha": "5209a692",
+     "authored": "2026-09-09 15:58:34 +0100",
+     "author": "Andrew Martin",
+     "subject": "fix(signalloom): preserve previous pod logs on step 2 failure and broaden 40x regex",
+     "forensicVerdict": "Bugfix rebased into main line during SLAC Phase 2; changes integrated at HEAD."
+    },
+    {
+     "sha": "827819374fe8827df0f9b1f61baecc7f2ea56efa",
+     "shortSha": "82781937",
+     "authored": "2026-09-09 01:36:41 +0100",
+     "author": "Andrew Martin",
+     "subject": "docs(signalloom): record Phase 3 discovery preflight proof (SLAC-P3-PRE)",
+     "forensicVerdict": "Preflight proof document commit amended into subsequent release; proof content present at HEAD."
+    }
+   ]
+  }
+ ],
+ "classification": {
+  "inheritedFindings": 1,
+  "newFindings": 5,
+  "note": "RED_INHERITED is reserved for the 21 policy/frameworks docs-lint findings from cb0a6d0e. Every other red carries failureNote plus attribution=not-inherited: four are environment faults in this linked worktree (node_modules EACCES, vacuity gate) and one is the documented empty-hub precondition. Corrected by the lead at adjudication; the original commit 1385bded tagged all five RED_INHERITED, which laundered real reds as foreign."
+ },
+ "nonVacuityVerdict": {
+  "verdict": "VERIFIED_NON_VACUOUS",
+  "details": "All green suites executed real assertions with non-zero assertion counts (test-obscel: 42, test-signal-ingest: 1354, cel-conformance: 776, test-kusari-e2e: 41, dual-cluster-containment: 4 pass / 2 fail). Red suites failed on genuine unmet preconditions (docs-lint: 21 stylistic rule violations in policy/frameworks/, test-all-offline: bun install EACCES sandbox boundary, test-all-cluster: assert-bats aborted on 8 stated skips for namespace/frontend not deployed). Vacuous assertion scanner exited 1 on dead allowlist entries for VAC007/VAC008, confirming no undocumented passes."
+ },
+ "collisionMap": {
+  "scripts": [
+   {
+    "name": "package-tenant-bundle.sh",
+    "path": "scripts/package-tenant-bundle.sh",
+    "authoringCard": "P1-1",
+    "status": "ABSENT_VERIFIED"
+   },
+   {
+    "name": "init-tenant.sh",
+    "path": "scripts/init-tenant.sh",
+    "authoringCard": "P2-1",
+    "status": "ABSENT_VERIFIED"
+   },
+   {
+    "name": "upgrade-tenant.sh",
+    "path": "scripts/upgrade-tenant.sh",
+    "authoringCard": "P3-2",
+    "status": "ABSENT_VERIFIED"
+   },
+   {
+    "name": "export-diagnostics.sh",
+    "path": "scripts/export-diagnostics.sh",
+    "authoringCard": "P3-3",
+    "status": "ABSENT_VERIFIED"
+   }
+  ],
+  "verification": "All 4 appliance scripts confirmed absent at commit 504405b9. Downstream cards own their respective script authoring."
+ },
+ "decisionGuards": {
+  "decision8": {
+   "status": "SETTLED",
+   "title": "Relationship to ADR-12 \u2014 appliance is a superset, remote-tenant is one of its modes",
+   "directive": "APPLIANCE_MODE=hub|attached selects mode. hub runs local issuers/ingest; attached renders signalloom-warden-overlays/remote-tenant and consumes central issuer secrets. ADR-12 is not superseded; no separate product line is permitted."
+  },
+  "decision9": {
+   "status": "SETTLED",
+   "title": "Release trust by digest pin plus bundle-time signing",
+   "directive": "Platform images are pinned by immutable digest and signed at bundle time with SLSI release key; no separate release signing pipeline. Release private key stays in OpenBao transit KMS; appliance ships only public key. Tag-only references are forbidden."
+  }
+ },
+ "handoff": {
+  "contract": "Downstream cards P1-PRE through P3-GOV diff their acceptance test results against this baseline.",
+  "baselineSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
+  "allowedDeviations": {
+   "docsLintFindings": 21,
+   "docsLintAllowlist": [
+    "policy/frameworks/CONFORMANCE.md",
+    "policy/frameworks/CONFORMANCE.md",
+    "policy/frameworks/CONFORMANCE.md",
+    "policy/frameworks/CONFORMANCE.md",
+    "policy/frameworks/README.md",
+    "policy/frameworks/README.md",
+    "policy/frameworks/cis-kubernetes/v1.8/README.md",
+    "policy/frameworks/cis-kubernetes/v1.8/README.md",
+    "policy/frameworks/cis-kubernetes/v1.8/README.md",
+    "policy/frameworks/cis-kubernetes/v1.8/README.md",
+    "policy/frameworks/cis-kubernetes/v1.8/README.md",
+    "policy/frameworks/cis-kubernetes/v1.8/README.md",
+    "policy/frameworks/eu-ai-act/v2.1/AGENT-CONTEXT.md",
+    "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+    "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+    "policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md",
+    "policy/frameworks/finos-aigf/v1.0/README.md",
+    "policy/frameworks/finos-aigf/v1.0/README.md",
+    "policy/frameworks/finos-aigf/v1.0/README.md",
+    "policy/frameworks/finos-aigf/v1.0/README.md",
+    "policy/frameworks/finos-aigf/v1.0/README.md"
+   ],
+   "doctorExceptions": [
+    "DOC-5",
+    "DOC-7"
+   ]
+  },
+  "zeroDiffPolicy": "Functional platform manifests, Makefile, and existing test suites were not altered during baseline capture."
+ }
 }

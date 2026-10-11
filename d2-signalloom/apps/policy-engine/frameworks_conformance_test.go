@@ -28,6 +28,11 @@ type conformanceFixture struct {
 	Description string             `json:"description"`
 	Input       conformanceInput   `json:"input"`
 	Expect      map[string]Verdict `json:"expect"`
+	// AssessmentDate is the as-of date this fixture is evaluated at, YYYY-MM-DD.
+	// Optional: absent means no applicability window is applied, which is the
+	// same default handleScan uses and is why every fixture that predates
+	// windows keeps its verdicts unchanged.
+	AssessmentDate string `json:"assessmentDate,omitempty"`
 
 	path string
 }
@@ -42,9 +47,14 @@ type conformancePack struct {
 	dir      string
 	fw       *frameworks.Framework
 	checks   map[string]frameworks.Check
+	windows  map[string]*frameworks.Applicability
 	order    []string
 	fixtures []conformanceFixture
 }
+
+// window is the ONE applicability window governing a check, resolved
+// check > control > control set > framework exactly as handleScan resolves it.
+func (p *conformancePack) window(id string) *frameworks.Applicability { return p.windows[id] }
 
 func (p *conformancePack) label() string { return p.fw.ID + "/" + filepath.Base(p.dir) }
 
@@ -105,7 +115,11 @@ func loadConformancePacks(t *testing.T, root string) []*conformancePack {
 }
 
 func newConformancePack(dir string, fw *frameworks.Framework) *conformancePack {
-	p := &conformancePack{dir: dir, fw: fw, checks: map[string]frameworks.Check{}}
+	p := &conformancePack{
+		dir: dir, fw: fw,
+		checks:  map[string]frameworks.Check{},
+		windows: map[string]*frameworks.Applicability{},
+	}
 	for _, cs := range fw.ControlSets {
 		for _, c := range cs.Controls {
 			for _, chk := range c.Checks {
@@ -113,10 +127,18 @@ func newConformancePack(dir string, fw *frameworks.Framework) *conformancePack {
 					p.order = append(p.order, chk.ID)
 				}
 				p.checks[chk.ID] = chk
+				p.windows[chk.ID] = frameworks.ResolveApplicability(fw, cs, c, chk)
 			}
 		}
 	}
 	return p
+}
+
+// newConformancePackFrom re-resolves a pack after its hierarchy was mutated by
+// a harness self-test. Exists so those tests cannot drift from the real
+// resolution order by hand-building the windows map.
+func newConformancePackFrom(dir string, fw *frameworks.Framework) *conformancePack {
+	return newConformancePack(dir, fw)
 }
 
 func readFixtures(dir string) ([]conformanceFixture, error) {
@@ -167,6 +189,17 @@ func validatePack(p *conformancePack) []string {
 		if len(f.Expect) == 0 {
 			problems = append(problems, fmt.Sprintf("%s: expect is empty", where))
 		}
+		// The fixture's as-of date, held to the same strict parse as the wire
+		// field so a typo cannot silently ungate a fixture.
+		var asOf frameworks.Date
+		if f.AssessmentDate != "" {
+			d, err := frameworks.ParseDate(f.AssessmentDate)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("%s: assessmentDate: %v", where, err))
+			} else {
+				asOf = d
+			}
+		}
 		for id, v := range f.Expect {
 			if _, ok := p.checks[id]; !ok {
 				problems = append(problems, fmt.Sprintf("%s: expects unknown check %q", where, id))
@@ -177,10 +210,37 @@ func validatePack(p *conformancePack) []string {
 				problems = append(problems, fmt.Sprintf("%s: placeholder check %q must expect not_evaluated, not %q", where, id, v))
 				continue
 			}
+			// The applicability iff, enforced BOTH WAYS exactly as the
+			// placeholder iff above is. Forwards: a not_in_force expectation
+			// must be earned. Backwards: a check the window gates cannot
+			// expect pass, fail or error, because on that date there is no
+			// obligation to comply with, breach or evaluate.
+			window := p.window(id)
+			_, gated := window.Gates(asOf)
+			if !placeholder && gated && v != VerdictNotInForce {
+				problems = append(problems, fmt.Sprintf(
+					"%s: check %q is governed by a verified window from %s and the fixture is dated %s, so it must expect not_in_force, not %q",
+					where, id, window.InForceFrom, f.AssessmentDate, v))
+				continue
+			}
 			switch v {
 			case VerdictNotEvaluated:
 				if !placeholder {
 					problems = append(problems, fmt.Sprintf("%s: check %q is not a placeholder: not_evaluated is not a valid expectation", where, id))
+				}
+			case VerdictNotInForce:
+				switch {
+				case gated:
+					// Earned: the window is verified, the fixture is dated, and
+					// the date falls outside the window.
+				case window == nil:
+					problems = append(problems, fmt.Sprintf("%s: check %q declares no applicability window: not_in_force is not a valid expectation", where, id))
+				case f.AssessmentDate == "":
+					problems = append(problems, fmt.Sprintf("%s: a not_in_force expectation for %q needs an assessmentDate: without one no window is applied", where, id))
+				case !window.Verified:
+					problems = append(problems, fmt.Sprintf("%s: check %q's window is not verified, so it never gates: not_in_force is not a valid expectation", where, id))
+				default:
+					problems = append(problems, fmt.Sprintf("%s: check %q's window is in force on %s: not_in_force is not a valid expectation", where, id, f.AssessmentDate))
 				}
 			case VerdictPass, VerdictFail:
 			case VerdictError:
@@ -188,7 +248,7 @@ func validatePack(p *conformancePack) []string {
 					problems = append(problems, fmt.Sprintf("%s: error expectation for %q needs a description saying why", where, id))
 				}
 			default:
-				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail, error or not_evaluated", where, v, id))
+				problems = append(problems, fmt.Sprintf("%s: verdict %q for %q must be pass, fail, error, not_evaluated or not_in_force", where, v, id))
 			}
 		}
 		if f.Level == "integration" {
@@ -246,6 +306,13 @@ func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) m
 	// disagree: a fixture whose object the engine refuses errors here too.
 	shaped := shapeWorkload(f.Input.Object)
 	in := celBindings(shaped.object, f.Input.Agent, f.Input.Request)
+	// The same as-of date handleScan applies, with the same strict parse and
+	// the same precedence, so the harness and the handler cannot disagree about
+	// the same pack. Same reasoning that put shapeWorkload in this function.
+	var asOf frameworks.Date
+	if f.AssessmentDate != "" {
+		asOf, _ = frameworks.ParseDate(f.AssessmentDate)
+	}
 	out := map[string]checkOutcome{}
 	for id := range f.Expect {
 		chk, ok := p.checks[id]
@@ -254,6 +321,11 @@ func evaluateFixture(eng *CELEngine, p *conformancePack, f conformanceFixture) m
 		}
 		if p.placeholder(id) {
 			out[id] = checkOutcome{verdict: VerdictNotEvaluated}
+			continue
+		}
+		if st, gated := p.window(id).Gates(asOf); gated {
+			v, _ := gateVerdict(st)
+			out[id] = checkOutcome{verdict: v}
 			continue
 		}
 		if v, _, guarded := shaped.verdictFor(chk.CELExpression); guarded {

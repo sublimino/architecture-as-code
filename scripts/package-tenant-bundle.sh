@@ -242,14 +242,46 @@ verify_offline_manifest() {
   local manifest_line_count
   manifest_line_count="$(grep -c -v '^[[:space:]]*$' "${manifest}")"
 
-  # Completeness check: ensure no unlisted files in anchor_dir
+  # Completeness check: ensure no unlisted files in anchor_dir.
+  #
+  # The listed paths are extracted once and compared as exact strings. An
+  # earlier revision interpolated the candidate path into a grep basic regex
+  # ("[[:space:]]${rel}$") with neither -F nor escaping, so a planted file
+  # named amd64/ki.d matched the manifest entry for amd64/kind and passed
+  # completeness at rc=0. Measured: 'amd64/ki.d' and 'amd64/k..d' both match
+  # that entry, 'amd64/kixd' does not. Exact comparison removes the whole class
+  # rather than escaping one metacharacter.
+  local -a listed_paths=()
+  mapfile -t listed_paths < <(
+    awk '{ line=$0; sub(/^[^ \t]+[ \t]+\*?/, "", line); if (line != "") print line }' "${manifest}"
+  )
+  local -A listed_set=()
+  local lp
+  for lp in "${listed_paths[@]}"; do
+    listed_set["${lp}"]=1
+  done
+
+  # The Decision 10 container wrappers are deliberately absent from the
+  # checksum manifest. Exclude them by their exact expected paths, not by a
+  # '*/openssl' glob, which would skip any planted file whose name happens to
+  # end that way.
+  local -A wrapper_exempt=()
+  local arch util
+  for arch in amd64 arm64; do
+    for util in openssl envsubst; do
+      wrapper_exempt["${arch}/${util}"]=1
+    done
+    wrapper_exempt["${arch}/versions.txt"]=1
+  done
+  wrapper_exempt["checksums.txt"]=1
+
   local unlisted=()
   while IFS= read -r f; do
     local rel="${f#"${anchor_dir}/"}"
-    if [[ "${rel}" == "checksums.txt" || "${rel}" == */versions.txt || "${rel}" == */openssl || "${rel}" == */envsubst ]]; then
+    if [[ -n "${wrapper_exempt[${rel}]:-}" ]]; then
       continue
     fi
-    if ! grep -q "[[:space:]]${rel}$" "${manifest}"; then
+    if [[ -z "${listed_set[${rel}]:-}" ]]; then
       unlisted+=("${rel}")
     fi
   done < <(find "${anchor_dir}" -type f | sort)

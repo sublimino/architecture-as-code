@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import shutil
 import uuid
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -396,3 +397,63 @@ async def test_jurisdiction_and_sector_must_be_canonical_and_non_blank(
         "UPDATE public.tenant_settings SET jurisdiction = $1 WHERE tenant_id = $2",
         "*", "tenant-juris",
     )
+
+
+@pytest.mark.asyncio
+async def test_the_handlers_own_update_statement_runs_against_the_real_schema(
+    scratch_pool: asyncpg.Pool,
+) -> None:
+    """The pooled write path, against Postgres rather than a fake.
+
+    ``test_tenant_risk_profile.py`` exercises the handler over the in-memory
+    fixture store, which proves the contract but never compiles the SQL.  The
+    two things most likely to be wrong are exactly the two a fake cannot see:
+    that the statement is valid against the real column set, and that
+    ``risk_appetite_tolerance`` binds at all -- it is NUMERIC, and asyncpg
+    rejects a Python float for a numeric parameter outright rather than
+    coercing it, so the handler converts to Decimal.  This test fails if either
+    the statement or that conversion regresses.
+    """
+    await apply_migrations(scratch_pool)
+    await scratch_pool.execute(
+        "INSERT INTO public.tenant_settings (tenant_id, org_name) VALUES ($1, $2)",
+        "tenant-handler-sql", "Handler SQL Org",
+    )
+
+    # Byte-for-byte the statement in api_compat.patch_tenant_risk_profile.
+    statement = """UPDATE tenant_settings
+                  SET sector                  = $1,
+                      jurisdiction            = $2,
+                      reporting_currency      = $3,
+                      risk_appetite_tolerance = $4,
+                      risk_load               = $5
+                WHERE tenant_id = $6"""
+
+    await scratch_pool.execute(
+        statement,
+        "retail-ecommerce", "UK", "GBP", Decimal("25000.00"), 0.15, "tenant-handler-sql",
+    )
+
+    row = await scratch_pool.fetchrow(
+        """SELECT sector, jurisdiction, reporting_currency,
+                  risk_appetite_tolerance, risk_load
+             FROM public.tenant_settings WHERE tenant_id = $1""",
+        "tenant-handler-sql",
+    )
+    assert row["sector"] == "retail-ecommerce"
+    assert row["jurisdiction"] == "UK"
+    assert row["reporting_currency"] == "GBP"
+    assert row["risk_appetite_tolerance"] == Decimal("25000.00")
+    assert row["risk_load"] == 0.15
+
+    # And the all-undeclared write, which is what skipping the step sends.
+    await scratch_pool.execute(
+        statement, None, None, None, None, None, "tenant-handler-sql",
+    )
+    cleared = await scratch_pool.fetchrow(
+        """SELECT sector, jurisdiction, reporting_currency,
+                  risk_appetite_tolerance, risk_load
+             FROM public.tenant_settings WHERE tenant_id = $1""",
+        "tenant-handler-sql",
+    )
+    assert all(cleared[column] is None for column in RISK_PROFILE_COLUMNS)

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import HelpHint from '../HelpHint'
 import { useMoney } from '../../money/CurrencyContext'
 import type { CurrencyCode } from '../../money/currency'
+import type { PricingStatus } from '../../api/fleetApi'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,14 @@ export interface FleetRiskGaugeProps {
    * reader looking for a dashboard bug instead of a missing price declaration.
    */
   unavailableReason?: string
+  /**
+   * The refusal's machine-readable cause, which selects the action line.
+   *
+   * Passed separately from `unavailableReason` because the reason is prose the
+   * server wrote and the action is a mapping this client owns. Both are shown:
+   * the reason says what happened, the action says who fixes it.
+   */
+  unavailableStatus?: PricingStatus | string
   /**
    * Where these figures came from, shown beside them.
    *
@@ -92,18 +101,50 @@ function riskBandLabel(amount: number | null | undefined): string {
 }
 
 /**
- * True when a risk summary carries an ALE a reader can be shown.
+ * True when a risk summary carries a figure a reader can be shown.
  *
- * The one place the question is answered, so a page and this gauge cannot
- * disagree about whether a figure exists. `0` IS priced: a measured zero is a
- * figure. Absent and non-finite are not.
+ * `pricing.status` is the contract, and it is the ONLY field branched on:
+ * anything other than `PRICED` means there is no figure, including a status
+ * this build has never heard of. `available` is deliberately not read -- the
+ * server derives it from the status, so reading both could only ever produce
+ * a disagreement the server cannot express.
+ *
+ * The `ale`-presence fallback is for a producer that predates the shared
+ * refusal shape and sends no `pricing` at all. It is a fallback, not the rule:
+ * once every route sends `pricing`, the first branch answers every case.
+ *
+ * A measured `0` IS priced. A gauge that refused on zero would be as wrong as
+ * one that invented a figure.
  *
  * It lives here rather than in api/fleetApi.ts because both fleet page suites
  * wholesale-mock that module with no `importOriginal`, so any helper added
  * there is missing at runtime under test.
  */
-export function isPriced(risk: { ale?: number | null } | null | undefined): boolean {
+export function isPriced(
+  risk: { ale?: number | null; pricing?: { status: PricingStatus | string } } | null | undefined,
+): boolean {
+  if (risk?.pricing) return risk.pricing.status === 'PRICED'
   return typeof risk?.ale === 'number' && Number.isFinite(risk.ale)
+}
+
+/**
+ * What the reader should DO about a refusal, by cause.
+ *
+ * The two refusal statuses are kept apart here on purpose. Collapsing them
+ * into one sentence would repeat the mistake the currency path already made
+ * and fixed: one label over two facts, which reads as authoritative precisely
+ * because it is uniform. An unrecognised status gets no action line rather
+ * than a guessed one.
+ */
+export function unpricedAction(status: PricingStatus | string | undefined): string | undefined {
+  switch (status) {
+    case 'NO_DECLARED_LOSS_FREQUENCY':
+      return 'No control in the risk pack maps to the checks evaluated. Declare the mapping in risk/packs/agent-policy.'
+    case 'NO_RISK_DATA_PLANE':
+      return 'This route answers from a store that holds no money. Run a priced scan, or give the route a risk data plane.'
+    default:
+      return undefined
+  }
 }
 
 /**
@@ -218,6 +259,7 @@ export default function FleetRiskGauge({
   carriedGbp,
   carried,
   unavailableReason,
+  unavailableStatus,
   sourceLabel,
   stepwise = false,
   cascadeStep,
@@ -226,7 +268,13 @@ export default function FleetRiskGauge({
 }: FleetRiskGaugeProps) {
   // `priced` is the discriminator for the whole component. Absent and zero are
   // two different claims and only one of them is a figure.
-  const priced = isPriced({ ale })
+  // The status wins where the caller supplied one, and `ale` presence is the
+  // fallback for a producer that predates the shared refusal shape. Same rule
+  // as `isPriced`, expressed over the gauge's flattened props.
+  const priced = isPriced(
+    unavailableStatus === undefined ? { ale } : { ale, pricing: { status: unavailableStatus } },
+  )
+  const action = priced ? undefined : unpricedAction(unavailableStatus)
   const isStepwiseActive = stepwise || cascadeStep !== undefined
   // Hooks run unconditionally. 0 is the animation INPUT when unpriced, never
   // the rendered value: every read of displayAle below is behind `priced`.
@@ -423,6 +471,14 @@ export default function FleetRiskGauge({
           }}
         >
           {unavailableReason ?? UNPRICED_NO_SERVER_REASON}
+          {action !== undefined && (
+            <div
+              data-testid="fleet-risk-unpriced-action"
+              style={{ marginTop: 4, color: 'var(--text)', fontWeight: 600 }}
+            >
+              {action}
+            </div>
+          )}
         </div>
       )}
 

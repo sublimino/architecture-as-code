@@ -38,22 +38,53 @@ export interface Edge {
 }
 
 /**
- * Whether the thing that produced a RiskSummary was able to price its own
- * findings, and when it was not, why not.
+ * The machine-readable cause of a route declining to report a money figure.
  *
- * Mirrors `FleetPricingStatus` on the Go side (policy-engine,
- * pkg/compliance/fleet_scan.go). It exists so the refusal is part of the
- * payload rather than an absence a reader has to notice, and so the dashboard
- * can show the SERVER's reason instead of guessing at one.
+ * Mirrors `PricingStatus` in policy-engine/pkg/compliance/fleet_scan.go, and
+ * the key set is identical on all three routes that withhold money, so there
+ * is one shape to deserialise and one to render.
  *
- * Optional here because /fleet-api/v1/fleet/topology does not send it yet. A
- * caller must therefore handle "no figure and no stated reason" as well as "no
- * figure, here is why" -- see UNPRICED_NO_SERVER_REASON in FleetRiskGauge.
+ * The two refusal values are NOT interchangeable and must not be collapsed in
+ * UI copy: they demand different operator actions. A missing loss-event
+ * frequency is fixed by declaring a control mapping in the policy pack; a
+ * missing risk data plane is fixed by putting a priced scan behind the route.
+ * See `unpricedAction` in FleetRiskGauge, which is the one place that mapping
+ * is written down client-side.
+ */
+export type PricingStatus =
+  /** A figure is present and was computed from declared inputs. */
+  | 'PRICED'
+  /** The checks evaluated resolve to no control in the risk pack. */
+  | 'NO_DECLARED_LOSS_FREQUENCY'
+  /** The route answers from a store that holds no money at all. */
+  | 'NO_RISK_DATA_PLANE'
+
+/**
+ * The refusal object. Every key is always present on the wire.
+ *
+ * `status` is the ONLY thing to branch on. `available` is still sent and still
+ * read by clients, but on the Go side it is DERIVED from the status through a
+ * method precisely so two hand-maintained fields cannot carry one fact and
+ * drift apart -- a test asserts the constructor offers no way to set it.
+ * Branching on both here would write a disagreement the server cannot
+ * produce, so this client never reads `available` at all.
+ *
+ * `status` is typed as the union widened with `string`: a client older than
+ * the server must treat an unrecognised status as "not priced" rather than
+ * failing to compile against it or, worse, coercing it to PRICED.
+ *
+ * The whole object is optional only because a pre-contract producer may not
+ * send it yet (fleet-manager's /topology at the time of writing; W7 is
+ * applying the same shape there). `isPriced` handles that case explicitly.
  */
 export interface FleetPricingStatus {
   available: boolean
-  reason?: string
-  unmappedChecks?: string[]
+  status: PricingStatus | string
+  reason: string
+  /** The money fields this response withheld, by their JSON names. */
+  unpricedFields: string[]
+  /** The checks that resolved to no declared control; empty when not per-check. */
+  unmappedChecks: string[]
 }
 
 /**

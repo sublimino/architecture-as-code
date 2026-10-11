@@ -284,6 +284,33 @@ state is allowed, because a loss magnitude with no calibrated frequency is not a
 price. It is not a small-print detail, because a reader who adds up a scan gets
 a total over the priced checks only.
 
+### What these figures are a share of
+
+A `riskTriple` mode here is the **attributable share of one loss event assigned
+to one failed control**. It is not the cost of the loss event. Published
+single-event loss medians sit one to two orders of magnitude above these modes
+(IRIS 2022, <https://www.cyentia.com/iris-2022/>). The event-level figures are
+the `SCN-*` magnitudes in [`risk/org/acme.yaml`](../../../risk/org/acme.yaml).
+
+Every priced check carries a derivation entry in `v2.1/CALIBRATION.md`. It
+names the anchor classes behind both triples, the scenario the check is a share
+of, and a confidence letter. The registry is [ANCHORS.md](../ANCHORS.md).
+
+### Five v2.1 checks are off the technical loss path
+
+`training-data-provenance`, `annex-iv-technical-documentation`,
+`automatic-record-keeping`, `user-instructions-transparency` and
+`synthetic-content-marking` defend against a **penalty**, not a breach. A
+documentation gap does not cause a technical loss event. Their technical
+frequency was zeroed on 2026-10-11 and each is declared in
+`catalogue/unpriced.tsv` with the reason code `penalty-path-not-technical`.
+
+Their statutory ceilings are facts and are tabulated in
+[PENALTIES.md](../PENALTIES.md#eu-ai-act). Art. 99(4) is the applicable row for
+a deployer, at €15,000,000 or 3 per cent. A ceiling is a `max` and never a
+`mode`. Pricing them needs the secondary-loss model in section 4 of
+[the open decisions](../../../docs/fair-methodology-open-decisions.md).
+
 Read [the calibration statement](../README.md#the-calibration-statement) before you quote
 any figure in this table or any figure the engine produces from this pack.
 
@@ -292,10 +319,10 @@ any figure in this table or any figure the engine produces from this pack.
 | :--- | ---: | ---: | ---: | ---: |
 | `v1.0.0` | 7 | 0 | 7 | 0 |
 | `v2.0.0` | 19 | 0 | 19 | 1 |
-| `v2.1.0` | 11 | 11 | 0 | 0 |
-| **Pack total** | **37** | **11** | **26** | **1** |
+| `v2.1.0` | 11 | 6 | 5 | 0 |
+| **Pack total** | **37** | **6** | **31** | **1** |
 
 An unpriced check contributes GBP 0.00 to every total however often it
-fails. Of 37 check(s) on this page, 11 are priced and 26 are not.
+fails. Of 37 check(s) on this page, 6 are priced and 31 are not.
 Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
 <!-- pricing-counts:end -->

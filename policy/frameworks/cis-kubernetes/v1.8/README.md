@@ -153,6 +153,20 @@ a total over the priced checks only.
 Read [the calibration statement](../../README.md#the-calibration-statement) before you quote
 any figure in this table or any figure the engine produces from this pack.
 
+### What these figures are a share of
+
+A `riskTriple` mode here is the **attributable share of one loss event assigned
+to one failed control**. It is not the cost of the loss event. Published
+single-event loss medians sit one to two orders of magnitude above these modes
+(IRIS 2022, <https://www.cyentia.com/iris-2022/>). The event-level figures are
+the `SCN-*` magnitudes in [`risk/org/acme.yaml`](../../../../risk/org/acme.yaml).
+
+Every priced check carries a derivation entry in `CALIBRATION.md` beside this
+pack. It names the anchor classes behind both triples, the scenario the check
+is a share of, and a confidence letter. The registry is
+[ANCHORS.md](../../ANCHORS.md). Statutory ceilings are a `max` and never a
+`mode`, and they are in [PENALTIES.md](../../PENALTIES.md).
+
 <!-- pricing-counts:begin -->
 | Version | Checks | Priced | Unpriced | Placeholder |
 | :--- | ---: | ---: | ---: | ---: |

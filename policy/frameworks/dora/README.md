@@ -126,6 +126,21 @@ state is allowed, because a loss magnitude with no calibrated frequency is not a
 price. It is not a small-print detail, because a reader who adds up a scan gets
 a total over the priced checks only.
 
+### There is no DORA figure to quote
+
+This pack holds one placeholder check and prices at zero. Zero is the correct
+figure rather than a gap, and the reason is statutory.
+
+**DORA sets no European-level monetary ceiling for a financial entity.**
+Art. 50 leaves administrative penalties to Member States. Critical ICT
+third-party providers are a separate case, facing up to 1 per cent of average
+daily worldwide turnover charged daily for up to six months. The citations are
+in [PENALTIES.md](../PENALTIES.md#dora).
+
+So a DORA fine figure for a deployer is an invention unless the author read a
+specific national implementation and cited it. The anchor-class registry is
+[ANCHORS.md](../ANCHORS.md).
+
 Read [the calibration statement](../README.md#the-calibration-statement) before you quote
 any figure in this table or any figure the engine produces from this pack.
 

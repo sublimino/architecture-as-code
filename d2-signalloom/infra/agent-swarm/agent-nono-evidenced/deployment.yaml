@@ -48,13 +48,20 @@ spec:
       serviceAccountName: agent-nono-evidenced
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
+        # 65532 = the nonroot user the agent-nono-evidenced image chowns HOME to;
+        # nono needs a writable HOME for its pre-sandbox state. Landlock itself
+        # needs no capabilities, so caps stay dropped below.
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: agent
-          image: docker.io/bitnamilegacy/kubectl:1.31
+          # REAL nono/Landlock image (Dockerfile.nono): ships the nono binary and
+          # the fail-closed probe-nono-capability.sh. Replaces the stock kubectl
+          # image that had no nono and ran the SP-5 unconfined-but-"healthy" shim.
+          # Build + load: make swarm-agent-nono-evidenced-image.
+          image: agent-nono-evidenced:latest
           imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "/scripts/entrypoint.sh"]
           env:

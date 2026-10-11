@@ -82,12 +82,17 @@ pack mode against an IRIS median therefore reads a hundred-fold error where
 there is an attribution model. Both figures are defensible. They answer
 different questions.
 
-Each priced check now carries a `derivation` block. It names the `SCN-*`
-scenario the check is a share of, the anchor classes behind its two triples,
-and a confidence letter. The registry of anchor classes is
-[ANCHORS.md](ANCHORS.md). The
-statutory ceilings, which are a `max` and never a `mode`, are in
-[PENALTIES.md](PENALTIES.md).
+Each priced check now carries a derivation entry in its pack's
+`CALIBRATION.md`, keyed by check id. The entry names the `SCN-*` scenario the
+check is a share of, the anchor classes behind its two triples, the
+`P_org`/`S_path`/`C_check` reasoning, and a confidence letter. The registry of
+anchor classes is [ANCHORS.md](ANCHORS.md). The statutory ceilings, which are a
+`max` and never a `mode`, are in [PENALTIES.md](PENALTIES.md).
+
+The derivation lives beside the pack rather than inside `framework.json`. The
+loader runs `DisallowUnknownFields`, so a per-triple provenance field is a
+loader change rather than a data change. That change is still open. It is
+section 7 of [the open decisions](../../docs/fair-methodology-open-decisions.md).
 
 ## The calibration statement
 

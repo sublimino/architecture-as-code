@@ -107,9 +107,21 @@ func decodeYAML(data []byte, fw *Framework) error {
 // must fail to load, loudly, at the boundary.
 func validate(fw *Framework) error {
 	seen := map[string]string{}
+	if err := validateApplicability("framework", fw.Applicability); err != nil {
+		return err
+	}
 	for _, cs := range fw.ControlSets {
+		if err := validateApplicability(fmt.Sprintf("control set %q", cs.ID), cs.Applicability); err != nil {
+			return err
+		}
 		for _, ctrl := range cs.Controls {
+			if err := validateApplicability(fmt.Sprintf("control %q", ctrl.ID), ctrl.Applicability); err != nil {
+				return err
+			}
 			for i, chk := range ctrl.Checks {
+				if err := validateApplicability(fmt.Sprintf("control %q check %q", ctrl.ID, chk.ID), chk.Applicability); err != nil {
+					return err
+				}
 				if strings.TrimSpace(chk.ID) == "" {
 					return fmt.Errorf("control %q check #%d has no id", ctrl.ID, i)
 				}

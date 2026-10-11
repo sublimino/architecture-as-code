@@ -3,6 +3,13 @@
   "name": "FINOS AI Governance Framework (AIGF)",
   "version": "v1.0.0",
   "description": "Agent-configuration checks evidencing FINOS AIGF mitigations. Control IDs are the catalogue's own mitigation IDs (AIR-PREV-nnn / AIR-DET-nnn) from https://github.com/finos/ai-governance-framework at a149dd1eb763c0be4ff8107b698c41230ecfbfc8 (2026-10-07). The agent context schema is policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md.",
+  "applicability": {
+    "inForceFrom": "2026-10-07",
+    "basis": "publication-date",
+    "source": "https://github.com/finos/ai-governance-framework/commit/a149dd1eb763c0be4ff8107b698c41230ecfbfc8",
+    "note": "The FINOS AI Governance Framework is a LIVING DOCUMENT with no version number, no publication event and no enforcement of any kind, so there is no enforcement date to cite and the only honest date is the commit the pack was built against: a149dd1eb763c0be4ff8107b698c41230ecfbfc8, committed 2026-10-07, already recorded in this pack framework description and in README.md. basis is publication-date because a commit date is when a document said what it says, which is the same category of fact. A living document can also be amended without any date moving, so unlike a regulation this window carries no implication that the content is still current -- it states which snapshot these controls were derived from. verified:true means the commit SHA and its date match the pack README record; it is not a claim that any obligation begins on that day, because none does.",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "aigf-preventative",

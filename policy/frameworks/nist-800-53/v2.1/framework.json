@@ -2,6 +2,13 @@
   "id": "nist-800-53",
   "name": "NIST SP 800-53 Rev. 5",
   "version": "v2.1.0",
+  "applicability": {
+    "inForceFrom": "2026-05-11",
+    "basis": "publication-date",
+    "source": "policy/frameworks/nist-800-53/catalogue/PROVENANCE.md",
+    "note": "NIST SP 800-53 Rev 5 is a PUBLISHED STANDARD, not enforced law: it carries no penalty, no applicability article and no date on which an obligation begins, so the basis is publication-date and nothing here is an enforcement claim. The date is NOT typed from a secondary source -- it is the OSCAL catalogue metadata the pack is already anchored to: metadata.last-modified 2026-05-11T16:01:09.00000-00:00 at metadata.version 5.2.0, catalog UUID ea7c7688-79c5-463b-a91b-0650f2d98623, recorded in catalogue/PROVENANCE.md and used by catalogue/anchor-test.sh to resolve this pack control references. TestNIST80053WindowMatchesTheCatalogueMetadata holds this field equal to the date in PROVENANCE.md, so a catalogue refresh that moves last-modified turns the suite red rather than leaving a stale date behind -- the catalogue moving is a signal, not a nuisance, which is the workflow PROVENANCE.md already states. verified:true means the date matches the catalogue record, nothing more: a publication date gates nothing that anyone can be penalised for.",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "ac-access-control",

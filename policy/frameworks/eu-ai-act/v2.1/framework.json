@@ -3,6 +3,13 @@
   "name": "EU AI Act: High-Risk AI System Requirements",
   "version": "v2.1.0",
   "description": "Strict tier. Controls cite Regulation (EU) 2024/1689 by article and paragraph, verified against the authenticated OJ text (CELEX 32024R1689). Articles 9 to 15 and 26 are Chapter III high-risk obligations; Article 50 is a Chapter IV transparency obligation that applies to certain AI systems regardless of high-risk classification, so the ART-50 control set is in scope of this pack by subject, not by the high-risk trigger.",
+  "applicability": {
+    "inForceFrom": "2027-12-02",
+    "basis": "enforcement-date",
+    "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32026R1744",
+    "note": "Chapter III high-risk obligations (Articles 9 to 15 and 26), as AMENDED. Regulation (EU) 2026/1744 (Digital Omnibus on AI, OJ 24.7.2026, act of 8 July 2026, in force 27 July 2026), Article 1 point (40)(b), replaces the third paragraph point (c) of Article 113 of Regulation (EU) 2024/1689 with: \"Chapter III, Sections 1, 2, and 3, with the exception of Article 6(5), shall apply from: (i) 2 December 2027 as regards AI systems classified as high-risk pursuant to Article 6(2) and Annex III; and (ii) 2 August 2028 as regards AI systems classified as high-risk pursuant to Article 6(1) and Annex I.\" Read verbatim from the EUR-Lex primary text of the AMENDING regulation, which is why this is verified:true. THE EARLIER OF THE TWO DATES IS USED DELIBERATELY. A pack cannot tell whether a scanned workload is Annex III or Annex I high-risk -- an agent manifest asserts neither -- so one of the two dates has to be chosen. 2 December 2027 means an Annex I system is reported in force eight months before it actually is, which OVER-reports exposure. 2 August 2028 would under-report it for every Annex III system for eight months, erasing priced exposure that genuinely exists. Over-reporting is the cheaper error and is the only one a reader can catch. WHAT IS NOT VERIFIED: no CONSOLIDATED text of Regulation (EU) 2024/1689 incorporating the omnibus was read, and 2026/1744 carries 43 amendment items of which only point (40) was inspected individually, so another date-bearing amendment cannot be ruled out. The omnibus does NOT touch Article 113 third paragraph point (b), so the 2 August 2025 penalty date below stands unamended. PENALTIES ARE A DIFFERENT DATE AND A DIFFERENT CHAPTER. Article 113, third paragraph, point (b) of Reg. 2024/1689: \"Chapter III Section 4, Chapter V, Chapter VII and Chapter XII and Article 78 shall apply from 2 August 2025, with the exception of Article 101.\" Chapter XII is Penalties, so Article 99 applies from 2 August 2025 -- but ARTICLE 101 IS EXPRESSLY EXCEPTED and falls to the general 2 August 2026 date. A claim that \"Arts 99 and 101 apply from 2 Aug 2025\" is half wrong and must be written as \"Art. 99 (Art. 101 excepted)\". No check in this pack evidences a penalty provision, so no window here is set to that date.",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "art9-risk-mgmt",
@@ -345,6 +352,13 @@
       "id": "art50-genai-transparency",
       "name": "ART-50 Transparency Obligations for Providers and Deployers of Certain AI Systems",
       "description": "Article 50(1) requires that a natural person interacting with an AI system be informed that they are. Article 50(2) is the marking obligation: providers of AI systems generating synthetic audio, image, video or text 'shall ensure that the outputs of the AI system are marked in a machine-readable format and detectable as artificially generated or manipulated'. Deep-fake disclosure by deployers is 50(4). Article 50 is in Chapter IV and binds regardless of high-risk classification.",
+      "applicability": {
+        "inForceFrom": "2026-08-02",
+        "basis": "enforcement-date",
+        "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32024R1689",
+        "note": "Article 50 is a CHAPTER IV transparency obligation, not a Chapter III high-risk one, so the framework-level window is wrong for this control set by 16 months, and this is exactly why per-controlSet windows exist. Chapter IV is not named in any of the exceptions in the third paragraph of Article 113, so it falls to the general application date in the first paragraph of Article 113 (2 August 2026), and Regulation (EU) 2026/1744 does not move it. UNVERIFIED: the FIRST paragraph of Article 113 was not read verbatim in the pass that produced this window -- only points (b) and (c) of the third paragraph were -- so 2 August 2026 is inferred from Chapter IV being absent from the exception list rather than read directly. Someone must read Article 113 first paragraph and flip this flag. It is inert until then, and since the date is in the past the inert and the verified behaviour coincide today anyway.",
+        "verified": false
+      },
       "controls": [
         {
           "id": "ART-50.2",

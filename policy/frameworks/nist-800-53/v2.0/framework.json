@@ -2,7 +2,7 @@
   "id": "nist-800-53",
   "name": "NIST 800-53",
   "version": "v2.0.0",
-  "description": "Standard tier — defence-in-depth access control, integrity, and audit",
+  "description": "Standard tier \u2014 defence-in-depth access control, integrity, and audit",
   "applicability": {
     "inForceFrom": "2026-05-11",
     "basis": "publication-date",
@@ -13,12 +13,12 @@
   "controlSets": [
     {
       "id": "ac-access-control",
-      "name": "AC — Access Control",
+      "name": "AC \u2014 Access Control",
       "controls": [
         {
           "id": "ac-1-non-root",
           "name": "Containers run as non-root",
-          "description": "AC-6: Principle of least privilege — containers must not run as root",
+          "description": "AC-6: Principle of least privilege \u2014 containers must not run as root",
           "checks": [
             {
               "id": "container-run-as-non-root",
@@ -176,7 +176,7 @@
     },
     {
       "id": "cm-config-mgmt",
-      "name": "CM — Configuration Management",
+      "name": "CM \u2014 Configuration Management",
       "controls": [
         {
           "id": "cm-1-app-label",
@@ -302,7 +302,7 @@
     },
     {
       "id": "sc-system-comms",
-      "name": "SC — System & Communications Protection",
+      "name": "SC \u2014 System & Communications Protection",
       "controls": [
         {
           "id": "sc-1-drop-capabilities",
@@ -409,7 +409,7 @@
     },
     {
       "id": "si-system-integrity",
-      "name": "SI — System & Information Integrity",
+      "name": "SI \u2014 System & Information Integrity",
       "controls": [
         {
           "id": "si-1-image-digest",
@@ -516,7 +516,7 @@
     },
     {
       "id": "au-audit",
-      "name": "AU — Audit & Accountability",
+      "name": "AU \u2014 Audit & Accountability",
       "controls": [
         {
           "id": "au-1-audit-label",

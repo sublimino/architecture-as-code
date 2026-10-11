@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/pkg/compliance"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,22 +69,92 @@ type AgentProfile struct {
 // Agent is an alias for AgentProfile for compatibility across the codebase.
 type Agent = AgentProfile
 
-// RiskSummary is the aggregate fleet risk the dashboard renders as currency.
-// Mirrors the RiskSummary interface in fleetApi.ts.
+// AuthoredRiskInputs is what `aggregateRisk` in fleet.yaml declares: numbers a human
+// typed into a manifest. It is parsed and retained, and deliberately NOT served.
 //
-// These figures are AUTHORED DEMO DATA read straight from the fleet ConfigMap,
-// and deliberately not computed here. There is no fleet risk model in this
-// repository — risk/ and tools/riskctl model CVE baselines for components, not
-// agent fleets — so any number this service derived would be a risk figure
-// invented in code. Serving authored config keeps the figures reviewable in a
-// manifest and changeable without a rebuild.
+// It is kept rather than deleted for two reasons. The values are evidence — they are
+// what a previous version of this service published as measured risk, and
+// base/configmap.yaml carries the comment explaining their provenance. And a future
+// fleet risk model may legitimately want a declared ALE as an INPUT, which is a
+// different thing from echoing one as an output.
+//
+// There are no `json` tags on any field, which is load-bearing rather than tidy: it is
+// what stops this struct becoming the leak that undoes the refusal. If it is ever
+// embedded in a response by accident it marshals to `{}`, and a test asserts exactly
+// that. The yaml tags are the only serialisation this type participates in.
+type AuthoredRiskInputs struct {
+	ALE         *float64 `json:"-" yaml:"ale"`
+	Var95       *float64 `json:"-" yaml:"var95"`
+	Trend       string   `json:"-" yaml:"trend"`
+	PreviousALE *float64 `json:"-" yaml:"previousAle"`
+}
+
+// RiskSummary is the `aggregateRisk` member of GET /api/v1/fleet/topology.
+//
+// IT NO LONGER CARRIES MONEY, and that is the fix. This type used to declare ALE and
+// Var95 as required float64s populated straight from fleet.yaml, so an authored number
+// was served to a dashboard that renders it on a risk gauge — a figure typed by a human
+// presented as a measurement. The contract test REQUIRED those two keys to be numbers,
+// which meant the test pinned the fabrication rather than catching it.
+//
+// Nothing in this repository can compute the figure. AgentProfile, the only per-agent
+// input this service has, declares no loss magnitude and no loss-event frequency;
+// risk/packs/ has zero matches for `riskClass` or `trustProfile`; and the only money the
+// packs declare is `annual_cost`, which pack.yaml documents as the cost of the CONTROL
+// ENVIRONMENT and explicitly not an institution's loss magnitude. Computing here would
+// have meant inventing the missing input. `ale: 847000` in base/configmap.yaml is also
+// the same literal policy-engine returned from `carried := 847000.0` after discarding a
+// real Monte Carlo — the same claim, one service along.
+//
+// So the money fields are pointers with omitempty and are never populated: absent, not
+// zero, because a zero in a money field is read by a human and by a dashboard as the
+// claim "no loss expected", which is itself a figure. Trend goes with them: "up" asserts
+// that an ALE rose, and with no ALE computed there is no movement to report.
+//
+// Pricing is the shared refusal object from policy-engine's compliance package — the
+// same type, not a copy, so there is one definition and the estate's three other
+// withholding routes cannot drift from this one.
 type RiskSummary struct {
-	ALE   float64 `json:"ale" yaml:"ale"`
-	Var95 float64 `json:"var95" yaml:"var95"`
-	Trend string  `json:"trend" yaml:"trend"`
-	// Pointer + omitempty: previousAle is the one optional member of the client
-	// interface, and a plain float64 would put a spurious 0 on the wire.
-	PreviousALE *float64 `json:"previousAle,omitempty" yaml:"previousAle"`
+	ALE         *float64 `json:"ale,omitempty"`
+	Var95       *float64 `json:"var95,omitempty"`
+	Trend       string   `json:"trend,omitempty"`
+	PreviousALE *float64 `json:"previousAle,omitempty"`
+	// Pricing is always present. An omission is silent rather than honest: a missing
+	// money field is indistinguishable from a field this version does not implement,
+	// from version skew, and from a crash midway through encoding. The status says who
+	// withheld the figure and why.
+	Pricing compliance.FleetPricingStatus `json:"pricing"`
+}
+
+// authoredRiskRefusalReason is the operator-facing explanation. It names the two things
+// that would have to exist for a figure to be computable, so a reader knows what to go
+// and build rather than merely that something is missing.
+const authoredRiskRefusalReason = "aggregateRisk in fleet.yaml is authored configuration, not a computation: " +
+	"no fleet risk model exists in this repository. AgentProfile declares no loss magnitude or " +
+	"loss-event frequency, and risk/packs/ maps no agent riskClass to either, so no ALE or VaR95 " +
+	"can be derived for this fleet. Serving the authored numbers would present a figure typed into " +
+	"a manifest as a measurement."
+
+// authoredRiskUnpricedFields names, by JSON name, every key this response withheld.
+//
+// `trend` is in the list though it is not itself money. It is a claim ABOUT money — the
+// direction an ALE moved — and withholding the figure while serving its trend would leave
+// a gauge with an arrow and no number, which reads as a measurement just as well.
+var authoredRiskUnpricedFields = []string{"ale", "var95", "previousAle", "trend"}
+
+// refusedAggregateRisk is the only constructor for the served summary. It takes no figures,
+// which is deliberate: there is no parameter through which an authored number could be
+// passed back in, so the refusal cannot be undone by a caller.
+func refusedAggregateRisk() RiskSummary {
+	return RiskSummary{
+		// ALE, Var95, PreviousALE and Trend are left at their zero values so omitempty
+		// drops them from the response entirely. Absent, not zero — and absent WITH a
+		// status saying so.
+		Pricing: compliance.NewAuthoredNotComputedPricing(
+			authoredRiskRefusalReason,
+			authoredRiskUnpricedFields,
+		),
+	}
 }
 
 // Node represents an agent node in the topology DAG with adjacency relationships.
@@ -103,16 +174,21 @@ type Edge struct {
 
 // FleetConfig is the top-level YAML / JSON structure.
 type FleetConfig struct {
-	Agents        []Agent     `json:"agents" yaml:"agents"`
-	AggregateRisk RiskSummary `json:"aggregateRisk" yaml:"aggregateRisk"`
+	Agents []Agent `json:"agents" yaml:"agents"`
+	// AggregateRisk is parsed into AuthoredRiskInputs rather than into the wire type.
+	// The config declares authored numbers; the API serves a refusal. Keeping the two
+	// types distinct is what makes it impossible to author a `pricing` block, and what
+	// stops a future edit reconnecting the manifest to the response by accident.
+	AggregateRisk AuthoredRiskInputs `json:"aggregateRisk" yaml:"aggregateRisk"`
 }
 
 // DAG holds the agent dependency graph and provides traversal methods.
 type DAG struct {
 	mu sync.RWMutex
-	// risk is the authored aggregate carried alongside the graph so
-	// LoadFleet keeps its single return value and main.go's wiring is unchanged.
-	risk   RiskSummary
+	// authoredRisk is what the config declared, carried alongside the graph so
+	// LoadFleet keeps its single return value. It is never served; see
+	// AuthoredRiskInputs and AggregateRisk.
+	authoredRisk AuthoredRiskInputs
 	agents map[string]*Agent
 	nodes  map[string]*Node
 	// forward edges: agent -> agents it depends on
@@ -146,12 +222,10 @@ func ParseFleet(data []byte) (*DAG, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.risk = cfg.AggregateRisk
-	if d.risk.Trend == "" {
-		// "stable" and not "": trend is a union of up/down/stable in the client
-		// and an empty string is not a member of it.
-		d.risk.Trend = "stable"
-	}
+	// Retained, not served. The former default of Trend to "stable" is gone with it:
+	// that default existed to keep an authored trend inside the client's up/down/stable
+	// union, and the response no longer carries a trend to constrain.
+	d.authoredRisk = cfg.AggregateRisk
 	return d, nil
 }
 
@@ -429,19 +503,28 @@ func (d *DAG) RecoveryOrder(stunnedIDs []string) []string {
 	return order
 }
 
-// AggregateRisk returns the authored fleet risk summary.
+// AggregateRisk returns the served fleet risk summary, which carries no figures.
+//
+// It takes no account of what the config authored, and that is the point: there is no
+// code path from the manifest's numbers to this return value. The method is kept rather
+// than removed because the response member it populates is still part of the client
+// contract — what changed is that it now reports a refusal instead of a figure.
 func (d *DAG) AggregateRisk() RiskSummary {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.risk
+	return refusedAggregateRisk()
 }
 
-// SetAggregateRisk updates the aggregate risk summary in-memory.
-func (d *DAG) SetAggregateRisk(risk RiskSummary) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.risk = risk
+// AuthoredRiskInputs returns the figures the fleet config declared. Retained for review
+// and for any future fleet risk model that wants them as a declared input; never served.
+func (d *DAG) AuthoredRiskInputs() AuthoredRiskInputs {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.authoredRisk
 }
+
+// SetAggregateRisk is deliberately absent. It had no callers, and its only possible use
+// was to write a money figure into the served summary at runtime — the exact move this
+// type now exists to prevent. A setter kept "just in case" is the route by which the
+// authored number comes back.
 
 // GetAgent returns the agent with the given ID, or nil if not found.
 func (d *DAG) GetAgent(id string) *Agent {

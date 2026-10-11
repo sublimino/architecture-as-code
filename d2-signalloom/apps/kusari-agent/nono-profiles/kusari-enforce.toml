@@ -1,0 +1,73 @@
+# nono Landlock profile for the kusari-agent, FAIL-CLOSED enforcement mode.
+#
+# This profile is the enforcement counterpart to the evidenced demo agent: the
+# kusari-agent is a quote-serving HTTP stub whose /act/* routes deliberately
+# perform provocations (read /etc/shadow, open a GPU control node, dial out,
+# read the service-account token, walk a container-escape recon set). Under
+# this profile the Linux Landlock LSM denies every one of those at the kernel,
+# because Landlock is DEFAULT-DENY: only the paths listed below are reachable,
+# and everything else is denied by omission. There is no unconfined fallback —
+# if the kernel cannot install the ruleset, the wrapped process must not run.
+#
+# Allowed (least privilege for a quote-serving HTTP agent):
+#   - its own binary dir + shared libraries (needed to exec and link)
+#   - /tmp (Go runtime temp files + the agent's own hostile-write target)
+#   - the SPIRE agent socket dir, read-only (SVID retrieval for its SPIFFE id)
+#   - /etc and /proc directory listing only (resolver + Go runtime), NOT file
+#     reads of /etc/shadow or /etc/passwd
+#
+# Denied BY OMISSION (never listed, so Landlock blocks the openat):
+#   - /etc/shadow, /etc/passwd            (credential files — /etc dir listing
+#                                          is allowed, file read is not)
+#   - /dev/nvidiactl and the GPU nodes    (/dev is not listed at all)
+#   - /proc/1/root, /proc/sys/kernel      (/proc file reads are not allowed;
+#                                          only directory listing is)
+#   - /etc/kubernetes                     (kube admin.conf / escape recon)
+#   - /var/run/secrets/kubernetes.io      (service-account token)
+#   - all network egress                  (no network rule is granted, so every
+#                                          outbound connect is refused)
+
+[landlock]
+# ABI version 1+ (Linux 5.13+); the same baseline the containment probe uses.
+abi = 1
+
+[[landlock.rules]]
+# Allow executing the agent binary and reading its shared libraries. Without
+# this the wrapped /kusari-agent cannot start.
+path = "/usr/local/bin"
+access = ["read_file", "read_dir", "execute"]
+
+[[landlock.rules]]
+# Allow reading shared libraries (libc, etc.) required for execution.
+path = "/usr/lib"
+access = ["read_file", "read_dir", "execute"]
+
+[[landlock.rules]]
+# Allow /tmp for the Go runtime's temp files AND the agent's own hostile-write
+# target (/tmp/hostile-test.txt). Keeping the hostile write inside the one
+# writable path means the detector still observes it while nothing outside /tmp
+# is writable.
+path = "/tmp"
+access = ["read_file", "write_file", "read_dir", "make_reg"]
+
+[[landlock.rules]]
+# Allow reading the SPIRE agent socket dir for SVID retrieval so the agent can
+# prove its SPIFFE identity. Read-only: the agent never writes here.
+path = "/run/spire/sockets"
+access = ["read_file", "read_dir"]
+
+[[landlock.rules]]
+# Allow DIRECTORY LISTING of /etc for resolver config discovery. Crucially this
+# grants read_dir only, NOT read_file: openat(/etc/shadow) and
+# openat(/etc/passwd) for their contents are still denied by Landlock. This is
+# the rule that turns the /act/read-shadow and /act/read-passwd provocations
+# into kernel denials.
+path = "/etc"
+access = ["read_dir"]
+
+[[landlock.rules]]
+# Allow /proc directory listing needed by the Go runtime. File reads under
+# /proc (e.g. /proc/1/root, /proc/self/environ, /proc/sys/kernel/core_pattern
+# that /act/recon walks) are NOT granted, so the recon provocation is denied.
+path = "/proc"
+access = ["read_dir"]

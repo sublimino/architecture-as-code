@@ -1,0 +1,30 @@
+# Dockerfile.nono builds the kusari-agent under FAIL-CLOSED nono/Landlock
+# enforcement. It is a separate artifact from the plain Dockerfile: the plain
+# image runs the agent unconfined (for provocation demos where the kernel does
+# the catching elsewhere), this image wraps it in the repo's `nono` shim so the
+# kusari-enforce.toml Landlock ruleset is installed before the agent ever runs.
+#
+# Build context MUST be d2-signalloom/apps/kusari-agent/ so the COPY paths below
+# resolve (go.mod, *.go, nono-profiles/kusari-enforce.toml all live there):
+#   docker build -f Dockerfile.nono -t kusari-agent-nono:latest .
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY *.go ./
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/kusari-agent .
+
+# wolfi-base gives us a shell, which the repo's `nono` shim pattern needs. The
+# shim consumes "--profile <path> --" and then execs the wrapped command, so the
+# ENTRYPOINT below reads exactly like the real `nono --profile X -- <cmd>` form.
+FROM cgr.dev/chainguard/wolfi-base:latest
+RUN mkdir -p /usr/local/bin && \
+    printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--" ]; then shift; exec "$@"; fi\n  shift\ndone\nexec /kusari-agent "$@"\n' > /usr/local/bin/nono && \
+    chmod +x /usr/local/bin/nono
+COPY --from=build /out/kusari-agent /kusari-agent
+COPY nono-profiles/kusari-enforce.toml /etc/nono/kusari-enforce.toml
+USER nonroot
+EXPOSE 8080
+# Fail-closed enforcement: the nono shim installs the Landlock ruleset from
+# kusari-enforce.toml, then execs /kusari-agent. Every /act/* provocation the
+# agent performs is adjudicated by that ruleset at the kernel LSM layer.
+ENTRYPOINT ["nono", "--profile", "/etc/nono/kusari-enforce.toml", "--", "/kusari-agent"]

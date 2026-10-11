@@ -15,7 +15,7 @@ import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import { StatCard, Section } from '../components/DashKit'
-import type { AgentState, FleetStunResult, FleetTopology as FleetTopologyData, RiskSummary } from '../api/fleetApi'
+import type { AgentState, FleetPricingStatus, FleetStunResult, FleetTopology as FleetTopologyData, RiskSummary } from '../api/fleetApi'
 import StunReasonForm from '../components/StunReasonForm'
 import { PlaneOutcomeTable, StunOverallHeadline } from '../components/StunPlanes'
 import {
@@ -550,14 +550,12 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
   // is allowed to drive it. It cannot run on the live path because there is no
   // second figure to interpolate towards that the API has given us.
   const { summary: risk, provenance: riskProvenance } = useMemo<FleetRisk>(() => {
-    const unpriced = (reason?: string): FleetRisk => ({
-      summary: {
-        ale: null,
-        var95: null,
-        carriedGbp: null,
-        trend: 'stable',
-        pricing: { available: false, reason },
-      },
+    // The refusal is passed through, not rebuilt: when the API sent a
+    // `pricing` object it is forwarded verbatim so the gauge renders the
+    // server's own status and reason. Only the no-answer-yet case synthesises
+    // one, and it says so rather than claiming a cause it does not know.
+    const unpriced = (pricing?: FleetPricingStatus): FleetRisk => ({
+      summary: { ale: null, var95: null, carriedGbp: null, trend: 'stable', pricing },
       provenance: 'unpriced',
     })
 
@@ -598,7 +596,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     // reader, but only the second has a server reason to quote.
     if (topology === null) return unpriced(undefined)
     const api = topology.aggregateRisk
-    if (!isPriced(api)) return unpriced(api?.pricing?.reason)
+    // `isPriced` reads `pricing.status` when the producer sends one and falls
+    // back to `ale` presence when it does not, so this fires on any source.
+    if (!isPriced(api)) return unpriced(api?.pricing)
     return { summary: api, provenance: 'fleet-api' }
   }, [
     demoFixtureAllowed,
@@ -751,6 +751,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             previousAle={risk.previousAle}
             carriedGbp={risk.carriedGbp}
             unavailableReason={risk.pricing?.reason}
+            unavailableStatus={risk.pricing?.status}
             sourceLabel={riskSourceLabel}
             stepwise={cascadeInProgress.length > 0}
             cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}
@@ -947,6 +948,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
             previousAle={risk.previousAle}
             carriedGbp={risk.carriedGbp}
             unavailableReason={risk.pricing?.reason}
+            unavailableStatus={risk.pricing?.status}
             sourceLabel={riskSourceLabel}
             stepwise={cascadeInProgress.length > 0}
             cascadeStep={stunnedCascadeNodes.length > 0 ? stunnedCascadeNodes.length : undefined}

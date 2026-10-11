@@ -43,7 +43,22 @@ import (
 // in a legal instrument, not an instant: "applies from 11 December 2027" names
 // a date, and attaching a time to it would invent a precision the source does
 // not have and make the answer depend on the reader's timezone.
-type Date struct{ t time.Time }
+// ABSENCE IS A FLAG, NOT A VALUE. `set` exists because time.Time's own zero
+// value is a real calendar day -- 0001-01-01T00:00:00Z -- so using
+// time.Time.IsZero() as the "no date supplied" sentinel makes the first day of
+// year 1 indistinguishable from an omitted field. That was a live defect, not a
+// theoretical one: assessmentDate="0001-01-01" parsed, round-tripped, was
+// echoed back on every row and set applicabilityGated:true, while every window
+// silently reported WindowUnknown and nothing gated. A caller asking about a
+// date before every regime on record got a fully-priced scan whose own summary
+// claimed the windows had been applied. The sibling day 0000-01-01 gated
+// correctly, so the two answers differed by one day in the input and by the
+// entire exposure figure in the output. See
+// TestChaosDate_YearOneIsADateNotAnAbsence.
+type Date struct {
+	t   time.Time
+	set bool
+}
 
 const dateLayout = "2006-01-02"
 
@@ -65,13 +80,14 @@ func ParseDate(s string) (Date, error) {
 	if t.Format(dateLayout) != s {
 		return Date{}, fmt.Errorf("date %q is not a real calendar day (it normalises to %s)", s, t.Format(dateLayout))
 	}
-	return Date{t: t}, nil
+	return Date{t: t, set: true}, nil
 }
 
 func (d Date) String() string { return d.t.Format(dateLayout) }
 
-// IsZero reports an absent date.
-func (d Date) IsZero() bool { return d.t.IsZero() }
+// IsZero reports an ABSENT date -- a Date nobody supplied. It is deliberately
+// not "the time.Time is zero": see the note on the struct.
+func (d Date) IsZero() bool { return !d.set }
 
 // OnOrAfter is the inclusive comparison every boundary uses: a regulation that
 // "applies from" a date applies ON that date.

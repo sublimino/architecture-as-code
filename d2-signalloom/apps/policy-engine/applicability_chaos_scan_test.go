@@ -287,22 +287,33 @@ func TestChaosWindow_SupersededWithNoSuccessorRetiresTheCheckButKeepsItsFigure(t
 func TestChaosResolve_LooserChildWindowWinsWholeOverATighterParent(t *testing.T) {
 	parent := `{"inForceFrom":"2030-01-01","basis":"enforcement-date","source":"the instrument","verified":true}`
 	child := `{"inForceFrom":"2000-01-01","basis":"publication-date","source":"a different document entirely","verified":true}`
-	root := chaosPack(t, parent, "", "", "", chaosCheck{id: "always-true", expr: "true", window: child})
 
-	out := chaosScanRoot(t, root, "2020-01-01")
-	if got := chaosStatusOfOnly(t, out); got != VerdictPass {
-		t.Errorf("asOf 2020-01-01: status %q, want %q — the check-level window wins whole and says the obligation already exists", got, VerdictPass)
-	}
-	win := out.rows[0].Applicability
-	if win == nil {
-		t.Fatal("the response must echo the resolved window; a gate nobody can see is not auditable")
-	}
-	if win.InForceFrom != "2000-01-01" || win.Basis != "publication-date" || win.Source != "a different document entirely" {
-		t.Errorf("resolved window is %+v: every field must come from the child, including the citation, so a reader can see WHICH document the date was read from", win)
-	}
-	// And nothing from the parent leaked in. A merge would show up here.
-	if strings.Contains(win.Source, "the instrument") || win.SupersededFrom != "" {
-		t.Errorf("resolved window carries parent fields: %+v — whole replacement, never a field merge", win)
+	// Both parent placements, because they are different arms of
+	// ResolveApplicability: a framework-level parent is the function's final
+	// fallback, a controlSet-level one is an element of the same ordered slice
+	// the child is in. Reversing that slice is invisible if only the framework
+	// arm is exercised.
+	for _, p := range []struct{ name, fw, cs string }{
+		{"framework-level parent", parent, ""},
+		{"controlSet-level parent", "", parent},
+	} {
+		root := chaosPack(t, p.fw, p.cs, "", "", chaosCheck{id: "always-true", expr: "true", window: child})
+
+		out := chaosScanRoot(t, root, "2020-01-01")
+		if got := chaosStatusOfOnly(t, out); got != VerdictPass {
+			t.Errorf("%s, asOf 2020-01-01: status %q, want %q — the check-level window wins whole and says the obligation already exists", p.name, got, VerdictPass)
+		}
+		win := out.rows[0].Applicability
+		if win == nil {
+			t.Fatalf("%s: the response must echo the resolved window; a gate nobody can see is not auditable", p.name)
+		}
+		if win.InForceFrom != "2000-01-01" || win.Basis != "publication-date" || win.Source != "a different document entirely" {
+			t.Errorf("%s: resolved window is %+v: every field must come from the child, including the citation, so a reader can see WHICH document the date was read from", p.name, win)
+		}
+		// And nothing from the parent leaked in. A merge would show up here.
+		if strings.Contains(win.Source, "the instrument") || win.SupersededFrom != "" {
+			t.Errorf("%s: resolved window carries parent fields: %+v — whole replacement, never a field merge", p.name, win)
+		}
 	}
 }
 

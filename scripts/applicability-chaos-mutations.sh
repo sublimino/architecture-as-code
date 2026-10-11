@@ -41,6 +41,11 @@ ENGINE="$REPO_ROOT/d2-signalloom/apps/policy-engine"
 APP_GO="$ENGINE/frameworks/applicability.go"
 COMPLIANCE_GO="$ENGINE/compliance.go"
 BINDINGS_GO="$ENGINE/bindings.go"
+CORPUS="$ENGINE/frameworks/testdata/chaos-date-corpus.tsv"
+
+# Every file a mutation may touch. Backed up, restored and byte-compared as a
+# set, so adding a mutation against a new file cannot forget the restore.
+FILES=("$APP_GO" "$COMPLIANCE_GO" "$BINDINGS_GO" "$CORPUS")
 
 # NAME|FILE|TEST_REGEX|PACKAGE|FIND|REPLACE
 # FIND must appear EXACTLY ONCE in FILE; the harness refuses otherwise, because
@@ -56,15 +61,19 @@ MUTATIONS=(
 "zone-dependent-source|$APP_GO|TestChaosDeterminism_NoClockReadInTheApplicabilitySource|.|t, err := time.ParseInLocation(dateLayout, s, time.UTC)|t, err := time.ParseInLocation(dateLayout, s, time.Local)\n\tt = t.UTC()"
 "inforcefrom-exclusive|$APP_GO|TestChaosWindow_HalfOpenBoundaryHoldsAtEveryResolutionLevel|.|func (d Date) OnOrAfter(other Date) bool { return !d.t.Before(other.t) }|func (d Date) OnOrAfter(other Date) bool { return d.t.After(other.t) }"
 "supersededfrom-exclusive|$APP_GO|TestChaosWindow_SupersededWithNoSuccessorRetiresTheCheckButKeepsItsFigure|.|if d, err := ParseDate(a.SupersededFrom); err == nil && asOf.OnOrAfter(d) {|if d, err := ParseDate(a.SupersededFrom); err == nil && asOf.t.After(d.t) {"
-"inverted-window-accepted|$APP_GO|TestChaosWindow_DegenerateAndInvertedWindowsNeverServeAVerdict|.|if !inForce.IsZero() && !d.t.After(inForce.t) {|if false {"
-"resolution-order-least-specific-wins|$APP_GO|TestChaosResolve_LooserChildWindowWinsWholeOverATighterParent|.|\tfor _, a := range []*Applicability{chk.Applicability, ctrl.Applicability, cs.Applicability} {|\tif fw != nil \&\& fw.Applicability != nil {\n\t\treturn fw.Applicability\n\t}\n\tfor _, a := range []*Applicability{chk.Applicability, ctrl.Applicability, cs.Applicability} {"
+"inverted-window-accepted|$APP_GO|TestChaosWindow_DegenerateAndInvertedWindowsNeverServeAVerdict|.|if !inForce.IsZero() && !d.t.After(inForce.t) {|if !inForce.IsZero() && d.t.After(inForce.t) && false {"
+"resolution-order-least-specific-wins|$APP_GO|TestChaosResolve_LooserChildWindowWinsWholeOverATighterParent|.|[]*Applicability{chk.Applicability, ctrl.Applicability, cs.Applicability}|[]*Applicability{cs.Applicability, ctrl.Applicability, chk.Applicability}"
 "gated-exposure-counted|$COMPLIANCE_GO|TestChaosExposure_SummaryTotalEqualsTheSumOfItsOwnCountedRows|.|\t\t\t\tsummary.NotInForce++\n\t\t\t\tcontinue|\t\t\t\tsummary.NotInForce++"
 "gated-row-dropped-from-denominator|$COMPLIANCE_GO|TestChaosExposure_EveryCheckGatedIsExactlyZeroAndTotalControlsStaysHonest|.|\t\t\t\tsummary.NotInForce++\n\t\t\t\tcontinue|\t\t\t\tsummary.NotInForce++\n\t\t\t\tsummary.TotalControls--\n\t\t\t\tcontinue"
 "gate-reason-dropped|$BINDINGS_GO|TestChaosExposure_NotInForceRowsCarryAReasonInTheErrorFieldAndStillCostNothing|.|return VerdictNotInForce, \"the obligation does not apply on the assessmentDate\"|return VerdictNotInForce, \"\""
-"nondeterministic-seed|$COMPLIANCE_GO|TestChaosDeterminism_SameRequestTwiceIdenticalExceptTheScanTimestamp|.|seed := checkSeed(cwc.Check.ID)|seed := checkSeed(cwc.Check.ID) + time.Now().UnixNano()"
+"nondeterministic-seed|$COMPLIANCE_GO|TestChaosDeterminism_SameRequestTwiceIdenticalExceptTheScanTimestamp|.|seed := checkSeed(cwc.Check.ID)|seed := checkSeed(cwc.Check.ID) + uint64(time.Now().UnixNano())"
 "absent-date-becomes-today|$COMPLIANCE_GO|TestChaosDeterminism_AbsentAssessmentDateGatesNothingAndSaysSoTwice|.|\tvar asOf frameworks.Date\n\tif req.AssessmentDate != \"\" {|\tvar asOf frameworks.Date\n\tif req.AssessmentDate == \"\" {\n\t\treq.AssessmentDate = time.Now().UTC().Format(\"2006-01-02\")\n\t}\n\tif req.AssessmentDate != \"\" {"
 "window-echo-dropped|$COMPLIANCE_GO|TestChaosReplay_EditingAWindowFlipsStoredVerdictsWithNoVersionChange|.|\t\t\t\tApplicability:     window,|\t\t\t\tApplicability:     nil,"
 "date-echo-dropped|$COMPLIANCE_GO|TestChaosReplay_TheResponseAlwaysEchoesTheDateItActuallyCompared|.|\t\t\t\tAssessmentDate:    req.AssessmentDate,|\t\t\t\tAssessmentDate:    \"\","
+# The corpus is test data, and it is mutated too: a raw control byte in it is
+# invisible to Go and silently degrades every shell-side assertion about the
+# file into a "binary file matches" message.
+"corpus-raw-control-byte|$CORPUS|TestChaosDate_CorpusIsPlainText|./frameworks|\"0001-12-31\"\t0001-12-31|\"0001-12-31\"\t0001-12-31\n\"2027-12-11\u0000\"\treject"
 # --- INVERTED ROWS: the mutation is the FIX, and the characterisation test
 # --- must go red when it is applied. See the header.
 "FIX-reject-dateless-window|$APP_GO|TestChaosResolve_DatelessChildWindowVoidsTheParent_REPORTED_DEFECT|.|\tif a.Basis == BasisTranspositionDeadline|\tif !hasDate && strings.TrimSpace(a.Jurisdiction) == \"\" {\n\t\treturn fmt.Errorf(\"%s applicability declares neither date nor jurisdiction: a window with no dates is indistinguishable from no window and silently voids the one above it\", where)\n\t}\n\tif a.Basis == BasisTranspositionDeadline"
@@ -79,13 +88,13 @@ fi
 BACKUP="$(mktemp -d)"
 cleanup() {
   # Explicit copies back, in every exit path including a signal.
-  for f in "$APP_GO" "$COMPLIANCE_GO" "$BINDINGS_GO"; do
+  for f in "${FILES[@]}"; do
     [ -f "$BACKUP/$(basename "$f")" ] && cp "$BACKUP/$(basename "$f")" "$f"
   done
   rm -rf "$BACKUP"
 }
 trap cleanup EXIT INT TERM
-for f in "$APP_GO" "$COMPLIANCE_GO" "$BINDINGS_GO"; do cp "$f" "$BACKUP/$(basename "$f")"; done
+for f in "${FILES[@]}"; do cp "$f" "$BACKUP/$(basename "$f")"; done
 
 # apply FILE FIND REPLACE — exactly-once replacement, refusing ambiguity.
 apply() {
@@ -128,7 +137,31 @@ for row in "${MUTATIONS[@]}"; do
     continue
   fi
 
+  # THE BUILD GATE, and it is not optional. `go test` exits non-zero for a
+  # COMPILE failure exactly as it does for a failed assertion, so without this
+  # a mutation that merely broke the build would be scored as proof that an
+  # assertion depends on the guard. It is not proof of anything: nothing ran.
+  # A mutation must produce a tree that still compiles, and only then is a red
+  # test evidence.
+  if ! build="$(cd "$ENGINE" && go build ./... && go vet "$pkg" 2>&1)"; then
+    printf 'MUTATION VOID   [%-38s] BUILD BROKEN — nothing ran, so a red test would prove nothing\n' "$name"
+    printf '%s\n' "$build" | tail -5
+    VOID+=("$name (build broken)")
+    cleanup_one
+    continue
+  fi
+
   out="$(cd "$ENGINE" && go test "$pkg" -run "^${test}\$" -count=1 2>&1)" && ec=0 || ec=$?
+  # A mutation whose test went red because the test BINARY failed to build is
+  # the same non-evidence one hop later (a mutated signature breaking a test
+  # file compiles fine under `go build`, which ignores _test.go).
+  if printf '%s' "$out" | grep -q 'build failed\|cannot use\|undefined:\|too many arguments'; then
+    printf 'MUTATION VOID   [%-38s] TEST BINARY FAILED TO BUILD — not evidence\n' "$name"
+    printf '%s\n' "$out" | tail -5
+    VOID+=("$name (test build broken)")
+    cleanup_one
+    continue
+  fi
   cleanup_one
 
   if [ "$ec" -ne 0 ]; then
@@ -150,10 +183,10 @@ fi
 # The tree must be byte-identical to how it was found. A mutation harness that
 # leaves a mutation behind is the worst possible outcome: it ships a defect
 # under a green bar.
-for f in "$APP_GO" "$COMPLIANCE_GO" "$BINDINGS_GO"; do
+for f in "${FILES[@]}"; do
   if ! cmp -s "$f" "$BACKUP/$(basename "$f")"; then
     printf 'RESTORE FAILED: %s differs from the copy taken before mutation\n' "$f" >&2
     exit 1
   fi
 done
-printf 'RESTORE: all three sources byte-identical to the pre-mutation copies\n'
+printf 'RESTORE: all %d mutated files byte-identical to the pre-mutation copies\n' "${#FILES[@]}"

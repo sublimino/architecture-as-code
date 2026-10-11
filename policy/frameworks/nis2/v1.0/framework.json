@@ -4,6 +4,14 @@
   "version": "v1.0.0",
   "description": "Directive (EU) 2022/2555 (NIS 2), OJ L 333/80, 27.12.2022. Placeholder pack: nothing in it is evaluated. See README.md. NIS2 is a Directive and has no direct effect on entities: the binding obligations are those of each Member State's transposing law, so a finding labelled 'NIS2' is a claim about 27 national regimes. Citations are anchored by cra/catalogue/anchor-test.sh.",
   "status": "placeholder",
+  "applicability": {
+    "inForceFrom": "2024-10-18",
+    "basis": "transposition-deadline",
+    "jurisdiction": "EU transposition floor; an obligated entity's in-force date is set by its Member State's national law, not by this window",
+    "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32022L2555",
+    "note": "NIS2 IS A DIRECTIVE AND HAS NO SINGLE IN-FORCE DATE FOR AN ENTITY -- it has up to 27 national ones, which is why this window declares a jurisdiction and a transposition-deadline basis rather than pretending to an EU-wide enforcement date. Article 41(1), read verbatim: 'By 17 October 2024, Member States shall adopt and publish the measures necessary to comply with this Directive. They shall immediately inform the Commission thereof. They shall apply those measures from 18 October 2024.' So 17 October 2024 is the ADOPTION deadline and 18 October 2024 is the earliest date any Member State's measures apply; this window uses the latter, since it is the earliest date on which an obligation could bind anyone, and a window set to the earliest possible date under-gates rather than over-gates. CORRECTION ON THE RECORD: the 17 October 2024 date is set by Article 41(1), NOT by Article 34(8). Article 34(8) does contain a 17 October 2024 notification deadline, but it is a narrow one conditional on a Member State's legal system not providing for administrative fines ('The Member State shall notify to the Commission the provisions of the laws which it adopts pursuant to this paragraph by 17 October 2024'); attributing the general transposition deadline to it over-generalises a fines-specific carve-out. Several Member States missed the deadline, so a scan of an entity in a late-transposing state is governed by a date this window does not know; it is a floor, not a fact about any one entity.",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "nis2-cybersecurity",

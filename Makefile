@@ -984,6 +984,30 @@ docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrit
 docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.
 	./scripts/docs-rewrite-guard.sh $(FILES)
 
+# WHY THIS TARGET EXISTS AT ALL, which is the whole point of it.
+#
+# `test/flux-workload-coverage.bats` was written, passed 10/10, was proven red in
+# both directions by mutation -- and ran in NO path. A cross-vendor audit found it
+# by grepping this Makefile and the ten workflow files for its name and getting
+# nothing back, while the same grep found `docs-lint` at line 982, which is how it
+# knew the instrument worked rather than the search being broken.
+#
+# The trap is that this repo's convention is EXPLICIT registration: 68 `bats
+# test/...` invocations named one by one against 257 bats files on disk. There is
+# no `test/*.bats` glob. So a new suite is invisible by default, and "I added a
+# gate" means "I added a test" until a line like this one exists. The author
+# believed a glob picked it up; it does not.
+#
+# The general form, worth stating because it recurs: an artefact called a GATE
+# needs the line that INVOKES it produced alongside it, or the name is a claim
+# about CI that CI has never heard.
+.PHONY: flux-coverage flux-coverage-test
+flux-coverage: ## Print the Flux-managed and unmanaged workload sets, and fail on any undeclared gap. No cluster.
+	python3 scripts/flux-workload-coverage.py
+
+flux-coverage-test: ## Run the BATS gate for Flux workload management: undeclared gaps AND stale exceptions both fail. No cluster.
+	bats test/flux-workload-coverage.bats
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh

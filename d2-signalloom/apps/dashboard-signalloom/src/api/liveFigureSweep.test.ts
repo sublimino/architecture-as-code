@@ -175,30 +175,6 @@ const BASELINE: Array<{ file: string; line: number; detail: string; note: string
     detail: 'posture_score: 0.67',
     note: 'Fourth copy; this is the 67% that CryptographyPage comments on. Unfixed.',
   },
-  {
-    file: 'pages/FleetDemoPage.tsx',
-    line: 184,
-    detail: 'ale: 12400',
-    note: 'BASELINE_RISK. Byte-identical to literals W1 removed server-side. Unfixed.',
-  },
-  {
-    file: 'pages/FleetDemoPage.tsx',
-    line: 185,
-    detail: 'var95: 58000',
-    note: 'BASELINE_RISK. Unfixed.',
-  },
-  {
-    file: 'pages/FleetDemoPage.tsx',
-    line: 191,
-    detail: 'ale: 847000',
-    note: 'ESCALATED_RISK. Unfixed.',
-  },
-  {
-    file: 'pages/FleetDemoPage.tsx',
-    line: 192,
-    detail: 'var95: 1200000',
-    note: 'ESCALATED_RISK. Unfixed.',
-  },
 ]
 
 describe('live-mode figure baseline', () => {
@@ -224,7 +200,7 @@ describe('live-mode figure baseline', () => {
     for (const row of BASELINE) {
       expect(row.note.length, `${row.file}:${row.line} needs a reason`).toBeGreaterThan(20)
     }
-    expect(BASELINE).toHaveLength(11)
+    expect(BASELINE).toHaveLength(7)
   })
 
   it('confirms the pages fixed in this change carry no findings', () => {
@@ -234,6 +210,10 @@ describe('live-mode figure baseline', () => {
       'pages/CompliancePolicyPage.tsx',
       'pages/CollusionAccessPage.tsx',
       'components/AgentOverviewTab.tsx',
+      // W5: the four BASELINE_RISK/ESCALATED_RISK literals moved into
+      // api/fakeData.ts behind the demo gate, and the live path now reports
+      // the API's refusal instead of a scripted figure.
+      'pages/FleetDemoPage.tsx',
     ]
     for (const file of fixed) {
       expect(

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,6 +32,19 @@ type ComplianceScanRequest struct {
 	Object  map[string]any `json:"object"`
 	Agent   map[string]any `json:"agent"`
 	Request map[string]any `json:"request"`
+
+	// ── The institution's declared risk posture (migration 062) ─────────────
+	//
+	// Both are OPTIONAL and both omitted is the overwhelmingly common case. The
+	// caller that fills them is the fe gateway, which holds the tenant's
+	// tenant_settings row; the engine has no database and never looks one up.
+	//
+	// ReportingCurrency is empty when undeclared. RiskLoad is a POINTER on
+	// purpose: 0 is a coherent declared posture ("carry the tail with no load on
+	// top") and a plain float64 could not tell it apart from absent, which would
+	// silently price a declared zero as the 0.10 default.
+	ReportingCurrency money.Currency `json:"reportingCurrency,omitempty"`
+	RiskLoad          *float64       `json:"riskLoad,omitempty"`
 }
 
 // workload returns the object every check reads as `object` (and `manifest`).
@@ -43,8 +57,70 @@ func (req ComplianceScanRequest) workload() map[string]any {
 	return req.Manifest
 }
 
-// reportingCurrency denominates every figure this service reports.
-const reportingCurrency money.Currency = "GBP"
+// defaultReportingCurrency denominates every figure this service reports when
+// the institution has NOT declared a reporting currency of its own.
+//
+// It was `const reportingCurrency = "GBP"`, applied to every tenant
+// unconditionally. Renaming it is the honest description of what it now is: a
+// fallback, not a fact about the product. A tenant that declares nothing is
+// still reported in GBP, so no existing figure moves -- which is asserted, not
+// assumed, by TestAnUndeclaredTenantIsPricedExactlyAsBefore.
+const defaultReportingCurrency money.Currency = "GBP"
+
+// effectiveRiskProfile is the institution's half of the pricing split as it
+// applies to ONE scan: what a figure is denominated in, and the load carried on
+// top of tail risk.
+//
+// Both fields are always populated -- resolution happens once, at the top of
+// handleScan, so no code further down has to remember a fallback. The zero
+// value is deliberately NOT usable: resolve it through riskProfileFor.
+type effectiveRiskProfile struct {
+	Currency money.Currency
+	RiskLoad float64
+	// Declared records whether the institution stated any of this. It exists so
+	// the engine can say which figures reflect a declared posture and which
+	// reflect its own defaults; a figure priced by a default must never be
+	// presented as one the institution chose.
+	Declared bool
+}
+
+// riskProfileFor resolves the profile a scan request should be priced with.
+//
+// An absent or blank field means UNDECLARED and falls back to the engine's own
+// constant. That is what guarantees no existing figure moves: a request that
+// says nothing is priced byte-for-byte as it was before these fields existed.
+//
+// Invalid is NOT the same as absent and is not silently defaulted -- an
+// unparseable currency or a non-finite load is a caller error, because pricing
+// a figure with a value the caller did not mean is the failure this whole
+// change exists to prevent.
+func riskProfileFor(req ComplianceScanRequest) (effectiveRiskProfile, error) {
+	p := effectiveRiskProfile{Currency: defaultReportingCurrency, RiskLoad: fair.DefaultRiskLoad}
+
+	if declared := money.Currency(strings.TrimSpace(string(req.ReportingCurrency))); declared != "" {
+		if err := declared.Validate(); err != nil {
+			return effectiveRiskProfile{}, fmt.Errorf("reportingCurrency: %w", err)
+		}
+		p.Currency = declared
+		p.Declared = true
+	}
+
+	if req.RiskLoad != nil {
+		load := *req.RiskLoad
+		if math.IsNaN(load) || math.IsInf(load, 0) {
+			return effectiveRiskProfile{}, fmt.Errorf("riskLoad must be a finite number, got %g", load)
+		}
+		if load < 0 {
+			return effectiveRiskProfile{}, fmt.Errorf(
+				"riskLoad must be >= 0, got %g; a negative load would make carried risk "+
+					"less than tail risk, which is not a coherent risk posture", load)
+		}
+		p.RiskLoad = load
+		p.Declared = true
+	}
+
+	return p, nil
+}
 
 type ComplianceScanResult struct {
 	Framework  string `json:"framework"`
@@ -134,6 +210,33 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()})
+		return
+	}
+
+	// Which institution this scan is priced for. extractTenant has existed since
+	// the handler package was written and nothing on this path ever called it,
+	// so until now a scan carried no notion of whose money it was reporting.
+	//
+	// The tenant id is NOT a lookup key here -- the engine has no database. It
+	// is used to refuse an incoherent request: a declared risk posture with no
+	// tenant to attribute it to is a caller bug, and pricing it anyway would
+	// produce a figure attributed to nobody.
+	tenantID := extractTenant(r)
+
+	profile, err := riskProfileFor(req)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid risk profile: " + err.Error()})
+		return
+	}
+	if profile.Declared && tenantID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "a declared risk profile requires a tenant: send X-Tenant-ID " +
+				"(or ?tenant=), because a priced figure has to belong to someone",
+		})
 		return
 	}
 
@@ -240,7 +343,11 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 			}
 
 			seed := checkSeed(cwc.Check.ID)
-			risk := fair.Simulate(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed)
+			// SimulateWithLoad, not Simulate: the load is the institution's, and
+			// profile.RiskLoad is fair.DefaultRiskLoad unless this tenant
+			// declared otherwise -- so an undeclared tenant takes the identical
+			// code path with the identical value it always did.
+			risk := fair.SimulateWithLoad(cwc.Check.RiskTriple, cwc.Check.FreqTriple, seed, profile.RiskLoad)
 
 			results = append(results, ComplianceScanResult{
 				Framework:         cwc.Framework,
@@ -254,12 +361,12 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 				FrameworkVersion:  fw.Version,
 				CheckName:         cwc.Check.Name,
 				PolicyVersion:     req.PolicyVersion,
-				ALE:               roundMoney(risk.ALE, reportingCurrency),
-				VaR95:             roundMoney(risk.VaR95, reportingCurrency),
-				TVaR:              roundMoney(risk.TVaR, reportingCurrency),
-				CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
-				Currency:          reportingCurrency,
-				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
+				ALE:               roundMoney(risk.ALE, profile.Currency),
+				VaR95:             roundMoney(risk.VaR95, profile.Currency),
+				TVaR:              roundMoney(risk.TVaR, profile.Currency),
+				CarriedGBP:        roundMoney(risk.CarriedGBP, profile.Currency),
+				Currency:          profile.Currency,
+				Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, profile.Currency), Currency: profile.Currency},
 				ScanTimestamp:     now,
 				// "industry-indicative" until 2026-10-11. It asserted an industry
 				// anchor that does not exist: no public or commercial loss dataset
@@ -330,9 +437,15 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 	results := ch.lastResults
 	ch.mu.RUnlock()
 
-	summary := ComplianceSummary{Currency: reportingCurrency}
+	// The summary is denominated by the scan it summarises, not by a constant.
+	// Results carry their own currency now, so reading it from them is what
+	// stops a declared-currency scan being totalled under the default's label --
+	// a sum whose figures and whose label disagree is the worst of the three
+	// possible outcomes, because it reads as authoritative.
+	summary := ComplianceSummary{Currency: defaultReportingCurrency}
 	if len(results) > 0 {
 		summary.ScanTimestamp = results[0].ScanTimestamp
+		summary.Currency = results[0].Currency
 		for _, r := range results {
 			summary.TotalControls++
 			switch r.Status {
@@ -352,7 +465,7 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 			summary.TotalExposure += r.CarriedGBP
 		}
 	}
-	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: reportingCurrency}
+	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: summary.Currency}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

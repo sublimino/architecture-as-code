@@ -255,8 +255,8 @@ func TestSummary_NotInForceExcludedFromFailedErroredAndExposure(t *testing.T) {
 	row := func(v Verdict, carried float64) ComplianceScanResult {
 		return ComplianceScanResult{
 			Check: "synthetic", Status: v, Passed: v == VerdictPass,
-			CarriedGBP: carried, Currency: reportingCurrency,
-			Carried: money.Money{Amount: carried, Currency: reportingCurrency},
+			CarriedGBP: carried, Currency: defaultReportingCurrency,
+			Carried: money.Money{Amount: carried, Currency: defaultReportingCurrency},
 		}
 	}
 	h := &complianceHandler{lastResults: []ComplianceScanResult{

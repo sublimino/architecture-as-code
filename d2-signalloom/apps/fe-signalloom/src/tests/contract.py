@@ -535,6 +535,12 @@ class FrameworkResponse(BaseModel):
     compliance_deadline: str | None
     control_count: int
     controls: list[ControlResponse]
+    # Jurisdiction reporting, read-only. Mirrors api_compat.FrameworkResponse;
+    # both carry extra="forbid", so a drift between the two declarations is a
+    # red contract test rather than a field the dashboard never receives.
+    territories: list[str] = []
+    in_jurisdiction: bool = True
+    out_of_jurisdiction_reason: str | None = None
 
 
 class AgentComplianceResultResponse(BaseModel):
@@ -700,6 +706,25 @@ class TenantSettingsResponse(BaseModel):
     preferred_scan_cadence_hours: int
     alert_email: str | None
     alert_threshold: int
+    # The declared organisational risk profile (migration 062).  Mirrors
+    # api_compat.TenantSettingsResponse; both carry extra="forbid", so a drift
+    # between the two declarations shows up as a red contract test rather than
+    # as a field the dashboard silently never receives.
+    sector: str | None = None
+    jurisdiction: str | None = None
+    reporting_currency: str | None = None
+    risk_appetite_tolerance: float | None = None
+    risk_load: float | None = None
+
+
+class RiskProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sector: str | None = None
+    jurisdiction: str | None = None
+    reporting_currency: str | None = None
+    risk_appetite_tolerance: float | None = None
+    risk_load: float | None = None
 
 
 class PreferencesUpdateRequest(BaseModel):

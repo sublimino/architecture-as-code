@@ -168,7 +168,7 @@ func TestScan_CRAGatedExposureIsExactlyZeroNotMerelySmaller(t *testing.T) {
 	if s.TotalExposure != 0 {
 		t.Errorf("exposure %.2f with %.2f sitting on the rows: not_in_force must be excluded from the sum, not scaled down", s.TotalExposure, rowSum)
 	}
-	if s.Exposure.Amount != 0 || s.Exposure.Currency != reportingCurrency {
-		t.Errorf("denominated exposure %v, want 0 %s", s.Exposure, reportingCurrency)
+	if s.Exposure.Amount != 0 || s.Exposure.Currency != defaultReportingCurrency {
+		t.Errorf("denominated exposure %v, want 0 %s", s.Exposure, defaultReportingCurrency)
 	}
 }

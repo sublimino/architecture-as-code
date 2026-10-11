@@ -267,30 +267,6 @@ const BASELINE: Array<{ file: string; line: number; detail: string; note: string
     detail: 'total: 6',
     note: 'Hardcoded SPIRE inventory (server version, agent count, SVID list). Unfixed.',
   },
-  {
-    file: 'pages/DiscoveryPage.tsx',
-    line: 684,
-    detail: 'total_controls: 12',
-    note: 'Fourth copy of the fabricated per-agent compliance summary. Unfixed.',
-  },
-  {
-    file: 'pages/DiscoveryPage.tsx',
-    line: 685,
-    detail: 'passing: 8',
-    note: 'Fourth copy of the fabricated per-agent compliance summary. Unfixed.',
-  },
-  {
-    file: 'pages/DiscoveryPage.tsx',
-    line: 687,
-    detail: 'pending: 4',
-    note: 'Fourth copy of the fabricated per-agent compliance summary. Unfixed.',
-  },
-  {
-    file: 'pages/DiscoveryPage.tsx',
-    line: 688,
-    detail: 'posture_score: 0.67',
-    note: 'Fourth copy; this is the 67% that CryptographyPage comments on. Unfixed.',
-  },
 ]
 
 describe('live-mode figure baseline', () => {
@@ -316,7 +292,7 @@ describe('live-mode figure baseline', () => {
     for (const row of BASELINE) {
       expect(row.note.length, `${row.file}:${row.line} needs a reason`).toBeGreaterThan(20)
     }
-    expect(BASELINE).toHaveLength(7)
+    expect(BASELINE).toHaveLength(3)
   })
 
   it('confirms the pages fixed in this change carry no findings', () => {
@@ -330,6 +306,9 @@ describe('live-mode figure baseline', () => {
       // api/fakeData.ts behind the demo gate, and the live path now reports
       // the API's refusal instead of a scripted figure.
       'pages/FleetDemoPage.tsx',
+      // W5: the fourth copy of the fabricated per-agent compliance summary is
+      // gone; a discovered workload now reports the honest empty shape.
+      'pages/DiscoveryPage.tsx',
     ]
     for (const file of fixed) {
       expect(

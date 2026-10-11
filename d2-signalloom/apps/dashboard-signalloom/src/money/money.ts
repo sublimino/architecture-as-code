@@ -99,3 +99,24 @@ export function scaleMoney(m: Money | number | null | undefined, factor: number)
   if (!Number.isFinite(result)) return null
   return { amount: result, currency: moneyObj.currency }
 }
+
+/**
+ * Assert that a figure IS present, and name the one that was missing if not.
+ *
+ * For a caller holding a fixture it knows to be priced -- overwhelmingly a
+ * test -- now that the money fields on PostureSummary and FrameworkSummary are
+ * nullable. It exists so those call sites do not reach for `!`, which asserts
+ * the same thing while discarding the diagnosis: a `!` that turns out to be
+ * wrong surfaces later as "cannot read property 'amount' of null", whereas
+ * this names the field at the point the assumption actually broke.
+ *
+ * Never use it to get a number out of a server payload. That is exactly the
+ * case where absence is a legitimate answer, and throwing on it would turn an
+ * honest refusal into a crash.
+ */
+export function requirePriced(m: Money | null | undefined, what: string): Money {
+  if (m === null || m === undefined) {
+    throw new Error(`${what} is not priced, but this caller requires a figure`)
+  }
+  return m
+}

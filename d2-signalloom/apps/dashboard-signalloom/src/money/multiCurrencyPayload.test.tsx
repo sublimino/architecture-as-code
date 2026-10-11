@@ -1,3 +1,4 @@
+import { requirePriced } from './money'
 // The renderer against payloads that are NOT GBP.
 //
 // The shipped demo reports in GBP, so every other test in this suite exercises
@@ -118,7 +119,7 @@ describe('a document reported in a currency other than GBP', () => {
     inProvider(<RiskExposurePage />)
 
     const correct = shown(convert(doc.totalAle, 'USD', DEFAULT_RATE_TABLE)!)
-    const ifItAssumedGbp = shown(convert(money(doc.totalAle.amount, 'GBP'), 'USD', DEFAULT_RATE_TABLE)!)
+    const ifItAssumedGbp = shown(convert(money(requirePriced(doc.totalAle, "doc.totalAle").amount, 'GBP'), 'USD', DEFAULT_RATE_TABLE)!)
     expect(correct).not.toBe(ifItAssumedGbp)
 
     await waitFor(() => expect(screen.getAllByText(correct).length).toBeGreaterThan(0))
@@ -148,7 +149,7 @@ describe('a document reported in a currency other than GBP', () => {
     const doc = serve('EUR')
     inProvider(<RiskExposurePage />)
 
-    await waitFor(() => expect(screen.getAllByText(shown(doc.totalAle)).length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText(shown(requirePriced(doc.totalAle, "doc.totalAle"))).length).toBeGreaterThan(0))
     // Nothing was converted, so there is nothing to disclose.
     expect(screen.queryByTestId('risk-conversion-note')).not.toBeInTheDocument()
   })

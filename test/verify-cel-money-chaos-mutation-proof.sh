@@ -16,11 +16,19 @@
 # SURVIVOR and fails this script: it means the named test does not actually
 # depend on the guard it claims to pin.
 #
-# THREE MUTANTS DELIBERATELY INVERT THE DIRECTION OF PROOF. M3, M8 and M9 do not
-# break the code — they FIX a defect the suites characterise. The test that
-# pins the defect must then go red, because a characterisation test whose
-# subject has been fixed and which still passes is pinning nothing. This is the
-# only way to prove a `_DEFECT` test is a tripwire rather than a tautology.
+# SOME MUTANTS DELIBERATELY INVERT THE DIRECTION OF PROOF. M8, M15, M17 and M18
+# do not break the code — they FIX a defect the suites still characterise. The
+# test that pins the defect must then go red, because a characterisation test
+# whose subject has been fixed and which still passes is pinning nothing. This is
+# the only way to prove a `_DEFECT` test is a tripwire rather than a tautology.
+#
+# M3, M11, M12 AND M16 USED TO BE INVERTED AND ARE NOW ORDINARY FORWARD MUTANTS,
+# because the three defects they described have been fixed for real (F4): the
+# empty-200 on an unrenderable figure, the unkeyed cross-tenant summary slot, and
+# a declared currency with no rate in the table. A mutant that applies a fix and
+# a mutant that removes one are the same instrument pointed in opposite
+# directions; which direction is correct depends only on whether the fix is in
+# the tree, so these flipped when it landed.
 #
 # SAFETY. Every mutated file is restored from an explicit `cp` backup taken at
 # the top, never from git — the suites under proof are untracked while this
@@ -439,21 +447,65 @@ expect_red M11-buffer-then-check 'TestWriteJSONCheckedNeverCommitsASuccessItCann
   "a status line must never be committed before the document is known to marshal"
 restore_all
 
-# ── M12: the summary reads the shared cross-tenant slot ───────────────────────
-# Stop handleSummary reading ch.lastResults. The cross-tenant leak test must go
-# red: if it survives, it is not actually demonstrating that the slot is shared.
+# ── M12: the summary is scoped to the CALLING tenant ─────────────────────────
+# WAS INVERTED (it used to stop handleSummary reading the shared slot, so that
+# the leak characterisation had to go red). The slot is keyed by tenant now, so
+# this is an ordinary forward mutant: make the lookup ignore the key and return
+# the most recent scan instead -- verbatim the old defect -- and the test that
+# pins the scoping must fail.
 apply "$PE/compliance.go" '
 import os
 p=os.environ["MUT_FILE"]; s=open(p).read()
-old="""	results := ch.lastResults
-	ungated := ch.lastUngated"""
+old="""	s, ok := ch.scans[tenantID]
+	return s, ok"""
 assert old in s, "M12 anchor absent"
-new="""	var results []ComplianceScanResult // MUTANT M12: shared slot not read
-	ungated := ch.lastUngated"""
+new="""	// MUTANT M12: tenant key ignored; the most recent scan is served to anyone.
+	_ = tenantID
+	var newest tenantScan
+	var found bool
+	for _, v := range ch.scans {
+		if !found || v.seq > newest.seq {
+			newest, found = v, true
+		}
+	}
+	return newest, found"""
 open(p,"w").write(s.replace(old,new,1))
 '
-expect_red M12-summary-shared-slot 'TestTheSummaryReturnsTheLastScannersFiguresToAnyCaller_DEFECT' \
-  "the leak test must depend on handleSummary reading the shared slot"
+expect_red M12-summary-tenant-scoped 'TestTheSummaryIsScopedToTheCallingTenant' \
+  "a tenant must read back its OWN scan, never the most recent one"
+restore_all
+
+# ── M12b: a tenant with no scan gets a refusal, not a zeroed summary ─────────
+# The other half of the same fix, and a different claim: the ABSENCE of a scan
+# must not be expressible as a document full of zeroes, because zero exposure is
+# a real and meaningful answer on this product and the two must not be
+# confusable. Serve an empty summary instead of the 404.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("	scan, ok := ch.scanFor(tenantID)")
+j=s.index("		return\n	}",i)+len("		return\n	}")
+new="""	scan, _ := ch.scanFor(tenantID) // MUTANT M12b: no scan is a zeroed 200"""
+open(p,"w").write(s[:i]+new+s[j:])
+'
+expect_red M12b-no-scan-is-not-zeroes 'TestComplianceSummary_NoScan|TestSummaryBeforeScan_Is404AndNotAZeroedSummary' \
+  "an absent scan must not be served as a zeroed summary a client reads as clean"
+restore_all
+
+# ── M12c: the scan store is bounded ──────────────────────────────────────────
+# Keying by tenant made the store grow on a caller-supplied string. Remove the
+# eviction and the bound test must fail -- otherwise "it is bounded" is a claim
+# in a comment rather than a property of the code.
+apply "$PE/compliance.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+i=s.index("	if _, replacing := ch.scans[tenantID]; !replacing && len(ch.scans) >= maxRememberedTenants {")
+j=s.index("			\"evicted_tenant\", oldestKey, \"cap\", maxRememberedTenants)\n	}",i)
+j=s.index("\n	}",j)+len("\n	}")
+open(p,"w").write(s[:i]+"	// MUTANT M12c: eviction removed; the store grows without bound"+s[j:])
+'
+expect_red M12c-store-is-bounded 'TestTheScanStoreIsBoundedAndEvictsTheOldest' \
+  "the per-tenant store must be bounded; its key comes straight off the request"
 restore_all
 
 # ── M13: per-scan profile isolation ───────────────────────────────────────────

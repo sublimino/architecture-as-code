@@ -60,6 +60,35 @@ figure the engine produces.
 
 The packs carry no currency field.
 
+## What a pack triple is a share of
+
+Read this before comparing any pack figure against any published loss figure.
+
+A pack `riskTriple` mode is **not** the cost of a loss event. It is the
+**attributable share of one loss event assigned to one failed control**. The
+pack modes run from about £5,000 to about £120,000. Published single-event loss
+medians sit one to two orders of magnitude above that range. Cyentia IRIS 2022
+puts the typical single event near $266,000 and the top five per cent above
+$52,000,000 (<https://www.cyentia.com/iris-2022/>). IRIS 2025 reports the
+median moving from about $190,000 to about $3,000,000 over fifteen years
+(<https://www.cyentia.com/iris-2025/>).
+
+The event-level figures in this estate are the `SCN-*` magnitudes in
+[`risk/org/acme.yaml`](../../risk/org/acme.yaml), which run from £60,000 to
+£4,000,000. Those are loss events. A pack triple is a slice of one of them.
+
+Nothing in this repository said so before 2026-10-11. A reviewer who compares a
+pack mode against an IRIS median therefore reads a hundred-fold error where
+there is an attribution model. Both figures are defensible. They answer
+different questions.
+
+Each priced check now carries a `derivation` block. It names the `SCN-*`
+scenario the check is a share of, the anchor classes behind its two triples,
+and a confidence letter. The registry of anchor classes is
+[ANCHORS.md](ANCHORS.md). The
+statutory ceilings, which are a `max` and never a `mode`, are in
+[PENALTIES.md](PENALTIES.md).
+
 ## The calibration statement
 
 This is the one statement about the money. Quote it. Do not paraphrase it, and

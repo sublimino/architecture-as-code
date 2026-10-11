@@ -92,6 +92,122 @@ describe('live-figure-sweep detects every shape it claims to', () => {
     expect(f.some((x) => x.detail === 'derived value returns the literal 20')).toBe(true)
   })
 
+  // ── The gate must be INVOKED, not merely imported ────────────────────────
+  //
+  // This is the planted case for the worst defect found on this build, and it
+  // is planted into a file shape the sweep previously declared CLEAN.
+  // pages/FleetDemoPage.tsx imported `isDemoMode` and never called it: the
+  // sole occurrence of the identifier in 1,200 lines was the import line, and
+  // rule 1's old check -- `/\bisDemoMode\b/.test(src)` -- was satisfied by
+  // exactly that line. `noUnusedLocals` is false, so the compiler said
+  // nothing. The demo fixture was therefore reachable in uat and prod by
+  // clicking "Use Demo Fixture", which is a security issue rather than a
+  // credibility one.
+  //
+  // A rule that asserts PRESENCE can never catch this. The three cases below
+  // pin the distinction in both directions, because a rule that demanded
+  // invocation but could not see a real one would be just as useless.
+  it('finds a fixture import whose gate is imported but NEVER CALLED', () => {
+    const f = plant(
+      'pages/P.tsx',
+      [
+        "import { FLEET_DEMO_FIXTURE } from '../api/fakeData'",
+        "import { isDemoMode } from '../api/demoMode'",
+        '',
+        'export const X = FLEET_DEMO_FIXTURE',
+      ].join('\n'),
+    )
+    const hit = f.find((x) => x.rule === 'ungated-fixture-import')
+    expect(hit, 'an unused gate import must not count as a defence').toBeDefined()
+    expect(hit?.detail).toMatch(/WITHOUT CALLING IT/)
+  })
+
+  it('accepts a gate that is actually called', () => {
+    const f = plant(
+      'pages/P.tsx',
+      [
+        "import { FLEET_DEMO_FIXTURE } from '../api/fakeData'",
+        "import { isDemoMode } from '../api/demoMode'",
+        '',
+        'export const X = isDemoMode() ? FLEET_DEMO_FIXTURE : null',
+      ].join('\n'),
+    )
+    expect(f.filter((x) => x.rule === 'ungated-fixture-import')).toEqual([])
+  })
+
+  it('accepts the environment tier as a gate, not only isDemoMode', () => {
+    // FleetDemoPage's fix gates on the TIER rather than the per-browser
+    // toggle, because an operator legitimately wants the fixture with the
+    // toggle off. The rule has to accept that or it pushes code towards the
+    // weaker check to stay green.
+    const f = plant(
+      'pages/P.tsx',
+      [
+        "import { FLEET_DEMO_FIXTURE } from '../api/fakeData'",
+        "import { isProductionEnv, showDemoToggle } from '../api/demoMode'",
+        '',
+        'export const X = !isProductionEnv && showDemoToggle ? FLEET_DEMO_FIXTURE : null',
+      ].join('\n'),
+    )
+    expect(f.filter((x) => x.rule === 'ungated-fixture-import')).toEqual([])
+  })
+
+  it('does not accept a gate mentioned only inside a comment', () => {
+    // The adjacent failure mode: "isDemoMode handles this" written above the
+    // fixture. Prose is not a gate.
+    const f = plant(
+      'pages/P.tsx',
+      [
+        "import { FLEET_DEMO_FIXTURE } from '../api/fakeData'",
+        "import { isDemoMode } from '../api/demoMode'",
+        '',
+        '// isDemoMode() guards this upstream in client.ts, so it is fine here.',
+        'export const X = FLEET_DEMO_FIXTURE',
+      ].join('\n'),
+    )
+    // This failed on first run, which is why the rule now blanks comments as
+    // well as imports before looking for the symbol. Writing the test first
+    // and watching it pass would have hidden the gap.
+    const hit = f.find((x) => x.rule === 'ungated-fixture-import')
+    expect(hit, 'a gate named only in a comment must not read as applied').toBeDefined()
+    expect(hit?.detail).toMatch(/WITHOUT CALLING IT/)
+  })
+
+  // ── The fabricated unit rate ─────────────────────────────────────────────
+
+  it('finds a figure multiplied by a literal rate', () => {
+    // Verbatim shape of RiskExposurePage:663. Worse than a displayed constant:
+    // it manufactures money from a REAL count, so the output moves with real
+    // input and reads as derived.
+    const f = plant(
+      'pages/P.tsx',
+      'export const col = { accessor: (a) => (a.compliance_summary?.failing ?? 0) * 12000 }\n',
+    )
+    expect(f.some((x) => x.rule === 'fabricated-unit-rate')).toBe(true)
+  })
+
+  it('finds the rate with the literal on the left as well', () => {
+    const f = plant('pages/P.tsx', 'const exposure = 12000 * failingControls\n')
+    expect(f.some((x) => x.rule === 'fabricated-unit-rate')).toBe(true)
+  })
+
+  it('does not flag a unit conversion, which carries no pricing claim', () => {
+    // Every one of these is real code in this tree. A rule that flagged them
+    // would be turned off within a week.
+    for (const line of [
+      'const pct = score <= 1.0 ? score * 100 : score',
+      'const confidencePct = Math.round(actor.confidence * 100)',
+      'const rssMb = rssBytes / (1024 * 1024)',
+      'const annualised = monthly * 12',
+    ]) {
+      const f = plant('pages/P.tsx', line + '\n')
+      expect(
+        f.filter((x) => x.rule === 'fabricated-unit-rate'),
+        `flagged a unit conversion: ${line}`,
+      ).toEqual([])
+    }
+  })
+
   it('finds a fixture value imported by a file that never imports the gate', () => {
     const f = plant(
       'pages/P.tsx',

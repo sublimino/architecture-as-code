@@ -52,8 +52,39 @@ const GATE_ALLOW_LIST = new Set([
 
 // ── Figure vocabulary ──────────────────────────────────────────────────────
 // Property names whose value is a figure a user reads as fact.
-const FIGURE_PROP =
-  /^(score|percent|pct|coverage|compliance|total|totals|total_controls|cost|ale|var95|tvar|exposure|carried|savings|spend|budget|revenue|loss|passing|failing|passed|failed|pending|controls|posture_score|confidence|likelihood|impact|magnitude|annual|monthly|amount|count|ratio|rate|uptime|sla|mttr)$/i
+const FIGURE_WORDS = [
+  'score', 'percent', 'pct', 'coverage', 'compliance', 'total', 'totals',
+  'total_controls', 'cost', 'ale', 'var95', 'tvar', 'exposure', 'carried',
+  'savings', 'spend', 'budget', 'revenue', 'loss', 'passing', 'failing',
+  'passed', 'failed', 'pending', 'controls', 'posture_score', 'confidence',
+  'likelihood', 'impact', 'magnitude', 'annual', 'monthly', 'amount', 'count',
+  'ratio', 'rate', 'uptime', 'sla', 'mttr',
+]
+
+const FIGURE_PROP = new RegExp(`^(${FIGURE_WORDS.join('|')})$`, 'i')
+
+/** The same vocabulary as a fragment, for matching inside an expression. */
+const FIGURE_WORD = FIGURE_WORDS.join('|')
+
+// Literals that are a UNIT, not a price.
+//
+// Multiplying a figure by one of these converts its units -- a ratio to a
+// percentage, seconds to milliseconds, bytes to KiB, a turn to degrees. That
+// is arithmetic on a declared unit and carries no pricing claim. Multiplying a
+// figure by any OTHER literal asserts a rate, and a rate is a calibration
+// decision that belongs in the risk pack.
+//
+// Kept deliberately short. A number that wants to join this set should have to
+// argue for itself: the cost of a missing entry is one false positive, and the
+// cost of a spurious one is a fabricated rate that never gets reported.
+const UNIT_CONVERSION = new Set([
+  10, 100, 1000, 10_000, 1_000_000, // decimal scale and percent
+  1024, 1_048_576,                  // binary scale
+  60, 3600, 86_400,                 // time
+  255,                              // 8-bit channel
+  180, 360,                         // degrees
+  12,                               // months in a year
+])
 
 // Lines that are unambiguously CSS/SVG/layout. A '%' or a number here is
 // presentation, not a figure. Kept broad on purpose: a false negative in this
@@ -105,6 +136,54 @@ function isTestFile(rel) {
   )
 }
 
+// ── The gate symbols ───────────────────────────────────────────────────────
+// Every export of api/demoMode.ts that can decide whether demo content may
+// render. `isDemoMode` is the per-browser toggle; `isProductionEnv` and
+// `showDemoToggle` are the environment tier. Any of them, APPLIED, counts.
+const GATE_SYMBOLS = ['isDemoMode', 'isProductionEnv', 'showDemoToggle']
+
+/**
+ * Is a gate symbol actually USED in this file, or merely imported?
+ *
+ * WHY THIS IS NOT THE SAME QUESTION AS "IS IT IMPORTED".
+ * The previous version of rule 1 asked `/\bisDemoMode\b/.test(src)`, which the
+ * import line itself satisfies. pages/FleetDemoPage.tsx imported `isDemoMode`
+ * and NEVER CALLED IT -- the only occurrence of the identifier in 1,200 lines
+ * was the import. `noUnusedLocals` is false in tsconfig.json, so the compiler
+ * said nothing, and this sweep reported the file clean while one click on
+ * "Use Demo Fixture" served ale 847000 / var95 1200000 in uat and prod.
+ *
+ * That is the one defect on this build that is a security issue rather than a
+ * credibility one, and a rule asserting PRESENCE could never have caught it.
+ * So: blank the import statements, then look for the symbol in what is left.
+ * An identifier that survives that is referenced by code.
+ */
+function gateApplied(src) {
+  const imported = new Set()
+  for (const m of src.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+'([^']*demoMode)'/g)) {
+    for (const name of m[1].split(',')) {
+      const bare = name.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()?.trim()
+      if (bare && GATE_SYMBOLS.includes(bare)) imported.add(bare)
+    }
+  }
+  if (imported.size === 0) return { imported: false, applied: false }
+
+  // Blank every import statement AND every comment, preserving line count.
+  //
+  // Comments too, because the adjacent failure mode is a file that says
+  // "isDemoMode() guards this upstream" above an ungated fixture. Prose is not
+  // a gate, and a rule that accepted a mention in a comment as evidence of
+  // invocation would be back to asserting presence by a slower route.
+  const body = src
+    .replace(/^[ \t]*import\s[\s\S]*?from\s+'[^']+'[ \t]*;?[ \t]*$/gm, (m) =>
+      m.replace(/[^\n]/g, ' '),
+    )
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
+  const applied = [...imported].some((n) => new RegExp(`\\b${n}\\b`).test(body))
+  return { imported: true, applied }
+}
+
 // ── Rule 1: fixture values imported outside the gate ───────────────────────
 // A type-only import is harmless: types carry no values and cannot render.
 function checkUngatedFixtureImports(rel, src) {
@@ -113,13 +192,15 @@ function checkUngatedFixtureImports(rel, src) {
   // A fixture module may import its siblings.
   if (FIXTURE_MODULES.has(basename(rel).replace(/\.(ts|tsx)$/, ''))) return findings
 
-  // A file that imports fixture values must also import the gate. This does
-  // not prove the gate is applied to every use — only a test can do that (see
-  // liveFigureSweep.test.ts) — but it makes the wholly un-gated case loud,
-  // which is the case that renders a fixture in live mode with no defence at
-  // all. Being explicit about what this check does NOT prove matters more than
-  // the check: a green sweep is not a guarantee of correct gating.
-  const importsGate = /from '[^']*\/?demoMode'/.test(src) && /\bisDemoMode\b/.test(src)
+  // A file that imports fixture values must also APPLY the gate. This still
+  // does not prove the gate guards every use -- only a test can do that (see
+  // liveFigureSweep.test.ts, and pages/fleetRiskRefusal.test.tsx for the
+  // FleetDemoPage case) -- but it no longer accepts an unused import as
+  // evidence, which is what let the worst defect on this build through. Being
+  // explicit about what this check does NOT prove still matters more than the
+  // check: a green sweep is not a guarantee of correct gating.
+  const gate = gateApplied(src)
+  const importsGate = gate.applied
 
   const re = /import\s+(type\s+)?([\s\S]*?)\s+from\s+'([^']+)'/g
   let m
@@ -142,9 +223,12 @@ function checkUngatedFixtureImports(rel, src) {
       rule: 'ungated-fixture-import',
       file: rel,
       line: src.slice(0, m.index).split('\n').length,
-      detail: `imports fixture value(s) ${valueNames.join(', ')} from '${spec}'`,
-      why:
-        'A fixture imported directly renders in live mode too. Route it through api/client.ts, or gate the use on isDemoMode().',
+      detail: gate.imported
+        ? `imports fixture value(s) ${valueNames.join(', ')} from '${spec}' and imports the gate WITHOUT CALLING IT`
+        : `imports fixture value(s) ${valueNames.join(', ')} from '${spec}'`,
+      why: gate.imported
+        ? 'The gate is imported but never referenced outside the import line, so nothing gates anything. An unused import is not a defence.'
+        : 'A fixture imported directly renders in live mode too. Route it through api/client.ts, or gate the use on isDemoMode().',
     })
   }
   return findings
@@ -232,6 +316,46 @@ function checkFigureLiterals(rel, src) {
           why: 'Money must come from the API, never from the source.',
         })
       }
+      // 2d. A fabricated UNIT RATE: a figure-named quantity multiplied by a
+      //     numeric literal that is not a unit conversion.
+      //
+      //     This is a worse shape than 2b and the reason it needs its own
+      //     rule. `(a.compliance_summary?.failing ?? 0) * 12000` is not a
+      //     displayed constant -- it manufactures money from a REAL count, so
+      //     the output moves with real input and therefore looks derived.
+      //     That is the same property that made the discarded Monte Carlo
+      //     hard to spot by review: a number that responds to the data reads
+      //     as a measurement even when the coefficient was invented.
+      //
+      //     The literal must be excluded from UNIT_CONVERSION, or the rule
+      //     fires on every `score * 100` percentage and `bytes / 1024`, which
+      //     are arithmetic on a declared unit rather than a priced rate.
+      const rate = t.match(
+        new RegExp(
+          `(?:(${FIGURE_WORD})[^*\\n]{0,60}\\*\\s*(-?\\d[\\d_]*(?:\\.\\d+)?)` +
+            `|(-?\\d[\\d_]*(?:\\.\\d+)?)\\s*\\*[^*\\n]{0,60}?(${FIGURE_WORD}))`,
+          'i',
+        ),
+      )
+      if (rate) {
+        const literal = (rate[2] ?? rate[3] ?? '').replace(/_/g, '')
+        // NOT named `n`: that is the line number in this scope, and shadowing
+        // it reported every finding at "RiskExposurePage.tsx:12000". Caught by
+        // reading the sweep's own output rather than by a test, which is the
+        // argument for the instrument printing a line number at all.
+        const rateValue = Math.abs(Number(literal))
+        if (rateValue >= 2 && !UNIT_CONVERSION.has(rateValue)) {
+          findings.push({
+            rule: 'fabricated-unit-rate',
+            file: rel,
+            line: n,
+            detail: `figure multiplied by the literal rate ${literal}`,
+            why:
+              'A per-unit rate applied to a real count manufactures money that moves with real input, so it reads as derived. Source the rate from the risk pack, or report the figure as unpriced.',
+          })
+        }
+      }
+
       const pct = t.match(/['"`]\s*\d{1,3}(?:\.\d+)?\s*%\s*['"`]/)
       if (pct && !/'0%'|"0%"|`0%`/.test(t)) {
         findings.push({

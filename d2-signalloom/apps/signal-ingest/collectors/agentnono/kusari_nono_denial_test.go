@@ -44,9 +44,10 @@ func signKusariEvent(t *testing.T, kp *FixtureKeypair, ev *NonoAuditEvent) {
 }
 
 // newKusariDenialEvent builds a signed Landlock filesystem-containment denial for
-// the kusari agent: openat(/etc/shadow) refused by the kusari-enforce.toml
-// profile. This is the event a /act/read-shadow provocation produces when the
-// enforce profile denies the read at the kernel.
+// the kusari agent: openat(/etc/shadow) refused by the real nono allow-list
+// (the image ENTRYPOINT grants -r /usr -r /lib ... -a /tmp, so /etc is denied).
+// This is the event a /act/read-shadow provocation produces when nono denies
+// the read at the kernel Landlock LSM.
 func newKusariDenialEvent(t *testing.T, kp *FixtureKeypair, sessionID string, baseTime time.Time) *NonoAuditEvent {
 	t.Helper()
 	ev := &NonoAuditEvent{

@@ -1,11 +1,24 @@
-# Dockerfile.nono builds the kusari-agent under FAIL-CLOSED nono/Landlock
+# Dockerfile.nono builds the kusari-agent under REAL fail-closed nono/Landlock
 # enforcement. It is a separate artifact from the plain Dockerfile: the plain
-# image runs the agent unconfined (for provocation demos where the kernel does
-# the catching elsewhere), this image wraps it in the repo's `nono` shim so the
-# kusari-enforce.toml Landlock ruleset is installed before the agent ever runs.
+# image runs the agent unconfined; this image wraps PID 1 in the real nono
+# binary (nono.sh, v0.79.0) so a capability allow-list is installed at the
+# kernel Landlock LSM before the agent runs, and every path/network the agent
+# was NOT granted is denied by the kernel — not by a shim, not simulated.
 #
-# Build context MUST be d2-signalloom/apps/kusari-agent/ so the COPY paths below
-# resolve (go.mod, *.go, nono-profiles/kusari-enforce.toml all live there):
+# The real nono is a capability sandbox: you declare what is ALLOWED and the
+# kernel denies the rest. There is no escape hatch once applied. So the agent's
+# /act/read-shadow, /act/gpu-open, /act/recon and /act/exfil provocations fail
+# with a real EACCES / blocked connect, which the agent reports and the eBPF
+# sentinel independently observes.
+#
+# nono.real is the real binary staged into the build context (gitignored,
+# 30 MB, dynamically linked against glibc) because committing it is wrong and a
+# network fetch mid-build is non-hermetic. Stage it with:
+#   cp "$(command -v nono)" d2-signalloom/apps/kusari-agent/nono.real
+# (the Makefile swarm-kusari-nono-image target does this). nono --version must
+# be >= 0.79.0.
+#
+# Build context MUST be d2-signalloom/apps/kusari-agent/:
 #   docker build -f Dockerfile.nono -t kusari-agent-nono:latest .
 FROM golang:1.27-alpine AS build
 WORKDIR /src
@@ -13,18 +26,54 @@ COPY go.mod ./
 COPY *.go ./
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/kusari-agent .
 
-# wolfi-base gives us a shell, which the repo's `nono` shim pattern needs. The
-# shim consumes "--profile <path> --" and then execs the wrapped command, so the
-# ENTRYPOINT below reads exactly like the real `nono --profile X -- <cmd>` form.
+# wolfi-base is glibc-based; libgcc provides libgcc_s.so.1 that the nono binary
+# links. A missing shared lib would make nono fail to exec, which under its
+# fail-closed design means the pod never starts — safe, but we provide the lib.
 FROM cgr.dev/chainguard/wolfi-base:latest
-RUN mkdir -p /usr/local/bin && \
-    printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--" ]; then shift; exec "$@"; fi\n  shift\ndone\nexec /kusari-agent "$@"\n' > /usr/local/bin/nono && \
-    chmod +x /usr/local/bin/nono
-COPY --from=build /out/kusari-agent /kusari-agent
-COPY nono-profiles/kusari-enforce.toml /etc/nono/kusari-enforce.toml
-USER nonroot
+RUN apk add --no-cache libgcc
+
+# The real nono binary wraps PID 1.
+COPY nono.real /usr/local/bin/nono
+# The agent lives under /usr so the child's read-only allow of /usr covers both
+# reading and executing it; nono itself (the parent) is unsandboxed when it
+# execs, so its own path does not need to be in the child allow-list.
+COPY --from=build /out/kusari-agent /usr/local/bin/kusari-agent
+
+# nono (the parent, pre-sandbox) persists a session config under its state dir.
+# HOME must be writable by the runtime user AND must NOT sit under any child
+# allow path, or nono's built-in deny_credentials rules (~/.aws, ~/.ssh, ...)
+# overlap an allowed parent and Landlock — which cannot express deny-under-allow
+# — refuses to start. /home/nono is writable and is not in the allow-list.
+RUN mkdir -p /home/nono/.local/state /home/nono/.config /workdir \
+ && chown -R 65532:65532 /home/nono /workdir
+ENV HOME=/home/nono \
+    XDG_STATE_HOME=/home/nono/.local/state \
+    XDG_CONFIG_HOME=/home/nono/.config
+USER 65532:65532
+WORKDIR /workdir
 EXPOSE 8080
-# Fail-closed enforcement: the nono shim installs the Landlock ruleset from
-# kusari-enforce.toml, then execs /kusari-agent. Every /act/* provocation the
-# agent performs is adjudicated by that ruleset at the kernel LSM layer.
-ENTRYPOINT ["nono", "--profile", "/etc/nono/kusari-enforce.toml", "--", "/kusari-agent"]
+
+# REAL enforcement. Allow only what a quote-serving HTTP agent needs:
+#   -r /usr /lib /lib64 /bin   read+exec the binary and shared libraries
+#   -a /tmp                    read+write (Go temp + the hostile-write target)
+#   --allow-cwd                /workdir (WORKDIR), kept off the deny surface
+#   --listen-port 8080         the agent's HTTP listener (Landlock network allow)
+# DENIED by omission at the kernel Landlock LSM: /etc (shadow/passwd/kubernetes),
+# /dev (GPU nodes), /proc/1/root, /proc/sys/kernel — so /act/read-shadow,
+# /act/gpu-open, /act/recon fail with a REAL EACCES, not a simulated one.
+#
+# Egress is deliberately NOT blocked here by nono: --block-net is a blanket
+# socket block that also kills the --listen-port exception (the agent could not
+# serve). Egress denial is layered where it belongs — the fe-signalloom-agents
+# NetworkPolicy denies it at the network layer and the eBPF sentinel observes
+# the connect attempt (/act/exfil, /act/kube-enum). nono owns the filesystem
+# control; the network layer owns egress. This is the documented defence-in-
+# depth split, not a gap.
+#
+# --no-audit keeps nono from needing a privileged audit sink in-cluster; the
+# agent's own structured log and the eBPF sentinel are the evidence of record.
+ENTRYPOINT ["/usr/local/bin/nono", "run", "-s", "--no-audit", "--allow-cwd", \
+            "--listen-port", "8080", \
+            "-r", "/usr", "-r", "/lib", "-r", "/lib64", "-r", "/bin", \
+            "-a", "/tmp", \
+            "--", "/usr/local/bin/kusari-agent"]

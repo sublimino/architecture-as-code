@@ -345,6 +345,12 @@ sentinel-image-publish: swarm-stun-sentinel-image ## Load the source-fingerprint
 swarm-kusari-image: ## Build kusari-agent stub image (Tier 9 Kusari pilot stand-in)
 	docker build -t kusari-agent:latest apps/kusari-agent/
 
+swarm-kusari-nono-image: ## Build the kusari agent under REAL nono/Landlock enforcement (stages the host nono binary into the build context).
+	@command -v nono >/dev/null || { echo "nono not on PATH; install from https://nono.sh" >&2; exit 1; }
+	@v=$$(nono --version 2>/dev/null | awk '{print $$2}'); echo "staging real nono $$v into the build context"
+	cp "$$(command -v nono)" apps/kusari-agent/nono.real && chmod +x apps/kusari-agent/nono.real
+	docker build -t kusari-agent-nono:latest -f apps/kusari-agent/Dockerfile.nono apps/kusari-agent/
+
 swarm-security-images: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image ## Build all security fleet images
 
 swarm-test: ## Run unit tests for all swarm agents

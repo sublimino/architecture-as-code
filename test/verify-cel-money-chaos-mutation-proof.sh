@@ -39,6 +39,7 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PE="$ROOT/d2-signalloom/apps/policy-engine"
+SI="$ROOT/d2-signalloom/apps/signal-ingest"
 BAK="$(mktemp -d "${TMPDIR:-/tmp}/j2-mutation-proof.XXXXXX")"
 
 # The files any mutant may touch. Backed up before anything is changed.
@@ -47,6 +48,7 @@ TARGETS=(
   "$PE/fair/fair.go"
   "$PE/money/money.go"
   "$PE/types.go"
+  "$SI/pkg/fair/engine.go"
 )
 
 declare -a SURVIVORS=()
@@ -112,11 +114,16 @@ apply() {
 # demand opposite responses, and the exit status cannot tell them apart. So the
 # marker is matched explicitly and reported as MISSING, which is a distinct
 # failure class with its own exit code.
-expect_red() {
-  local name="$1" regex="$2" why="$3"
+expect_red() { expect_red_in "$PE" "$1" "$2" "$3" './'; }
+
+# expect_red_in <module-dir> <mutant-name> <test-regex> <why> <package-pattern>
+# The module-aware form. signal-ingest is a separate Go module, so its tests
+# cannot be reached from the policy engine's directory.
+expect_red_in() {
+  local dir="$1" name="$2" regex="$3" why="$4" pkg="${5:-./}"
   local out rc
   set +e
-  out="$(cd "$PE" && go test -count=1 -run "$regex" ./ 2>&1)"
+  out="$(cd "$dir" && go test -count=1 -run "$regex" "$pkg" 2>&1)"
   rc=$?
   set -e
   if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no tests to run'; then
@@ -421,6 +428,40 @@ open(p,"w").write(s.replace(old,new,1))
 '
 expect_red M16-fix-unconvertible-currency 'TestAValidShapeIsNotAValidCurrency' \
   "INVERTED: an FX allow-list must break the unconvertible-label measurement"
+restore_all
+
+# ── M17 (INVERTED): make a declared zero expressible in signal-ingest ────────
+# Drop the `== 0` proxy for RiskLoad. The characterisation of the second
+# engine's defect must go red, and so must the two-engine divergence test.
+apply "$SI/pkg/fair/engine.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	if in.RiskLoad == 0 {
+		in.RiskLoad = DefaultRiskLoad
+	}"""
+assert old in s, "M17 anchor absent"
+open(p,"w").write(s.replace(old,"	// MUTANT M17: a declared zero is preserved",1))
+'
+expect_red_in "$SI" M17-fix-unexpressible-zero \
+  'TestADeclaredZeroRiskLoadIsUnexpressible_DEFECT|TestTheTwoEnginesDisagreeAboutWhatAZeroLoadMeans_DEFECT' \
+  "INVERTED: preserving a declared zero must break both characterisations" \
+  './pkg/fair/'
+restore_all
+
+# ── M18: the seed proxy in signal-ingest ─────────────────────────────────────
+apply "$SI/pkg/fair/engine.go" '
+import os
+p=os.environ["MUT_FILE"]; s=open(p).read()
+old="""	if in.Seed == 0 {
+		in.Seed = DefaultSeed
+	}"""
+assert old in s, "M18 anchor absent"
+open(p,"w").write(s.replace(old,"	// MUTANT M18: a declared zero seed is preserved",1))
+'
+expect_red_in "$SI" M18-fix-unexpressible-seed \
+  'TestADeclaredSeedOfZeroIsUnexpressible_DEFECT' \
+  "INVERTED: preserving a declared zero seed must break its characterisation" \
+  './pkg/fair/'
 restore_all
 
 echo "---------------------------------------------------------------------------"

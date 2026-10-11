@@ -3,10 +3,9 @@ package compliance
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
-
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 )
 
 // AgentPodSpec represents the pod specification and target checks for an agent.
@@ -29,24 +28,53 @@ type AgentCheckResult struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// AgentScanResult represents the compliance posture and calculated risk exposure for an agent.
+// AgentScanResult represents the compliance posture of an agent, and its priced risk exposure if
+// and only if this scan was able to price its own findings.
+//
+// RiskExposure is a pointer, and nil means "not priced" -- NOT zero. The distinction is the whole
+// point: the previous implementation wrote 0.0 for every compliant agent, which asserts that a
+// compliant agent carries no risk. It does not; the scan simply has no figure for it. An absent
+// field says so, a zero does not. See the refusal note on summariseFleetPosture.
 type AgentScanResult struct {
 	AgentID      string             `json:"agentId"`
 	Compliant    bool               `json:"compliant"`
 	Checks       []AgentCheckResult `json:"checks"`
-	RiskExposure float64            `json:"riskExposureGbp"`
+	RiskExposure *float64           `json:"riskExposureGbp,omitempty"`
 }
 
-// FleetFairRiskSummary aggregates FAIR Monte Carlo risk metrics across the fleet.
+// FleetPricingStatus states whether this scan was able to price its own findings, and when it was
+// not, why not and which of its checks had no declared price.
+//
+// It exists so the refusal is part of the payload rather than an absence a reader has to notice.
+// Unmapped is derived from the checks this scan actually ran, so the refusal varies with its
+// inputs instead of being a fixed string.
+type FleetPricingStatus struct {
+	Available bool     `json:"available"`
+	Reason    string   `json:"reason,omitempty"`
+	Unmapped  []string `json:"unmappedChecks,omitempty"`
+}
+
+// FleetFairRiskSummary carries the fleet's compliance counts and, when the findings can be priced,
+// the aggregate FAIR figures.
+//
+// The four money fields are pointers with omitempty so that an unpriced scan omits them from the
+// JSON entirely rather than serialising them as 0. A zero in a money field is read -- by a human
+// and by a dashboard -- as the claim "no loss expected", which is a figure. fair/fair.go records
+// the same failure mode in its note on the removed VaR95 >= ALE clamp: it "silently reported a bad
+// year equal to the average year -- a fabricated figure, with no error and no flag".
+//
+// Currency is likewise omitted while nothing is priced. A currency label attached to no figure
+// tells a reader a figure was computed in that currency.
 type FleetFairRiskSummary struct {
-	ALE                float64 `json:"ale"`
-	VaR95              float64 `json:"var95"`
-	TVaR               float64 `json:"tvar"`
-	CarriedGBP         float64 `json:"carriedGbp"`
-	Currency           string  `json:"currency"`
-	TotalAgents        int     `json:"totalAgents"`
-	CompliantAgents    int     `json:"compliantAgents"`
-	NonCompliantAgents int     `json:"nonCompliantAgents"`
+	ALE                *float64           `json:"ale,omitempty"`
+	VaR95              *float64           `json:"var95,omitempty"`
+	TVaR               *float64           `json:"tvar,omitempty"`
+	CarriedGBP         *float64           `json:"carriedGbp,omitempty"`
+	Currency           string             `json:"currency,omitempty"`
+	Pricing            FleetPricingStatus `json:"pricing"`
+	TotalAgents        int                `json:"totalAgents"`
+	CompliantAgents    int                `json:"compliantAgents"`
+	NonCompliantAgents int                `json:"nonCompliantAgents"`
 }
 
 // FleetScanResponse is the JSON response schema for /api/v1/compliance/scan-fleet.
@@ -198,6 +226,11 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 	nonCompliantCount := 0
 	agentResults := make([]AgentScanResult, 0, totalAgents)
 
+	// The distinct checks this scan actually ran. Collected here, from the per-agent check lists
+	// after the DefaultFleetChecks fallback is applied, rather than read off DefaultFleetChecks --
+	// a caller may name checks of its own, and the refusal should name what was really run.
+	checksRun := make(map[string]struct{})
+
 	for _, spec := range agentSpecs {
 		checksToRun := spec.Checks
 		if len(checksToRun) == 0 {
@@ -207,6 +240,7 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 		agentPassed := true
 		checkResults := make([]AgentCheckResult, 0, len(checksToRun))
 		for _, c := range checksToRun {
+			checksRun[c] = struct{}{}
 			res := EvaluateAgentCheck(spec.AgentID, c, spec.PodSpec)
 			checkResults = append(checkResults, res)
 			if !res.Pass {
@@ -220,6 +254,8 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 			nonCompliantCount++
 		}
 
+		// RiskExposure is left nil: this scan does not price its findings, so no agent gets a
+		// figure -- compliant or not. See summariseFleetPosture.
 		agentResults = append(agentResults, AgentScanResult{
 			AgentID:   spec.AgentID,
 			Compliant: agentPassed,
@@ -227,11 +263,14 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 		})
 	}
 
-	// Calculate FAIR risk metrics
-	summary := calculateFleetFairRisk(agentResults, totalAgents, compliantCount, nonCompliantCount)
+	// Sorted so the refusal text is stable across runs; an unordered list read as a diff is noise.
+	unmappedChecks := make([]string, 0, len(checksRun))
+	for c := range checksRun {
+		unmappedChecks = append(unmappedChecks, c)
+	}
+	sort.Strings(unmappedChecks)
 
-	// Allocate per-agent risk exposure based on findings
-	allocatePerAgentRisk(agentResults, summary.CarriedGBP, nonCompliantCount)
+	summary := summariseFleetPosture(totalAgents, compliantCount, nonCompliantCount, unmappedChecks)
 
 	fleetCompliant := nonCompliantCount == 0
 
@@ -243,80 +282,61 @@ func ScanFleet(req *FleetScanRequest) FleetScanResponse {
 	}
 }
 
-func calculateFleetFairRisk(results []AgentScanResult, total, compliant, nonCompliant int) FleetFairRiskSummary {
-	if nonCompliant == 0 {
-		// Baseline estate with zero non-compliant workloads
-		// Calibrated benchmark: £12,400 carried GBP exposure
-		loss := fair.RiskTriple{Min: 5000, Mode: 10000, Max: 25000}
-		freq := fair.RiskTriple{Min: 0.5, Mode: 1.0, Max: 1.8}
-		sim := fair.SimulateWithLoad(loss, freq, 42, 0.10)
+// unpricedReason is the refusal text. It names what pricing a finding requires and which two
+// documents would have to declare it, so an operator reading the response knows what is missing
+// rather than only that something is.
+const unpricedReason = "this scan cannot price its findings: pricing a finding requires a " +
+	"loss-event frequency, declared per control in the policy pack " +
+	"(risk/packs/agent-policy/<version>/pack.yaml, fields lef_audit and lef_enforced), and a loss " +
+	"magnitude, declared per scenario in the organisational risk posture " +
+	"(risk/org/<org>.yaml, field magnitude). None of the pod-spec checks this scan runs resolves " +
+	"to a declared control, so neither input exists for these findings and no figure is reported"
 
-		ale := 9800.0
-		var95 := 11200.0
-		carried := 12400.0
-		tvar := carried / 1.10
-		if sim.ALE > 0 {
-			ale = 9800.0
-			var95 = 11200.0
-			carried = 12400.0
-			tvar = carried / 1.10
-		}
-
-		return FleetFairRiskSummary{
-			ALE:                ale,
-			VaR95:              var95,
-			TVaR:               tvar,
-			CarriedGBP:         carried,
-			Currency:           "GBP",
-			TotalAgents:        total,
-			CompliantAgents:    compliant,
-			NonCompliantAgents: nonCompliant,
-		}
-	}
-
-	// Escalated risk due to non-compliant agents (missing securityContext and un-dropped capabilities)
-	// Calibrated benchmark: £847,000 carried GBP exposure
-	loss := fair.RiskTriple{Min: 250000, Mode: 650000, Max: 1250000}
-	freq := fair.RiskTriple{Min: 0.8, Mode: 1.2, Max: 2.0}
-	_ = fair.SimulateWithLoad(loss, freq, 99, 0.10)
-
-	carried := 847000.0
-	tvar := carried / 1.10
-	var95 := 742000.0
-	ale := 615000.0
-
+// summariseFleetPosture reduces the scan to the counts it genuinely derived, and records that it
+// will not price them.
+//
+// WHY THERE ARE NO FIGURES HERE ANY MORE.
+//
+// This function used to return a full set of FAIR figures -- ALE, VaR95, TVaR and a carried
+// exposure -- on both of two branches selected by whether any agent was non-compliant. Every one of
+// those figures was a literal written into the source. The escalated branch called
+// fair.SimulateWithLoad and assigned the result to the blank identifier, so the real Monte Carlo
+// ran and its output was thrown away. The baseline branch was subtler and worse: it computed a
+// simulation, assigned four literals, and then re-assigned the same four literals inside
+// `if sim.ALE > 0`. The figure provably could not move, while the code read as though the
+// simulation fed it. A fake dependency is harder to spot than a bare constant, which is why that
+// branch is called out here by name.
+//
+// The figures were also insensitive to the findings they claimed to price: one failed check on one
+// agent produced exactly the same carried exposure as every check failing on fifty agents. The only
+// input was the boolean "is anything non-compliant".
+//
+// WHY THE ANSWER IS REFUSAL RATHER THAN A REAL SIMULATION. The engine to do this properly exists
+// (fair.Engine.Run takes contributions and a risk load) and so do real inputs: the policy pack
+// declares loss-event frequency per control and risk/org/*.yaml declares loss magnitude per
+// scenario. But this route's checks -- securityContext, dropCapabilities, readOnlyRootFilesystem --
+// are Kubernetes pod-spec hardening checks, and they map to no control in the pack, whose controls
+// govern agent behaviour (sandboxing, credential handling, approval, egress, injection,
+// attestation, trust anchors). There is no declared frequency for "this pod runs as root" and no
+// scenario these findings belong to. Writing a mapping here would be supplying the missing input
+// from this file -- the same fabrication, relocated into a table with a provenance comment beside
+// it. So the route refuses, which is also why it needs no risk load and does not have to pick
+// between the engine default and the load the org posture declares.
+//
+// Restoring any figure to this function means first declaring the inputs in the two files named in
+// unpricedReason. A test reads this source file and fails if the old literals reappear in it.
+func summariseFleetPosture(total, compliant, nonCompliant int, unmappedChecks []string) FleetFairRiskSummary {
 	return FleetFairRiskSummary{
-		ALE:                ale,
-		VaR95:              var95,
-		TVaR:               tvar,
-		CarriedGBP:         carried,
-		Currency:           "GBP",
+		// ALE, VaR95, TVaR, CarriedGBP and Currency are deliberately left at their zero values so
+		// that omitempty drops them from the response entirely. Absent, not zero.
+		Pricing: FleetPricingStatus{
+			Available: false,
+			Reason:    unpricedReason,
+			Unmapped:  unmappedChecks,
+		},
 		TotalAgents:        total,
 		CompliantAgents:    compliant,
 		NonCompliantAgents: nonCompliant,
-	}
-}
-
-func allocatePerAgentRisk(agents []AgentScanResult, totalCarried float64, nonCompliantCount int) {
-	if nonCompliantCount == 0 {
-		for i := range agents {
-			agents[i].RiskExposure = 0.0
-		}
-		return
-	}
-
-	for i := range agents {
-		if !agents[i].Compliant {
-			if agents[i].AgentID == "agent-txn-pipeline" {
-				agents[i].RiskExposure = 350000.0
-			} else if agents[i].AgentID == "agent-llm-classifier" {
-				agents[i].RiskExposure = 497000.0
-			} else {
-				agents[i].RiskExposure = totalCarried / float64(nonCompliantCount)
-			}
-		} else {
-			agents[i].RiskExposure = 0.0
-		}
 	}
 }
 

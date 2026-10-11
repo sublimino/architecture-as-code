@@ -222,3 +222,8 @@ d2-signalloom/bun/
 
 # parallel-acceptance.sh output root if ever pointed into the tree
 .parallel-acceptance/
+
+# SLSI-P1-1: bundle binary layout (staged multi-arch binaries ignored; checksums and versions committed)
+bundle/bin/*/*
+!bundle/bin/*/versions.txt
+!bundle/bin/checksums.txt

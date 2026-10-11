@@ -258,9 +258,12 @@ swarm-interactive-images: swarm-zulip-image swarm-governor-image swarm-deploy-ga
 # Agent Swarm — Security, Identity & Containment Validation Fleet
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image swarm-security-images swarm-test
+.PHONY: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image swarm-kusari-nono-image swarm-cpai-engineer-nono-image swarm-agent-nono-evidenced-image swarm-security-images swarm-test
 
-swarm-nono-probe-image: ## Build nono-containment-probe image
+swarm-nono-probe-image: ## Build nono-containment-probe under REAL nono/Landlock (stages the host nono binary into the build context).
+	@command -v nono >/dev/null || { echo "nono not on PATH; install from https://nono.sh" >&2; exit 1; }
+	@v=$$(nono --version 2>/dev/null | awk '{print $$2}'); echo "staging real nono $$v into the build context"
+	cp "$$(command -v nono)" apps/nono-containment-probe/nono.real && chmod +x apps/nono-containment-probe/nono.real
 	docker build -t nono-containment-probe:latest apps/nono-containment-probe/
 
 # Build context is apps/, NOT apps/signalloom-stun-sentinel/. The Dockerfile
@@ -351,7 +354,19 @@ swarm-kusari-nono-image: ## Build the kusari agent under REAL nono/Landlock enfo
 	cp "$$(command -v nono)" apps/kusari-agent/nono.real && chmod +x apps/kusari-agent/nono.real
 	docker build -t kusari-agent-nono:latest -f apps/kusari-agent/Dockerfile.nono apps/kusari-agent/
 
-swarm-security-images: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image ## Build all security fleet images
+swarm-cpai-engineer-nono-image: ## Build cpai-engineer wrapped in REAL nono/Landlock at PID 1 (stages the host nono binary into the build context).
+	@command -v nono >/dev/null || { echo "nono not on PATH; install from https://nono.sh" >&2; exit 1; }
+	@v=$$(nono --version 2>/dev/null | awk '{print $$2}'); echo "staging real nono $$v into the build context"
+	cp "$$(command -v nono)" apps/cpai-engineer/nono.real && chmod +x apps/cpai-engineer/nono.real
+	docker build -t cpai-engineer:latest apps/cpai-engineer/
+
+swarm-agent-nono-evidenced-image: ## Build the SP-5 evidenced demo agent under REAL nono/Landlock (fail-closed; stages the host nono binary into the build context).
+	@command -v nono >/dev/null || { echo "nono not on PATH; install from https://nono.sh" >&2; exit 1; }
+	@v=$$(nono --version 2>/dev/null | awk '{print $$2}'); echo "staging real nono $$v into the build context"
+	cp "$$(command -v nono)" infra/agent-swarm/agent-nono-evidenced/nono.real && chmod +x infra/agent-swarm/agent-nono-evidenced/nono.real
+	docker build -t agent-nono-evidenced:latest -f infra/agent-swarm/agent-nono-evidenced/Dockerfile.nono .
+
+swarm-security-images: swarm-nono-probe-image swarm-stun-sentinel-image swarm-kusari-image swarm-kusari-nono-image swarm-cpai-engineer-nono-image swarm-agent-nono-evidenced-image ## Build all security fleet images (all nono images use REAL Landlock)
 
 swarm-test: ## Run unit tests for all swarm agents
 	cd apps/cardvault-agent && go test ./...

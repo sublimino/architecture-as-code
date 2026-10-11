@@ -1,0 +1,42 @@
+# Dockerfile.nono builds the SP-5 "nono evidenced" demo agent under REAL
+# fail-closed nono/Landlock enforcement.
+#
+# The deployed agent used to run the stock bitnamilegacy/kubectl image with an
+# inline ConfigMap script that, finding no nono binary present, logged
+# nono_capability_available:false + "executing unconfined" and then emitted
+# status:"healthy" heartbeats forever — audit evidence of containment with
+# nothing contained. This image removes that shim two ways:
+#   1. It actually ships the real nono binary, so enforcement is possible.
+#   2. Its entrypoint is the rewritten probe-nono-capability.sh, which wraps the
+#      heartbeat workload in real `nono run` and FAILS CLOSED (non-zero exit, no
+#      healthy heartbeat, no landlock evidence) if Landlock cannot be enforced.
+#
+# nono.real is staged into the build context (gitignored). Build context MUST be
+# the d2-signalloom root so the COPY can reach the shared probe script:
+#   docker build -t agent-nono-evidenced:latest \
+#     -f infra/agent-swarm/agent-nono-evidenced/Dockerfile.nono .
+# (the Makefile swarm-agent-nono-evidenced-image target does this.)
+FROM cgr.dev/chainguard/wolfi-base:latest
+# bash: the probe script uses arrays + mapfile. libgcc: libgcc_s.so.1 for nono.
+RUN apk add --no-cache bash libgcc
+
+COPY infra/agent-swarm/agent-nono-evidenced/nono.real /usr/local/bin/nono
+COPY apps/fe-signalloom-agents/probe-nono-capability.sh /usr/local/bin/probe-nono-capability.sh
+RUN chmod +x /usr/local/bin/nono /usr/local/bin/probe-nono-capability.sh
+
+# HOME writable and OUTSIDE the allow-list so nono's pre-sandbox state write
+# succeeds and deny_credentials paths do not overlap an allowed dir.
+RUN mkdir -p /home/nono/.local/state /home/nono/.config \
+ && chown -R 65532:65532 /home/nono
+ENV HOME=/home/nono \
+    XDG_STATE_HOME=/home/nono/.local/state \
+    XDG_CONFIG_HOME=/home/nono/.config \
+    NONO_ALLOW_PATHS=/tmp
+USER 65532:65532
+# WORKDIR inside the allow-list (/tmp) so nono's working-directory check passes.
+WORKDIR /tmp
+
+# No args -> the script runs the heartbeat loop wrapped in real nono. If the
+# kernel cannot enforce Landlock the script exits non-zero and the pod
+# CrashLoops instead of running unconfined.
+ENTRYPOINT ["/usr/local/bin/probe-nono-capability.sh"]

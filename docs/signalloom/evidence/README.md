@@ -39,9 +39,13 @@ for local-demo TRL-2 and are the explicit handoff to **SLDPB25-P2-GOV / P3-1**:
    cryptographically pinned to the signed subject. **Hardening (P2-GOV):** single `buildx --push` to
    an OCI-index-capable registry, then sign that index digest and attach the SBOM/provenance to it.
 2. **Deploy-by-tag.** `dashboard-deployment.yaml` references `…:${ARTIFACT_TAG}` (mutable tag), and the
-   kyverno signature policy enforces only in namespace `admission-demo`. So runtime does not yet *prove*
-   it runs the signed digest. **Hardening (P3-1):** digest-pin the manifest and extend the kyverno
-   `verifyImages` match to the signalloom namespace.
+   CEL admission policies are bound to `Deny` only in namespace `admission-demo`. So runtime does not
+   yet *prove* it runs the signed digest. **Hardening (P3-1):** digest-pin the manifest and bind
+   `sl-require-image-digest` and `sl-require-trusted-registry` with `Deny` in the signalloom namespace.
+   Note what that would and would not buy: admission can prove "digest-pinned, and from the trusted
+   registry", but CEL cannot verify a signature — it cannot call out of the API server. The signature
+   guarantee is Flux's, one layer earlier. Cryptographic verification *at admission* needs Sigstore
+   policy-controller, which is not deployed. See `docs/signalloom/image-verification-without-kyverno.md`.
 
 Neither is a P2-2 blocker: P2-2's contract is "build/sign the image + deploy nginx Service/SPA/readiness
 + unit/container tests" — all met and tool-verified. Digest-pinning and admission enforcement are the

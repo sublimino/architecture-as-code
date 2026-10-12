@@ -197,5 +197,8 @@ $KUBESEC_AFM_ROOT    # default: /home/andy/src/cp/kubesec-afm
    so cluster data and analysis results survive pod restarts.
 
 3. **Guard generation**: AFM can generate OPA/Gatekeeper policies from its
-   findings (`/clusters/{id}/analysis/guards`). Integrate these into the kyverno
-   admission pipeline.
+   findings (`/clusters/{id}/analysis/guards`). Integrating these means
+   translating them to CEL `ValidatingAdmissionPolicy`, which is the repo's
+   admission idiom — there is no Kyverno, OPA or Gatekeeper controller in the
+   bundle (OSD-7). `d2-signalloom/pkg/policy/cel_generator.go` already emits
+   policy/binding pairs in that form and is the natural target.

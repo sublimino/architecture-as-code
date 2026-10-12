@@ -5112,5 +5112,29 @@
     "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified.",
     "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating.",
     "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating."
+  },
+  "32e03": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "32e03",
+        "reviewed_at": "2026-10-11T16:44:38.514Z",
+        "reviewer": "supervisor",
+        "verdict": "APPROVED",
+        "model": "claude-opus-5",
+        "summary": "Lead-verified acceptance baseline: jq tipSha proof passes, sha256sums 43/43 OK after re-seal, 11 suites with explicit pass/fail/skip triples, classification corrected to inherited=1 new=5, every skip stated with its reason.",
+        "next_step": "done-advance so P1-PRE becomes ready",
+        "reason": "Corroboration via task_runs is structurally unavailable for this card: session=(not found) persisted across both an antigravity and a kpai restart while the agent demonstrably ran, committed and exited (P0-w1 advanced to d852e797). The corroboration gate exists to stop a card self-certifying; here the lead verified the artefacts externally and independently, which is what review decision [2] encodes."
+      }
+    ],
+    "run_count": 0,
+    "task_id": "32e03",
+    "reviewed_at": "2026-10-11T16:44:38.514Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "model": "claude-opus-5",
+    "summary": "Lead-verified acceptance baseline: jq tipSha proof passes, sha256sums 43/43 OK after re-seal, 11 suites with explicit pass/fail/skip triples, classification corrected to inherited=1 new=5, every skip stated with its reason.",
+    "next_step": "done-advance so P1-PRE becomes ready",
+    "reason": "Corroboration via task_runs is structurally unavailable for this card: session=(not found) persisted across both an antigravity and a kpai restart while the agent demonstrably ran, committed and exited (P0-w1 advanced to d852e797). The corroboration gate exists to stop a card self-certifying; here the lead verified the artefacts externally and independently, which is what review decision [2] encodes."
   }
 }

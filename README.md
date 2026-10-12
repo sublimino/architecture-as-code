@@ -506,6 +506,6 @@ Available now:
 
 Roadmap:
 
-1. Witness attestation checks at admission time (undelivered; needs Sigstore policy-controller).
+1. Witness attestation checks at admission time. Undelivered: this needs Sigstore policy-controller.
 2. Keyless workload signing through Fulcio and Kubernetes OIDC.
 3. Works Council sign-off and the final GDPR Article 6(1)(f) lawful basis for production.

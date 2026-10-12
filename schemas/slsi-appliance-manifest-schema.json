@@ -225,6 +225,16 @@
           "role": {
             "type": "string"
           },
+          "sourceId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "First-party only (OSD-1): the fingerprint of the image's build inputs, from scripts/lib/source-id.sh. The identity the Dockerfile bakes in, as opposed to the mutable tag the deployment resolves to."
+          },
+          "sourceIdTag": {
+            "type": "string",
+            "pattern": "^src-[0-9a-f]{12}$",
+            "description": "First-party only (OSD-1): the src-<12 hex> form of sourceId, the same convention the build sites' tag scripts print."
+          },
           "provides": {
             "type": "array",
             "items": {
@@ -356,20 +366,26 @@
     },
     "installer": {
       "type": "object",
+      "description": "The self-initialisation slot, declared so a consumer reads its real state off the artefact instead of inferring it from a file that is not there. Two scopes are reported separately because they differ and the difference matters: present answers 'is the installer in this bundle payload', sourcePresent answers 'does the repository carry one yet'. Both are measured at build time, never asserted.",
       "required": [
         "path",
         "present",
         "status",
         "ownedBy",
-        "governedBy"
+        "governedBy",
+        "sourcePath",
+        "sourcePresent",
+        "sourceStatus"
       ],
       "additionalProperties": false,
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "Path the installer would occupy inside the bundle payload."
         },
         "present": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Measured: does path exist in the staged payload."
         },
         "status": {
           "type": "string"
@@ -379,6 +395,19 @@
         },
         "governedBy": {
           "type": "string"
+        },
+        "sourcePath": {
+          "type": "string",
+          "description": "Path of the installer in the source repository."
+        },
+        "sourcePresent": {
+          "type": "boolean",
+          "description": "Measured: does sourcePath exist in the source tree at build time."
+        },
+        "sourceStatus": {
+          "type": "string",
+          "minLength": 20,
+          "description": "What the source-tree file actually does, so a refusing stub is never mistaken for a working installer."
         }
       }
     },
@@ -413,12 +442,14 @@
     },
     "coverageExclusions": {
       "type": "array",
+      "description": "Image references the coverage gate may legitimately leave unpinned. A bare reason word is not evidence, so every entry must also carry a justification: an exclusion nobody can read is indistinguishable from an oversight, and the reason enum alone cannot say why THIS reference was excused.",
       "items": {
         "type": "object",
         "required": [
           "ref",
           "reason",
-          "kind"
+          "kind",
+          "justification"
         ],
         "additionalProperties": false,
         "properties": {
@@ -427,12 +458,31 @@
           },
           "reason": {
             "type": "string",
+            "description": "dev-deferred-pin is a deliberate development-mode deferral under AJM decision OSD-2: the reference is version-tagged or source-id-tagged and carries a single reference site, and digest pinning is postponed rather than overlooked. It is named for what it is so that it cannot be mistaken for a structural exemption like helm-chart-repository or local-never-pulled, both of which can never be pinned at all.",
             "enum": [
               "helm-chart-repository",
-              "local-never-pulled"
+              "local-never-pulled",
+              "dev-deferred-pin"
             ]
           },
           "kind": {
+            "type": "string"
+          },
+          "justification": {
+            "type": "string",
+            "minLength": 40,
+            "description": "Why this specific reference is excused, in prose, so the deferral is self-documenting rather than silent."
+          },
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The literal tag the reference carries. Present on a dev-deferred-pin entry to preserve the distinction that these are version-tagged or source-id-tagged, not floating on :latest."
+          },
+          "mutableTag": {
+            "type": "boolean",
+            "description": "Whether the tag can move under the appliance. False for every dev-deferred-pin entry; a true value would make the deferral unsafe rather than merely unfinished."
+          },
+          "ownedBy": {
             "type": "string"
           }
         }

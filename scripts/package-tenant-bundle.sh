@@ -28,6 +28,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${REPO_ROOT}/scripts/lib/wait.sh"
 # shellcheck source=scripts/lib/image-identity.sh
 source "${REPO_ROOT}/scripts/lib/image-identity.sh"
+# OSD-1: the first-party export records the identity its Dockerfiles bake in,
+# and computes it with the same library the build sites and the staleness guard
+# use. A second implementation here could drift from theirs the moment one was
+# edited, and a fingerprint computed a different way compares unequal to a
+# correct deployment.
+# shellcheck source=scripts/lib/source-id.sh
+source "${REPO_ROOT}/scripts/lib/source-id.sh"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -1382,6 +1389,338 @@ EOF
 }
 # <<< SLSI-P1-2 >>>
 
+# >>> SLSI-OSD-1: first-party application image export <<<
+#
+# AJM decision OSD-1, option (a) of the proposal and not a new card: export the
+# three first-party applications into the bundle.
+#
+# The defect this closes. All 31 audited images in the bundle were third-party,
+# because fe-signalloom, dashboard-signalloom and docs-signalloom are built on
+# the host and moved into the cluster with `kind load`. They never passed
+# through a registry the bundler inspects, so the one part of the appliance that
+# is actually ControlPlane's own code was the one part the bundle could not
+# attest. An air-gapped partner could verify every upstream controller and
+# nothing we wrote.
+#
+# Identity, not tag. Their deployments say
+# ${IMAGE_BASE}/signalloom/apps/<app>:${ARTIFACT_TAG}, which resolves through
+# d2-osramp-fleet/clusters/local/flux-system/runtime-info.yaml to
+# zot.registry.svc.cluster.local:5000/acme/images/... on the mutable tag
+# `latest`. A record pinned to that tag would say nothing: with
+# imagePullPolicy: IfNotPresent any image carrying it satisfies the reference,
+# which is the whole argument of scripts/lib/image-identity.sh. So each record
+# carries the resolved manifest digest AND the source-id its Dockerfile bakes
+# in, computed by scripts/lib/source-id.sh -- the same library the build sites
+# and the staleness guard use, so a tag minted by a build site and the identity
+# recorded here cannot drift. The mutable ref it was exported FROM is kept as
+# sourceRef, because deleting the provenance would be the same mistake in
+# reverse.
+#
+# Why its own stage. stage_p1_2_images is the sole writer of
+# bundle/.manifest.d/images.json and is forbidden to touch MANIFEST.json;
+# stage_p1_3_manifest is the sole writer of MANIFEST.json. This stage amends
+# images.json and re-derives its sibling images.sha256, and leaves both
+# contracts standing: the records reach MANIFEST.json through P1-3's existing
+# pass-through, which is also what keeps P1-3's seven gates -- arity, sentinel,
+# digest shape, tag-only -- applicable to them rather than bypassed by them.
+#
+# Injectable boundaries (the hermetic suite sets these):
+#   SLSI_CRANE_BIN             crane binary (default: crane)
+#   SLSI_FIRST_PARTY_REGISTRY  registry holding the built images
+#                              (default: localhost:5001 -- the port-forwarded
+#                              zot the build pipeline already crane-pushes them
+#                              to, so nothing new has to be stood up)
+#   SLSI_FIRST_PARTY_TAG       tag to export from (default: latest)
+#   SLSI_IMAGE_BASE            overrides the IMAGE_BASE read from runtime-info
+
+OSD1_FIRST_PARTY_WORKLOADS=("dashboard-signalloom" "docs-signalloom" "fe-signalloom")
+OSD1_REQUIRED_NAMESPACE="acme/images"
+OSD1_RUNTIME_INFO="${OSD1_RUNTIME_INFO:-d2-osramp-fleet/clusters/local/flux-system/runtime-info.yaml}"
+
+# IMAGE_BASE as the deployments resolve it, read from the cluster's runtime-info
+# ConfigMap rather than hardcoded here. A second copy of a value that already
+# exists in the tree is a copy that can disagree with what actually ships, with
+# nothing to say so -- the argument scripts/check-backends.sh makes for reading
+# nginx.conf instead of a hand-maintained list.
+osd1_image_base() {
+  if [[ -n "${SLSI_IMAGE_BASE:-}" ]]; then
+    printf '%s' "${SLSI_IMAGE_BASE}"
+    return 0
+  fi
+  local f="${REPO_ROOT}/${OSD1_RUNTIME_INFO}"
+  [[ -f "${f}" ]] || fail "OSD-1: runtime-info absent at ${f}; cannot resolve IMAGE_BASE"
+  local base
+  # Everything after the FIRST colon, not awk -F': *' $2: the value is a
+  # registry reference and carries its own colon (host:5000/acme/images), so a
+  # field split returns the hostname and the namespace assertion below then
+  # fails on a perfectly correct runtime-info.
+  base="$(awk '/^[[:space:]]*IMAGE_BASE:/ {sub(/^[^:]*:[[:space:]]*/, "", $0); print; exit}' "${f}" | tr -d '[:space:]')"
+  [[ -n "${base}" ]] || fail "OSD-1: ${f} declares no IMAGE_BASE"
+  printf '%s' "${base}"
+}
+
+# The namespace component of an IMAGE_BASE: everything after the registry host.
+osd1_namespace_of() {
+  printf '%s' "${1#*/}"
+}
+
+osd1_repo_for() {
+  printf '%s/signalloom/apps/%s' "$1" "$2"
+}
+
+# The fingerprint of a workload's build inputs, 64 hex. Refuses a short or
+# malformed value rather than passing it on: a truncated fingerprint compares
+# unequal to everything and would read as drift forever.
+osd1_source_id() {
+  local w="$1" id
+  id="$(source_id_for "${w}")" || return 1
+  [[ "${id}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf '%s' "${id}"
+}
+
+osd1_count_blobs() {
+  find "$1/blobs/sha256" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d '[:space:]'
+}
+
+# Resolve one source reference to a manifest digest, or print the
+# DIGEST-UNRESOLVED sentinel.
+#
+# Printing the sentinel rather than failing here is deliberate and matches the
+# P1-2 verification doctrine above: producing a sentinel is this stage's
+# failure, and DETECTING and ATTRIBUTING it is P1-3's Gate 4. Failing here would
+# move the detection into the producer, where there is no manifest to name it
+# in; swallowing it would be the silent-acceptance defect that gate exists for.
+osd1_resolve_digest() {
+  local src_ref="$1"
+  local crane_bin="${SLSI_CRANE_BIN:-crane}"
+  local digest=""
+  digest="$("${crane_bin}" digest --platform all "${src_ref}" 2>/dev/null || true)"
+  if [[ "${digest}" != sha256:[0-9a-f]* ]]; then
+    printf 'DIGEST-UNRESOLVED: %s' "${src_ref}"
+    return 0
+  fi
+  printf '%s' "${digest}"
+}
+
+# Verification mode: the three records must be there and be digest-pinned.
+osd1_verify_recorded() {
+  local images_json="$1" missing want
+  # --argjson and not --args: with --args every argument after the filter is a
+  # positional string, which would swallow the input file as well.
+  want="$(printf '%s\n' "${OSD1_FIRST_PARTY_WORKLOADS[@]}" | jq -R . | jq -s .)"
+  missing="$(jq -r --argjson want "${want}" '
+    ([.images[] | select(.party == "first-party" and .role == "application")
+       | select(.digest | test("^sha256:[0-9a-f]{64}$")) | .logicalName]) as $have
+    | $want - $have | .[]' "${images_json}")"
+  if [[ -n "${missing}" ]]; then
+    echo "ERROR: OSD-1 first-party image record absent or unpinned for: ${missing}" >&2
+    return "${SLSI_VERIFY_EXIT_COULD_NOT_VERIFY}"
+  fi
+  log "OSD-1 verify: ${#OSD1_FIRST_PARTY_WORKLOADS[@]} first-party application images recorded and digest-pinned"
+}
+
+stage_osd_1_first_party_images() {
+  if [[ "${CHECK_PINS:-0}" -eq 1 || "${SLSI_RESOLVE_ONLY:-0}" -eq 1 ]]; then
+    log "stage_osd_1_first_party_images: not applicable (--check-pins/--resolve-only export no images)"
+    return 0
+  fi
+
+  local images_dir="${BUNDLE_DIR}/images"
+  local oci_dir="${images_dir}/oci"
+  local manifest_d="${BUNDLE_DIR}/.manifest.d"
+  local images_json="${manifest_d}/images.json"
+
+  [[ -f "${images_json}" ]] || fail "OSD-1: ${images_json} is absent; stage_p1_2_images must run first"
+
+  if [[ "${VERIFY_ONLY:-0}" -eq 1 ]]; then
+    osd1_verify_recorded "${images_json}" || exit $?
+    return 0
+  fi
+
+  local base ns registry from_tag crane_bin
+  base="$(osd1_image_base)"
+  ns="$(osd1_namespace_of "${base}")"
+  registry="${SLSI_FIRST_PARTY_REGISTRY:-localhost:5001}"
+  from_tag="${SLSI_FIRST_PARTY_TAG:-latest}"
+  crane_bin="${SLSI_CRANE_BIN:-crane}"
+
+  # The decision names the namespace, so a registry move that silently changed
+  # it must fail the build rather than bundle under a new one.
+  [[ "${ns}" == "${OSD1_REQUIRED_NAMESPACE}" ]] || \
+    fail "OSD-1: IMAGE_BASE '${base}' yields namespace '${ns}', expected '${OSD1_REQUIRED_NAMESPACE}'"
+
+  log "OSD-1: exporting ${#OSD1_FIRST_PARTY_WORKLOADS[@]} first-party images from ${registry}/${ns} into ${oci_dir}"
+
+  mkdir -p "${oci_dir}/blobs/sha256"
+  if [[ ! -f "${oci_dir}/oci-layout" ]]; then
+    printf '{"imageLayoutVersion":"1.0.0"}\n' > "${oci_dir}/oci-layout"
+  fi
+  if [[ ! -f "${oci_dir}/index.json" ]]; then
+    printf '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]}\n' > "${oci_dir}/index.json"
+  fi
+
+  local blobs_before sentinel_count=0
+  blobs_before="$(osd1_count_blobs "${oci_dir}")"
+
+  local tmp_recs
+  tmp_recs="$(mktemp -t slsi-osd1-records.XXXXXX)"
+  local w repo src_ref digest hash blob size platforms sid stag
+  : > "${tmp_recs}.ndjson"
+
+  for w in "${OSD1_FIRST_PARTY_WORKLOADS[@]}"; do
+    repo="$(osd1_repo_for "${base}" "${w}")"
+    src_ref="${registry}/${ns}/signalloom/apps/${w}:${from_tag}"
+
+    sid="$(osd1_source_id "${w}")" || {
+      rm -f "${tmp_recs}" "${tmp_recs}.ndjson"
+      fail "OSD-1: cannot fingerprint ${w}; refusing to record an image whose identity is unknown"
+    }
+    stag="src-${sid:0:12}"
+
+    digest="$(osd1_resolve_digest "${src_ref}")"
+    size=0
+    platforms='["linux/amd64"]'
+
+    if [[ "${digest}" == sha256:* ]]; then
+      log "OSD-1: ${w} -> ${digest} (source-id ${stag})"
+      "${crane_bin}" pull --format=oci --annotate-ref "${repo}@${digest}" "${oci_dir}"
+      hash="${digest#sha256:}"
+      blob="${oci_dir}/blobs/sha256/${hash}"
+      if [[ -f "${blob}" ]]; then
+        size="$(wc -c < "${blob}" | tr -d '[:space:]')"
+        local detected
+        detected="$(jq -r '[.manifests[]?.platform | select(.os and .architecture) | "\(.os)/\(.architecture)"] | unique' "${blob}" 2>/dev/null || true)"
+        if [[ -n "${detected}" && "${detected}" != "[]" ]]; then
+          platforms="${detected}"
+        fi
+      else
+        rm -f "${tmp_recs}" "${tmp_recs}.ndjson"
+        fail "OSD-1: ${crane_bin} pull reported success for ${repo}@${digest} but wrote no blob at ${blob}"
+      fi
+    else
+      echo "ERROR: OSD-1 could not resolve a digest for ${src_ref}; recording the sentinel for P1-3 Gate 4 to attribute." >&2
+      sentinel_count=$((sentinel_count + 1))
+    fi
+
+    jq -n \
+      --arg ref "${repo}@${digest}" \
+      --arg logicalName "${w}" \
+      --arg sourceRef "${src_ref}" \
+      --arg digest "${digest}" \
+      --arg sourceId "${sid}" \
+      --arg sourceIdTag "${stag}" \
+      --argjson platforms "${platforms}" \
+      --argjson sizeBytes "${size}" \
+      --arg keyUri "${SLSI_RELEASE_KEY_URI}" \
+      '{
+        ref: $ref,
+        resolvedRef: $ref,
+        logicalName: $logicalName,
+        sourceRef: $sourceRef,
+        digest: $digest,
+        party: "first-party",
+        role: "application",
+        digestKind: "manifest",
+        sourceId: $sourceId,
+        sourceIdTag: $sourceIdTag,
+        platforms: $platforms,
+        ociLayoutPath: "bundle/images/oci",
+        sizeBytes: $sizeBytes,
+        provenance: {
+          upstreamSlsa: null,
+          claim: "first-party: built from this source tree, identity is sourceId"
+        }
+      }' >> "${tmp_recs}.ndjson"
+  done
+
+  jq -s 'sort_by(.ref)' "${tmp_recs}.ndjson" > "${tmp_recs}"
+
+  local declared
+  declared="$(jq 'length' "${tmp_recs}")"
+  if [[ "${declared}" -ne "${#OSD1_FIRST_PARTY_WORKLOADS[@]}" ]]; then
+    rm -f "${tmp_recs}" "${tmp_recs}.ndjson"
+    fail "OSD-1 arity: assembled ${declared} records for ${#OSD1_FIRST_PARTY_WORKLOADS[@]} workloads"
+  fi
+
+  # Amend images.json. Replacing every first-party application record rather
+  # than appending makes the stage idempotent: a second run cannot double the
+  # set, and `count` stays in arity with the array, which is what P1-3's Gate 3
+  # compares. Keying the removal on party+role and not on logicalName means a
+  # third-party image that happens to share a name is never collateral.
+  local tmp_images
+  tmp_images="$(mktemp -t slsi-osd1-images.XXXXXX)"
+  jq --slurpfile recs "${tmp_recs}" \
+     --arg reg "${registry}" --arg ns "${ns}" --arg at "${SOURCE_DATE_UTC}" '
+    .images = ((((.images // []) | map(select((.party == "first-party" and .role == "application") | not))) + $recs[0]) | sort_by(.ref))
+    | .count = (.images | length)
+    | .firstPartyExport = {
+        decision: "OSD-1",
+        workloads: ($recs[0] | map(.logicalName) | sort),
+        sourceRegistry: $reg,
+        namespace: $ns,
+        identity: "sourceId (scripts/lib/source-id.sh), not the mutable tag the deployment resolves to",
+        exportedAtUtc: $at
+      }
+  ' "${images_json}" > "${tmp_images}"
+  mv -f "${tmp_images}" "${images_json}"
+  if [[ -f "${images_dir}/images.json" ]]; then
+    cp "${images_json}" "${images_dir}/images.json"
+  fi
+  (cd "${manifest_d}" && sha256sum "images.json" > "images.sha256")
+
+  # Merge the descriptors into the layout index, deduplicating by digest so a
+  # re-run is a no-op here too.
+  local tmp_index
+  tmp_index="$(mktemp -t slsi-osd1-index.XXXXXX)"
+  jq --slurpfile recs "${tmp_recs}" '
+    ([$recs[0][] | select(.digest | startswith("sha256:")) | {
+        mediaType: "application/vnd.oci.image.index.v1+json",
+        size: (if .sizeBytes > 0 then .sizeBytes else 1 end),
+        digest: .digest,
+        annotations: {"org.opencontainers.image.ref.name": .ref}
+      }]) as $new
+    | ($new | map(.digest)) as $newd
+    | .schemaVersion = 2
+    | .mediaType = "application/vnd.oci.image.index.v1+json"
+    | .manifests = (((.manifests // []) | map(. as $m | select(($newd | index($m.digest)) == null))) + $new)
+  ' "${oci_dir}/index.json" > "${tmp_index}"
+  mv -f "${tmp_index}" "${oci_dir}/index.json"
+  cp "${oci_dir}/index.json" "${images_dir}/index.json"
+
+  # bundle/images/layout-closure.json is P1-2's record of a closure this stage
+  # has just changed, and verify_offline_images compares its two counters
+  # against a fresh walk. Leaving it stale would make the next --verify-only
+  # report MISMATCH -- a claim of PROVEN corruption -- over a bundle that is
+  # merely larger than the record. So it is recomputed here, and
+  # closureVerified reports what the walk actually found rather than being
+  # assumed: on a skeleton bundle whose blobs were never fetched the walk is
+  # inconclusive, and saying so is the honest answer.
+  local walk_rc=0
+  walk_oci_closure "${oci_dir}" || walk_rc=$?
+  local closure_verified="true"
+  if [[ "${walk_rc}" -ne 0 ]]; then
+    closure_verified="false"
+  fi
+  cat > "${images_dir}/layout-closure.json" <<EOF
+{
+  "layoutPath": "bundle/images/oci",
+  "totalReachableDescriptors": ${CLOSURE_TOTAL_REACHABLE:-0},
+  "totalBlobsOnDisk": ${CLOSURE_TOTAL_DISK:-0},
+  "danglingDescriptors": ${CLOSURE_DANGLING_JSON:-[]},
+  "orphanBlobs": ${CLOSURE_ORPHANS_JSON:-[]},
+  "closureVerified": ${closure_verified},
+  "verifiedAt": "${SOURCE_DATE_UTC}"
+}
+EOF
+
+  local blobs_after
+  blobs_after="$(osd1_count_blobs "${oci_dir}")"
+  rm -f "${tmp_recs}" "${tmp_recs}.ndjson"
+
+  log "stage_osd_1_first_party_images complete: ${declared} first-party records (${sentinel_count} unresolved), blobs ${blobs_before} -> ${blobs_after}, images.json count $(jq -r '.count' "${images_json}")"
+}
+# <<< SLSI-OSD-1 >>>
+
 # >>> SLSI-P1-3: manifest compilation and bundle assembly <<<
 stage_p1_3_manifest() {
   local version="${SLSI_VERSION:-${BUNDLE_VERSION:-0.1.0}}"
@@ -1744,30 +2083,120 @@ stage_p1_3_manifest() {
     echo "[]" > "${meta_dir}/staged_binaries.json"
   fi
 
+  # Coverage exclusions. Measured domain before this list was written: the
+  # staged fleet and infra trees plus the vendored Flux manifests yield 8
+  # digest-less references, and test/helpers/airgap-sandbox.bash's
+  # airgap_digestless_refs computes the same 8 over the extracted archive. Four
+  # are structural (a Helm chart repository has no image digest to pin; a
+  # never-pulled local tag has no registry to pin against) and four are the
+  # AJM OSD-2 deferrals.
+  #
+  # Every entry carries a justification because the reason word alone cannot say
+  # why THIS reference was excused, and an exclusion nobody can read is
+  # indistinguishable from an oversight.
+  #
+  # OSD-2 is a deferral, not an exemption, and the two must not be confusable:
+  # these four CAN be pinned and one day will be. What makes the deferral
+  # tolerable in development is recorded per entry rather than asserted in
+  # prose somewhere else -- each is version-tagged or source-id-tagged, never
+  # floating on :latest, which is why tag and mutableTag are here and why the
+  # gate below refuses a dev-deferred-pin entry whose tag could move.
   cat > "${meta_dir}/coverage_exclusions.json" <<'EOF'
 [
   {
     "ref": "docker.io/envoyproxy/gateway-helm",
     "reason": "helm-chart-repository",
-    "kind": "HelmRepository"
+    "kind": "HelmRepository",
+    "justification": "A HelmRepository names a chart repository, not an image. There is no image manifest digest to pin at this reference; the images the chart renders are pinned individually.",
+    "ownedBy": "SLSI-P1-2"
   },
   {
     "ref": "ghcr.io/prometheus-community/charts/kube-prometheus-stack",
     "reason": "helm-chart-repository",
-    "kind": "HelmRepository"
+    "kind": "HelmRepository",
+    "justification": "A HelmRepository names a chart repository, not an image. There is no image manifest digest to pin at this reference; the images the chart renders are pinned individually.",
+    "ownedBy": "SLSI-P1-2"
   },
   {
     "ref": "quay.io/jetstack/charts/cert-manager",
     "reason": "helm-chart-repository",
-    "kind": "HelmRepository"
+    "kind": "HelmRepository",
+    "justification": "A HelmRepository names a chart repository, not an image. There is no image manifest digest to pin at this reference; the images the chart renders are pinned individually.",
+    "ownedBy": "SLSI-P1-2"
   },
   {
     "ref": "netassert-runner:local",
     "reason": "local-never-pulled",
-    "kind": "Job"
+    "kind": "Job",
+    "justification": "Built on the host and loaded into the node directly, so it is never pulled from a registry and no registry digest exists for the appliance to pin or verify against.",
+    "ownedBy": "SLSI-P1-2"
+  },
+  {
+    "ref": "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-24c2a5005f5f",
+    "reason": "dev-deferred-pin",
+    "kind": "DaemonSet",
+    "tag": "src-24c2a5005f5f",
+    "mutableTag": false,
+    "justification": "AJM decision OSD-2: pinning deferred for development. First-party image on a source-id tag, which is a fingerprint of its build inputs and therefore immutable in practice; one reference site in d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml.",
+    "ownedBy": "SLSI-P2-1"
+  },
+  {
+    "ref": "ghcr.io/stefanprodan/podinfo:6.7.1",
+    "reason": "dev-deferred-pin",
+    "kind": "ResourceSet",
+    "tag": "6.7.1",
+    "mutableTag": false,
+    "justification": "AJM decision OSD-2: pinning deferred for development. Upstream release tag of an inert demo workload, not a floating tag; one reference site in d2-osramp-fleet/tenants/local/signalloom.yaml.",
+    "ownedBy": "SLSI-P2-1"
+  },
+  {
+    "ref": "python:3.12-slim",
+    "reason": "dev-deferred-pin",
+    "kind": "CronJob",
+    "tag": "3.12-slim",
+    "mutableTag": false,
+    "justification": "AJM decision OSD-2: pinning deferred for development. Version-tagged base image of the RBAC exporter CronJob, a workload rather than a platform component; one reference site in d2-signalloom/infra/agent-swarm/signalloom-warden/rbac-exporter-cronjob.yaml.",
+    "ownedBy": "SLSI-P2-1"
+  },
+  {
+    "ref": "registry.k8s.io/coredns/coredns:v1.14.2",
+    "reason": "dev-deferred-pin",
+    "kind": "Deployment",
+    "tag": "v1.14.2",
+    "mutableTag": false,
+    "justification": "AJM decision OSD-2: pinning deferred for development. Upstream version tag of the cross-cluster DNS stub; one reference site in d2-infra/components/coredns/cross-cluster-stubs.yaml.",
+    "ownedBy": "SLSI-P2-1"
   }
 ]
 EOF
+
+  # 12b. The installer slot, MEASURED (AJM decision OSD-3).
+  #
+  # Absence needs positive evidence, and a consumer should not have to infer the
+  # state of the self-initialisation slot from a file that is not there -- "not
+  # found" and "not allowed to look" produce identical silence. So the slot is
+  # declared, and both its scopes are stat'd here rather than asserted:
+  #
+  #   present        is the installer in THIS BUNDLE PAYLOAD. Phase 1 ships no
+  #                  scripts/ tree, so it is false, and that is a valid state.
+  #   sourcePresent  does the repository carry one yet. It now does: a stub that
+  #                  initialises nothing and exits 69 on every operational path.
+  #
+  # Reporting one number for both would have to lie about one of them.
+  local installer_rel="scripts/init-tenant.sh"
+  local installer_present=false installer_source_present=false
+  # `if`, not `[[ ... ]] && x=true`: the AND list returns the test's status and
+  # this script runs under `set -Eeuo pipefail` with an ERR trap that exits 1.
+  if [[ -e "${stage_dir}/${installer_rel}" ]]; then
+    installer_present=true
+  fi
+  if [[ -e "${REPO_ROOT}/${installer_rel}" ]]; then
+    installer_source_present=true
+  fi
+  local installer_source_status="absent: no installer in the source tree"
+  if [[ "${installer_source_present}" == "true" ]]; then
+    installer_source_status="stub only: initialises nothing and exits 69 naming SLSI-P2-1 on every operational path"
+  fi
 
   # 13. Write MANIFEST.json (all bulk data off-argv via --slurpfile)
   jq -n \
@@ -1787,6 +2216,10 @@ EOF
     --arg key_fp "${release_key_fp}" \
     --arg util_digest "${util_digest}" \
     --arg util_ref "${util_ref}" \
+    --arg installer_path "${installer_rel}" \
+    --argjson installer_present "${installer_present}" \
+    --argjson installer_source_present "${installer_source_present}" \
+    --arg installer_source_status "${installer_source_status}" \
     '{
       "$schema": $schema_url,
       "schema": $schema,
@@ -1842,11 +2275,14 @@ EOF
         "path": "keys/release.pub"
       },
       "installer": {
-        "path": "scripts/init-tenant.sh",
-        "present": false,
+        "path": $installer_path,
+        "present": $installer_present,
         "status": "pending-p2-1",
         "ownedBy": "SLSI-P2-1",
-        "governedBy": "proposal-slsi-v0.1.1"
+        "governedBy": "proposal-slsi-v0.1.1",
+        "sourcePath": $installer_path,
+        "sourcePresent": $installer_source_present,
+        "sourceStatus": $installer_source_status
       },
       "coverageExclusions": $coverage_exclusions[0]
     }' > "${stage_dir}/MANIFEST.json"
@@ -1864,10 +2300,39 @@ EOF
 
   # Gate G-COVERAGE: Evaluate coverage across packaged manifests and declarations
   local invalid_excl
-  invalid_excl="$(jq -r '.coverageExclusions[]? | select(.reason != "helm-chart-repository" and .reason != "local-never-pulled") | .ref' "${stage_dir}/MANIFEST.json")"
+  invalid_excl="$(jq -r '.coverageExclusions[]? | select(.reason != "helm-chart-repository" and .reason != "local-never-pulled" and .reason != "dev-deferred-pin") | .ref' "${stage_dir}/MANIFEST.json")"
   if [[ -n "${invalid_excl}" ]]; then
     rm -rf "${stage_root}"
     fail "Gate G-COVERAGE failed: exclusion reason outside permitted set for ref: ${invalid_excl}"
+  fi
+
+  # An entry with no justification is an oversight wearing a reason word.
+  local unjustified
+  unjustified="$(jq -r '.coverageExclusions[]? | select(((.justification // "") | length) < 40) | .ref' "${stage_dir}/MANIFEST.json")"
+  if [[ -n "${unjustified}" ]]; then
+    rm -rf "${stage_root}"
+    fail "Gate G-COVERAGE failed: exclusion carries no usable justification for ref: ${unjustified}"
+  fi
+
+  # A dev-deferred-pin entry is only tolerable while the tag it defers cannot
+  # move. Refuse one whose tag is absent, declared mutable, floating, or simply
+  # not the tag its own reference carries -- the last is how a deferral quietly
+  # stops describing the thing it excuses.
+  local bad_deferral
+  bad_deferral="$(jq -r '
+    .coverageExclusions[]?
+    | select(.reason == "dev-deferred-pin")
+    | . as $e
+    | select(
+        (($e.tag // "") | length) == 0
+        or $e.mutableTag != false
+        or $e.tag == "latest" or $e.tag == "*"
+        or (($e.ref | endswith(":" + ($e.tag // ""))) | not)
+      )
+    | $e.ref' "${stage_dir}/MANIFEST.json")"
+  if [[ -n "${bad_deferral}" ]]; then
+    rm -rf "${stage_root}"
+    fail "Gate G-COVERAGE failed: dev-deferred-pin entry must carry its own immutable tag (tag present, mutableTag false, not :latest, matching the ref): ${bad_deferral}"
   fi
 
   local domain_refs=()
@@ -2109,7 +2574,12 @@ stage_p1_4_validation() {
 # <<< SLSI-P1-4 >>>
 
 # ── Stage Dispatcher ─────────────────────────────────────────────────────────
-VALID_STAGES=("stage_p1_1_binaries" "stage_p1_2_images" "stage_p1_3_manifest" "stage_p1_4_validation")
+# run_stage returns 0 for any name it cannot resolve to a function, so a stage
+# missing from this list is not an error -- it is a silent no-op that reads as a
+# pass. stage_osd_1_first_party_images is therefore declared here AND called in
+# main(), and test/slsi-bundle-osd.bats asserts the dispatcher's "running" line
+# rather than trusting the stage's effect alone.
+VALID_STAGES=("stage_p1_1_binaries" "stage_p1_2_images" "stage_osd_1_first_party_images" "stage_p1_3_manifest" "stage_p1_4_validation")
 
 run_stage() {
   local stage_name="$1"
@@ -2140,6 +2610,10 @@ main() {
   validate_version_string "${SLSI_VERSION}"
   run_stage stage_p1_1_binaries
   run_stage stage_p1_2_images
+  # After P1-2 (which owns images.json) and before P1-3 (which owns
+  # MANIFEST.json): the first-party records must exist in images.json for P1-3's
+  # gates to see them, and must not be written by P1-3 itself.
+  run_stage stage_osd_1_first_party_images
   run_stage stage_p1_3_manifest
   run_stage stage_p1_4_validation
   log "All declared stages processed."

@@ -35,36 +35,28 @@ main() {
   local here root
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   root="$(cd "${here}/.." && pwd)"
-  cd "${root}/d2-signalloom" || exit 2
   # shellcheck source=lib/source-id.sh
   source "${root}/scripts/lib/source-id.sh" || exit 2
 
   # Same values as d2-signalloom/Makefile; the Makefile exports its own so the
   # two cannot drift when it calls this script.
   local dockerfile="${SENTINEL_DOCKERFILE:-signalloom-stun-sentinel/Dockerfile}"
-  local inputs="${SENTINEL_IMAGE_INPUTS:-apps/stun-sentinel apps/signalloom-stun-sentinel}"
 
-  if [ "${dirty_check}" -eq 1 ]; then
-    local dirty
-    # shellcheck disable=SC2086  # inputs is a space-separated list by contract
-    dirty=$(source_id_dirty_inputs . ${inputs}) || { echo "sentinel-image-tag: git status failed; refusing" >&2; exit 2; }
-    if [ -n "${dirty}" ]; then
-      echo "sentinel-image-tag: refusing a -dirty build; inputs that are not the committed source (modified, untracked or ignored -- an ignored file still enters the docker build context):" >&2
-      printf '%s\n' "${dirty}" >&2
-      exit 1
-    fi
-  fi
-
-  local -a paths
-  mapfile -t paths < <(source_id_copied_paths "apps/${dockerfile}" "${dockerfile}")
-  [ "${#paths[@]}" -gt 0 ] || { echo "sentinel-image-source-id: no COPY sources in apps/${dockerfile}" >&2; exit 2; }
-  local p
-  for p in "${paths[@]}"; do
-    [ -e "apps/${p}" ] || { echo "sentinel-image-source-id: the Dockerfile COPYs ${p}, which does not exist" >&2; exit 2; }
-  done
-  local id
-  id=$(source_id_hash_paths apps "${paths[@]}") && [ -n "${id}" ] || { echo "sentinel-image-source-id: empty fingerprint" >&2; exit 2; }
-  printf 'src-%s\n' "${id:0:12}"
+  # The seven steps below this line used to be written out here, and again in
+  # scripts/policy-engine-image-tag.sh once that workload needed the same
+  # guarantee. They are now source_id_src_tag() in scripts/lib/source-id.sh,
+  # which is where the fingerprint itself already lives, so a defence cannot be
+  # present in one of the two scripts and absent from the other. The fingerprint
+  # is unchanged: it is still source_id_hash_paths over source_id_copied_paths of
+  # this Dockerfile, rooted at the build context.
+  #
+  # SENTINEL_IMAGE_INPUTS is gone. It named the dirty-check set by hand
+  # ("apps/stun-sentinel apps/signalloom-stun-sentinel") alongside the
+  # Dockerfile-derived set used for the hash -- two declarations of the same
+  # thing, and they had already diverged: the hand-written one omitted the
+  # Dockerfile, so an uncommitted Dockerfile edit moved the tag without the
+  # dirty guard refusing. The set is now derived once, from the Dockerfile.
+  source_id_src_tag sentinel-image-tag "d2-signalloom/apps" "${dockerfile}" "${dirty_check}"
 }
 
 main "$@"

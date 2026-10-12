@@ -1,5 +1,6 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightImageZoom from "starlight-image-zoom";
 
 const site = process.env.DOCS_SITE_URL ?? "https://dashboard.osramp.acme.local";
 
@@ -12,6 +13,7 @@ export default defineConfig({
       title: "Signal Loom Docs",
       description: "Task-based guidance for the Signal Loom agent governance platform.",
       customCss: ["./src/styles/custom.css"],
+      plugins: [starlightImageZoom()],
       sidebar: [
         {
           label: "Start here",
@@ -31,6 +33,7 @@ export default defineConfig({
           items: [
             { label: "Claim the two demonstration agents", slug: "agents/dual-agent-onboarding" },
             { label: "Coding agent detection runbook", slug: "operate/coding-agent-detection-runbook" },
+            { label: "Detection coverage across signal streams", slug: "operate/detection-coverage" },
             { label: "Stun or unstun an agent", slug: "operate/stun-agent" },
             { label: "Containment & response runbook", slug: "operate/containment-runbook" },
             { label: "Formal verification of Kubernetes RBAC", slug: "operate/rbac-formal-analysis" },

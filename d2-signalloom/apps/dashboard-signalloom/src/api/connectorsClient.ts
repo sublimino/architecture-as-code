@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { isDemoMode, isProductionEnv } from './demoMode'
 import type {
   ConnectorCreateRequest,
   ConnectorCreateResponse,
@@ -12,7 +13,8 @@ import type {
 
 // Thin, swappable data layer for the connector framework (ADR-ENHC-012,
 // implemented in fe-signalloom routers/connectors.py).
-// VITE_CONNECTORS_API_MODE defaults to 'mock', flip to 'live' for cluster APIs.
+// Dynamically routes to live APIs in production or when demoMode is off.
+// VITE_CONNECTORS_API_MODE ('live' or 'mock') provides a build-time override.
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 const http = axios.create({ baseURL: BASE })
@@ -365,6 +367,30 @@ const mockConnectorsApi: ConnectorsApi = {
   },
 }
 
-const MOCK_MODE = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined) !== 'live'
+export function isConnectorsMockMode(): boolean {
+  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+  if (envMode === 'live') return false
+  if (envMode === 'mock') return true
+  if (isProductionEnv) return false
+  return isDemoMode()
+}
 
-export const connectorsApi: ConnectorsApi = MOCK_MODE ? mockConnectorsApi : liveConnectorsApi
+export const connectorsApi: ConnectorsApi = {
+  listProviders: (token) =>
+    isConnectorsMockMode() ? mockConnectorsApi.listProviders(token) : liveConnectorsApi.listProviders(token),
+  listConnectors: (token) =>
+    isConnectorsMockMode() ? mockConnectorsApi.listConnectors(token) : liveConnectorsApi.listConnectors(token),
+  createConnector: (token, body) =>
+    isConnectorsMockMode() ? mockConnectorsApi.createConnector(token, body) : liveConnectorsApi.createConnector(token, body),
+  deleteConnector: (token, id) =>
+    isConnectorsMockMode() ? mockConnectorsApi.deleteConnector(token, id) : liveConnectorsApi.deleteConnector(token, id),
+  testConnector: (token, id) =>
+    isConnectorsMockMode() ? mockConnectorsApi.testConnector(token, id) : liveConnectorsApi.testConnector(token, id),
+  toggleConnector: (token, id, enabled) =>
+    isConnectorsMockMode() ? mockConnectorsApi.toggleConnector(token, id, enabled) : liveConnectorsApi.toggleConnector(token, id, enabled),
+  getStatus: (token) =>
+    isConnectorsMockMode() ? mockConnectorsApi.getStatus(token) : liveConnectorsApi.getStatus(token),
+}
+
+export { mockConnectorsApi, liveConnectorsApi, http }
+

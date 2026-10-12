@@ -4,10 +4,13 @@
 package awslogs
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -70,16 +73,45 @@ type cloudTrailRecord struct {
 	RequestParameters json.RawMessage `json:"requestParameters"`
 }
 
-// Project dispatches on the origin key: a .log or .txt object is VPC Flow text, and
-// anything else is a CloudTrail/IAM JSON envelope. A .gz suffix is stripped first so
-// a real S3 key routes the same as a decompressed fixture.
+// Project dispatches on the origin key, then on the envelope shape. A .gz object is
+// inflated first, and the .gz suffix is stripped so a real S3 key routes the same as a
+// decompressed fixture. A .log or .txt object is VPC Flow text. A JSON object is
+// probed: detail-type "GuardDuty Finding" is an EventBridge GuardDuty finding, a
+// Records array is a CloudTrail/IAM file, and anything else is ErrUnrecognisedEnvelope
+// -- never a silent zero, which is what an EventBridge envelope used to project to.
 func (p Projector) Project(body []byte, origin Origin) ([]model.Observation, error) {
+	payload := body
+	if strings.HasSuffix(origin.Key, ".gz") {
+		gr, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("awslogs: inflating gzipped object %s: %w", origin.Key, err)
+		}
+		defer gr.Close()
+		decompressed, err := io.ReadAll(gr)
+		if err != nil {
+			return nil, fmt.Errorf("awslogs: inflating gzipped object %s: %w", origin.Key, err)
+		}
+		payload = decompressed
+	}
+
 	key := strings.TrimSuffix(origin.Key, ".gz")
+	if strings.HasSuffix(key, ".log") || strings.HasSuffix(key, ".txt") {
+		return p.ProjectVPCFlow(payload, origin)
+	}
+
+	var probe envelopeProbe
+	if err := json.Unmarshal(payload, &probe); err != nil {
+		// Not a JSON object: let the CloudTrail path report the decode error in
+		// the words it always has.
+		return p.ProjectCloudTrail(payload, origin)
+	}
 	switch {
-	case strings.HasSuffix(key, ".log"), strings.HasSuffix(key, ".txt"):
-		return p.ProjectVPCFlow(body, origin)
+	case probe.DetailType == DetailTypeGuardDutyFinding:
+		return p.ProjectGuardDuty(payload, origin)
+	case len(probe.Records) > 0 && string(probe.Records) != "null":
+		return p.ProjectCloudTrail(payload, origin)
 	default:
-		return p.ProjectCloudTrail(body, origin)
+		return nil, fmt.Errorf("%w (%s)", ErrUnrecognisedEnvelope, origin.Key)
 	}
 }
 
@@ -190,7 +222,16 @@ func actorAccountOf(arn string) string {
 	if len(fields) < arnAccountField+2 || fields[0] != "arn" {
 		return ""
 	}
-	return fields[arnAccountField]
+	acct := fields[arnAccountField]
+	if len(acct) != 12 {
+		return ""
+	}
+	for i := 0; i < len(acct); i++ {
+		if acct[i] < '0' || acct[i] > '9' {
+			return ""
+		}
+	}
+	return acct
 }
 
 // resourceOf returns the resource type and name for a record: the first resources[]

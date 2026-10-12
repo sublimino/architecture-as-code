@@ -17,7 +17,8 @@
     "imageCount",
     "releaseKey",
     "verify",
-    "coverageExclusions"
+    "coverageExclusions",
+    "reproducibility"
   ],
   "additionalProperties": false,
   "properties": {
@@ -65,7 +66,10 @@
           "type": "object",
           "properties": {
             "rendersOverlay": {
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "mintsIssuers": {
               "type": "boolean"
@@ -76,7 +80,10 @@
           "type": "object",
           "properties": {
             "rendersOverlay": {
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "mintsIssuers": {
               "type": "boolean"
@@ -243,7 +250,11 @@
             "type": "string"
           },
           "signature": {
-            "type": ["object", "string", "null"]
+            "type": [
+              "object",
+              "string",
+              "null"
+            ]
           },
           "provenance": {
             "type": "object"
@@ -423,6 +434,58 @@
           },
           "kind": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "reproducibility": {
+      "type": "object",
+      "description": "Declares how two builds from the same sourceDateEpoch may legitimately differ. Without this block a governor comparing builds must invent which differences to forgive, which is a tautological pass.",
+      "required": [
+        "sourceDateEpoch",
+        "comparisonRule",
+        "volatileSet"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sourceDateEpoch": {
+          "type": "integer",
+          "description": "Epoch the build pins timestamps to; must equal the root sourceDateEpoch."
+        },
+        "comparisonRule": {
+          "type": "string",
+          "minLength": 80,
+          "description": "States that a difference outside the volatile set fails the gate."
+        },
+        "volatileSet": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Payload path globs that cannot be byte-reproducible, each with a machine-readable reason.",
+          "items": {
+            "type": "object",
+            "required": [
+              "glob",
+              "reason",
+              "detail"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "glob": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "cosign-ecdsa-nonce",
+                  "derived-from-volatile"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 40
+              }
+            }
           }
         }
       }

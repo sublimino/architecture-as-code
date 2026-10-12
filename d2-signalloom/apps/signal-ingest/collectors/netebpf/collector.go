@@ -6,7 +6,6 @@ package netebpf
 import (
 	"context"
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -161,26 +160,31 @@ func (c *LiveNetworkEgressCollector) flowToObservation(ev *InboundFlowEvent) *mo
 		ts = time.Now().UTC()
 	}
 
+	// Projection contract (review C4): every key here is in the segment label
+	// allow-list (store/label_allowlist.go), so a frostdb-tagged store accepts the
+	// batch. Three keys were renamed onto their allow-listed names — src_ip ->
+	// source_ip, bytes_sent -> bytes — and the non-allow-listed operational keys
+	// the old projection carried (destination, seq_num, cgroup_id) plus the
+	// cleartext domain were dropped: a cleartext domain names a destination and is
+	// forbidden in an immutable segment, so it is replaced by qname_entropy_bucket,
+	// a collector-side bucket of the DNS qname's entropy (review M5) that carries
+	// the tunnelling signal without the name. The one key NOT yet allow-listed is
+	// qname_entropy_bucket, which is flagged for allow-listing deliberately.
 	labels := map[string]string{
-		"pod_name":        ev.PodName,
-		"namespace":       ev.PodNamespace,
-		"pod_uid":         ev.PodUID,
-		"service_account": ev.ServiceAccount,
-		"spiffe_id":       ev.SPIFFEID,
-		"agent_role":      ev.AgentRole,
-		"provider":        ev.Provider,
-		"classification":  ev.Classification,
-		"src_ip":          ev.SrcIP,
-		"dst_ip":          ev.DstIP,
-		"src_port":        fmt.Sprintf("%d", ev.SrcPort),
-		"dst_port":        fmt.Sprintf("%d", ev.DstPort),
-		"destination":     net.JoinHostPort(ev.DstIP, fmt.Sprintf("%d", ev.DstPort)),
-		"seq_num":         fmt.Sprintf("%d", ev.SeqNum),
-		"cgroup_id":       fmt.Sprintf("%d", ev.CgroupID),
-		"bytes_sent":      fmt.Sprintf("%d", ev.BytesSent),
-	}
-	if ev.Domain != "" {
-		labels["domain"] = ev.Domain
+		"pod_name":             ev.PodName,
+		"namespace":            ev.PodNamespace,
+		"pod_uid":              ev.PodUID,
+		"service_account":      ev.ServiceAccount,
+		"spiffe_id":            ev.SPIFFEID,
+		"agent_role":           ev.AgentRole,
+		"provider":             ev.Provider,
+		"classification":       ev.Classification,
+		"source_ip":            ev.SrcIP,
+		"dst_ip":               ev.DstIP,
+		"src_port":             fmt.Sprintf("%d", ev.SrcPort),
+		"dst_port":             fmt.Sprintf("%d", ev.DstPort),
+		"bytes":                fmt.Sprintf("%d", ev.BytesSent),
+		"qname_entropy_bucket": QnameEntropyBucket(ev.Domain),
 	}
 
 	obs := &model.Observation{
@@ -206,7 +210,7 @@ func (c *LiveNetworkEgressCollector) createGapObservation(nodeKey string, startS
 		Source:     "sentinel.ebpf.gap_detector",
 		Labels: map[string]string{
 			"type":            "telemetry_gap",
-			"node_name":       nodeKey,
+			"node":            nodeKey,
 			"gap_start_seq":   fmt.Sprintf("%d", startSeq),
 			"gap_end_seq":     fmt.Sprintf("%d", endSeq),
 			"dropped_count":   fmt.Sprintf("%d", dropCount),

@@ -1,0 +1,136 @@
+# The Kusari live network-egress threat bundle (netebpf / stun-sentinel stream).
+#
+# This reads only the netebpf socket-trace projection (collectors/netebpf,
+# model.LayerNetworkEgress, Source "sentinel.ebpf.socket_trace") and every rule
+# source-gates on it, so it never crosses the OTHER network_egress projection on
+# the same layer — the awslogs VPC Flow Log stream (Source "aws:vpcflow"), whose
+# vpc-egress-rejected / vpc-reject rules gate on event_name == "REJECT". A netebpf
+# observation carries no event_name, so those rules cannot fire on it and these
+# rules cannot fire on a VPC Flow record; the two streams share a layer and never
+# a rule.
+#
+# Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+# in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+# bumps `version`.
+#
+# # What the rules may read
+#
+# Only the netebpf label contract (collectors/netebpf/collector.go flowToObservation):
+# source_ip, dst_ip, src_port, dst_port, bytes, classification, pod_uid,
+# service_account, agent_role, provider, spiffe_id, pod_name, namespace, and the
+# collector-side qname_entropy_bucket (the entropy class of the resolved DNS name's
+# leftmost label — never the name itself). The gap projection (Source
+# "sentinel.ebpf.gap_detector") carries type/node/gap_* and is deliberately not
+# read here: a telemetry gap is a coverage signal, not an egress finding.
+#
+# # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+#
+#   * Every rule gates on obs.source == "sentinel.ebpf.socket_trace": the
+#     network_egress layer carries more than one projection, so the source gate is
+#     mandatory to stay off the VPC Flow stream.
+#   * Every label read is guarded with has(): a bare read of an absent key is a CEL
+#     fault that would degrade the whole bundle on one unlabelled record.
+#   * Destination novelty and the in-cluster resolver set are expressed as plain
+#     `vars` lists compared against the dst_ip label — NOT actor_vars. Identity is
+#     not the axis here, so there is no obs.actor comparison and no actor_vars; the
+#     windows key on the service_account label, a workload-topology scalar.
+#
+# # Fixtures
+#
+# Every rule has positives and a negative under collectors/netebpf/testdata/, one
+# detection class per file. The per-rule expectation table lives in
+# d2-signalloom/apps/signal-ingest/e2e/netegress_expectations.go and is asserted
+# exactly by TestNetEgressE2E_FixtureCorpusMatchesTheExpectationTable.
+
+id: kusari-network-egress
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+vars:
+  # The in-cluster DNS resolver service addresses. A DNS query (dst_port 53) to
+  # one of these is normal; a query to anything else is a workload talking to a
+  # resolver outside the cluster, which is the off-cluster-resolver signal.
+  cluster_resolvers:
+    - "10.96.0.10"
+
+  # Destinations a workload is expected to reach. A network_connect to a dst_ip
+  # NOT in this set is egress to an unexpected destination. This is a plain label
+  # allow-list (dst_ip is topology), never an actor comparison, so it needs no
+  # actor_vars entry.
+  expected_destinations:
+    - "10.96.0.10"
+    - "203.0.113.5"
+    - "203.0.113.6"
+    - "203.0.113.7"
+    - "8.8.8.8"
+    - "1.1.1.1"
+
+rules:
+  # --- Direct-IP egress (no resolved domain) --------------------------------
+  - id: direct-ip-egress
+    name: Egress connection to a bare IP with no resolved DNS name
+    severity: medium
+    # A workload connecting straight to an IP with no preceding DNS resolution is
+    # the shape of hard-coded C2 / an IP literal in config. qname_entropy_bucket
+    # is "none" exactly when the collector saw no domain for the flow, which is
+    # how "no name was resolved" is told apart from "a low-entropy name was".
+    expression: |-
+      obs.source == "sentinel.ebpf.socket_trace" &&
+      obs.layer == "network_egress" &&
+      has(obs.labels.classification) && obs.labels.classification == "network_connect" &&
+      has(obs.labels.qname_entropy_bucket) && obs.labels.qname_entropy_bucket == "none"
+
+  # --- Off-cluster resolver -------------------------------------------------
+  - id: off-cluster-resolver
+    name: DNS query to a resolver outside the cluster
+    severity: medium
+    # A workload sending DNS (dst_port 53) to a resolver that is not the cluster
+    # resolver bypasses cluster DNS policy and is a common exfiltration / evasion
+    # primitive. The cluster resolver set is a var, compared against dst_ip.
+    expression: |-
+      obs.source == "sentinel.ebpf.socket_trace" &&
+      obs.layer == "network_egress" &&
+      has(obs.labels.dst_port) && obs.labels.dst_port == "53" &&
+      has(obs.labels.dst_ip) && !(obs.labels.dst_ip in vars.cluster_resolvers)
+
+  # --- Egress to an unexpected destination ----------------------------------
+  - id: unexpected-destination
+    name: Egress connection to a destination outside the expected set
+    severity: medium
+    # A connect to a dst_ip that is not in the expected-destination allow-list.
+    # Deliberately gated on classification == network_connect so a DNS query to an
+    # off-cluster resolver (its own rule) does not also count here.
+    expression: |-
+      obs.source == "sentinel.ebpf.socket_trace" &&
+      obs.layer == "network_egress" &&
+      has(obs.labels.classification) && obs.labels.classification == "network_connect" &&
+      has(obs.labels.dst_ip) && !(obs.labels.dst_ip in vars.expected_destinations)
+
+  # --- DNS tunnel -----------------------------------------------------------
+  - id: dns-tunnel
+    name: High-entropy DNS query name (tunnelling)
+    severity: high
+    # A high-entropy leftmost DNS label is the signature of data tunnelled over
+    # DNS (base32/base64/hex of ciphertext). Entropy is bucketed collector-side
+    # (review M5) so the signal survives into an immutable segment without the
+    # cleartext name. "high" is the top bucket; "medium"/"low" are normal names.
+    expression: |-
+      obs.source == "sentinel.ebpf.socket_trace" &&
+      obs.layer == "network_egress" &&
+      has(obs.labels.qname_entropy_bucket) && obs.labels.qname_entropy_bucket == "high"
+
+windows:
+  # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+  # arriving finding takes the counter from below the threshold to at or above it —
+  # anchored on the ARRIVING finding's timestamp, so a replay reproduces live.
+
+  # One workload repeatedly connecting straight to bare IPs in a short window is
+  # the shape of beaconing, which a single direct-IP connection is not. Keyed on
+  # the service_account label (workload topology), not an actor pseudonym.
+  - id: direct-ip-egress-burst
+    over_rule: direct-ip-egress
+    key: [tenant_id, "labels.service_account"]
+    window: 5m
+    threshold: 3
+    severity: high

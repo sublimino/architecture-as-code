@@ -1,0 +1,44 @@
+[
+  {
+    "time": "2026-10-12T11:00:00Z",
+    "cgroup_id": 5201,
+    "seq_num": 1,
+    "pod_name": "agent-rogue-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-rogue-0",
+    "service_account": "agent-rogue-sa",
+    "agent_role": "rogue_suspect",
+    "provider": "tetragon",
+    "classification": "process_exec",
+    "domain": "/usr/bin/nc",
+    "node_name": "kind-worker-2"
+  },
+  {
+    "time": "2026-10-12T11:01:00Z",
+    "cgroup_id": 5202,
+    "seq_num": 2,
+    "pod_name": "agent-rogue-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-rogue-0",
+    "service_account": "agent-rogue-sa",
+    "agent_role": "rogue_suspect",
+    "provider": "tetragon",
+    "classification": "process_exec",
+    "domain": "/bin/sh",
+    "node_name": "kind-worker-2"
+  },
+  {
+    "time": "2026-10-12T11:02:00Z",
+    "cgroup_id": 5203,
+    "seq_num": 3,
+    "pod_name": "agent-trusted-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-trusted-0",
+    "service_account": "agent-trusted-sa",
+    "agent_role": "trusted_operator",
+    "provider": "tetragon",
+    "classification": "process_exec",
+    "domain": "/usr/bin/agent",
+    "node_name": "kind-worker-2"
+  }
+]

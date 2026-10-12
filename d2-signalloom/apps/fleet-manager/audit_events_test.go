@@ -27,6 +27,12 @@ func testAuditDAG(t *testing.T) (*DAG, *mockFleetClient) {
 	return dag, client
 }
 
+// riskPtr exists because AuditEvent's risk fields became omitempty pointers, so
+// that an event which measured nothing omits them rather than publishing a zero
+// a reader would take as "no risk". Tests that deliberately supply a figure say
+// so by taking its address.
+func riskPtr(v float64) *float64 { return &v }
+
 func TestAuditRingBuffer_AppendAndEviction(t *testing.T) {
 	buf := NewAuditRingBuffer(3)
 
@@ -38,9 +44,9 @@ func TestAuditRingBuffer_AppendAndEviction(t *testing.T) {
 			TargetAgentID:     fmt.Sprintf("agent-%d", i),
 			AffectedAgents:    []string{fmt.Sprintf("agent-%d", i)},
 			DurationMs:        int64(i * 10),
-			RiskBefore:        100000.0,
-			RiskAfter:         12400.0,
-			RiskDelta:         -87600.0,
+			RiskBefore:        riskPtr(100000.0),
+			RiskAfter:         riskPtr(12400.0),
+			RiskDelta:         riskPtr(-87600.0),
 			Actor:             "admin",
 			OperatorSignature: fmt.Sprintf("sig-%d", i),
 		})
@@ -69,9 +75,20 @@ func TestAuditRingBuffer_AppendAndEviction(t *testing.T) {
 	// Verify all 13 schema fields on first event
 	e := events[0]
 	if e.EventID == "" || e.Timestamp == "" || e.ActionType == "" || e.TargetAgentID == "" ||
-		len(e.AffectedAgents) == 0 || e.DurationMs == 0 || e.RiskBefore == 0 || e.RiskAfter == 0 ||
-		e.RiskDelta == 0 || e.Actor == "" || e.OperatorSignature == "" {
+		len(e.AffectedAgents) == 0 || e.DurationMs == 0 ||
+		e.Actor == "" || e.OperatorSignature == "" {
 		t.Errorf("one or more required audit fields are empty in event %+v", e)
+	}
+	// The three risk fields are deliberately NOT in the required set any more.
+	// They were, as `== 0` checks, which asserted that every audit event carries
+	// a non-zero risk figure -- and the only reason that held was that two
+	// handlers hardcoded 847000/12400/-834600 on every event. With the
+	// fabrication gone they are omitempty pointers, and an event from a handler
+	// that measured nothing legitimately omits them. Requiring them here would
+	// have forced the fabrication back to make this test pass, which is exactly
+	// how a test comes to protect the defect it was meant to catch.
+	if e.ActionType == "auto-policy-stun" && e.RiskBefore == nil {
+		t.Error("an auto-policy stun is the one path that computes risk; its event must carry riskBefore")
 	}
 }
 
@@ -271,9 +288,9 @@ func TestHandleAuditStream_SSEStreaming(t *testing.T) {
 		TargetAgentID:  "cardvault",
 		AffectedAgents: []string{"cardvault", "agent-txn-pipeline"},
 		DurationMs:     42,
-		RiskBefore:     847000.0,
-		RiskAfter:      12400.0,
-		RiskDelta:      -834600.0,
+		RiskBefore:     riskPtr(847000.0),
+		RiskAfter:      riskPtr(12400.0),
+		RiskDelta:      riskPtr(-834600.0),
 		Actor:          "policy-engine",
 	})
 
@@ -337,8 +354,11 @@ func TestPolicyEngine_AuditEmission(t *testing.T) {
 	if evt.TargetAgentID != "cardvault" {
 		t.Errorf("expected targetAgentId cardvault, got %s", evt.TargetAgentID)
 	}
-	if evt.RiskBefore != 650000.0 {
-		t.Errorf("expected riskBefore 650000.0, got %f", evt.RiskBefore)
+	if evt.RiskBefore == nil {
+		t.Fatal("riskBefore absent: the policy-engine path computes it, so it must be present")
+	}
+	if *evt.RiskBefore != 650000.0 {
+		t.Errorf("expected riskBefore 650000.0, got %f", *evt.RiskBefore)
 	}
 }
 

@@ -263,9 +263,14 @@ func (pe *PolicyEngine) Evaluate(ctx context.Context, input PolicyEvaluationInpu
 							TargetAgentID:    policy.TargetAgentID,
 							AffectedAgents:   affected,
 							DurationMs:       durationMs,
-							RiskBefore:       riskBefore,
-							RiskAfter:        riskAfter,
-							RiskDelta:        riskAfter - riskBefore,
+							// Addresses, because AuditEvent's risk fields are now
+							// omitempty pointers so that an event which measured
+							// nothing omits them rather than claiming a zero. This
+							// is the one site that genuinely computes them, which
+							// is why it is the one site that still populates them.
+							RiskBefore:       &riskBefore,
+							RiskAfter:        &riskAfter,
+							RiskDelta:        func() *float64 { d := riskAfter - riskBefore; return &d }(),
 							Actor:            "policy-engine",
 						})
 					}

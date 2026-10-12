@@ -30,8 +30,14 @@ test.describe("AFM integration in Signal Loom", () => {
     await page.getByRole("link", { name: "RBAC Analysis", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible({ timeout: 15_000 });
 
-    // Cluster count — should show "N cluster(s)" from the AFM API
-    await expect(page.getByText(/\d+ clusters?/)).toBeVisible({ timeout: 10_000 });
+    // Cluster count. In LIVE mode the span deliberately reads "Host Cluster"
+    // (RbacAnalysisPage.tsx:261-264, pinned by RbacAnalysisPage.test.tsx:176-177
+    // and :702); "N clusters" is the DEMO-mode rendering (test.tsx:189-195).
+    // This spec logs in with demoMode:false, so the old /\d+ clusters?/
+    // assertion could only ever have passed against fixtures.
+    const clusterCount = page.getByTestId("cluster-count");
+    await expect(clusterCount).toBeVisible({ timeout: 10_000 });
+    await expect(clusterCount).toHaveText(/Host Cluster|\d+ clusters?/, { timeout: 10_000 });
   });
 
   test("AFM iframe loads and renders the dashboard", async ({ page }) => {

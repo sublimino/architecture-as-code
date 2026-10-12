@@ -372,9 +372,10 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		TargetAgentID:  resolved.ID,
 		AffectedAgents: affected,
 		DurationMs:     durationMs,
-		RiskBefore:     847000.0,
-		RiskAfter:      12400.0,
-		RiskDelta:      -834600.0,
+		// No risk figures: this handler measures none. See AuditEvent in
+		// audit_events.go -- the fields are now omitempty pointers and these
+		// three were hardcoded literals that the service's own read path
+		// refuses to report.
 		Actor:          actor,
 	})
 
@@ -499,9 +500,10 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		TargetAgentID:  "fleet",
 		AffectedAgents: affected,
 		DurationMs:     durationMs,
-		RiskBefore:     847000.0,
-		RiskAfter:      12400.0,
-		RiskDelta:      -834600.0,
+		// No risk figures: this handler measures none. See AuditEvent in
+		// audit_events.go -- the fields are now omitempty pointers and these
+		// three were hardcoded literals that the service's own read path
+		// refuses to report.
 		Actor:          actor,
 	})
 

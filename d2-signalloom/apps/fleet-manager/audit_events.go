@@ -21,9 +21,26 @@ type AuditEvent struct {
 	TargetAgentID     string   `json:"targetAgentId"`
 	AffectedAgents    []string `json:"affectedAgents"`
 	DurationMs        int64    `json:"durationMs"`
-	RiskBefore        float64  `json:"riskBefore"`
-	RiskAfter         float64  `json:"riskAfter"`
-	RiskDelta         float64  `json:"riskDelta"`
+	// The three risk fields are POINTERS so that "no risk figure" is structurally
+	// absent rather than a zero, and they are omitted when nothing computed one.
+	//
+	// They used to be float64 and the manual-stun and recover handlers wrote
+	// RiskBefore 847000.0 / RiskAfter 12400.0 / RiskDelta -834600.0
+	// unconditionally, on every event. That is the same literal this service's
+	// own read path now REFUSES to report: aggregateRisk answers
+	// AUTHORED_NOT_COMPUTED because fleet.yaml's figure is authored
+	// configuration and not a measurement (see topology.go). So the refusal was
+	// on the read path while the audit trail still asserted the figures as
+	// fact -- and an audit trail is the worst place for that, because it is the
+	// record someone later cites.
+	//
+	// A zero would have been no better. In a money field a zero reads as the
+	// claim "no risk", which is itself a figure. Absent reads as absent.
+	// policy_engine.go computes these from real inputs and still populates
+	// them, so the fields are not dead -- only the fabricated writes are gone.
+	RiskBefore        *float64 `json:"riskBefore,omitempty"`
+	RiskAfter         *float64 `json:"riskAfter,omitempty"`
+	RiskDelta         *float64 `json:"riskDelta,omitempty"`
 	Actor             string   `json:"actor"`
 	OperatorSignature string   `json:"operatorSignature"`
 }

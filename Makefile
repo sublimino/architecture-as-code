@@ -614,6 +614,24 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	bats test/acceptance-spec-coverage.bats
 	bats test/acceptance-demo-mode-honesty.bats
 	bats d2-signalloom/test/bats-registry-coverage.bats
+	# THESE FOUR WERE DEFINED AND INVOKED BY NOTHING, which is the same defect
+	# their own comments were written to describe -- one level up.
+	#
+	# Each has a target, each passes, and an audit found that no aggregate
+	# target, no .github/workflows/*.yaml and neither CI pipeline script named
+	# any of them. So "I added the line that invokes it" was satisfied by a
+	# target definition, and the gate still ran only when a human typed it.
+	# A target is the mechanism; being reachable from test-all-offline is the
+	# invocation. Both are needed, and I had stopped at the first.
+	#
+	# Note bats-registry-coverage.bats CANNOT catch this: it greps each suite's
+	# basename against the Makefile text, so a target nothing calls still reads
+	# as registered. That guard answers "is this suite named?" and not "does
+	# anything run it?" -- reported separately rather than papered over here.
+	$(MAKE) flux-coverage-test
+	$(MAKE) demo-mission-honesty-test
+	$(MAKE) ui-policy-posture-honesty-test
+	$(MAKE) test-cpai-engineer-acceptance
 	$(MAKE) test-sler-multiplane-acceptance
 	bats test/sler-p6-3-multiplane-acceptance.bats
 	$(MAKE) demo-signalloom-test-config

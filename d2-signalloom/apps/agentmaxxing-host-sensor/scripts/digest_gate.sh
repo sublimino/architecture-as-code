@@ -9,9 +9,15 @@
 
 set -euo pipefail
 
-# Pinned baseline defaults
-PINNED_NONO_VERSION="0.73.0"
-PINNED_NONO_DIGEST="71581b92e7683c86276bbbd91c80b059e0fe2d7b1aa95b1176870456ee22ad5c"
+# Approved nono releases and their pinned SHA-256 digests
+declare -A APPROVED_NONO_DIGESTS=(
+    ["0.73.0"]="71581b92e7683c86276bbbd91c80b059e0fe2d7b1aa95b1176870456ee22ad5c"
+    ["0.79.0"]="dbd52b3ece9928e3eb057aa754e9100ff772c29e7ffb08824cf747d72f78496e"
+)
+
+# Optional version/digest pins via environment
+PINNED_NONO_VERSION="${EXPECTED_NONO_VERSION:-${PINNED_NONO_VERSION:-}}"
+PINNED_NONO_DIGEST="${EXPECTED_NONO_DIGEST:-${PINNED_NONO_DIGEST:-}}"
 
 NONO_BIN="${NONO_BIN:-/usr/bin/nono}"
 AGENT_BINARY="${AGENT_BINARY:-/opt/agentmaxxing/bin/agent}"
@@ -76,16 +82,39 @@ verify_nono_binary() {
     # Check nono version
     local nono_ver_output
     nono_ver_output="$("$NONO_BIN" --version 2>&1 || true)"
-    if [[ ! "$nono_ver_output" =~ $PINNED_NONO_VERSION ]]; then
-        log_crit "Nono version mismatch. Expected $PINNED_NONO_VERSION, got: $nono_ver_output"
-        return 1
+
+    local detected_ver=""
+    if [[ "$nono_ver_output" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        detected_ver="${BASH_REMATCH[1]}"
+    fi
+
+    local expected_nono=""
+
+    if [[ -n "$PINNED_NONO_VERSION" ]]; then
+        if [[ ! "$nono_ver_output" =~ $PINNED_NONO_VERSION ]]; then
+            log_crit "Nono version mismatch. Expected $PINNED_NONO_VERSION, got: $nono_ver_output"
+            return 1
+        fi
+        expected_nono="${PINNED_NONO_DIGEST:-${APPROVED_NONO_DIGESTS[$PINNED_NONO_VERSION]:-}}"
+    else
+        # If no explicit version pin is set in env, check against approved releases
+        if [[ -n "$detected_ver" && -n "${APPROVED_NONO_DIGESTS[$detected_ver]:-}" ]]; then
+            log_info "Detected approved nono release: $detected_ver"
+            expected_nono="${PINNED_NONO_DIGEST:-${APPROVED_NONO_DIGESTS[$detected_ver]}}"
+        else
+            log_crit "Nono version mismatch or unapproved version ($detected_ver). Approved: ${!APPROVED_NONO_DIGESTS[*]}. Got: $nono_ver_output"
+            return 1
+        fi
     fi
 
     # Check nono binary SHA-256 digest if nono is installed
     if [[ "${CHECK_NONO_DIGEST:-true}" == "true" ]]; then
+        if [[ -z "$expected_nono" ]]; then
+            log_crit "No approved SHA-256 digest found for nono version ($detected_ver)."
+            return 1
+        fi
         local actual_nono_digest
         actual_nono_digest="$(sha256sum "$NONO_BIN" | awk '{print $1}')"
-        local expected_nono="${EXPECTED_NONO_DIGEST:-$PINNED_NONO_DIGEST}"
         if [[ "$actual_nono_digest" != "$expected_nono" ]]; then
             log_crit "Nono binary digest mismatch! Expected $expected_nono, got $actual_nono_digest"
             return 1

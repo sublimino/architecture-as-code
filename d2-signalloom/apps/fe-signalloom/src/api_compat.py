@@ -125,6 +125,17 @@ class ComplianceSummaryInline(BaseModel):
     #: no longer in ``pending``.
     errored: int = 0
     posture_score: float | None
+    #: Whether the counts above were measured, or could not be derived at all.
+    #: ``"unavailable"`` is the non-money refusal verdict already used by
+    #: ``_derived_topology`` (``evidence_state="modeled"/"unavailable"``): the
+    #: control set for this agent is not knowable from the live inputs, so
+    #: every count is 0 and ``posture_score`` is ``None``. It is NOT "zero
+    #: controls passed" and NOT "posture 0" -- no assessment exists to score.
+    #: A reader must render it as "not assessed", never as a number.
+    evidence_state: Literal["measured", "unavailable"] = "measured"
+    #: Why the figures are unavailable. Set iff ``evidence_state`` is
+    #: ``"unavailable"``; ``None`` when measured.
+    reason: str | None = None
 
 
 class AgentCreateRequest(BaseModel):
@@ -2789,6 +2800,59 @@ async def _audit_log(
     )
 
 
+def _unassessed_compliance_summary(reason: str) -> ComplianceSummaryInline:
+    """The refusal summary: no control set is derivable, so nothing is counted.
+
+    Every count is 0 and ``posture_score`` is ``None`` because a posture figure
+    is real only if it is a function of its inputs. The alternative -- carrying
+    a plausible constant (6 controls, 83) or defaulting a missing column to 100
+    -- publishes a measurement nobody took, and the "better than reality"
+    direction (100) is the dangerous one: it reports perfect compliance for an
+    agent that has never been assessed.
+    """
+    return ComplianceSummaryInline(
+        total_controls=0,
+        passing=0,
+        failing=0,
+        pending=0,
+        errored=0,
+        posture_score=None,
+        evidence_state="unavailable",
+        reason=reason,
+    )
+
+
+def _compliance_summary_from_findings(row: dict[str, Any]) -> ComplianceSummaryInline:
+    """Summary for a store row that carries ``findings_count`` and nothing else.
+
+    This is the no-database branch of ``list_agents``. There is no
+    ``agent_compliance_results`` table and no ``governance_controls`` table in
+    the in-process store, so the agent's control set -- the denominator -- is
+    not knowable here by any means.
+
+    What is derivable is carried: ``findings_count`` is the estate's count of
+    failing controls (same mapping as ``_agent_response_from_discovered``).
+    What is not derivable is refused:
+
+    * ``total_controls`` was the literal ``6``. Six is the row count of the
+      demo ``governance_controls`` seed, an environment fact about one
+      database -- not a property of this agent, and not available here.
+    * ``passing`` was ``max(6 - fc, 0)``, derived from that literal, so it
+      inherited the fiction and reported five passing controls for an agent
+      that had never been assessed against any.
+    * ``posture_score`` was ``float(row.get("compliance_posture", 100)) / 100``.
+      No store row in this tree ever carries a ``compliance_posture`` key, so
+      the default fired every time and every such agent was published at
+      posture 1.0 -- perfect compliance synthesised from absent data.
+    """
+    failing = int(row.get("findings_count", 0) or 0)
+    summary = _unassessed_compliance_summary(
+        "the in-process store holds no control results and no control "
+        "catalogue, so this agent's control count and posture are not derivable"
+    )
+    return summary.model_copy(update={"failing": failing})
+
+
 async def _compliance_summary_for_agent(
     executor: Any, agent_id: uuid.UUID,
 ) -> ComplianceSummaryInline:
@@ -2822,6 +2886,11 @@ async def _compliance_summary_for_agent(
     # never move on its own. The score is "controls known to pass, of all
     # controls", which is why it is not a pass rate over assessments.
     posture_score = round(passing / total, 2) if total > 0 else None
+    if total == 0:
+        return _unassessed_compliance_summary(
+            "no agent_compliance_results rows exist for this agent: its control "
+            "set has never been assessed, so posture is not derivable"
+        )
     return ComplianceSummaryInline(
         total_controls=total,
         passing=passing,
@@ -4598,14 +4667,7 @@ async def agents(
                     if matched_row.get("compliance_summary") is not None:
                         compliance = matched_row["compliance_summary"]
                     elif isinstance(matched_row, dict) and "findings_count" in matched_row:
-                        fc = int(matched_row.get("findings_count", 0))
-                        compliance = {
-                            "total_controls": 6,
-                            "passing": max(6 - fc, 0),
-                            "failing": fc,
-                            "pending": 0,
-                            "posture_score": float(matched_row.get("compliance_posture", 100)) / 100.0,
-                        }
+                        compliance = _compliance_summary_from_findings(matched_row)
                     else:
                         compliance = _default_compliance_summary()
                     all_records.append(_agent_response_from_row(
@@ -4625,14 +4687,7 @@ async def agents(
                 if row.get("compliance_summary") is not None:
                     compliance = row["compliance_summary"]
                 elif isinstance(row, dict) and "findings_count" in row:
-                    fc = int(row.get("findings_count", 0))
-                    compliance = {
-                        "total_controls": 6,
-                        "passing": max(6 - fc, 0),
-                        "failing": fc,
-                        "pending": 0,
-                        "posture_score": float(row.get("compliance_posture", 100)) / 100.0,
-                    }
+                    compliance = _compliance_summary_from_findings(row)
                 else:
                     compliance = _default_compliance_summary()
                 all_records.append(_agent_response_from_row(
@@ -5370,14 +5425,23 @@ async def _execute_claim(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Signal Loom Built', 83, NULL, $6,
+                    -- compliance_posture is NULL, not 83: claiming a workload
+                    -- measures nothing about its compliance. The column is
+                    -- nullable by design (004_agent_governance_schema.sql
+                    -- CHECK (n IS NULL OR n BETWEEN 0 AND 100)); the real
+                    -- score is derived from agent_compliance_results, which
+                    -- this route seeds below.
+                    'Signal Loom Built', NULL, NULL, $6,
                     NOW(), NOW(), NOW()
                 )
                 ON CONFLICT (tenant_id, name) DO UPDATE SET
                     display_name = COALESCE(EXCLUDED.display_name, agent_registry.display_name),
                     lifecycle_state = 'active',
                     status = 'active',
-                    compliance_posture = 83,
+                    -- compliance_posture is deliberately NOT in this SET list.
+                    -- A re-claim took no measurement, so it may neither write a
+                    -- figure nor clear one: resetting the column to 83 here
+                    -- destroyed any real score computed since the first claim.
                     model_name = EXCLUDED.model_name,
                     last_transition_at = NOW(),
                     updated_at = NOW()
@@ -5532,12 +5596,16 @@ async def _execute_claim(
         proxy_path="/api/v1/agents/claim",
         source_health=SourceHealthDetail(status="healthy", message="Verified SPIFFE SVID"),
     )
-    compliance_inline = ComplianceSummaryInline(
-        total_controls=6,
-        passing=5,
-        failing=0,
-        pending=1,
-        posture_score=0.83,
+    # The database branch of this route seeds one agent_compliance_results row
+    # per governance_controls row and the summary is then counted off those
+    # rows. This is the no-database branch: there is no control catalogue to
+    # seed from, so the control count and posture are refused rather than
+    # restated as the 6/5/1 + 0.83 shape the seeded path happens to produce in
+    # the demo database. Six is that database's row count, not this agent's.
+    compliance_inline = _unassessed_compliance_summary(
+        "the in-process store has no governance_controls catalogue to assess "
+        "this agent against, so no controls were seeded and posture is not "
+        "derivable"
     )
 
     with _STORE_LOCK:

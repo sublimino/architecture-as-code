@@ -743,12 +743,16 @@ async def enroll_host_handler(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Custom', 83, NULL, NULL,
+                    -- NULL, not 83: enrolling a host measures nothing about the
+                    -- agent's compliance. The column is nullable for this case;
+                    -- the real score is derived from agent_compliance_results.
+                    'Custom', NULL, NULL, NULL,
                     NOW(), NOW(), NOW()
                 ) ON CONFLICT (tenant_id, name) DO UPDATE SET
                     lifecycle_state = 'active',
                     status = 'active',
-                    compliance_posture = 83,
+                    -- compliance_posture deliberately omitted: a re-enrollment
+                    -- measured nothing, so it must not reset a real score.
                     last_transition_at = NOW(),
                     updated_at = NOW()""",
                 agent_uuid,

@@ -185,7 +185,35 @@ def engine_url(tmp_path_factory):
     proc = subprocess.Popen(
         [str(binary)],
         env={**os.environ, "PORT": str(port), "POLICY_ROOT": str(POLICY_ROOT),
-             "POLICY_BUNDLES_DIR": str(POLICY_ROOT / "bundles"), "POLICY_API_KEYS": ""},
+             "POLICY_BUNDLES_DIR": str(POLICY_ROOT / "bundles"), "POLICY_API_KEYS": "",
+             # SIGNAL_SEGMENT_PSEUDONYM_KEY became REQUIRED, not optional, when
+             # the SLAWS merge added policy/bundles/kusari-cloud-signals, which
+             # declares actor_vars. pkg/obscel then refuses to load the bundle
+             # without a key and the engine exits rather than start -- so this
+             # test failed with "policy-engine did not come up (rc=1)", which
+             # names the symptom and not the cause.
+             #
+             # The refusal is correct and must not be worked around: processing
+             # actor data with no pseudonymisation key is the failure the key
+             # exists to prevent, and a bundle silently skipped would be worse
+             # than a refusal to start.
+             #
+             # This value is deliberately recognisable as a test fixture rather
+             # than a plausible secret, while still being exactly 32 bytes of
+             # hex: "e2" repeated 32 times. Production keys are minted by
+             # scripts/signal-segment-key.sh into a Secret; nothing here should
+             # ever be copied there.
+             #
+             # The length is load-bearing and the error message does not say so.
+             # A 62-character key is rejected with the SAME text as no key at
+             # all -- "declares actor_vars but SIGNAL_SEGMENT_PSEUDONYM_KEY is
+             # not configured" -- while the evaluator had already logged
+             # "pseudonymisation key configured for policy evaluation" for that
+             # very key. So a wrong-length key reads as a missing one, and two
+             # log lines in the same startup appear to contradict each other.
+             # Reported as a finding; the 64 characters here are what actually
+             # makes the engine start.
+             "SIGNAL_SEGMENT_PSEUDONYM_KEY": "e2" * 32},
         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
     )
     url = f"http://127.0.0.1:{port}"

@@ -385,26 +385,10 @@ const BASELINE: Array<{ file: string; line: number; detail: string; note: string
   // bidirectional lock people are tempted to leave out. A list that only fails on
   // ADDITIONS rots into a list of things that used to be wrong.
   //
-  // So these four are what the sweep reports on this tree, verified by running it
-  // rather than by reasoning about the merge.
-  {
-    file: 'components/AgentActivityTab.tsx',
-    line: 147,
-    detail: 'confidence: 0.99',
-    note: 'Hardcoded attestation confidence beside a hardcoded rekor entry ref. Pre-existing, renders in live mode, unfixed.',
-  },
-  {
-    file: 'components/IdentityAuditPanel.tsx',
-    line: 65,
-    detail: 'activeLeasesCount = 4',
-    note: 'React default prop standing in for a real lease count. Found only after the sweep learned to see assignments rather than object properties.',
-  },
-  {
-    file: 'data/agentDiscovery.ts',
-    line: 34,
-    detail: "imports fixture value(s) FAKE_SWARM_AGENTS from '../api/fakeSwarmData'",
-    note: 'Ungated fixture import. Assessed as a landmine rather than a live defect: no production callers today, so it renders nothing now and would render ten fake agents the moment one appears.',
-  },
+  // Only one fabrication survives on this tree: CryptographyPage.tsx:83.
+  // The three previously locked rows (AgentActivityTab confidence, IdentityAuditPanel
+  // activeLeasesCount, agentDiscovery ungated fixture import) were fixed to report
+  // honest absence or properly gate on isDemoMode.
   {
     file: 'pages/CryptographyPage.tsx',
     line: 83,
@@ -437,7 +421,7 @@ describe('live-mode figure baseline', () => {
     for (const row of BASELINE) {
       expect(row.note.length, `${row.file}:${row.line} needs a reason`).toBeGreaterThan(20)
     }
-    expect(BASELINE).toHaveLength(4)
+    expect(BASELINE).toHaveLength(1)
   })
 
   it('has a stated reason for every pinned sweep exception', () => {

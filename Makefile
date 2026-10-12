@@ -1019,6 +1019,28 @@ flux-coverage-test: ## Run the BATS gate for Flux workload management: undeclare
 demo-mission-honesty-test: riskctl ## Gate the operator demo: it may print only figures it measured. No cluster.
 	bats test/demo-mission-honesty.bats
 
+# THE THIRD INSTANCE OF THIS DEFECT IN ONE WAVE, so the pattern is worth naming
+# here rather than in a commit message nobody re-reads.
+#
+# test/ui-policy-posture-honesty.bats was written, is correct, and ran in NO
+# path: a close-out audit grepped all ten Makefiles plus the whole tree for its
+# name and found zero references. It carries the guard asserting that
+# DEMO_FRAMEWORKS and the nine hardcoded posture figures are absent from
+# ui/windows/policy-posture.js -- so the fabrication is gone today, and the gate
+# was green by luck rather than by enforcement. It would not have caught a
+# regression.
+#
+# The two earlier instances this wave: test/flux-workload-coverage.bats (no
+# target AND a non-executable script), and cpai-engineer's browser tests (behind
+# //go:build acceptance, a tag nothing passed). Three different mechanisms, one
+# failure: an artefact called a gate needs the line that INVOKES it, or the name
+# is a claim about CI that CI has never heard. This repo registers bats suites
+# explicitly -- there is no test/*.bats glob -- so a new suite is invisible by
+# default.
+.PHONY: ui-policy-posture-honesty-test
+ui-policy-posture-honesty-test: ## Gate the Estate95 policy-posture window: it may show no figure it was not given. No cluster.
+	bats test/ui-policy-posture-honesty.bats
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh

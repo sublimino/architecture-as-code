@@ -160,6 +160,30 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	}
 }
 
+// TestWireCarriesActorHintForLiveActorScoping pins the actor_hint wire field:
+// signal-ingest derives obs.actor from ActorHint only (policy.ActorIdentity), so
+// without it obs.actor is empty on the live stream and the identity-scoped
+// unexpected-execve rule fires on every process_exec. The probe has no service
+// account, so the hint is the workload ACTOR identity, falling back to the pod.
+func TestWireCarriesActorHintForLiveActorScoping(t *testing.T) {
+	// Actor present: the hint is the actor identity, and ActorID matches it so
+	// correlation and CEL scoping agree on one identity.
+	got := sampleObservation().toIngest()
+	if got.ActorHint == "" {
+		t.Fatal("actor_hint is empty; obs.actor would be empty on the live stream and unexpected-execve would fire on every exec")
+	}
+	if got.ActorHint != "kusari-agent" || got.ActorHint != got.ActorID {
+		t.Fatalf("actor_hint = %q, actor_id = %q; both must be the actor identity", got.ActorHint, got.ActorID)
+	}
+
+	// No actor: the hint falls back to the pod identity, never empty.
+	o := sampleObservation()
+	o.ActorID = ""
+	if h := o.toIngest().ActorHint; h != o.PodName {
+		t.Fatalf("with no actor_id the hint must fall back to the pod name %q, got %q", o.PodName, h)
+	}
+}
+
 // TestClassificationLabelDerivesFromSyscall pins the alignment of the live
 // sentinel wire onto the collector's endpoint label contract: the endpoint
 // classification is derived from the sentinel's syscall value, so the

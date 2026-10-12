@@ -22,6 +22,14 @@ type ingestObservation struct {
 	Fidelity       string            `json:"fidelity"`
 	Source         string            `json:"source"`
 	Confidence     float64           `json:"confidence"`
+	// ActorHint is the wire field signal-ingest pseudonymises into obs.actor
+	// (policy.ActorIdentity derives obs.actor from ActorHint ONLY, by design).
+	// The kernel probe cannot see a service account, so this carries the
+	// workload ACTOR/POD identity, which is what scopes the identity-aware
+	// endpoint rules (unexpected-execve) on the live stream. Without it
+	// obs.actor was empty on every live observation and unexpected-execve
+	// fired on every process_exec regardless of workload.
+	ActorHint      string            `json:"actor_hint,omitempty"`
 	ActorID        string            `json:"actor_id,omitempty"`
 	RawEvidenceRef string            `json:"raw_evidence_ref"`
 	Labels         map[string]string `json:"labels"`
@@ -116,6 +124,11 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 		Fidelity:       ingestFidelity,
 		Source:         ingestSource,
 		Confidence:     ingestConfidence,
+		// ActorHint and ActorID carry the same workload identity: ActorHint so
+		// signal-ingest pseudonymises it into obs.actor for CEL identity scoping,
+		// ActorID because correlation keys on it. The probe has no service
+		// account to offer, so both are the actor/pod identity.
+		ActorHint:      actor,
 		ActorID:        actor,
 		RawEvidenceRef: fmt.Sprintf("ebpf://%s/%s", o.Syscall, digest),
 		Labels:         labels,

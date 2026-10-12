@@ -644,6 +644,13 @@ func main() {
 		slog.Error("failed to create correlation engine", "error", err)
 		os.Exit(1)
 	}
+	// Wire cross-stream attack-chain correlation (exfil / account-takeover /
+	// privilege-cascade). The detector joins findings per resolved actor_id and
+	// stuns on a complete chain via the same stun-sentinel client the
+	// DecisionStunDispatcher uses (STUN_SENTINEL_URL). This is the production
+	// wire for Engine.Correlate to run the chains.
+	engine.SetAttackChainDetector(correlation.NewAttackChainDetector(
+		correlation.NewHTTPStunClient(correlation.StunClientOptions{})))
 
 	// Audit writer: use Postgres if DATABASE_URL is set, otherwise NopWriter.
 	//

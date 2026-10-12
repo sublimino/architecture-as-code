@@ -256,6 +256,11 @@ var defaultLabelAllowList = map[string]struct{}{
 	// DNS label (none/low/medium/high) — the DNS-tunnel signal that survives into
 	// an immutable segment without the cleartext qname (catalogue review M5).
 	"qname_entropy_bucket": {},
+	// attestation_selector_type: the SPIRE attestation selector TYPE prefix set
+	// (k8s/unix/aws_iid/…) on a spirea SVID-issuance observation — the attestor
+	// FAMILY, never the selector key/value, so it names no workload. Drives the
+	// identity-auth svid-attestation-downgrade rule (SpireaFU).
+	"attestation_selector_type": {},
 	//   baoaudit (OpenBao audit):
 	"operation":   {},
 	"accessor":    {},

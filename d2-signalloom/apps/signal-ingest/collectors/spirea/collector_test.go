@@ -297,6 +297,84 @@ func TestCollector_IngestIssuanceEvent(t *testing.T) {
 	}
 }
 
+func TestCollector_ProjectsAttestationSelectorType(t *testing.T) {
+	now := time.Now().UTC()
+	cases := []struct {
+		name      string
+		selectors []string
+		wantKey   bool
+		wantType  string
+	}{
+		{
+			name:      "single k8s workload attestor",
+			selectors: []string{"k8s:ns:tenant-demo", "k8s:sa:agent-runner", "k8s:pod-uid:abc"},
+			wantKey:   true,
+			wantType:  "k8s",
+		},
+		{
+			name:      "weaker unix attestor only",
+			selectors: []string{"unix:uid:0", "unix:gid:0"},
+			wantKey:   true,
+			wantType:  "unix",
+		},
+		{
+			name:      "mixed families are sorted and distinct",
+			selectors: []string{"unix:uid:0", "k8s:ns:x", "unix:gid:0"},
+			wantKey:   true,
+			wantType:  "k8s+unix",
+		},
+		{
+			name:      "bare type with no colon is still a type",
+			selectors: []string{"join_token"},
+			wantKey:   true,
+			wantType:  "join_token",
+		},
+		{
+			name:      "empty and malformed selectors contribute no type",
+			selectors: []string{"", ":novalue", "   "},
+			wantKey:   false,
+		},
+		{
+			// The existing selector-less fixtures must keep projecting no
+			// attestation label, or the downgrade rule's has() guard would see a
+			// key on records that carry no attestation evidence.
+			name:      "no selectors projects no attestation label",
+			selectors: nil,
+			wantKey:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &mockSink{}
+			collector := NewSPIREIssuanceCollector(sink)
+			event := &SVIDIssuanceEvent{
+				Timestamp:      now,
+				SPIFFEID:       "spiffe://kusari.dev/ns/tenant-demo/sa/agent-runner",
+				TrustDomain:    "kusari.dev",
+				SVIDType:       SVIDTypeX509,
+				TTLSeconds:     3600,
+				PodNamespace:   "tenant-demo",
+				ServiceAccount: "agent-runner",
+				Selectors:      tc.selectors,
+			}
+			if err := collector.IngestIssuanceEvent(context.Background(), event); err != nil {
+				t.Fatalf("IngestIssuanceEvent: %v", err)
+			}
+			if sink.Count() != 1 {
+				t.Fatalf("expected 1 observation, got %d", sink.Count())
+			}
+			got, ok := sink.observations[0].Labels["attestation_selector_type"]
+			if ok != tc.wantKey {
+				t.Fatalf("attestation_selector_type present = %v, want %v (value %q)", ok, tc.wantKey, got)
+			}
+			if tc.wantKey && got != tc.wantType {
+				t.Fatalf("attestation_selector_type = %q, want %q", got, tc.wantType)
+			}
+		})
+	}
+}
+
 func TestCollector_ConcurrentRace(t *testing.T) {
 	sink := &mockSink{}
 	collector := NewSPIREIssuanceCollector(sink)

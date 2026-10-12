@@ -267,6 +267,21 @@ async def proxy_federation_request(
             resp.status_code,
             clean_subpath,
         )
+        # For the seven read subpaths the dashboard's Federated Services page
+        # actually calls, this service can derive the measurable part of the
+        # answer itself (federation_state) and refuse the rest per field. That
+        # is NOT a reinstatement of the deleted dataset: every figure it emits
+        # is a function of the trust-topology collector's observations or of the
+        # authenticated tenant's own registry, every item carries its own
+        # evidence label, and anything with no source is absent with a reason.
+        #
+        # It runs here, as the unserved-route branch, rather than ahead of the
+        # proxy, so that (a) upstream stays authoritative the day signal-ingest
+        # registers a real handler, and (b) the proxy's own contract - identity
+        # header stripping, IDOR rejection, upstream error translation - keeps
+        # applying to these paths unchanged.
+        if clean_subpath in LOCAL_READ_SUBPATHS:
+            return await local_federation_read(clean_subpath, principal)
         return _error_response(
             502,
             "upstream_route_not_served",
@@ -405,17 +420,13 @@ async def proxy_federation_route(
     subpath: str = "",
     principal: Principal = Depends(authenticated_principal),
 ) -> Response:
-    """Serve the seven derived read subpaths locally; proxy everything else.
+    """Proxy federation requests to upstream signal-ingest service with tenant isolation.
 
-    The read split is deliberate and narrow. ``federation_state`` derives the
-    measurable part of the federation view from the trust-topology collector
-    (falling back, labelled ``modeled``, to the tenant's own registry) and
-    refuses the rest per field. Every other method and subpath keeps the proxy
-    - including its ``502 upstream_route_not_served`` - so adding a real
-    federation handler to signal-ingest later needs no change here.
+    Upstream remains authoritative. When it answers that it does not serve a
+    read route, ``proxy_federation_request`` derives the measurable part of the
+    answer locally for the seven subpaths the dashboard calls, and keeps the
+    ``502 upstream_route_not_served`` refusal for every other one.
     """
-    if request.method == "GET" and subpath.strip("/") in LOCAL_READ_SUBPATHS:
-        return await local_federation_read(subpath.strip("/"), principal)
     return await proxy_federation_request(
         request, subpath, tenant_id=principal.tenant, principal=principal
     )

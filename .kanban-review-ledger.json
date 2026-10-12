@@ -5136,5 +5136,25 @@
     "summary": "Lead-verified acceptance baseline: jq tipSha proof passes, sha256sums 43/43 OK after re-seal, 11 suites with explicit pass/fail/skip triples, classification corrected to inherited=1 new=5, every skip stated with its reason.",
     "next_step": "done-advance so P1-PRE becomes ready",
     "reason": "Corroboration via task_runs is structurally unavailable for this card: session=(not found) persisted across both an antigravity and a kpai restart while the agent demonstrably ran, committed and exited (P0-w1 advanced to d852e797). The corroboration gate exists to stop a card self-certifying; here the lead verified the artefacts externally and independently, which is what review decision [2] encodes."
+  },
+  "6b94c": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "6b94c",
+        "reviewed_at": "2026-10-12T23:28:54.390Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "APPROVED",
+        "model": null,
+        "reason": "Phase 1 bundle, manifests, and tests passing 57/57 verified"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "6b94c",
+    "reviewed_at": "2026-10-12T23:28:54.390Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "APPROVED",
+    "model": null,
+    "reason": "Phase 1 bundle, manifests, and tests passing 57/57 verified"
   }
 }

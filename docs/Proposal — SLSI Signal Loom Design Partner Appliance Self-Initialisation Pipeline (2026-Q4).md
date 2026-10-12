@@ -630,7 +630,11 @@ The implementation is **verified working**: it builds, its own 15-test suite pas
 
 The card nevertheless stays **not advanceable**, for two narrow and measured reasons: the manifest declares no volatile set, so the reproducibility gate cannot be evaluated without the governor inventing which differences to forgive; and one falsification case errors instead of proving its negative. Both are small, both are specified above, and neither is a design problem. P1-GOV must not certify Phase 1 until the volatile set is declared, because a reproducibility gate that forgives undeclared differences is the tautological pass this proposal exists to prevent.
 
-<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+**Status revised 2026-10-12 after lead remediation `8a67b624`:** the volatile set is declared and schema-required, so the reproducibility gate is checkable rather than tautological, and the implementation is verified by two independent builds. The card is therefore **pass with one recorded residual**.
+
+The residual is the coverage gate **reporting where it must fail**, for four unpinned domain images, blocked on **OSD-2**. It gates **certification, not implementation**: **P1-GOV must not certify Phase 1 until OSD-2 is answered and that gate fails rather than reports.** The falsification case stays failing to document it.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 
 ---

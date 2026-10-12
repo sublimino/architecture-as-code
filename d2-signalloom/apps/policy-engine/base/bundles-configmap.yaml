@@ -8,6 +8,125 @@ metadata:
     app.kubernetes.io/name: policy-engine
     app.kubernetes.io/part-of: signalloom
 data:
+  kusari--application-saas.yaml: |
+    # The Kusari APPLICATION / SaaS threat bundle.
+    #
+    # This reads only the application_saas projection (collectors/workspacesaas,
+    # model.LayerApplicationSaaS, Source "<provider>.audit"). Every rule source-gates
+    # on the ".audit" suffix AND layer-gates on application_saas, so it never crosses
+    # the SaaS LOGIN surface (same collector, same source suffix, but layer
+    # identity_authorization) which identity-auth.yaml owns, and never reads the
+    # spirea or OpenBao identity projections. See review H3.
+    #
+    # Mode is `shadow`: every rule emits and stores findings, nothing alerts.
+    #
+    # # What the rules may read
+    #
+    # collectors/workspacesaas ToObservation projects: provider, event_type, action,
+    # resource_id, volume_bytes, item_count, client_ip, oauth_app_id, oauth_app_name,
+    # oauth_scopes, risk_level, plus passthrough labels (this stream sets
+    # sensitivity). obs.actor is the pseudonymised principal.
+    #
+    # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+    #
+    #   * Every rule source-gates on obs.source.endsWith(".audit") and layer-gates on
+    #     obs.layer == "application_saas". "openbao-audit" ends "-audit", not
+    #     ".audit", so the OpenBao identity projection is never read here.
+    #   * Every label read is guarded with has().
+    #   * These rules key on resource/action/scope attributes, not on actor identity,
+    #     so there is no actor_vars set. sensitive_classes and admin_change_actions are
+    #     attribute allowlists compared against labels. When an application_saas rule
+    #     does need to key on identity, it must do so via obs.actor against an
+    #     actor_var, exactly as identity-auth.yaml's saas-admin-role-grant does.
+    #
+    # # Fixtures
+    #
+    # collectors/workspacesaas/testdata/app. Every rule has a positive fixture that
+    # fires it and a negative that does not. The per-rule expectation table lives in
+    # d2-signalloom/apps/signal-ingest/e2e/saas_expectations.go and is asserted by
+    # TestApplicationSaaSE2E_FixtureCorpusMatchesTheExpectationTable.
+    
+    id: kusari-application-saas
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    vars:
+      # Document sensitivity classes that make an external share a finding. A share of
+      # a public document is not.
+      sensitive_classes:
+        - "confidential"
+        - "restricted"
+    
+      # Admin-console actions that mutate tenant configuration. A read/view of the
+      # same console is not a change.
+      admin_change_actions:
+        - "setting_change"
+        - "policy_change"
+        - "security_setting_change"
+    
+    rules:
+      # --- Mass file download ---------------------------------------------------
+      - id: saas-mass-file-download
+        name: Bulk file download / export above the item threshold
+        severity: high
+        # A volume-spike event whose item count crosses 100 (the contract's bulk
+        # threshold, contract_doc.go). int() parses the projected numeric label; the
+        # has() guard keeps it off any record without the label.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "application_saas" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "workspace_volume_spike" &&
+          has(obs.labels.item_count) && int(obs.labels.item_count) >= 100
+    
+      # --- External share of a sensitive document -------------------------------
+      - id: saas-external-sensitive-share
+        name: External share of a sensitive document
+        severity: high
+        # A document-access event whose action is an external share and whose
+        # sensitivity is in the sensitive set. An internal share, or an external share
+        # of a public document, does not fire.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "application_saas" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "workspace_document_access" &&
+          has(obs.labels.action) && obs.labels.action == "external_share" &&
+          has(obs.labels.sensitivity) && obs.labels.sensitivity in vars.sensitive_classes
+    
+      # --- OAuth application grant with write scopes ----------------------------
+      - id: saas-oauth-app-grant
+        name: External OAuth application grant with read-write scopes
+        severity: high
+        # An external OAuth consent whose granted scopes include a ReadWrite scope.
+        # oauth_scopes is projected as the Go slice rendering, so a substring test on
+        # "ReadWrite" is the available signal; a read-only grant does not fire.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "application_saas" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "workspace_external_oauth_grant" &&
+          has(obs.labels.oauth_scopes) && obs.labels.oauth_scopes.contains("ReadWrite")
+    
+      # --- Admin-console setting change -----------------------------------------
+      - id: saas-admin-console-change
+        name: Admin-console configuration change
+        severity: high
+        # An admin-privilege event whose action mutates tenant configuration. A read
+        # of the same console (view_settings) does not fire.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "application_saas" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "workspace_admin_privilege" &&
+          has(obs.labels.action) && obs.labels.action in vars.admin_change_actions
+    
+    windows:
+      # Repeated bulk downloads by one principal in a short window is the shape of
+      # staged data exfiltration rather than a single large export.
+      - id: mass-download-burst
+        over_rule: saas-mass-file-download
+        key: [tenant_id, actor]
+        window: 10m
+        threshold: 3
+        severity: high
   kusari--cloud-signals.yaml: |
     # The Kusari pilot cloud-signal bundle (SLAWS v2 §4, D2/D3/D6).
     #
@@ -323,6 +442,229 @@ data:
         # It is keyed on source_ip because a window keyed on tenant alone cannot
         # distinguish one host scanning from twenty hosts each retrying once, which
         # is the entire question.
+  kusari--endpoint-runtime.yaml: |
+    # The Kusari endpoint-runtime threat bundle (Tetragon eBPF syscall stream).
+    #
+    # This reads only the Tetragon endpoint projection (collectors/ebpf
+    # ProjectEndpoint, model.LayerEndpointHost, Source "tetragon") and every rule
+    # source-gates on it, so it never crosses the OTHER endpoint_host stream on the
+    # same layer — the agent-nono Landlock evidence (Source "agent-nono-evidenced"),
+    # whose landlock-denial rule gates on verification_status. A Tetragon event
+    # carries no verification_status, and these rules gate on source "tetragon", so
+    # the two endpoint_host streams share a layer and never a rule.
+    #
+    # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+    # in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+    # bumps `version`.
+    #
+    # # What the rules may read
+    #
+    # Only the Tetragon endpoint label contract (collectors/ebpf/endpoint.go
+    # ProjectEndpoint): classification, syscall, target, pod_name, namespace, node,
+    # agent_role, service_account, pod_uid, provider, direction — plus obs.actor,
+    # which is the keyed PSEUDONYM of the acting workload's service account (via
+    # ActorHint) and supports EQUALITY and membership only.
+    #
+    # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+    #
+    #   * Every rule gates on obs.source == "tetragon": the endpoint_host layer
+    #     carries more than one projection, so the source gate is mandatory to stay
+    #     off the agent-nono Landlock stream.
+    #   * Every label read is guarded with has(): a syscall event may carry a target
+    #     or not (a file access does, a bare ptrace kprobe does not), so a bare read
+    #     of an absent key would be a CEL fault degrading the whole bundle.
+    #   * Identity is obs.actor against an actor_vars set, NEVER a label. The acting
+    #     service account reaches obs.actor via ActorHint, pseudonymised at the store
+    #     and at bundle load with the same key, so a cleartext allowlist would never
+    #     match and every negative test would be vacuously true. Conform refuses a
+    #     rule comparing obs.actor against a var absent from actor_vars.
+    #
+    # # Fixtures
+    #
+    # Every rule has positives and a negative under collectors/ebpf/endpoint_testdata/,
+    # one detection class per file. The per-rule expectation table lives in
+    # d2-signalloom/apps/signal-ingest/e2e/endpoint_expectations.go and is asserted
+    # exactly by TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable.
+    
+    id: kusari-endpoint-runtime
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    # Actor-identity sets, rewritten at load through the same keyed pseudonymiser
+    # obs.actor is rewritten with. Conform refuses a rule comparing obs.actor against
+    # a var absent from this list.
+    actor_vars:
+      - allowed_exec_actors
+    
+    vars:
+      # Service accounts permitted to exec a new process without producing a finding.
+      # A workload whose job is to run subprocesses lives here; an agent that should
+      # only make API calls does not, so its exec is the signal. obs.actor is a
+      # pseudonym, so the test is membership, never a string match.
+      allowed_exec_actors:
+        - "agent-trusted-sa"
+    
+      # Files whose open is high-signal on their own: credential stores and the
+      # service-account token a workload could steal to impersonate itself elsewhere.
+      sensitive_files:
+        - "/etc/shadow"
+        - "/etc/passwd"
+        - "/root/.ssh/authorized_keys"
+        - "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    
+      # Syscalls that are high-signal regardless of actor: ptrace (process injection /
+      # debugger attach) and the kernel capability check (privilege use). Both the
+      # bare symbol and the x86_64 syscall-wrapper name are listed because the
+      # normaliser carries whichever the kprobe was attached under.
+      sensitive_syscalls:
+        - "ptrace"
+        - "__x64_sys_ptrace"
+        - "cap_capable"
+        - "capable"
+    
+    rules:
+      # --- Sensitive-file open --------------------------------------------------
+      - id: sensitive-file-open
+        name: Open of a credential store or the service-account token
+        severity: high
+        # A file_access whose target is a credential store. target is the file the
+        # workload opened; the sensitive set is a var, membership-tested.
+        expression: |-
+          obs.source == "tetragon" &&
+          obs.layer == "endpoint_host" &&
+          has(obs.labels.classification) && obs.labels.classification == "file_access" &&
+          has(obs.labels.target) && obs.labels.target in vars.sensitive_files
+    
+      # --- Unexpected execve (identity-scoped) ----------------------------------
+      - id: unexpected-execve
+        name: Process exec by a workload not permitted to exec
+        severity: high
+        # An execve by a service account outside the allow-list. This is the one
+        # identity-scoped rule: obs.actor is the pseudonymised service account, tested
+        # against the actor_vars set, never a cleartext label.
+        expression: |-
+          obs.source == "tetragon" &&
+          obs.layer == "endpoint_host" &&
+          has(obs.labels.classification) && obs.labels.classification == "process_exec" &&
+          !(obs.actor in vars.allowed_exec_actors)
+    
+      # --- Capability use / ptrace ----------------------------------------------
+      - id: capability-or-ptrace
+        name: ptrace or a kernel capability check
+        severity: high
+        # ptrace is process injection / debugger attach; cap_capable is the kernel
+        # privilege-check hook. Both are high-signal host-runtime primitives, gated on
+        # the syscall discriminator against a var set, independent of actor.
+        expression: |-
+          obs.source == "tetragon" &&
+          obs.layer == "endpoint_host" &&
+          has(obs.labels.syscall) && obs.labels.syscall in vars.sensitive_syscalls
+    
+    windows:
+      # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+      # arriving finding takes the counter from below the threshold to at or above it —
+      # anchored on the ARRIVING finding's timestamp, so a replay reproduces live.
+    
+      # One workload opening several credential stores in a short window is the shape
+      # of credential sweeping, which a single open is not. Keyed on the actor
+      # pseudonym, so it is per-workload-identity.
+      - id: sensitive-file-open-burst
+        over_rule: sensitive-file-open
+        key: [tenant_id, actor]
+        window: 5m
+        threshold: 3
+        severity: high
+  kusari--gcp-admin.yaml: |
+    # The Kusari GCP Cloud Audit admin-activity threat bundle.
+    #
+    # This stream reads only the gcpaudit projection (Source "gcp-cloud-audit",
+    # model.LayerCloudControlPlane). Every rule gates on both source and layer
+    # because the cloud_control_plane layer is shared by awslogs; without the source
+    # gate an AWS event with a similar method label could cross-fire here.
+    #
+    # Identity is obs.actor through actor_vars, never a label. The GCP principal
+    # email is routed through ActorHint and pseudonymised into obs.actor by the store
+    # and bundle loader; principal_email must not be projected as a label. Therefore
+    # identity tests are equality/membership only: `!(obs.actor in vars.X)`, never
+    # startsWith/endsWith or any string parsing on obs.actor.
+    #
+    # Every label read is guarded with has(). A bare read of an absent label is a CEL
+    # fault per observation and degrades the whole bundle.
+    #
+    # The bucket IAM rule is a deliberate over-trigger on the method surface:
+    # allUsers/allAuthenticated lives in the request body, which this projection does
+    # not read. The rule fires on storage.setIamPermissions and lets review decide
+    # whether later streams add request-body nuance.
+    
+    id: kusari-gcp-admin
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    actor_vars:
+      - iam_admins
+      - sa_key_minters
+      - storage_admins
+      - logging_admins
+    
+    vars:
+      # Break-glass IAM administrators permitted to change project IAM policy.
+      iam_admins:
+        - "iam-admin@controlplane.io"
+    
+      # Automation permitted to mint service-account keys.
+      sa_key_minters:
+        - "sa-key-bot@controlplane.io"
+    
+      # Storage administrators permitted to edit bucket IAM permissions.
+      storage_admins:
+        - "storage-admin@controlplane.io"
+    
+      # Logging administrators permitted to delete sinks.
+      logging_admins:
+        - "logging-admin@controlplane.io"
+    
+    rules:
+      - id: iam-policy-binding-change
+        name: IAM policy binding changed outside the admin allow-list
+        severity: critical
+        expression: |-
+          obs.source == "gcp-cloud-audit" &&
+          obs.layer == "cloud_control_plane" &&
+          has(obs.labels.method_name) && obs.labels.method_name.endsWith("SetIamPolicy") &&
+          !(obs.actor in vars.iam_admins)
+    
+      - id: service-account-key-create
+        name: Service-account key created outside the minter allow-list
+        severity: high
+        expression: |-
+          obs.source == "gcp-cloud-audit" &&
+          obs.layer == "cloud_control_plane" &&
+          has(obs.labels.method_name) && obs.labels.method_name.endsWith("CreateServiceAccountKey") &&
+          !(obs.actor in vars.sa_key_minters)
+    
+      - id: bucket-iam-made-public
+        name: Storage bucket IAM permissions changed outside the admin allow-list
+        severity: high
+        # DELIBERATE OVER-TRIGGER: public allUsers/allAuthenticated nuance is in the
+        # request body; this projection sees the storage SetIamPermissions surface.
+        expression: |-
+          obs.source == "gcp-cloud-audit" &&
+          obs.layer == "cloud_control_plane" &&
+          has(obs.labels.service_name) && obs.labels.service_name == "storage.googleapis.com" &&
+          has(obs.labels.method_name) && obs.labels.method_name == "storage.setIamPermissions" &&
+          !(obs.actor in vars.storage_admins)
+    
+      - id: logging-sink-delete
+        name: Logging sink deleted outside the admin allow-list
+        severity: high
+        expression: |-
+          obs.source == "gcp-cloud-audit" &&
+          obs.layer == "cloud_control_plane" &&
+          has(obs.labels.service_name) && obs.labels.service_name == "logging.googleapis.com" &&
+          has(obs.labels.method_name) && obs.labels.method_name.endsWith("DeleteSink") &&
+          !(obs.actor in vars.logging_admins)
   kusari--iam-change.yaml: |
     # SLAWS first observation-policy bundle (proposal §4.2, §4.4, D6).
     #
@@ -410,5 +752,790 @@ data:
         over_rule: iam-priv-change
         key: [tenant_id, actor]
         window: 10m
+        threshold: 3
+        severity: high
+  kusari--identity-auth.yaml: |
+    # The Kusari IDENTITY & AUTHORIZATION threat bundle.
+    #
+    # The identity_authorization layer carries THREE projections that share a layer
+    # but nothing else: SPIRE SVID issuance (collectors/spirea, Source "spire-agent"),
+    # OpenBao audit (collectors/baoaudit, Source "openbao-audit", untouched here), and
+    # SaaS login/authentication (collectors/workspacesaas, Source "<provider>.audit",
+    # layer overridden to identity_authorization for login events). Every rule in this
+    # bundle therefore source-gates so a spirea rule never reads a SaaS record and a
+    # SaaS rule never reads a spirea or OpenBao record. See review H3.
+    #
+    #   * spirea rules gate obs.source == "spire-agent".
+    #   * SaaS rules gate obs.source.endsWith(".audit"), which matches
+    #     "<provider>.audit" and never "openbao-audit" (that ends "-audit", not
+    #     ".audit"), plus obs.layer == "identity_authorization" so the SaaS login
+    #     surface is read here and the application_saas surface (same collector, same
+    #     source suffix) is left to application-saas.yaml.
+    #
+    # Mode is `shadow`: every rule emits and stores findings, nothing alerts.
+    #
+    # # What the rules may read
+    #
+    # spirea projection (collectors/spirea/collector.go convertToObservation):
+    #   event_type ("spire_svid_issuance"), spiffe_id, trust_domain, svid_type,
+    #   ttl_seconds, and optionally pod_name/namespace/service_account/sa_principal/
+    #   node_name/serial_number/jwt_id. obs.actor is the pseudonymised SPIFFE ID.
+    # SaaS login projection (collectors/workspacesaas ToObservation + passthrough
+    #   labels): provider, event_type, action, client_ip, risk_level, plus the
+    #   passthrough labels this stream sets — mfa, geo, risk_reason, role_granted.
+    #   obs.actor is the pseudonymised principal (primary email / UPN).
+    #
+    # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+    #
+    #   * Identity is obs.actor against an actor_vars set, NEVER a label. The SPIFFE
+    #     ID and the SaaS principal reach obs.actor via ActorHint, pseudonymised at
+    #     the store and at bundle load with the same key, so a cleartext allowlist
+    #     would never match and every negative test would be vacuously true. Only
+    #     allowed_spiffe_issuers and saas_privileged_grantors are identity sets, so
+    #     only they are listed in actor_vars. trusted_domains and known_login_geos are
+    #     attribute allowlists (trust domain, geography), compared against labels, not
+    #     against the actor, so they stay cleartext.
+    #   * Every label read is guarded with has(): a bare read of an absent key is a
+    #     CEL fault that would degrade the whole bundle on one unlabelled record.
+    #   * Every rule source-gates (and the SaaS rules additionally layer-gate), so a
+    #     rule only ever reads the projection it was written for.
+    #
+    # # Missing from the contract (reported as collector gaps, not written as
+    # # unfireable rules)
+    #
+    # The spirea collector does NOT project SPIRE attestation selectors or the
+    # attestation method, so a true selector-level "attestation downgrade" cannot be
+    # expressed. The nearest signal the contract does project is the SVID's trust
+    # domain, so svid-foreign-trust-domain stands in for the attestation-root anomaly
+    # (an SVID minted under a trust domain outside the federated set). A selector-aware
+    # downgrade rule needs a new projected label and is a collector gap.
+    #
+    # # Fixtures
+    #
+    # collectors/spirea/testdata (spirea) and collectors/workspacesaas/testdata/login
+    # (SaaS). Every rule has a positive fixture that fires it and a negative that does
+    # not. The per-rule expectation table lives in
+    # d2-signalloom/apps/signal-ingest/e2e/identity_expectations.go and is asserted by
+    # TestIdentityAuthE2E_FixtureCorpusMatchesTheExpectationTable.
+    
+    id: kusari-identity-auth
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    # Actor-identity sets, rewritten at load through the same keyed pseudonymiser
+    # obs.actor is rewritten with. Conform refuses a rule comparing obs.actor against
+    # a var absent from this list.
+    actor_vars:
+      - allowed_spiffe_issuers
+      - saas_privileged_grantors
+    
+    vars:
+      # Full SPIFFE IDs an SVID is expected to be minted for. An issuance to any other
+      # principal is the signal (a workload identity that should not exist, or one
+      # minted on an unexpected path).
+      allowed_spiffe_issuers:
+        - "spiffe://kusari.dev/ns/tenant-demo/sa/agent-runner"
+        - "spiffe://kusari.dev/ns/signalloom/sa/fleet-manager"
+    
+      # Trust domains the federation accepts. An SVID minted under any other trust
+      # domain is a foreign/attestation-root anomaly. This is an attribute allowlist,
+      # not an identity one, so it is NOT an actor_var.
+      trusted_domains:
+        - "kusari.dev"
+    
+      # Geographies logins are normally seen from. A login from any other geography is
+      # a new-geo signal. Attribute allowlist, not an identity one.
+      known_login_geos:
+        - "GB"
+        - "US"
+    
+      # SaaS principals sanctioned to grant admin roles. A grant by anyone else is the
+      # signal. This IS an identity set, so it is an actor_var.
+      saas_privileged_grantors:
+        - "admin@corp.internal"
+    
+    rules:
+      # --- SPIRE: SVID minted for an unexpected principal -----------------------
+      - id: svid-issued-unexpected-principal
+        name: SPIRE SVID issued to a SPIFFE ID outside the expected set
+        severity: high
+        # The "unexpected SPIFFE path" signal. obs.actor is the pseudonymised SPIFFE
+        # ID; membership against the pseudonymised allowlist is the only identity test
+        # available and the only one that stays correct under pseudonymisation.
+        expression: |-
+          obs.source == "spire-agent" &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "spire_svid_issuance" &&
+          !(obs.actor in vars.allowed_spiffe_issuers)
+    
+      # --- SPIRE: SVID minted under a foreign trust domain ----------------------
+      - id: svid-foreign-trust-domain
+        name: SPIRE SVID issued under a trust domain outside the federation
+        severity: high
+        # Stands in for attestation downgrade: the collector does not project SPIRE
+        # selectors, so the attestation-root (trust domain) is the strongest available
+        # signal. trust_domain is an attribute label, not the actor identity.
+        expression: |-
+          obs.source == "spire-agent" &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "spire_svid_issuance" &&
+          has(obs.labels.trust_domain) &&
+          !(obs.labels.trust_domain in vars.trusted_domains)
+    
+      # --- SaaS login: impossible travel ----------------------------------------
+      - id: saas-login-impossible-travel
+        name: SaaS login flagged as impossible travel
+        severity: high
+        # The provider (or a prior correlation) reports the login as impossible
+        # travel. risk_reason is a projected passthrough label on the login event.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.risk_reason) && obs.labels.risk_reason == "impossible_travel"
+    
+      # --- SaaS login: new geography --------------------------------------------
+      - id: saas-login-new-geo
+        name: SaaS login from a geography outside the known set
+        severity: medium
+        # A login from a geography not previously seen for the estate. geo is an
+        # attribute label; known_login_geos is an attribute allowlist.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.action) && obs.labels.action == "login" &&
+          has(obs.labels.geo) &&
+          !(obs.labels.geo in vars.known_login_geos)
+    
+      # --- SaaS login: MFA absent -----------------------------------------------
+      - id: saas-login-mfa-absent
+        name: SaaS login completed without MFA
+        severity: high
+        # A completed login whose MFA state is absent. Only login actions carry an mfa
+        # state, so the rule scopes to action == "login" as well as the mfa label.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.action) && obs.labels.action == "login" &&
+          has(obs.labels.mfa) && obs.labels.mfa == "absent"
+    
+      # --- SaaS: admin role granted by an unsanctioned principal ----------------
+      - id: saas-admin-role-grant
+        name: SaaS admin role granted by a principal outside the sanctioned set
+        severity: critical
+        # An admin-role grant is a privilege escalation; the signal is the grant being
+        # performed by a principal not sanctioned to do so. Identity is obs.actor
+        # against the pseudonymised grantor allowlist.
+        expression: |-
+          obs.source.endsWith(".audit") &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.action) && obs.labels.action == "admin_role_grant" &&
+          !(obs.actor in vars.saas_privileged_grantors)
+    
+    windows:
+      # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+      # arriving finding takes the counter from below the threshold to at or above it.
+    
+      # Repeated MFA-absent logins by one principal in a short window is the shape of
+      # credential replay / stuffing rather than a single mis-prompted login.
+      - id: mfa-absent-login-burst
+        over_rule: saas-login-mfa-absent
+        key: [tenant_id, actor]
+        window: 10m
+        threshold: 3
+        severity: high
+  kusari--k8s-audit.yaml: |
+    # The Kusari Kubernetes kube-apiserver AUDIT threat bundle (reference vertical).
+    #
+    # This is the NEW k8s threat stream. It reads only the k8saudit-kube projection
+    # (collectors/k8saudit, model.LayerKubernetes, Source "k8saudit-kube") and every
+    # rule source-gates on it, so it never crosses the EXISTING identity-auth
+    # k8saudit projection (api/audit, LayerIdentityAuth, Source "k8s-apiserver-audit")
+    # which tracks delegation and is untouched. See collectors/k8saudit/contract_doc.go.
+    #
+    # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+    # in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+    # bumps `version`.
+    #
+    # # What the rules may read
+    #
+    # Only the k8s label contract (collectors/k8saudit/contract_doc.go): verb,
+    # resource, subresource, resource_kind, api_group, api_version, namespace, name,
+    # decision, response_code, source_ip, audit_id, stage, reason, user_agent — plus
+    # obs.actor, which is a keyed PSEUDONYM and so supports EQUALITY and membership
+    # only (never startsWith / substring; it has no internal structure to read).
+    #
+    # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+    #
+    #   * Every rule gates on obs.source == "k8saudit-kube": LayerKubernetes could in
+    #     principle carry more than one projection, so the source gate is mandatory.
+    #   * Every rule requires stage == "ResponseComplete". The apiserver emits up to
+    #     four stages per request; without this a single request double-counts across
+    #     its stages. The projection emits all stages deliberately so this control is
+    #     visible here and mutation-testable.
+    #   * Identity is obs.actor against an actor_vars set, NEVER a label. The k8s user
+    #     or service account reaches obs.actor via ActorHint, pseudonymised at the
+    #     store and at bundle load with the same key, so a cleartext allowlist would
+    #     never match and every negative test would be vacuously true. Anonymous is a
+    #     pseudonymised actor_vars set (system:anonymous / system:unauthenticated),
+    #     not a string match.
+    #   * Every label read is guarded with has(): a bare read of an absent key is a
+    #     CEL fault that would degrade the whole bundle on one unlabelled record.
+    #
+    # # Missing from the contract on purpose
+    #
+    # Pod security context (privileged, hostPath, hostPID, hostNetwork, hostIPC,
+    # runAsUser, added capabilities) is NOT projected — it is the request body, not
+    # an audit label, and admitting it would need allow-list keys this vertical does
+    # not add. So privileged-pod-create fires on the pod-CREATE surface, a deliberate
+    # over-trigger in the same spirit as awslogs' s3-bucket-exposure-changed. Reading
+    # the spec is an admission-webhook source, a separate stream.
+    #
+    # # Fixtures
+    #
+    # Every rule has a positive fixture that fires it and a negative that does not,
+    # under collectors/k8saudit/testdata/. The per-rule expectation table lives in
+    # d2-signalloom/apps/signal-ingest/e2e/k8saudit_expectations.go and is asserted
+    # by TestK8sAuditE2E_FixtureCorpusMatchesTheExpectationTable.
+    
+    id: kusari-k8s-audit
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    # Actor-identity sets, rewritten at load through the same keyed pseudonymiser
+    # obs.actor is rewritten with. A var holding actors that is NOT named here would
+    # keep its cleartext values, so `obs.actor in vars.X` could never be true and
+    # every negative allowlist test would become always-true — the one inversion the
+    # replay oracle cannot see. Conform refuses a rule comparing obs.actor against a
+    # var absent from this list.
+    actor_vars:
+      - allowed_secret_readers
+      - system_controllers
+      - anonymous_principals
+    
+    vars:
+      # Service accounts permitted to read secrets without producing a finding. A
+      # controller that legitimately reads a token lives here; a human or workload
+      # that should not does not.
+      allowed_secret_readers:
+        - "system:serviceaccount:kube-system:secret-reader"
+    
+      # Controllers permitted to mint service-account tokens. The kube-controller-
+      # manager and the token controllers mint tokens constantly; a human or a
+      # workload minting one is the signal.
+      system_controllers:
+        - "system:serviceaccount:kube-system:token-cleaner"
+        - "system:serviceaccount:kube-system:generic-garbage-collector"
+        - "system:kube-controller-manager"
+    
+      # The anonymous principals. A verb these actors were ALLOWED to perform is the
+      # finding (anonymous-allowed); a forbidden one is the authorizer doing its job.
+      anonymous_principals:
+        - "system:anonymous"
+        - "system:unauthenticated"
+    
+    rules:
+      # --- Interactive access to a running workload -----------------------------
+      - id: pods-exec-attach
+        name: Interactive exec/attach/ephemeralcontainers into a pod
+        severity: high
+        # The classic interactive-shell-in-a-pod path. ephemeralcontainers is the
+        # debug-container variant of the same capability.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "pods" &&
+          has(obs.labels.subresource) &&
+          obs.labels.subresource in ["exec", "attach", "ephemeralcontainers"]
+    
+      # --- Secret reads outside an allow-list -----------------------------------
+      - id: secrets-read-outside-allowlist
+        name: Secret get/list by a principal outside the allow-list
+        severity: high
+        # get and list only; watch is deliberately absent — informers watch secrets
+        # constantly and would bury the signal. The allow-list is obs.actor, a
+        # pseudonym, so the test is membership, never a string match.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "secrets" &&
+          has(obs.labels.verb) && obs.labels.verb in ["get", "list"] &&
+          !(obs.actor in vars.allowed_secret_readers)
+    
+      # --- Secret writes --------------------------------------------------------
+      - id: secrets-write
+        name: Secret create or update
+        severity: medium
+        # Writing a secret is a smaller set of events than reading one and is worth a
+        # look in a regulated namespace regardless of actor, so there is no allow-list
+        # here — promotion decides whether to narrow it.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "secrets" &&
+          has(obs.labels.verb) && obs.labels.verb in ["create", "update"]
+    
+      # --- Pod create (privileged surface) --------------------------------------
+      - id: privileged-pod-create
+        name: Pod created (privileged/hostPath/hostPID surface)
+        severity: high
+        # A DELIBERATE OVER-TRIGGER. The security context that would make this a
+        # privileged pod is in the request body, which this projection must not read
+        # (see the bundle header). So the rule fires on the pod-CREATE surface, not on
+        # a privileged verdict. The subresource guard keeps exec/attach/portforward
+        # (which are also verb=create on pods) out of this rule — those are their own.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "pods" &&
+          has(obs.labels.verb) && obs.labels.verb == "create" &&
+          !has(obs.labels.subresource)
+    
+      # --- RBAC escalation ------------------------------------------------------
+      - id: rbac-escalation
+        name: RBAC binding created/patched or an escalation verb used
+        severity: critical
+        # Two shapes of the same concern: creating/patching a role binding (granting
+        # privilege), and the escalation verbs themselves (bind/escalate/impersonate).
+        # Critical because a true positive grants the actor more than they had.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          (
+            (has(obs.labels.resource) &&
+             obs.labels.resource in ["clusterrolebindings", "rolebindings"] &&
+             has(obs.labels.verb) && obs.labels.verb in ["create", "update", "patch"])
+            ||
+            (has(obs.labels.verb) && obs.labels.verb in ["bind", "escalate", "impersonate"])
+          )
+    
+      # --- Service-account token minting ----------------------------------------
+      - id: serviceaccount-token-create
+        name: Service-account token minted outside a system controller
+        severity: high
+        # serviceaccounts/token create is explicit token minting. The system
+        # controllers that do it routinely are allow-listed via obs.actor; anyone else
+        # is the signal (the account-takeover token-mint step).
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "serviceaccounts" &&
+          has(obs.labels.subresource) && obs.labels.subresource == "token" &&
+          has(obs.labels.verb) && obs.labels.verb == "create" &&
+          !(obs.actor in vars.system_controllers)
+    
+      # --- Certificate signing request create + approve -------------------------
+      - id: csr-create-approve
+        name: CertificateSigningRequest created or approved
+        severity: high
+        # A create of a CSR, or an update of its approval subresource. Together these
+        # are the cluster-credential-minting path through the certificates API.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "certificatesigningrequests" &&
+          (
+            (has(obs.labels.verb) && obs.labels.verb == "create")
+            ||
+            (has(obs.labels.subresource) && obs.labels.subresource == "approval")
+          )
+    
+      # --- Admission webhook configuration create -------------------------------
+      - id: webhookconfig-create
+        name: Validating/Mutating webhook configuration created
+        severity: high
+        # A mutating or validating webhook config is cluster-wide interception of the
+        # admission path; creating one is a high-leverage persistence/tamper primitive.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) &&
+          obs.labels.resource in ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"] &&
+          has(obs.labels.verb) && obs.labels.verb == "create"
+    
+      # --- Node proxy -----------------------------------------------------------
+      - id: nodes-proxy
+        name: nodes/proxy access
+        severity: high
+        # nodes/proxy reaches the kubelet API directly, bypassing the apiserver's
+        # resource authorization on what runs on the node.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "nodes" &&
+          has(obs.labels.subresource) && obs.labels.subresource == "proxy"
+    
+      # --- Pod port-forward -----------------------------------------------------
+      - id: pods-portforward
+        name: pods/portforward tunnel to a workload
+        severity: medium
+        # A port-forward is a tunnel from the operator's host straight to a pod port,
+        # outside the cluster's network policy.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          has(obs.labels.resource) && obs.labels.resource == "pods" &&
+          has(obs.labels.subresource) && obs.labels.subresource == "portforward"
+    
+      # --- Anonymous allowed ----------------------------------------------------
+      - id: anonymous-allowed
+        name: Verb by an anonymous principal that the authorizer ALLOWED
+        severity: critical
+        # system:anonymous / system:unauthenticated being ALLOWED a verb is almost
+        # always a misconfigured RBAC binding to system:unauthenticated. decision is a
+        # label; the actor is the pseudonymised anonymous set.
+        expression: |-
+          obs.source == "k8saudit-kube" &&
+          obs.layer == "kubernetes" &&
+          has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+          obs.actor in vars.anonymous_principals &&
+          has(obs.labels.decision) && obs.labels.decision == "allow"
+    
+    windows:
+      # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+      # arriving finding takes the counter from below the threshold to at or above it
+      # — anchored on the ARRIVING finding's timestamp, so a replay reproduces live.
+    
+      # Repeated interactive access by one principal in a short window is the shape of
+      # hands-on-keyboard activity rather than a single debugging session.
+      - id: exec-burst
+        over_rule: pods-exec-attach
+        key: [tenant_id, actor]
+        window: 5m
+        threshold: 3
+        severity: high
+    
+      # A principal reading many secrets quickly is credential sweeping, which one
+      # read is not.
+      - id: secret-read-burst
+        over_rule: secrets-read-outside-allowlist
+        key: [tenant_id, actor]
+        window: 5m
+        threshold: 3
+        severity: high
+  kusari--landlock-denial.yaml: |
+    # Kusari verified Landlock denial containment policy.
+    #
+    # Mode is `shadow`: the stage-1 rule can ship without enabling the mode-gated
+    # webhook alerter. Stage 2 still produces and stores its decision, and the
+    # dedicated decision-to-stun dispatcher routes that decision to containment.
+    #
+    # The collector emits verification_status as uppercase `VERIFIED`, while the
+    # original policy specification used lowercase `verified`. The explicit OR
+    # accepts both producer and specification values without relying on optional
+    # CEL string extensions.
+    
+    id: kusari-landlock-denial
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    rules:
+      - id: landlock-verified-denial
+        name: Verified in-kernel Landlock denial
+        severity: high
+        expression: |-
+          obs.layer == "endpoint_host" &&
+          has(obs.labels.verification_status) &&
+          (obs.labels.verification_status == "verified" || obs.labels.verification_status == "VERIFIED") &&
+          has(obs.labels.denial_reason) &&
+          obs.labels.denial_reason != ""
+    
+    windows:
+      # A single VERIFIED in-kernel Landlock denial is already high-signal, so the
+      # first finding triggers containment. The five-minute per-tenant, per-agent
+      # window debounces a burst from one agent down to one decision.
+      - id: landlock-denial-burst
+        over_rule: landlock-verified-denial
+        key: [tenant_id, labels.agent_id]
+        window: 5m
+        threshold: 1
+        severity: high
+  kusari--network-egress.yaml: |
+    # The Kusari live network-egress threat bundle (netebpf / stun-sentinel stream).
+    #
+    # This reads only the netebpf socket-trace projection (collectors/netebpf,
+    # model.LayerNetworkEgress, Source "sentinel.ebpf.socket_trace") and every rule
+    # source-gates on it, so it never crosses the OTHER network_egress projection on
+    # the same layer — the awslogs VPC Flow Log stream (Source "aws:vpcflow"), whose
+    # vpc-egress-rejected / vpc-reject rules gate on event_name == "REJECT". A netebpf
+    # observation carries no event_name, so those rules cannot fire on it and these
+    # rules cannot fire on a VPC Flow record; the two streams share a layer and never
+    # a rule.
+    #
+    # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+    # in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+    # bumps `version`.
+    #
+    # # What the rules may read
+    #
+    # Only the netebpf label contract (collectors/netebpf/collector.go flowToObservation):
+    # source_ip, dst_ip, src_port, dst_port, bytes, classification, pod_uid,
+    # service_account, agent_role, provider, spiffe_id, pod_name, namespace, and the
+    # collector-side qname_entropy_bucket (the entropy class of the resolved DNS name's
+    # leftmost label — never the name itself). The gap projection (Source
+    # "sentinel.ebpf.gap_detector") carries type/node/gap_* and is deliberately not
+    # read here: a telemetry gap is a coverage signal, not an egress finding.
+    #
+    # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+    #
+    #   * Every rule gates on obs.source == "sentinel.ebpf.socket_trace": the
+    #     network_egress layer carries more than one projection, so the source gate is
+    #     mandatory to stay off the VPC Flow stream.
+    #   * Every label read is guarded with has(): a bare read of an absent key is a CEL
+    #     fault that would degrade the whole bundle on one unlabelled record.
+    #   * Destination novelty and the in-cluster resolver set are expressed as plain
+    #     `vars` lists compared against the dst_ip label — NOT actor_vars. Identity is
+    #     not the axis here, so there is no obs.actor comparison and no actor_vars; the
+    #     windows key on the service_account label, a workload-topology scalar.
+    #
+    # # Fixtures
+    #
+    # Every rule has positives and a negative under collectors/netebpf/testdata/, one
+    # detection class per file. The per-rule expectation table lives in
+    # d2-signalloom/apps/signal-ingest/e2e/netegress_expectations.go and is asserted
+    # exactly by TestNetEgressE2E_FixtureCorpusMatchesTheExpectationTable.
+    
+    id: kusari-network-egress
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    vars:
+      # The in-cluster DNS resolver service addresses. A DNS query (dst_port 53) to
+      # one of these is normal; a query to anything else is a workload talking to a
+      # resolver outside the cluster, which is the off-cluster-resolver signal.
+      cluster_resolvers:
+        - "10.96.0.10"
+    
+      # Destinations a workload is expected to reach. A network_connect to a dst_ip
+      # NOT in this set is egress to an unexpected destination. This is a plain label
+      # allow-list (dst_ip is topology), never an actor comparison, so it needs no
+      # actor_vars entry.
+      expected_destinations:
+        - "10.96.0.10"
+        - "203.0.113.5"
+        - "203.0.113.6"
+        - "203.0.113.7"
+        - "8.8.8.8"
+        - "1.1.1.1"
+    
+    rules:
+      # --- Direct-IP egress (no resolved domain) --------------------------------
+      - id: direct-ip-egress
+        name: Egress connection to a bare IP with no resolved DNS name
+        severity: medium
+        # A workload connecting straight to an IP with no preceding DNS resolution is
+        # the shape of hard-coded C2 / an IP literal in config. qname_entropy_bucket
+        # is "none" exactly when the collector saw no domain for the flow, which is
+        # how "no name was resolved" is told apart from "a low-entropy name was".
+        expression: |-
+          obs.source == "sentinel.ebpf.socket_trace" &&
+          obs.layer == "network_egress" &&
+          has(obs.labels.classification) && obs.labels.classification == "network_connect" &&
+          has(obs.labels.qname_entropy_bucket) && obs.labels.qname_entropy_bucket == "none"
+    
+      # --- Off-cluster resolver -------------------------------------------------
+      - id: off-cluster-resolver
+        name: DNS query to a resolver outside the cluster
+        severity: medium
+        # A workload sending DNS (dst_port 53) to a resolver that is not the cluster
+        # resolver bypasses cluster DNS policy and is a common exfiltration / evasion
+        # primitive. The cluster resolver set is a var, compared against dst_ip.
+        expression: |-
+          obs.source == "sentinel.ebpf.socket_trace" &&
+          obs.layer == "network_egress" &&
+          has(obs.labels.dst_port) && obs.labels.dst_port == "53" &&
+          has(obs.labels.dst_ip) && !(obs.labels.dst_ip in vars.cluster_resolvers)
+    
+      # --- Egress to an unexpected destination ----------------------------------
+      - id: unexpected-destination
+        name: Egress connection to a destination outside the expected set
+        severity: medium
+        # A connect to a dst_ip that is not in the expected-destination allow-list.
+        # Deliberately gated on classification == network_connect so a DNS query to an
+        # off-cluster resolver (its own rule) does not also count here.
+        expression: |-
+          obs.source == "sentinel.ebpf.socket_trace" &&
+          obs.layer == "network_egress" &&
+          has(obs.labels.classification) && obs.labels.classification == "network_connect" &&
+          has(obs.labels.dst_ip) && !(obs.labels.dst_ip in vars.expected_destinations)
+    
+      # --- DNS tunnel -----------------------------------------------------------
+      - id: dns-tunnel
+        name: High-entropy DNS query name (tunnelling)
+        severity: high
+        # A high-entropy leftmost DNS label is the signature of data tunnelled over
+        # DNS (base32/base64/hex of ciphertext). Entropy is bucketed collector-side
+        # (review M5) so the signal survives into an immutable segment without the
+        # cleartext name. "high" is the top bucket; "medium"/"low" are normal names.
+        expression: |-
+          obs.source == "sentinel.ebpf.socket_trace" &&
+          obs.layer == "network_egress" &&
+          has(obs.labels.qname_entropy_bucket) && obs.labels.qname_entropy_bucket == "high"
+    
+    windows:
+      # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+      # arriving finding takes the counter from below the threshold to at or above it —
+      # anchored on the ARRIVING finding's timestamp, so a replay reproduces live.
+    
+      # One workload repeatedly connecting straight to bare IPs in a short window is
+      # the shape of beaconing, which a single direct-IP connection is not. Keyed on
+      # the service_account label (workload topology), not an actor pseudonym.
+      - id: direct-ip-egress-burst
+        over_rule: direct-ip-egress
+        key: [tenant_id, "labels.service_account"]
+        window: 5m
+        threshold: 3
+        severity: high
+  kusari--openbao-audit.yaml: |
+    # The Kusari OpenBao AUDIT threat bundle.
+    #
+    # This bundle reads only the OpenBao audit projection (collectors/baoaudit,
+    # model.LayerIdentityAuth, Source "openbao-audit"). LayerIdentityAuth is shared
+    # with the existing Kubernetes delegation projection, so every rule source-gates
+    # on "openbao-audit" as well as the identity_authorization layer.
+    #
+    # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+    # in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+    # bumps `version`.
+    #
+    # # What the rules may read
+    #
+    # Only the OpenBao projection labels: operation, accessor, role, path,
+    # mount_point, event_type, namespace, service_account, spiffe_id, tenant_id —
+    # plus obs.actor, which is a keyed PSEUDONYM and so supports EQUALITY and
+    # membership only (never startsWith / substring; it has no internal structure to
+    # read).
+    #
+    # # Binding corrections applied
+    #
+    #   * Every rule gates on obs.source == "openbao-audit": LayerIdentityAuth also
+    #     carries the Kubernetes delegation projection, so the source gate is
+    #     mandatory.
+    #   * Identity is obs.actor against an actor_vars set, NEVER a label. The OpenBao
+    #     SPIFFE ID, service account, role, or accessor reaches obs.actor via
+    #     ActorHint, pseudonymised at the store and at bundle load with the same key.
+    #   * root-token-use is a membership-is-the-signal rule: role:root being the
+    #     actor is the detection, like anonymous-allowed in the k8s audit vertical.
+    #   * Every label read is guarded with has(): a bare read of an absent key is a
+    #     CEL fault that would degrade the whole bundle on one unlabelled record.
+    #
+    # # Missing from the contract on purpose
+    #
+    # Token policy breadth is in the request body, not in the projected labels. So
+    # token-create-broad fires on the token-mint surface, a deliberate over-trigger
+    # in the same spirit as k8s-audit privileged-pod-create. Reading policy breadth
+    # is a richer OpenBao request-body projection, not this stream.
+    #
+    # # Fixtures
+    #
+    # Every rule has a positive fixture that fires it and a negative that does not,
+    # under collectors/baoaudit/testdata/. The per-rule expectation table lives in
+    # d2-signalloom/apps/signal-ingest/e2e/baoaudit_expectations.go and is asserted
+    # by TestBaoAuditE2E_FixtureCorpusMatchesTheExpectationTable.
+    
+    id: kusari-openbao-audit
+    tenant_id: kusari
+    version: 1.0.0
+    mode: shadow
+    
+    actor_vars:
+      - root_principals
+      - secret_read_automation
+      - platform_admins
+      - token_minters
+    
+    vars:
+      # The OpenBao root token role. Use of this role is the signal, not an allow-list exception.
+      root_principals:
+        - "role:root"
+    
+      # Automation allowed to read KV secrets as part of synchronisation.
+      secret_read_automation:
+        - "spiffe://cluster.local/ns/kube-system/sa/secret-syncer"
+    
+      # Platform operators allowed to manage policies, mounts, and auth backends.
+      platform_admins:
+        - "spiffe://cluster.local/ns/kube-system/sa/platform-admin"
+    
+      # Controllers allowed to mint OpenBao tokens routinely.
+      token_minters:
+        - "spiffe://cluster.local/ns/kube-system/sa/token-minter"
+    
+    rules:
+      # --- Root token use -------------------------------------------------------
+      - id: root-token-use
+        name: OpenBao root token use
+        severity: critical
+        # Membership is the signal: a root principal touching OpenBao is what the
+        # rule records, independent of the specific operation.
+        expression: |-
+          obs.source == "openbao-audit" &&
+          obs.layer == "identity_authorization" &&
+          obs.actor in vars.root_principals
+    
+      # --- Secret reads outside automation -------------------------------------
+      - id: secret-read
+        name: OpenBao secret read outside automation
+        severity: high
+        # Stage 1 for the burst: a single read is a finding, repeated reads by one
+        # actor become a stage-2 decision.
+        expression: |-
+          obs.source == "openbao-audit" &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.operation) && obs.labels.operation == "read" &&
+          has(obs.labels.mount_point) && obs.labels.mount_point == "secret" &&
+          !(obs.actor in vars.secret_read_automation)
+    
+      # --- Policy, mount, or auth backend changes ------------------------------
+      - id: policy-or-mount-change
+        name: OpenBao policy, mount, or auth backend changed outside platform admins
+        severity: high
+        # These sys paths are OpenBao's privilege-shaping surface. Platform admins
+        # are allow-listed via obs.actor; everyone else is the signal.
+        expression: |-
+          obs.source == "openbao-audit" &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.mount_point) && obs.labels.mount_point == "sys" &&
+          has(obs.labels.path) &&
+          (obs.labels.path.startsWith("sys/policies/") ||
+           obs.labels.path.startsWith("sys/mounts/") ||
+           obs.labels.path.startsWith("sys/auth/")) &&
+          has(obs.labels.operation) && obs.labels.operation in ["create", "update", "delete"] &&
+          !(obs.actor in vars.platform_admins)
+    
+      # --- Token minting --------------------------------------------------------
+      - id: token-create-broad
+        name: OpenBao token minted outside token-minter automation
+        severity: high
+        # A DELIBERATE OVER-TRIGGER. The token policy breadth is in the request body,
+        # which this projection does not read, so the rule fires on token creation.
+        expression: |-
+          obs.source == "openbao-audit" &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.mount_point) && obs.labels.mount_point == "auth" &&
+          has(obs.labels.path) && obs.labels.path.startsWith("auth/token/create") &&
+          has(obs.labels.operation) && obs.labels.operation in ["create", "update"] &&
+          !(obs.actor in vars.token_minters)
+    
+    windows:
+      # A principal reading several secrets quickly is credential sweeping, which one
+      # read is not.
+      - id: secret-read-burst
+        over_rule: secret-read
+        key: [tenant_id, actor]
+        window: 5m
         threshold: 3
         severity: high

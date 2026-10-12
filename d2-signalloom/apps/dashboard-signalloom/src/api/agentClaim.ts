@@ -32,6 +32,8 @@ export interface AgentClaimRequest {
   agent_id?: string
   /** Human-readable display name for the agent workload. */
   display_name?: string
+  /** Owner identity (e.g. email or username) attributed to the claimed agent. */
+  owner?: string
 }
 
 export interface AgentClaimResponse {

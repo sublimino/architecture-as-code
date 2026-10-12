@@ -128,6 +128,7 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
           pod_name: 'agent-nono-evidenced-fccfbb-xp8v7',
           namespace: 'fe-signalloom-agents',
           spiffe_id: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced',
+          owner: 'test-user',
         })
       )
       expect(onSuccess).toHaveBeenCalled()

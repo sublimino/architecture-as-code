@@ -963,4 +963,34 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
     expect(screen.queryByText(/failed to load agent/i)).not.toBeInTheDocument()
     expect(screen.getByTestId('overview-deeplink-audit')).toHaveAttribute('href', '/audit?agent=supercred%3Aagent-cardvault')
   })
+
+  it('renders tenant badge and tenant header metadata in dossier header', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        id: 'agent-cardvault',
+        name: 'Cardvault Agent',
+        tenant: 'tenant-demo',
+        tenant_id: 'tenant-demo',
+      }),
+    )
+    renderPage('/agents/agent-cardvault?tab=overview')
+
+    expect(await screen.findByTestId('dossier-tenant-badge')).toHaveTextContent('tenant-demo')
+    expect(screen.getByTestId('dossier-tenant-header')).toHaveTextContent('Tenant: tenant-demo')
+  })
+
+  it('renders Undeclared tenant badge and header metadata when agent declares no tenant', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        id: 'agent-cardvault',
+        name: 'Cardvault Agent',
+        tenant: null,
+        tenant_id: 'undeclared',
+      }),
+    )
+    renderPage('/agents/agent-cardvault?tab=overview')
+
+    expect(await screen.findByTestId('dossier-tenant-badge')).toHaveTextContent('Undeclared')
+    expect(screen.getByTestId('dossier-tenant-header')).toHaveTextContent('Tenant: Undeclared')
+  })
 })

@@ -2367,7 +2367,12 @@ def test_agent_telemetry_discovered_agent_success(client, monkeypatch):
     assert res.status_code == 200
     data = res.json()
     assert data["agent_id"] == "agent-cardvault"
-    assert len(data["observations"]) > 0
+    # W11: this test's subject is agent RESOLUTION (a discovered agent must not 404).
+    # It previously also asserted a non-empty observation list, which only held because
+    # the handler invented observations from the agent-ID string. No telemetry source is
+    # wired to this route, so the honest population is empty and the refusal is labelled.
+    assert data["observations"] == []
+    assert data["evidence_state"] == "unavailable"
 
 
 def test_agent_sentinel_containment_feedback_model():

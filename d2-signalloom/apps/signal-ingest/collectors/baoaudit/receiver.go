@@ -217,6 +217,9 @@ func (ar *AuditReceiver) convertToObservation(event *OpenBaoAuditEvent) *model.O
 		path = event.Request.Path
 		labels["operation"] = operation
 		labels["path"] = path
+		if mountPoint := firstPathSegment(path); mountPoint != "" {
+			labels["mount_point"] = mountPoint
+		}
 		if event.Request.ClientTokenAccessor != "" {
 			labels["accessor"] = event.Request.ClientTokenAccessor
 		}
@@ -382,3 +385,13 @@ func parseSAPrincipal(principal string) (namespace, serviceAccount string, ok bo
 	return parts[0], parts[1], true
 }
 
+func firstPathSegment(p string) string {
+	p = strings.TrimPrefix(p, "/")
+	if p == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(p, '/'); idx >= 0 {
+		return p[:idx]
+	}
+	return p
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "type": "request",
+    "time": "2026-10-12T10:20:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/apps/sa/attacker"
+      }
+    },
+    "request": {
+      "operation": "create",
+      "path": "sys/policies/acl/escalate"
+    }
+  },
+  {
+    "type": "request",
+    "time": "2026-10-12T10:21:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/apps/sa/attacker"
+      }
+    },
+    "request": {
+      "operation": "update",
+      "path": "sys/mounts/newkv"
+    }
+  },
+  {
+    "type": "request",
+    "time": "2026-10-12T10:22:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/kube-system/sa/platform-admin"
+      }
+    },
+    "request": {
+      "operation": "create",
+      "path": "sys/policies/acl/ok"
+    }
+  },
+  {
+    "type": "request",
+    "time": "2026-10-12T10:23:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/apps/sa/attacker"
+      }
+    },
+    "request": {
+      "operation": "read",
+      "path": "sys/mounts"
+    }
+  }
+]

@@ -225,8 +225,12 @@ func TestTelemetryStore_CrossWorkstationOrderingUncertainty(t *testing.T) {
 	if ord12.Confidence != codingagent.ConfidenceSkewBounded {
 		t.Errorf("expected skew_bounded confidence, got %s", ord12.Confidence)
 	}
-	if ord12.SkewBoundMs < 500 {
-		t.Errorf("expected skew bound >= 500ms, got %.2f", ord12.SkewBoundMs)
+	// skew_bound_ms is nil only on the monotonic-anchor path, where no skew is consulted.
+	// This is the skew-bounded path, so a bound must be present and >= 500ms.
+	if ord12.SkewBoundMs == nil {
+		t.Errorf("expected a skew bound on the skew_bounded path, got nil")
+	} else if *ord12.SkewBoundMs < 500 {
+		t.Errorf("expected skew bound >= 500ms, got %.2f", *ord12.SkewBoundMs)
 	}
 
 	// Workstation 3: event timestamp is 10 seconds after Workstation 1 (delta 10000ms >> maxSkew 600ms)

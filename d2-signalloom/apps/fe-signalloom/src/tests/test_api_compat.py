@@ -2258,7 +2258,14 @@ def test_agent_telemetry_endpoint_side_effect_free(client, monkeypatch):
 
 
 def test_agent_telemetry_pushdown_filters(client, monkeypatch):
-    """SFAGENTS-P3-1: Verifies pushdown query parameters (layer, source, limit) filter telemetry observations."""
+    """SFAGENTS-P3-1 (revised by W11): filter params echo back, and with no telemetry
+    source wired the route refuses rather than inventing observations to filter.
+
+    This test previously pinned a fabrication: it asserted >=3 observations and
+    source_health == "healthy" against a route that queries no observation store at all,
+    so the observations it filtered were literals selected by agent-ID substring. The
+    filter-echo contract is still worth pinning; the invented population is not.
+    """
     async def mock_get_pool():
         return None
 
@@ -2269,44 +2276,41 @@ def test_agent_telemetry_pushdown_filters(client, monkeypatch):
     with api_compat._STORE_LOCK:
         agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
 
-    # Unfiltered
+    # Unfiltered: no source is wired, so the route must say so and return nothing.
     res_all = client.get(f"/api/agents/{agent_id}/telemetry", headers=bearer(token_for("alice")))
     assert res_all.status_code == 200
     data_all = res_all.json()
-    assert len(data_all["observations"]) >= 3
-    assert data_all["source_health"] == "healthy"
+    assert data_all["observations"] == []
+    assert data_all["total_count"] == 0
+    assert data_all["source_health"] == "unavailable"
+    assert data_all["evidence_state"] == "unavailable"
+    assert data_all["reason"]
 
-    # Filter by layer
+    # Filter params are echoed in pushdown_filters so a caller can see what was requested.
     res_layer = client.get(
         f"/api/agents/{agent_id}/telemetry?layer=LayerKernelSocket",
         headers=bearer(token_for("alice")),
     )
     assert res_layer.status_code == 200
-    data_layer = res_layer.json()
-    assert len(data_layer["observations"]) == 1
-    assert data_layer["observations"][0]["layer"] == "LayerKernelSocket"
-    assert data_layer["pushdown_filters"]["layer"] == "LayerKernelSocket"
+    assert res_layer.json()["pushdown_filters"]["layer"] == "LayerKernelSocket"
 
-    # Filter by source substring
     res_source = client.get(
         f"/api/agents/{agent_id}/telemetry?source=frostdb",
         headers=bearer(token_for("alice")),
     )
     assert res_source.status_code == 200
-    data_source = res_source.json()
-    assert len(data_source["observations"]) == 1
-    assert "frostdb" in data_source["observations"][0]["source"].lower()
-    assert data_source["pushdown_filters"]["source"] == "frostdb"
+    assert res_source.json()["pushdown_filters"]["source"] == "frostdb"
 
-    # Limit filter
+    # limit is validated (1..500) but is NOT advertised as a pushdown: nothing received it.
     res_limit = client.get(
         f"/api/agents/{agent_id}/telemetry?limit=1",
         headers=bearer(token_for("alice")),
     )
     assert res_limit.status_code == 200
-    data_limit = res_limit.json()
-    assert len(data_limit["observations"]) == 1
-    assert data_limit["pushdown_filters"]["limit"] == 1
+    assert "limit" not in res_limit.json()["pushdown_filters"]
+    assert client.get(
+        f"/api/agents/{agent_id}/telemetry?limit=0", headers=bearer(token_for("alice"))
+    ).status_code == 422
 
 
 def test_agent_telemetry_unknown_agent_404(client, monkeypatch):
@@ -2363,7 +2367,12 @@ def test_agent_telemetry_discovered_agent_success(client, monkeypatch):
     assert res.status_code == 200
     data = res.json()
     assert data["agent_id"] == "agent-cardvault"
-    assert len(data["observations"]) > 0
+    # W11: this test's subject is agent RESOLUTION (a discovered agent must not 404).
+    # It previously also asserted a non-empty observation list, which only held because
+    # the handler invented observations from the agent-ID string. No telemetry source is
+    # wired to this route, so the honest population is empty and the refusal is labelled.
+    assert data["observations"] == []
+    assert data["evidence_state"] == "unavailable"
 
 
 def test_agent_sentinel_containment_feedback_model():

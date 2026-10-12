@@ -62,10 +62,15 @@ const DEFAULT_EVENTS: IdentityAuditEvent[] = [
 
 export const IdentityAuditPanel: React.FC<IdentityAuditPanelProps> = ({
   events = DEFAULT_EVENTS,
-  activeLeasesCount = 4,
+  activeLeasesCount,
   onFilterChange,
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>('all')
+
+  const leasesCount =
+    activeLeasesCount !== undefined
+      ? activeLeasesCount
+      : events.filter((ev) => ev.operation === 'svid_issuance').length
 
   const handleFilter = (filter: string) => {
     setActiveFilter(filter)
@@ -127,7 +132,7 @@ export const IdentityAuditPanel: React.FC<IdentityAuditPanelProps> = ({
               fontWeight: 600,
             }}
           >
-            Active Leases: {activeLeasesCount}
+            Active Leases: {leasesCount}
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
             {['all', 'vault', 'spire', 'out_of_role'].map((filter) => (

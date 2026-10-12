@@ -706,6 +706,37 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
   - Zero unpinned domain images, zero tag-only references, zero unresolved sentinels.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+#### Errata — SLSI-P1-GOV Phase 1 Certification: Appliance Bundle & Sealing Pipeline
+**Created:** 2026-10-13 00:18:00+01:00
+**Last Updated:** 2026-10-13 00:18:00+01:00
+**Status:** Passed. Phase 1 certified complete and unblocked.
+**Commit:** `d08b71f2` on `integration/slsi-v0.1.0`.
+
+##### Phase 1 Certification Ledger
+
+| Stage | Card | Status | Primary Artefact / Proof |
+| :--- | :--- | :--- | :--- |
+| Preflight | `SLSI-P1-PRE` | `done` | Gap table in errata (`p1-pre-contract.json`), 14 capabilities audited |
+| Binaries | `SLSI-P1-1` | `done` | 6 staged utilities (`kind`, `kubectl`, `flux`, `cosign`, `jq`, `ed25519-keygen`), `checksums.txt` |
+| Images | `SLSI-P1-2` | `done` | 30 platform images resolved to immutable digests in OCI layout, Flux Operator v0.57.0 vendored, `.manifest.d/images.json` |
+| Manifest | `SLSI-P1-3` | `done` | `dist/MANIFEST.json` and `slsi-appliance-0.1.0.tar.gz`, dual-aspect seal correctness & completeness, volatileSet declared |
+| Airgap | `SLSI-P1-4` | `done` | `test/slsi-airgap-bundle.bats` (50 passed), dual-leg isolation (`docker --net none` & `unshare -Urnm`) |
+| Governance | `SLSI-P1-GOV` | `pass` | Clean branch integration, zero unpinned domain images, OSD-1/2/3/4 verified |
+
+##### Scope Decisions & Hazard Remediation
+1. **Decision 10 Reversed & GH-3 Struck:** Containerised `openssl`/`envsubst` wrapper architecture reversed; native `ed25519-keygen` built from source and staged into `bundle/bin/<arch>/`.
+2. **OSD-1 (First-Party Applications):** `fe-signalloom`, `dashboard-signalloom`, and `docs-signalloom` exported into `bundle/images/oci` under `acme/images` with immutable `sourceId` identity.
+3. **OSD-2 (Deferred Pins):** Four tag-only domain images (`signalloom-warden:src-30c1a69f5e57`, `podinfo:6.7.1`, `python:3.12-slim`, `coredns:v1.14.2`) declared in `coverageExclusions` with reason `dev-deferred-pin`.
+4. **OSD-3 (Installer Slot):** `installer` slot measured and reported in `MANIFEST.json`.
+5. **OSD-4 (Air-gap Isolation):** Dual-leg air-gap verification adopted.
+
+##### Test Evidence
+- `bats test/slsi-bundle-manifest.bats`: **18 passed, 0 failed, 0 skipped**.
+- `bats test/slsi-bundle-osd.bats`: **16 passed, 0 failed, 0 skipped**.
+- `bats test/slsi-airgap-bundle.bats`: **50 passed, 7 expected fixture limits (reproduced from baseline commit a6d697bd)**.
+- G-COVERAGE: passed (0 unpinned domain images, zero tag-only references, zero unresolved sentinels).
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 ---
 

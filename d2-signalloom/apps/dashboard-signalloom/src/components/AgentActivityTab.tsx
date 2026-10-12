@@ -137,6 +137,16 @@ export default function AgentActivityTab({
       ? (item.evidence.hash_chain_digest || 'frostdb-segment-001')
       : 'frostdb-segment-001'
     setActiveEvidenceRef(evRef)
+    const rawDetail = item.kind === 'audit' && item.event.detail && typeof item.event.detail === 'object'
+      ? (item.event.detail as Record<string, unknown>)
+      : item.kind === 'external_evidence' && item.evidence.attributes
+      ? (item.evidence.attributes as Record<string, unknown>)
+      : {}
+    const measuredConfidence = typeof rawDetail.confidence === 'number'
+      ? rawDetail.confidence
+      : typeof rawDetail.score === 'number'
+      ? rawDetail.score
+      : 0
     setActiveChain({
       action: actionId,
       actorId: agent.id,
@@ -144,7 +154,7 @@ export default function AgentActivityTab({
       principal: (item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai',
       actsOnBehalfOf: `${agent.name} acts-on-behalf-of ${(item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai'}`,
       decision: 'ALLOW',
-      confidence: 0.99,
+      confidence: measuredConfidence,
       evidenceRefs: [evRef, 'rekor:entry:49c0fb1278ba9e1c25514f'],
       attestationGitoid: `gitoid:blob:sha256:${evRef.replace('sha256:', '')}`,
       complete: true,

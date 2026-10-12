@@ -362,10 +362,10 @@ manifest() { printf '%s\n' "$ROOT/MANIFEST.json"; }
 
 @test "AIRGAP: the bundled binaries verify against bin/checksums.txt from bin/" {
 	[ "$(cat "$RES/bin.rc")" -eq 0 ] || { cat "$RES/bin.out"; false; }
-	[ "$(grep -c ': OK$' "$RES/bin.out")" -eq 5 ]
-	[ "$(grep -cvE '^[[:space:]]*$' "$ROOT/bin/checksums.txt")" -eq 5 ]
+	[ "$(grep -c ': OK$' "$RES/bin.out")" -eq 6 ]
+	[ "$(grep -cvE '^[[:space:]]*$' "$ROOT/bin/checksums.txt")" -eq 6 ]
 	local t
-	for t in cosign flux jq kind kubectl; do
+	for t in cosign ed25519-keygen flux jq kind kubectl; do
 		grep -qE "^[0-9a-f]{64}  [a-z0-9]+/${t}\$" "$ROOT/bin/checksums.txt"
 	done
 }
@@ -716,7 +716,7 @@ unshare_file() {
 	cp -p "$bak" "$f"
 	run airgap_seal_gate checksums.txt
 	[ "$status" -eq 0 ]
-	[ "$output" = "SEAL: 5 of 5 entries OK" ]
+	[ "$output" = "SEAL: 6 of 6 entries OK" ]
 	cmp -s "$f" "$ROOT/bin/amd64/kind"
 }
 
@@ -730,7 +730,7 @@ unshare_file() {
 	[ "$status" -eq 0 ]
 	run airgap_seal_gate checksums.txt
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"entry count mismatch: 5 verified OK of 6 manifest lines"* ]]
+	[[ "$output" == *"entry count mismatch: 6 verified OK of 7 manifest lines"* ]]
 }
 
 @test "mutation: a planted tag-only image reference is DETECTED by the sweep" {
@@ -1047,8 +1047,8 @@ ESC
 
 @test "HOSTNS: bin/checksums.txt verifies from bin/ inside the masked namespace" {
 	[ "$(cat "$HVER/bin.rc")" -eq 0 ] || { cat "$HVER/bin.out"; false; }
-	[ "$(grep -c ': OK$' "$HVER/bin.out")" -eq 5 ]
-	[ "$(grep -cvE '^[[:space:]]*$' "$HVER/checksums.txt")" -eq 5 ]
+	[ "$(grep -c ': OK$' "$HVER/bin.out")" -eq 6 ]
+	[ "$(grep -cvE '^[[:space:]]*$' "$HVER/checksums.txt")" -eq 6 ]
 }
 
 @test "HOSTNS: the verdict ran in a namespace that was itself measurably air-gapped" {

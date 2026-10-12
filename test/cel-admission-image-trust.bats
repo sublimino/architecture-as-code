@@ -8,7 +8,7 @@
 # `policy/kyverno-verify-images.yaml` was delivered by no Kustomization and
 # no ResourceSet -- only imperatively by scripts/admission-demo.sh, which
 # fetched Kyverno's install.yaml from a GitHub release URL. No admission
-# controller appears in any of the 30 entries of
+# controller appears in any entry of
 # bundle/.manifest.d/images.json, so the P2-4 / D4 deliverable "a
 # digest-pinned platform image is admitted and an untrusted one rejected"
 # was unsatisfiable as built.

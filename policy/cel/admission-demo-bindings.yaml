@@ -25,9 +25,11 @@
 #     acquiring a label.
 #
 # No controller, no CRD, no image: the API server evaluates these. That is
-# the whole point -- the appliance ships no admission controller in any of
-# the 30 entries of bundle/.manifest.d/images.json, so the Kyverno path
-# could never have run air-gapped.
+# the whole point -- no entry in bundle/.manifest.d/images.json is an
+# admission controller, so the Kyverno path could never have run
+# air-gapped. (Stated without a count on purpose: the manifest's length is
+# a moving target as first-party apps are added, and a hardcoded number in
+# a comment is a claim with an expiry date.)
 #
 # What CEL does NOT do here, stated plainly: it performs no cryptographic
 # signature verification, because CEL cannot call out of the API server.

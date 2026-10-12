@@ -87,6 +87,7 @@ flowchart TB
 | :--- | :--- |
 | [`system-map/`](system-map/) | Interactive map of the core services and their communication paths |
 | [`osramp-component-flows.html`](osramp-component-flows.html) | Interactive flow map of the OSRAMP components, derived from the code in 2026-09. It loads its libraries from the internet. |
+| [`flux-coverage.md`](flux-coverage.md) | Which workloads Flux manages and which it does not, the declared exceptions, and the open gaps. Enforced by `make flux-coverage-test`. |
 
 ## 2 · Run the platform
 

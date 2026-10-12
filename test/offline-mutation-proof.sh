@@ -43,7 +43,7 @@ backup_all() {
 	local f
 	for f in "${MUTATED_FILES[@]}"; do
 		mkdir -p "${BACKUP_DIR}/$(dirname "${f}")"
-		cp "${f}" "${BACKUP_DIR}/${f}"
+		cp -p "${f}" "${BACKUP_DIR}/${f}"
 	done
 	( cd "${BACKUP_DIR}" && find . -type f -exec sha256sum {} + ) | sort > "${BACKUP_DIR}/.sums"
 }
@@ -51,7 +51,7 @@ backup_all() {
 restore_all() {
 	local f
 	for f in "${MUTATED_FILES[@]}"; do
-		cp "${BACKUP_DIR}/${f}" "${f}"
+		cp -p "${BACKUP_DIR}/${f}" "${f}"
 	done
 }
 
@@ -60,6 +60,19 @@ verify_restored() {
 	for f in "${MUTATED_FILES[@]}"; do
 		if ! cmp -s "${BACKUP_DIR}/${f}" "${f}"; then
 			echo "RESTORE FAILED: ${f} does not match its backup at ${BACKUP_DIR}/${f}" >&2
+			ok=1
+		fi
+		# Modes as well as bytes. cmp is blind to permissions, and the first run
+		# of this proof stripped the executable bit off two scripts while every
+		# content comparison passed -- an invisible mutation residue. Compared via
+		# a test -x round trip rather than stat, which takes different flags on
+		# BSD and GNU.
+		if [ -x "${BACKUP_DIR}/${f}" ] && [ ! -x "${f}" ]; then
+			echo "RESTORE FAILED: ${f} lost its executable bit" >&2
+			ok=1
+		fi
+		if [ ! -x "${BACKUP_DIR}/${f}" ] && [ -x "${f}" ]; then
+			echo "RESTORE FAILED: ${f} gained an executable bit" >&2
 			ok=1
 		fi
 	done
@@ -98,14 +111,22 @@ subst() {
 		}
 		END { if (!done) exit 3 }
 	' "${f}" > "${tmp}" || { rm -f "${tmp}"; echo "MUTATION TARGET NOT FOUND in ${f}: ${old}" >&2; return 3; }
-	mv "${tmp}" "${f}"
+	# Write THROUGH the original file rather than `mv`-ing over it. mv replaces
+	# the file and its permissions with mktemp's 0600, which silently stripped the
+	# executable bit off both scripts on this proof's first run -- a mutation side
+	# effect that outlived the mutation, because the restore below compares with
+	# cmp and cmp does not look at modes. Redirecting into the existing path keeps
+	# the inode and therefore the mode, with no GNU-only stat or chmod flags.
+	cat "${tmp}" > "${f}"
+	rm -f "${tmp}"
 }
 
 jq_edit() {
 	local f="$1" filter="$2" tmp
 	tmp="$(mktemp "${TMPDIR:-/tmp}/offline-mut.XXXXXX")"
 	jq "${filter}" "${f}" > "${tmp}"
-	mv "${tmp}" "${f}"
+	cat "${tmp}" > "${f}"
+	rm -f "${tmp}"
 }
 
 # Run one bats suite and report whether the NAMED test went red. The named test
@@ -129,7 +150,10 @@ expect_red() {
 		rm -f "${log}"
 		return 0
 	fi
-	if grep -qF "not ok" "${log}" && grep -F "not ok" "${log}" | grep -qF "${test_name}"; then
+	# `--` before the pattern: several expected test names begin with `--check`
+	# or `--pass`, which grep otherwise parses as its own options and dies with
+	# "unrecognized option", reporting a genuinely-proven mutation as UNPROVEN.
+	if grep -qF -- "not ok" "${log}" && grep -F -- "not ok" "${log}" | grep -qF -- "${test_name}"; then
 		echo "PROVEN    ${label}"
 		echo "          red at: ${test_name}"
 		PROVEN=$((PROVEN + 1))
@@ -184,8 +208,12 @@ subst scripts/offline-deps.sh '	"d2-signalloom/design-system-demo"' '	"d2-signal
 expect_red "M6  a workspace the offline leg enters is no longer declared" "${BOUNDARY}" "every bun workspace the offline leg enters is declared"
 restore_all
 
-subst Makefile 'offline-deps: ## NETWORK-SIDE' 'offline-deps: ## NETWORK-SIDE-MUTATED'
-subst Makefile '	./scripts/offline-deps.sh' '	$(MAKE) --no-print-directory offline-deps-inner'
+# A recursive-make line that is otherwise harmless, so that ONLY the
+# no-recursion assertion can go red. The first attempt replaced the script
+# invocation with a sub-make of a non-existent target, which also emptied the
+# dry-run output and reddened test 8 instead -- a mutation that proves the wrong
+# assertion is not a proof of the one it was aimed at.
+subst Makefile '	./scripts/offline-deps.sh' '	$(MAKE) --no-print-directory --version >/dev/null\n	./scripts/offline-deps.sh'
 expect_red "M7  recursive make introduced into the install target" "${BOUNDARY}" "uses no recursive make"
 restore_all
 
@@ -196,9 +224,15 @@ subst Makefile '	./scripts/offline-deps.sh' '	$(MAKE) --version >/dev/null; ./sc
 expect_red "M8  make -n made to perform the install for real" "${BOUNDARY}" "make -n offline-deps prints the install without performing it"
 restore_all
 
-# The documented no-argument defect: "${@:-}" with zero arguments expands to one
-# empty-string argument, which an option parser rejects.
-subst scripts/offline-deps.sh 'main "$@"' 'main "${@:-}"'
+# The no-argument production path, broken directly at the arm that serves it.
+#
+# Worth recording why this is not the `main "${@:-}"` mutation: it was, and the
+# suite stayed GREEN, because this script's parser reads "${1-}" and matches the
+# empty string in its "" arm, so it survives the extra empty argument that
+# defect normally produces. The comparator script's parser branches on $# and
+# does NOT survive it (see C2). Same idiom, different blast radius -- which is
+# exactly why the mutation has to be run rather than reasoned about.
+subst scripts/offline-deps.sh '	"") cmd_install ;;' '	"") die "refusing to run with no arguments" ;;'
 expect_red "M9  no-argument production invocation broken by \${@:-}" "${BOUNDARY}" "with NO arguments installs and reports every workspace satisfied"
 restore_all
 

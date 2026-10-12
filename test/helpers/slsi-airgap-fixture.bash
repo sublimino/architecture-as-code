@@ -5,7 +5,8 @@
 # cp -a, never cp -al: a hardlinked tree shares inodes and a build writing in
 # place through a hardlink corrupts the source it came from.
 set -Eeuo pipefail
-REPO="$(cd "$(dirname "$0")" && pwd)"
+# This file lives in test/helpers/, so the repository root is two levels up.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 W=/tmp/airgap-fx
 rm -rf "$W"; mkdir -p "$W"
 cp -a "$REPO/bundle" "$W/bundle"

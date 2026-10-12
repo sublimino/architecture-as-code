@@ -1,0 +1,35 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "podcreate-karl-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "karl@corp.example"},
+      "sourceIPs": ["10.6.6.6"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "namespace": "payments", "name": "privpod-0", "apiGroup": "", "apiVersion": "v1"},
+      "requestObject": {"kind": "Pod"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "podcreate-karl-2", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "karl@corp.example"},
+      "sourceIPs": ["10.6.6.6"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "namespace": "payments", "name": "privpod-1", "apiGroup": "", "apiVersion": "v1"},
+      "requestObject": {"kind": "Pod"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "podget-karl-1", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "karl@corp.example"},
+      "sourceIPs": ["10.6.6.6"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "namespace": "payments", "name": "privpod-0", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    }
+  ]
+}

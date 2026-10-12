@@ -29,6 +29,7 @@ func SeedAll(baseTime time.Time) []model.Observation {
 	obs = append(obs, EndpointHostFixtures(baseTime)...)
 	obs = append(obs, BehaviouralFixtures(baseTime)...)
 	obs = append(obs, CloudControlPlaneFixtures(baseTime)...)
+	obs = append(obs, KubernetesFixtures(baseTime)...)
 	obs = append(obs, ScheduledJobFixtures(baseTime)...)
 	obs = append(obs, GCPAuditFixtures(baseTime)...)
 	obs = append(obs, BaoAuditFixtures(baseTime)...)
@@ -365,6 +366,48 @@ func CloudControlPlaneFixtures(baseTime time.Time) []model.Observation {
 				"status_code":  "0",
 			},
 			Description: "GCP Audit: deployer-sa called google.iam.v1.SetIamPolicy on osramp-demo",
+		},
+	}
+}
+
+// KubernetesFixtures seeds the LayerKubernetes coverage slot with a BENIGN
+// kube-apiserver audit observation: a controller listing configmaps. It is
+// deliberately a non-finding — no threat rule in policy/bundles/kusari/k8s-audit.yaml
+// fires on a configmaps list by a system controller — so SeedAll can satisfy
+// TestSeedAll_CoversAllInScopeLayers (LayerKubernetes is in InScopeLayers) without
+// manufacturing a finding wherever SeedAll flows through the pipeline. The threat
+// corpus that exercises the rules lives in collectors/k8saudit/testdata, projected
+// by that collector's fixture source.
+//
+// Source is "k8saudit-kube", the reference vertical's source, distinct from the
+// identity-auth "k8s-apiserver-audit" projection. Every label key is in the default
+// allow-list (store/label_allowlist.go), so a frostdb-tagged seed accepts it.
+func KubernetesFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		{
+			ID:             "k8s-kube-fixture-001",
+			Timestamp:      baseTime.Add(6 * time.Minute),
+			Layer:          model.LayerKubernetes,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "k8saudit-kube",
+			Confidence:     1.0,
+			ActorHint:      "system:serviceaccount:kube-system:generic-garbage-collector",
+			RawEvidenceRef: "k8saudit://kube-system/configmaps/leader-election#0",
+			Labels: map[string]string{
+				"verb":          "list",
+				"resource":      "configmaps",
+				"api_group":     "",
+				"api_version":   "v1",
+				"namespace":     "kube-system",
+				"name":          "leader-election",
+				"decision":      "allow",
+				"response_code": "200",
+				"source_ip":     "10.0.0.1",
+				"audit_id":      "k8s-kube-fixture-001",
+				"stage":         "ResponseComplete",
+				"user_agent":    "kube-controller-manager/v1.31.0",
+			},
+			Description: "K8s audit: list configmaps/leader-election in kube-system by a controller (benign)",
 		},
 	}
 }

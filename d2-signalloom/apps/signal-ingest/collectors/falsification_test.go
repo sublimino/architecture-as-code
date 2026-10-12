@@ -48,6 +48,7 @@ var CollectorTwinVerifiers = map[string]CollectorTwinVerifier{
 	"spirea":        verifySPIREATwins,
 	"netebpf":       verifyNetEBPFTwins,
 	"k8saudit":      verifyK8sAuditTwins,
+	"k8saudit-kube": verifyK8sAuditKubeTwins,
 	"kagent":        verifyKAgentTwins,
 	"workspacesaas": verifyWorkspaceSaaSTwins,
 	"fixtures":      verifyFixturesTwins,

@@ -1,0 +1,35 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "vwc-peggy-create", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "peggy@corp.example"},
+      "sourceIPs": ["10.9.9.9"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "validatingwebhookconfigurations", "name": "vwc-1", "apiGroup": "admissionregistration.k8s.io", "apiVersion": "v1"},
+      "requestObject": {"kind": "ValidatingWebhookConfiguration"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "mwc-peggy-create", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "peggy@corp.example"},
+      "sourceIPs": ["10.9.9.9"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "mutatingwebhookconfigurations", "name": "mwc-1", "apiGroup": "admissionregistration.k8s.io", "apiVersion": "v1"},
+      "requestObject": {"kind": "MutatingWebhookConfiguration"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "vwc-peggy-list", "stage": "ResponseComplete", "verb": "list",
+      "user": {"username": "peggy@corp.example"},
+      "sourceIPs": ["10.9.9.9"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "validatingwebhookconfigurations", "apiGroup": "admissionregistration.k8s.io", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    }
+  ]
+}

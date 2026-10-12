@@ -686,14 +686,18 @@ describe('generateImportId', () => {
   it('produces an id matching signalloom-{compactISO}-{hex4}', () => {
     const id = generateImportId(new Date('2026-08-03T14:30:22.123Z'))
 
-    expect(id).toMatch(/^signalloom-20260803T143022-[0-9a-f]{4}$/)
+    expect(id).toMatch(/^signalloom-20260803T143022-[0-9a-f]{12}$/)
   })
 
   it('produces unique ids across calls', () => {
     const now = new Date()
     const ids = new Set(Array.from({ length: 20 }, () => generateImportId(now)))
 
-    // With 4 hex chars of randomness, 20 samples should all be unique.
+    // 12 hex chars is 2^48, so 20 samples collide with probability ~3e-12.
+    // This assertion used to fail intermittently at 4 hex chars (19 of 20
+    // observed) and the fix was to the GENERATOR, not to this number: the id
+    // is how selectMostRecentImport identifies our own pushes, so a collision
+    // selects the wrong cluster. Loosening this would have hidden that.
     expect(ids.size).toBe(20)
   })
 })

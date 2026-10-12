@@ -272,8 +272,9 @@ build_ed25519_keygen() {
     fail "go toolchain is required to build ed25519-keygen from source (no binary is downloaded for it)"
   fi
 
-  mkdir -p "$(dirname "${dest}")"
+  mkdir -p "$(dirname "${dest}")" "${TMPDIR:-/tmp}/go/pkg/mod" "${TMPDIR:-/tmp}/go-cache"
   if ! GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 \
+      GOPATH="${TMPDIR:-/tmp}/go" GOMODCACHE="${TMPDIR:-/tmp}/go/pkg/mod" GOCACHE="${TMPDIR:-/tmp}/go-cache" \
       go -C "${module}" build -trimpath -buildvcs=false -ldflags=-buildid= -o "${dest}" "${ED25519_KEYGEN_PKG}"; then
     fail "go build of ed25519-keygen for ${arch} failed"
   fi
@@ -2256,10 +2257,10 @@ stage_p1_3_manifest() {
     "ownedBy": "SLSI-P1-2"
   },
   {
-    "ref": "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-24c2a5005f5f",
+    "ref": "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-30c1a69f5e57",
     "reason": "dev-deferred-pin",
     "kind": "DaemonSet",
-    "tag": "src-24c2a5005f5f",
+    "tag": "src-30c1a69f5e57",
     "mutableTag": false,
     "justification": "AJM decision OSD-2: pinning deferred for development. First-party image on a source-id tag, which is a fingerprint of its build inputs and therefore immutable in practice; one reference site in d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml.",
     "ownedBy": "SLSI-P2-1"

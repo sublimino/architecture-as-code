@@ -79,11 +79,27 @@ else
   fail cgroup-disk "unable to read cgroup filesystem usage"
 fi
 
+# The host-kernel disjunct is deliberately GONE. It read
+# /proc/sys/net/core/bpf_jit_enable on THIS WORKSTATION as a fallback, so if
+# node_exec failed or the kind node had JIT disabled, the host's `1` still
+# produced `pass bpf-jit "enabled"` under a banner naming the node. That is a
+# check answering about a different system from the one it claims to inspect,
+# which is worse than no check: it reports a green preflight for a node that
+# cannot run the sentinel.
+#
+# Every other check in this file already has the right shape -- `|| true` to
+# capture, then an explicit value test with a real `fail` branch -- so this was
+# the lone exception rather than the house style.
+#
+# An unreadable value is now a FAIL and not a pass, and the message distinguishes
+# the two causes, because they need different actions: `absent` means node_exec
+# could not read the node (fix access), a number means the node genuinely has
+# JIT off (fix the node).
 jit=$(node_exec sh -c "cat /proc/sys/net/core/bpf_jit_enable 2>/dev/null" || true)
-if [ "$jit" = 1 ] || [ "$(cat /proc/sys/net/core/bpf_jit_enable 2>/dev/null || true)" = 1 ]; then
-  pass bpf-jit "enabled"
+if [ "$jit" = 1 ]; then
+  pass bpf-jit "enabled on ${KIND_NODE_CONTAINER:-the kind node}"
 else
-  fail bpf-jit "expected 1, got ${jit:-absent}"
+  fail bpf-jit "expected 1 on the kind node, got ${jit:-absent (could not read the node)}"
 fi
 
 if node_exec sh -c "test -d /sys/fs/bpf && test -r /sys/kernel/btf/vmlinux"; then

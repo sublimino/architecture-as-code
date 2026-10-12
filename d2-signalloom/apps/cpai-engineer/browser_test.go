@@ -59,8 +59,25 @@ func TestWebTUIEndpoint(t *testing.T) {
 		if !strings.Contains(ct, "text/html") {
 			t.Errorf("expected text/html content type, got %q", ct)
 		}
-	case http.StatusNotFound, http.StatusMethodNotAllowed:
-		t.Skipf("/tui endpoint not yet implemented (got %d)", resp.StatusCode)
+	case http.StatusNotFound:
+		// CHARACTERISATION, not a skip. This used to be t.Skipf, and the skip
+		// fired on 100% of runs: newServer registers exactly GET /health,
+		// POST /tasks, GET /tasks/{id}, GET /tasks and
+		// GET /.well-known/agent-card.json -- no /tui -- so Go's ServeMux
+		// answers 404 every time and the test never asserted anything while
+		// `go test` printed the package ok.
+		//
+		// Pinning the 404 explicitly is strictly better than skipping for two
+		// reasons. The test now RUNS and asserts, so it appears in -v output as
+		// a result rather than as an absence; and 405 or 400 would now fail,
+		// which catches the route being half-registered or shadowed by a
+		// catch-all. If /tui is ever implemented this returns 200 and the
+		// content-type assertions above take over unchanged, so the real
+		// coverage is already written and waiting.
+		t.Logf("/tui is not registered; pinned as 404 (see newServer in main.go)")
+	case http.StatusMethodNotAllowed:
+		t.Errorf("GET /tui returned 405, so something registers the path but not the method; "+
+			"newServer registers no /tui at all, so this is a routing change that needs a look")
 	default:
 		t.Errorf("unexpected status %d for GET /tui", resp.StatusCode)
 	}
@@ -96,9 +113,17 @@ func TestWebSocketHandshake(t *testing.T) {
 		if !strings.EqualFold(upgrade, "websocket") {
 			t.Errorf("expected Upgrade: websocket, got %q", upgrade)
 		}
-	case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusBadRequest:
-		// /ws not yet implemented — skip rather than fail.
-		t.Skipf("/ws endpoint not yet implemented (got %d)", resp.StatusCode)
+	case http.StatusNotFound:
+		// CHARACTERISATION, not a skip -- same reasoning as TestWebTUIEndpoint
+		// above. newServer registers no /ws, so this skipped on 100% of runs
+		// while the package reported ok. Pinned as 404 so the test asserts
+		// something, and so a 405 or 400 (path registered but the upgrade
+		// rejected) becomes a failure rather than another silent skip.
+		t.Logf("/ws is not registered; pinned as 404 (see newServer in main.go)")
+	case http.StatusMethodNotAllowed, http.StatusBadRequest:
+		t.Errorf("WebSocket upgrade on /ws returned %d, so the path exists but the "+
+			"handshake was refused; newServer registers no /ws at all, so this is a "+
+			"routing or handshake change that needs a look", resp.StatusCode)
 	default:
 		t.Errorf("unexpected status %d for WebSocket upgrade on /ws", resp.StatusCode)
 	}

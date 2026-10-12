@@ -2225,6 +2225,26 @@ demo-signalloom-fleet-up: demo-signalloom-fleet-image ## TEST ESCAPE HATCH ONLY 
 demo-signalloom-fleet-down: ## Remove the hand-applied Fleet Manager (Flux restores it on the next reconcile).
 	kubectl delete -k d2-signalloom/apps/fleet-manager/base --ignore-not-found
 
+# WHY THIS TARGET EXISTS.
+#
+# d2-signalloom/apps/cpai-engineer/{acceptance_test.go,browser_test.go} both
+# carry `//go:build acceptance`, and NOTHING in this repository passed that tag
+# -- not a make target, not a script, not a workflow. So those files were never
+# COMPILED, let alone run: a `go test ./...` in that module silently excludes
+# them and reports the package ok. That is weaker than a skipped test, because a
+# skip at least appears in the output.
+#
+# Two of their tests made it worse by skipping on 404 for /tui and /ws, which
+# newServer never registers, so even under the tag they asserted nothing. Both
+# are now characterisation assertions that pin the 404 and FAIL on a 405 or 400.
+#
+# Same class as a bats gate that is proven red in both directions and invoked by
+# nothing: an artefact called a test needs the line that runs it, or the name is
+# a claim about CI that CI has never heard.
+.PHONY: test-cpai-engineer-acceptance
+test-cpai-engineer-acceptance: ## Run cpai-engineer's acceptance-tagged tests, which no default go test compiles. No cluster.
+	cd d2-signalloom/apps/cpai-engineer && go test ./... -count=1 -tags acceptance
+
 .PHONY: swarm-cpai-engineer-image swarm-daytona-coder-image swarm-coding-images
 swarm-cpai-engineer-image: ## Build and kind-load the cpai-engineer image (Tier 4A in-cluster sandboxed coding).
 	docker build -t cpai-engineer:local d2-signalloom/apps/cpai-engineer

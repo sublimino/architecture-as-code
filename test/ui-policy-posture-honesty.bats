@@ -65,7 +65,10 @@ JSON
   write_unserved_scenario
   run render "$BATS_TEST_TMPDIR/unserved.json"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qiE "not served|unavailable|could not load"
+  # The refusal banner itself, not merely the word "unavailable" somewhere: a
+  # reinstated demo-data catch keeps the window silent about the failed read.
+  echo "$output" | grep -qiE "route not served|backend is unavailable|could not load the compliance posture"
+  echo "$output" | grep -qiF "Nothing is shown rather than a stand-in"
 }
 
 @test "policy-posture: serves no fabricated money when the route is not served" {

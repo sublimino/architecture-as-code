@@ -311,7 +311,10 @@ swarm-nono-probe-image: ## Build nono-containment-probe image
 #                                      other estate image is published to
 # test/sentinel-image-provenance.bats renders both overlays and fails when
 # the deployed tag is mutable or is not the current source fingerprint.
-SENTINEL_IMAGE_INPUTS := apps/stun-sentinel apps/signalloom-stun-sentinel
+# SENTINEL_IMAGE_INPUTS was here, naming the dirty-check path set by hand while
+# the hash used the Dockerfile-derived set. Two declarations of "what goes into
+# this image", and they had diverged: the hand-written one omitted the
+# Dockerfile. scripts/sentinel-image-tag.sh now derives both from the Dockerfile.
 SENTINEL_DOCKERFILE := signalloom-stun-sentinel/Dockerfile
 SENTINEL_IMAGE_CANONICAL ?= ghcr.io/controlplaneio-in-toto/signalloom-warden
 SENTINEL_IMAGE_ZOT ?= zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden
@@ -334,9 +337,9 @@ CLUSTER_NAME ?= osramp
 # the script directly rather than `$(MAKE) -s sentinel-image-tag`: a recipe
 # line containing $(MAKE) is executed even under `make -n`, and the sub-make
 # inherits -n, so the build/load/push on that line ran for real against the
-# sub-make's printed recipe text instead of a tag. The script exports the two
-# input definitions so they stay single-sourced here.
-export SENTINEL_DOCKERFILE SENTINEL_IMAGE_INPUTS
+# sub-make's printed recipe text instead of a tag. The script reads the input
+# definition from here so it stays single-sourced.
+export SENTINEL_DOCKERFILE
 SENTINEL_TAG_SH := ../scripts/sentinel-image-tag.sh
 
 sentinel-image-source-id: ## Print the sentinel image tag, src-<12 hex> of the files the Dockerfile COPYs (no cleanliness check).

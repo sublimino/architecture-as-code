@@ -4124,18 +4124,6 @@ def _ensure_seeded(tenant_id: str) -> None:
         _COOKIE_PREFS[tenant_id] = {"strictly_necessary": True, "analytics": False}
 
 
-def _synth_agent(tenant_id: str, agent_id: str) -> dict[str, Any]:
-    return _make_agent(
-        tenant_id,
-        agent_id,
-        f"Synthesized {agent_id.split(':')[-1]}",
-        "service",
-        None,
-        "registered",
-        _now_iso(),
-        eu_ai_act_risk_class="limited",
-        model_name="gpt-5.4-mini",
-    )
 
 
 def _cookie_preferences_for_tenant(tenant_id: str) -> CookiePreferences:
@@ -5206,9 +5194,11 @@ async def trust_topology(
     if fallback_reason:
         available = (await agents(principal)).agents
         if not available:
-            _ensure_seeded(tenant_id)
-            with _STORE_LOCK:
-                available = [AgentResponse(**agent) for agent in _AGENTS[tenant_id].values()]
+            pool = await _get_pool()
+            if pool is None:
+                _ensure_seeded(tenant_id)
+                with _STORE_LOCK:
+                    available = [AgentResponse(**agent) for agent in _AGENTS[tenant_id].values()]
         return _derived_topology(tenant_id, available, fallback_reason)
 
     allowed_tenants = {None, "shared", "", tenant_id}
@@ -9880,87 +9870,50 @@ async def list_discovery_workloads(
                  ORDER BY first_discovered_at DESC""",
                 tenant_id,
             )
-            if not nhi_rows:
-                _ensure_seeded(tenant_id)
-                with _STORE_LOCK:
-                    nhi_map = _NHI_ACCOUNTS.get(tenant_id, {})
-                    for a_id, a in nhi_map.items():
-                        raw_st = a.get("status", "discovered")
-                        st = "ignored" if raw_st == "dismissed" else ("in_review" if raw_st in ("enrollment_requested", "needs_triage", "in_review") else ("governed" if raw_st in ("governed", "enrolled", "active") else "discovered"))
-                        dir_source = a.get("directory_source") or "idp"
-                        source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
-                        findings = a.get("findings", [])
-                        privilege = a.get("privilege_level", "standard")
-                        recs = ControlRecommendationsModel(
-                            config="warning" if "stale_credential" in findings or privilege in ("high", "elevated") else "pass",
+            for r in nhi_rows:
+                raw_st = r["status"]
+                st: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
+                if raw_st == "dismissed":
+                    st = "ignored"
+                elif raw_st in ("enrollment_requested", "needs_triage", "in_review"):
+                    st = "in_review"
+                elif raw_st in ("governed", "enrolled", "active"):
+                    st = "governed"
+
+                findings = list(r["findings"]) if r["findings"] else []
+                dir_source = r["directory_source"] or "idp"
+                source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
+                privilege = r["privilege_level"] or "standard"
+
+                config_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "pass"
+                supply_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended" if "unrotated_secret" in findings else "pass"
+
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=str(r["id"]),
+                        name=r["account_name"],
+                        source="idp",
+                        source_label=source_label,
+                        namespace=f"identity-{dir_source.lower()}",
+                        status=st,
+                        owner=r["owner_email"],
+                        spiffe_id=None,
+                        model=None,
+                        last_seen_at=_ts(r["last_seen_at"]) or _ts(r["first_discovered_at"]),
+                        recommendations=ControlRecommendationsModel(
+                            config=config_rec,
                             content="not_applicable",
-                            supply_chain="recommended" if "unrotated_secret" in findings else "pass",
+                            supply_chain=supply_rec,
                             eu_ai_act="pass",
-                        )
-                        workloads.append(
-                            DiscoveryWorkloadModel(
-                                id=a_id,
-                                name=a.get("account_name", a_id),
-                                tenant_id=tenant_id,
-                                source="idp",
-                                source_label=source_label,
-                                namespace=f"identity-{dir_source.lower()}",
-                                status=st,
-                                discovery_state=st,
-                                owner=a.get("owner_email"),
-                                spiffe_id=None,
-                                model=None,
-                                last_seen_at=a.get("last_seen_at") or a.get("first_discovered_at"),
-                                recommendations=recs,
-                                control_recommendations=recs,
-                                metadata={"privilege_level": privilege, "findings": findings, "scan_count": a.get("scan_count", 1)},
-                            )
-                        )
-            else:
-                for r in nhi_rows:
-                    raw_st = r["status"]
-                    st: Literal["discovered", "in_review", "ignored", "revoked", "governed"] = "discovered"
-                    if raw_st == "dismissed":
-                        st = "ignored"
-                    elif raw_st in ("enrollment_requested", "needs_triage", "in_review"):
-                        st = "in_review"
-                    elif raw_st in ("governed", "enrolled", "active"):
-                        st = "governed"
-
-                    findings = list(r["findings"]) if r["findings"] else []
-                    dir_source = r["directory_source"] or "idp"
-                    source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
-                    privilege = r["privilege_level"] or "standard"
-
-                    config_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "pass"
-                    supply_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended" if "unrotated_secret" in findings else "pass"
-
-                    workloads.append(
-                        DiscoveryWorkloadModel(
-                            id=str(r["id"]),
-                            name=r["account_name"],
-                            source="idp",
-                            source_label=source_label,
-                            namespace=f"identity-{dir_source.lower()}",
-                            status=st,
-                            owner=r["owner_email"],
-                            spiffe_id=None,
-                            model=None,
-                            last_seen_at=_ts(r["last_seen_at"]) or _ts(r["first_discovered_at"]),
-                            recommendations=ControlRecommendationsModel(
-                                config=config_rec,
-                                content="not_applicable",
-                                supply_chain=supply_rec,
-                                eu_ai_act="pass",
-                            ),
-                            metadata={
-                                "privilege_level": privilege,
-                                "findings": findings,
-                                "scan_count": r["scan_count"],
-                                "directory_source": dir_source,
-                            },
-                        )
+                        ),
+                        metadata={
+                            "privilege_level": privilege,
+                            "findings": findings,
+                            "scan_count": r["scan_count"],
+                            "directory_source": dir_source,
+                        },
                     )
+                )
 
         # 2. Local K8s (unlinked pods / agent discovery)
         if enabled_connectors.get("local_k8s", True):

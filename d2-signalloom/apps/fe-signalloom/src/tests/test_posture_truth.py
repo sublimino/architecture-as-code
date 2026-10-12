@@ -233,7 +233,9 @@ def test_control_count_is_never_the_literal_six(client: TestClient) -> None:
     assert summary["failing"] == 3  # derivable from the row, so carried
 
 
-def test_in_memory_claim_refuses_its_compliance_summary(client: TestClient) -> None:
+def test_in_memory_claim_refuses_its_compliance_summary(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The claim response may not restate the seeded path's 6/5/1 + 0.83.
 
     The database branch seeds one ``agent_compliance_results`` row per
@@ -241,6 +243,28 @@ def test_in_memory_claim_refuses_its_compliance_summary(client: TestClient) -> N
     no-database branch has no catalogue to seed from, so it has no control
     count to report.
     """
+    # The claim route fails closed when discovery is unreadable (503
+    # discovery_unavailable), so the workload and its registered identity are
+    # supplied as fixtures -- same pattern as tests/test_claim_tenancy.py.
+    import claim_tenancy
+    from agent_identity_map import AgentIdentity
+
+    pod = "posture-truth-pod"
+    ns = "fe-signalloom-agents"
+
+    async def _workloads() -> list[dict[str, Any]]:
+        return [{
+            "id": pod, "name": pod, "agent_name": pod,
+            "namespace": ns, "tenant": TENANT, "model": "claude-sonnet-4-5",
+            "service_account": pod,
+        }]
+
+    monkeypatch.setattr(claim_tenancy, "workload_source", _workloads)
+    monkeypatch.setattr(
+        claim_tenancy, "identity_map_source",
+        lambda: {pod: AgentIdentity(namespace=ns, service_account=pod)},
+    )
+
     res = client.post(
         "/api/v1/agents/claim",
         json={

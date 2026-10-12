@@ -1,9 +1,19 @@
 /* ===========================================================================
    Policy Posture & Risk
-   Conference demo: baselines agent workloads against versioned regulatory
-   policy packs. £ values are FAIR-quantified (industry-indicative calibration).
-   Consumes /api/compliance/* endpoints; falls back to hardcoded demo data
-   when the backend is not yet deployed.
+   Baselines agent workloads against versioned regulatory policy packs.
+
+   Every £ figure in this window comes from /api/compliance/* or is not shown.
+   There is no fallback dataset: the console does not currently register any
+   /api/compliance route, so a fallback would have been served on 100% of
+   requests and would have been indistinguishable from a real measurement.
+   When the route is not served the window refuses with a banner and empty
+   states, like the eval-lab, pipeline, security-sandbox and agent-cards windows.
+
+   "£ Carried" is only rendered when the API supplies both a `carried` value and
+   the `carried_basis` that derived it. It is never computed here: the documented
+   convention is TVaR x 1.15, this window computes no TVaR, and VaR95 x 1.15 is a
+   different number under the same caption. `carried` also feeds the pass-rate
+   and coverage arithmetic, so a wrong one propagates.
    =========================================================================== */
 "use strict";
 
@@ -21,72 +31,33 @@ Estate95.register({
     // ---- currency formatter ------------------------------------------------
     const gbp = (n) => "\u00A3" + Number(n).toLocaleString("en-GB");
 
-    // ---- fallback demo data ------------------------------------------------
-    const DEMO_FRAMEWORKS = [
-      { id: "eu-ai-act",   name: "EU AI Act",   version: "v2.0", controls: 24, passed: 18, ale: 48200,  var95: 192800 },
-      { id: "nist-800-53", name: "NIST 800-53", version: "v2.0", controls: 31, passed: 26, ale: 35100,  var95: 140400 },
-      { id: "dora",        name: "DORA",        version: "v1.0", controls: 18, passed: 16, ale: 12400,  var95: 49600  },
-      { id: "cra",         name: "CRA",         version: "v1.0", controls: 14, passed: 12, ale: 8900,   var95: 35600  },
-    ];
-
-    const DEMO_CHECKS = [
-      { name: "Model card published",           framework: "EU AI Act",   status: "pass", ale: 0     },
-      { name: "Bias testing on protected attrs", framework: "EU AI Act",   status: "fail", ale: 12400 },
-      { name: "Human oversight mechanism",       framework: "EU AI Act",   status: "pass", ale: 0     },
-      { name: "Transparency documentation",      framework: "EU AI Act",   status: "fail", ale: 8200  },
-      { name: "Risk classification logged",       framework: "EU AI Act",   status: "pass", ale: 0     },
-      { name: "Data governance policy",           framework: "EU AI Act",   status: "fail", ale: 9100  },
-      { name: "Conformity assessment",            framework: "EU AI Act",   status: "pass", ale: 0     },
-      { name: "Post-market monitoring",           framework: "EU AI Act",   status: "fail", ale: 7300  },
-      { name: "Technical documentation",          framework: "EU AI Act",   status: "fail", ale: 6800  },
-      { name: "Incident reporting channel",       framework: "EU AI Act",   status: "fail", ale: 4400  },
-      { name: "AC-2 Account management",          framework: "NIST 800-53", status: "pass", ale: 0     },
-      { name: "AC-6 Least privilege",             framework: "NIST 800-53", status: "pass", ale: 0     },
-      { name: "AU-2 Audit events",                framework: "NIST 800-53", status: "pass", ale: 0     },
-      { name: "AU-6 Audit review",                framework: "NIST 800-53", status: "fail", ale: 8200  },
-      { name: "CA-7 Continuous monitoring",        framework: "NIST 800-53", status: "fail", ale: 6400  },
-      { name: "CM-6 Configuration settings",       framework: "NIST 800-53", status: "pass", ale: 0     },
-      { name: "IA-5 Authenticator management",     framework: "NIST 800-53", status: "fail", ale: 9200  },
-      { name: "IR-4 Incident handling",            framework: "NIST 800-53", status: "pass", ale: 0     },
-      { name: "RA-5 Vulnerability scanning",       framework: "NIST 800-53", status: "fail", ale: 7100  },
-      { name: "SC-7 Boundary protection",          framework: "NIST 800-53", status: "fail", ale: 4200  },
-      { name: "SI-2 Flaw remediation",             framework: "NIST 800-53", status: "pass", ale: 0     },
-      { name: "ICT risk management framework",     framework: "DORA",        status: "pass", ale: 0     },
-      { name: "ICT incident reporting",            framework: "DORA",        status: "fail", ale: 6200  },
-      { name: "Digital resilience testing",         framework: "DORA",        status: "pass", ale: 0     },
-      { name: "Third-party risk policy",            framework: "DORA",        status: "fail", ale: 6200  },
-      { name: "Vulnerability handling process",     framework: "CRA",         status: "pass", ale: 0     },
-      { name: "SBOM provided to downstream",       framework: "CRA",         status: "fail", ale: 4500  },
-      { name: "Security update mechanism",          framework: "CRA",         status: "fail", ale: 4400  },
-    ];
-
-    function demoSummary(frameworks) {
-      const totalControls = frameworks.reduce((s, f) => s + f.controls, 0);
-      const totalPassed   = frameworks.reduce((s, f) => s + f.passed, 0);
-      const totalAle      = frameworks.reduce((s, f) => s + f.ale, 0);
-      const totalVar95    = frameworks.reduce((s, f) => s + f.var95, 0);
-      const tvar          = Math.round(totalVar95 * 1.15);
-      return { totalControls, totalPassed, totalAle, totalVar95, carried: tvar, frameworks };
-    }
-
-    // ---- data fetching (with 404 fallback) ---------------------------------
+    // ---- data fetching -----------------------------------------------------
+    // No catch-and-substitute. A failure is surfaced to the caller, which shows
+    // the refusal banner and empty states.
     async function fetchSummary(version) {
       const qs = version ? "?version=" + encodeURIComponent(version) : "";
-      try {
-        const data = await api.get("/api/compliance/summary" + qs);
-        return data;
-      } catch {
-        // API not deployed yet — use demo data
-        return demoSummary(DEMO_FRAMEWORKS);
-      }
+      return api.get("/api/compliance/summary" + qs);
     }
 
     async function fetchChecks() {
-      try {
-        return await api.get("/api/compliance/checks");
-      } catch {
-        return DEMO_CHECKS;
+      return api.get("/api/compliance/checks");
+    }
+
+    // Reason text for a failed /api/compliance/* read.
+    function refusalReason(err) {
+      const status = err && err.status;
+      const detail = (err && err.message) || "request failed";
+      if (status === 404 || status === 501) {
+        return "Route not served: this console registers no /api/compliance route, " +
+          "so no posture figures can be read (" + detail + "). " +
+          "Nothing is shown rather than a stand-in.";
       }
+      if (status === 503) {
+        return "The compliance backend is unavailable (" + detail + "). " +
+          "Bring the demo up from Control Plane; this view reloads on Scan Now.";
+      }
+      return "Could not load the compliance posture: " + detail +
+        ". Nothing is shown rather than a stand-in.";
     }
 
     // ---- pill colour helpers -----------------------------------------------
@@ -110,30 +81,79 @@ Estate95.register({
 
     body.appendChild(header);
 
+    // ---- refusal banner host (filled only when a fetch fails) --------------
+    const errHost = h("div", {});
+    body.appendChild(errHost);
+
+    function showRefusal(err) {
+      errHost.innerHTML = "";
+      errHost.appendChild(h("div", { class: "notice err" }, refusalReason(err)));
+    }
+
+    function clearRefusal() {
+      errHost.innerHTML = "";
+    }
+
     // ---- summary stats row -------------------------------------------------
     const statsRow = h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } });
     body.appendChild(statsRow);
 
+    const big = (text) =>
+      h("span", { class: "mono", style: { fontSize: "18px", fontWeight: "700" } }, String(text));
+    const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+
+    // A stat is rendered iff the API supplied it. "unavailable" is the honest
+    // reading of a missing figure; 0 or a placeholder would read as measured.
+    function moneyStat(legend, value, note) {
+      const n = num(value);
+      return api.groupbox(legend,
+        big(n === null ? "unavailable" : gbp(n)),
+        h("div", { class: "muted", style: { fontSize: "10px" } },
+          n === null ? legend + " unavailable: not supplied by /api/compliance/summary" : (note || "")));
+    }
+
     function renderStats(s) {
       statsRow.innerHTML = "";
-      const passRate = s.totalControls > 0 ? s.totalPassed / s.totalControls : 0;
-      const passKind = passRate > 0.8 ? "ok" : passRate > 0.5 ? "warn" : "crit";
+      if (!s) {
+        statsRow.appendChild(h("div", { class: "muted" },
+          "No posture figures. Nothing is shown until /api/compliance/summary answers."));
+        return;
+      }
 
-      statsRow.appendChild(api.groupbox("Checks Passed",
-        h("div", { class: "row", style: { alignItems: "baseline", gap: "8px" } },
-          h("span", { class: "mono", style: { fontSize: "18px", fontWeight: "700" } },
-            s.totalPassed + " / " + s.totalControls),
-          api.pill(Math.round(passRate * 100) + "%", passKind))));
+      const passed = num(s.totalPassed);
+      const controls = num(s.totalControls);
+      if (passed === null || controls === null || controls <= 0) {
+        statsRow.appendChild(api.groupbox("Checks Passed",
+          big("unavailable"),
+          h("div", { class: "muted", style: { fontSize: "10px" } },
+            "No control counts supplied, so no pass rate can be derived.")));
+      } else {
+        const passRate = passed / controls;
+        const passKind = passRate > 0.8 ? "ok" : passRate > 0.5 ? "warn" : "crit";
+        statsRow.appendChild(api.groupbox("Checks Passed",
+          h("div", { class: "row", style: { alignItems: "baseline", gap: "8px" } },
+            big(passed + " / " + controls),
+            api.pill(Math.round(passRate * 100) + "%", passKind))));
+      }
 
-      statsRow.appendChild(api.groupbox("Total ALE",
-        h("span", { class: "mono", style: { fontSize: "18px", fontWeight: "700" } }, gbp(s.totalAle))));
+      statsRow.appendChild(moneyStat("Total ALE", s.totalAle));
+      statsRow.appendChild(moneyStat("Total VaR\u2089\u2085", s.totalVar95));
 
-      statsRow.appendChild(api.groupbox("Total VaR\u2089\u2085",
-        h("span", { class: "mono", style: { fontSize: "18px", fontWeight: "700" } }, gbp(s.totalVar95))));
-
-      statsRow.appendChild(api.groupbox("\u00A3 Carried",
-        h("span", { class: "mono", style: { fontSize: "18px", fontWeight: "700" } }, gbp(s.carried)),
-        h("div", { class: "muted", style: { fontSize: "10px" } }, "TVaR + risk load")));
+      // "\u00A3 Carried" needs both the figure and the basis that derived it. It is
+      // never computed here from VaR95 \u2014 that is a different quantity.
+      const carried = num(s.carried);
+      const basis = String(s.carried_basis || s.carriedBasis || "").trim();
+      if (carried === null || !basis) {
+        statsRow.appendChild(api.groupbox("\u00A3 Carried",
+          big("unavailable"),
+          h("div", { class: "muted", style: { fontSize: "10px" } },
+            "\u00A3 Carried unavailable: no TVaR and basis supplied by " +
+            "/api/compliance/summary. It is not derived from VaR\u2089\u2085 here.")));
+      } else {
+        statsRow.appendChild(api.groupbox("\u00A3 Carried",
+          big(gbp(carried)),
+          h("div", { class: "muted", style: { fontSize: "10px" } }, basis)));
+      }
     }
 
     // ---- framework coverage table ------------------------------------------
@@ -154,7 +174,13 @@ Estate95.register({
 
     function renderFrameworks(frameworks) {
       fwTableBody.innerHTML = "";
-      for (const fw of frameworks) {
+      const rows = Array.isArray(frameworks) ? frameworks : [];
+      if (!rows.length) {
+        fwTableBody.appendChild(h("tr", {}, h("td", { colspan: "6", class: "muted" },
+          "No frameworks. Nothing is shown until /api/compliance/summary answers.")));
+        return;
+      }
+      for (const fw of rows) {
         fwTableBody.appendChild(h("tr", {},
           h("td", { style: { fontWeight: "500" } }, fw.name || fw.id),
           h("td", { class: "mono" }, fw.version),
@@ -172,15 +198,33 @@ Estate95.register({
       h("option", { value: "v2.1" }, "v2.1 (tightened)"),
       h("option", { value: "v1.0" }, "v1.0 (baseline)"));
 
-    let currentAle = 0;
+    let currentAle = null;
 
     versionSelect.addEventListener("change", async () => {
       const ver = versionSelect.value;
       deltaMsg.innerHTML = "";
       deltaMsg.appendChild(h("span", { class: "muted" }, "Recalculating\u2026"));
-      const newData = await fetchSummary(ver);
+      let newData;
+      try {
+        newData = await fetchSummary(ver);
+      } catch (err) {
+        showRefusal(err);
+        renderStats(null);
+        renderFrameworks(null);
+        deltaMsg.innerHTML = "";
+        deltaMsg.appendChild(h("span", { class: "muted" },
+          "No delta: the policy version could not be priced. " + refusalReason(err)));
+        return;
+      }
+      clearRefusal();
       renderStats(newData);
       renderFrameworks(newData.frameworks);
+      if (num(newData.totalAle) === null || currentAle === null) {
+        deltaMsg.innerHTML = "";
+        deltaMsg.appendChild(h("span", { class: "muted" },
+          "No delta: a baseline and a new total ALE are both needed to derive one."));
+        return;
+      }
       const delta = newData.totalAle - currentAle;
       deltaMsg.innerHTML = "";
       if (delta !== 0) {
@@ -215,8 +259,15 @@ Estate95.register({
     const showAllBtn = h("button", { class: "btn", style: { marginTop: "6px", display: "none" } });
     let checksExpanded = false;
 
-    function renderChecks(checks) {
+    function renderChecks(checksIn) {
       checkTableBody.innerHTML = "";
+      const checks = Array.isArray(checksIn) ? checksIn : [];
+      if (!checks.length) {
+        showAllBtn.style.display = "none";
+        checkTableBody.appendChild(h("tr", {}, h("td", { colspan: "4", class: "muted" },
+          "No control detail. Nothing is shown until /api/compliance/checks answers.")));
+        return;
+      }
       const limit = checksExpanded ? checks.length : Math.min(20, checks.length);
       for (let i = 0; i < limit; i++) {
         const c = checks[i];
@@ -225,7 +276,8 @@ Estate95.register({
           h("td", { style: isFail ? { color: "var(--crit)" } : {} }, c.name),
           h("td", {}, c.framework),
           h("td", {}, statusPill(c.status)),
-          h("td", { class: "mono", style: isFail ? { color: "var(--crit)", fontWeight: "500" } : {} }, gbp(c.ale))));
+          h("td", { class: "mono", style: isFail ? { color: "var(--crit)", fontWeight: "500" } : {} },
+            num(c.ale) === null ? "unavailable" : gbp(c.ale))));
       }
       if (checks.length > 20) {
         showAllBtn.style.display = "";
@@ -269,17 +321,12 @@ Estate95.register({
         });
         line("Scan complete: " + (res.message || "OK"), "g");
       } catch (err) {
-        line("Scan endpoint unavailable \u2014 using cached posture.", "r");
+        // There is no cache. Say what happened instead of implying a stale read.
+        line("Scan endpoint unavailable (" + ((err && err.message) || "request failed") +
+          "). No posture was scanned.", "r");
       }
 
-      // refresh all data
-      const summary = await fetchSummary();
-      currentAle = summary.totalAle;
-      renderStats(summary);
-      renderFrameworks(summary.frameworks);
-      allChecks = await fetchChecks();
-      renderChecks(allChecks);
-
+      await load();
       scanBtn.disabled = false;
       scanBtn.textContent = "Scan Now";
     });
@@ -287,12 +334,35 @@ Estate95.register({
     body.appendChild(h("div", { class: "row", style: { gap: "8px", marginTop: "4px" } }, scanBtn));
     body.appendChild(consoleEl);
 
-    // ---- initial load ------------------------------------------------------
-    const summary = await fetchSummary();
-    currentAle = summary.totalAle;
-    renderStats(summary);
-    renderFrameworks(summary.frameworks);
-    allChecks = await fetchChecks();
-    renderChecks(allChecks);
+    // ---- load / refresh ----------------------------------------------------
+    async function load() {
+      let summary;
+      try {
+        summary = await fetchSummary();
+      } catch (err) {
+        showRefusal(err);
+        currentAle = null;
+        renderStats(null);
+        renderFrameworks(null);
+        allChecks = [];
+        renderChecks(allChecks);
+        return;
+      }
+      clearRefusal();
+      summary = summary || {};
+      currentAle = num(summary.totalAle);
+      renderStats(summary);
+      renderFrameworks(summary.frameworks);
+
+      try {
+        allChecks = await fetchChecks();
+      } catch (err) {
+        showRefusal(err);
+        allChecks = [];
+      }
+      renderChecks(allChecks);
+    }
+
+    await load();
   },
 });

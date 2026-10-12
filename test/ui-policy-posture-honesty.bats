@@ -122,7 +122,8 @@ JSON
 }
 
 @test "policy-posture: module source carries no hardcoded money and no 1.15 factor" {
-  run grep -nE '1\.15|48200|192800|35100|140400|12400|49600|8900|35600|DEMO_FRAMEWORKS|DEMO_CHECKS' "$window"
+  # The arithmetic form only: the header comment names 1.15 to explain the defect.
+  run grep -nE '\*[[:space:]]*1\.15|48200|192800|35100|140400|12400|49600|8900|35600|DEMO_FRAMEWORKS|DEMO_CHECKS' "$window"
   [ "$status" -ne 0 ] || {
     echo "$output" >&2
     return 1

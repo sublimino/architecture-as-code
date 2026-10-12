@@ -153,3 +153,50 @@ collector layer has ≥1 stage-1 rule in some loaded bundle, and every rule has 
 positive and a negative fixture (the kusari-e2e expectations-table discipline,
 estate-wide). A new collector with no rule, or a rule with no negative, fails CI
 — so "full coverage" is enforced, not claimed.
+
+## Remaining work (scoped, as of 2026-10-12, `integration/slsi-v0.1.0` @ `b5bd818b`)
+
+This wave took the detection pipeline to full stage-1/stage-2/correlation
+coverage and re-executed the Tetragon removal (EAPCI-P1-8) inside `signal-ingest`.
+What is left, ordered by risk:
+
+1. **De-Tetragon residue OUTSIDE `signal-ingest` (P1-9 scope).** `signal-ingest`
+   is clean (no `cilium/tetragon`, re-sourced to `sentinel.ebpf.syscall_trace`),
+   but the estate still carries dead Tetragon surface, confirmed by
+   `rg -i tetragon`:
+   - Deploy: `d2-signalloom/deploy/tetragon-agent-telemetry.yaml`,
+     `tetragon-helm-values.yaml` — remove or replace with the stun-sentinel
+     DaemonSet once the endpoint stream is live-wired.
+   - Test harness: `test/mocks/tetragon_grpc_mock.go` + `tetragon_grpc_test.go`
+     (+ the mock module `test/mocks/go.mod`/`go.sum`), `scripts/test-tetragon-stream.sh`,
+     `test/tetragon-telemetry-stream.bats`, and the `test-tetragon-*` Makefile
+     targets — all exercise a gRPC server the collector no longer dials.
+   - Docs/dashboard wording: `docs-signalloom/.../operate/detection-coverage.mdx`
+     and `.../agents/dual-agent-onboarding.mdx`; dashboard
+     `FeedsExplorerPage`, `SignalsPage`, `AgentActivityTab`, `ClaimModal`,
+     `ContainmentPolicyConsentStep`, `policyApi.ts`; `test/acceptance/agent-claim.spec.ts`;
+     `fe-signalloom/src/api_compat.py`. Decide retain-as-history vs rename to the
+     own-eBPF framing.
+
+2. **Source-name reconciliation.** The observation `Source` is
+   `sentinel.ebpf.syscall_trace` (netebpf-parallel dotted form); the provider
+   label is `sentinel-ebpf`. The P1-8 card text and any dashboard/P1-10 filter
+   keyed on a literal `sentinel-ebpf` *source* must be reconciled to the dotted
+   source (or to the provider label, explicitly).
+
+3. **Live-wire the own-eBPF endpoint stream.** `collectors/ebpf` endpoint
+   projection is built and e2e-covered against fixtures, but the `Start` loop is
+   an `ErrLiveDeferred` seam — it does not yet consume the stun-sentinel's
+   `syscall_trace` ring. This is the only own-eBPF detection not yet fed by real
+   kernel events. Pairs with (1)'s DaemonSet.
+
+4. **Coverage-gate gaps (CovGate).** Two documented exceptions remain: the
+   `landlock-verified-denial` stream has no e2e ±fixture row, and only
+   `k8saudit` + `awslogs` expose `ProjectedKeys()` for the L2 allow-list
+   membership check — the other collectors need the same accessor so the gate
+   asserts their projected keys too.
+
+5. **Make `k8saudit-kube` canonical.** The new kubernetes vertical coexists with
+   the identity-auth `k8saudit` (delegation tracking). Promoting it under one
+   `COLLECTOR_K8SAUDIT_MODE` means relocating the delegation path first — a
+   separate card, not a drop-in, because it retires a working stream.

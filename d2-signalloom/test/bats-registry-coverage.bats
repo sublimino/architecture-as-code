@@ -663,6 +663,24 @@ $(sed 's/#.*//' "$runner")"
 	#   jev-*.bats, old-probe-name-guard.bats, parallel-acceptance.bats, source-id-tracked.bats,
 	#   spool-replay-lib.bats, test-isolation-audit.bats, tombstone-mutation-check.bats -
 	#   offline utility, tool and harness self-tests.
+	#   slsi-airgap-bundle.bats - SLSI-P1-4/OSD-4 two-leg air-gap proof. Needs a
+	#                             BUILT multi-gigabyte dist/ tarball, docker with
+	#                             the sandbox image already local, strace, and a
+	#                             reachable `systemd-run --user` with unprivileged
+	#                             user namespaces. It also makes one real outbound
+	#                             Docker Hub request per run as its leak control --
+	#                             the control that proves the daemon egresses from
+	#                             inside a bare net namespace. No pipeline stands
+	#                             any of that up; same precedent as
+	#                             kusari-e2e-live.bats. Owned by make
+	#                             test-slsi-airgap. P1-GOV decision, OSD-4.
+	#   slsi-bundle-manifest.bats - requires dist/MANIFEST.json from a prior
+	#                             stage_p1_3_manifest run, so it cannot run in a
+	#                             pipeline that does not build a bundle first.
+	#                             Owned by make test-slsi-bundle-manifest, which
+	#                             is gated on that manifest existing. Its
+	#                             self-contained sibling slsi-bundle-osd.bats IS
+	#                             registered in signalloom-eap-pr.yaml.
 	local root_excluded="supercred-images.bats
 supercred-fleet-deploy.bats
 e2e-dual-cluster-containment.bats
@@ -704,7 +722,9 @@ supercred-fleet-deploy.bats
 tenant-kustomizations-no-cluster-scoped-kinds.bats
 test-isolation-audit.bats
 tombstone-mutation-check.bats
-warden-cutover.bats"
+warden-cutover.bats
+slsi-airgap-bundle.bats
+slsi-bundle-manifest.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

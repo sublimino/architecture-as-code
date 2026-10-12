@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# slsi-bundle-build-driver.sh - run named package-tenant-bundle.sh stages
+# slsi-bundle-build-driver.bash - run named package-tenant-bundle.sh stages
 # against an alternate BUNDLE_DIR, offline.
 #
 # @id     slsi-bundle-build-driver
@@ -21,7 +21,7 @@
 # never wired into VALID_STAGES would otherwise read as a pass. Driving through
 # the dispatcher means the suite proves dispatch as well as behaviour.
 #
-# usage: slsi-bundle-build-driver.sh <repo-root> <bundle-dir> <stage>...
+# usage: slsi-bundle-build-driver.bash <repo-root> <bundle-dir> <stage>...
 
 cd "$1" || exit 90
 _slsi_root="$1"

@@ -83,7 +83,7 @@ harness_error() {
   echo "  exactly the way an injected defect does, so a case that ran against" >&2
   echo "  nothing proves nothing." >&2
   echo "  Remedy: build dist/ first with stage_p1_3_manifest, e.g." >&2
-  echo "    test/slsi-bundle-build-driver.sh \"\$PWD\" \"\$PWD/bundle\" stage_p1_3_manifest" >&2
+  echo "    test/helpers/slsi-bundle-build-driver.bash \"\$PWD\" \"\$PWD/bundle\" stage_p1_3_manifest" >&2
   exit 2
 }
 

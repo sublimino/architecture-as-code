@@ -355,7 +355,7 @@ Obey these. They are the phase constitution.
 | P1-GOV | governor | Merge P1 cards in order, execute `bats test/slsi-airgap-bundle.bats`, verify bundle checksum reproducibility, run `make test-all-offline`, and record Phase 1 completion errata. | P1-4 | Clean merge, BATS suite exits 0, checksums match, errata recorded | M | antigravity | - | - | - | - | - |
 | P2-PRE | preflight | Audit `Makefile:signing-keys`, `scripts/lib/keys.sh`, both Kind node templates (`scripts/create-kind-cluster.sh` and `infra/kind/cluster-osramp.yaml`), `OCIRepository.spec.verify` usage in `tenants/local/kustomization.yaml`, `policy/kyverno-verify-images.yaml`, and the `signalloom-warden-overlays/remote-tenant` overlay (the `attached` half of Decision 8 — record which Secrets it expects to be copied in and which objects it renders). Publish a Phase 2 gap table in errata recording the **actual** key algorithms, container UIDs, and the OpenBao `server -dev` persistence blocker. No code changes. | P1-GOV | [`#### Errata — SLSI-P2-PRE`](#errata--slsi-p2-pre) | S | antigravity | 16 capabilities audited: 9 MATCH, 5 DRIFT, 2 ABSENT, 0 UNKNOWN. Contract: `docs/EAP/slsi/p2-pre-contract.json`. Proofs: `docs/EAP/slsi/p2-pre-verify.sh` (16/16 strict & citations pass). See Errata — SLSI-P2-PRE | - | - | - | - |
 | P2-1 | implementation | Implement zero-state cryptographic bootstrap module in `init-tenant.sh`: generate unique keypairs per tenant — Cosign **ECDSA P-256** (`cosign.key`/`cosign.pub`, as `cosign generate-key-pair` emits), Witness **Ed25519** (`witness.pem`/`witness-pub.pem`), Orbit approval **Ed25519** (`orbit-approval.pem`) — plus `signing-config.json` and `segment-signing-policy.json`, and select a per-tenant key path by **exporting `KEYS_DIR`**, which is already the highest-precedence branch of `keys_dir()`. **Do NOT edit `scripts/lib/keys.sh`, and do NOT touch its `git --git-common-dir` branch** (GH-6): that branch exists to make `.keys` **shared** across worktrees, its header documents the 2026-08-13 incident it fixed, and it resolves to the main checkout's `.keys`, which holds the live `cosign.key` the running `kind-osramp` trusts. All nine Makefile mint clauses are `if [ ! -f ]`, so repointing that branch either mints nothing or re-mints and invalidates everything the live cluster already trusts. Per-tenant isolation is a variable assignment, not a library change. The SPIRE CA is **`ec-p256`, self-signed by SPIRE at runtime**, so it is configured, not minted here. Output encrypted escrow backup bundle `<tenant-id>-escrow.tar.enc` with `0600` permissions. | P2-PRE | OpenSSL and Cosign tests verify disjoint public keys and valid escrow encryption | M | antigravity | pass — `scripts/init-tenant.sh` implemented with `stage_p2_1_keys`. Disjoint Cosign (ECDSA P-256), Witness (Ed25519), and Orbit (Ed25519) keypairs minted with mode 0600 priv / 0644 pub / 0700 dir. Encrypted escrow `<id>-escrow.tar.enc` verified (0600, roundtrip decrypt). 11/11 BATS pass. See Errata — SLSI-P2-1 | - | - | - | - |
-| P2-2 | implementation | Implement host persistence and Kind configuration generator in `init-tenant.sh`: initialize `/opt/tenants/{id}/data/` (openbao `100:1000`, zot `65532:65532`, frostdb; **no nats**) with strict permissions, **measuring each container UID rather than inheriting a figure** (GH-5): `70:70` is correct for the `postgres:16-alpine` Deployment, which does declare a security context, but `d2-osramp-apps/components/backend/base/postgres.yaml` runs `postgres:18` with **no** security-context declaration, so its UID is the image default. State which workload each figure belongs to. **Relocating a hostPath root migrates nothing** (GH-8): the node-side path is the join key for every `DirectoryOrCreate` workload, so Kubernetes simply creates an empty directory and the workload starts clean, which presents as a fresh install. Migrate contents explicitly and assert non-emptiness after the move, generalising `scripts/create-kind-cluster.sh` rather than writing a new generator. Generate `kind-config.yaml` with `extraMounts` binding those host directories plus the read-only `/lib/modules` and `/sys/kernel/btf` mounts, and `extraPortMappings` for 80 and 443. | P2-1 | Config asserted field-by-field by a parser (`kind` has **no** `--dry-run` flag, so that command is not a valid probe) and proven by one real `kind create cluster` in the P2-5 integration test; host paths have verified UID permissions | M | antigravity | - | - | - | - | - |
+| P2-2 | implementation | Implement host persistence and Kind configuration generator in `init-tenant.sh`: initialize `/opt/tenants/{id}/data/` (openbao `100:1000`, zot `65532:65532`, frostdb; **no nats**) with strict permissions, **measuring each container UID rather than inheriting a figure** (GH-5): `70:70` is correct for the `postgres:16-alpine` Deployment, which does declare a security context, but `d2-osramp-apps/components/backend/base/postgres.yaml` runs `postgres:18` with **no** security-context declaration, so its UID is the image default. State which workload each figure belongs to. **Relocating a hostPath root migrates nothing** (GH-8): the node-side path is the join key for every `DirectoryOrCreate` workload, so Kubernetes simply creates an empty directory and the workload starts clean, which presents as a fresh install. Migrate contents explicitly and assert non-emptiness after the move, generalising `scripts/create-kind-cluster.sh` rather than writing a new generator. Generate `kind-config.yaml` with `extraMounts` binding those host directories plus the read-only `/lib/modules` and `/sys/kernel/btf` mounts, and `extraPortMappings` for 80 and 443. | P2-1 | Config asserted field-by-field by a parser (`kind` has **no** `--dry-run` flag, so that command is not a valid probe) and proven by one real `kind create cluster` in the P2-5 integration test; host paths have verified UID permissions | M | antigravity | pass — host directories (/opt/tenants/<id>/data/{postgres,openbao,zot,frostdb}) initialized with mode 0700; measured container UIDs applied (postgres 999:999, openbao 100:1000, zot 65532:65532); ownership.json emitted; GH-8 migration asserted; Kind configuration generated with 4 host mounts + 2 kernel mounts + 2 extraPortMappings (80, 443). 7/7 BATS pass. See Errata — SLSI-P2-2 | - | - | - | - |
 | P2-3 | implementation | Implement Kind cluster bootstrap and Zot seeder in `init-tenant.sh`: launch Kind cluster with generated config, deploy in-cluster Zot registry from pre-cached archives, and preload all platform container images into Zot without external network calls. | P2-2 | Kind cluster answers `Ready=True`; `curl -fsS http://localhost:5000/v2/_catalog` returns preloaded images | M | antigravity | - | - | - | - | - |
 | P2-4 | implementation | Implement dual-trust supply chain configuration in `init-tenant.sh`: configure `OCIRepository.spec.verify` against the static release public key for manifest artifacts and the tenant key for tenant manifests, and extend `policy/kyverno-verify-images.yaml` past its `admission-demo` scope so container images are admitted only on a trusted static-key signature or a pinned digest. Decisions 8 and 9 are both settled: honour `APPLIANCE_MODE` (in `attached` mode verify against the central issuer credentials rather than minting local ones), and trust platform images via the release **public** key plus their pinned digests. | P2-3 | Admission rejects an image signed by an untrusted key; a digest-pinned platform image and a tenant-signed workload are both admitted; `OCIRepository` reconciles only on a valid static-key signature | M | antigravity | - | - | - | - | - |
 | P2-5 | test | Author BATS integration test `test/slsi-bootstrap-persistence.bats` asserting: (1) two consecutive runs of `init-tenant.sh` produce disjoint cryptographic keys, (2) PostgreSQL and OpenBao data written during run 1 survives a full `kind delete cluster` and redeploy, and (3) **the Decision 8 mode switch does not leak**: `APPLIANCE_MODE=hub` mints local issuers and renders no `remote-tenant` overlay, while `APPLIANCE_MODE=attached` renders the warden-only overlay, consumes the copied central issuer Secrets, and mints **no** local issuer — asserted by inspecting the rendered manifest set and the key directory in both modes. | P2-4 | `bats test/slsi-bootstrap-persistence.bats` exits 0 with 100% data persistence and both mode assertions passing; a leak in either direction fails the card and escalates to the Decision 8 fallback | M | antigravity | - | - | - | - | - |
@@ -375,6 +375,7 @@ Obey these. They are the phase constitution.
 | `504405b9` | SLSI-P0 acceptance baseline across all suites, dual cluster preflight, and foreign defect attribution | [`docs/slsi-p0-baseline.md`](slsi-p0-baseline.md), [`docs/slsi-p0-baseline/baseline.json`](slsi-p0-baseline/baseline.json) | `jq -e '.identity.tipSha == "504405b9e7e91efdf5c97bcd701b6511f712f6db"' docs/slsi-p0-baseline/baseline.json` |
 | `73481142` | SLSI-P2-PRE preflight audit across cryptographic keys, Kind templates, container UIDs, admission policy, and remote-tenant overlay | [`docs/EAP/slsi/p2-pre-contract.json`](EAP/slsi/p2-pre-contract.json), [`docs/EAP/slsi/p2-pre-verify.sh`](EAP/slsi/p2-pre-verify.sh) | `./docs/EAP/slsi/p2-pre-verify.sh --all` |
 | `6ca1153d` | SLSI-P2-1 zero-state cryptographic bootstrap across Cosign, Witness, and Orbit keys, with AES-256 encrypted escrow | [`scripts/init-tenant.sh`](scripts/init-tenant.sh), [`test/slsi-tenant-keys.bats`](test/slsi-tenant-keys.bats) | `bats test/slsi-tenant-keys.bats` |
+| `ab2332b4` | SLSI-P2-2 host persistence directories, measured UIDs, GH-8 cache migration, and Kind cluster config generator | [`scripts/init-tenant.sh`](scripts/init-tenant.sh), [`test/slsi-host-mounts.bats`](test/slsi-host-mounts.bats) | `bats test/slsi-host-mounts.bats` |
 
 #### Errata — SLSI-P0
 
@@ -819,6 +820,58 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 
 - `bash -n scripts/init-tenant.sh`: **passed with 0 warnings**.
 - `shellcheck -x scripts/init-tenant.sh`: **passed with 0 warnings**.
+- `bats test/slsi-tenant-keys.bats`: **11 passed, 0 failed, 0 skipped**.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLSI-P2-2 Host Persistence and Kind Configuration Generator
+
+**Created:** 2026-10-13 01:00:00+01:00
+**Last Updated:** 2026-10-13 01:00:00+01:00
+**Status:** pass
+**Commit:** `ab2332b4` on `integration/slsi-v0.1.0`.
+**Base Ref:** `integration/slsi-v0.1.0` (`0d5975034614bb537b018b10853fe5dd0a67e231`)
+**Upstream Ordering:** Depends on `SLSI-P2-1` (`edgeType: dependency`). Consumes P2-1 tenant root, cryptographic key isolation, and escrow directory structures.
+
+##### Host Storage Structure & Ownership Ledger
+
+1. **Host Persistence Root & Subdirectories:** Initialised `/opt/tenants/${TENANT_ID}/data/` (or custom `--data-dir`) with strict mode `0700`. Subdirectories created:
+   - `${DATA_DIR}/postgres` (mode `0700`, container UID `999:999`)
+   - `${DATA_DIR}/openbao` (mode `0700`, container UID `100:1000`)
+   - `${DATA_DIR}/zot` (mode `0700`, container UID `65532:65532`)
+   - `${DATA_DIR}/frostdb` (mode `0700`, container UID `0:0`)
+   - **Exclusion Invariant:** Explicitly enforced zero `nats` directory creation or retention.
+2. **Container Ownership Alignment (GH-5):** Addressed measured container UID/GID specification:
+   - `postgres`: Set to `999:999`, matching `d2-signalloom/apps/fe-signalloom/base/deployment.yaml` (`runAsUser: 999`, `runAsGroup: 999`, `fsGroup: 999`) and upstream `postgres:18` image defaults. Proposal text correction acknowledged (replacing inaccurate 70:70 Alpine assumption).
+   - `openbao`: Set to `100:1000`, matching `d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml` (`runAsUser: 100`, `runAsGroup: 1000`).
+   - `zot`: Set to `65532:65532`, matching `d2-osramp-fleet/local/zot.yaml` (`runAsUser: 65532`, `runAsGroup: 65532`).
+   - `ownership.json`: Generated `${DATA_DIR}/ownership.json` under schema `slsi.host-persistence/v1` cataloguing tenant ID, workload paths, and measured UIDs/GIDs.
+3. **Explicit Legacy Cache Migration (GH-8):**
+   - Implemented automated migration from legacy cache paths (`--legacy-zot-dir`, `--legacy-postgres-dir`).
+   - Re-applies measured container ownership on all migrated assets.
+   - Gated via `--assert-migrated` flag: asserts non-emptiness of destination stores; halts with exit code 1 if source directories are missing or empty.
+
+##### Unified Kind Node Configuration
+
+1. **ExtraPortMappings:** Exposed host ports `80:80/TCP` and `443:443/TCP` forwarding directly to control-plane ingress listeners, resolving `kind-template-extra-port-mappings` drift.
+2. **ExtraMounts Disjointness Resolution:** Unified storage mounts from `scripts/create-kind-cluster.sh` and kernel mounts from `infra/kind/cluster-osramp.yaml`:
+   - `${DATA_DIR}/zot` → `/var/local/osramp-zot-cache`
+   - `${DATA_DIR}/postgres` → `/var/local/signalloom-postgres-data`
+   - `${DATA_DIR}/openbao` → `/var/local/signalloom-openbao-data`
+   - `/lib/modules` → `/lib/modules` (`readOnly: true`)
+   - `/sys/kernel/btf` → `/sys/kernel/btf` (`readOnly: true`)
+   - Explicitly omitted `/sys/fs/cgroup` mount (preventing cgroupv2 systemd boot collision).
+3. **Kubelet & containerd Patches:**
+   - Retained `nodeStatusMaxImages: -1` in `kubeadmConfigPatches` (preventing SuperCred image truncation).
+   - Retained `certs.d` containerd configuration patch.
+4. **Validation:**
+   - Validated generated Kind configuration with Python YAML parser (`yaml.safe_load`).
+   - Hardened against YAML control characters in `DATA_DIR` and `OUTPUT_DIR`.
+
+##### Test Evidence
+
+- `bash -n scripts/init-tenant.sh`: **passed with 0 warnings**.
+- `bats test/slsi-host-mounts.bats`: **7 passed, 0 failed, 0 skipped**.
 - `bats test/slsi-tenant-keys.bats`: **11 passed, 0 failed, 0 skipped**.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

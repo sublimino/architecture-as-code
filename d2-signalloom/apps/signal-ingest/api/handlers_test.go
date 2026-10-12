@@ -224,10 +224,10 @@ func TestCoverage(t *testing.T) {
 	if len(resp.CoveredLayers) != 5 {
 		t.Errorf("want 5 covered layers, got %d", len(resp.CoveredLayers))
 	}
-	if len(resp.BlindSpots) != 5 {
-		t.Errorf("want 5 blind spots, got %d", len(resp.BlindSpots))
+	if len(resp.BlindSpots) != 6 {
+		t.Errorf("want 6 blind spots, got %d", len(resp.BlindSpots))
 	}
-	if resp.DeploymentCoverage != "5 of 7 layers active" {
+	if resp.DeploymentCoverage != "5 of 8 layers active" {
 		t.Errorf("unexpected coverage: %s", resp.DeploymentCoverage)
 	}
 }
@@ -237,7 +237,7 @@ func TestCoverage(t *testing.T) {
 // "Layer not deployed" told an operator the wrong thing about why they see no cloud events. The
 // honest gap is narrower and actionable: the layer is live, no collector is feeding it yet.
 //
-// It stays a blind spot, and the counts stay at 5/5 and "5 of 7 layers active": no cloud
+// It stays a blind spot, and the counts stay at 5/5 and "5 of 8 layers active": no cloud
 // observations are arriving, so coverage has not actually changed. Promoting it to a covered layer
 // is the separate seven-layer flip (SLAWS v2 §5, P1), which also owns the dashboard's
 // "5 of 7 layers instrumented" assertion. This test pins the description only.

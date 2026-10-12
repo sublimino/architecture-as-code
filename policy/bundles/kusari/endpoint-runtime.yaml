@@ -1,12 +1,19 @@
 # The Kusari endpoint-runtime threat bundle (Sentinel eBPF syscall stream).
 #
-# This reads only the sentinel eBPF endpoint projection (collectors/ebpf
-# ProjectEndpoint, model.LayerEndpointHost, Source "sentinel.ebpf.syscall_trace")
-# and every rule source-gates on it, so it never crosses the OTHER endpoint_host
-# stream on the same layer — the agent-nono Landlock evidence (Source
-# "agent-nono-evidenced"), whose landlock-denial rule gates on verification_status.
-# A sentinel eBPF syscall event carries no verification_status, and these rules
-# gate on source "sentinel.ebpf.syscall_trace", so the two endpoint_host streams
+# This reads the sentinel eBPF endpoint signal on model.LayerEndpointHost from
+# TWO producers that now share ONE aligned label contract (classification,
+# syscall, target):
+#   * the collector projection (collectors/ebpf ProjectEndpoint, Source
+#     "sentinel.ebpf.syscall_trace"), and
+#   * the LIVE stun-sentinel wire (apps/stun-sentinel/pkg/correlator/ingest.go
+#     toIngest, Source "stun-sentinel"), which now derives the same
+#     classification label from its syscall value.
+# Every rule source-gates on the union of those two sources, so it reads both
+# endpoint streams but never crosses the OTHER endpoint_host stream on the same
+# layer — the agent-nono Landlock evidence (Source "agent-nono-evidenced"),
+# whose landlock-denial rule gates on verification_status. Neither endpoint
+# syscall stream carries verification_status, and these rules gate on sources
+# "sentinel.ebpf.syscall_trace" / "stun-sentinel", so the endpoint_host streams
 # share a layer and never a rule.
 #
 # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
@@ -23,9 +30,11 @@
 #
 # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
 #
-#   * Every rule gates on obs.source == "sentinel.ebpf.syscall_trace": the
-#     endpoint_host layer carries more than one projection, so the source gate is
-#     mandatory to stay off the agent-nono Landlock stream.
+#   * Every rule gates on the union
+#     (obs.source == "sentinel.ebpf.syscall_trace" || obs.source == "stun-sentinel"):
+#     the endpoint_host layer carries more than one projection, so the source gate
+#     is mandatory to stay off the agent-nono Landlock stream, and the union admits
+#     both the collector projection and the aligned live-sentinel wire.
 #   * Every label read is guarded with has(): a syscall event may carry a target
 #     or not (a file access does, a bare ptrace kprobe does not), so a bare read
 #     of an absent key would be a CEL fault degrading the whole bundle.
@@ -87,7 +96,7 @@ rules:
     # A file_access whose target is a credential store. target is the file the
     # workload opened; the sensitive set is a var, membership-tested.
     expression: |-
-      obs.source == "sentinel.ebpf.syscall_trace" &&
+      (obs.source == "sentinel.ebpf.syscall_trace" || obs.source == "stun-sentinel") &&
       obs.layer == "endpoint_host" &&
       has(obs.labels.classification) && obs.labels.classification == "file_access" &&
       has(obs.labels.target) && obs.labels.target in vars.sensitive_files
@@ -96,11 +105,22 @@ rules:
   - id: unexpected-execve
     name: Process exec by a workload not permitted to exec
     severity: high
-    # An execve by a service account outside the allow-list. This is the one
-    # identity-scoped rule: obs.actor is the pseudonymised service account, tested
+    # An execve by an actor outside the allow-list. This is the one
+    # identity-scoped rule: obs.actor is the pseudonymised actor identity, tested
     # against the actor_vars set, never a cleartext label.
+    #
+    # Actor identity differs by stream, and allowed_exec_actors must hold the
+    # identity the stream actually carries:
+    #   * collector projection ("sentinel.ebpf.syscall_trace"): obs.actor is the
+    #     pseudonymised SERVICE ACCOUNT (ActorHint = ev.ServiceAccount).
+    #   * live stun-sentinel ("stun-sentinel"): the kernel probe cannot see a
+    #     service account, so obs.actor is the pseudonymised workload ACTOR/POD
+    #     identity (ActorHint = actor, falling back to pod_name). A trusted live
+    #     workload is exempted by adding ITS actor identity here, NOT an SA name.
+    # Both are pseudonymised at load with the same key obs.actor is, so the
+    # cleartext entries below are matched post-pseudonymisation on either stream.
     expression: |-
-      obs.source == "sentinel.ebpf.syscall_trace" &&
+      (obs.source == "sentinel.ebpf.syscall_trace" || obs.source == "stun-sentinel") &&
       obs.layer == "endpoint_host" &&
       has(obs.labels.classification) && obs.labels.classification == "process_exec" &&
       !(obs.actor in vars.allowed_exec_actors)
@@ -112,8 +132,13 @@ rules:
     # ptrace is process injection / debugger attach; cap_capable is the kernel
     # privilege-check hook. Both are high-signal host-runtime primitives, gated on
     # the syscall discriminator against a var set, independent of actor.
+    # NOTE: this rule is collector-projection-only in practice until the live
+    # stun-sentinel probes ptrace/capability syscalls — its only syscall values
+    # today are openat, execve, evasive_syscall_burst and tcp_connect, none in
+    # vars.sensitive_syscalls. The source gate still admits "stun-sentinel" so the
+    # rule fires automatically once the sentinel grows those probes.
     expression: |-
-      obs.source == "sentinel.ebpf.syscall_trace" &&
+      (obs.source == "sentinel.ebpf.syscall_trace" || obs.source == "stun-sentinel") &&
       obs.layer == "endpoint_host" &&
       has(obs.labels.syscall) && obs.labels.syscall in vars.sensitive_syscalls
 

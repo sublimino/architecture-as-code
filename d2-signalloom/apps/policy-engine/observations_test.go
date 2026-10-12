@@ -432,6 +432,87 @@ func TestEvaluateObservationBenignEventYieldsNoFindings(t *testing.T) {
 	}
 }
 
+// TestEvaluateObservationFiresEndpointRulesOnLiveStunSentinelStream proves the
+// endpoint-runtime rules fire on a "stun-sentinel"-sourced observation (the live
+// sentinel wire), not only on the collector projection
+// ("sentinel.ebpf.syscall_trace"). It drives the real Flux-reconciled tree.
+//
+// The dry-run route does not pseudonymise, so vars.allowed_exec_actors stays
+// cleartext ["agent-trusted-sa"] and obs.actor is the posted value verbatim —
+// which is exactly what lets a positive/negative execve pair be asserted here.
+func TestEvaluateObservationFiresEndpointRulesOnLiveStunSentinelStream(t *testing.T) {
+	h := newObservationHandler(t, shippedBundlesDir)
+
+	// endpointRuleFired reports whether the endpoint-runtime bundle produced a
+	// finding for ruleID over the posted observation body, asserting no faults.
+	endpointRuleFired := func(t *testing.T, body, ruleID string) bool {
+		t.Helper()
+		w := postObservation(t, h, body, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var resp EvaluateObservationResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Faults) != 0 {
+			t.Fatalf("the shipped bundle faulted on a stun-sentinel observation: %v", resp.Faults)
+		}
+		for _, f := range resp.Findings {
+			if f.BundleID == "kusari-endpoint-runtime" && f.RuleID == ruleID {
+				return true
+			}
+		}
+		return false
+	}
+
+	const layerSrc = `"layer":"endpoint_host","source":"stun-sentinel","fidelity":"strong","confidence":0.95`
+
+	t.Run("sensitive-file-open fires on a live sentinel openat of /etc/shadow", func(t *testing.T) {
+		body := `{"tenant_id":"kusari","observation":{"id":"s1","timestamp":"2026-10-04T08:00:00Z",` + layerSrc +
+			`,"labels":{"classification":"file_access","target":"/etc/shadow","syscall":"sys_enter_openat"}}}`
+		if !endpointRuleFired(t, body, "sensitive-file-open") {
+			t.Error("sensitive-file-open did not fire on a stun-sentinel file_access of /etc/shadow")
+		}
+	})
+
+	t.Run("unexpected-execve fires for a non-allowlisted actor on the live stream", func(t *testing.T) {
+		body := `{"tenant_id":"kusari","observation":{"id":"s2","timestamp":"2026-10-04T08:00:00Z",` + layerSrc +
+			`,"actor":"agent-rogue","labels":{"classification":"process_exec","syscall":"sys_enter_execve"}}}`
+		if !endpointRuleFired(t, body, "unexpected-execve") {
+			t.Error("unexpected-execve did not fire on a stun-sentinel process_exec by a non-allowlisted actor")
+		}
+	})
+
+	t.Run("capability-or-ptrace fires when the source gate admits stun-sentinel", func(t *testing.T) {
+		// The live sentinel never emits ptrace today (see the bundle NOTE), but the
+		// unioned source gate must admit "stun-sentinel" for this rule too: a
+		// syscall=="ptrace" stun-sentinel observation fires, proving the gate, not
+		// the (absent) live probe.
+		body := `{"tenant_id":"kusari","observation":{"id":"s3","timestamp":"2026-10-04T08:00:00Z",` + layerSrc +
+			`,"labels":{"syscall":"ptrace"}}}`
+		if !endpointRuleFired(t, body, "capability-or-ptrace") {
+			t.Error("capability-or-ptrace did not fire on a stun-sentinel ptrace syscall; the source union did not admit stun-sentinel")
+		}
+	})
+
+	t.Run("NEGATIVE: a non-sensitive file open produces no endpoint finding", func(t *testing.T) {
+		body := `{"tenant_id":"kusari","observation":{"id":"s4","timestamp":"2026-10-04T08:00:00Z",` + layerSrc +
+			`,"labels":{"classification":"file_access","target":"/tmp/scratch.log","syscall":"sys_enter_openat"}}}`
+		if endpointRuleFired(t, body, "sensitive-file-open") {
+			t.Error("sensitive-file-open fired on a non-sensitive target; the membership gate is not holding")
+		}
+	})
+
+	t.Run("NEGATIVE: an allow-listed actor's exec produces no unexpected-execve", func(t *testing.T) {
+		body := `{"tenant_id":"kusari","observation":{"id":"s5","timestamp":"2026-10-04T08:00:00Z",` + layerSrc +
+			`,"actor":"agent-trusted-sa","labels":{"classification":"process_exec","syscall":"sys_enter_execve"}}}`
+		if endpointRuleFired(t, body, "unexpected-execve") {
+			t.Error("unexpected-execve fired for an allow-listed actor; the actor scope is not holding")
+		}
+	})
+}
+
 func TestEvaluateObservationRequestValidation(t *testing.T) {
 	h := newObservationHandler(t, writeFixtureBundles(t))
 

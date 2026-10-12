@@ -1,0 +1,34 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "csr-mike-create", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "mike@corp.example"},
+      "sourceIPs": ["10.8.8.8"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "certificatesigningrequests", "name": "csr-1", "apiGroup": "certificates.k8s.io", "apiVersion": "v1"},
+      "requestObject": {"kind": "CertificateSigningRequest"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "csr-nina-approve", "stage": "ResponseComplete", "verb": "update",
+      "user": {"username": "nina@corp.example"},
+      "sourceIPs": ["10.8.8.9"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "certificatesigningrequests", "subresource": "approval", "name": "csr-1", "apiGroup": "certificates.k8s.io", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "csr-oscar-get", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "oscar@corp.example"},
+      "sourceIPs": ["10.8.8.10"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "certificatesigningrequests", "name": "csr-1", "apiGroup": "certificates.k8s.io", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    }
+  ]
+}

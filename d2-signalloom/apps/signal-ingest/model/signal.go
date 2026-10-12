@@ -20,6 +20,7 @@ const (
 	LayerEndpointHost      Layer = "endpoint_host"
 	LayerBehavioural       Layer = "behavioural"
 	LayerCloudControlPlane Layer = "cloud_control_plane"
+	LayerKubernetes        Layer = "kubernetes"
 	LayerProtocol          Layer = "protocol" // out of scope
 )
 
@@ -32,6 +33,7 @@ func ValidLayers() []Layer {
 		LayerEndpointHost,
 		LayerBehavioural,
 		LayerCloudControlPlane,
+		LayerKubernetes,
 		LayerProtocol,
 	}
 }
@@ -45,6 +47,7 @@ func InScopeLayers() []Layer {
 		LayerEndpointHost,
 		LayerBehavioural,
 		LayerCloudControlPlane,
+		LayerKubernetes,
 	}
 }
 

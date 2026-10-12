@@ -1,0 +1,33 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "anon-1", "stage": "ResponseComplete", "verb": "list",
+      "user": {"username": "system:anonymous"},
+      "sourceIPs": ["203.0.113.7"], "userAgent": "curl/8.0",
+      "objectRef": {"resource": "pods", "namespace": "kube-system", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "anon-2", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "system:unauthenticated"},
+      "sourceIPs": ["203.0.113.8"], "userAgent": "curl/8.0",
+      "objectRef": {"resource": "pods", "namespace": "kube-system", "name": "kube-proxy", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "anon-3-forbidden", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "system:anonymous"},
+      "sourceIPs": ["203.0.113.9"], "userAgent": "curl/8.0",
+      "objectRef": {"resource": "pods", "namespace": "kube-system", "name": "etcd-0", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 403, "reason": "Forbidden"},
+      "annotations": {"authorization.k8s.io/decision": "forbid"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    }
+  ]
+}

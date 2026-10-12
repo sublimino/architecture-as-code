@@ -1,0 +1,42 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "nodeproxy-quinn-1", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "quinn@corp.example"},
+      "sourceIPs": ["10.10.10.10"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "nodes", "subresource": "proxy", "name": "node-1", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "portforward-ray-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "ray@corp.example"},
+      "sourceIPs": ["10.10.10.11"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "portforward", "namespace": "payments", "name": "api-7", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "nodeget-quinn-1", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "quinn@corp.example"},
+      "sourceIPs": ["10.10.10.10"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "nodes", "name": "node-1", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    },
+    {
+      "auditID": "podget-ray-1", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "ray@corp.example"},
+      "sourceIPs": ["10.10.10.11"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "namespace": "payments", "name": "api-7", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:03:00Z", "stageTimestamp": "2026-02-01T10:03:00Z"
+    }
+  ]
+}

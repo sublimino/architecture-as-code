@@ -80,10 +80,15 @@ var defaultLabelAllowList = map[string]struct{}{
 	"response_code":    {},
 	"reason":           {},
 	"stage":            {},
-	"collector":        {},
-	"connector":        {},
-	"rule_id":          {},
-	"rule_version":     {},
+	// user_agent is the kube-apiserver audit client string (kubectl/..., a controller UA).
+	// ADDED for the collectors/k8saudit reference vertical (docs/EAP "k8s label contract").
+	// It is a fingerprinting surface, not a natural-person identifier: a UA names the client
+	// binary, never a user. The other 14 k8s-audit contract keys were already admitted above.
+	"user_agent":   {},
+	"collector":    {},
+	"connector":    {},
+	"rule_id":      {},
+	"rule_version": {},
 	// SLAWS v2 D3: findings and decisions are observations in this store. These keys are
 	// closed policy metadata or sha256-derived identifiers; none names a person.
 	// Collector operational records (buffer_eviction, projection_failure) are typed by this key.

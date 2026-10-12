@@ -1,0 +1,33 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "satoken-leo-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "leo@corp.example"},
+      "sourceIPs": ["10.7.7.7"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "serviceaccounts", "subresource": "token", "namespace": "payments", "name": "deployer-sa", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "satoken-ctrl-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "system:serviceaccount:kube-system:token-cleaner"},
+      "sourceIPs": ["10.0.0.10"], "userAgent": "kube-controller-manager/v1.31.0",
+      "objectRef": {"resource": "serviceaccounts", "subresource": "token", "namespace": "kube-system", "name": "builtin-sa", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "saget-leo-1", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "leo@corp.example"},
+      "sourceIPs": ["10.7.7.7"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "serviceaccounts", "namespace": "payments", "name": "deployer-sa", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    }
+  ]
+}

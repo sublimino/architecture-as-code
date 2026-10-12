@@ -138,6 +138,11 @@ func NewRegistryFromEnvWithReceiver(sink IngestionSink, rcv *audit.WebhookReceiv
 	} else {
 		reg.Register(NewK8sAuditCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_MODE", "SIGNAL_COLLECTOR_K8SAUDIT", "K8SAUDIT_MODE"), sink))
 	}
+	// The k8saudit-kube THREAT vertical (LayerKubernetes, Source "k8saudit-kube").
+	// Distinct from the identity-auth k8saudit above (COLLECTOR_K8SAUDIT_MODE,
+	// LayerIdentityAuth) — see collectors/k8saudit/contract_doc.go. Its rules live
+	// in policy/bundles/kusari/k8s-audit.yaml and source-gate on "k8saudit-kube".
+	reg.Register(NewK8sAuditKubeCollector(resolveEnvMode("COLLECTOR_K8SAUDIT_KUBE_MODE", "SIGNAL_COLLECTOR_K8SAUDIT_KUBE", "K8SAUDIT_KUBE_MODE"), sink))
 	reg.Register(NewKAgentCollector(resolveEnvMode("COLLECTOR_KAGENT_MODE", "SIGNAL_COLLECTOR_KAGENT", "KAGENT_MODE"), sink))
 	reg.Register(NewWorkspaceSaaSCollector(resolveEnvMode("COLLECTOR_WORKSPACESAAS_MODE", "SIGNAL_COLLECTOR_WORKSPACESAAS", "WORKSPACESAAS_MODE"), sink))
 	reg.Register(NewAgentNonoCollector(resolveEnvMode("COLLECTOR_AGENTNONO_MODE", "SIGNAL_COLLECTOR_AGENTNONO", "AGENTNONO_MODE"), sink))

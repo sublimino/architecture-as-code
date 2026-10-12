@@ -1,0 +1,53 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "rbac-grace-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "grace@corp.example"},
+      "sourceIPs": ["10.5.5.5"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "clusterrolebindings", "name": "cluster-admin-binding", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1"},
+      "requestObject": {"kind": "ClusterRoleBinding"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "rbac-heidi-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "heidi@corp.example"},
+      "sourceIPs": ["10.5.5.6"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "rolebindings", "namespace": "payments", "name": "deploy-binding", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1"},
+      "requestObject": {"kind": "RoleBinding"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "rbac-ivan-impersonate", "stage": "ResponseComplete", "verb": "impersonate",
+      "user": {"username": "ivan@corp.example"},
+      "sourceIPs": ["10.5.5.7"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "users", "name": "cluster-admin", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    },
+    {
+      "auditID": "cm-judy-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "judy@corp.example"},
+      "sourceIPs": ["10.5.5.8"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "configmaps", "namespace": "payments", "name": "settings", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:03:00Z", "stageTimestamp": "2026-02-01T10:03:00Z"
+    },
+    {
+      "auditID": "rbac-grace-get", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "grace@corp.example"},
+      "sourceIPs": ["10.5.5.5"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "clusterrolebindings", "name": "cluster-admin-binding", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:04:00Z", "stageTimestamp": "2026-02-01T10:04:00Z"
+    }
+  ]
+}

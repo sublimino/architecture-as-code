@@ -1,0 +1,68 @@
+{
+  "kind": "EventList",
+  "apiVersion": "audit.k8s.io/v1",
+  "items": [
+    {
+      "auditID": "exec-alice-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "alice@corp.example"},
+      "sourceIPs": ["10.1.2.3"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "exec", "namespace": "payments", "name": "ledger-0", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:00Z"
+    },
+    {
+      "auditID": "exec-alice-2", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "alice@corp.example"},
+      "sourceIPs": ["10.1.2.3"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "exec", "namespace": "payments", "name": "ledger-0", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:01:00Z", "stageTimestamp": "2026-02-01T10:01:00Z"
+    },
+    {
+      "auditID": "exec-alice-3", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "alice@corp.example"},
+      "sourceIPs": ["10.1.2.3"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "exec", "namespace": "payments", "name": "api-7", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:02:00Z", "stageTimestamp": "2026-02-01T10:02:00Z"
+    },
+    {
+      "auditID": "attach-bob-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "bob@corp.example"},
+      "sourceIPs": ["10.1.2.4"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "attach", "namespace": "payments", "name": "api-7", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 201},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:03:00Z", "stageTimestamp": "2026-02-01T10:03:00Z"
+    },
+    {
+      "auditID": "ephem-carol-1", "stage": "ResponseComplete", "verb": "create",
+      "user": {"username": "carol@corp.example"},
+      "sourceIPs": ["10.1.2.5"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "ephemeralcontainers", "namespace": "payments", "name": "debug-0", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:04:00Z", "stageTimestamp": "2026-02-01T10:04:00Z"
+    },
+    {
+      "auditID": "exec-alice-1", "stage": "ResponseStarted", "verb": "create",
+      "user": {"username": "alice@corp.example"},
+      "sourceIPs": ["10.1.2.3"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "subresource": "exec", "namespace": "payments", "name": "ledger-0", "apiGroup": "", "apiVersion": "v1"},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:00:00Z", "stageTimestamp": "2026-02-01T10:00:30Z"
+    },
+    {
+      "auditID": "get-alice-pod", "stage": "ResponseComplete", "verb": "get",
+      "user": {"username": "alice@corp.example"},
+      "sourceIPs": ["10.1.2.3"], "userAgent": "kubectl/v1.31.0",
+      "objectRef": {"resource": "pods", "namespace": "payments", "name": "ledger-0", "apiGroup": "", "apiVersion": "v1"},
+      "responseStatus": {"code": 200},
+      "annotations": {"authorization.k8s.io/decision": "allow"},
+      "requestReceivedTimestamp": "2026-02-01T10:05:00Z", "stageTimestamp": "2026-02-01T10:05:00Z"
+    }
+  ]
+}

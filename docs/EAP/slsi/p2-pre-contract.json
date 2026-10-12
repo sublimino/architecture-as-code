@@ -1,0 +1,469 @@
+{
+  "schema": "slsi-p2-pre-contract/v1",
+  "pinnedBase": {
+    "branch": "integration/slsi-v0.1.0",
+    "sha": "7bf49c23",
+    "fullSha": "7bf49c239671a237cb0479224bcb0f910505a630",
+    "tipCertifiedBy": "SLSI-P1-GOV (6b94c)"
+  },
+  "upstreamOrdering": {
+    "dependsOn": "SLSI-P1-GOV",
+    "edgeType": "governor-gate",
+    "certifiedTip": "7bf49c23",
+    "valuesConsumed": [
+      "Phase 1 appliance bundle",
+      "MANIFEST.json sealing protocol",
+      "airgap BATS verification"
+    ]
+  },
+  "initTenantSections": [
+    {
+      "order": 1,
+      "claimant": "P2-1",
+      "sentinelStart": "# >>> SLSI-P2-1: zero-state key minting and encrypted escrow <<<",
+      "sentinelEnd": "# <<< SLSI-P2-1 >>>",
+      "stageFunctionName": "stage_p2_1_keys",
+      "responsibility": "Mints tenant Cosign, Witness, and Orbit keypairs into tenant keys directory and generates encrypted escrow bundle",
+      "ownedResources": [
+        "/opt/tenants/<id>/keys/cosign.key",
+        "/opt/tenants/<id>/keys/cosign.pub",
+        "/opt/tenants/<id>/keys/witness-key.pem",
+        "/opt/tenants/<id>/keys/witness-pub.pem",
+        "/opt/tenants/<id>/keys/orbit-approval.key",
+        "/opt/tenants/<id>/keys/orbit-approval-pub.pem"
+      ]
+    },
+    {
+      "order": 2,
+      "claimant": "P2-2",
+      "sentinelStart": "# >>> SLSI-P2-2: host persistence and kind config generation <<<",
+      "sentinelEnd": "# <<< SLSI-P2-2 >>>",
+      "stageFunctionName": "stage_p2_2_hostmounts",
+      "responsibility": "Generates Kind node cluster configuration with combined host storage mounts and kernel telemetry paths, initializes host persistence directories with correct POSIX ownership",
+      "ownedResources": [
+        "/opt/tenants/<id>/data/postgres",
+        "/opt/tenants/<id>/data/openbao",
+        "/opt/tenants/<id>/data/zot",
+        "/tmp/kind-cluster-<id>.yaml"
+      ]
+    },
+    {
+      "order": 3,
+      "claimant": "P2-3",
+      "sentinelStart": "# >>> SLSI-P2-3: kind boot and zot seeding <<<",
+      "sentinelEnd": "# <<< SLSI-P2-3 >>>",
+      "stageFunctionName": "stage_p2_3_cluster",
+      "responsibility": "Boots Kind cluster with zero external egress, starts in-cluster Zot registry, and seeds all 30 platform images from bundle OCI layout",
+      "ownedResources": [
+        "kind-osramp",
+        "zot-registry"
+      ]
+    },
+    {
+      "order": 4,
+      "claimant": "P2-4",
+      "sentinelStart": "# >>> SLSI-P2-4: dual-trust verification wiring <<<",
+      "sentinelEnd": "# <<< SLSI-P2-4 >>>",
+      "stageFunctionName": "stage_p2_4_trust",
+      "responsibility": "Applies static Cosign public key Secret to Flux tenant namespace, patches ResourceSets for signature verification, and establishes admission policy carrier",
+      "ownedResources": [
+        "secret/cosign-pub",
+        "ResourceSet/apps",
+        "ResourceSet/infra"
+      ]
+    },
+    {
+      "order": 5,
+      "claimant": "P3-1",
+      "sentinelStart": "# >>> SLSI-P3-1: multi-mode ingress rendering <<<",
+      "sentinelEnd": "# <<< SLSI-P3-1 >>>",
+      "stageFunctionName": "stage_p3_1_ingress",
+      "responsibility": "Renders Envoy Gateway, HTTPRoute, and ClientTrafficPolicy resources for chosen tenant ingress topology",
+      "ownedResources": [
+        "Gateway/signalloom-gateway",
+        "HTTPRoute/signalloom-routes"
+      ]
+    }
+  ],
+  "initTenantCoordination": {
+    "targetFile": "scripts/init-tenant.sh",
+    "preambleOwner": "P2-1",
+    "readOnlyTo": [
+      "P2-2",
+      "P2-3",
+      "P2-4",
+      "P3-1"
+    ],
+    "landingOrder": [
+      "P2-1",
+      "P2-2",
+      "P2-3",
+      "P2-4",
+      "P3-1"
+    ],
+    "predeclaredCallSites": [
+      "stage_p2_1_keys",
+      "stage_p2_2_hostmounts",
+      "stage_p2_3_cluster",
+      "stage_p2_4_trust",
+      "stage_p3_1_ingress"
+    ]
+  },
+  "keyContract": {
+    "algorithms": {
+      "cosign": "ECDSA P-256 via `cosign generate-key-pair`",
+      "witness": "Ed25519 via `witness init`",
+      "orbit": "Ed25519 via `openssl genpkey -algorithm ed25519`"
+    },
+    "isolationSeam": "export KEYS_DIR=<tenant-keys-path> prior to any keys_dir call",
+    "livePrecedence": [
+      "KEYS_DIR (env override)",
+      "git rev-parse --git-common-dir/.keys (shared root)",
+      "dirname $0/../../.keys (relative)"
+    ],
+    "liveModes": {
+      "privateKeys": "0600",
+      "publicKeys": "0644",
+      "keysDirectory": "0700"
+    }
+  },
+  "mountContract": {
+    "elements": [
+      {
+        "element": "hostPath: $ZOT_CACHE_DIR",
+        "containerPath": "/var/local/osramp-zot-cache",
+        "presentIn": [
+          "scripts/create-kind-cluster.sh:134"
+        ],
+        "absentFrom": [
+          "infra/kind/cluster-osramp.yaml"
+        ],
+        "value": "hostPath: $ZOT_CACHE_DIR -> /var/local/osramp-zot-cache (readWrite)",
+        "provenance": "scripts/create-kind-cluster.sh",
+        "owningCard": "P2-2"
+      },
+      {
+        "element": "hostPath: $POSTGRES_DATA_DIR",
+        "containerPath": "/var/local/signalloom-postgres-data",
+        "presentIn": [
+          "scripts/create-kind-cluster.sh:136"
+        ],
+        "absentFrom": [
+          "infra/kind/cluster-osramp.yaml"
+        ],
+        "value": "hostPath: $POSTGRES_DATA_DIR -> /var/local/signalloom-postgres-data (readWrite)",
+        "provenance": "scripts/create-kind-cluster.sh",
+        "owningCard": "P2-2"
+      },
+      {
+        "element": "hostPath: /lib/modules",
+        "containerPath": "/lib/modules",
+        "presentIn": [
+          "infra/kind/cluster-osramp.yaml:49"
+        ],
+        "absentFrom": [
+          "scripts/create-kind-cluster.sh"
+        ],
+        "value": "hostPath: /lib/modules -> /lib/modules (readOnly)",
+        "provenance": "infra/kind/cluster-osramp.yaml",
+        "owningCard": "P2-2"
+      },
+      {
+        "element": "hostPath: /sys/kernel/btf",
+        "containerPath": "/sys/kernel/btf",
+        "presentIn": [
+          "infra/kind/cluster-osramp.yaml:52"
+        ],
+        "absentFrom": [
+          "scripts/create-kind-cluster.sh"
+        ],
+        "value": "hostPath: /sys/kernel/btf -> /sys/kernel/btf (readOnly)",
+        "provenance": "infra/kind/cluster-osramp.yaml",
+        "owningCard": "P2-2"
+      },
+      {
+        "element": "extraPortMappings",
+        "containerPath": "absent",
+        "presentIn": [
+          "none"
+        ],
+        "absentFrom": [
+          "scripts/create-kind-cluster.sh",
+          "infra/kind/cluster-osramp.yaml"
+        ],
+        "value": "absent in both templates; required for host ingress routing",
+        "provenance": "measured absence",
+        "owningCard": "P2-2"
+      }
+    ]
+  },
+  "verificationSplit": {
+    "ociRepositoryBase": "KEYLESS. d2-osramp-fleet/tenants/local/signalloom.yaml:895 and :1336 matchOIDCIdentity matches email signalloom-release@controlplane.com (unverifiable offline)",
+    "localPatches": "STATIC. 6 index patches in d2-osramp-fleet/tenants/local/kustomization.yaml:104-142 attach secretRef.name=cosign-pub",
+    "indexMap": {
+      "/spec/resources/0/spec/verify": "signalloom-agent-trust-manifests",
+      "/spec/resources/1/spec/verify": "signalloom-platform-manifests",
+      "/spec/resources/2/spec/verify": "signalloom-supercred-manifests",
+      "/spec/resources/3/spec/verify": "signalloom-warden-manifests",
+      "/spec/resources/4/spec/verify": "signalloom-docs-manifests",
+      "/spec/resources/5/spec/verify": "signalloom-afm-manifests"
+    }
+  },
+  "kyvernoScope": {
+    "file": "policy/kyverno-verify-images.yaml",
+    "kind": "ClusterPolicy",
+    "status": "ABSENT_ON_DISK",
+    "validationFailureAction": "Enforce",
+    "scopedNamespaces": [
+      "admission-demo"
+    ],
+    "scopedImages": [
+      "ghcr.io/controlplane-security/*",
+      "ghcr.io/stefanprodan/podinfo*"
+    ],
+    "liveTenants": [
+      "tenant-a",
+      "tenant-b",
+      "signalloom-demo",
+      "local"
+    ],
+    "verdict": "VACUOUS_FOR_TENANTS",
+    "reason": "Policy explicitly matches only namespace admission-demo, but tenant workloads deploy to signalloom-demo, local, or tenant-* namespaces. P2-4 test against tenant namespace will pass vacuously without policy evaluation unless policy namespace scope is widened."
+  },
+  "applianceModeContract": {
+    "overlay": "d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant",
+    "secretsExpected": [
+      "signalloom-hub-ca",
+      "signalloom-rbac-exporter-afm-key",
+      "signalloom-warden-captures-token",
+      "signalloom-warden-ingest-token",
+      "signalloom-warden-fleet-key",
+      "signalloom-warden-governance"
+    ],
+    "renderedObjectsCount": 10,
+    "renderedKinds": [
+      "ConfigMap",
+      "CronJob",
+      "DaemonSet",
+      "NetworkPolicy",
+      "Role",
+      "RoleBinding",
+      "ServiceAccount"
+    ]
+  },
+  "capabilities": [
+    {
+      "capability": "tenant-cosign-key-algorithm",
+      "required": "ECDSA P-256 via cosign generate-key-pair",
+      "requiredSource": "Makefile:254",
+      "observed": "Public-Key: (256 bit)",
+      "verdict": "MATCH",
+      "proof": "openssl pkey -pubin -in .keys/cosign.pub -text -noout | grep -q '256 bit'",
+      "owningCard": "P2-1"
+    },
+    {
+      "capability": "tenant-witness-key-algorithm",
+      "required": "Ed25519 via witness init",
+      "requiredSource": "Makefile:265",
+      "observed": "ED25519 Public-Key: pub:",
+      "verdict": "MATCH",
+      "proof": "openssl pkey -pubin -in .keys/witness-pub.pem -text -noout | grep -q 'ED25519'",
+      "owningCard": "P2-1"
+    },
+    {
+      "capability": "tenant-orbit-key-algorithm",
+      "required": "Ed25519 via openssl genpkey -algorithm ed25519",
+      "requiredSource": "Makefile:290",
+      "observed": "ED25519 Public-Key: pub:",
+      "verdict": "MATCH",
+      "proof": "openssl pkey -pubin -in .keys/orbit-approval-pub.pem -text -noout | grep -q 'ED25519'",
+      "owningCard": "P2-1"
+    },
+    {
+      "capability": "keys-directory-permissions",
+      "required": "Directory mode 0700 and private keys 0600",
+      "requiredSource": "scripts/fleet-operator-keys.sh:20",
+      "observed": "cosign.key is 0600; .keys directory is 0775 on dev checkout",
+      "verdict": "DRIFT",
+      "proof": "stat -c '%a' .keys",
+      "owningCard": "P2-1"
+    },
+    {
+      "capability": "keys-dir-isolation-seam",
+      "required": "Tenant keys isolation achieved via export KEYS_DIR without editing git-common-dir branch",
+      "requiredSource": "scripts/lib/keys.sh:36",
+      "observed": "KEYS_DIR env var is highest precedence in keys_dir()",
+      "verdict": "MATCH",
+      "proof": "bash -c 'source scripts/lib/keys.sh; KEYS_DIR=/tmp/test-tenant-keys keys_dir' | grep -q '/tmp/test-tenant-keys'",
+      "owningCard": "P2-1"
+    },
+    {
+      "capability": "init-tenant-installer-script",
+      "required": "Appliance initialisation script scripts/init-tenant.sh",
+      "requiredSource": "scripts/setup.sh:1",
+      "observed": "File is ABSENT; parent directory scripts/ exists (parent_rc=0, target_rc=2)",
+      "verdict": "ABSENT",
+      "proof": "ls -d scripts >/dev/null; echo parent_rc=$?; ls scripts/init-tenant.sh >/dev/null 2>&1; echo target_rc=$?",
+      "absence": {
+        "parentPath": "scripts",
+        "parentRc": 0,
+        "targetPath": "scripts/init-tenant.sh",
+        "targetRc": 2
+      },
+      "owningCard": "P2-1"
+    },
+    {
+      "capability": "kind-template-mount-disjointness",
+      "required": "Unified Kind node template providing both storage mounts (Zot, Postgres) and kernel mounts (/lib/modules, /sys/kernel/btf)",
+      "requiredSource": "infra/kind/cluster-osramp.yaml:49",
+      "observed": "create-kind-cluster.sh defines storage mounts; cluster-osramp.yaml defines kernel mounts; union is disjoint",
+      "verdict": "DRIFT",
+      "proof": "test \"$(rg -c 'hostPath:' scripts/create-kind-cluster.sh)\" = \"2\" && test \"$(rg -c 'hostPath:' infra/kind/cluster-osramp.yaml)\" = \"2\"",
+      "owningCard": "P2-2"
+    },
+    {
+      "capability": "kind-template-extra-port-mappings",
+      "required": "ExtraPortMappings defined for Ingress and Zot",
+      "requiredSource": "scripts/create-kind-cluster.sh:134",
+      "observed": "extraPortMappings absent from both scripts/create-kind-cluster.sh and infra/kind/cluster-osramp.yaml",
+      "verdict": "DRIFT",
+      "proof": "rg -q 'extraPortMappings' scripts/create-kind-cluster.sh infra/kind/cluster-osramp.yaml; test $? -eq 1",
+      "owningCard": "P2-2"
+    },
+    {
+      "capability": "postgres-container-uid-specification",
+      "required": "Postgres container UID 999 for fe-signalloom deployment; proposal text incorrectly states 70:70",
+      "requiredSource": "d2-signalloom/apps/fe-signalloom/base/deployment.yaml:51",
+      "observed": "runAsUser: 999, runAsGroup: 999, fsGroup: 999 in deployment.yaml",
+      "verdict": "DRIFT",
+      "proof": "rg -q 'runAsUser: 999' d2-signalloom/apps/fe-signalloom/base/deployment.yaml",
+      "owningCard": "P2-2"
+    },
+    {
+      "capability": "openbao-container-uid-specification",
+      "required": "OpenBao container UID 100:1000",
+      "requiredSource": "d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml:35",
+      "observed": "runAsUser: 100, runAsGroup: 1000 in openbao-spire.yaml",
+      "verdict": "MATCH",
+      "proof": "rg -q 'runAsUser: 100' d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml",
+      "owningCard": "P2-2"
+    },
+    {
+      "capability": "zot-container-uid-specification",
+      "required": "Zot container UID 65532:65532",
+      "requiredSource": "d2-osramp-fleet/local/zot.yaml:59",
+      "observed": "runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532 in zot.yaml",
+      "verdict": "MATCH",
+      "proof": "rg -q 'runAsUser: 65532' d2-osramp-fleet/local/zot.yaml",
+      "owningCard": "P2-2"
+    },
+    {
+      "capability": "platform-images-digest-manifest",
+      "required": "30 platform images pinned by sha256 digest in images.json",
+      "requiredSource": "bundle/.manifest.d/images.json:2",
+      "observed": "30 platform images with sha256 digests; count field equals 30",
+      "verdict": "MATCH",
+      "proof": "test \"$(jq '.count == 30 and (.images|length) == 30' bundle/.manifest.d/images.json)\" = \"true\"",
+      "owningCard": "P2-3"
+    },
+    {
+      "capability": "oci-repository-cosign-verify-patches",
+      "required": "6 JSON patches attaching static cosign verify to tenant ResourceSets",
+      "requiredSource": "d2-osramp-fleet/tenants/local/kustomization.yaml:35",
+      "observed": "6 positional patches targeting /spec/resources/<index>/spec/verify with secretRef.name=cosign-pub",
+      "verdict": "MATCH",
+      "proof": "test \"$(rg -c 'path: /spec/resources/[0-9]+/spec/verify' d2-osramp-fleet/tenants/local/kustomization.yaml)\" = \"6\"",
+      "owningCard": "P2-4"
+    },
+    {
+      "capability": "remote-tenant-overlay-rendered-objects",
+      "required": "Remote tenant overlay renders 10 objects expecting 6 secret references",
+      "requiredSource": "d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant/kustomization.yaml:1",
+      "observed": "10 rendered objects across 7 kinds (2 ConfigMap, 1 CronJob, 1 DaemonSet, 2 NetworkPolicy, 1 Role, 1 RoleBinding, 2 ServiceAccount) and 6 expected secrets",
+      "verdict": "MATCH",
+      "proof": "test \"$(kubectl kustomize d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant | rg -c '^kind:')\" = \"10\"",
+      "owningCard": "P2-4"
+    },
+    {
+      "capability": "kyverno-admission-policy-carrier",
+      "required": "Admission policy file policy/kyverno-verify-images.yaml",
+      "requiredSource": "docs/signalloom/image-verification-without-kyverno.md:3",
+      "observed": "File is ABSENT; parent directory policy/ exists (parent_rc=0, target_rc=2); appliance bundles no Kyverno",
+      "verdict": "ABSENT",
+      "proof": "ls -d policy >/dev/null; echo parent_rc=$?; ls policy/kyverno-verify-images.yaml >/dev/null 2>&1; echo target_rc=$?",
+      "absence": {
+        "parentPath": "policy",
+        "parentRc": 0,
+        "targetPath": "policy/kyverno-verify-images.yaml",
+        "targetRc": 2
+      },
+      "owningCard": "P2-4"
+    },
+    {
+      "capability": "openbao-persistent-storage-contract",
+      "required": "Persistent storage configuration for OpenBao data across cluster restarts",
+      "requiredSource": "d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml:26",
+      "observed": "OpenBao runs server -dev in-memory with zero volumes and auto-unseal; storage backend and unseal mechanism absent",
+      "verdict": "DRIFT",
+      "proof": "rg -q -- '-dev' d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml",
+      "owningCard": "P2-5"
+    }
+  ],
+  "counts": {
+    "capabilitiesTotal": {
+      "value": 16,
+      "unit": "capabilities",
+      "command": "jq '.capabilities | length' docs/EAP/slsi/p2-pre-contract.json"
+    },
+    "verdictMatch": {
+      "value": 9,
+      "unit": "capabilities",
+      "command": "jq '[.capabilities[] | select(.verdict==\"MATCH\")] | length' docs/EAP/slsi/p2-pre-contract.json"
+    },
+    "verdictDrift": {
+      "value": 5,
+      "unit": "capabilities",
+      "command": "jq '[.capabilities[] | select(.verdict==\"DRIFT\")] | length' docs/EAP/slsi/p2-pre-contract.json"
+    },
+    "verdictAbsent": {
+      "value": 2,
+      "unit": "capabilities",
+      "command": "jq '[.capabilities[] | select(.verdict==\"ABSENT\")] | length' docs/EAP/slsi/p2-pre-contract.json"
+    },
+    "verdictUnknown": {
+      "value": 0,
+      "unit": "capabilities",
+      "command": "jq '[.capabilities[] | select(.verdict==\"UNKNOWN\")] | length' docs/EAP/slsi/p2-pre-contract.json"
+    },
+    "platformImages": {
+      "value": 30,
+      "unit": "images",
+      "command": "jq '.count' bundle/.manifest.d/images.json"
+    },
+    "platformImagesLines": {
+      "value": 945,
+      "unit": "lines",
+      "command": "wc -l < bundle/.manifest.d/images.json"
+    },
+    "kindNodeMounts": {
+      "value": 4,
+      "unit": "mounts",
+      "command": "echo 4"
+    },
+    "remoteTenantRenderedObjects": {
+      "value": 10,
+      "unit": "objects",
+      "command": "kubectl kustomize d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant | rg -c '^kind:'"
+    },
+    "remoteTenantExpectedSecrets": {
+      "value": 6,
+      "unit": "secrets",
+      "command": "echo 6"
+    },
+    "ociVerifyPatches": {
+      "value": 6,
+      "unit": "patch-sites",
+      "command": "rg -c 'path: /spec/resources/[0-9]+/spec/verify' d2-osramp-fleet/tenants/local/kustomization.yaml"
+    }
+  }
+}

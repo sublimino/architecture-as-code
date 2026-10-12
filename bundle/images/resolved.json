@@ -5,7 +5,7 @@
     "tag": "0.9.9",
     "manifestDigest": "sha256:0d613a47a04510a76e46728c41ee33663884765cfa3b6218bacd3f6cb7b6a557",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:21Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all cr.kagent.dev/kagent-dev/kagent/controller:0.9.9"
   },
   {
@@ -14,7 +14,7 @@
     "tag": "0.9.9",
     "manifestDigest": "sha256:c45a9f0cc0e9eeb2ee8b70d3ff78eaf44d24215231e53b50b9cea798dab7e5f9",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:22Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all cr.kagent.dev/kagent-dev/kagent/ui:0.9.9"
   },
   {
@@ -23,7 +23,7 @@
     "tag": "sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
     "manifestDigest": "sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:19Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff"
   },
   {
@@ -32,7 +32,7 @@
     "tag": "sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
     "manifestDigest": "sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:20Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04"
   },
   {
@@ -41,7 +41,7 @@
     "tag": "distroless-v1.38.3",
     "manifestDigest": "sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:12:57Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/envoyproxy/envoy:distroless-v1.38.3"
   },
   {
@@ -50,7 +50,7 @@
     "tag": "v1.8.2",
     "manifestDigest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:12:59Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/envoyproxy/gateway:v1.8.2"
   },
   {
@@ -59,7 +59,7 @@
     "tag": "13.1.0",
     "manifestDigest": "sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:00Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/grafana/grafana:13.1.0"
   },
   {
@@ -68,7 +68,7 @@
     "tag": "18.3-alpine",
     "manifestDigest": "sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:25Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/library/postgres:18.3-alpine"
   },
   {
@@ -77,7 +77,7 @@
     "tag": "latest",
     "manifestDigest": "sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:28Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all docker.io/mcp/grafana:latest"
   },
   {
@@ -86,7 +86,7 @@
     "tag": "v0.57.0",
     "manifestDigest": "sha256:632e0844d36d00b57ad73c55456eeed87e8967cdf0202e425c7652d214133da2",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:01Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/controlplaneio-fluxcd/flux-operator:v0.57.0"
   },
   {
@@ -95,7 +95,7 @@
     "tag": "v1.6.3",
     "manifestDigest": "sha256:16ada99456385100698a5d7adf90aba8a2089d987ab541c9566b6d7b0e897038",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:02Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/fluxcd/helm-controller:v1.6.3"
   },
   {
@@ -104,7 +104,7 @@
     "tag": "v1.9.4",
     "manifestDigest": "sha256:2b8bec54ffb6caf421bd2a6c005d27f567d5dd4db7feb55794fb51fcabd69b8f",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:02Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/fluxcd/kustomize-controller:v1.9.4"
   },
   {
@@ -113,7 +113,7 @@
     "tag": "v1.9.2",
     "manifestDigest": "sha256:9ce503e7bcb8493fafe2aaef0c2ac4396df4f6890256acf9cd444a2dcd2a69ed",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:03Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/fluxcd/notification-controller:v1.9.2"
   },
   {
@@ -122,7 +122,7 @@
     "tag": "v1.9.3",
     "manifestDigest": "sha256:ff8f3c92f1bcb433e858c948040c3a3393fe73f5dd72048a4502bfaf0a4c26cd",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:04Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/fluxcd/source-controller:v1.9.3"
   },
   {
@@ -131,7 +131,7 @@
     "tag": "1.1.14",
     "manifestDigest": "sha256:ace1de323f4abfe93865d558b47613ac4091df63f2045ef3210c6dd391d72f6b",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:28Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/kagent-dev/doc2vec/mcp:1.1.14"
   },
   {
@@ -140,7 +140,7 @@
     "tag": "0.9.9",
     "manifestDigest": "sha256:348ad33bd8fc0d888c490de7a48e8e21e7ebab8ef0450d4aa8ad3f4bde5e5cde",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:26Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/kagent-dev/kagent/app:0.9.9"
   },
   {
@@ -149,7 +149,7 @@
     "tag": "0.9.9",
     "manifestDigest": "sha256:e01479b52280b0eae9e2808cc68392ba98fd737782496ff256847257e6bb8ed1",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:25Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/kagent-dev/kagent/golang-adk:0.9.9"
   },
   {
@@ -158,7 +158,7 @@
     "tag": "0.2.1",
     "manifestDigest": "sha256:50b431281d3e32666f27a292962fd486aabaac157083a844d037c12137e353aa",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:23Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/kagent-dev/kagent/tools:0.2.1"
   },
   {
@@ -167,7 +167,7 @@
     "tag": "v2.1.2",
     "manifestDigest": "sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71",
     "mediaType": "application/vnd.oci.image.manifest.v1+json",
-    "resolvedAt": "2026-10-11T21:13:05Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all ghcr.io/project-zot/zot-linux-amd64:v2.1.2"
   },
   {
@@ -176,7 +176,7 @@
     "tag": "0.32.0",
     "manifestDigest": "sha256:d4a61c4607e2931bd2615bf3bcf8912669d11d194c44c77edd413e6301b50c5b",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:05Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all mirror.gcr.io/aquasec/trivy-operator:0.32.0"
   },
   {
@@ -185,7 +185,7 @@
     "tag": "v1.20.3",
     "manifestDigest": "sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:07Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/jetstack/cert-manager-cainjector:v1.20.3"
   },
   {
@@ -194,7 +194,7 @@
     "tag": "v1.20.3",
     "manifestDigest": "sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:08Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/jetstack/cert-manager-controller:v1.20.3"
   },
   {
@@ -203,7 +203,7 @@
     "tag": "v1.20.3",
     "manifestDigest": "sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:10Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/jetstack/cert-manager-webhook:v1.20.3"
   },
   {
@@ -212,7 +212,7 @@
     "tag": "2.8.1",
     "manifestDigest": "sha256:abb55b2165c60e8f97e473862c7a3123df6f67d44f592949577c29b8fb2df9d6",
     "mediaType": "application/vnd.oci.image.index.v1+json",
-    "resolvedAt": "2026-10-11T21:13:11Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/kiwigrid/k8s-sidecar:2.8.1"
   },
   {
@@ -221,7 +221,7 @@
     "tag": "v0.92.1",
     "manifestDigest": "sha256:74550ba3e8bf93f47bc574231090d340ae9c01d25cd11ff74799e65f9fdb9a48",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:13Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/prometheus-operator/prometheus-config-reloader:v0.92.1"
   },
   {
@@ -230,7 +230,7 @@
     "tag": "v0.92.1",
     "manifestDigest": "sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:15Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/prometheus-operator/prometheus-operator:v0.92.1"
   },
   {
@@ -239,7 +239,7 @@
     "tag": "v1.11.1-distroless",
     "manifestDigest": "sha256:6112664fd761bb964d8a2d3d0119d6c8402618a89edbb3a43c8f7b4090fb53c9",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:12Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/prometheus/node-exporter:v1.11.1-distroless"
   },
   {
@@ -248,7 +248,7 @@
     "tag": "v3.13.0-distroless",
     "manifestDigest": "sha256:f3b6aae627d96e7ad8256cdf6de5953247735117c6f577383fadb42efeeea7bc",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:16Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all quay.io/prometheus/prometheus:v3.13.0-distroless"
   },
   {
@@ -257,7 +257,7 @@
     "tag": "v2.19.1",
     "manifestDigest": "sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:17Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1"
   },
   {
@@ -266,7 +266,7 @@
     "tag": "v0.8.1",
     "manifestDigest": "sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41",
     "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
-    "resolvedAt": "2026-10-11T21:13:17Z",
+    "resolvedAt": "2026-10-11T21:28:22Z",
     "resolverCommand": "crane digest --platform all registry.k8s.io/metrics-server/metrics-server:v0.8.1"
   }
 ]

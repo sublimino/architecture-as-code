@@ -1,0 +1,29 @@
+[
+  {
+    "timestamp": "2026-01-02T03:04:05Z",
+    "spiffe_id": "spiffe://kusari.dev/ns/tenant-demo/sa/agent-runner",
+    "trust_domain": "kusari.dev",
+    "svid_type": "X509",
+    "ttl_seconds": 3600,
+    "pod_namespace": "tenant-demo",
+    "service_account": "agent-runner",
+    "selectors": [
+      "unix:uid:0",
+      "unix:gid:0"
+    ]
+  },
+  {
+    "timestamp": "2026-01-02T03:04:06Z",
+    "spiffe_id": "spiffe://kusari.dev/ns/tenant-demo/sa/agent-runner",
+    "trust_domain": "kusari.dev",
+    "svid_type": "X509",
+    "ttl_seconds": 3600,
+    "pod_namespace": "tenant-demo",
+    "service_account": "agent-runner",
+    "selectors": [
+      "k8s:ns:tenant-demo",
+      "k8s:sa:agent-runner",
+      "k8s:pod-uid:2f1c9e5a-0b7d-4c3a-9a21-7e6b5c4d3e2f"
+    ]
+  }
+]

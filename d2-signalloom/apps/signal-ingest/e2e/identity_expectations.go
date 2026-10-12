@@ -39,6 +39,11 @@ var identityRuleExpectations = []ruleExpectation{
 		Negative: "login/saas-login.json: alice logs in from GB (in vars.known_login_geos)",
 	},
 	{
+		Bundle: bundleIdentityAuth, Rule: "svid-attestation-downgrade", Findings: 1,
+		Positive: "svid-attestation.json: the unix-only SVID, attested outside vars.required_attestors (k8s)",
+		Negative: "svid-attestation.json: the k8s-attested SVID (in vars.required_attestors); the four selector-less svid-issuance.json SVIDs carry no attestation_selector_type and the has() guard skips them",
+	},
+	{
 		Bundle: bundleIdentityAuth, Rule: "svid-foreign-trust-domain", Findings: 1,
 		Positive: "svid-issuance.json: an SVID minted under trust_domain evil.example",
 		Negative: "svid-issuance.json: the three SVIDs minted under kusari.dev (in vars.trusted_domains)",
@@ -61,7 +66,7 @@ var identityWindowExpectations = []windowExpectation{
 
 // Totals over the identity corpus, cross-checked against the two tables above.
 const (
-	wantIdentityObservations = 12
-	wantIdentityFindings     = 9
+	wantIdentityObservations = 14
+	wantIdentityFindings     = 10
 	wantIdentityDecisions    = 1
 )

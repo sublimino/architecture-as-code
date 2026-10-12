@@ -6,6 +6,8 @@ package spirea
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -134,6 +136,21 @@ func (sc *SPIREIssuanceCollector) convertToObservation(event *SVIDIssuanceEvent)
 	if event.JWTID != "" {
 		labels["jwt_id"] = event.JWTID
 	}
+	// attestation_selector_type is the ONLY attestation signal the SVID issuance
+	// event genuinely carries: event.Selectors. The SPIRE workload/node attestor
+	// family is the type prefix of each selector (k8s, unix, docker, join_token,
+	// aws_iid, ...), which classifies HOW the workload was attested without ever
+	// emitting the selector VALUE, which can name a workload. A SVID attested only
+	// by `unix` (uid/gid, trivially forgeable in a shared PID namespace) where the
+	// policy expects `k8s` (API-server-verified pod identity) is an attestation
+	// downgrade; the identity-auth bundle's svid-attestation-downgrade rule reads
+	// this key. The event carries no separate "attestation method" field, so none
+	// is invented — this is the faithful projection of what the source has. Absent
+	// or malformed selectors project no key, so the rule's has() guard skips the
+	// record rather than reading an empty string.
+	if selType := attestationSelectorType(event.Selectors); selType != "" {
+		labels["attestation_selector_type"] = selType
+	}
 
 	actorHint := event.SPIFFEID
 	if actorHint == "" && saPrincipal != "" {
@@ -194,6 +211,37 @@ func (sc *SPIREIssuanceCollector) monitoringLoop() {
 			sc.tracker.EvictExpired(now, 1*time.Hour)
 		}
 	}
+}
+
+// attestationSelectorType reduces a SPIRE SVID's selectors to the sorted, distinct
+// set of their TYPE prefixes, joined with "+". A selector is "type:key:value" (or a
+// bare "type"); the prefix is everything before the first colon. Only the type is
+// kept — never the key or value — so the result is a closed-vocabulary attestor
+// classification (k8s, unix, docker, join_token, aws_iid, ...) and never a
+// workload identifier. Returns "" when no selector yields a non-empty type, so the
+// caller projects no label rather than an empty one.
+func attestationSelectorType(selectors []string) string {
+	seen := make(map[string]struct{}, len(selectors))
+	for _, sel := range selectors {
+		typ := sel
+		if i := strings.IndexByte(sel, ':'); i >= 0 {
+			typ = sel[:i]
+		}
+		typ = strings.TrimSpace(typ)
+		if typ == "" {
+			continue
+		}
+		seen[typ] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return ""
+	}
+	types := make([]string, 0, len(seen))
+	for typ := range seen {
+		types = append(types, typ)
+	}
+	sort.Strings(types)
+	return strings.Join(types, "+")
 }
 
 // Stats returns collector metrics.

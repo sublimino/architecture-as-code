@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:0d613a47a04510a76e46728c41ee33663884765cfa3b6218bacd3f6cb7b6a557",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "cr.kagent.dev/kagent-dev/kagent/controller@sha256:0d613a47a04510a76e46728c41ee33663884765cfa3b6218bacd3f6cb7b6a557"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:c45a9f0cc0e9eeb2ee8b70d3ff78eaf44d24215231e53b50b9cea798dab7e5f9",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "cr.kagent.dev/kagent-dev/kagent/ui@sha256:c45a9f0cc0e9eeb2ee8b70d3ff78eaf44d24215231e53b50b9cea798dab7e5f9"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1607,
+      "digest": "sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 493,
+      "digest": "sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/envoyproxy/envoy@sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 685,
+      "digest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/envoyproxy/gateway@sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1079,
+      "digest": "sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/grafana/grafana@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 10293,
+      "digest": "sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/library/postgres@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 4539,
+      "digest": "sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "index.docker.io/mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:632e0844d36d00b57ad73c55456eeed87e8967cdf0202e425c7652d214133da2",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/controlplaneio-fluxcd/flux-operator@sha256:632e0844d36d00b57ad73c55456eeed87e8967cdf0202e425c7652d214133da2"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 2382,
+      "digest": "sha256:16ada99456385100698a5d7adf90aba8a2089d987ab541c9566b6d7b0e897038",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/fluxcd/helm-controller@sha256:16ada99456385100698a5d7adf90aba8a2089d987ab541c9566b6d7b0e897038"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 2382,
+      "digest": "sha256:2b8bec54ffb6caf421bd2a6c005d27f567d5dd4db7feb55794fb51fcabd69b8f",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/fluxcd/kustomize-controller@sha256:2b8bec54ffb6caf421bd2a6c005d27f567d5dd4db7feb55794fb51fcabd69b8f"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 2382,
+      "digest": "sha256:9ce503e7bcb8493fafe2aaef0c2ac4396df4f6890256acf9cd444a2dcd2a69ed",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/fluxcd/notification-controller@sha256:9ce503e7bcb8493fafe2aaef0c2ac4396df4f6890256acf9cd444a2dcd2a69ed"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 2382,
+      "digest": "sha256:ff8f3c92f1bcb433e858c948040c3a3393fe73f5dd72048a4502bfaf0a4c26cd",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/fluxcd/source-controller@sha256:ff8f3c92f1bcb433e858c948040c3a3393fe73f5dd72048a4502bfaf0a4c26cd"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 685,
+      "digest": "sha256:ace1de323f4abfe93865d558b47613ac4091df63f2045ef3210c6dd391d72f6b",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/kagent-dev/doc2vec/mcp@sha256:ace1de323f4abfe93865d558b47613ac4091df63f2045ef3210c6dd391d72f6b"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:348ad33bd8fc0d888c490de7a48e8e21e7ebab8ef0450d4aa8ad3f4bde5e5cde",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/kagent-dev/kagent/app@sha256:348ad33bd8fc0d888c490de7a48e8e21e7ebab8ef0450d4aa8ad3f4bde5e5cde"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:e01479b52280b0eae9e2808cc68392ba98fd737782496ff256847257e6bb8ed1",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/kagent-dev/kagent/golang-adk@sha256:e01479b52280b0eae9e2808cc68392ba98fd737782496ff256847257e6bb8ed1"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 1609,
+      "digest": "sha256:50b431281d3e32666f27a292962fd486aabaac157083a844d037c12137e353aa",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/kagent-dev/kagent/tools@sha256:50b431281d3e32666f27a292962fd486aabaac157083a844d037c12137e353aa"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "size": 5236,
+      "digest": "sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "ghcr.io/project-zot/zot-linux-amd64@sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1363,
+      "digest": "sha256:d4a61c4607e2931bd2615bf3bcf8912669d11d194c44c77edd413e6301b50c5b",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "mirror.gcr.io/aquasec/trivy-operator@sha256:d4a61c4607e2931bd2615bf3bcf8912669d11d194c44c77edd413e6301b50c5b"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1728,
+      "digest": "sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/jetstack/cert-manager-cainjector@sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1728,
+      "digest": "sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/jetstack/cert-manager-controller@sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1728,
+      "digest": "sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/jetstack/cert-manager-webhook@sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "size": 3895,
+      "digest": "sha256:abb55b2165c60e8f97e473862c7a3123df6f67d44f592949577c29b8fb2df9d6",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/kiwigrid/k8s-sidecar@sha256:abb55b2165c60e8f97e473862c7a3123df6f67d44f592949577c29b8fb2df9d6"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1694,
+      "digest": "sha256:74550ba3e8bf93f47bc574231090d340ae9c01d25cd11ff74799e65f9fdb9a48",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/prometheus-operator/prometheus-config-reloader@sha256:74550ba3e8bf93f47bc574231090d340ae9c01d25cd11ff74799e65f9fdb9a48"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1694,
+      "digest": "sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/prometheus-operator/prometheus-operator@sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1390,
+      "digest": "sha256:6112664fd761bb964d8a2d3d0119d6c8402618a89edbb3a43c8f7b4090fb53c9",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/prometheus/node-exporter@sha256:6112664fd761bb964d8a2d3d0119d6c8402618a89edbb3a43c8f7b4090fb53c9"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 2010,
+      "digest": "sha256:f3b6aae627d96e7ad8256cdf6de5953247735117c6f577383fadb42efeeea7bc",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "quay.io/prometheus/prometheus@sha256:f3b6aae627d96e7ad8256cdf6de5953247735117c6f577383fadb42efeeea7bc"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1728,
+      "digest": "sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "size": 1728,
+      "digest": "sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "registry.k8s.io/metrics-server/metrics-server@sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41"
+      }
+    }
+  ]
+}

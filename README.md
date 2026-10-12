@@ -195,7 +195,7 @@ The later phases use this evidence:
 
 - Phase 1: Grype scans and `vexctl` triage.
 - Phase 2: Attested tests and VEX evidence.
-- Phase 3: Witness promotion policy, Kyverno admission control, and trust revocation.
+- Phase 3: Witness promotion policy, CEL admission control, and trust revocation.
 - Phase 4: The agent remediation harness.
 
 ### GitOps delivery (Flux D2, gitless GitOps)
@@ -241,7 +241,7 @@ Local mode keeps this model without GitHub:
 | [`scripts/`](scripts/) | The scripts behind the make targets: `setup.sh`, local publish and sign, the VEX, promotion, admission, and revocation demos, attested tests, and CI ([`scripts/ci/README.md`](scripts/ci/README.md)) |
 | [`test/`](test/) | Repository-level BATS suites and the Playwright acceptance suite ([`test/acceptance/`](test/acceptance/)). See [`TESTING.md`](TESTING.md). |
 | [`bin/`](bin/) | Helper executables: `agent-git`, `node-capability-guard`, `policy-compiler` |
-| [`policy/`](policy/) | The Witness promotion policy, the Kyverno image verification policy, and [compliance frameworks](policy/frameworks/README.md) |
+| [`policy/`](policy/) | The Witness promotion policy, the CEL image-trust admission policies in [`policy/cel/`](policy/cel/), and [compliance frameworks](policy/frameworks/README.md) |
 | [`config/`](config/) | `security-invariants.yaml` |
 | [`nono/`](nono/) | The `nono` sandbox profile for worktree agents |
 | [`agent/`](agent/) | The phase 4 remediation harness and its [guardrails](agent/GUARDRAILS.md) |
@@ -384,12 +384,12 @@ The demo does these steps:
 
 ```bash
 make promotion-demo    # Witness policy gate: approved and tampered artifacts
-make admission-demo    # Kyverno admission: signed image admitted, unsigned image denied
+make admission-demo    # CEL admission: digest-pinned image admitted, untrusted denied
 make revocation-demo   # Revoke artifact trust and show that Flux blocks the deployment
 ```
 
 The promotion gate checks artifacts against a signed Witness policy. The
-admission demo shows that Kyverno stops an unsigned image. The revocation demo
+admission demo shows that a CEL ValidatingAdmissionPolicy stops an untrusted image. The revocation demo
 pushes an unsigned artifact and shows that Flux blocks it.
 
 ### Remediation agent demo (phase 4)
@@ -506,6 +506,6 @@ Available now:
 
 Roadmap:
 
-1. Witness attestation checks at admission time, with Kyverno.
+1. Witness attestation checks at admission time. Undelivered: this needs Sigstore policy-controller.
 2. Keyless workload signing through Fulcio and Kubernetes OIDC.
 3. Works Council sign-off and the final GDPR Article 6(1)(f) lawful basis for production.

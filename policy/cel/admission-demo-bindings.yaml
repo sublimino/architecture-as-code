@@ -1,0 +1,68 @@
+# CEL ValidatingAdmissionPolicyBindings — admission-demo namespace
+#
+# These bindings are what `make admission-demo` applies to demonstrate the
+# D4/P2-4 deliverable offline: a digest-pinned platform image is admitted,
+# an untrusted or unpinned one is rejected at the API server before it ever
+# runs. They replace the Kyverno ClusterPolicy that used to live at
+# policy/kyverno-verify-images.yaml (OSD-7).
+#
+# Why separate bindings rather than editing the platform ones:
+#
+#   * policy/cel/require-image-digest.yaml binds with validationActions
+#     ["Warn"] platform-wide, deliberately. It is a lane-keeping control
+#     whose residual is PRICED in risk/ and published in
+#     docs/policy-as-versioned-code/INTEGRATION.md. Promoting that binding
+#     to Deny to make a demo pass would silently reprice a published risk
+#     posture and change the enforcement posture of every namespace
+#     carrying signalloom.io/image-policy=enforced. A binding is the
+#     correct unit of scope precisely so the policy body need not be
+#     duplicated to vary the action.
+#
+#   * The demo namespace is selected by kubernetes.io/metadata.name rather
+#     than by the signalloom.io/image-policy label, so applying the demo
+#     cannot widen enforcement onto a platform namespace by accident, and
+#     a platform namespace cannot pick up the demo's harder Deny by
+#     acquiring a label.
+#
+# No controller, no CRD, no image: the API server evaluates these. That is
+# the whole point -- no entry in bundle/.manifest.d/images.json is an
+# admission controller, so the Kyverno path could never have run
+# air-gapped. (Stated without a count on purpose: the manifest's length is
+# a moving target as first-party apps are added, and a hardcoded number in
+# a comment is a claim with an expiry date.)
+#
+# What CEL does NOT do here, stated plainly: it performs no cryptographic
+# signature verification, because CEL cannot call out of the API server.
+# The signature guarantee is Flux's, one layer earlier -- only
+# cosign-verified artefacts reach the in-cluster Zot registry. These
+# bindings enforce "digest-pinned, and from that registry". See
+# docs/signalloom/image-verification-without-kyverno.md.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-admission-demo-trusted-registry-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-require-trusted-registry
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: admission-demo
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-admission-demo-image-digest-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-require-image-digest
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: admission-demo

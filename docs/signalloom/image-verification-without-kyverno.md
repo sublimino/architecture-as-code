@@ -121,7 +121,41 @@ admission layer is required.
 | Control | Mechanism | Status |
 | :---- | :---- | :---- |
 | OCI artifact signature verification | Flux `verify.provider: cosign` | **Implemented** (fleet tenants) |
-| Trusted registry enforcement (pods) | CEL ValidatingAdmissionPolicy | **Template ready** (this doc) |
-| Image tag restrictions (no `latest`) | CEL ValidatingAdmissionPolicy | Template ready |
-| Cryptographic image verification at admission | Sigstore policy-controller | **Not yet deployed** (prod only) |
-| Kyverno `verifyImages` | Kyverno ClusterPolicy | **Demo only** (`policy/kyverno-verify-images.yaml`) — not required in the Cilium path |
+| Trusted registry enforcement (pods) | CEL ValidatingAdmissionPolicy | **Adopted** — `policy/cel/require-trusted-registry.yaml`, binding `Deny` |
+| Image tag restrictions (no `latest`, require digest) | CEL ValidatingAdmissionPolicy | **Adopted** — `policy/cel/require-image-digest.yaml`, binding `Warn` platform-wide, raised to `Deny` in `admission-demo` by `policy/cel/admission-demo-bindings.yaml` |
+| Cryptographic image verification at admission | Sigstore policy-controller | **Not deployed.** This is the one capability lost with Kyverno, and nothing in the bundle replaces it |
+| Kyverno `verifyImages` | Kyverno ClusterPolicy | **Removed (OSD-7).** See below |
+
+### OSD-7 — why Kyverno went, and what it cost
+
+Kyverno was never a working control in this repo, only an apparent one:
+
+- It appears in **zero** files under `d2-osramp-fleet/` and `d2-infra/`, **zero** entries in
+  `bundle/.manifest.d/images.json`, and **zero** lines of either source image list. The appliance
+  bundled no admission controller at all. (Counts are deliberately not restated here — that manifest
+  carries its own `count` field and grows as first-party apps land.)
+- `policy/kyverno-verify-images.yaml` was delivered by **no** Kustomization and **no** ResourceSet —
+  only imperatively, by `scripts/admission-demo.sh`, which `kubectl apply`d Kyverno's upstream
+  `install.yaml` from a GitHub release URL. An air-gapped appliance cannot make that fetch.
+
+So the P2-4 / D4 deliverable — *a digest-pinned platform image is admitted and an untrusted one
+rejected* — was unsatisfiable as built. The CEL path satisfies it with no extra image.
+
+**What was genuinely lost, stated plainly:** cryptographic signature verification *at admission*.
+CEL cannot call out of the API server, so no CEL expression can verify a cosign signature. Option 3
+above (Flux + CEL) is now the shipped position, and its security claim is narrower than Kyverno's
+would have been: Flux verifies the signature before an artefact reaches the in-cluster Zot registry,
+and admission enforces "digest-pinned, and from that registry". That is sound **only while the
+registry's contents are exclusively Flux-placed** — anything else with push access to Zot bypasses
+the signature gate entirely while still satisfying admission. Sigstore policy-controller remains the
+replacement for defence in depth, and it is not deployed.
+
+**Also fixed while adopting it.** `require-trusted-registry.yaml` carried
+`object.spec.initContainers.orValue([])`, which *compiles* and then fails at eval with
+`no such key: initContainers` on any pod declaring none — `.orValue()` is a method on an optional,
+and plain selection of an absent key errors before it is reached. With `failurePolicy: Fail` that
+rejected every ordinary pod in any namespace carrying `signalloom.io/image-policy=enforced`: an
+outage, not a guardrail, and the likeliest reason the policy was never wired into a Kustomization.
+The fix is optional field selection, `object.spec.?initContainers.orValue([])`. Measured with cel-go
+under `cel.OptionalTypes()` (the API server's environment) and pinned by
+`d2-signalloom/apps/fleet-manager/image_trust_vap_test.go`.

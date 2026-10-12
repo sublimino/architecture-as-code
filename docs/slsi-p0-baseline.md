@@ -15,7 +15,7 @@ The Signal Loom Design Partner Appliance Self-Initialisation Pipeline (SLSI) mis
 | Worktree root | `/home/andy/src/.worktrees/32e03/osramp-demo` (1 of 561+ worktrees) |
 
 **Baseline-of-record vs current tip — two distinct hashes, stated explicitly.**
-At capture time `integration/slsi-v0.1.1` and the task worktree HEAD were the same object, `504405b9`. P0 commits its baseline evidence onto `P0-w1`; **the `refs/heads/integration/slsi-v0.1.1` ref itself has not moved** — the phase Governor advances it upon certification.
+At capture time `integration/slsi-v0.1.1` and the task worktree HEAD were the same object, `504405b9`. P0 commits its baseline evidence onto `P0-w1`. **The `refs/heads/integration/slsi-v0.1.1` ref itself has not moved** — the phase Governor advances it upon certification.
 
 `git merge-base --is-ancestor 504405b9 HEAD` exits 0.
 
@@ -68,7 +68,7 @@ All suites were executed individually. Totals were deterministically parsed from
 ### Non-Vacuity Proof & Reproducibility
 
 - **Non-Vacuity:** Every green suite executed real assertions (42 in obscel, 1354 in signal-ingest, 776 in CEL conformance, 41 in kusari-e2e). `scripts/check-vacuous-assertions.sh` reported 1 FINDING (VAC007/VAC008 dead allowlist entries), confirming no uninspected passes.
-- **Reproducibility (Phase G):** Back-to-back re-run of `test-obscel` and `cel-conformance` with `-count=1` yielded identical totals (obscel: 42 pass; cel-conformance: 776 sub-tests pass). Sorted diff in `docs/slsi-p0-baseline/run2-diff.txt` is **0 bytes**.
+- **Reproducibility (Phase G):** Back-to-back re-run of `test-obscel` and `cel-conformance` with `-count=1` yielded identical totals (obscel: 42 pass. cel-conformance: 776 sub-tests pass). Sorted diff in `docs/slsi-p0-baseline/run2-diff.txt` is **0 bytes**.
 
 ## Dual-Cluster Containment Score
 
@@ -148,31 +148,31 @@ Exactly 26 worktrees not attached to an active card:
 ### DOC-7: 7 Dangling Commits
 
 All 7 commits are rebase/amend leftovers whose content is already integrated at HEAD:
-1. `72e4d8bc` (2026-09-11 09:16:33 +0100, Andrew Martin): `feat(signalloom): certify SFAS Phase 4 Governor and record final Programme sign-off` [SHA: `72e4d8bcc075e676f5c5f2d323b4ab12f2ef77bf`]. Forensic verdict: Rebase/amend leftover from SFAS Programme certification; content already integrated at HEAD.
-2. `8a229448` (2026-09-10 22:28:09 +0100, Andrew Martin): `feat(signalloom): implement real-time temporal delegation edge revocation on stun containment` [SHA: `8a22944847fde0fe51bcb40d40729f6ce0bf098c`]. Forensic verdict: Prior iteration of temporal edge revocation commit; integrated via subsequent merge commit at HEAD.
-3. `3c7ca874` (2026-09-10 21:59:35 +0100, Andrew Martin): `feat(signalloom): wire Tab 5 timeline audit events to interactive cryptographic authorization proof drawer` [SHA: `3c7ca8744710409f07290e8a1c9c74df045c26d2`]. Forensic verdict: Prior amend iteration of timeline audit drawer wiring; integrated at HEAD.
-4. `82e70cea` (2026-09-10 21:45:42 +0100, Andrew Martin): `feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2` [SHA: `82e70cea98368b78205d7fe360a57c8491cba662`]. Forensic verdict: Draft commit superseded by subsequent amended commit in SLAC mission; changes present at HEAD.
-5. `fab8555a` (2026-09-10 21:45:00 +0100, Andrew Martin): `feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2` [SHA: `fab8555a21c896f18f0d8d9ce5af437dde14f90d`]. Forensic verdict: Pre-amend parent of `82e70cea`; superseded during authoring and integrated at HEAD.
-6. `5209a692` (2026-09-09 15:58:34 +0100, Andrew Martin): `fix(signalloom): preserve previous pod logs on step 2 failure and broaden 40x regex` [SHA: `5209a692b7bb5f24d0b7036fe5b062fe47cf31b0`]. Forensic verdict: Bugfix rebased into main line during SLAC Phase 2; changes integrated at HEAD.
-7. `82781937` (2026-09-09 01:36:41 +0100, Andrew Martin): `docs(signalloom): record Phase 3 discovery preflight proof (SLAC-P3-PRE)` [SHA: `827819374fe8827df0f9b1f61baecc7f2ea56efa`]. Forensic verdict: Preflight proof document commit amended into subsequent release; proof content present at HEAD.
+1. `72e4d8bc` (2026-09-11 09:16:33 +0100, Andrew Martin): `feat(signalloom): certify SFAS Phase 4 Governor and record final Programme sign-off` [SHA: `72e4d8bcc075e676f5c5f2d323b4ab12f2ef77bf`]. Forensic verdict: Rebase/amend leftover from SFAS Programme certification. Content already integrated at HEAD.
+2. `8a229448` (2026-09-10 22:28:09 +0100, Andrew Martin): `feat(signalloom): implement real-time temporal delegation edge revocation on stun containment` [SHA: `8a22944847fde0fe51bcb40d40729f6ce0bf098c`]. Forensic verdict: Prior iteration of temporal edge revocation commit. Integrated via subsequent merge commit at HEAD.
+3. `3c7ca874` (2026-09-10 21:59:35 +0100, Andrew Martin): `feat(signalloom): wire Tab 5 timeline audit events to interactive cryptographic authorization proof drawer` [SHA: `3c7ca8744710409f07290e8a1c9c74df045c26d2`]. Forensic verdict: Prior amend iteration of timeline audit drawer wiring. Integrated at HEAD.
+4. `82e70cea` (2026-09-10 21:45:42 +0100, Andrew Martin): `feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2` [SHA: `82e70cea98368b78205d7fe360a57c8491cba662`]. Forensic verdict: Draft commit superseded by subsequent amended commit in SLAC mission. Changes present at HEAD.
+5. `fab8555a` (2026-09-10 21:45:00 +0100, Andrew Martin): `feat(signalloom): embed 7-hop attested authorization chain into Agent Dossier Tab 2` [SHA: `fab8555a21c896f18f0d8d9ce5af437dde14f90d`]. Forensic verdict: Pre-amend parent of `82e70cea`. Superseded during authoring and integrated at HEAD.
+6. `5209a692` (2026-09-09 15:58:34 +0100, Andrew Martin): `fix(signalloom): preserve previous pod logs on step 2 failure and broaden 40x regex` [SHA: `5209a692b7bb5f24d0b7036fe5b062fe47cf31b0`]. Forensic verdict: Bugfix rebased into main line during SLAC Phase 2. Changes integrated at HEAD.
+7. `82781937` (2026-09-09 01:36:41 +0100, Andrew Martin): `docs(signalloom): record Phase 3 discovery preflight proof (SLAC-P3-PRE)` [SHA: `827819374fe8827df0f9b1f61baecc7f2ea56efa`]. Forensic verdict: Preflight proof document commit amended into subsequent release. Proof content present at HEAD.
 
 ## Collision Map: Future Appliance Scripts
 
 All 4 future appliance scripts are confirmed **ABSENT** at commit `504405b9`:
 
-| Script | Intended Path | Authoring Card | Current Status |
+| Script | Intended Path (not yet created) | Authoring Card | Current Status |
 | :--- | :--- | :--- | :--- |
-| Core Packaging Toolchain | `scripts/package-tenant-bundle.sh` | **P1-1** | `ABSENT_VERIFIED` |
-| Cryptographic Bootstrap & Kind Persistent Host Engine | `scripts/init-tenant.sh` | **P2-1** | `ABSENT_VERIFIED` |
-| In-Place Day-2 Upgrade Engine | `scripts/upgrade-tenant.sh` | **P3-2** | `ABSENT_VERIFIED` |
-| Local Audit Bundler & Telemetry Diagnostics | `scripts/export-diagnostics.sh` | **P3-3** | `ABSENT_VERIFIED` |
+| Core Packaging Toolchain | *scripts/package-tenant-bundle.sh* | **P1-1** | `ABSENT_VERIFIED` |
+| Cryptographic Bootstrap & Kind Persistent Host Engine | *scripts/init-tenant.sh* | **P2-1** | `ABSENT_VERIFIED` |
+| In-Place Day-2 Upgrade Engine | *scripts/upgrade-tenant.sh* | **P3-2** | `ABSENT_VERIFIED` |
+| Local Audit Bundler & Telemetry Diagnostics | *scripts/export-diagnostics.sh* | **P3-3** | `ABSENT_VERIFIED` |
 
-No card prior to the designated authoring card may create or stub these scripts.
+No card before the designated authoring card may create or stub these scripts.
 
 ## Settled Decision Guards
 
-- **Decision 8 (Settled):** Relationship to ADR-12 — the appliance is a superset, and `remote-tenant` is one of its modes. `APPLIANCE_MODE=hub|attached` selects mode. `hub` runs local issuers/ingest; `attached` renders `signalloom-warden-overlays/remote-tenant` and consumes central issuer secrets. ADR-12 is not superseded; no separate product line is permitted.
-- **Decision 9 (Settled):** Release trust by digest pin plus bundle-time signing. Third-party platform images are pinned by immutable digest and signed at bundle time with the SLSI release key; no separate release signing pipeline is built. The release private key stays in OpenBao transit KMS; the appliance ships only the public key. Tag-only image references anywhere in the bundle are a defect.
+- **Decision 8 (Settled):** Relationship to ADR-12 — the appliance is a superset, and `remote-tenant` is one of its modes. `APPLIANCE_MODE=hub|attached` selects mode. `hub` runs local issuers/ingest. `attached` renders `signalloom-warden-overlays/remote-tenant` and consumes central issuer secrets. ADR-12 is not superseded. No separate product line is permitted.
+- **Decision 9 (Settled):** Release trust by digest pin plus bundle-time signing. Third-party platform images are pinned by immutable digest and signed at bundle time with the SLSI release key. No separate release signing pipeline is built. The release private key stays in OpenBao transit KMS. The appliance ships only the public key. Tag-only image references anywhere in the bundle are a defect.
 
 ## Handoff Contract for Downstream Cards
 

@@ -1,0 +1,945 @@
+{
+  "schema": "slsi-bundle-images/v1",
+  "imagesSchemaVersion": "slsi-bundle-images/v1",
+  "generatedAtUtc": "2026-10-11T21:28:22Z",
+  "baseSha": "797beffa2447375f7eb9e0c3220a2da1a635d323",
+  "count": 30,
+  "sourceLists": [
+    {
+      "path": "scripts/foundation-images.txt",
+      "lineCount": 28,
+      "entriesResolved": 22
+    },
+    {
+      "path": "scripts/kagent-images.txt",
+      "lineCount": 74,
+      "entriesResolved": 8
+    }
+  ],
+  "images": [
+    {
+      "ref": "cr.kagent.dev/kagent-dev/kagent/controller:0.9.9",
+      "resolvedRef": "cr.kagent.dev/kagent-dev/kagent/controller@sha256:0d613a47a04510a76e46728c41ee33663884765cfa3b6218bacd3f6cb7b6a557",
+      "logicalName": "controller",
+      "sourceRef": "cr.kagent.dev/kagent-dev/kagent/controller:0.9.9",
+      "digest": "sha256:0d613a47a04510a76e46728c41ee33663884765cfa3b6218bacd3f6cb7b6a557",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "cr.kagent.dev/kagent-dev/kagent/ui:0.9.9",
+      "resolvedRef": "cr.kagent.dev/kagent-dev/kagent/ui@sha256:c45a9f0cc0e9eeb2ee8b70d3ff78eaf44d24215231e53b50b9cea798dab7e5f9",
+      "logicalName": "ui",
+      "sourceRef": "cr.kagent.dev/kagent-dev/kagent/ui:0.9.9",
+      "digest": "sha256:c45a9f0cc0e9eeb2ee8b70d3ff78eaf44d24215231e53b50b9cea798dab7e5f9",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "resolvedRef": "docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "logicalName": "netassertv2-l4-client",
+      "sourceRef": "docker.io/controlplane/netassertv2-l4-client@sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "digest": "sha256:9b040bbe53cf0ffc6a9dd46570d463b0603aa90c69ad2d5f52836d2cea1464ff",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "resolvedRef": "docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "logicalName": "netassertv2-packet-sniffer",
+      "sourceRef": "docker.io/controlplane/netassertv2-packet-sniffer@sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "digest": "sha256:faa2252d5fdfad998f2cef228c2ae1fd6a4a5f626dfb580175f09a1018054a04",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1607,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/envoyproxy/envoy:distroless-v1.38.3",
+      "resolvedRef": "docker.io/envoyproxy/envoy@sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8",
+      "logicalName": "envoy",
+      "sourceRef": "docker.io/envoyproxy/envoy:distroless-v1.38.3",
+      "digest": "sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 493,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/envoyproxy/gateway:v1.8.2",
+      "resolvedRef": "docker.io/envoyproxy/gateway@sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26",
+      "logicalName": "gateway",
+      "sourceRef": "docker.io/envoyproxy/gateway:v1.8.2",
+      "digest": "sha256:6b86fcef4f012fff1edc452db891ae6d09757e385305c73f5022c32550258d26",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 685,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/grafana/grafana:13.1.0",
+      "resolvedRef": "docker.io/grafana/grafana@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63",
+      "logicalName": "grafana",
+      "sourceRef": "docker.io/grafana/grafana:13.1.0",
+      "digest": "sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1079,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/library/postgres:18.3-alpine",
+      "resolvedRef": "docker.io/library/postgres@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7",
+      "logicalName": "postgres",
+      "sourceRef": "docker.io/library/postgres:18.3-alpine",
+      "digest": "sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/386",
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/riscv64",
+        "linux/s390x",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 10293,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "docker.io/mcp/grafana:latest",
+      "resolvedRef": "docker.io/mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+      "logicalName": "grafana",
+      "sourceRef": "docker.io/mcp/grafana:latest",
+      "digest": "sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 4539,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/controlplaneio-fluxcd/flux-operator:v0.57.0",
+      "resolvedRef": "ghcr.io/controlplaneio-fluxcd/flux-operator@sha256:632e0844d36d00b57ad73c55456eeed87e8967cdf0202e425c7652d214133da2",
+      "logicalName": "flux-operator",
+      "sourceRef": "ghcr.io/controlplaneio-fluxcd/flux-operator:v0.57.0",
+      "digest": "sha256:632e0844d36d00b57ad73c55456eeed87e8967cdf0202e425c7652d214133da2",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/fluxcd/helm-controller:v1.6.3",
+      "resolvedRef": "ghcr.io/fluxcd/helm-controller@sha256:16ada99456385100698a5d7adf90aba8a2089d987ab541c9566b6d7b0e897038",
+      "logicalName": "helm-controller",
+      "sourceRef": "ghcr.io/fluxcd/helm-controller:v1.6.3",
+      "digest": "sha256:16ada99456385100698a5d7adf90aba8a2089d987ab541c9566b6d7b0e897038",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 2382,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/fluxcd/kustomize-controller:v1.9.4",
+      "resolvedRef": "ghcr.io/fluxcd/kustomize-controller@sha256:2b8bec54ffb6caf421bd2a6c005d27f567d5dd4db7feb55794fb51fcabd69b8f",
+      "logicalName": "kustomize-controller",
+      "sourceRef": "ghcr.io/fluxcd/kustomize-controller:v1.9.4",
+      "digest": "sha256:2b8bec54ffb6caf421bd2a6c005d27f567d5dd4db7feb55794fb51fcabd69b8f",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 2382,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/fluxcd/notification-controller:v1.9.2",
+      "resolvedRef": "ghcr.io/fluxcd/notification-controller@sha256:9ce503e7bcb8493fafe2aaef0c2ac4396df4f6890256acf9cd444a2dcd2a69ed",
+      "logicalName": "notification-controller",
+      "sourceRef": "ghcr.io/fluxcd/notification-controller:v1.9.2",
+      "digest": "sha256:9ce503e7bcb8493fafe2aaef0c2ac4396df4f6890256acf9cd444a2dcd2a69ed",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 2382,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/fluxcd/source-controller:v1.9.3",
+      "resolvedRef": "ghcr.io/fluxcd/source-controller@sha256:ff8f3c92f1bcb433e858c948040c3a3393fe73f5dd72048a4502bfaf0a4c26cd",
+      "logicalName": "source-controller",
+      "sourceRef": "ghcr.io/fluxcd/source-controller:v1.9.3",
+      "digest": "sha256:ff8f3c92f1bcb433e858c948040c3a3393fe73f5dd72048a4502bfaf0a4c26cd",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 2382,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/kagent-dev/doc2vec/mcp:1.1.14",
+      "resolvedRef": "ghcr.io/kagent-dev/doc2vec/mcp@sha256:ace1de323f4abfe93865d558b47613ac4091df63f2045ef3210c6dd391d72f6b",
+      "logicalName": "mcp",
+      "sourceRef": "ghcr.io/kagent-dev/doc2vec/mcp:1.1.14",
+      "digest": "sha256:ace1de323f4abfe93865d558b47613ac4091df63f2045ef3210c6dd391d72f6b",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 685,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/kagent-dev/kagent/app:0.9.9",
+      "resolvedRef": "ghcr.io/kagent-dev/kagent/app@sha256:348ad33bd8fc0d888c490de7a48e8e21e7ebab8ef0450d4aa8ad3f4bde5e5cde",
+      "logicalName": "app",
+      "sourceRef": "ghcr.io/kagent-dev/kagent/app:0.9.9",
+      "digest": "sha256:348ad33bd8fc0d888c490de7a48e8e21e7ebab8ef0450d4aa8ad3f4bde5e5cde",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/kagent-dev/kagent/golang-adk:0.9.9",
+      "resolvedRef": "ghcr.io/kagent-dev/kagent/golang-adk@sha256:e01479b52280b0eae9e2808cc68392ba98fd737782496ff256847257e6bb8ed1",
+      "logicalName": "golang-adk",
+      "sourceRef": "ghcr.io/kagent-dev/kagent/golang-adk:0.9.9",
+      "digest": "sha256:e01479b52280b0eae9e2808cc68392ba98fd737782496ff256847257e6bb8ed1",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/kagent-dev/kagent/tools:0.2.1",
+      "resolvedRef": "ghcr.io/kagent-dev/kagent/tools@sha256:50b431281d3e32666f27a292962fd486aabaac157083a844d037c12137e353aa",
+      "logicalName": "tools",
+      "sourceRef": "ghcr.io/kagent-dev/kagent/tools:0.2.1",
+      "digest": "sha256:50b431281d3e32666f27a292962fd486aabaac157083a844d037c12137e353aa",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1609,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "ghcr.io/project-zot/zot-linux-amd64:v2.1.2",
+      "resolvedRef": "ghcr.io/project-zot/zot-linux-amd64@sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71",
+      "logicalName": "zot-linux-amd64",
+      "sourceRef": "ghcr.io/project-zot/zot-linux-amd64:v2.1.2",
+      "digest": "sha256:073f30d99fbdbcd8869334231c9ca45c75e535e4bdc6e28cc8a1541abe7a3f71",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 5236,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "mirror.gcr.io/aquasec/trivy-operator:0.32.0",
+      "resolvedRef": "mirror.gcr.io/aquasec/trivy-operator@sha256:d4a61c4607e2931bd2615bf3bcf8912669d11d194c44c77edd413e6301b50c5b",
+      "logicalName": "trivy-operator",
+      "sourceRef": "mirror.gcr.io/aquasec/trivy-operator:0.32.0",
+      "digest": "sha256:d4a61c4607e2931bd2615bf3bcf8912669d11d194c44c77edd413e6301b50c5b",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1363,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/jetstack/cert-manager-cainjector:v1.20.3",
+      "resolvedRef": "quay.io/jetstack/cert-manager-cainjector@sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd",
+      "logicalName": "cert-manager-cainjector",
+      "sourceRef": "quay.io/jetstack/cert-manager-cainjector:v1.20.3",
+      "digest": "sha256:06ad347fe0dc2eb84cc355c26f6752e05e87dceb6447f5cd29b963dd66dfd8bd",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1728,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/jetstack/cert-manager-controller:v1.20.3",
+      "resolvedRef": "quay.io/jetstack/cert-manager-controller@sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4",
+      "logicalName": "cert-manager-controller",
+      "sourceRef": "quay.io/jetstack/cert-manager-controller:v1.20.3",
+      "digest": "sha256:6c13d61e0348a5bc3477f8ea9a928624300b30d19b1c72a7d2b90372fc713db4",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1728,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/jetstack/cert-manager-webhook:v1.20.3",
+      "resolvedRef": "quay.io/jetstack/cert-manager-webhook@sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f",
+      "logicalName": "cert-manager-webhook",
+      "sourceRef": "quay.io/jetstack/cert-manager-webhook:v1.20.3",
+      "digest": "sha256:a61e817632cebed3bb59a189327e786fa3fdd7597167d994a1848d98fd55848f",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1728,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/kiwigrid/k8s-sidecar:2.8.1",
+      "resolvedRef": "quay.io/kiwigrid/k8s-sidecar@sha256:abb55b2165c60e8f97e473862c7a3123df6f67d44f592949577c29b8fb2df9d6",
+      "logicalName": "k8s-sidecar",
+      "sourceRef": "quay.io/kiwigrid/k8s-sidecar:2.8.1",
+      "digest": "sha256:abb55b2165c60e8f97e473862c7a3123df6f67d44f592949577c29b8fb2df9d6",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/riscv64",
+        "unknown/unknown"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 3895,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/prometheus-operator/prometheus-config-reloader:v0.92.1",
+      "resolvedRef": "quay.io/prometheus-operator/prometheus-config-reloader@sha256:74550ba3e8bf93f47bc574231090d340ae9c01d25cd11ff74799e65f9fdb9a48",
+      "logicalName": "prometheus-config-reloader",
+      "sourceRef": "quay.io/prometheus-operator/prometheus-config-reloader:v0.92.1",
+      "digest": "sha256:74550ba3e8bf93f47bc574231090d340ae9c01d25cd11ff74799e65f9fdb9a48",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1694,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/prometheus-operator/prometheus-operator:v0.92.1",
+      "resolvedRef": "quay.io/prometheus-operator/prometheus-operator@sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774",
+      "logicalName": "prometheus-operator",
+      "sourceRef": "quay.io/prometheus-operator/prometheus-operator:v0.92.1",
+      "digest": "sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1694,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/prometheus/node-exporter:v1.11.1-distroless",
+      "resolvedRef": "quay.io/prometheus/node-exporter@sha256:6112664fd761bb964d8a2d3d0119d6c8402618a89edbb3a43c8f7b4090fb53c9",
+      "logicalName": "node-exporter",
+      "sourceRef": "quay.io/prometheus/node-exporter:v1.11.1-distroless",
+      "digest": "sha256:6112664fd761bb964d8a2d3d0119d6c8402618a89edbb3a43c8f7b4090fb53c9",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1390,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "quay.io/prometheus/prometheus:v3.13.0-distroless",
+      "resolvedRef": "quay.io/prometheus/prometheus@sha256:f3b6aae627d96e7ad8256cdf6de5953247735117c6f577383fadb42efeeea7bc",
+      "logicalName": "prometheus",
+      "sourceRef": "quay.io/prometheus/prometheus:v3.13.0-distroless",
+      "digest": "sha256:f3b6aae627d96e7ad8256cdf6de5953247735117c6f577383fadb42efeeea7bc",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/riscv64",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 2010,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1",
+      "resolvedRef": "registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1",
+      "logicalName": "kube-state-metrics",
+      "sourceRef": "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1",
+      "digest": "sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1728,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    },
+    {
+      "ref": "registry.k8s.io/metrics-server/metrics-server:v0.8.1",
+      "resolvedRef": "registry.k8s.io/metrics-server/metrics-server@sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41",
+      "logicalName": "metrics-server",
+      "sourceRef": "registry.k8s.io/metrics-server/metrics-server:v0.8.1",
+      "digest": "sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41",
+      "party": "third-party",
+      "role": "platform",
+      "digestKind": "manifest",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm",
+        "linux/arm64",
+        "linux/ppc64le",
+        "linux/s390x"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 1728,
+      "signature": {
+        "signedAtBundleTime": true,
+        "keyUri": "openbao://slsi-release",
+        "publicKeyPath": "bundle/keys/release.pub"
+      },
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "bundle-build attestation only"
+      }
+    }
+  ],
+  "releaseKey": {
+    "keyUri": "openbao://slsi-release",
+    "publicKeyPath": "bundle/keys/release.pub"
+  },
+  "fluxVendoring": {
+    "chart": {
+      "name": "flux-operator",
+      "repository": "oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator",
+      "version": "0.57.0",
+      "digest": "sha256:35105642acae3aceaf6a22e986653f766827c46e72179a9fec23214ec5f5317c",
+      "stagedPath": "bundle/images/flux/charts/flux-operator-0.57.0.tgz"
+    },
+    "manifestsArtifactDigest": "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c",
+    "controllerImages": [
+      {
+        "name": "helm-controller",
+        "ref": "ghcr.io/fluxcd/helm-controller:v1.6.3"
+      },
+      {
+        "name": "kustomize-controller",
+        "ref": "ghcr.io/fluxcd/kustomize-controller:v1.9.4"
+      },
+      {
+        "name": "notification-controller",
+        "ref": "ghcr.io/fluxcd/notification-controller:v1.9.2"
+      },
+      {
+        "name": "source-controller",
+        "ref": "ghcr.io/fluxcd/source-controller:v1.9.3"
+      }
+    ],
+    "substitutions": [
+      {
+        "target": "bundle/images/flux/manifests/local/flux-operator.yaml",
+        "original": "semver: *",
+        "replacement": "semver: 0.57.0"
+      },
+      {
+        "target": "bundle/images/flux/manifests/local/flux-operator.yaml",
+        "original": "matchOIDCIdentity",
+        "replacement": "secretRef: name: cosign-pub"
+      },
+      {
+        "target": "bundle/images/flux/manifests/local/flux-instance.yaml",
+        "original": ":latest",
+        "replacement": "@sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c"
+      },
+      {
+        "target": "bundle/images/flux/manifests/staging/flux-operator.yaml",
+        "original": "semver: *",
+        "replacement": "semver: 0.57.0"
+      },
+      {
+        "target": "bundle/images/flux/manifests/staging/flux-operator.yaml",
+        "original": "matchOIDCIdentity",
+        "replacement": "secretRef: name: cosign-pub"
+      },
+      {
+        "target": "bundle/images/flux/manifests/staging/flux-instance.yaml",
+        "original": ":latest",
+        "replacement": "@sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c"
+      },
+      {
+        "target": "bundle/images/flux/manifests/prod-eu/flux-operator.yaml",
+        "original": "semver: *",
+        "replacement": "semver: 0.57.0"
+      },
+      {
+        "target": "bundle/images/flux/manifests/prod-eu/flux-operator.yaml",
+        "original": "matchOIDCIdentity",
+        "replacement": "secretRef: name: cosign-pub"
+      },
+      {
+        "target": "bundle/images/flux/manifests/prod-eu/flux-instance.yaml",
+        "original": ":latest",
+        "replacement": "@sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c"
+      },
+      {
+        "target": "bundle/images/flux/manifests/prod-us/flux-operator.yaml",
+        "original": "semver: *",
+        "replacement": "semver: 0.57.0"
+      },
+      {
+        "target": "bundle/images/flux/manifests/prod-us/flux-operator.yaml",
+        "original": "matchOIDCIdentity",
+        "replacement": "secretRef: name: cosign-pub"
+      },
+      {
+        "target": "bundle/images/flux/manifests/prod-us/flux-instance.yaml",
+        "original": ":latest",
+        "replacement": "@sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c"
+      },
+      {
+        "target": "bundle/images/flux/manifests/update/flux-operator.yaml",
+        "original": "semver: *",
+        "replacement": "semver: 0.57.0"
+      },
+      {
+        "target": "bundle/images/flux/manifests/update/flux-operator.yaml",
+        "original": "matchOIDCIdentity",
+        "replacement": "secretRef: name: cosign-pub"
+      },
+      {
+        "target": "bundle/images/flux/manifests/update/flux-instance.yaml",
+        "original": ":latest",
+        "replacement": "@sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c"
+      }
+    ]
+  },
+  "mergeContract": {
+    "targetFile": "MANIFEST.json",
+    "targetKey": "images",
+    "owner": "P1-3",
+    "rule": "jq '.images = $imgs.images'",
+    "landedOutOfOrder": false
+  },
+  "contractDivergence": []
+}

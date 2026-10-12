@@ -1,0 +1,149 @@
+{
+  "$schema": "slsi-offline-count-contract/v1",
+  "card": "SLSI-OSD-5",
+  "purpose": "P1-GOV cannot distinguish its own regression from the environment fault it inherited unless the offline leg is compared against P0's RECORDED counts. Comparing against zero conflates three different things: a genuine regression, a pre-existing inherited red, and a cold-worktree environment fault. This file is the comparison contract; scripts/offline-baseline-compare.sh is its executable half and test/offline-count-contract.bats proves the two cannot drift from P0's actual record.",
+  "baseline": {
+    "file": "docs/slsi-p0-baseline/baseline.json",
+    "capturedTipSha": "504405b9e7e91efdf5c97bcd701b6511f712f6db",
+    "capturedAtUtc": "2026-10-11T15:20:00Z",
+    "handoffContract": "Downstream cards P1-PRE through P3-GOV diff their acceptance test results against this baseline."
+  },
+  "rules": {
+    "neverCompareAgainstZero": "A baseline pass count of zero is rejected as a contract defect, not accepted as a trivially-satisfiable floor. The comparator exits non-zero on it.",
+    "passIsAFloor": "An observed pass count below the recorded baseline is a REGRESSION even when the run exits 0, because a suite that silently stopped executing assertions reports success.",
+    "failIsACeiling": "An observed fail count above the recorded baseline is a REGRESSION. Equal is PARITY and is only acceptable where the contract names the failure as inherited or residual.",
+    "inheritedIsNotEnvironment": "RED_INHERITED and RED_NEW are not interchangeable. The 21 docs-lint findings are RED_INHERITED from cb0a6d0e and belong to the policy/frameworks docs; they must never be counted toward, or excused by, an environment red."
+  },
+  "coveredSuites": [
+    {
+      "id": "test-all-offline",
+      "command": "make test-all-offline",
+      "baselineState": "RED_NEW",
+      "baselineExitCode": 2,
+      "baselinePass": 1417,
+      "baselineFail": 1,
+      "baselineSkip": 0,
+      "comparison": "observedPass >= 1417 && observedFail <= 1",
+      "p0FailureNote": "environment: `bun install --frozen-lockfile` failed with EACCES \"could not open the node_modules directory\" in this linked worktree (Makefile:701 test-dashboard-weave). Not a code failure and NOT inherited from cb0a6d0e; re-measure once node_modules is writable in a linked worktree.",
+      "correctedRootCause": "The attribution to permissions was WRONG and the remedy differs. Re-measured in a cold linked worktree on 2026-10-12: `ls -d d2-signalloom/apps/dashboard-signalloom/node_modules` reports ENOENT (No such file or directory), `mkdir` of that same path SUCCEEDS, `test -w` on the parent passes, and `bun install --frozen-lockfile` then succeeds in 233ms installing 455 packages. The dependency tree is ABSENT, not permission-denied: a linked git worktree does not inherit the main checkout's untracked node_modules. bun 1.4.0 prints an EACCES string for the absent case, and that misleading string is what P0 copied into its failureNote. Populating an absent dependency tree is a different action from fixing permissions, which is why the correction matters rather than being pedantry.",
+      "remedy": "make offline-deps, an ordered prerequisite of this leg, run on the NETWORK side of the boundary."
+    },
+    {
+      "id": "docs-lint",
+      "command": "make docs-lint",
+      "baselineState": "RED_INHERITED",
+      "baselineExitCode": 2,
+      "baselinePass": 0,
+      "baselineFail": 21,
+      "baselineSkip": 0,
+      "comparison": "observedFail <= 21",
+      "originCommit": "cb0a6d0e",
+      "attribution": "inherited: cb0a6d0e integration/cel-frameworks",
+      "countsAsEnvironmentRed": false,
+      "note": "All 21 findings are in policy/frameworks docs and every one carries originCommit cb0a6d0e in the baseline's foreignFailures array, which has exactly 21 entries. They are owned by neither SLSI nor this card. They are listed here so that a 22nd finding is a regression and so that nobody folds them into the environment-fault bucket."
+    },
+    {
+      "id": "test-obscel",
+      "command": "make test-obscel",
+      "baselineState": "GREEN",
+      "baselineExitCode": 0,
+      "baselinePass": 42,
+      "baselineFail": 0,
+      "baselineSkip": 0,
+      "comparison": "observedPass >= 42 && observedFail <= 0",
+      "note": "Green at P0 with a recorded floor. Carried as a covered suite rather than excluded because a GREEN suite is exactly where a silent drop in assertion count hides: it exits 0 either way, and only the floor catches it."
+    },
+    {
+      "id": "test-signal-ingest",
+      "command": "make test-signal-ingest",
+      "baselineState": "GREEN",
+      "baselineExitCode": 0,
+      "baselinePass": 1354,
+      "baselineFail": 0,
+      "baselineSkip": 44,
+      "comparison": "observedPass >= 1354 && observedFail <= 0",
+      "note": "44 stated skips at P0: IDENTITY_TEST_DATABASE_URL not set (36), SLDP_PG_DSN not set (8). The skips are a precondition, not a floor, so they are recorded but not compared."
+    },
+    {
+      "id": "cel-conformance",
+      "command": "make cel-conformance",
+      "baselineState": "GREEN",
+      "baselineExitCode": 0,
+      "baselinePass": 776,
+      "baselineFail": 0,
+      "baselineSkip": 0,
+      "comparison": "observedPass >= 776 && observedFail <= 0"
+    },
+    {
+      "id": "test-kusari-e2e",
+      "command": "make test-kusari-e2e",
+      "baselineState": "GREEN",
+      "baselineExitCode": 0,
+      "baselinePass": 41,
+      "baselineFail": 0,
+      "baselineSkip": 0,
+      "comparison": "observedPass >= 41 && observedFail <= 0"
+    },
+    {
+      "id": "doctor",
+      "command": "make doctor",
+      "baselineState": "GREEN",
+      "baselineExitCode": 0,
+      "baselinePass": 1,
+      "baselineFail": 0,
+      "baselineSkip": 0,
+      "comparison": "observedPass >= 1 && observedFail <= 0",
+      "note": "P0 also recorded two accepted doctor exceptions, DOC-5 and DOC-7, in handoff.allowedDeviations.doctorExceptions."
+    }
+  ],
+  "excludedSuites": [
+    {
+      "id": "test-slsi-airgap",
+      "reason": "Added to the Makefile AFTER P0 capture, by the SLSI-P1-4 merge that produced base bdd36723. It therefore has NO recorded baseline counts, and must not be compared against zero either. It needs a built dist/slsi-appliance-<version>.tar.gz, docker with the sandbox image already local, and strace, and it fails rather than skips without them, so it is not part of test-all-offline.",
+      "baselineState": "NOT_IN_BASELINE"
+    },
+    {
+      "id": "test-all-cluster",
+      "reason": "Live-cluster leg, outside this card's scope. P0 recorded RED_NEW on the documented empty-hub precondition.",
+      "baselineState": "RED_NEW"
+    },
+    {
+      "id": "test-all-browser",
+      "reason": "Browser leg, outside this card's scope.",
+      "baselineState": "RED_NEW"
+    },
+    {
+      "id": "test-all-estate",
+      "reason": "The union of the offline, cluster and browser legs. Its counts are not independent of test-all-offline's, so comparing both would double-count the same assertions.",
+      "baselineState": "RED_NEW"
+    },
+    {
+      "id": "dual-cluster-containment",
+      "reason": "Live dual-cluster suite, outside this card's scope.",
+      "baselineState": "RED_NEW"
+    }
+  ],
+  "residualReds": [
+    {
+      "suite": "d2-signalloom/test/bats-registry-coverage.bats",
+      "runBy": "make test-all-offline, static section",
+      "failingTests": 1,
+      "state": "RED_NEW",
+      "attribution": "not-owned-by-OSD-5",
+      "legLine": 17,
+      "detail": "Test 10 names 6 repo-root bats suites that no pipeline runs: offline-count-contract.bats and offline-install-boundary.bats (this card), slsi-bundle-manifest.bats (SLSI-P1-1), slsi-airgap-bundle.bats (SLSI-P1-4), and two PRE-EXISTING at e077d5ec, agent-behavior-signal-loop.bats and hostile-agent-admission-eval.bats. Test 1 of the same suite named an unrun proof script, test/slsi-bundle-seal-falsification.sh, and is now GREEN: the test-slsi-bundle-seal target this card added satisfies the proof-script rule, which accepts registration in any Makefile target. That is why this count is 1 and not 2. P0 never measured this suite at all: its test-all-offline died at stage 2/5 on the install, long before the static section.",
+      "adjudication": "Lead owns d2-signalloom/test/bats-registry-coverage.bats and ruled REGISTER rather than EXCLUDE, because none of the named suites is reachable from any of the three pipeline files the guard greps, so an exclusion would silence the guard while guaranteeing nothing ever runs them. Registration must name each suite's BASENAME literally in a pipeline file -- the guard greps pipeline text for the .bats filename, so a line reading `make <target>` does not satisfy it. Applied by the lead at integration. OSD-5 did not edit that file."
+    },
+    {
+      "suite": "d2-signalloom contracts bootstrap drift",
+      "runBy": "make test-all-offline via `make demo-signalloom-test-config` (leg line 20) and `bats test/test-count-floor.bats` test 8 (leg line 54)",
+      "failingTests": 2,
+      "state": "RED_PRE_EXISTING",
+      "attribution": "inherited: 24f1d1b7, an ancestor of the wave's original base e077d5ec",
+      "legLine": 20,
+      "detail": "d2-signalloom/test/validate-dependencies.sh reports two DRIFT findings: both generated copies of discovery-portal-bootstrap.sql (one in d2-signalloom/contracts/, one in d2-signalloom/infra/inf-signalloom/configs/base/bootstrap/) are 4733 lines against a generated 4785, missing migration 061_policy_check_mapping.sql. The migration landed in 24f1d1b7 (2026-10-10, Andrew Martin) and the two build artefacts were never regenerated. ONE root cause, counted as 2 because it reddens two separate lines of the offline leg. P0 never saw it for the same reason as the suite above.",
+      "adjudication": "Not fixed by OSD-5. The artefacts are generated, not hand-written, and the remedy is to run d2-signalloom/infra/inf-signalloom/scripts/generate-bootstrap.py twice and commit both outputs. That is a d2-signalloom contracts change in nobody's declared ownership for this wave, and regenerating could carry further drift beyond migration 061, so it is the lead's to assign."
+    }
+  ],
+  "coverageCaveat": "test-all-offline is itself named by none of the three pipeline files the bats registry guard treats as runners (scripts/ci/vm-pipeline.sh, scripts/gcp-tf/demo-pipeline.sh, .github/workflows/signalloom-eap-pr.yaml). A green `make test-all-offline` therefore proves the leg passes locally and proves NOTHING about CI coverage. Registering the leg, or its individual targets, in a pipeline is a lead decision and is not taken by this card."
+}

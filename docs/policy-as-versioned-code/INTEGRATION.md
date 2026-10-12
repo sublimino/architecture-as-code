@@ -31,6 +31,13 @@ re-litigate it:
 | Sunset as scheduled *proposal*, never scheduled *application* | hub ADR-0010 |
 | FAIR risk engine shape; TCoR; graded cages; war-gamer | hub `talk-spec/build/{01,10,13,22}` |
 
+Every row above records what the **hub** settled, not what this repo deploys.
+One has since diverged here: ADR-0003's Kyverno CEL `ValidatingPolicy` is the
+hub's engine, but OSRAMP's own admission path is native CEL
+`ValidatingAdmissionPolicy` with no controller (OSD-7, 2026-10-12). The hub
+decision is left stated as a hub decision; it is not a description of this
+repo.
+
 Its ancestor, [`example-policy-org`](https://github.com/example-policy-org) (Appvia R&D, Chris
 Nesbitt-Smith, 2022), proved the core: semver policy in git tags, one string serving as both
 Renovate pin and Kyverno selector, multi-version coexistence on one cluster, Renovate auto-PRs, a
@@ -66,7 +73,8 @@ asking — and this answers it with a number rather than a framework.
 risk/
   packs/agent-policy/{2.0.0,2.1.0}/    versioned policy pack — a complete tree per semver tag
     pack.yaml                          controls, rationale, risk triples, actions, cages
-    cel/*.yaml                         Kyverno CEL ValidatingPolicy bodies (incl. the conditional)
+    cel/*.yaml                         Kyverno CEL ValidatingPolicy bodies (incl. the conditional).
+                                       NOT the same thing as policy/cel/ — see the note below.
   posture/agent-*.yaml                 what is actually true about each agent, with evidence paths
   org/{acme,ludlow-health}.yaml        loss magnitude + appetite + transfer, per institution
   out/                                 generated baseline + £ report (committed, regenerable)
@@ -76,6 +84,30 @@ tools/riskctl/                         Go CLI: baseline | risk | compare. Offlin
 docs/breach-cost-talk/                 transcript, frames, contact sheets, TALK.md
 docs/policy-as-versioned-code/         this document
 ```
+
+### Two directories called `cel/`, and they are not the same thing
+
+This trips people up, and getting it wrong in either direction is expensive.
+
+| | `risk/packs/agent-policy/*/cel/` | `policy/cel/` |
+| --- | --- | --- |
+| apiVersion | `policies.kyverno.io/v1alpha1` | `admissionregistration.k8s.io/v1` |
+| kind | Kyverno `ValidatingPolicy` | `ValidatingAdmissionPolicy` + `-Binding` |
+| Deployed? | **No.** Nothing applies these | **Yes**, this is the live admission path |
+| Role | Authoring/pricing artefact; provenance of the upstream hub's engine | The repo's actual admission gate (OSD-7) |
+
+The pack bodies are deliberately left on Kyverno's CRD. They are not applied by
+anything — `riskctl`'s `Control.CEL` field holds the path and no code reads it,
+and `metadata.upstream.engine: kyverno-validatingpolicy-cel` sits beside
+`thesis:` and `ancestor:` as a record of *the upstream reference
+implementation's* engine, in a `metadata` struct that has no `upstream` field at
+all, so it is dropped on parse. Renaming the API group would not convert them:
+Kyverno's `ValidatingPolicy` carries matching and `validationActions` inline
+where the native kind requires a separate `Binding` object, and the `cages`
+design rests on `mutate`/`generate`, which `ValidatingAdmissionPolicy` cannot
+express at all. A one-line apiVersion swap would produce manifests that apply to
+nothing and fail silently. Converting them is a re-platform, and an open
+question for AJM — not a rename.
 
 The load-bearing split, which is what makes proportionality arithmetic rather than opinion:
 
@@ -114,8 +146,8 @@ Nothing currently enforcing changes behaviour. The existing surface is absorbed 
 | Existing artefact | Current action | Role after integration |
 | --- | --- | --- |
 | `policy/cel/require-image-digest.yaml` | `Warn` | A lane-keeping control in the *workload* pack; its residual becomes priceable |
-| `policy/cel/require-trusted-registry.yaml` | `Warn` | Same |
-| `policy/kyverno-verify-images.yaml` | Deny on missing cosign signature | A gate control; feeds `SCN-SUPPLY-TAMPER` |
+| `policy/cel/require-trusted-registry.yaml` | `Deny` | A gate control; feeds `SCN-SUPPLY-TAMPER`. This row read `Warn` until OSD-7; the committed binding has always been `Deny` |
+| `policy/cel/admission-demo-bindings.yaml` | `Deny`, scoped to `admission-demo` | Demo-only bindings that raise both policies to Deny in that one namespace, so the demo cannot reprice the platform-wide `Warn` above |
 | `policy/out/promotion-policy.signed.json` | Witness promotion gate | Evidence for `AGT-006` |
 | `agent/` guardrails | Harness-enforced | The evidence base for `AGT-001..006, 011, 012` |
 | `olly-replica/apps/{llm-guard,authz,security-sandbox,eval-harness}` | Runtime components | Evidence for `AGT-007..010` |
@@ -172,7 +204,7 @@ Five phases. Each one ends with something demonstrable; none of them requires th
 | --- | --- | --- | --- |
 | **1 — Priced agent posture** *(done)* | `risk/` pack + posture + org; `tools/riskctl`; committed report | An agent's compliance posture has a cash value, and tightening a control moves it | — |
 | **2 — Platform pack** | Existing `policy/` lifted into a versioned, signed `platform-policy` pack at current actions; version label on workloads; `±1` skew contract | Policy is a versioned dependency here, not a pile of loose YAML — with no behaviour change on day one | 1 |
-| **3 — Live admission + graded cages** | Packs reconciled by Flux; Kyverno `ResourceSet` matrix for multi-version coexistence; `mutate`/`generate` cages so a behind-posture agent is *caged*, not denied | Consequence is a spectrum; the cage's run-cost lands in TCoR | 2 |
+| **3 — Live admission + graded cages** | Packs reconciled by Flux; Kyverno `ResourceSet` matrix for multi-version coexistence; `mutate`/`generate` cages so a behind-posture agent is *caged*, not denied. **Gated on a decision OSD-7 forces:** caging needs `mutate`, which CEL `ValidatingAdmissionPolicy` cannot do, so this phase means re-introducing a mutating admission controller into the air-gapped bundle. That is a new platform dependency, not a config change, and it is the one thing that would justify taking Kyverno back | Consequence is a spectrum; the cage's run-cost lands in TCoR | 2 |
 | **4 — War-gamer** | `governance-agent` evolved: consumes CVE / EOL / penalty feeds, re-runs `riskctl`, and on proportionality drift opens a **signed PR** proposing an action promotion | Propose, never dispose. The estate re-tunes itself on existing rails | 3 |
 | **5 — Balance sheet + honesty layer** | OSCAL `risk` objects generated from the conditional-policy ledger via C2P; back-testing of the £ against real incidents; the platform priced under its own model | Residual risk as economic capital, and an apparatus that passes its own test | 4 |
 

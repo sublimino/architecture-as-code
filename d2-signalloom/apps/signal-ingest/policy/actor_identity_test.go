@@ -5,6 +5,8 @@ package policy
 
 import (
 	"encoding/hex"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,15 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
+
+// liveSentinelGolden is the stun-sentinel wire contract (the same file
+// signal-ingest's model/store sentinel-contract tests validate). It is the
+// source of the live actor identity in the end-to-end scoping test below.
+const liveSentinelGolden = "../../stun-sentinel/pkg/correlator/testdata/ingest-observation.golden.json"
+
+// endpointBundlePath is the shipped Kusari endpoint-runtime bundle, four levels
+// up from this package at the repo-root policy tree.
+const endpointBundlePath = "../../../../policy/bundles/kusari/endpoint-runtime.yaml"
 
 // testActorPseudonymiser is the real key ring over fixed key material, not a
 // stub. The property under test is that the LIVE path and the REPLAY path agree
@@ -71,6 +82,115 @@ func TestActorIdentity_LiveAndReplayAgree(t *testing.T) {
 	}
 	if gotLive != gotReplay {
 		t.Errorf("live %q != replay %q: the pseudonymised-actor divergence is back", gotLive, gotReplay)
+	}
+}
+
+// TestLiveSentinelStreamActorScopesUnexpectedExecve proves the full live chain:
+// the stun-sentinel wire (the golden) carries actor_hint, signal-ingest
+// pseudonymises it into a non-empty obs.actor (toObscel), and the endpoint
+// unexpected-execve rule — whose allowed_exec_actors is pseudonymised with the
+// SAME key (PseudonymiseActorVars) — is therefore scoped by the workload actor
+// identity on the live stream. Before the actor_hint plumbing obs.actor was
+// empty and the rule fired on every process_exec regardless of workload.
+func TestLiveSentinelStreamActorScopesUnexpectedExecve(t *testing.T) {
+	p := testActorPseudonymiser(t)
+
+	// The live actor identity, read from the sentinel's own wire contract.
+	raw, err := os.ReadFile(liveSentinelGolden)
+	if err != nil {
+		t.Fatalf("read the sentinel wire contract: %v", err)
+	}
+	var batch []model.Observation
+	if err := json.Unmarshal(raw, &batch); err != nil {
+		t.Fatalf("decode the sentinel wire contract: %v", err)
+	}
+	if len(batch) == 0 {
+		t.Fatal("the sentinel wire contract holds no observations")
+	}
+	liveActor := batch[0].ActorHint
+	if liveActor == "" {
+		t.Fatal("the live sentinel wire carries no actor_hint; obs.actor would be empty and unexpected-execve would fire on every exec")
+	}
+
+	// obs.actor is the non-empty pseudonym of that hint.
+	proj, err := toObscel(&batch[0], p)
+	if err != nil {
+		t.Fatalf("toObscel(live): %v", err)
+	}
+	wantPseudo, err := p.Pseudonym(liveActor)
+	if err != nil {
+		t.Fatalf("Pseudonym: %v", err)
+	}
+	if proj.Actor == "" || proj.Actor != wantPseudo {
+		t.Fatalf("live obs.actor = %q, want the non-empty pseudonym %q of %q", proj.Actor, wantPseudo, liveActor)
+	}
+
+	ev, err := obscel.NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator: %v", err)
+	}
+
+	// liveExec projects a live stun-sentinel process_exec in the aligned endpoint
+	// label contract, with the given workload actor on actor_hint.
+	liveExec := func(actorHint string) obscel.Observation {
+		obs, err := toObscel(&model.Observation{
+			ID:         "live-exec",
+			Timestamp:  time.Unix(0, 0).UTC(),
+			Layer:      model.LayerEndpointHost,
+			Source:     "stun-sentinel",
+			Fidelity:   model.FidelityStrong,
+			Confidence: 0.95,
+			ActorHint:  actorHint,
+			Labels: map[string]string{
+				TenantLabel:      "kusari",
+				"classification": "process_exec",
+				"syscall":        "sys_enter_execve",
+			},
+		}, p)
+		if err != nil {
+			t.Fatalf("toObscel(exec): %v", err)
+		}
+		return obs
+	}
+
+	// loadEndpointBundle loads the shipped bundle and pseudonymises its
+	// allowed_exec_actors with the SAME key obs.actor is pseudonymised with, as
+	// the live load path does. extraAllowed names cleartext actors to exempt.
+	loadEndpointBundle := func(extraAllowed ...string) *obscel.Bundle {
+		b, err := obscel.LoadBundleFile(endpointBundlePath)
+		if err != nil {
+			t.Fatalf("LoadBundleFile: %v", err)
+		}
+		if len(extraAllowed) > 0 {
+			b.Vars["allowed_exec_actors"] = append(b.Vars["allowed_exec_actors"], extraAllowed...)
+		}
+		if err := obscel.PseudonymiseActorVars(b, p.Pseudonym); err != nil {
+			t.Fatalf("PseudonymiseActorVars: %v", err)
+		}
+		return b
+	}
+
+	fired := func(b *obscel.Bundle, obs obscel.Observation) bool {
+		findings, err := ev.EvaluateObservation(obs, b)
+		if err != nil {
+			t.Fatalf("EvaluateObservation: %v", err)
+		}
+		for _, f := range findings {
+			if f.RuleID == "unexpected-execve" {
+				return true
+			}
+		}
+		return false
+	}
+
+	// POSITIVE: the live actor is not in the shipped allow-list -> fires.
+	if !fired(loadEndpointBundle(), liveExec(liveActor)) {
+		t.Error("unexpected-execve did not fire for a non-allowlisted live actor; the live stream is unscoped")
+	}
+	// NEGATIVE: exempt the live actor (cleartext) — after pseudonymisation its
+	// value equals obs.actor, so the rule must NOT fire.
+	if fired(loadEndpointBundle(liveActor), liveExec(liveActor)) {
+		t.Error("unexpected-execve fired for an allow-listed live actor; the pseudonymised scope is not matching obs.actor")
 	}
 }
 

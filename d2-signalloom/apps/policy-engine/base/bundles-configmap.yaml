@@ -550,9 +550,20 @@ data:
       - id: unexpected-execve
         name: Process exec by a workload not permitted to exec
         severity: high
-        # An execve by a service account outside the allow-list. This is the one
-        # identity-scoped rule: obs.actor is the pseudonymised service account, tested
+        # An execve by an actor outside the allow-list. This is the one
+        # identity-scoped rule: obs.actor is the pseudonymised actor identity, tested
         # against the actor_vars set, never a cleartext label.
+        #
+        # Actor identity differs by stream, and allowed_exec_actors must hold the
+        # identity the stream actually carries:
+        #   * collector projection ("sentinel.ebpf.syscall_trace"): obs.actor is the
+        #     pseudonymised SERVICE ACCOUNT (ActorHint = ev.ServiceAccount).
+        #   * live stun-sentinel ("stun-sentinel"): the kernel probe cannot see a
+        #     service account, so obs.actor is the pseudonymised workload ACTOR/POD
+        #     identity (ActorHint = actor, falling back to pod_name). A trusted live
+        #     workload is exempted by adding ITS actor identity here, NOT an SA name.
+        # Both are pseudonymised at load with the same key obs.actor is, so the
+        # cleartext entries below are matched post-pseudonymisation on either stream.
         expression: |-
           (obs.source == "sentinel.ebpf.syscall_trace" || obs.source == "stun-sentinel") &&
           obs.layer == "endpoint_host" &&

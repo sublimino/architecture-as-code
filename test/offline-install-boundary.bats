@@ -33,6 +33,38 @@ setup() {
 	INSTALL_PATTERN='bun install|bun add|npm install|npm ci|npm i |yarn install|yarn add|pnpm install|pnpm add'
 }
 
+# REFUTATION HELPERS. Read this before writing `! something` in a bats test.
+#
+# `! cmd` is not an assertion here. bash's -e is specified to ignore the exit
+# status of a command whose result is inverted by `!`, and bats runs test bodies
+# under -e, so a line reading `! echo "$output" | grep -q PATTERN` passes
+# identically whether or not PATTERN is present. Five assertions in this file
+# were written that way and were VACUOUS; the mutation proof found them by
+# introducing recursive make into the install recipe and watching the
+# no-recursive-make test stay green. Every refutation therefore goes through one
+# of these helpers, which end in an explicit `false`.
+refute_match() { # extended-regexp, text, [explanation...]
+	local pattern="$1" text="$2"
+	shift 2
+	if echo "${text}" | grep -qE -- "${pattern}"; then
+		echo "unexpected match for /${pattern}/:" >&2
+		[ "$#" -eq 0 ] || printf '%s\n' "$@" >&2
+		echo "${text}" | grep -nE -- "${pattern}" | sed 's/^/  /' >&2
+		false
+	fi
+}
+
+refute_fixed() { # literal-string, text, [explanation...]
+	local pattern="$1" text="$2"
+	shift 2
+	if echo "${text}" | grep -qF -- "${pattern}"; then
+		echo "unexpected match for '${pattern}':" >&2
+		[ "$#" -eq 0 ] || printf '%s\n' "$@" >&2
+		echo "${text}" | grep -nF -- "${pattern}" | sed 's/^/  /' >&2
+		false
+	fi
+}
+
 # Extract a target's recipe: the TAB-indented lines following its rule line, up
 # to the first line that is neither TAB-indented nor empty.
 #
@@ -103,7 +135,8 @@ prereqs_of() {
 @test "the test-dashboard-weave recipe contains no dependency install" {
 	run recipe_of test-dashboard-weave
 	[ -n "$output" ]
-	! echo "$output" | grep -qE "${INSTALL_PATTERN}"
+	refute_match "${INSTALL_PATTERN}" "$output" \
+		"The install belongs in 'make offline-deps', an ordered prerequisite."
 }
 
 @test "every bun workspace the offline leg enters is declared in offline-deps.sh" {
@@ -141,8 +174,10 @@ prereqs_of() {
 	# flat so that 'make -n' prints it and nothing more.
 	run recipe_of offline-deps
 	[ -n "$output" ]
-	! echo "$output" | grep -qF '$(MAKE)'
-	! echo "$output" | grep -qE '(^|[^a-zA-Z-])make( |$)'
+	refute_fixed '$(MAKE)' "$output" \
+		"A \$(MAKE) line is executed even under 'make -n'."
+	refute_match '(^|[^a-zA-Z-])make( |$)' "$output" \
+		"A bare 'make' invocation has the same dry-run hazard as \$(MAKE)."
 }
 
 @test "make -n offline-deps prints the install without performing it" {
@@ -155,7 +190,8 @@ prereqs_of() {
 	[ "$status" -eq 0 ]
 	echo "$output" | grep -qF 'scripts/offline-deps.sh'
 	# A dry run that executed would have printed bun's install summary.
-	! echo "$output" | grep -qE 'packages installed|bun install v'
+	refute_match 'packages installed|bun install v' "$output" \
+		"The dry run executed the install for real instead of printing it."
 	rmdir "${scratch}"
 }
 
@@ -171,13 +207,18 @@ prereqs_of() {
 @test "offline-deps.sh --check reports satisfied for every declared workspace" {
 	run bash "${DEPS_SCRIPT}" --check
 	[ "$status" -eq 0 ]
-	! echo "$output" | grep -q 'UNSATISFIED'
+	refute_fixed 'UNSATISFIED' "$output" \
+		"--check found a declared workspace with no dependency tree."
 	[ "$(echo "$output" | grep -c '^satisfied')" -eq "$(bash "${DEPS_SCRIPT}" --list | wc -l)" ]
 }
 
 @test "offline-deps.sh rejects an unknown option with a usage message" {
 	run bash "${DEPS_SCRIPT}" --reinstall-everything
-	[ "$status" -ne 0 ]
+	# The EXACT status, not merely non-zero. `-ne 0` is satisfied by any failure
+	# at all, including the script not existing, so it is not evidence that the
+	# option was rejected -- scripts/check-vacuous-assertions.sh flags that shape
+	# as VAC003 and is right to.
+	[ "$status" -eq 1 ]
 	echo "$output" | grep -qF 'unknown option'
 	echo "$output" | grep -qF 'usage:'
 }

@@ -121,12 +121,45 @@ parse_args() {
 
 # >>> SLSI-P1-1: binary staging and sha256 manifest <<<
 # P1-1: Multi-arch binary collection and sha256 manifest generation
-# Tools: kind, kubectl, flux, cosign, jq
+# Tools: kind, kubectl, flux, cosign, jq (pinned upstream downloads)
+#        ed25519-keygen (built from this repository's own source)
 # Arches: amd64, arm64
-# Decision 10: openssl and envsubst are containerised in bundle/images/ (P1-2)
-# and are not staged as host binaries in bundle/bin/.
-SLSI_UTILITY_IMAGE_REF="docker.io/controlplane/slsi-util:v0.1.0"
-SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION="SLSI-P1-2"
+#
+# Decision 10 is REVERSED. It containerised openssl and envsubst into
+# docker.io/controlplane/slsi-util:v0.1.0 and generated `docker run` wrappers
+# into bundle/bin/<arch>/. That image was never published and no Dockerfile for
+# it exists anywhere in this tree; three independent channels agree it does not
+# exist (crane digest MANIFEST_UNKNOWN, docker manifest inspect "no such
+# manifest", registry API UNAUTHORIZED). Shipping a wrapper that execs a
+# non-existent image is worse than shipping nothing, because it reads as a
+# supported capability.
+#
+# Neither tool is shipped now. openssl cannot be pinned the way the five Go
+# binaries are -- upstream publishes source tarballs only, zero binaries, and
+# GNU gettext is the same -- and the appliance-side requirement was never
+# "openssl": it was two Ed25519 keypairs and a key-id derivation, all three in
+# `make signing-keys`. cmd/ed25519-keygen does exactly that and is staged here
+# like any other tool. Every appliance-side envsubst reference is Flux's own
+# in-cluster envsubst, not the host tool, so nothing replaces it.
+#
+# ed25519-keygen is the one staged binary whose digest is NOT a pinned literal,
+# and that distinction is load-bearing rather than an omission. The other five
+# are third-party downloads, so a literal pin is the only way to know you got
+# what upstream published. This one is compiled from the commit being bundled,
+# so a literal would have to be regenerated on every source change and would
+# assert nothing about provenance that the source tree does not already
+# assert. It is instead built reproducibly (-trimpath, -ldflags=-buildid=,
+# CGO_ENABLED=0) and its digest is computed at stage time; --check-pins
+# re-builds and compares, which is a stronger claim than matching a constant
+# someone typed.
+ED25519_KEYGEN_MODULE_REL="d2-signalloom/apps/fleet-manager"
+ED25519_KEYGEN_PKG="./cmd/ed25519-keygen"
+declare -A ED25519_KEYGEN_SHA256=()
+# The helper's "version" is the commit it was compiled from. `git -c
+# log.showSignature=false` because log.showSignature is set in some of this
+# project's checkouts and inlines five lines of gpg output into STDOUT, not
+# stderr, which would end up inside versions.txt.
+ED25519_KEYGEN_SOURCE_REV="$(git -c log.showSignature=false rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 PIN_KIND_VERSION="v0.29.0"
 PIN_KUBECTL_VERSION="v1.33.2"
@@ -210,8 +243,73 @@ check_pin_entry() {
   fi
 }
 
+# build_ed25519_keygen ARCH DEST — compile the key helper for ARCH into DEST
+# and print its sha256. Reproducible: -trimpath drops the build path and
+# -buildid= drops the one remaining nondeterministic field, so two builds of
+# the same source with the same toolchain are byte-identical (verified on both
+# arches). CGO_ENABLED=0 keeps it static, as the five downloads are.
+#
+# -buildvcs=false is load-bearing, not tidiness. Go stamps vcs.revision and
+# vcs.modified into the binary by default, so without it the digest changes on
+# EVERY commit -- measured: the same source produced bade2fc7... at one commit
+# and 469883883... with the stamps suppressed. Two consequences, both bad. The
+# digest recorded in checksums.txt would be stale the moment anything in the
+# repo changed, helper or not. And --check-pins compares the staged artefact
+# against a rebuild, so a merely DIRTY tree (vcs.modified=true) would flip the
+# stamp and report a digest mismatch -- a failure that looks like tampering and
+# is nothing of the kind. With the stamps off, the digest is a function of the
+# helper's source and the toolchain, which is what a staged-binary digest
+# should mean. The toolchain dependency is real and remains: a different Go
+# minor version produces different bytes.
+build_ed25519_keygen() {
+  local arch="$1" dest="$2"
+  local module="${REPO_ROOT}/${ED25519_KEYGEN_MODULE_REL}"
+
+  if [[ ! -d "${module}/cmd/ed25519-keygen" ]]; then
+    fail "ed25519-keygen source absent at ${module}/cmd/ed25519-keygen; it ships with fleet-manager"
+  fi
+  if ! command -v go >/dev/null 2>&1; then
+    fail "go toolchain is required to build ed25519-keygen from source (no binary is downloaded for it)"
+  fi
+
+  mkdir -p "$(dirname "${dest}")"
+  if ! GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 \
+      go -C "${module}" build -trimpath -buildvcs=false -ldflags=-buildid= -o "${dest}" "${ED25519_KEYGEN_PKG}"; then
+    fail "go build of ed25519-keygen for ${arch} failed"
+  fi
+  chmod 0755 "${dest}"
+  sha256sum "${dest}" | awk '{print $1}'
+}
+
+# check_ed25519_keygen_reproducible ARCH — rebuild and compare against the
+# staged artefact. This replaces a literal pin with a reproducibility claim:
+# the staged binary must be exactly what this source tree produces.
+check_ed25519_keygen_reproducible() {
+  local arch="$1"
+  local staged="${BUNDLE_DIR}/bin/${arch}/ed25519-keygen"
+
+  if [[ ! -f "${staged}" ]]; then
+    log "ed25519-keygen [${arch}]: UNVERIFIED (artefact absent at ${staged})"
+    return 1
+  fi
+
+  local tmp_dir rebuilt_sha staged_sha rc=0
+  tmp_dir="$(mktemp -d "/tmp/slsi-pin-ed25519-${arch}.XXXXXX")"
+  rebuilt_sha="$(build_ed25519_keygen "${arch}" "${tmp_dir}/ed25519-keygen")"
+  staged_sha="$(sha256sum "${staged}" | awk '{print $1}')"
+  rm -rf "${tmp_dir}"
+
+  if [[ "${staged_sha}" == "${rebuilt_sha}" ]]; then
+    log "ed25519-keygen [${arch}]: PASS (staged sha256 ${staged_sha} reproduced from source)"
+  else
+    log "ed25519-keygen [${arch}]: FAIL (staged ${staged_sha} is not what this source tree builds: ${rebuilt_sha})"
+    rc=1
+  fi
+  return "${rc}"
+}
+
 check_all_pins() {
-  log "Validating declared pin table for 5 staged Go utilities against bundle/bin/..."
+  log "Validating declared pin table for 5 downloaded Go utilities against bundle/bin/..."
   local failures=0
 
   check_pin_entry "kind" "amd64" "${KIND_AMD64_SHA256}" || failures=$((failures + 1))
@@ -225,9 +323,12 @@ check_all_pins() {
   check_pin_entry "jq" "amd64" "${JQ_AMD64_SHA256}" || failures=$((failures + 1))
   check_pin_entry "jq" "arm64" "${JQ_ARM64_SHA256}" || failures=$((failures + 1))
 
-  # Decision 10 containerised utility image declarations:
-  log "openssl [amd64/arm64]: CONTAINERIZED (Decision 10: image ref ${SLSI_UTILITY_IMAGE_REF}, digest pin obligation: ${SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION})"
-  log "envsubst [amd64/arm64]: CONTAINERIZED (Decision 10: image ref ${SLSI_UTILITY_IMAGE_REF}, digest pin obligation: ${SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION})"
+  # ed25519-keygen is verified by reproduction, not by a literal (see the
+  # header note). A failure here means the staged binary is not what this
+  # commit builds, which is the same class of finding as a digest mismatch.
+  log "Validating ed25519-keygen by rebuilding it from source at this commit..."
+  check_ed25519_keygen_reproducible "amd64" || failures=$((failures + 1))
+  check_ed25519_keygen_reproducible "arm64" || failures=$((failures + 1))
 
   if [[ ${failures} -ne 0 ]]; then
     fail "Pin table validation failed: ${failures} binary pin check(s) failed or unverified"
@@ -270,16 +371,16 @@ verify_offline_manifest() {
     listed_set["${lp}"]=1
   done
 
-  # The Decision 10 container wrappers are deliberately absent from the
-  # checksum manifest. Exclude them by their exact expected paths, not by a
-  # '*/openssl' glob, which would skip any planted file whose name happens to
-  # end that way.
+  # Only the two self-describing metadata files are exempt from the checksum
+  # manifest. Under Decision 10 the openssl and envsubst wrappers were exempt
+  # too, which was the only reason an unlisted executable could sit in
+  # bundle/bin/<arch>/ and still pass completeness. With the wrappers gone that
+  # hole closes: every executable in the tree is now listed, ed25519-keygen
+  # included. Exemptions are exact paths, never a '*/openssl' glob, which would
+  # also skip any planted file whose name happened to end that way.
   local -A wrapper_exempt=()
-  local arch util
+  local arch
   for arch in amd64 arm64; do
-    for util in openssl envsubst; do
-      wrapper_exempt["${arch}/${util}"]=1
-    done
     wrapper_exempt["${arch}/versions.txt"]=1
   done
   wrapper_exempt["checksums.txt"]=1
@@ -379,8 +480,23 @@ stage_single_tool() {
       fi
       expected_bin_sha="${expected_blob_sha}"
       ;;
-    openssl|envsubst)
-      log "Skipping ${tool}: Decision 10 specifies containerisation in bundle/images/ (owned by P1-2), not staged in bundle/bin/."
+    ed25519-keygen)
+      # Built, not downloaded, so none of the curl/digest/version machinery
+      # below applies. Handled before the download path rather than inside it.
+      local dest_dir_src="${BUNDLE_DIR}/bin/${arch}"
+      mkdir -p "${dest_dir_src}"
+      local built_sha
+      built_sha="$(build_ed25519_keygen "${arch}" "${dest_dir_src}/ed25519-keygen")"
+      ED25519_KEYGEN_SHA256["${arch}"]="${built_sha}"
+      local km
+      km="$(readelf -h "${dest_dir_src}/ed25519-keygen" | awk -F: '/Machine:/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')"
+      if [[ "${arch}" == "amd64" && "${km}" != "Advanced Micro Devices X86-64" ]]; then
+        fail "ELF machine mismatch for ed25519-keygen [amd64]: got '${km}'"
+      fi
+      if [[ "${arch}" == "arm64" && "${km}" != "AArch64" ]]; then
+        fail "ELF machine mismatch for ed25519-keygen [arm64]: got '${km}'"
+      fi
+      log "Built ${dest_dir_src}/ed25519-keygen from ${ED25519_KEYGEN_MODULE_REL} (mode 0755, sha256: ${built_sha}, ELF ${km})"
       return 0
       ;;
     *)
@@ -547,11 +663,10 @@ stage_p1_1_binaries() {
     fail "Unsupported architecture: ${TARGET_ARCH} (must be amd64, arm64, or all)"
   fi
 
-  local tools_to_stage=("kind" "kubectl" "flux" "cosign" "jq")
+  local tools_to_stage=("kind" "kubectl" "flux" "cosign" "jq" "ed25519-keygen")
   if [[ -n "${FILTER_TOOL}" ]]; then
     if [[ "${FILTER_TOOL}" == "openssl" || "${FILTER_TOOL}" == "envsubst" ]]; then
-      log "Filter tool '${FILTER_TOOL}' requested: under Decision 10 this tool is containerised in bundle/images/ (P1-2)."
-      return 0
+      fail "Tool '${FILTER_TOOL}' is not part of this bundle. Decision 10 is reversed: neither openssl nor envsubst is shipped, and the appliance-side need they were containerised for is served by ed25519-keygen. Use --only ed25519-keygen."
     fi
     tools_to_stage=("${FILTER_TOOL}")
   fi
@@ -568,17 +683,35 @@ kubectl: ${PIN_KUBECTL_VERSION}
 flux: ${PIN_FLUX_VERSION}
 cosign: ${PIN_COSIGN_VERSION}
 jq: ${PIN_JQ_VERSION}
-# Decision 10 containerised utilities (bundle/images/):
-openssl: containerised (P1-2)
-envsubst: containerised (P1-2)
+# Built from this repository's source, not downloaded. Its "version" is the
+# commit it was compiled from; its digest is in checksums.txt like any other.
+ed25519-keygen: source@${ED25519_KEYGEN_SOURCE_REV}
 EOF
     chmod 0644 "${BUNDLE_DIR}/bin/${arch}/versions.txt"
     log "Wrote ${BUNDLE_DIR}/bin/${arch}/versions.txt"
-
-    # Generate Decision 10 container wrappers for openssl and envsubst
-    generate_container_wrappers "${BUNDLE_DIR}/bin/${arch}"
-    log "Generated Decision 10 container wrappers in ${BUNDLE_DIR}/bin/${arch}"
   done
+
+  # Six entries per arch now, not five. ed25519-keygen's digest is the one
+  # computed at stage time rather than pinned as a literal; see the header.
+  #
+  # The manifest lists both arches unconditionally -- that is pre-existing
+  # behaviour for the five literal pins and is not changed here. So a digest is
+  # needed for any arch this run did not stage; it is computed by building into
+  # a scratch directory, never left blank. A blank field would produce a
+  # two-space-leading manifest line that sha256sum -c parses as a path, which
+  # fails with a message about the wrong thing entirely.
+  local kg_arch
+  for kg_arch in amd64 arm64; do
+    if [[ -z "${ED25519_KEYGEN_SHA256[${kg_arch}]:-}" ]]; then
+      local kg_tmp
+      kg_tmp="$(mktemp -d "/tmp/slsi-kg-digest-${kg_arch}.XXXXXX")"
+      ED25519_KEYGEN_SHA256["${kg_arch}"]="$(build_ed25519_keygen "${kg_arch}" "${kg_tmp}/ed25519-keygen")"
+      rm -rf "${kg_tmp}"
+      log "Computed ed25519-keygen [${kg_arch}] digest for the manifest without staging it (arch not selected this run)"
+    fi
+  done
+  local kg_amd64="${ED25519_KEYGEN_SHA256[amd64]}"
+  local kg_arm64="${ED25519_KEYGEN_SHA256[arm64]}"
 
   cat > "${BUNDLE_DIR}/bin/checksums.txt" <<EOF
 ${KIND_AMD64_SHA256}  amd64/kind
@@ -586,11 +719,13 @@ ${KUBECTL_AMD64_SHA256}  amd64/kubectl
 ${FLUX_AMD64_BINARY_SHA256}  amd64/flux
 ${COSIGN_AMD64_SHA256}  amd64/cosign
 ${JQ_AMD64_SHA256}  amd64/jq
+${kg_amd64}  amd64/ed25519-keygen
 ${KIND_ARM64_SHA256}  arm64/kind
 ${KUBECTL_ARM64_SHA256}  arm64/kubectl
 ${FLUX_ARM64_BINARY_SHA256}  arm64/flux
 ${COSIGN_ARM64_SHA256}  arm64/cosign
 ${JQ_ARM64_SHA256}  arm64/jq
+${kg_arm64}  arm64/ed25519-keygen
 EOF
   chmod 0644 "${BUNDLE_DIR}/bin/checksums.txt"
   log "Generated ${BUNDLE_DIR}/bin/checksums.txt"
@@ -599,68 +734,6 @@ EOF
   log "stage_p1_1_binaries complete: all tools staged and verified"
 }
 
-generate_container_wrappers() {
-  local target_dir="$1"
-
-  cat > "${target_dir}/openssl" <<'EOF'
-#!/usr/bin/env bash
-# SLSI Decision 10 Container Wrapper for openssl
-# Part of SLSI design partner appliance bundle
-set -Eeuo pipefail
-
-SLSI_UTILITY_IMAGE="${SLSI_UTILITY_IMAGE:-docker.io/controlplane/slsi-util:v0.1.0}"
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: Docker container runtime is required to run containerised 'openssl' (Decision 10)." >&2
-  echo "Host package remedy: apt-get install -y openssl" >&2
-  exit 1
-fi
-
-if ! docker image inspect "${SLSI_UTILITY_IMAGE}" >/dev/null 2>&1; then
-  echo "ERROR: SLSI utility container image '${SLSI_UTILITY_IMAGE}' is absent from local Docker daemon." >&2
-  echo "Decision 10 requirement: refusing silent fallback to host 'openssl' of unknown version." >&2
-  echo "Host package remedy: apt-get install -y openssl" >&2
-  echo "Appliance remedy: preload image into Docker from bundle: docker load < bundle/images/slsi-util.tar" >&2
-  exit 1
-fi
-
-exec docker run --rm -i --network none -v "${PWD}:${PWD}" -w "${PWD}" "${SLSI_UTILITY_IMAGE}" openssl "$@"
-EOF
-  chmod 0755 "${target_dir}/openssl"
-
-  cat > "${target_dir}/envsubst" <<'EOF'
-#!/usr/bin/env bash
-# SLSI Decision 10 Container Wrapper for envsubst
-# Part of SLSI design partner appliance bundle
-set -Eeuo pipefail
-
-SLSI_UTILITY_IMAGE="${SLSI_UTILITY_IMAGE:-docker.io/controlplane/slsi-util:v0.1.0}"
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: Docker container runtime is required to run containerised 'envsubst' (Decision 10)." >&2
-  echo "Host package remedy: apt-get install -y gettext-base" >&2
-  exit 1
-fi
-
-if ! docker image inspect "${SLSI_UTILITY_IMAGE}" >/dev/null 2>&1; then
-  echo "ERROR: SLSI utility container image '${SLSI_UTILITY_IMAGE}' is absent from local Docker daemon." >&2
-  echo "Decision 10 requirement: refusing silent fallback to host 'envsubst' of unknown version." >&2
-  echo "Host package remedy: apt-get install -y gettext-base" >&2
-  echo "Appliance remedy: preload image into Docker from bundle: docker load < bundle/images/slsi-util.tar" >&2
-  exit 1
-fi
-
-env_args=()
-while IFS= read -r var; do
-  if [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$var" != "_" && "$var" != "PATH" ]]; then
-    env_args+=(-e "$var")
-  fi
-done < <(compgen -e)
-
-exec docker run --rm -i --network none "${env_args[@]}" -v "${PWD}:${PWD}" -w "${PWD}" "${SLSI_UTILITY_IMAGE}" envsubst "$@"
-EOF
-  chmod 0755 "${target_dir}/envsubst"
-}
 # <<< SLSI-P1-1 >>>
 
 # >>> SLSI-P1-2: offline OCI image bundler and digest pinning <<<
@@ -1817,19 +1890,57 @@ stage_p1_3_manifest() {
     fail "Gate 6 failed: tag-only image reference without digest: ${tag_only}"
   fi
 
-  local util_digest="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
-  local util_ref="controlplane/slsi-util:v0.1.0@${util_digest}"
+  # Gate 7, inverted. It used to REQUIRE the Decision 10 utility image in the
+  # images index and abort if it was missing. The reversal makes the opposite
+  # the invariant, and the gate is kept rather than deleted so the reversal has
+  # a gate of its own: reintroducing the entry must fail the build, not pass it
+  # quietly.
+  #
+  # The digest below is retained solely as the thing being forbidden. It is a
+  # dangling reference -- no blob with it exists in the layout. Worth stating
+  # precisely, because an earlier reading of this had it uniquely dangling:
+  # bundle/images/oci/ holds exactly two files (oci-layout, index.json) and
+  # ZERO blobs against 31 claimed manifests, so every digest in that index is
+  # blob-less. This one is uniquely *unresolvable*, which is the real defect --
+  # it names an image published in no registry, where the other 30 name real
+  # upstream images that simply have not been fetched into the layout.
+  local forbidden_util_digest="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
 
-  if [[ -f "${bundle_dir}/images/index.json" ]]; then
-    local has_util
-    has_util="$(jq --arg d "${util_digest}" '[.manifests[]? | select(.digest == $d)] | length' "${bundle_dir}/images/index.json" 2>/dev/null || echo 0)"
-    if [[ "${has_util}" -eq 0 ]]; then
-      echo "ERROR: Decision 10 utility image ${util_digest} is absent from ${bundle_dir}/images/index.json" >&2
-      echo "Host package remedy: apt-get install -y openssl gettext-base" >&2
-      rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
-      fail "Gate 7 failed: utility image absent from images index"
-    fi
+  # Gate 7a: no containerised-utility record may reach the manifest.
+  #
+  # This half exists because the other half cannot fail on input. The staged
+  # index is produced by a filter that explicitly drops forbidden_util_digest,
+  # so an index-only gate can only ever catch a future re-introduction of the
+  # injection CODE -- never a poisoned input. That is a gate which no fixture
+  # can fire, and a gate no fixture can fire is indistinguishable from no gate.
+  #
+  # The images array is different: it comes straight from .manifest.d, which
+  # the bundler does not filter, so a planted record DOES reach the manifest
+  # and this check DOES fire on it. Matched by name and by role rather than by
+  # the one digest, because a re-introduction under a new digest is the same
+  # defect. test/slsi-bundle-seal-falsification.sh case 7 is the fixture.
+  local util_records
+  util_records="$(jq -r '
+    [ .images[]? | select((.role? == "utility") or (((.ref? // "") + (.logicalName? // "")) | test("slsi-util"))) ]
+    | .[] | (.ref // .logicalName // "unnamed")
+  ' "${manifest_d_json}")"
+  if [[ -n "${util_records}" ]]; then
+    echo "ERROR: a containerised-utility image record reached the manifest:" >&2
+    printf '  %s\n' "${util_records}" >&2
+    echo "Decision 10 is reversed: controlplane/slsi-util was never published, has no Dockerfile" >&2
+    echo "in this tree, and resolves in no registry. The appliance ships bin/<arch>/ed25519-keygen." >&2
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    fail "Gate 7 failed: utility image record present in images.json"
   fi
+
+  # Gate 7b fires later, against the index this run STAGES rather than
+  # the one already committed. That distinction is the whole design: the
+  # committed bundle/images/index.json still carries the entry, and a gate
+  # reading it here would abort before the code below ever got the chance to
+  # filter it out -- a deadlock where the fix can never run. Gating the staged
+  # output instead asserts the thing actually being shipped, and lets the
+  # stale committed file heal on the same run (it is overwritten from the
+  # staged copy a few lines further down).
 
   local stage_root meta_dir stage_dir
   stage_root="$(mktemp -d -t slsi-bundle-stage.XXXXXX)"
@@ -1850,9 +1961,18 @@ stage_p1_3_manifest() {
     if [[ "${TARGET_ARCH:-amd64}" == "arm64" ]]; then
       selected_arch="arm64"
     fi
-    grep -E "[[:space:]]${selected_arch}/(cosign|flux|jq|kind|kubectl)$" "${bin_csum}" > "${stage_dir}/bin/checksums.txt" || true
-    if [[ $(wc -l < "${stage_dir}/bin/checksums.txt") -ne 5 ]]; then
-      grep -E '[[:space:]](amd64/|arm64/)?(cosign|flux|jq|kind|kubectl)$' "${bin_csum}" | \
+    # The tool set is declared once, here, because it was previously inlined
+    # into two greps and an arity literal. ed25519-keygen had to be added to
+    # all three or the archive would carry bin/<arch>/ed25519-keygen while its
+    # own bin/checksums.txt did not list it -- an unlisted executable inside
+    # the bundle, which is the exact hole that was just closed on the
+    # bundle/bin side in verify_offline_manifest.
+    local staged_tool_re='cosign|ed25519-keygen|flux|jq|kind|kubectl'
+    local staged_tool_count=6
+
+    grep -E "[[:space:]]${selected_arch}/(${staged_tool_re})\$" "${bin_csum}" > "${stage_dir}/bin/checksums.txt" || true
+    if [[ $(wc -l < "${stage_dir}/bin/checksums.txt") -ne "${staged_tool_count}" ]]; then
+      grep -E "[[:space:]](amd64/|arm64/)?(${staged_tool_re})\$" "${bin_csum}" | \
         awk '{split($NF, a, "/"); name=a[length(a)]; if (!seen[name]++) print}' > "${stage_dir}/bin/checksums.txt"
     fi
   fi
@@ -1902,47 +2022,60 @@ stage_p1_3_manifest() {
     base_index_src="${bundle_dir}/images/index.json"
   fi
 
+  # The slsi-util entry was INJECTED here, from a hardcoded constant, over a
+  # base index read from the committed layout -- so the dangling digest in
+  # bundle/images/index.json was this line's output, not an upstream artefact.
+  # Dropping the injection is therefore enough to remove it, and it is
+  # hermetic: the surviving entries all come from the committed base file, so
+  # no digest is computed, fetched, or invented. The second filtered digest
+  # (41223e96...) is an older generation of the same injection and stays
+  # filtered for the same reason.
   if [[ -f "${base_index_src}" ]]; then
-    jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+    jq --arg ud "${forbidden_util_digest}" '
       .schemaVersion = 2 |
       .mediaType = "application/vnd.oci.image.index.v1+json" |
-      .manifests = (
-        [ .manifests[]? | select(.digest != $ud and .digest != "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c") ] +
-        [{
-          "mediaType": "application/vnd.oci.image.index.v1+json",
-          "size": 1609,
-          "digest": $ud,
-          "annotations": {
-            "org.opencontainers.image.ref.name": $ur
-          }
-        }]
-      )
+      .manifests = [
+        .manifests[]?
+        | select(.digest != $ud and .digest != "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c")
+      ]
     ' "${base_index_src}" > "${stage_dir}/images/index.json"
   else
-    jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+    jq '
       {
         schemaVersion: 2,
         mediaType: "application/vnd.oci.image.index.v1+json",
-        manifests: (
-          [ .images[]? | {
+        manifests: [
+          .images[]? | {
             mediaType: "application/vnd.oci.image.index.v1+json",
             size: 1609,
             digest: .digest,
             annotations: {
               "org.opencontainers.image.ref.name": (.resolvedRef // .ref)
             }
-          }] +
-          [{
-            mediaType: "application/vnd.oci.image.index.v1+json",
-            size: 1609,
-            digest: $ud,
-            annotations: {
-              "org.opencontainers.image.ref.name": $ur
-            }
-          }]
-        )
+          }
+        ]
       }
     ' "${manifest_d_json}" > "${stage_dir}/images/index.json"
+  fi
+
+  # Gate 7b, inverted: the slsi-util image must NOT be in the index being
+  # shipped. Checked here, on the staged output, for the reason given where
+  # forbidden_util_digest is declared.
+  #
+  # No `2>/dev/null || echo 0` on this jq. The previous Gate 7 had it, so a jq
+  # failure read as "count is 0" -- which for the old gate meant abort, but for
+  # this inverted one would mean PASS. A check that cannot run must not look
+  # like a check that passed, so the failure is allowed to propagate.
+  local staged_has_util
+  staged_has_util="$(jq --arg d "${forbidden_util_digest}" \
+    '[.manifests[]? | select(.digest == $d)] | length' "${stage_dir}/images/index.json")"
+  if [[ "${staged_has_util}" -ne 0 ]]; then
+    rm -rf "${stage_root}"
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    echo "ERROR: the slsi-util image ${forbidden_util_digest} is present in the staged images index" >&2
+    echo "Decision 10 is reversed: that image was never published, has no Dockerfile in this tree," >&2
+    echo "and resolves in no registry. The appliance ships bin/<arch>/ed25519-keygen instead." >&2
+    fail "Gate 7 failed: unpublishable slsi-util image present in staged images index"
   fi
 
   cp "${stage_dir}/images/index.json" "${bundle_dir}/images/index.json" 2>/dev/null || true
@@ -2044,27 +2177,18 @@ stage_p1_3_manifest() {
   fi
 
   # 11. Assemble images array in MANIFEST.json (off-argv via file)
-  jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+  #
+  # The synthetic slsi-util entry that used to be appended here is gone. Note
+  # what it claimed: party "first-party", a 14800000-byte sizeBytes, and an
+  # ociLayoutPath into a layout holding no blobs -- all three asserted about an
+  # image that exists nowhere. Every entry in this array is now a real image
+  # the resolver actually saw.
+  jq '
     [
       .images[] |
       .reference = (.ref | split("@")[0] | sub(":[^/]+$"; "")) |
       .ref = (.resolvedRef // .ref)
-    ] +
-    [{
-      "ref": $ur,
-      "reference": "controlplane/slsi-util",
-      "resolvedRef": $ur,
-      "logicalName": "slsi-util",
-      "sourceRef": "controlplane/slsi-util:v0.1.0",
-      "digest": $ud,
-      "party": "first-party",
-      "role": "utility",
-      "provides": ["envsubst", "openssl"],
-      "digestKind": "manifest",
-      "platforms": ["linux/amd64"],
-      "ociLayoutPath": "bundle/images/oci",
-      "sizeBytes": 14800000
-    }]
+    ]
   ' "${manifest_d_json}" > "${meta_dir}/images.json"
 
   # 12. Assemble stagedBinaries array (off-argv via file)
@@ -2214,8 +2338,6 @@ EOF
     --arg git_branch "${git_branch}" \
     --argjson git_dirty "${git_dirty}" \
     --arg key_fp "${release_key_fp}" \
-    --arg util_digest "${util_digest}" \
-    --arg util_ref "${util_ref}" \
     --arg installer_path "${installer_rel}" \
     --argjson installer_present "${installer_present}" \
     --argjson installer_source_present "${installer_source_present}" \
@@ -2262,12 +2384,17 @@ EOF
       },
       "images": $images[0],
       "imageCount": ($images[0] | length),
-      "containerisedUtilities": {
-        "imageRef": $util_ref,
-        "imageDigest": $util_digest,
-        "utilities": ["envsubst", "openssl"],
-        "runtimeRequired": "docker",
-        "onAbsentRemedy": "Load image from bundle/images/ or pull controlplane/slsi-util:v0.1.0"
+      "hostUtilities": {
+        "decision": "Decision 10 reversed",
+        "notShipped": ["envsubst", "openssl"],
+        "runtimeRequired": null,
+        "rationale": "Neither tool is shipped. openssl publishes source tarballs only, so it cannot be digest-pinned like the five downloaded binaries, and GNU gettext is the same. Containerising them was tried and abandoned: the image it required (controlplane/slsi-util:v0.1.0) was never published, has no Dockerfile in this tree, and resolves in no registry, so the wrappers execd an image that cannot exist. The appliance-side requirement was narrower than either tool: two Ed25519 keypairs and a key-id derivation, all in `make signing-keys`. Every appliance-side envsubst reference is the in-cluster envsubst that Flux itself provides, not the host tool.",
+        "replacedBy": {
+          "binary": "bin/<arch>/ed25519-keygen",
+          "source": "d2-signalloom/apps/fleet-manager/cmd/ed25519-keygen",
+          "digestKind": "computed-from-source",
+          "interop": "Writes the same PKCS#8 PRIVATE KEY and SPKI PUBLIC KEY encodings openssl does, proven in both directions by test/ed25519-keygen-interop.bats."
+        }
       },
       "stagedBinaries": $staged_binaries[0],
       "releaseKey": {
@@ -2350,7 +2477,9 @@ EOF
     fi
   done < <(grep -rohE 'registry:[[:space:]]*["'"'"']?[^"'"'"']+' "${stage_dir}/images/flux" 2>/dev/null | awk '{print $2}' | tr -d '"'"'" | LC_ALL=C sort -u)
 
-  domain_refs+=("${util_ref}")
+  # The synthetic slsi-util ref used to be appended to the coverage domain
+  # here, so G-COVERAGE counted an image that does not exist as covered. The
+  # domain is now exactly the refs discovered in the staged tree.
 
   if [[ ${#domain_refs[@]} -eq 0 ]]; then
     rm -rf "${stage_root}"
@@ -2441,8 +2570,9 @@ EOF
 #           top level is exactly the declared set (P1-3 ships a root-level layout)
 #   P14-G5  regular-file member count == MANIFEST.json payloadFileCount + 1
 #           (the +1 is MANIFEST.json, which cannot list itself)
-#   P14-G6  the Decision 10 wrappers <arch>/openssl and <arch>/envsubst are
-#           regular files, mode 0755, beginning `#!/usr/bin/env bash`
+#   P14-G6  no <arch>/openssl or <arch>/envsubst wrapper is present (Decision
+#           10 reversed), AND <arch>/ed25519-keygen is a regular file, mode
+#           0755, with ELF magic bytes
 #   P14-G7  dist/MANIFEST.json is byte-identical to the archive's MANIFEST.json
 
 _P14_TOPLEVEL=$'MANIFEST.json\nMANIFEST.sha256\nbin\nfleet\nimages\ninfra\nkeys'
@@ -2550,26 +2680,45 @@ stage_p1_4_validation() {
     _p14_fail "P14-G5 archive has ${regular_count} regular files; MANIFEST.json payloadFileCount ${payload_count} + 1 = $((payload_count + 1))"
   fi
 
-  # P14-G6: every arch directory that carries binaries must carry both wrappers.
-  local arches arch util line mode shebang
+  # P14-G6, inverted. It used to REQUIRE bin/<arch>/openssl and
+  # bin/<arch>/envsubst to be present, 0755, and shell scripts. Those were the
+  # Decision 10 wrappers, which execd an image that does not exist. The gate is
+  # inverted rather than deleted, because the reversal needs a gate too: an
+  # archive that carries those wrappers again must fail the build.
+  #
+  # Both halves are asserted, because either alone is weak. Absence alone would
+  # also be satisfied by an archive with no bin/ at all; presence of the
+  # replacement alone would not notice a wrapper shipped alongside it. The arch
+  # list is derived from the archive and asserted non-empty first, so the
+  # absence half cannot pass by having nothing to look at.
+  local arches arch util line mode magic
   arches="$(awk 'substr($1,1,1)=="-" {print $6}' "${listing}" | sed -nE 's#^(\./)?bin/(amd64|arm64)/[^/]+$#\2#p' | LC_ALL=C sort -u)"
   if [[ -z "${arches}" ]]; then
     rm -f "${listing}"
     _p14_fail "P14-G6 no bin/<arch>/ binaries in the archive"
   fi
   for arch in ${arches}; do
+    # a. The Decision 10 wrappers must be gone.
     for util in openssl envsubst; do
       line="$(awk -v p="bin/${arch}/${util}" '{q=$6; sub(/^\.\//,"",q)} q==p {print; exit}' "${listing}")"
-      [[ -n "${line}" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 Decision 10 wrapper absent: bin/${arch}/${util}"; }
-      mode="$(awk '{print $1}' <<<"${line}")"
-      [[ "${mode}" == "-rwxr-xr-x" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/${util} mode is ${mode}, want -rwxr-xr-x (0755)"; }
-      shebang="$(tar -xzOf "${archive}" --occurrence=1 "bin/${arch}/${util}" 2>/dev/null | head -n 1 || true)"
-      [[ "${shebang}" == "#!/usr/bin/env bash" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/${util} does not begin '#!/usr/bin/env bash' (got '${shebang}')"; }
+      if [[ -n "${line}" ]]; then
+        rm -f "${listing}"
+        _p14_fail "P14-G6 Decision 10 wrapper is back: bin/${arch}/${util} (${line}). Neither openssl nor envsubst is shipped; the image those wrappers ran does not exist."
+      fi
     done
+
+    # b. The replacement must be there, executable, and an actual ELF binary
+    #    for the arch it claims -- not a script, and not a stub.
+    line="$(awk -v p="bin/${arch}/ed25519-keygen" '{q=$6; sub(/^\.\//,"",q)} q==p {print; exit}' "${listing}")"
+    [[ -n "${line}" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/ed25519-keygen absent from the archive"; }
+    mode="$(awk '{print $1}' <<<"${line}")"
+    [[ "${mode}" == "-rwxr-xr-x" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/ed25519-keygen mode is ${mode}, want -rwxr-xr-x (0755)"; }
+    magic="$(tar -xzOf "${archive}" --occurrence=1 "bin/${arch}/ed25519-keygen" 2>/dev/null | od -An -tx1 -N4 | tr -d ' \n' || true)"
+    [[ "${magic}" == "7f454c46" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/ed25519-keygen does not have ELF magic bytes (got '${magic}')"; }
   done
   rm -f "${listing}"
 
-  log "stage_p1_4_validation complete: ${member_count} members, ${regular_count} regular files (payload ${payload_count} + MANIFEST.json), wrappers present for: $(tr '\n' ' ' <<<"${arches}")"
+  log "stage_p1_4_validation complete: ${member_count} members, ${regular_count} regular files (payload ${payload_count} + MANIFEST.json), ed25519-keygen present and no Decision 10 wrappers for: $(tr '\n' ' ' <<<"${arches}")"
 }
 # <<< SLSI-P1-4 >>>
 

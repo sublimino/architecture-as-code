@@ -241,14 +241,6 @@
       "annotations": {
         "org.opencontainers.image.ref.name": "registry.k8s.io/metrics-server/metrics-server@sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41"
       }
-    },
-    {
-      "mediaType": "application/vnd.oci.image.index.v1+json",
-      "size": 1609,
-      "digest": "sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b",
-      "annotations": {
-        "org.opencontainers.image.ref.name": "controlplane/slsi-util:v0.1.0@sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
-      }
     }
   ]
 }

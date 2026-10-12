@@ -166,17 +166,21 @@ airgap_egress_sites() {
 }
 
 # Prints every image reference in the tree that carries no @sha256 digest:
-# YAML `image:` fields under fleet/ and infra/, and the default image a
-# Decision 10 wrapper falls back to. Sorted, unique.
+# YAML `image:` fields under fleet/ and infra/. Sorted, unique.
+#
+# A second clause used to scan bin/ for `SLSI_UTILITY_IMAGE:-<ref>`, the image
+# a Decision 10 wrapper fell back to. Decision 10 is reversed, nothing in the
+# tree defines that variable any more, and a grep for a name that cannot occur
+# is a silent no-op inside a function whose job is detection -- so it is
+# removed rather than left to read as coverage. The tests that use this
+# function compare before and after counts rather than absolute ones, so the
+# one fewer reference does not move any threshold.
 airgap_digestless_refs() {
 	local root="$1"
-	{
-		grep -rhoE '^[[:space:]]*(-[[:space:]]+)?image:[[:space:]]*["'"'"']?[^"'"'"'[:space:]]+' \
-			"$root/fleet" "$root/infra" 2>/dev/null |
-			sed -E 's/^[[:space:]]*(-[[:space:]]+)?image:[[:space:]]*["'"'"']?//' || true
-		grep -rhoE 'SLSI_UTILITY_IMAGE:-[^}"]+' "$root/bin" 2>/dev/null |
-			sed 's/^SLSI_UTILITY_IMAGE:-//' || true
-	} | grep -vE '@sha256:[0-9a-f]{64}$' | LC_ALL=C sort -u || true
+	grep -rhoE '^[[:space:]]*(-[[:space:]]+)?image:[[:space:]]*["'"'"']?[^"'"'"'[:space:]]+' \
+		"$root/fleet" "$root/infra" 2>/dev/null |
+		sed -E 's/^[[:space:]]*(-[[:space:]]+)?image:[[:space:]]*["'"'"']?//' |
+		grep -vE '@sha256:[0-9a-f]{64}$' | LC_ALL=C sort -u || true
 }
 
 # The entry-count gate. `sha256sum -c` silently skips a `#` line even under

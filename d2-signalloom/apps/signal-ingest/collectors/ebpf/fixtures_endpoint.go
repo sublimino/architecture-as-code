@@ -14,14 +14,11 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
-// endpointFixtureFS embeds the Tetragon endpoint_host testdata so the e2e corpus
-// replays deterministically wherever the binary runs — the same reasoning as
-// collectors/k8saudit. Each file is a JSON ARRAY of the normaliser's output type
-// (netebpf.InboundFlowEvent), one detection class per file so the e2e
+// endpointFixtureFS embeds the sentinel eBPF endpoint_host testdata so the e2e
+// corpus replays deterministically wherever the binary runs — the same reasoning
+// as collectors/k8saudit. Each file is a JSON ARRAY of the stun-sentinel's wire
+// type (netebpf.InboundFlowEvent), one detection class per file so the e2e
 // negative-discipline check can attribute an observation to its object.
-//
-// The embed directory is named endpoint_testdata, not testdata, to keep it
-// distinct from the socket-trace FixtureFlowEvents corpus in testserver.go.
 //
 //go:embed endpoint_testdata
 var endpointFixtureFS embed.FS

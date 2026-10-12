@@ -52,7 +52,7 @@ func TestProjectEndpoint_FileAccess(t *testing.T) {
 		PodUID:         "uid-snoop-0",
 		ServiceAccount: "agent-snoop-sa",
 		AgentRole:      "snoop_suspect",
-		Provider:       "tetragon",
+		Provider:       ProviderSentinelEBPF,
 		Classification: ClassFileAccess,
 		Domain:         "/etc/shadow",
 		NodeName:       "kind-worker-1",

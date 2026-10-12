@@ -14,7 +14,7 @@ import (
 // Prometheus instrumentation for the retention controller, rendered as text exposition.
 //
 // Hand-rendered rather than pulling in the Prometheus client library, matching pkg/fair/metrics.go
-// and the Tetragon lane already served from main.go's /metrics handler. One rendering convention in
+// and the other lanes already served from main.go's /metrics handler. One rendering convention in
 // the process beats two.
 
 // overdueKey identifies one overdue bucket.

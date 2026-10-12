@@ -312,6 +312,7 @@ class AgentResponse(BaseModel):
     origin_verification: OriginVerificationMetadata | None = None
     owner: str | None = None
     tenant_id: str
+    tenant: str | None = None
     lifecycle_state: str
     last_transition_at: str | None
     last_transition_by: str | None = None
@@ -413,6 +414,7 @@ class AgentClaimByIdRequest(BaseModel):
     declared_tools: list[str] | None = None
     agent_id: str | None = None
     display_name: str | None = None
+    owner: str | None = None
 
 
 class AgentClaimRequest(BaseModel):
@@ -432,6 +434,7 @@ class AgentClaimRequest(BaseModel):
     capabilities: list[str] | None = None
     containment_claims: list[str] | None = None
     display_name: str | None = None
+    owner: str | None = None
 
 
 class AgentClaimResponse(BaseModel):
@@ -2666,8 +2669,9 @@ def _agent_response_from_row(
     )
 
     team = row.get("team") if isinstance(row, dict) else (row["team"] if "team" in row else None)
+    owner_id_val = row.get("owner_id") if isinstance(row, dict) else (row["owner_id"] if "owner_id" in row else None)
     responsibility = ResponsibilityMetadata(
-        owner_id=None,
+        owner_id=str(owner_id_val) if owner_id_val else None,
         owner_name=owner,
         team=team,
         assignment_status="assigned" if owner else "unassigned",
@@ -2752,6 +2756,7 @@ def _agent_response_from_row(
         origin_verification=origin_metadata,
         owner=owner,
         tenant_id=tenant_id,
+        tenant=tenant_id,
         lifecycle_state=canonical_state,
         last_transition_at=last_transition_at,
         last_transition_by=last_transition_by,
@@ -2781,6 +2786,17 @@ def _agent_response_from_row(
     )
 
 
+def _discovered_tenant(item: dict[str, Any]) -> str:
+    """The tenant a discovered workload declares, or "" when it declares none.
+
+    Discovery reports the pod's ``signalloom.ai/tenant`` label as ``tenant``
+    (``claim_tenancy`` relies on the same field for the claim decision), so this
+    is the platform's declaration and never the caller's.
+    """
+    value = item.get("tenant")
+    return value.strip() if isinstance(value, str) else ""
+
+
 def _agent_response_from_discovered(
     discovered: dict[str, Any],
     tenant_id: str,
@@ -2808,6 +2824,16 @@ def _agent_response_from_discovered(
     supercred_target = discovered.get("supercred_target")
     stunned_at = discovered.get("stunned_at")
     stun_reason = discovered.get("stun_reason")
+    disc_tenant = _discovered_tenant(discovered)
+    if disc_tenant:
+        effective_tenant = disc_tenant
+        out_tenant = disc_tenant
+    elif is_registry_linked:
+        effective_tenant = tenant_id
+        out_tenant = tenant_id
+    else:
+        effective_tenant = "undeclared"
+        out_tenant = None
 
     # A remote workload carries the reporting cluster's id; a central one is on
     # this cluster by construction. Reporting "kind-osramp" for a pilot pod
@@ -2961,7 +2987,8 @@ def _agent_response_from_discovered(
         origin=discovered.get("origin") or discovered.get("type") or "Kubernetes Workload",
         origin_verification=origin_metadata,
         owner=None,
-        tenant_id=tenant_id,
+        tenant_id=effective_tenant,
+        tenant=out_tenant,
         lifecycle_state=lifecycle_st,
         last_transition_at=stunned_at,
         last_transition_by=None,
@@ -3945,15 +3972,19 @@ def _visible_to_tenant(item: dict[str, Any], tenant_id: str, is_admin: bool) -> 
     * anyone else sees a workload only when its declared tenant is exactly
       theirs -- exact string compare, so a homoglyph tenant is a different
       tenant, the same rule ``claim_tenancy.authorize`` applies;
-    * a workload that declares no tenant is shown to no tenant user. That
-      deliberately hides the platform's own ``controlplane``-labelled agents
-      and any unlabelled workload, both of which were unclaimable anyway: a row
-      nobody may act on is noise that reads as an inventory gap.
+    * a workload that declares no tenant is shown when allow_undeclared_tenant_claims
+      is enabled, or hidden if disabled (so unlabelled workloads aren't noise when unclaimable).
     """
     if is_admin:
         return True
     declared = _discovered_tenant(item)
-    return bool(declared) and declared == tenant_id
+    if not declared:
+        return (
+            getattr(settings, "allow_undeclared_tenant_claims", False)
+            or os.environ.get("ALLOW_UNDECLARED_TENANT_CLAIMS", "").lower() in ("1", "true", "yes")
+        )
+    return declared == tenant_id
+
 
 
 @router.get("/agents", response_model=AgentListResponse, responses=ERROR_RESPONSES)
@@ -4791,10 +4822,17 @@ async def _execute_claim(
     principal_actor: str,
     body: AgentClaimRequest,
     agent_id_override: str | None = None,
+    allow_undeclared_tenant: bool | None = None,
 ) -> AgentClaimResponse:
     # The workload's platform-declared tenant must be the claimant's, and the
     # model recorded is the workload's own. Every claim path comes through here.
-    target = await claim_tenancy.resolve_claim(body.pod_name, body.namespace, tenant_id, body.model)
+    target = await claim_tenancy.resolve_claim(
+        body.pod_name,
+        body.namespace,
+        tenant_id,
+        body.model,
+        allow_undeclared_tenant=allow_undeclared_tenant,
+    )
     body = body.model_copy(update={"model": target.model})
     now = _now_iso()
     claim_id = f"claim-{uuid.uuid4().hex[:12]}"
@@ -4836,14 +4874,34 @@ async def _execute_claim(
 
             agent_name = body.pod_name
             display_name = getattr(body, "display_name", None) or body.pod_name.replace("-", " ").title()
+            owner_val = (getattr(body, "owner", None) or getattr(body, "operator_id", None) or principal_actor or "").strip() or None
+            owner_user_id: uuid.UUID | None = None
+            if owner_val:
+                if _try_uuid(owner_val):
+                    user_row = await conn.fetchrow(
+                        "SELECT id FROM public.platform_users WHERE id = $1 AND (tenant_id = $2 OR tenant_id = 'tenant-demo')",
+                        uuid.UUID(owner_val), tenant_id,
+                    )
+                    if user_row:
+                        owner_user_id = user_row["id"]
+                if owner_user_id is None:
+                    user_row = await conn.fetchrow(
+                        "SELECT id FROM public.platform_users WHERE LOWER(email) = LOWER($1) AND (tenant_id = $2 OR tenant_id = 'tenant-demo')",
+                        owner_val, tenant_id,
+                    )
+                    if user_row:
+                        owner_user_id = user_row["id"]
+
             row = await conn.fetchrow(
                 """INSERT INTO public.agent_registry (
                     id, tenant_id, name, display_name, description, status, lifecycle_state,
                     origin, compliance_posture, model_provider, model_name,
+                    owner, owner_id,
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
                     'Signal Loom Built', 83, NULL, $6,
+                    $7, $8,
                     NOW(), NOW(), NOW()
                 )
                 ON CONFLICT (tenant_id, name) DO UPDATE SET
@@ -4852,6 +4910,8 @@ async def _execute_claim(
                     status = 'active',
                     compliance_posture = 83,
                     model_name = EXCLUDED.model_name,
+                    owner = COALESCE(EXCLUDED.owner, agent_registry.owner),
+                    owner_id = COALESCE(EXCLUDED.owner_id, agent_registry.owner_id),
                     last_transition_at = NOW(),
                     updated_at = NOW()
                 RETURNING id""",
@@ -4861,6 +4921,8 @@ async def _execute_claim(
                 display_name,
                 f"Discovered and autoclaimed workload {body.pod_name} in {body.namespace}",
                 body.model,
+                owner_val,
+                owner_user_id,
             )
             if row is not None:
                 agent_uuid = row["id"]
@@ -5023,13 +5085,14 @@ async def _execute_claim(
                     agent_id = a.get("id", agent_id)
                     break
         display_name = getattr(body, "display_name", None) or body.pod_name.replace("-", " ").title()
+        owner_val = (getattr(body, "owner", None) or getattr(body, "operator_id", None) or principal_actor or "").strip() or None
         if existing_agent is None:
             new_agent = _make_agent(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 name=body.pod_name,
                 agent_type="service",
-                owner=principal_actor,
+                owner=owner_val or principal_actor,
                 lifecycle_state="active",
                 created_at=now,
                 last_transition_at=now,
@@ -5052,6 +5115,8 @@ async def _execute_claim(
             existing_agent["is_registry_linked"] = True
             existing_agent["record_class"] = "resolved"
             existing_agent["namespace"] = body.namespace
+            if owner_val or principal_actor:
+                existing_agent["owner"] = owner_val or principal_actor
             if getattr(body, "display_name", None) or "display_name" not in existing_agent:
                 existing_agent["display_name"] = display_name
 
@@ -5123,7 +5188,13 @@ async def claim_agent(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AgentClaimResponse:
     """Claim an agent pod into Signal Loom governance."""
-    return await _execute_claim(principal.tenant, principal.actor, body)
+    is_admin = principal.is_superadmin()
+    return await _execute_claim(
+        principal.tenant,
+        principal.actor,
+        body,
+        allow_undeclared_tenant=True if is_admin else None,
+    )
 
 
 @router.post("/v1/agents/autoclaim-discovered", response_model=AutoclaimDiscoveredResponse, responses=ERROR_RESPONSES)
@@ -5136,12 +5207,13 @@ async def autoclaim_discovered(
     claimed_records: list[ClaimRecord] = []
     tenant_id = principal.tenant
     target_ns = body.namespace if body and body.namespace else None
+    is_admin = principal.is_superadmin()
 
     # Only live workloads whose platform-declared tenant is the caller's and
     # that declare a model. Nothing is claimed from the caller's own records,
     # and nothing is invented when discovery has nothing claimable.
     workloads = await claim_tenancy.list_workloads()
-    for d in claim_tenancy.claimable(workloads, tenant_id, target_ns):
+    for d in claim_tenancy.claimable(workloads, tenant_id, target_ns, allow_undeclared=True if is_admin else None):
         name = str(d.get("agent_name") or d.get("name") or d.get("id"))
         ns = str(d.get("namespace"))
         req = AgentClaimRequest(
@@ -5154,7 +5226,12 @@ async def autoclaim_discovered(
             token_budget_limit=100000,
         )
         try:
-            claim_res = await _execute_claim(tenant_id, principal.actor, req)
+            claim_res = await _execute_claim(
+                tenant_id,
+                principal.actor,
+                req,
+                allow_undeclared_tenant=True if is_admin else None,
+            )
         except APIError as exc:
             if exc.code in claim_tenancy.REFUSAL_CODES:
                 continue
@@ -5346,10 +5423,19 @@ async def claim_agent_by_id(
         token_budget_limit=token_budget,
         agent_id=agent_res.id,
         display_name=display_name,
+        owner=body.owner if body and getattr(body, "owner", None) else None,
     )
-    return await _execute_claim(tenant_id, principal.actor, claim_req, agent_id_override=agent_res.id)
+    is_admin = principal.is_superadmin()
+    return await _execute_claim(
+        tenant_id,
+        principal.actor,
+        claim_req,
+        agent_id_override=agent_res.id,
+        allow_undeclared_tenant=True if is_admin else None,
+    )
 
 
+@router.get("/v1/agents/{agent_id}", response_model=AgentResponse, responses=ERROR_RESPONSES)
 @router.get("/agents/{agent_id}", response_model=AgentResponse, responses=ERROR_RESPONSES)
 async def get_agent(
     agent_id: str,

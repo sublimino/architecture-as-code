@@ -228,6 +228,7 @@ class AgentResponse(BaseModel):
     origin_verification: OriginVerificationMetadata | None = None
     owner: str | None = None
     tenant_id: str
+    tenant: str | None = None
     lifecycle_state: str
     last_transition_at: str | None
     last_transition_by: str | None = None

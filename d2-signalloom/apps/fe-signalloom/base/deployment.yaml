@@ -207,6 +207,10 @@ spec:
             # stages will say "UNVERIFIED" in the audit trail.
             - name: SIGNALLOOM_TEARDOWN_ALLOW_UNVERIFIED
               value: "1"
+            # When true, workloads declaring no signalloom.ai/tenant label may be claimed
+            # into the caller's tenant instead of failing closed with 403 workload_tenant_undeclared.
+            - name: ALLOW_UNDECLARED_TENANT_CLAIMS
+              value: "true"
             # fe-signalloom's own signal-ingest key (fe-signalloom-gateway),
             # read from the mounted Secret by src/ingest_client.py on every
             # call, so a rotation needs no restart. A path, never the value.

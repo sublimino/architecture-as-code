@@ -158,8 +158,12 @@ async def claim_discovered_workload(
     # 7. Persistence and state transition to Governed
     try:
         # The workload's platform-declared tenant must be the claimant's; the
-        # model recorded is the workload's own (claim_tenancy).
-        target = await claim_tenancy.resolve_claim(req.agent_id, req.namespace, tenant_id)
+        target = await claim_tenancy.resolve_claim(
+            req.agent_id,
+            req.namespace,
+            tenant_id,
+            allow_undeclared_tenant=True if principal.is_superadmin() else None,
+        )
         pool = await _require_pool("Claiming a discovered workload")
         if pool is not None:
             async with _write(pool) as conn:

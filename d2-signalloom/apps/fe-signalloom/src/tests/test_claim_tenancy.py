@@ -88,6 +88,32 @@ def client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
     monkeypatch.setattr(claim_tenancy, "workload_source", _workloads)
 
+    class _FakeDiscoveryResponse:
+        def __init__(self, data: Any):
+            self._data = data
+            self.status_code = 200
+
+        def json(self) -> Any:
+            return self._data
+
+        def raise_for_status(self) -> None:
+            pass
+
+    class _FakeAsyncClient:
+        def __init__(self, *args: Any, **kwargs: Any):
+            pass
+
+        async def __aenter__(self) -> "_FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeDiscoveryResponse:
+            return _FakeDiscoveryResponse({"agents": [dict(w) for w in WORKLOADS]})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", _FakeAsyncClient)
+
     def _no_network(*_a: Any, **_k: Any) -> None:
         raise AssertionError("external network access is forbidden in these tests")
 
@@ -369,3 +395,36 @@ def test_an_unregistered_agent_identity_is_unaffected_by_the_identity_map(
     monkeypatch.setattr(claim_tenancy, "identity_map_source", lambda: KUSARI_IDENTITY)
     res = _claim(client, DEMO_USER, "demo-bot", model="gpt-4o")
     assert res.status_code == 200, res.text
+
+
+def test_unlabelled_workload_claim_when_undeclared_claims_allowed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # By default unlabelled is refused 403 workload_tenant_undeclared
+    res = _claim(client, DEMO_USER, "unlabelled")
+    assert res.status_code == 403
+    assert _error(res) == "workload_tenant_undeclared"
+
+    # With allow_undeclared_tenant_claims enabled, workload is discoverable as undeclared
+    monkeypatch.setattr(settings, "allow_undeclared_tenant_claims", True)
+    get_res = client.get("/api/v1/agents/unlabelled-1", headers=_bearer(DEMO_USER))
+    assert get_res.status_code == 200, get_res.text
+    agent_data = get_res.json()
+    assert agent_data["tenant"] is None
+    assert agent_data["tenant_id"] == "undeclared"
+
+    # Claim succeeds and binds to claimant tenant
+    res = _claim(client, DEMO_USER, "unlabelled", model="gpt-4o")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    claim_id = body["claim_id"]
+    agent_id = body["agent_id"]
+    assert claim_id
+
+    # Post-claim agent reflects claimant tenant
+    claimed_res = client.get(f"/api/v1/agents/{agent_id}", headers=_bearer(DEMO_USER))
+    assert claimed_res.status_code == 200, claimed_res.text
+    claimed_data = claimed_res.json()
+    assert claimed_data["tenant"] == "tenant-demo"
+    assert claimed_data["tenant_id"] == "tenant-demo"
+

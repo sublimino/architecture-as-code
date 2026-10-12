@@ -252,6 +252,10 @@ var defaultLabelAllowList = map[string]struct{}{
 	"gap_end_seq":     {},
 	"dropped_count":   {},
 	"coverage_status": {},
+	// qname_entropy_bucket: collector-side Shannon-entropy bucket of the leftmost
+	// DNS label (none/low/medium/high) — the DNS-tunnel signal that survives into
+	// an immutable segment without the cleartext qname (catalogue review M5).
+	"qname_entropy_bucket": {},
 	//   baoaudit (OpenBao audit):
 	"operation":   {},
 	"accessor":    {},

@@ -443,15 +443,16 @@ data:
         # distinguish one host scanning from twenty hosts each retrying once, which
         # is the entire question.
   kusari--endpoint-runtime.yaml: |
-    # The Kusari endpoint-runtime threat bundle (Tetragon eBPF syscall stream).
+    # The Kusari endpoint-runtime threat bundle (Sentinel eBPF syscall stream).
     #
-    # This reads only the Tetragon endpoint projection (collectors/ebpf
-    # ProjectEndpoint, model.LayerEndpointHost, Source "tetragon") and every rule
-    # source-gates on it, so it never crosses the OTHER endpoint_host stream on the
-    # same layer — the agent-nono Landlock evidence (Source "agent-nono-evidenced"),
-    # whose landlock-denial rule gates on verification_status. A Tetragon event
-    # carries no verification_status, and these rules gate on source "tetragon", so
-    # the two endpoint_host streams share a layer and never a rule.
+    # This reads only the sentinel eBPF endpoint projection (collectors/ebpf
+    # ProjectEndpoint, model.LayerEndpointHost, Source "sentinel.ebpf.syscall_trace")
+    # and every rule source-gates on it, so it never crosses the OTHER endpoint_host
+    # stream on the same layer — the agent-nono Landlock evidence (Source
+    # "agent-nono-evidenced"), whose landlock-denial rule gates on verification_status.
+    # A sentinel eBPF syscall event carries no verification_status, and these rules
+    # gate on source "sentinel.ebpf.syscall_trace", so the two endpoint_host streams
+    # share a layer and never a rule.
     #
     # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
     # in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
@@ -459,7 +460,7 @@ data:
     #
     # # What the rules may read
     #
-    # Only the Tetragon endpoint label contract (collectors/ebpf/endpoint.go
+    # Only the sentinel eBPF endpoint label contract (collectors/ebpf/endpoint.go
     # ProjectEndpoint): classification, syscall, target, pod_name, namespace, node,
     # agent_role, service_account, pod_uid, provider, direction — plus obs.actor,
     # which is the keyed PSEUDONYM of the acting workload's service account (via
@@ -467,9 +468,9 @@ data:
     #
     # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
     #
-    #   * Every rule gates on obs.source == "tetragon": the endpoint_host layer
-    #     carries more than one projection, so the source gate is mandatory to stay
-    #     off the agent-nono Landlock stream.
+    #   * Every rule gates on obs.source == "sentinel.ebpf.syscall_trace": the
+    #     endpoint_host layer carries more than one projection, so the source gate is
+    #     mandatory to stay off the agent-nono Landlock stream.
     #   * Every label read is guarded with has(): a syscall event may carry a target
     #     or not (a file access does, a bare ptrace kprobe does not), so a bare read
     #     of an absent key would be a CEL fault degrading the whole bundle.
@@ -531,7 +532,7 @@ data:
         # A file_access whose target is a credential store. target is the file the
         # workload opened; the sensitive set is a var, membership-tested.
         expression: |-
-          obs.source == "tetragon" &&
+          obs.source == "sentinel.ebpf.syscall_trace" &&
           obs.layer == "endpoint_host" &&
           has(obs.labels.classification) && obs.labels.classification == "file_access" &&
           has(obs.labels.target) && obs.labels.target in vars.sensitive_files
@@ -544,7 +545,7 @@ data:
         # identity-scoped rule: obs.actor is the pseudonymised service account, tested
         # against the actor_vars set, never a cleartext label.
         expression: |-
-          obs.source == "tetragon" &&
+          obs.source == "sentinel.ebpf.syscall_trace" &&
           obs.layer == "endpoint_host" &&
           has(obs.labels.classification) && obs.labels.classification == "process_exec" &&
           !(obs.actor in vars.allowed_exec_actors)
@@ -557,7 +558,7 @@ data:
         # privilege-check hook. Both are high-signal host-runtime primitives, gated on
         # the syscall discriminator against a var set, independent of actor.
         expression: |-
-          obs.source == "tetragon" &&
+          obs.source == "sentinel.ebpf.syscall_trace" &&
           obs.layer == "endpoint_host" &&
           has(obs.labels.syscall) && obs.labels.syscall in vars.sensitive_syscalls
     
@@ -779,7 +780,8 @@ data:
     # spirea projection (collectors/spirea/collector.go convertToObservation):
     #   event_type ("spire_svid_issuance"), spiffe_id, trust_domain, svid_type,
     #   ttl_seconds, and optionally pod_name/namespace/service_account/sa_principal/
-    #   node_name/serial_number/jwt_id. obs.actor is the pseudonymised SPIFFE ID.
+    #   node_name/serial_number/jwt_id/attestation_selector_type. obs.actor is the
+    #   pseudonymised SPIFFE ID.
     # SaaS login projection (collectors/workspacesaas ToObservation + passthrough
     #   labels): provider, event_type, action, client_ip, risk_level, plus the
     #   passthrough labels this stream sets — mfa, geo, risk_reason, role_granted.
@@ -800,15 +802,20 @@ data:
     #   * Every rule source-gates (and the SaaS rules additionally layer-gate), so a
     #     rule only ever reads the projection it was written for.
     #
-    # # Missing from the contract (reported as collector gaps, not written as
-    # # unfireable rules)
+    # # Attestation downgrade (collector gap now closed)
     #
-    # The spirea collector does NOT project SPIRE attestation selectors or the
-    # attestation method, so a true selector-level "attestation downgrade" cannot be
-    # expressed. The nearest signal the contract does project is the SVID's trust
-    # domain, so svid-foreign-trust-domain stands in for the attestation-root anomaly
-    # (an SVID minted under a trust domain outside the federated set). A selector-aware
-    # downgrade rule needs a new projected label and is a collector gap.
+    # The spirea collector now projects attestation_selector_type — the sorted,
+    # distinct set of the SVID selectors' TYPE prefixes (k8s, unix, docker,
+    # join_token, aws_iid, ...), joined with "+", and ONLY the type, never the
+    # selector value. That classifies HOW the workload was attested without emitting a
+    # workload identifier, so svid-attestation-downgrade can fire on a real downgrade:
+    # an SVID attested by a type outside the required set (a `unix`-only SVID, uid/gid
+    # forgeable in a shared PID namespace, where the estate requires `k8s`
+    # API-server-verified pod identity). The event carries no separate attestation
+    # "method" field, so none is projected; the selector type is the faithful signal
+    # the source genuinely has. svid-foreign-trust-domain is KEPT alongside it: the
+    # trust domain is the attestation-ROOT anomaly (a foreign federation) and the
+    # selector type is the attestation-STRENGTH anomaly; they are different signals.
     #
     # # Fixtures
     #
@@ -855,6 +862,15 @@ data:
       saas_privileged_grantors:
         - "admin@corp.internal"
     
+      # SPIRE attestor TYPES the estate requires a workload SVID to be attested under.
+      # attestation_selector_type is the sorted "+"-joined set of the SVID selectors'
+      # type prefixes; an SVID whose projected type is outside this set was attested by
+      # a weaker path (attestation downgrade). This is an attribute allowlist (attestor
+      # family), not an identity one, so it is NOT an actor_var. k8s is the
+      # API-server-verified pod-identity attestor the Kusari demo workloads use.
+      required_attestors:
+        - "k8s"
+    
     rules:
       # --- SPIRE: SVID minted for an unexpected principal -----------------------
       - id: svid-issued-unexpected-principal
@@ -882,6 +898,25 @@ data:
           has(obs.labels.event_type) && obs.labels.event_type == "spire_svid_issuance" &&
           has(obs.labels.trust_domain) &&
           !(obs.labels.trust_domain in vars.trusted_domains)
+    
+      # --- SPIRE: SVID attested under a weaker-than-required path ----------------
+      - id: svid-attestation-downgrade
+        name: SPIRE SVID issued under an attestor type outside the required set
+        severity: high
+        # The attestation-strength anomaly, distinct from svid-foreign-trust-domain
+        # (attestation ROOT). attestation_selector_type is the sorted "+"-joined set of
+        # the SVID selectors' type prefixes, projected by the collector from
+        # event.Selectors; an "+"-joined set outside required_attestors means at least
+        # one required attestor is missing (a `unix`-only SVID where `k8s` is required).
+        # attestation_selector_type is an attribute label, not the actor identity, and
+        # the has() guard skips selector-less records so the rule never faults on the
+        # SVIDs that carry no attestation evidence.
+        expression: |-
+          obs.source == "spire-agent" &&
+          obs.layer == "identity_authorization" &&
+          has(obs.labels.event_type) && obs.labels.event_type == "spire_svid_issuance" &&
+          has(obs.labels.attestation_selector_type) &&
+          !(obs.labels.attestation_selector_type in vars.required_attestors)
     
       # --- SaaS login: impossible travel ----------------------------------------
       - id: saas-login-impossible-travel

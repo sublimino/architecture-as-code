@@ -303,7 +303,7 @@ However, the sentinel should not be the only enforcement layer. The recommended 
 
 | Layer | Tool | Purpose |
 |---|---|---|
-| **L1: Admission** | Kyverno | Validate agent pod specs at deploy time |
+| **L1: Admission** | CEL `ValidatingAdmissionPolicy` (API-server native) | Validate agent pod specs at deploy time |
 | **L2: Runtime prevention** | Nirmata Runtime or Tetragon | Continuously enforce behaviour envelope (exec, file, network) |
 | **L3: Runtime detection** | Falco | Detect anomalies that prevention rules do not cover |
 | **L4: Emergency containment** | Signal Loom Stun Sentinel | Freeze + network-isolate when L2/L3 trigger a stun decision |
@@ -543,9 +543,26 @@ func watchTetragonEvents(ctx context.Context, freezer *cgroupFreezer) {
 
 This reduces containment latency from API-watch-speed (~100ms-1s) to Tetragon-event-speed (~microseconds from syscall to event delivery).
 
-### 5.5 Declarative Stun Policies with Kyverno
+### 5.5 Declarative Stun Policies via a Mutating Policy Engine
 
-Integrate stun triggers with Kyverno's policy engine:
+> **Not available on the appliance as built, and not convertible to CEL.** OSD-7 removed Kyverno as a
+> bundled dependency: the appliance ships no admission controller in any of the 30 entries of
+> `bundle/.manifest.d/images.json`, and the admission path is now a CEL `ValidatingAdmissionPolicy`
+> evaluated by the API server.
+>
+> This section is retained as a design option rather than rewritten, because **it cannot be expressed
+> in CEL `ValidatingAdmissionPolicy` — that kind is validate-only.** The sketch below depends on
+> `mutate`, which applies the stun *label*; a validating policy can refuse a pod but cannot write to
+> it. So this is a genuine capability gap, not a syntax difference, and adopting it would mean
+> re-introducing a mutating admission controller (Kyverno, or a purpose-built webhook) into the
+> bundle. The same gap affects the graded-"cage" design in the policy-as-versioned-code proposal,
+> which likewise rests on `mutate`/`generate`.
+>
+> The deployed alternative needs no admission mutation at all: the stun label is written by
+> fleet-manager through the API, and `sl-agent-identity-state-protection` (a CEL VAP) is what
+> restricts *who* may write it. See `d2-agent-trust/policies/agent-identity-state-protection.yaml`.
+
+The sketch, for reference, in Kyverno's `ClusterPolicy` form:
 
 ```yaml
 apiVersion: kyverno.io/v1

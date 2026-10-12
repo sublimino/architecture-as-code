@@ -92,10 +92,12 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	[[ "$output" == *"must differ"* ]]
 }
 
-@test "lab: a dry run passes all twelve steps and mutates nothing" {
+@test "lab: a dry run passes all thirteen steps and mutates nothing" {
+	# Thirteen since OSD-8 added step 3b, the APPLIANCE_MODE=attached gate,
+	# between the Secret apply and the DNS splice.
 	dry
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"VERDICT: PASS (12/12 passed)"* ]]
+	[[ "$output" == *"VERDICT: PASS (13/13 passed)"* ]]
 	# No kubectl and no go at all under --dry-run: every call is printed.
 	[ ! -s "${STATE}/argv" ]
 	[ ! -e "${STATE}/go-argv" ]

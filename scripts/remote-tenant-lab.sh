@@ -39,6 +39,9 @@
 #   2  the hub mints the `warden` caller key, emits the two remote Secrets,
 #      and holds the two operator keypairs (scripts/fleet-operator-keys.sh)
 #   3  the remote cluster holds the namespace and both Secrets
+#  3b  the APPLIANCE_MODE=attached preflight accepts those Secrets (OSD-8:
+#      central issuance is a prerequisite of attached mode, and the gate that
+#      enforces it is scripts/attached-mode-preflight.sh)
 #   4  the remote cluster resolves the hub's gateway name
 #   5  the remote-tenant-dev overlay is applied and the DaemonSet rolls out
 #   6  the hub's registry lists this cluster's pods (the workload report)
@@ -392,6 +395,31 @@ step_3_apply_secrets() {
 	pass "3 secrets" "both Secrets in $AGENTS_NS on $REMOTE_CTX"
 }
 
+# step_3b: the APPLIANCE_MODE=attached gate (OSD-8), run against the Secrets
+# step_3 just applied. The lab is the one place that can prove the gate both
+# ways round: step_3 is the only local source of those Secrets, so a preflight
+# that fails here means the emitter, the transfer or the apply is wrong, and a
+# preflight that passes here is the same assertion a design partner's appliance
+# makes before it renders the overlay.
+#
+# It is a row of its own rather than a line inside step_3 because the two
+# failures are different: step_3 fails when an apply fails, this fails when the
+# applied objects do not satisfy the overlay's required key refs.
+step_3b_attached_preflight() {
+	local script="$REPO_ROOT/scripts/attached-mode-preflight.sh"
+	[ -x "$script" ] || {
+		fail "3b attached preflight" "missing or not executable: $script"
+		return 1
+	}
+	if run_or_echo "attached preflight" -- env APPLIANCE_MODE=attached \
+		bash "$script" --context "$REMOTE_CTX" --namespace "$AGENTS_NS" \
+		--kubectl "$KUBECTL"; then
+		pass "3b attached preflight" "the attached-mode gate accepts $AGENTS_NS on $REMOTE_CTX"
+		return 0
+	fi
+	fail "3b attached preflight" "the attached-mode gate rejected $AGENTS_NS on $REMOTE_CTX"
+}
+
 step_4_dns() {
 	# A CoreDNS `hosts` block on the remote cluster for the hub's gateway name.
 	# The warden runs ClusterFirstWithHostNet, so CoreDNS answers it; without
@@ -739,6 +767,7 @@ main() {
 	# apply only produces a second, misleading failure.
 	if [ "$FAILED" -eq 0 ]; then step_2_mint_and_emit; fi
 	if [ "$FAILED" -eq 0 ]; then step_3_apply_secrets; fi
+	if [ "$FAILED" -eq 0 ]; then step_3b_attached_preflight; fi
 	if [ "$FAILED" -eq 0 ]; then step_4_dns; fi
 	if [ "$FAILED" -eq 0 ]; then step_5_overlay; fi
 	if [ "$FAILED" -eq 0 ]; then step_5b_target; fi

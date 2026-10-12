@@ -744,11 +744,42 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 **Last Updated:** 2026-10-13 00:33:00+01:00
 **Status:** pass
 **Commit:** `73481142` on `integration/slsi-v0.1.0`.
+**Base Ref:** `integration/slsi-v0.1.0` (`7bf49c239671a237cb0479224bcb0f910505a630`)
+**Upstream Ordering:** Depends on `SLSI-P1-GOV` (`edgeType: governor-gate`). Consumes Phase 1 appliance bundle, MANIFEST.json sealing protocol, airgap BATS verification.
+
+##### Gap Table
+
+| Capability | Required (with constitution or file:line source) | Observed | Verdict | Proof command or file:line | Owning card |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `tenant-cosign-key-algorithm` | ECDSA P-256 via cosign generate-key-pair (`Makefile:254`) | Public-Key: (256 bit) | MATCH | `openssl pkey -pubin -in .keys/cosign.pub -text -noout \| grep -q '256 bit'` | P2-1 |
+| `tenant-witness-key-algorithm` | Ed25519 via witness init (`Makefile:265`) | ED25519 Public-Key: pub: | MATCH | `openssl pkey -pubin -in .keys/witness-pub.pem -text -noout \| grep -q 'ED25519'` | P2-1 |
+| `tenant-orbit-key-algorithm` | Ed25519 via openssl genpkey -algorithm ed25519 (`Makefile:290`) | ED25519 Public-Key: pub: | MATCH | `openssl pkey -pubin -in .keys/orbit-approval-pub.pem -text -noout \| grep -q 'ED25519'` | P2-1 |
+| `keys-directory-permissions` | Directory mode 0700 and private keys 0600 (`scripts/fleet-operator-keys.sh:20`) | cosign.key is 0600; .keys directory is 0775 on dev checkout | DRIFT | `stat -c '%a' .keys` | P2-1 |
+| `keys-dir-isolation-seam` | Tenant keys isolation achieved via export KEYS_DIR without editing git-common-dir branch (`scripts/lib/keys.sh:36`) | KEYS_DIR env var is highest precedence in keys_dir() | MATCH | `bash -c 'source scripts/lib/keys.sh; KEYS_DIR=/tmp/test-tenant-keys keys_dir' \| grep -q '/tmp/test-tenant-keys'` | P2-1 |
+| `init-tenant-installer-script` | Appliance initialisation script scripts/init-tenant.sh (`scripts/setup.sh:1`) | File is ABSENT; parent directory scripts/ exists (parent_rc=0, target_rc=2) | ABSENT | `ls -d scripts >/dev/null; echo parent_rc=$?; ls scripts/init-tenant.sh >/dev/null 2>&1; echo target_rc=$?` | P2-1 |
+| `kind-template-mount-disjointness` | Unified Kind node template providing both storage mounts (Zot, Postgres) and kernel mounts (/lib/modules, /sys/kernel/btf) (`infra/kind/cluster-osramp.yaml:49`) | create-kind-cluster.sh defines storage mounts; cluster-osramp.yaml defines kernel mounts; union is disjoint | DRIFT | `test "$(rg -c 'hostPath:' scripts/create-kind-cluster.sh)" = "2" && test "$(rg -c 'hostPath:' infra/kind/cluster-osramp.yaml)" = "2"` | P2-2 |
+| `kind-template-extra-port-mappings` | ExtraPortMappings defined for Ingress and Zot (`scripts/create-kind-cluster.sh:134`) | extraPortMappings absent from both scripts/create-kind-cluster.sh and infra/kind/cluster-osramp.yaml | DRIFT | `rg -q 'extraPortMappings' scripts/create-kind-cluster.sh infra/kind/cluster-osramp.yaml; test $? -eq 1` | P2-2 |
+| `postgres-container-uid-specification` | Postgres container UID 999 for fe-signalloom deployment; proposal text incorrectly states 70:70 (`d2-signalloom/apps/fe-signalloom/base/deployment.yaml:51`) | runAsUser: 999, runAsGroup: 999, fsGroup: 999 in deployment.yaml | DRIFT | `rg -q 'runAsUser: 999' d2-signalloom/apps/fe-signalloom/base/deployment.yaml` | P2-2 |
+| `openbao-container-uid-specification` | OpenBao container UID 100:1000 (`d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml:35`) | runAsUser: 100, runAsGroup: 1000 in openbao-spire.yaml | MATCH | `rg -q 'runAsUser: 100' d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml` | P2-2 |
+| `zot-container-uid-specification` | Zot container UID 65532:65532 (`d2-osramp-fleet/local/zot.yaml:59`) | runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532 in zot.yaml | MATCH | `rg -q 'runAsUser: 65532' d2-osramp-fleet/local/zot.yaml` | P2-2 |
+| `platform-images-digest-manifest` | 30 platform images pinned by sha256 digest in images.json (`bundle/.manifest.d/images.json:2`) | 30 platform images with sha256 digests; count field equals 30 | MATCH | `test "$(jq '.count == 30 and (.images\|length) == 30' bundle/.manifest.d/images.json)" = "true"` | P2-3 |
+| `oci-repository-cosign-verify-patches` | 6 JSON patches attaching static cosign verify to tenant ResourceSets (`d2-osramp-fleet/tenants/local/kustomization.yaml:35`) | 6 positional patches targeting /spec/resources/<index>/spec/verify with secretRef.name=cosign-pub | MATCH | `test "$(rg -c 'path: /spec/resources/[0-9]+/spec/verify' d2-osramp-fleet/tenants/local/kustomization.yaml)" = "6"` | P2-4 |
+| `remote-tenant-overlay-rendered-objects` | Remote tenant overlay renders 10 objects expecting 6 secret references (`d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant/kustomization.yaml:1`) | 10 rendered objects across 7 kinds (2 ConfigMap, 1 CronJob, 1 DaemonSet, 2 NetworkPolicy, 1 Role, 1 RoleBinding, 2 ServiceAccount) and 6 expected secrets | MATCH | `test "$(kubectl kustomize d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant \| rg -c '^kind:')" = "10"` | P2-4 |
+| `kyverno-admission-policy-carrier` | Admission policy file policy/kyverno-verify-images.yaml (`docs/signalloom/image-verification-without-kyverno.md:3`) | File is ABSENT; parent directory policy/ exists (parent_rc=0, target_rc=2); appliance bundles no Kyverno | ABSENT | `ls -d policy >/dev/null; echo parent_rc=$?; ls policy/kyverno-verify-images.yaml >/dev/null 2>&1; echo target_rc=$?` | P2-4 |
+| `openbao-persistent-storage-contract` | Persistent storage configuration for OpenBao data across cluster restarts (`d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml:26`) | OpenBao runs server -dev in-memory with zero volumes and auto-unseal; storage backend and unseal mechanism absent | DRIFT | `rg -q -- '-dev' d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml` | P2-5 |
+
+##### Positive Evidence of Absence (parent-readable / target-missing pairs)
+
+| Target Path | Parent Directory | Parent Status (`parent_rc`) | Target Status (`target_rc`) | Verdict | Owning Card |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `scripts/init-tenant.sh` | `scripts` | `0` (readable) | `2` (No such file or directory) | ABSENT | P2-1 |
+| `policy/kyverno-verify-images.yaml` | `policy` | `0` (readable) | `2` (No such file or directory) | ABSENT | P2-4 |
 
 ##### Phase 2 Preflight Certification
 1. **Contract Schema & Baseline:** Contract established at `docs/EAP/slsi/p2-pre-contract.json` conforming to `slsi-p2-pre-contract/v1`, pinned to tip certified by `SLSI-P1-GOV` (`6b94c`).
 2. **Crypto & Mount Invariants:** Cryptographic algorithm contracts (Cosign ECDSA P-256, Witness Ed25519, Orbit Ed25519), host mounts (`/opt/tenants/<id>/data/{postgres,openbao,zot}`), container UID allocations, and 5-way landing sequence defined.
 3. **Verification Suite:** `docs/EAP/slsi/p2-pre-verify.sh` executed clean with 16/16 strict reproducibility checks and 16/16 citation resolution checks passing.
+4. **Measured Verdicts:** 16 capabilities audited — 9 MATCH, 5 DRIFT, 2 ABSENT, 0 UNKNOWN.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 

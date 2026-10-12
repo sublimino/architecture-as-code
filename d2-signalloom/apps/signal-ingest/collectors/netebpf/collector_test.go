@@ -86,8 +86,109 @@ func TestCollectorFlowEventIngest(t *testing.T) {
 	if o.Labels["provider"] != "OpenAI" {
 		t.Errorf("Expected provider OpenAI, got %s", o.Labels["provider"])
 	}
-	if o.Labels["domain"] != "api.openai.com" {
-		t.Errorf("Expected domain api.openai.com, got %s", o.Labels["domain"])
+
+	// Review-C4 renames: src_ip -> source_ip, bytes_sent -> bytes.
+	if o.Labels["source_ip"] != "10.244.0.12" {
+		t.Errorf("expected source_ip 10.244.0.12, got %q", o.Labels["source_ip"])
+	}
+	if _, ok := o.Labels["src_ip"]; ok {
+		t.Errorf("src_ip must be renamed to source_ip; it is still present")
+	}
+	if o.Labels["bytes"] != "1024" {
+		t.Errorf("expected bytes 1024, got %q", o.Labels["bytes"])
+	}
+	if _, ok := o.Labels["bytes_sent"]; ok {
+		t.Errorf("bytes_sent must be renamed to bytes; it is still present")
+	}
+
+	// The cleartext domain must NOT be projected; only its entropy bucket is.
+	if _, ok := o.Labels["domain"]; ok {
+		t.Errorf("cleartext domain must not be projected into a segment label")
+	}
+	if got := o.Labels["qname_entropy_bucket"]; got != "low" {
+		t.Errorf("expected qname_entropy_bucket low for api.openai.com, got %q", got)
+	}
+
+	// Non-allow-listed operational keys must be gone.
+	for _, k := range []string{"destination", "seq_num", "cgroup_id"} {
+		if _, ok := o.Labels[k]; ok {
+			t.Errorf("non-allow-listed key %q must not be projected", k)
+		}
+	}
+
+	// The flow projection emits exactly this allow-listed key set (plus the one
+	// intentionally-pending qname_entropy_bucket).
+	wantFlowKeys := map[string]bool{
+		"pod_name": true, "namespace": true, "pod_uid": true, "service_account": true,
+		"spiffe_id": true, "agent_role": true, "provider": true, "classification": true,
+		"source_ip": true, "dst_ip": true, "src_port": true, "dst_port": true,
+		"bytes": true, "qname_entropy_bucket": true,
+	}
+	for k := range o.Labels {
+		if !wantFlowKeys[k] {
+			t.Errorf("flow projection emitted unexpected key %q", k)
+		}
+	}
+	for k := range wantFlowKeys {
+		if _, ok := o.Labels[k]; !ok {
+			t.Errorf("flow projection is missing expected key %q", k)
+		}
+	}
+}
+
+func TestQnameEntropyBucket(t *testing.T) {
+	cases := []struct {
+		domain string
+		want   string
+	}{
+		{"", "none"},
+		{".example.com", "none"},
+		{"api.openai.com", "low"},
+		{"api.internal.svc", "low"},
+		{"example.com", "low"},
+		{"zqxjvkwmbpfhtdlrncsy.tunnel.example.com", "high"},
+		{"qpwoeirutyalskdjfhgz.exfil.example.net", "high"},
+	}
+	for _, c := range cases {
+		if got := QnameEntropyBucket(c.domain); got != c.want {
+			t.Errorf("QnameEntropyBucket(%q) = %q, want %q", c.domain, got, c.want)
+		}
+	}
+}
+
+func TestFixtureObservationsAreAllowListClean(t *testing.T) {
+	obs, err := FixtureObservations()
+	if err != nil {
+		t.Fatalf("FixtureObservations: %v", err)
+	}
+	if len(obs) == 0 {
+		t.Fatal("fixture corpus is empty; every downstream assertion would be vacuous")
+	}
+
+	// Every label key a fixture observation carries must be in the segment label
+	// allow-list (store/label_allowlist.go) EXCEPT qname_entropy_bucket, which is
+	// the single new key flagged for allow-listing by this card.
+	allowed := map[string]bool{
+		"pod_name": true, "namespace": true, "pod_uid": true, "service_account": true,
+		"spiffe_id": true, "agent_role": true, "provider": true, "classification": true,
+		"source_ip": true, "dst_ip": true, "src_port": true, "dst_port": true, "bytes": true,
+		"qname_entropy_bucket": true, // intentionally pending allow-listing
+	}
+	ids := map[string]bool{}
+	for i := range obs {
+		o := obs[i]
+		if o.RawEvidenceRef == "" {
+			t.Errorf("observation %s has no RawEvidenceRef; negative-discipline attribution would fail", o.ID)
+		}
+		if ids[o.ID] {
+			t.Errorf("duplicate observation ID %q; the e2e deduper would drop one and skew counts", o.ID)
+		}
+		ids[o.ID] = true
+		for k := range o.Labels {
+			if !allowed[k] {
+				t.Errorf("observation %s carries non-allow-listed label key %q", o.ID, k)
+			}
+		}
 	}
 }
 

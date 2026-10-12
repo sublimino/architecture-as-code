@@ -324,7 +324,13 @@ def evaluate_agent_attention(
     has_sbom: bool = True,
     svid_expired: bool = False,
     lifecycle_state: str = "governed",
-    posture_score: float | None = 83.0,
+    # None, not 83.0. A caller that cannot supply a posture must not have one
+    # assumed for it: 83 sits above the 50-point attention threshold, so the
+    # old default silently cleared the posture warning for an agent whose
+    # posture was never measured -- the "better than reality" direction. With
+    # None the posture branch below is skipped and the verdict rests on the
+    # signals the caller actually passed.
+    posture_score: float | None = None,
 ) -> tuple[Literal["critical", "warning", "info", "none"], str | None, bool]:
     """Determine attention level, highest issue, and whether attention is required.
 

@@ -1,0 +1,89 @@
+# The Kusari GCP Cloud Audit admin-activity threat bundle.
+#
+# This stream reads only the gcpaudit projection (Source "gcp-cloud-audit",
+# model.LayerCloudControlPlane). Every rule gates on both source and layer
+# because the cloud_control_plane layer is shared by awslogs; without the source
+# gate an AWS event with a similar method label could cross-fire here.
+#
+# Identity is obs.actor through actor_vars, never a label. The GCP principal
+# email is routed through ActorHint and pseudonymised into obs.actor by the store
+# and bundle loader; principal_email must not be projected as a label. Therefore
+# identity tests are equality/membership only: `!(obs.actor in vars.X)`, never
+# startsWith/endsWith or any string parsing on obs.actor.
+#
+# Every label read is guarded with has(). A bare read of an absent label is a CEL
+# fault per observation and degrades the whole bundle.
+#
+# The bucket IAM rule is a deliberate over-trigger on the method surface:
+# allUsers/allAuthenticated lives in the request body, which this projection does
+# not read. The rule fires on storage.setIamPermissions and lets review decide
+# whether later streams add request-body nuance.
+
+id: kusari-gcp-admin
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+actor_vars:
+  - iam_admins
+  - sa_key_minters
+  - storage_admins
+  - logging_admins
+
+vars:
+  # Break-glass IAM administrators permitted to change project IAM policy.
+  iam_admins:
+    - "iam-admin@controlplane.io"
+
+  # Automation permitted to mint service-account keys.
+  sa_key_minters:
+    - "sa-key-bot@controlplane.io"
+
+  # Storage administrators permitted to edit bucket IAM permissions.
+  storage_admins:
+    - "storage-admin@controlplane.io"
+
+  # Logging administrators permitted to delete sinks.
+  logging_admins:
+    - "logging-admin@controlplane.io"
+
+rules:
+  - id: iam-policy-binding-change
+    name: IAM policy binding changed outside the admin allow-list
+    severity: critical
+    expression: |-
+      obs.source == "gcp-cloud-audit" &&
+      obs.layer == "cloud_control_plane" &&
+      has(obs.labels.method_name) && obs.labels.method_name.endsWith("SetIamPolicy") &&
+      !(obs.actor in vars.iam_admins)
+
+  - id: service-account-key-create
+    name: Service-account key created outside the minter allow-list
+    severity: high
+    expression: |-
+      obs.source == "gcp-cloud-audit" &&
+      obs.layer == "cloud_control_plane" &&
+      has(obs.labels.method_name) && obs.labels.method_name.endsWith("CreateServiceAccountKey") &&
+      !(obs.actor in vars.sa_key_minters)
+
+  - id: bucket-iam-made-public
+    name: Storage bucket IAM permissions changed outside the admin allow-list
+    severity: high
+    # DELIBERATE OVER-TRIGGER: public allUsers/allAuthenticated nuance is in the
+    # request body; this projection sees the storage SetIamPermissions surface.
+    expression: |-
+      obs.source == "gcp-cloud-audit" &&
+      obs.layer == "cloud_control_plane" &&
+      has(obs.labels.service_name) && obs.labels.service_name == "storage.googleapis.com" &&
+      has(obs.labels.method_name) && obs.labels.method_name == "storage.setIamPermissions" &&
+      !(obs.actor in vars.storage_admins)
+
+  - id: logging-sink-delete
+    name: Logging sink deleted outside the admin allow-list
+    severity: high
+    expression: |-
+      obs.source == "gcp-cloud-audit" &&
+      obs.layer == "cloud_control_plane" &&
+      has(obs.labels.service_name) && obs.labels.service_name == "logging.googleapis.com" &&
+      has(obs.labels.method_name) && obs.labels.method_name.endsWith("DeleteSink") &&
+      !(obs.actor in vars.logging_admins)

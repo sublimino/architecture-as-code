@@ -644,6 +644,7 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	$(MAKE) test-ci-path-anchoring
 	$(MAKE) test-ui-typography
 	$(MAKE) audit-anchor-test
+	$(MAKE) test-impl-agent-log
 	$(MAKE) test-signalfusion-bats
 	$(MAKE) test-tetragon-bats
 	$(MAKE) test-tetragon-stream
@@ -1885,6 +1886,10 @@ test-ui-typography: ## Run the UI typography and em-dash eradication lint gate.
 audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).
 	cd $(AUDIT_ANCHOR_SRC) && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 		$(AUDIT_ANCHOR_PY) -m pytest -o addopts="" -q tests/test_audit_anchor_*.py
+
+.PHONY: test-impl-agent-log
+test-impl-agent-log: ## Run the impl-agent-log multi-agent shared log BATS test suite.
+	bats test/impl-agent-log.bats
 
 .PHONY: olly-test
 olly-test: ## Run the olly-replica bats suite (enrichment loop end to end).

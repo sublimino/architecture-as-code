@@ -661,8 +661,8 @@ $(sed 's/#.*//' "$runner")"
 	#   targets owned by Makefile targets (e.g. make test-sldc-offline, make test-isolation).
 	#   dockerfile-copy-sources.bats, docs-tests-alignment.bats, freeport-lib.bats,
 	#   jev-*.bats, old-probe-name-guard.bats, parallel-acceptance.bats, source-id-tracked.bats,
-	#   spool-replay-lib.bats, test-isolation-audit.bats, tombstone-mutation-check.bats -
-	#   offline utility, tool and harness self-tests.
+	#   spool-replay-lib.bats, test-isolation-audit.bats, tombstone-mutation-check.bats,
+	#   impl-agent-log.bats - offline utility, tool and harness self-tests.
 	#   slsi-airgap-bundle.bats - SLSI-P1-4/OSD-4 two-leg air-gap proof. Needs a
 	#                             BUILT multi-gigabyte dist/ tarball, docker with
 	#                             the sandbox image already local, strace, and a
@@ -724,7 +724,8 @@ test-isolation-audit.bats
 tombstone-mutation-check.bats
 warden-cutover.bats
 slsi-airgap-bundle.bats
-slsi-bundle-manifest.bats"
+slsi-bundle-manifest.bats
+impl-agent-log.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

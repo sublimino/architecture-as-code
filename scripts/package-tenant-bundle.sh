@@ -1905,7 +1905,35 @@ stage_p1_3_manifest() {
   # it names an image published in no registry, where the other 30 name real
   # upstream images that simply have not been fetched into the layout.
   local forbidden_util_digest="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
-  # The gate itself fires later, against the index this run STAGES rather than
+
+  # Gate 7a: no containerised-utility record may reach the manifest.
+  #
+  # This half exists because the other half cannot fail on input. The staged
+  # index is produced by a filter that explicitly drops forbidden_util_digest,
+  # so an index-only gate can only ever catch a future re-introduction of the
+  # injection CODE -- never a poisoned input. That is a gate which no fixture
+  # can fire, and a gate no fixture can fire is indistinguishable from no gate.
+  #
+  # The images array is different: it comes straight from .manifest.d, which
+  # the bundler does not filter, so a planted record DOES reach the manifest
+  # and this check DOES fire on it. Matched by name and by role rather than by
+  # the one digest, because a re-introduction under a new digest is the same
+  # defect. test/slsi-bundle-seal-falsification.sh case 7 is the fixture.
+  local util_records
+  util_records="$(jq -r '
+    [ .images[]? | select((.role? == "utility") or (((.ref? // "") + (.logicalName? // "")) | test("slsi-util"))) ]
+    | .[] | (.ref // .logicalName // "unnamed")
+  ' "${manifest_d_json}")"
+  if [[ -n "${util_records}" ]]; then
+    echo "ERROR: a containerised-utility image record reached the manifest:" >&2
+    printf '  %s\n' "${util_records}" >&2
+    echo "Decision 10 is reversed: controlplane/slsi-util was never published, has no Dockerfile" >&2
+    echo "in this tree, and resolves in no registry. The appliance ships bin/<arch>/ed25519-keygen." >&2
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    fail "Gate 7 failed: utility image record present in images.json"
+  fi
+
+  # Gate 7b fires later, against the index this run STAGES rather than
   # the one already committed. That distinction is the whole design: the
   # committed bundle/images/index.json still carries the entry, and a gate
   # reading it here would abort before the code below ever got the chance to
@@ -2030,7 +2058,7 @@ stage_p1_3_manifest() {
     ' "${manifest_d_json}" > "${stage_dir}/images/index.json"
   fi
 
-  # Gate 7, inverted: the slsi-util image must NOT be in the index being
+  # Gate 7b, inverted: the slsi-util image must NOT be in the index being
   # shipped. Checked here, on the staged output, for the reason given where
   # forbidden_util_digest is declared.
   #

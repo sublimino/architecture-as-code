@@ -51,7 +51,7 @@
 #   3 p1_3_stage_function_name_mismatch_is_caught   (bundler source only)
 #   5 sentinel_digest_fails_build                   (bundle/.manifest.d)
 #   6 tag_only_image_reference_fails_build          (bundle/.manifest.d)
-#   7 absent_utility_image_fails_loudly             (whole bundle/ tree)
+#   7 present_utility_image_fails_loudly            (whole bundle/ tree)
 #   8 planted_private_key_fails_build               (bundle/.manifest.d, keys)
 #
 # REQUIRE dist/ FROM A PRIOR stage_p1_3_manifest RUN: 1, 2, 4, 9.
@@ -277,46 +277,49 @@ assert_pass "tag_only_image_reference_fails_build" bash -c '
   rm -rf "$tmp_bundle" "$tmp_out"
 '
 
-# 7. Absent utility image fails loudly
-need_bundle_tree "absent_utility_image_fails_loudly"
-assert_pass "absent_utility_image_fails_loudly" bash -c '
-  # The fixture must be a COMPLETE bundle with only the utility image removed.
-  # An earlier version built a near-empty bundle (.manifest.d plus an empty OCI
-  # index), so stage_p1_3_manifest failed on a missing prerequisite long before
-  # it reached the utility-image check, the ERR trap fired with an unrelated
-  # message, and the case reported FAILED while proving nothing. Hardlink the
-  # real bundle instead, then strip exactly the one entry under test.
-  #
-  # Two defects fixed here, both of which made this case prove nothing:
-  #
-  # 1. `mktemp -d -p "$REPO_ROOT/.falsification-tmp"` required a directory
-  #    nothing in the repository creates -- not .gitignore, not the Makefile --
-  #    so mktemp failed, the ERR trap fired, and the case reported FAILED on
-  #    every run it has ever had. A plain mktemp -d needs no such parent.
-  # 2. `cp -al` hardlinked the real bundle tree. Hardlinks share inodes, and
-  #    stage_p1_3_manifest copies over bundle/images/index.json and
-  #    bundle/images/images.json in place, so the fixture would have written
-  #    THROUGH the links into the repository'"'"'s own tracked bundle. That is the
-  #    failure mode that dirtied 16 tracked files in this repository once. The
-  #    in-repo parent only existed to keep the links on one filesystem, so both
-  #    defects go away together.
+# 7. A utility-image record that REACHES the manifest fails loudly
+#
+# Inverted, not deleted. This case used to REMOVE the slsi-util record and
+# require Gate 7 to abort because it was missing -- so after the reversal there
+# was nothing left to remove and the fixture expressed no fault at all. It now
+# plants the record and requires the gate to refuse it, which is the same gate
+# proven from the other side.
+#
+# It deliberately plants into .manifest.d/images.json rather than into
+# images/index.json. The staged index is produced by a filter that drops the
+# forbidden digest outright, so a planted index entry is removed before any
+# gate sees it and the fixture would prove nothing -- the same way this case
+# previously proved nothing. The images array is NOT filtered, so a record
+# planted there does reach the manifest and the gate does fire. That asymmetry
+# is why Gate 7 is in two halves.
+need_bundle_tree "present_utility_image_fails_loudly"
+assert_pass "present_utility_image_fails_loudly" bash -c '
+  # cp -a, never cp -al. Hardlinks share inodes and stage_p1_3_manifest copies
+  # over bundle/images/index.json and images.json in place, so a hardlinked
+  # fixture writes THROUGH the links into the repository'"'"'s own tracked bundle.
+  # That is the failure mode that dirtied 16 tracked files here once.
   tmp_parent="$(mktemp -d -t slsi-falsify-utility.XXXXXX)"
   tmp_bundle="$tmp_parent/bundle"
   cp -a "'"$REPO_ROOT"'/bundle" "$tmp_bundle"
-  jq "del(.images[] | select(.ref | test(\"slsi-util\")))"      "'"$REPO_ROOT"'/bundle/.manifest.d/images.json" > "$tmp_bundle/.manifest.d/images.json.new"
+
+  # Plant the record Decision 10 used to append, under its own digest, and
+  # keep .count in arity with .images. Gate 3 compares the two and fires
+  # FIRST if they disagree, so without the recount this fixture aborts on an
+  # unrelated gate and proves nothing about Gate 7 -- which is the exact
+  # failure mode the previous version of this case had.
+  jq ".images += [{
+        ref: \"controlplane/slsi-util:v0.1.0@sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b\",
+        reference: \"controlplane/slsi-util\",
+        resolvedRef: \"controlplane/slsi-util:v0.1.0@sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b\",
+        logicalName: \"slsi-util\",
+        digest: \"sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b\",
+        party: \"first-party\",
+        role: \"utility\",
+        provides: [\"envsubst\", \"openssl\"]
+      }] | .count = (.images | length)" "'"$REPO_ROOT"'/bundle/.manifest.d/images.json" > "$tmp_bundle/.manifest.d/images.json.new"
   mv -f "$tmp_bundle/.manifest.d/images.json.new" "$tmp_bundle/.manifest.d/images.json"
   ( cd "$tmp_bundle/.manifest.d" && sha256sum images.json > images.sha256 )
-  # Gate 7 reads bundle/images/index.json, NOT images.json. Stripping only the
-  # images.json record left the gate looking at an index that still carried the
-  # utility descriptor, so the build succeeded and the case asserted its own
-  # success message contained "utility image". It has to be removed from the
-  # artefact the gate actually inspects, or the fixture does not express the
-  # fault under test.
-  for idx in "$tmp_bundle/images/index.json" "$tmp_bundle/images/oci/index.json"; do
-    [ -f "$idx" ] || continue
-    jq "del(.manifests[] | select(((.annotations // {})[\"org.opencontainers.image.ref.name\"] // \"\") | test(\"slsi-util\")))" "$idx" > "$idx.new"
-    mv -f "$idx.new" "$idx"
-  done
+
   tmp_out="$tmp_parent/out"
   mkdir -p "$tmp_out"
   source "'"$REPO_ROOT"'/scripts/package-tenant-bundle.sh" --help >/dev/null 2>&1 || true
@@ -328,7 +331,7 @@ assert_pass "absent_utility_image_fails_loudly" bash -c '
   # survivable.
   err_msg="$(SLSI_BUNDLE_OUT="$tmp_out" BUNDLE_DIR="$tmp_bundle" stage_p1_3_manifest 2>&1)" || true
   rm -rf "$tmp_parent"
-  echo "$err_msg" | grep -qi "utility image"
+  echo "$err_msg" | grep -qi "utility image record present"
 '
 
 # 8. Provocation: private key detection fails build

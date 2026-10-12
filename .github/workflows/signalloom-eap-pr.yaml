@@ -132,6 +132,49 @@ jobs:
         # gcp-tf-validate owns the terraform-*.bats suites. Offline, ~1s.
         run: bats test/eap-pr-workflow.bats
 
+      - name: Generated-artefact drift (bootstrap SQL)
+        # Root cause of a real escape, traced 2026-10-12. Migration
+        # 061_policy_check_mapping.sql landed in 24f1d1b7 (2026-10-10) without
+        # the two generated discovery-portal-bootstrap.sql copies being
+        # regenerated, so both sat at 4733 lines against a generated 4785 and
+        # the estate's offline leg was red for two days.
+        #
+        # The guard itself was never the problem: d2-signalloom/Makefile's
+        # `test` target runs validate-dependencies.sh, and `make -C d2-signalloom
+        # test` is named twice in scripts/ci/vm-pipeline.sh and three times in
+        # scripts/gcp-tf/demo-pipeline.sh. It was absent from THIS file -- the
+        # pull-request gate -- so nothing could catch the drift at the moment it
+        # was introduced. A correct guard that runs only after merge is a
+        # post-mortem tool, not a gate.
+        #
+        # Offline, no network, no cluster, sub-second. The migrations are the
+        # source of truth; both SQL files are build artefacts and must never be
+        # hand-edited.
+        run: bash d2-signalloom/test/validate-dependencies.sh
+
+      - name: Offline suites that no runner previously invoked
+        # Registered by LITERAL BASENAME, not by make target. The coverage guard
+        # at d2-signalloom/test/bats-registry-coverage.bats:718 greps the three
+        # pipeline files for each suite's basename with comments stripped, so a
+        # `make test-offline-install-boundary` line does NOT satisfy it and would
+        # leave the guard red while looking like the registration had worked.
+        # Measured before registering: all seven pass offline with zero skips
+        # and need no cluster -- 3 + 24 + 16 + 12 + 17 + 11 + 20 + 8 = 111 tests
+        # that until now ran nowhere. Two of them (agent-behavior-signal-loop,
+        # hostile-agent-admission-eval) pre-date this wave and were unrun at
+        # e077d5ec; they are registered rather than excluded because a suite
+        # nothing invokes provides no regression protection, however green it is
+        # by hand. Offline, no network, no cluster.
+        run: |
+          bats test/agent-behavior-signal-loop.bats
+          bats test/hostile-agent-admission-eval.bats
+          bats test/slsi-bundle-osd.bats
+          bats test/offline-install-boundary.bats
+          bats test/offline-count-contract.bats
+          bats test/cel-admission-image-trust.bats
+          bats test/attached-mode-preflight.bats
+          bats test/ed25519-keygen-interop.bats
+
       - name: make test-eap-offline
         # The exit status of `make` is the exit status of this step. Nothing is
         # piped after it, so a red suite cannot be laundered by a trailing

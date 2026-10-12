@@ -116,6 +116,7 @@ who onboards from zero on the pilot's secondary cluster.
 | [`EAP/enforcement.md`](EAP/enforcement.md) | Detection triggers, the freeze chain, how it is recorded, how to resume, and the forensic bundle |
 | [`EAP/faq-and-limits.md`](EAP/faq-and-limits.md) | Known limits with the file that proves each one, and what to do instead |
 | [`EAP/remote-contract.md`](EAP/remote-contract.md) | The wire contract between a remote warden, fleet-manager and the portal: TLS, workload report, remote stun, stun state and resume, discovery |
+| [`attached-mode-central-issuance.md`](attached-mode-central-issuance.md) | Why `APPLIANCE_MODE=attached` cannot self-provision: the two centrally minted Secrets, who issues them, and the preflight that enforces it |
 
 Deploy to GCP after the local tests pass. The GCP workflow costs money and needs cloud credentials.
 
@@ -215,7 +216,7 @@ certifications of each mission. The file prefix is the mission shortcode.
 | :--- | :--- |
 | [Signal Loom CEO Delivery Report, week of 2026-09-08](Signal%20Loom%20—%20CEO%20Delivery%20Report%20—%20Week%20of%202026-09-08.md) | Delivery status for one week |
 | [`amxd-p0-baseline.md`](amxd-p0-baseline.md) | AMXD mission baseline, with machine baselines in [`amxd-p0-baseline/`](amxd-p0-baseline/) |
-| [`slsi-p0-baseline.md`](slsi-p0-baseline.md) | SLSI mission baseline, establishing acceptance baseline at 504405b9 |
+| [`slsi-p0-baseline.md`](slsi-p0-baseline.md) | SLSI mission baseline, establishing acceptance baseline at 504405b9 with machine baselines in [`slsi-p0-baseline/`](slsi-p0-baseline/) |
 | [`ktest-p2-preflight.md`](ktest-p2-preflight.md) | KTEST phase 2 preflight |
 | [`kpai-harness-verification.md`](kpai-harness-verification.md) | KPAI runtime harness verification |
 | [`COLLABORATOR-REVIEW.md`](COLLABORATOR-REVIEW.md) | Review of the KPAI and Antigravity collaborators |

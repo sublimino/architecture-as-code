@@ -1,0 +1,132 @@
+{
+  "base": {
+    "branch": "integration/slsi-v0.1.1",
+    "resolvedSha": "a05a1520a692a65547bc28225d1b63750e9e455d"
+  },
+  "sentinels": {
+    "P1-1": {
+      "open": "# >>> SLSI-P1-1: binary staging and sha256 manifest <<<",
+      "close": "# <<< SLSI-P1-1 >>>",
+      "landed": true
+    },
+    "P1-2": {
+      "open": "# >>> SLSI-P1-2: offline OCI image bundler and digest pinning <<<",
+      "close": "# <<< SLSI-P1-2 >>>",
+      "landed": true
+    },
+    "P1-3": {
+      "open": "# >>> SLSI-P1-3: manifest compilation and bundle assembly <<<",
+      "close": "# <<< SLSI-P1-3 >>>",
+      "landed": false
+    },
+    "P1-4": {
+      "open": "# >>> SLSI-P1-4: packaging validation and dry-run verification <<<",
+      "close": "# <<< SLSI-P1-4 >>>",
+      "landed": false
+    }
+  },
+  "preambleOwnership": {
+    "ownedBy": "SLSI-P1-1",
+    "extendedBy": "SLSI-P1-2 (via non-mutating in-sentinel wrapping of parse_args and stage_p1_1_binaries)",
+    "callableHelpers": [
+      "log",
+      "fail",
+      "usage",
+      "parse_args",
+      "run_stage",
+      "check_capacity_gate",
+      "probe_openbao_kms",
+      "walk_oci_closure",
+      "verify_offline_images"
+    ]
+  },
+  "mergeRule": {
+    "targetFile": "MANIFEST.json",
+    "targetKey": "images",
+    "owner": "P1-3",
+    "rule": "jq '.images = $imgs.images'",
+    "landedOutOfOrder": false
+  },
+  "digestOnlyInvariant": {
+    "description": "Every platform image in scripts/foundation-images.txt (22 entries) and scripts/kagent-images.txt (8 entries) is resolved to an immutable sha256: manifest digest via registry inspection before export, and verified against on-disk OCI layout blobs. Zero floating tags (:latest) or floating semver (semver: '*') are permitted anywhere in bundle metadata or vendored manifests.",
+    "totalImages": 30,
+    "foundationEntries": 22,
+    "kagentEntries": 8,
+    "unresolvedCount": 0
+  },
+  "signingPosture": {
+    "keyUri": "openbao://slsi-release",
+    "publicKeyPath": "bundle/keys/release.pub",
+    "privateKeyStorage": "OpenBao Transit KMS engine at transit/keys/slsi-release; never written to disk or repository history",
+    "signatureType": "Sigstore detached bundle signature",
+    "verificationTool": "cosign verify-blob --insecure-ignore-tlog=true --key bundle/keys/release.pub",
+    "claim": "bundle-build attestation only; confers zero upstream SLSA provenance"
+  },
+  "offlineInvocationFlags": {
+    "imagesOnly": "--images-only",
+    "resolveOnly": "--resolve-only",
+    "verifyOnly": "--verify-only",
+    "verifyOnlyImages": "--verify-only --images-only",
+    "airgapExecution": "Zero external network egress during verification. Operates inside network namespaces (unshare -n) or air-gapped hosts without connectivity."
+  },
+  "expectedNonZeroAbortOnAttemptedEgress": {
+    "policy": "Offline verification strictly queries local on-disk OCI layout blobs and local public key. Any attempt to reach external networks, missing blobs, corrupted digests, or tampered signatures causes immediate non-zero abort.",
+    "exitCodes": {
+      "0": "VERIFIED (cryptographic and structural consistency proven)",
+      "1": "MISMATCH (digest mismatch, tampered signature, floating tag in manifest, or private key leak)",
+      "3": "COULD-NOT-VERIFY (missing blob, missing signature, truncated index, missing public key, or capacity gate abort)"
+    }
+  },
+  "fluxVendoring": {
+    "chart": {
+      "name": "flux-operator",
+      "version": "0.57.0",
+      "digest": "sha256:35105642acae3aceaf6a22e986653f766827c46e72179a9fec23214ec5f5317c",
+      "stagedPath": "bundle/images/flux/charts/flux-operator-0.57.0.tgz"
+    },
+    "manifestsArtifactDigest": "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c",
+    "rewrittenClusters": [
+      "local",
+      "staging",
+      "prod-eu",
+      "prod-us",
+      "update"
+    ],
+    "substitutions": [
+      "semver: '*' -> semver: '0.57.0' in flux-operator.yaml",
+      "matchOIDCIdentity -> secretRef: { name: cosign-pub } in flux-operator.yaml",
+      ":latest -> @sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c in flux-instance.yaml"
+    ],
+    "liveFleetUntouched": true
+  },
+  "layoutMap": {
+    "gitignoredGlobs": [
+      "bundle/images/oci/blobs/**",
+      "bundle/images/.staging*",
+      "bundle/images/*.tar",
+      "bundle/images/*.tar.gz",
+      "bundle/images/signatures/**",
+      "bundle/images/flux/charts/*.tgz"
+    ],
+    "committedGlobs": [
+      "bundle/images/images.json",
+      "bundle/images/resolved.json",
+      "bundle/images/layout-closure.json",
+      "bundle/images/oci/index.json",
+      "bundle/images/oci/oci-layout",
+      "bundle/images/flux/manifests/**",
+      "bundle/keys/release.pub",
+      "bundle/.manifest.d/images.json",
+      "bundle/.manifest.d/images.sha256",
+      "bundle/bin/checksums.txt"
+    ]
+  },
+  "osd6Compliance": {
+    "manifestPath": "bundle/.manifest.d/images.json",
+    "checksumPath": "bundle/.manifest.d/images.sha256",
+    "schema": "slsi-bundle-images/v1",
+    "count": 30,
+    "checksumVerified": true
+  },
+  "contractDivergence": []
+}

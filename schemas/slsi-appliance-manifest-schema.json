@@ -1,0 +1,563 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalloom.io/schemas/slsi-appliance-manifest/v1",
+  "title": "SLSI appliance manifest schema",
+  "description": "Root schema validating MANIFEST.json in the SLSI tenant appliance bundle archive.",
+  "type": "object",
+  "required": [
+    "schema",
+    "bundle",
+    "sourceDateEpoch",
+    "git",
+    "payload",
+    "payloadFileCount",
+    "payloadTotalBytes",
+    "payloadChecksumFile",
+    "images",
+    "imageCount",
+    "releaseKey",
+    "verify",
+    "coverageExclusions",
+    "reproducibility"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "slsi-bundle/v1"
+    },
+    "bundle": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "createdAtUtc",
+        "applianceModes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^slsi-appliance-[0-9A-Za-z][0-9A-Za-z._-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*$"
+        },
+        "createdAtUtc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "applianceModes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "applianceModes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hub": {
+          "type": "object",
+          "properties": {
+            "rendersOverlay": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mintsIssuers": {
+              "type": "boolean"
+            }
+          }
+        },
+        "attached": {
+          "type": "object",
+          "properties": {
+            "rendersOverlay": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mintsIssuers": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "sourceDateEpoch": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "git": {
+      "type": "object",
+      "required": [
+        "commit",
+        "branch",
+        "dirty"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "commitSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      }
+    },
+    "payload": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "mode",
+          "bytes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/|\\.\\./|\\./).+"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "mode": {
+            "type": "string",
+            "pattern": "^0[0-7]{3}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "payloadFileCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "payloadTotalBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payloadChecksumFile": {
+      "const": "MANIFEST.sha256"
+    },
+    "payloadChecksums": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cwdAnchor": {
+          "const": "."
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "required": [
+        "root",
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "const": "."
+        },
+        "command": {
+          "type": "string",
+          "pattern": "sha256sum"
+        }
+      }
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "digest"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "resolvedRef": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "logicalName": {
+            "type": "string"
+          },
+          "sourceRef": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "party": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "First-party only (OSD-1): the fingerprint of the image's build inputs, from scripts/lib/source-id.sh. The identity the Dockerfile bakes in, as opposed to the mutable tag the deployment resolves to."
+          },
+          "sourceIdTag": {
+            "type": "string",
+            "pattern": "^src-[0-9a-f]{12}$",
+            "description": "First-party only (OSD-1): the src-<12 hex> form of sourceId, the same convention the build sites' tag scripts print."
+          },
+          "provides": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "digestKind": {
+            "type": "string"
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ociLayoutPath": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer"
+          },
+          "keyFingerprint": {
+            "type": "string"
+          },
+          "signature": {
+            "type": [
+              "object",
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "imageCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "hostUtilities": {
+      "type": "object",
+      "required": [
+        "decision",
+        "notShipped",
+        "rationale",
+        "replacedBy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string"
+        },
+        "notShipped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtimeRequired": {
+          "type": "null"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "replacedBy": {
+          "type": "object",
+          "required": [
+            "binary",
+            "source",
+            "digestKind",
+            "interop"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "binary": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "digestKind": {
+              "type": "string"
+            },
+            "interop": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "stagedBinaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "mode": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "buildHostPrerequisites": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "releaseKey": {
+      "type": "object",
+      "required": [
+        "fingerprint",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "path": {
+          "type": "string"
+        },
+        "algorithm": {
+          "type": "string"
+        },
+        "keyUri": {
+          "type": "string"
+        },
+        "publicKeyPath": {
+          "type": "string"
+        }
+      }
+    },
+    "provenanceStatement": {
+      "type": "string"
+    },
+    "installer": {
+      "type": "object",
+      "description": "The self-initialisation slot, declared so a consumer reads its real state off the artefact instead of inferring it from a file that is not there. Two scopes are reported separately because they differ and the difference matters: present answers 'is the installer in this bundle payload', sourcePresent answers 'does the repository carry one yet'. Both are measured at build time, never asserted.",
+      "required": [
+        "path",
+        "present",
+        "status",
+        "ownedBy",
+        "governedBy",
+        "sourcePath",
+        "sourcePresent",
+        "sourceStatus"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path the installer would occupy inside the bundle payload."
+        },
+        "present": {
+          "type": "boolean",
+          "description": "Measured: does path exist in the staged payload."
+        },
+        "status": {
+          "type": "string"
+        },
+        "ownedBy": {
+          "type": "string"
+        },
+        "governedBy": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string",
+          "description": "Path of the installer in the source repository."
+        },
+        "sourcePresent": {
+          "type": "boolean",
+          "description": "Measured: does sourcePath exist in the source tree at build time."
+        },
+        "sourceStatus": {
+          "type": "string",
+          "minLength": 20,
+          "description": "What the source-tree file actually does, so a refusing stub is never mistaken for a working installer."
+        }
+      }
+    },
+    "bundleLayout": {
+      "type": "object",
+      "properties": {
+        "fleet": {
+          "type": "string"
+        },
+        "infra": {
+          "type": "string"
+        },
+        "bin": {
+          "type": "string"
+        },
+        "images": {
+          "type": "string"
+        },
+        "keys": {
+          "type": "string"
+        },
+        "installer": {
+          "type": "string"
+        }
+      }
+    },
+    "ociArtifacts": {
+      "type": "array"
+    },
+    "fluxVendoring": {
+      "type": "object"
+    },
+    "coverageExclusions": {
+      "type": "array",
+      "description": "Image references the coverage gate may legitimately leave unpinned. A bare reason word is not evidence, so every entry must also carry a justification: an exclusion nobody can read is indistinguishable from an oversight, and the reason enum alone cannot say why THIS reference was excused.",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "reason",
+          "kind",
+          "justification"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "dev-deferred-pin is a deliberate development-mode deferral under AJM decision OSD-2: the reference is version-tagged or source-id-tagged and carries a single reference site, and digest pinning is postponed rather than overlooked. It is named for what it is so that it cannot be mistaken for a structural exemption like helm-chart-repository or local-never-pulled, both of which can never be pinned at all.",
+            "enum": [
+              "helm-chart-repository",
+              "local-never-pulled",
+              "dev-deferred-pin"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "justification": {
+            "type": "string",
+            "minLength": 40,
+            "description": "Why this specific reference is excused, in prose, so the deferral is self-documenting rather than silent."
+          },
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The literal tag the reference carries. Present on a dev-deferred-pin entry to preserve the distinction that these are version-tagged or source-id-tagged, not floating on :latest."
+          },
+          "mutableTag": {
+            "type": "boolean",
+            "description": "Whether the tag can move under the appliance. False for every dev-deferred-pin entry; a true value would make the deferral unsafe rather than merely unfinished."
+          },
+          "ownedBy": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "reproducibility": {
+      "type": "object",
+      "description": "Declares how two builds from the same sourceDateEpoch may legitimately differ. Without this block a governor comparing builds must invent which differences to forgive, which is a tautological pass.",
+      "required": [
+        "sourceDateEpoch",
+        "comparisonRule",
+        "volatileSet"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sourceDateEpoch": {
+          "type": "integer",
+          "description": "Epoch the build pins timestamps to; must equal the root sourceDateEpoch."
+        },
+        "comparisonRule": {
+          "type": "string",
+          "minLength": 80,
+          "description": "States that a difference outside the volatile set fails the gate."
+        },
+        "volatileSet": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Payload path globs that cannot be byte-reproducible, each with a machine-readable reason.",
+          "items": {
+            "type": "object",
+            "required": [
+              "glob",
+              "reason",
+              "detail"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "glob": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "cosign-ecdsa-nonce",
+                  "derived-from-volatile"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 40
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

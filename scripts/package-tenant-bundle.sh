@@ -121,12 +121,45 @@ parse_args() {
 
 # >>> SLSI-P1-1: binary staging and sha256 manifest <<<
 # P1-1: Multi-arch binary collection and sha256 manifest generation
-# Tools: kind, kubectl, flux, cosign, jq
+# Tools: kind, kubectl, flux, cosign, jq (pinned upstream downloads)
+#        ed25519-keygen (built from this repository's own source)
 # Arches: amd64, arm64
-# Decision 10: openssl and envsubst are containerised in bundle/images/ (P1-2)
-# and are not staged as host binaries in bundle/bin/.
-SLSI_UTILITY_IMAGE_REF="docker.io/controlplane/slsi-util:v0.1.0"
-SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION="SLSI-P1-2"
+#
+# Decision 10 is REVERSED. It containerised openssl and envsubst into
+# docker.io/controlplane/slsi-util:v0.1.0 and generated `docker run` wrappers
+# into bundle/bin/<arch>/. That image was never published and no Dockerfile for
+# it exists anywhere in this tree; three independent channels agree it does not
+# exist (crane digest MANIFEST_UNKNOWN, docker manifest inspect "no such
+# manifest", registry API UNAUTHORIZED). Shipping a wrapper that execs a
+# non-existent image is worse than shipping nothing, because it reads as a
+# supported capability.
+#
+# Neither tool is shipped now. openssl cannot be pinned the way the five Go
+# binaries are -- upstream publishes source tarballs only, zero binaries, and
+# GNU gettext is the same -- and the appliance-side requirement was never
+# "openssl": it was two Ed25519 keypairs and a key-id derivation, all three in
+# `make signing-keys`. cmd/ed25519-keygen does exactly that and is staged here
+# like any other tool. Every appliance-side envsubst reference is Flux's own
+# in-cluster envsubst, not the host tool, so nothing replaces it.
+#
+# ed25519-keygen is the one staged binary whose digest is NOT a pinned literal,
+# and that distinction is load-bearing rather than an omission. The other five
+# are third-party downloads, so a literal pin is the only way to know you got
+# what upstream published. This one is compiled from the commit being bundled,
+# so a literal would have to be regenerated on every source change and would
+# assert nothing about provenance that the source tree does not already
+# assert. It is instead built reproducibly (-trimpath, -ldflags=-buildid=,
+# CGO_ENABLED=0) and its digest is computed at stage time; --check-pins
+# re-builds and compares, which is a stronger claim than matching a constant
+# someone typed.
+ED25519_KEYGEN_MODULE_REL="d2-signalloom/apps/fleet-manager"
+ED25519_KEYGEN_PKG="./cmd/ed25519-keygen"
+declare -A ED25519_KEYGEN_SHA256=()
+# The helper's "version" is the commit it was compiled from. `git -c
+# log.showSignature=false` because log.showSignature is set in some of this
+# project's checkouts and inlines five lines of gpg output into STDOUT, not
+# stderr, which would end up inside versions.txt.
+ED25519_KEYGEN_SOURCE_REV="$(git -c log.showSignature=false rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 PIN_KIND_VERSION="v0.29.0"
 PIN_KUBECTL_VERSION="v1.33.2"
@@ -210,8 +243,60 @@ check_pin_entry() {
   fi
 }
 
+# build_ed25519_keygen ARCH DEST — compile the key helper for ARCH into DEST
+# and print its sha256. Reproducible: -trimpath drops the build path and
+# -buildid= drops the one remaining nondeterministic field, so two builds of
+# the same source with the same toolchain are byte-identical (verified on both
+# arches). CGO_ENABLED=0 keeps it static, as the five downloads are.
+build_ed25519_keygen() {
+  local arch="$1" dest="$2"
+  local module="${REPO_ROOT}/${ED25519_KEYGEN_MODULE_REL}"
+
+  if [[ ! -d "${module}/cmd/ed25519-keygen" ]]; then
+    fail "ed25519-keygen source absent at ${module}/cmd/ed25519-keygen; it ships with fleet-manager"
+  fi
+  if ! command -v go >/dev/null 2>&1; then
+    fail "go toolchain is required to build ed25519-keygen from source (no binary is downloaded for it)"
+  fi
+
+  mkdir -p "$(dirname "${dest}")"
+  if ! GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 \
+      go -C "${module}" build -trimpath -ldflags=-buildid= -o "${dest}" "${ED25519_KEYGEN_PKG}"; then
+    fail "go build of ed25519-keygen for ${arch} failed"
+  fi
+  chmod 0755 "${dest}"
+  sha256sum "${dest}" | awk '{print $1}'
+}
+
+# check_ed25519_keygen_reproducible ARCH — rebuild and compare against the
+# staged artefact. This replaces a literal pin with a reproducibility claim:
+# the staged binary must be exactly what this source tree produces.
+check_ed25519_keygen_reproducible() {
+  local arch="$1"
+  local staged="${BUNDLE_DIR}/bin/${arch}/ed25519-keygen"
+
+  if [[ ! -f "${staged}" ]]; then
+    log "ed25519-keygen [${arch}]: UNVERIFIED (artefact absent at ${staged})"
+    return 1
+  fi
+
+  local tmp_dir rebuilt_sha staged_sha rc=0
+  tmp_dir="$(mktemp -d "/tmp/slsi-pin-ed25519-${arch}.XXXXXX")"
+  rebuilt_sha="$(build_ed25519_keygen "${arch}" "${tmp_dir}/ed25519-keygen")"
+  staged_sha="$(sha256sum "${staged}" | awk '{print $1}')"
+  rm -rf "${tmp_dir}"
+
+  if [[ "${staged_sha}" == "${rebuilt_sha}" ]]; then
+    log "ed25519-keygen [${arch}]: PASS (staged sha256 ${staged_sha} reproduced from source)"
+  else
+    log "ed25519-keygen [${arch}]: FAIL (staged ${staged_sha} is not what this source tree builds: ${rebuilt_sha})"
+    rc=1
+  fi
+  return "${rc}"
+}
+
 check_all_pins() {
-  log "Validating declared pin table for 5 staged Go utilities against bundle/bin/..."
+  log "Validating declared pin table for 5 downloaded Go utilities against bundle/bin/..."
   local failures=0
 
   check_pin_entry "kind" "amd64" "${KIND_AMD64_SHA256}" || failures=$((failures + 1))
@@ -225,9 +310,12 @@ check_all_pins() {
   check_pin_entry "jq" "amd64" "${JQ_AMD64_SHA256}" || failures=$((failures + 1))
   check_pin_entry "jq" "arm64" "${JQ_ARM64_SHA256}" || failures=$((failures + 1))
 
-  # Decision 10 containerised utility image declarations:
-  log "openssl [amd64/arm64]: CONTAINERIZED (Decision 10: image ref ${SLSI_UTILITY_IMAGE_REF}, digest pin obligation: ${SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION})"
-  log "envsubst [amd64/arm64]: CONTAINERIZED (Decision 10: image ref ${SLSI_UTILITY_IMAGE_REF}, digest pin obligation: ${SLSI_UTILITY_IMAGE_DIGEST_OBLIGATION})"
+  # ed25519-keygen is verified by reproduction, not by a literal (see the
+  # header note). A failure here means the staged binary is not what this
+  # commit builds, which is the same class of finding as a digest mismatch.
+  log "Validating ed25519-keygen by rebuilding it from source at this commit..."
+  check_ed25519_keygen_reproducible "amd64" || failures=$((failures + 1))
+  check_ed25519_keygen_reproducible "arm64" || failures=$((failures + 1))
 
   if [[ ${failures} -ne 0 ]]; then
     fail "Pin table validation failed: ${failures} binary pin check(s) failed or unverified"
@@ -270,16 +358,16 @@ verify_offline_manifest() {
     listed_set["${lp}"]=1
   done
 
-  # The Decision 10 container wrappers are deliberately absent from the
-  # checksum manifest. Exclude them by their exact expected paths, not by a
-  # '*/openssl' glob, which would skip any planted file whose name happens to
-  # end that way.
+  # Only the two self-describing metadata files are exempt from the checksum
+  # manifest. Under Decision 10 the openssl and envsubst wrappers were exempt
+  # too, which was the only reason an unlisted executable could sit in
+  # bundle/bin/<arch>/ and still pass completeness. With the wrappers gone that
+  # hole closes: every executable in the tree is now listed, ed25519-keygen
+  # included. Exemptions are exact paths, never a '*/openssl' glob, which would
+  # also skip any planted file whose name happened to end that way.
   local -A wrapper_exempt=()
-  local arch util
+  local arch
   for arch in amd64 arm64; do
-    for util in openssl envsubst; do
-      wrapper_exempt["${arch}/${util}"]=1
-    done
     wrapper_exempt["${arch}/versions.txt"]=1
   done
   wrapper_exempt["checksums.txt"]=1
@@ -379,8 +467,23 @@ stage_single_tool() {
       fi
       expected_bin_sha="${expected_blob_sha}"
       ;;
-    openssl|envsubst)
-      log "Skipping ${tool}: Decision 10 specifies containerisation in bundle/images/ (owned by P1-2), not staged in bundle/bin/."
+    ed25519-keygen)
+      # Built, not downloaded, so none of the curl/digest/version machinery
+      # below applies. Handled before the download path rather than inside it.
+      local dest_dir_src="${BUNDLE_DIR}/bin/${arch}"
+      mkdir -p "${dest_dir_src}"
+      local built_sha
+      built_sha="$(build_ed25519_keygen "${arch}" "${dest_dir_src}/ed25519-keygen")"
+      ED25519_KEYGEN_SHA256["${arch}"]="${built_sha}"
+      local km
+      km="$(readelf -h "${dest_dir_src}/ed25519-keygen" | awk -F: '/Machine:/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')"
+      if [[ "${arch}" == "amd64" && "${km}" != "Advanced Micro Devices X86-64" ]]; then
+        fail "ELF machine mismatch for ed25519-keygen [amd64]: got '${km}'"
+      fi
+      if [[ "${arch}" == "arm64" && "${km}" != "AArch64" ]]; then
+        fail "ELF machine mismatch for ed25519-keygen [arm64]: got '${km}'"
+      fi
+      log "Built ${dest_dir_src}/ed25519-keygen from ${ED25519_KEYGEN_MODULE_REL} (mode 0755, sha256: ${built_sha}, ELF ${km})"
       return 0
       ;;
     *)
@@ -547,11 +650,10 @@ stage_p1_1_binaries() {
     fail "Unsupported architecture: ${TARGET_ARCH} (must be amd64, arm64, or all)"
   fi
 
-  local tools_to_stage=("kind" "kubectl" "flux" "cosign" "jq")
+  local tools_to_stage=("kind" "kubectl" "flux" "cosign" "jq" "ed25519-keygen")
   if [[ -n "${FILTER_TOOL}" ]]; then
     if [[ "${FILTER_TOOL}" == "openssl" || "${FILTER_TOOL}" == "envsubst" ]]; then
-      log "Filter tool '${FILTER_TOOL}' requested: under Decision 10 this tool is containerised in bundle/images/ (P1-2)."
-      return 0
+      fail "Tool '${FILTER_TOOL}' is not part of this bundle. Decision 10 is reversed: neither openssl nor envsubst is shipped, and the appliance-side need they were containerised for is served by ed25519-keygen. Use --only ed25519-keygen."
     fi
     tools_to_stage=("${FILTER_TOOL}")
   fi
@@ -568,17 +670,35 @@ kubectl: ${PIN_KUBECTL_VERSION}
 flux: ${PIN_FLUX_VERSION}
 cosign: ${PIN_COSIGN_VERSION}
 jq: ${PIN_JQ_VERSION}
-# Decision 10 containerised utilities (bundle/images/):
-openssl: containerised (P1-2)
-envsubst: containerised (P1-2)
+# Built from this repository's source, not downloaded. Its "version" is the
+# commit it was compiled from; its digest is in checksums.txt like any other.
+ed25519-keygen: source@${ED25519_KEYGEN_SOURCE_REV}
 EOF
     chmod 0644 "${BUNDLE_DIR}/bin/${arch}/versions.txt"
     log "Wrote ${BUNDLE_DIR}/bin/${arch}/versions.txt"
-
-    # Generate Decision 10 container wrappers for openssl and envsubst
-    generate_container_wrappers "${BUNDLE_DIR}/bin/${arch}"
-    log "Generated Decision 10 container wrappers in ${BUNDLE_DIR}/bin/${arch}"
   done
+
+  # Six entries per arch now, not five. ed25519-keygen's digest is the one
+  # computed at stage time rather than pinned as a literal; see the header.
+  #
+  # The manifest lists both arches unconditionally -- that is pre-existing
+  # behaviour for the five literal pins and is not changed here. So a digest is
+  # needed for any arch this run did not stage; it is computed by building into
+  # a scratch directory, never left blank. A blank field would produce a
+  # two-space-leading manifest line that sha256sum -c parses as a path, which
+  # fails with a message about the wrong thing entirely.
+  local kg_arch
+  for kg_arch in amd64 arm64; do
+    if [[ -z "${ED25519_KEYGEN_SHA256[${kg_arch}]:-}" ]]; then
+      local kg_tmp
+      kg_tmp="$(mktemp -d "/tmp/slsi-kg-digest-${kg_arch}.XXXXXX")"
+      ED25519_KEYGEN_SHA256["${kg_arch}"]="$(build_ed25519_keygen "${kg_arch}" "${kg_tmp}/ed25519-keygen")"
+      rm -rf "${kg_tmp}"
+      log "Computed ed25519-keygen [${kg_arch}] digest for the manifest without staging it (arch not selected this run)"
+    fi
+  done
+  local kg_amd64="${ED25519_KEYGEN_SHA256[amd64]}"
+  local kg_arm64="${ED25519_KEYGEN_SHA256[arm64]}"
 
   cat > "${BUNDLE_DIR}/bin/checksums.txt" <<EOF
 ${KIND_AMD64_SHA256}  amd64/kind
@@ -586,11 +706,13 @@ ${KUBECTL_AMD64_SHA256}  amd64/kubectl
 ${FLUX_AMD64_BINARY_SHA256}  amd64/flux
 ${COSIGN_AMD64_SHA256}  amd64/cosign
 ${JQ_AMD64_SHA256}  amd64/jq
+${kg_amd64}  amd64/ed25519-keygen
 ${KIND_ARM64_SHA256}  arm64/kind
 ${KUBECTL_ARM64_SHA256}  arm64/kubectl
 ${FLUX_ARM64_BINARY_SHA256}  arm64/flux
 ${COSIGN_ARM64_SHA256}  arm64/cosign
 ${JQ_ARM64_SHA256}  arm64/jq
+${kg_arm64}  arm64/ed25519-keygen
 EOF
   chmod 0644 "${BUNDLE_DIR}/bin/checksums.txt"
   log "Generated ${BUNDLE_DIR}/bin/checksums.txt"
@@ -599,68 +721,6 @@ EOF
   log "stage_p1_1_binaries complete: all tools staged and verified"
 }
 
-generate_container_wrappers() {
-  local target_dir="$1"
-
-  cat > "${target_dir}/openssl" <<'EOF'
-#!/usr/bin/env bash
-# SLSI Decision 10 Container Wrapper for openssl
-# Part of SLSI design partner appliance bundle
-set -Eeuo pipefail
-
-SLSI_UTILITY_IMAGE="${SLSI_UTILITY_IMAGE:-docker.io/controlplane/slsi-util:v0.1.0}"
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: Docker container runtime is required to run containerised 'openssl' (Decision 10)." >&2
-  echo "Host package remedy: apt-get install -y openssl" >&2
-  exit 1
-fi
-
-if ! docker image inspect "${SLSI_UTILITY_IMAGE}" >/dev/null 2>&1; then
-  echo "ERROR: SLSI utility container image '${SLSI_UTILITY_IMAGE}' is absent from local Docker daemon." >&2
-  echo "Decision 10 requirement: refusing silent fallback to host 'openssl' of unknown version." >&2
-  echo "Host package remedy: apt-get install -y openssl" >&2
-  echo "Appliance remedy: preload image into Docker from bundle: docker load < bundle/images/slsi-util.tar" >&2
-  exit 1
-fi
-
-exec docker run --rm -i --network none -v "${PWD}:${PWD}" -w "${PWD}" "${SLSI_UTILITY_IMAGE}" openssl "$@"
-EOF
-  chmod 0755 "${target_dir}/openssl"
-
-  cat > "${target_dir}/envsubst" <<'EOF'
-#!/usr/bin/env bash
-# SLSI Decision 10 Container Wrapper for envsubst
-# Part of SLSI design partner appliance bundle
-set -Eeuo pipefail
-
-SLSI_UTILITY_IMAGE="${SLSI_UTILITY_IMAGE:-docker.io/controlplane/slsi-util:v0.1.0}"
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: Docker container runtime is required to run containerised 'envsubst' (Decision 10)." >&2
-  echo "Host package remedy: apt-get install -y gettext-base" >&2
-  exit 1
-fi
-
-if ! docker image inspect "${SLSI_UTILITY_IMAGE}" >/dev/null 2>&1; then
-  echo "ERROR: SLSI utility container image '${SLSI_UTILITY_IMAGE}' is absent from local Docker daemon." >&2
-  echo "Decision 10 requirement: refusing silent fallback to host 'envsubst' of unknown version." >&2
-  echo "Host package remedy: apt-get install -y gettext-base" >&2
-  echo "Appliance remedy: preload image into Docker from bundle: docker load < bundle/images/slsi-util.tar" >&2
-  exit 1
-fi
-
-env_args=()
-while IFS= read -r var; do
-  if [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$var" != "_" && "$var" != "PATH" ]]; then
-    env_args+=(-e "$var")
-  fi
-done < <(compgen -e)
-
-exec docker run --rm -i --network none "${env_args[@]}" -v "${PWD}:${PWD}" -w "${PWD}" "${SLSI_UTILITY_IMAGE}" envsubst "$@"
-EOF
-  chmod 0755 "${target_dir}/envsubst"
-}
 # <<< SLSI-P1-1 >>>
 
 # >>> SLSI-P1-2: offline OCI image bundler and digest pinning <<<

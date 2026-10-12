@@ -1799,6 +1799,15 @@ test-sfdp-p3-3-root-wiring: ## Verify local SFDP-P3-3 root script gates without 
 test-sfdp-p4-4-tamper-regression: signing-keys ## Verify SFDP-P4-4 witness verify and tamper regression suite.
 	bats test/sfdp-p4-4-tamper-regression.bats
 
+.PHONY: test-ed25519-keygen
+test-ed25519-keygen: ## Prove cmd/ed25519-keygen interchanges with openssl both ways.
+	go -C d2-signalloom/apps/fleet-manager test -count=1 ./cmd/ed25519-keygen/
+	@# No `signing-keys` prerequisite on purpose: the suite mints into its own
+	@# throwaway KEYS_DIR. Depending on the shared one would either mint nothing
+	@# (every clause is `if [ ! -f ]`) or re-mint and invalidate the keys the
+	@# running cluster already trusts.
+	./scripts/assert-bats-ran-something.sh bats test/ed25519-keygen-interop.bats
+
 .PHONY: test-ui-typography
 test-ui-typography: ## Run the UI typography and em-dash eradication lint gate.
 	bats d2-signalloom/test/lint-ui-typography.bats

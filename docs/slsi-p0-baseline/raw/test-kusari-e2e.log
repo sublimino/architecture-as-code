@@ -1,0 +1,321 @@
+# COMMAND: make test-kusari-e2e (sha: 504405b9e7e91efdf5c97bcd701b6511f712f6db)
+cd d2-signalloom/apps/signal-ingest && env GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./e2e/... -v -count=1
+=== RUN   TestKusariE2E_FixtureCorpusMatchesTheExpectationTable
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.483+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.483+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.483+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:129: 
+        Kusari AWS signal e2e — stage 1
+          bundle               rule                              want  got  status
+          -------------------- --------------------------------- ----- ---- ------
+          cloud-signals        console-login-outside-allowlist       1    1  ok
+          cloud-signals        cross-account-assume-role             2    2  ok
+          cloud-signals        eks-access-entry-created              2    2  ok
+          cloud-signals        eks-cluster-config-changed            1    1  ok
+          cloud-signals        guardduty-detection-tampered          3    3  ok
+          cloud-signals        iam-credential-or-policy-change       3    3  ok
+          cloud-signals        s3-bucket-exposure-changed            2    2  ok
+          cloud-signals        vpc-egress-rejected                  23   23  ok
+          iam-change           access-key-created                    1    1  ok
+          iam-change           iam-priv-change                       1    1  ok
+          iam-change           vpc-reject                           23   23  ok
+        
+        Kusari AWS signal e2e — stage 2
+          bundle               window                            want  got  status
+          -------------------- --------------------------------- ----- ---- ------
+          cloud-signals        cross-account-assume-role-burst-30m     1    1  ok
+          cloud-signals        iam-change-burst-10m                  1    1  ok
+          cloud-signals        vpc-reject-burst-5m                   1    1  ok
+          iam-change           iam-change-burst                      0    0  ok
+        
+          stored: 47 observations, 62 findings, 3 decisions
+        
+--- PASS: TestKusariE2E_FixtureCorpusMatchesTheExpectationTable (0.01s)
+=== RUN   TestKusariE2E_EveryRuleHasANegative
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.490+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.490+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.490+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariE2E_EveryRuleHasANegative (0.01s)
+=== RUN   TestKusariE2E_ReplayReproducesLive
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.497+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.497+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.497+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.503+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.503+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.503+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.507+01:00 level=INFO msg="replay complete" observations=47 findings=62 decisions=3 bundles=2 dir=/home/andy/src/.worktrees/32e03/osramp-demo/policy/bundles
+    kusari_e2e_test.go:319: replay equals live: 65 canonical lines (62 findings, 3 decisions), compared as sorted text
+--- PASS: TestKusariE2E_ReplayReproducesLive (0.01s)
+=== RUN   TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.509+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.509+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.509+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.513+01:00 level=WARN msg="observation-policy bundle directory is empty; stage 1 will evaluate nothing" dir=/tmp/TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate2722540540/001 env=POLICY_BUNDLES_DIR
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.513+01:00 level=WARN msg="replay loaded zero bundles; the output will be empty" dir=/tmp/TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate2722540540/001
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.513+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.513+01:00 level=INFO msg="replay complete" observations=47 findings=0 decisions=0 bundles=0 dir=/tmp/TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate2722540540/001
+--- PASS: TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate (0.01s)
+=== RUN   TestKusariE2E_SecondPassIsANoOp
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.516+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.516+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.516+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:398: second pass: 47 records refused as replays, store unchanged at {Observations:47 Findings:62 Decisions:3}
+--- PASS: TestKusariE2E_SecondPassIsANoOp (0.01s)
+=== RUN   TestKusariE2E_RestartDoesNotReAdmitTheCorpus
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.522+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.522+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.523+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.526+01:00 level=INFO msg="ingest idempotency warmed from the durable store" warmed_ids=112 tracked_ids=112 rows_read=112 window=24h0m0s capacity=8192
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.528+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.529+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.529+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariE2E_RestartDoesNotReAdmitTheCorpus (0.01s)
+=== RUN   TestKusariE2E_MutationGates
+=== RUN   TestKusariE2E_MutationGates/an_empty_bundle_dir_detects_nothing_and_ingests_everything
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.529+01:00 level=WARN msg="observation-policy bundle directory is empty; stage 1 will evaluate nothing" dir=/tmp/TestKusariE2E_MutationGatesan_empty_bundle_dir_detects_nothing_3823290991/001 env=POLICY_BUNDLES_DIR
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.529+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+=== RUN   TestKusariE2E_MutationGates/removing_the_burst_records_removes_the_decisions
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.531+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.531+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.531+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariE2E_MutationGates (0.01s)
+    --- PASS: TestKusariE2E_MutationGates/an_empty_bundle_dir_detects_nothing_and_ingests_everything (0.00s)
+    --- PASS: TestKusariE2E_MutationGates/removing_the_burst_records_removes_the_decisions (0.00s)
+=== RUN   TestKusariSynth_BaselineProducesNoFindings
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.536+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.536+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.536+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:77: false-positive gate: 3000 benign records over 120 minutes at 25/min produced 0 findings
+--- PASS: TestKusariSynth_BaselineProducesNoFindings (0.11s)
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow/iam-burst
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.646+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.646+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.646+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:120: iam-burst: 3 injected records crossed iam-change-burst-10m in a stream of 3003
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow/reject-burst
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.761+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.761+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.761+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:120: reject-burst: 20 injected records crossed vpc-reject-burst-5m in a stream of 3020
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow/cross-account
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.876+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.876+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.876+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:120: cross-account: 2 injected records crossed cross-account-assume-role-burst-30m in a stream of 3002
+--- PASS: TestKusariSynth_EachBurstCrossesItsWindow (0.34s)
+    --- PASS: TestKusariSynth_EachBurstCrossesItsWindow/iam-burst (0.11s)
+    --- PASS: TestKusariSynth_EachBurstCrossesItsWindow/reject-burst (0.11s)
+    --- PASS: TestKusariSynth_EachBurstCrossesItsWindow/cross-account (0.12s)
+=== RUN   TestKusariSynth_ReplayReproducesLiveOverTheCombinedCorpus
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.991+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.991+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:26.991+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.109+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.109+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.111+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.204+01:00 level=INFO msg="replay complete" observations=3072 findings=110 decisions=6 bundles=2 dir=/home/andy/src/.worktrees/32e03/osramp-demo/policy/bundles
+    kusari_synth_test.go:157: replay equals live over 3072 records: 116 canonical lines (110 findings, 6 decisions)
+--- PASS: TestKusariSynth_ReplayReproducesLiveOverTheCombinedCorpus (0.21s)
+=== RUN   TestKusariSynth_SecondPassOfTheCombinedCorpusIsANoOp
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.206+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.206+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.206+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariSynth_SecondPassOfTheCombinedCorpusIsANoOp (0.12s)
+=== RUN   TestKusariSynth_SameSeedProducesTheSameDetections
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.330+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.330+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.330+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.449+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.449+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:27.449+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:217: seed 20261004 is reproducible end to end: 51 canonical lines
+--- PASS: TestKusariSynth_SameSeedProducesTheSameDetections (0.23s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/e2e	1.088s
+cd d2-signalloom/apps/signal-ingest && env GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./e2e/... -v -count=1
+=== RUN   TestKusariE2E_FrostDBMatchesTheExpectationTable
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.153+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.153+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_frostdb_test.go:59: 
+        Kusari AWS signal e2e — stage 1
+          bundle               rule                              want  got  status
+          -------------------- --------------------------------- ----- ---- ------
+          cloud-signals        console-login-outside-allowlist       1    1  ok
+          cloud-signals        cross-account-assume-role             2    2  ok
+          cloud-signals        eks-access-entry-created              2    2  ok
+          cloud-signals        eks-cluster-config-changed            1    1  ok
+          cloud-signals        guardduty-detection-tampered          3    3  ok
+          cloud-signals        iam-credential-or-policy-change       3    3  ok
+          cloud-signals        s3-bucket-exposure-changed            2    2  ok
+          cloud-signals        vpc-egress-rejected                  23   23  ok
+          iam-change           access-key-created                    1    1  ok
+          iam-change           iam-priv-change                       1    1  ok
+          iam-change           vpc-reject                           23   23  ok
+        
+        Kusari AWS signal e2e — stage 2
+          bundle               window                            want  got  status
+          -------------------- --------------------------------- ----- ---- ------
+          cloud-signals        cross-account-assume-role-burst-30m     1    1  ok
+          cloud-signals        iam-change-burst-10m                  1    1  ok
+          cloud-signals        vpc-reject-burst-5m                   1    1  ok
+          iam-change           iam-change-burst                      0    0  ok
+        
+          stored: 47 observations, 62 findings, 3 decisions
+        
+--- PASS: TestKusariE2E_FrostDBMatchesTheExpectationTable (0.02s)
+=== RUN   TestKusariE2E_FrostDBReplayReproducesLive
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.169+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.169+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.184+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.184+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.190+01:00 level=INFO msg="replay complete" observations=47 findings=62 decisions=3 bundles=2 dir=/home/andy/src/.worktrees/32e03/osramp-demo/policy/bundles
+    kusari_e2e_frostdb_test.go:137: FrostDB replay reproduced live exactly: 65 canonical lines
+--- PASS: TestKusariE2E_FrostDBReplayReproducesLive (0.02s)
+=== RUN   TestKusariE2E_FrostDBReplayMechanism_PseudonymisedActorAndAllowlists
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.193+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.193+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.208+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.208+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.215+01:00 level=INFO msg="replay complete" observations=47 findings=62 decisions=3 bundles=2 dir=/home/andy/src/.worktrees/32e03/osramp-demo/policy/bundles
+--- PASS: TestKusariE2E_FrostDBReplayMechanism_PseudonymisedActorAndAllowlists (0.03s)
+=== RUN   TestKusariE2E_FrostDBRestartDoesNotReAdmitTheCorpus
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.218+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.218+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.233+01:00 level=INFO msg="ingest idempotency warmed from the durable store" warmed_ids=112 tracked_ids=112 rows_read=112 window=24h0m0s capacity=8192
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.235+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.235+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+--- PASS: TestKusariE2E_FrostDBRestartDoesNotReAdmitTheCorpus (0.02s)
+=== RUN   TestKusariE2E_FixtureCorpusMatchesTheExpectationTable
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.238+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.238+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.238+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:129: 
+        Kusari AWS signal e2e — stage 1
+          bundle               rule                              want  got  status
+          -------------------- --------------------------------- ----- ---- ------
+          cloud-signals        console-login-outside-allowlist       1    1  ok
+          cloud-signals        cross-account-assume-role             2    2  ok
+          cloud-signals        eks-access-entry-created              2    2  ok
+          cloud-signals        eks-cluster-config-changed            1    1  ok
+          cloud-signals        guardduty-detection-tampered          3    3  ok
+          cloud-signals        iam-credential-or-policy-change       3    3  ok
+          cloud-signals        s3-bucket-exposure-changed            2    2  ok
+          cloud-signals        vpc-egress-rejected                  23   23  ok
+          iam-change           access-key-created                    1    1  ok
+          iam-change           iam-priv-change                       1    1  ok
+          iam-change           vpc-reject                           23   23  ok
+        
+        Kusari AWS signal e2e — stage 2
+          bundle               window                            want  got  status
+          -------------------- --------------------------------- ----- ---- ------
+          cloud-signals        cross-account-assume-role-burst-30m     1    1  ok
+          cloud-signals        iam-change-burst-10m                  1    1  ok
+          cloud-signals        vpc-reject-burst-5m                   1    1  ok
+          iam-change           iam-change-burst                      0    0  ok
+        
+          stored: 47 observations, 62 findings, 3 decisions
+        
+--- PASS: TestKusariE2E_FixtureCorpusMatchesTheExpectationTable (0.01s)
+=== RUN   TestKusariE2E_EveryRuleHasANegative
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.244+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.244+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.244+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariE2E_EveryRuleHasANegative (0.01s)
+=== RUN   TestKusariE2E_ReplayReproducesLive
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.249+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.249+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.249+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.254+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.254+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.254+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.258+01:00 level=INFO msg="replay complete" observations=47 findings=62 decisions=3 bundles=2 dir=/home/andy/src/.worktrees/32e03/osramp-demo/policy/bundles
+    kusari_e2e_test.go:319: replay equals live: 65 canonical lines (62 findings, 3 decisions), compared as sorted text
+--- PASS: TestKusariE2E_ReplayReproducesLive (0.01s)
+=== RUN   TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.261+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.261+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.261+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.265+01:00 level=WARN msg="observation-policy bundle directory is empty; stage 1 will evaluate nothing" dir=/tmp/TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate738963138/001 env=POLICY_BUNDLES_DIR
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.265+01:00 level=WARN msg="replay loaded zero bundles; the output will be empty" dir=/tmp/TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate738963138/001
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.265+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.265+01:00 level=INFO msg="replay complete" observations=47 findings=0 decisions=0 bundles=0 dir=/tmp/TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate738963138/001
+--- PASS: TestKusariE2E_ReplayWithNoBundlesIsTheMutationGate (0.01s)
+=== RUN   TestKusariE2E_SecondPassIsANoOp
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.267+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.267+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.267+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:398: second pass: 47 records refused as replays, store unchanged at {Observations:47 Findings:62 Decisions:3}
+--- PASS: TestKusariE2E_SecondPassIsANoOp (0.01s)
+=== RUN   TestKusariE2E_RestartDoesNotReAdmitTheCorpus
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.273+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.273+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.273+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.277+01:00 level=INFO msg="ingest idempotency warmed from the durable store" warmed_ids=112 tracked_ids=112 rows_read=112 window=24h0m0s capacity=8192
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.279+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.279+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.279+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariE2E_RestartDoesNotReAdmitTheCorpus (0.01s)
+=== RUN   TestKusariE2E_MutationGates
+=== RUN   TestKusariE2E_MutationGates/an_empty_bundle_dir_detects_nothing_and_ingests_everything
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.279+01:00 level=WARN msg="observation-policy bundle directory is empty; stage 1 will evaluate nothing" dir=/tmp/TestKusariE2E_MutationGatesan_empty_bundle_dir_detects_nothing_3470530534/001 env=POLICY_BUNDLES_DIR
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.279+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+=== RUN   TestKusariE2E_MutationGates/removing_the_burst_records_removes_the_decisions
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.281+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.281+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.281+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariE2E_MutationGates (0.00s)
+    --- PASS: TestKusariE2E_MutationGates/an_empty_bundle_dir_detects_nothing_and_ingests_everything (0.00s)
+    --- PASS: TestKusariE2E_MutationGates/removing_the_burst_records_removes_the_decisions (0.00s)
+=== RUN   TestKusariSynth_BaselineProducesNoFindings
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.286+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.286+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.286+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:77: false-positive gate: 3000 benign records over 120 minutes at 25/min produced 0 findings
+--- PASS: TestKusariSynth_BaselineProducesNoFindings (0.11s)
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow/iam-burst
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.398+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.398+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.398+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:120: iam-burst: 3 injected records crossed iam-change-burst-10m in a stream of 3003
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow/reject-burst
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.511+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.511+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.511+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:120: reject-burst: 20 injected records crossed vpc-reject-burst-5m in a stream of 3020
+=== RUN   TestKusariSynth_EachBurstCrossesItsWindow/cross-account
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.621+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.621+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.621+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:120: cross-account: 2 injected records crossed cross-account-assume-role-burst-30m in a stream of 3002
+--- PASS: TestKusariSynth_EachBurstCrossesItsWindow (0.34s)
+    --- PASS: TestKusariSynth_EachBurstCrossesItsWindow/iam-burst (0.11s)
+    --- PASS: TestKusariSynth_EachBurstCrossesItsWindow/reject-burst (0.11s)
+    --- PASS: TestKusariSynth_EachBurstCrossesItsWindow/cross-account (0.11s)
+=== RUN   TestKusariSynth_ReplayReproducesLiveOverTheCombinedCorpus
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.734+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.734+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.734+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.846+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.846+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.848+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.937+01:00 level=INFO msg="replay complete" observations=3072 findings=110 decisions=6 bundles=2 dir=/home/andy/src/.worktrees/32e03/osramp-demo/policy/bundles
+    kusari_synth_test.go:157: replay equals live over 3072 records: 116 canonical lines (110 findings, 6 decisions)
+--- PASS: TestKusariSynth_ReplayReproducesLiveOverTheCombinedCorpus (0.21s)
+=== RUN   TestKusariSynth_SecondPassOfTheCombinedCorpusIsANoOp
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.939+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.939+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:29.939+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+--- PASS: TestKusariSynth_SecondPassOfTheCombinedCorpusIsANoOp (0.12s)
+=== RUN   TestKusariSynth_SameSeedProducesTheSameDetections
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:30.057+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:30.057+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:30.057+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:30.168+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-cloud-signals tenant=kusari version=1.0.0 mode=shadow rules=8 windows=3
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:30.168+01:00 level=INFO msg="observation-policy bundle loaded" bundle=kusari-iam-change tenant=kusari version=1.0.0 mode=shadow rules=3 windows=1
+    kusari_e2e_test.go:39: time=2026-10-11T16:21:30.168+01:00 level=WARN msg="policy has no actor pseudonymiser; obs.actor will be the CLEARTEXT actor hint on this path" consequence="a replay over a segment-schema-v2 store reads the keyed pseudonym instead, so replay will not reproduce live and every actor allowlist inverts on the replay side" remedy="pass Options.ActorPseudonymiser, which under -tags frostdb must be FrostDBStore.Pseudonymiser()"
+    kusari_synth_test.go:217: seed 20261004 is reproducible end to end: 51 canonical lines
+--- PASS: TestKusariSynth_SameSeedProducesTheSameDetections (0.22s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/e2e	1.141s

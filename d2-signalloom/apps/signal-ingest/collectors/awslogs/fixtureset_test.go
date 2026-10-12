@@ -53,8 +53,29 @@ func TestFixtureSetFiles(t *testing.T) {
 			t.Errorf("the kusari set does not replay %s; stage 2 has no burst to count", burst)
 		}
 	}
-	if slices.Contains(got, awslogs.KusariFixtureEventBridgeEnvelope) {
-		t.Error("the kusari set replays the EventBridge envelope, which projects to nothing by design")
+	// INVERTED AT MERGE, because its premise stopped being true.
+	//
+	// This assertion required the EventBridge envelope to be ABSENT, on the
+	// grounds that it "projects to nothing by design". That was correct when
+	// written: there was no GuardDuty projector, so replaying the envelope added
+	// a fixture that contributed no observations and silently skewed any
+	// count-based stage assertion.
+	//
+	// The projector now exists. fixtures_kusari.go:39-44 describes the envelope
+	// as "projected by ProjectGuardDuty: the positive for
+	// guardduty-high-severity", and
+	// TestKusariFixtures_EventBridgeEnvelopeProjectsToAGuardDutyObservation
+	// passes, which is the positive evidence rather than the comment. So the
+	// envelope now belongs in the set, and excluding it would drop the only
+	// high-severity GuardDuty positive from the replay.
+	//
+	// Two sides of one merge each held half of this: the fixture list came from
+	// the line that built the projector, the assertion from the line that
+	// predated it. Git merged both without noticing they disagreed, which is why
+	// the suite went red on a tree where each half was correct alone.
+	if !slices.Contains(got, awslogs.KusariFixtureEventBridgeEnvelope) {
+		t.Error("the kusari set does not replay the EventBridge envelope; " +
+			"guardduty-high-severity then has no positive to fire on")
 	}
 
 	if _, err := awslogs.FixtureSetFiles("everything"); err == nil {

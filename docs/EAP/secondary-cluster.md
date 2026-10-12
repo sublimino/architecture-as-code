@@ -175,10 +175,21 @@ Neither prints a key value.
 | `fleet-manager` caller key `warden` | [`scripts/fleet-manager-caller-keys.sh`](../../scripts/fleet-manager-caller-keys.sh) | `make fleet-manager-keys CONTEXT=<ctx>` | `fe-signalloom/fleet-manager-caller-keys`, key `warden` | `fe-signalloom-agents/signalloom-warden-fleet-key`, key `token` |
 
 The hub's `signal-ingest` also needs its segment pseudonymisation root key
-in Secret `fe-signalloom/signal-ingest-segment-pseudonym`, minted by
+in Secret `signal-ingest-segment-pseudonym`, minted by
 [`scripts/signal-segment-key.sh`](../../scripts/signal-segment-key.sh) as
 `make signal-segment-key CONTEXT=<ctx>`. Without it the FrostDB store
 refuses to start.
+
+The key is per *cluster*, not per service: it is an HMAC domain. The script
+mints one key and applies it to every namespace that mounts the Secret. Those
+namespaces are `fe-signalloom`, for `signal-ingest` and `policy-engine`, and
+`inf-signalloom`, for the `policy-engine` base that
+[`scripts/supercred-demo.sh`](../../scripts/supercred-demo.sh) applies there.
+`policy-engine` refuses to load a bundle declaring `actor_vars` without the
+key, and exits at boot. A namespace that mounts the Secret without holding it
+therefore crash-loops. Two different keys in two namespaces would be worse
+than one missing key. Cross-component pseudonym joins would silently not
+match, and nothing would report it.
 
 `demo-signalloom-up` runs both targets first, then `afm-importer-key`
 ([`Makefile`](../../Makefile), target `demo-signalloom-up`). The comment there

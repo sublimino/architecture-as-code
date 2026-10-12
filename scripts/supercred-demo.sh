@@ -70,6 +70,26 @@ ok()  { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;32m[supercred] ✓\033[0m %s\n' -1
 warn() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;33m[supercred] WARNING:\033[0m %s\n' -1 "$*" >&2; }
 fail() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;31m[supercred] FAILED:\033[0m %s\n' -1 "$*" >&2; exit 1; }
 
+# rollout_failure_detail DEPLOY NS — why the rollout did not complete, read
+# from the pods rather than asserted.
+#
+# A timed-out `wait_rollout` on its own says only that 120 seconds elapsed. The
+# pod already knows the answer — a waiting reason, a restart count, the last
+# lines the process logged before it exited — and printing it is the difference
+# between "policy-engine deployment failed" and "it exited because the Secret
+# it needs is not in this namespace". Best-effort throughout: this runs on a
+# path that is already failing, so every call is tolerant of its own failure.
+rollout_failure_detail() {
+  local ns="$2" sel="app.kubernetes.io/name=$1"
+  printf '  pods in %s matching %s:\n' "$ns" "$sel"
+  kubectl -n "$ns" get pods -l "$sel" \
+    -o 'custom-columns=NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount,WAITING:.status.containerStatuses[*].state.waiting.reason,LAST:.status.containerStatuses[*].lastState.terminated.reason' \
+    2>/dev/null | sed 's/^/    /' || printf '    (could not read pods)\n'
+  printf '  last log lines:\n'
+  kubectl -n "$ns" logs -l "$sel" --tail=15 --all-containers --prefix 2>/dev/null \
+    | sed 's/^/    /' || printf '    (no logs available)\n'
+}
+
 # Sets AGENT_POD_NAMESPACE to the namespace that actually holds agent-cardvault.
 # Falls back to NAMESPACE_AGENTS and returns non-zero when the pod is nowhere.
 resolve_agent_pod_namespace() {
@@ -247,9 +267,27 @@ demo_1() {
   wait_rollout cardvault -n "$NAMESPACE_INFRA" 120 || fail "cardvault deployment failed"
 
   # Deploy policy engine
+  #
+  # Preflight the pseudonymisation Secret BEFORE the apply, because the
+  # failure it causes is unreadable 120 seconds later. The policy-engine base
+  # mounts Secret signal-ingest-segment-pseudonym with `optional: true`, so the
+  # POD starts; but the SLAWS bundle policy/bundles/kusari/cloud-signals.yaml
+  # declares actor_vars, and apps/policy-engine/store.go refuses to load such a
+  # bundle without SIGNAL_SEGMENT_PSEUDONYM_KEY, so main.go exits 1 at boot and
+  # the container crash-loops. The rollout below then times out, and a bare
+  # "policy-engine deployment failed" names neither the Secret nor the
+  # namespace — which once sent an investigator to the wrong service entirely.
+  # The Secret is minted by scripts/signal-segment-key.sh, which targets every
+  # namespace that mounts it (fe-signalloom AND this one).
+  local segment_secret="signal-ingest-segment-pseudonym"
+  if ! kubectl -n "$NAMESPACE_INFRA" get secret "$segment_secret" >/dev/null 2>&1; then
+    fail "Secret $segment_secret is missing from namespace $NAMESPACE_INFRA. policy-engine is applied into $NAMESPACE_INFRA and loads an actor_vars bundle, so it exits at boot without this Secret. Mint it with: make signal-segment-key CONTEXT=kind-\${CLUSTER_NAME:-osramp}"
+  fi
   log "deploying policy-engine"
   kubectl apply -k d2-signalloom/apps/policy-engine/base/ -n "$NAMESPACE_INFRA"
-  wait_rollout policy-engine -n "$NAMESPACE_INFRA" 120 || fail "policy-engine deployment failed"
+  wait_rollout policy-engine -n "$NAMESPACE_INFRA" 120 \
+    || fail "policy-engine deployment failed in namespace $NAMESPACE_INFRA
+$(rollout_failure_detail policy-engine "$NAMESPACE_INFRA")"
 
   # Deploy agent (inert pod + service account)
   log "deploying cardvault agent"

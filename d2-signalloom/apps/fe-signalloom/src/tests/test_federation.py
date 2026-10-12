@@ -230,8 +230,9 @@ async def test_federation_proxy_upstream_html_rejection():
 
 
 @pytest.mark.asyncio
-async def test_federation_proxy_upstream_404_fallback():
-    """Test 404 from upstream returns canonical federation fallback with 200 OK."""
+async def test_federation_proxy_upstream_404_route_not_served():
+    """A 404 from upstream means the route is not served; the proxy says so rather than
+    substituting an invented dataset."""
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
@@ -246,11 +247,12 @@ async def test_federation_proxy_upstream_404_fallback():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "zones" in data
-            assert "federations" in data
-            assert len(data["zones"]) >= 1
+            assert resp.status_code == 502
+            body = resp.text
+            assert "upstream_route_not_served" in body
+            # No invented federation state in the refusal.
+            for invented in ("zones", "federations", "attestation_success_rate", "signalloom-eu"):
+                assert invented not in body, f"refusal leaked invented field {invented!r}"
 
 
 @pytest.mark.asyncio
@@ -295,9 +297,10 @@ async def test_federation_superadmin_write_acts_for_its_own_tenant_only():
 
 
 @pytest.mark.asyncio
-async def test_federation_proxy_upstream_unregistered_route_fallback():
+async def test_federation_proxy_upstream_unregistered_route_not_served():
     """signal-ingest's registry denial (403 unregistered_route) of a path it does not serve is
-    the same fact as a 404: the canonical fallback is served. Seen live on the 2026-10-03 estate."""
+    the same fact as a 404: it is reported as upstream_route_not_served, distinctly from a
+    reachable-but-broken upstream (upstream_unavailable) and from a real denial (403)."""
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
@@ -308,8 +311,9 @@ async def test_federation_proxy_upstream_unregistered_route_fallback():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
-            assert resp.status_code == 200
-            assert "zones" in resp.json()
+            assert resp.status_code == 502
+            assert "upstream_route_not_served" in resp.text
+            assert "attestation_success_rate" not in resp.text
 
 
 @pytest.mark.asyncio

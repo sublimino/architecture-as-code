@@ -738,6 +738,19 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
+#### Errata — SLSI-P2-PRE Phase 2 Preflight: Measured Crypto & Mount Contract, Five-Way Landing
+**Created:** 2026-10-13 00:33:00+01:00
+**Last Updated:** 2026-10-13 00:33:00+01:00
+**Status:** pass
+**Commit:** `73481142` on `integration/slsi-v0.1.0`.
+
+##### Phase 2 Preflight Certification
+1. **Contract Schema & Baseline:** Contract established at `docs/EAP/slsi/p2-pre-contract.json` conforming to `slsi-p2-pre-contract/v1`, pinned to tip certified by `SLSI-P1-GOV` (`6b94c`).
+2. **Crypto & Mount Invariants:** Cryptographic algorithm contracts (Cosign ECDSA P-256, Witness Ed25519, Orbit Ed25519), host mounts (`/opt/tenants/<id>/data/{postgres,openbao,zot}`), container UID allocations, and 5-way landing sequence defined.
+3. **Verification Suite:** `docs/EAP/slsi/p2-pre-verify.sh` executed clean with 16/16 strict reproducibility checks and 16/16 citation resolution checks passing.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
 ---
 
 ## Open Scope Decisions (AJM, raised 2026-10-11 by the P1-3 council)

@@ -846,14 +846,21 @@ func handleCoverage(w http.ResponseWriter, _ *http.Request) {
 			// It remains a blind spot until one lands: no cloud observations are
 			// arriving either way, which is why the counts below are unchanged.
 			{ID: "cloud_control_plane", Layer: "cloud_control_plane", Description: "Layer deployed, awaiting a collector -- no collector is feeding cloud API calls yet"},
+			// The k8saudit-kube collector and the kusari-k8s-audit bundle exist but
+			// the collector defaults off (COLLECTOR_K8SAUDIT_KUBE_MODE), so like
+			// cloud_control_plane this layer is deployed-not-fed until enabled.
+			{ID: "kubernetes_audit", Layer: "kubernetes", Description: "Layer deployed with the k8saudit-kube collector and bundle, awaiting enablement -- no kube-apiserver audit stream is being fed yet"},
 			// Unlike the above, protocol genuinely is out of scope: it is absent from
 			// model.InScopeLayers() and nothing evaluates against it.
 			{ID: "protocol_analysis", Layer: "protocol", Description: "Layer not deployed -- protocol-level signals not observed"},
 			{ID: "encrypted_c2", Layer: "network_egress", Description: "Command-and-control over TLS to allowed destinations -- content invisible"},
 		},
 		CloseableByIssuance: []string{"local_transport", "session_inheritance"},
-		DeploymentCoverage:  "5 of 7 layers active",
 	}
+	// Derive the denominator from the layer enum so adding a layer (e.g.
+	// kubernetes) can never leave this reading a stale "of N" — the defect that
+	// shipped when LayerKubernetes was added while this said "5 of 7".
+	resp.DeploymentCoverage = fmt.Sprintf("%d of %d layers active", len(resp.CoveredLayers), len(model.ValidLayers()))
 	writeJSON(w, http.StatusOK, resp)
 }
 

@@ -514,9 +514,9 @@ const BUILDINGS = [
     role: 'OAuth2/OIDC provider. Static and connector auth. Tokens stored in localStorage.',
     file: 'd2-signalloom/infra/inf-signalloom/base/dex.yaml' },
   { id: 'cosign', col: -1, row: 3, w: 1, d: 1, h: 2.0, shape: 'tower', zone: 'security',
-    name: 'Cosign + Kyverno', port: '-', ns: 'kyverno-system',
-    role: 'Image signature verification. Kyverno ClusterPolicy enforces cosign.pub signatures on all pulls.',
-    file: 'policy/kyverno-verify-images.yaml' },
+    name: 'Cosign + CEL admission', port: '-', ns: 'kube-system',
+    role: 'Image trust in two layers. Flux verifies the cosign signature before an artefact reaches the in-cluster Zot registry; a CEL ValidatingAdmissionPolicy then admits only digest-pinned images from that registry. Evaluated by the API server, so there is no admission controller and no kyverno-system namespace.',
+    file: 'policy/cel/require-trusted-registry.yaml' },
 
   // ── INFRASTRUCTURE (bottom-left, platforms) ──
   { id: 'flux', col: -1, row: 14, w: 3, d: 2, h: 2.5, shape: 'warehouse', zone: 'infra',

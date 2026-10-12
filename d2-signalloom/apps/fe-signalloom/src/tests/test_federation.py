@@ -230,8 +230,9 @@ async def test_federation_proxy_upstream_html_rejection():
 
 
 @pytest.mark.asyncio
-async def test_federation_proxy_upstream_404_fallback():
-    """Test 404 from upstream returns canonical federation fallback with 200 OK."""
+async def test_federation_proxy_upstream_404_route_not_served():
+    """A 404 from upstream means the route is not served; the proxy says so rather than
+    substituting an invented dataset."""
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
@@ -246,11 +247,12 @@ async def test_federation_proxy_upstream_404_fallback():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "zones" in data
-            assert "federations" in data
-            assert len(data["zones"]) >= 1
+            assert resp.status_code == 502
+            body = resp.text
+            assert "upstream_route_not_served" in body
+            # No invented federation state in the refusal.
+            for invented in ("zones", "federations", "attestation_success_rate", "signalloom-eu"):
+                assert invented not in body, f"refusal leaked invented field {invented!r}"
 
 
 @pytest.mark.asyncio
@@ -295,9 +297,10 @@ async def test_federation_superadmin_write_acts_for_its_own_tenant_only():
 
 
 @pytest.mark.asyncio
-async def test_federation_proxy_upstream_unregistered_route_fallback():
+async def test_federation_proxy_upstream_unregistered_route_not_served():
     """signal-ingest's registry denial (403 unregistered_route) of a path it does not serve is
-    the same fact as a 404: the canonical fallback is served. Seen live on the 2026-10-03 estate."""
+    the same fact as a 404: it is reported as upstream_route_not_served, distinctly from a
+    reachable-but-broken upstream (upstream_unavailable) and from a real denial (403)."""
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
@@ -308,8 +311,9 @@ async def test_federation_proxy_upstream_unregistered_route_fallback():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
-            assert resp.status_code == 200
-            assert "zones" in resp.json()
+            assert resp.status_code == 502
+            assert "upstream_route_not_served" in resp.text
+            assert "attestation_success_rate" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -614,5 +618,56 @@ async def test_federation_proxy_spiffe_spoofing_replaced_with_server_minted_iden
             assert spiffe_header is not None
             assert spiffe_header.startswith("spiffe://")
             assert EAP_TENANT_A in spiffe_header or "signalloom" in spiffe_header
+
+
+# ---------------------------------------------------------------------------
+# W9 perturbation probes: is every field a function of the request input and
+# the system's real state?
+# ---------------------------------------------------------------------------
+
+_FEDERATION_READ_SUBPATHS = (
+    "summary",
+    "zones",
+    "federations",
+    "services",
+    "policies",
+    "identities",
+    "events",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("subpath", _FEDERATION_READ_SUBPATHS)
+async def test_w9_federation_unserved_route_does_not_fabricate(subpath):
+    """signal-ingest serves no /api/v1/federation route in production.
+
+    Perturbation: hold the request constant and vary the authenticated tenant
+    (alice/tenant-a vs bob/tenant-b). A field that is a function of real state
+    must either move with the tenant or be absent. A byte-identical 200 body
+    across two different tenants, served from an upstream that answers "I do
+    not serve this route", is a literal.
+    """
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+    bodies = []
+    statuses = []
+    for actor in (EAP_ALICE, EAP_BOB):
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.get(f"{signal_ingest_url}/api/v1/federation/{subpath}").mock(
+                return_value=httpx.Response(403, json={"error": "unregistered_route"})
+            )
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get(
+                    f"/api/v1/federation/{subpath}", headers=eap_bearer(actor)
+                )
+                statuses.append(resp.status_code)
+                bodies.append(resp.text)
+
+    assert statuses[0] == statuses[1], f"status moved with tenant for {subpath}: {statuses}"
+    assert statuses[0] != 200, (
+        f"/{subpath}: upstream does not serve this route, yet the proxy answered 200 "
+        f"with a body identical across two tenants - that is a literal, not state. "
+        f"body={bodies[0][:200]}"
+    )
 
 

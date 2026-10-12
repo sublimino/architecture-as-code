@@ -1,0 +1,98 @@
+[
+  {
+    "insertId": "gcp-iam-set-policy-001",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:00:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "project",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.v1.SetIamPolicy",
+      "resourceName": "projects/osramp-demo",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.10"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-iam-set-policy-002",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:01:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "project",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.v1.SetIamPolicy",
+      "resourceName": "projects/osramp-demo",
+      "authenticationInfo": {
+        "principalEmail": "attacker-2@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.11"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-iam-set-policy-003",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:02:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "project",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.v1.SetIamPolicy",
+      "resourceName": "projects/osramp-demo",
+      "authenticationInfo": {
+        "principalEmail": "iam-admin@controlplane.io"
+      },
+      "requestMetadata": {
+        "callerIp": "198.51.100.10"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-iam-set-policy-004",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:03:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "project",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.v1.GetIamPolicy",
+      "resourceName": "projects/osramp-demo",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.12"
+      }
+    }
+  }
+]

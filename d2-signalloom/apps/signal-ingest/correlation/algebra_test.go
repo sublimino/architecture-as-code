@@ -27,7 +27,7 @@ func authenticatedSPIFFE(id, hint, principal string, at time.Time) model.Observa
 func authenticatedGCP(id, principal, project string, at time.Time) model.Observation {
 	return model.Observation{ID: id, Timestamp: at, Layer: model.LayerCloudControlPlane,
 		Fidelity: model.FidelityDefinitive, Source: "gcp-cloud-audit", ActorHint: principal,
-		Labels: map[string]string{"principal_email": principal, "project_id": project}}
+		Labels: map[string]string{"project_id": project}}
 }
 
 func actorMembers(actors []*model.ProvisionalActor) [][]string {

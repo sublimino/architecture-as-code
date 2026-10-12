@@ -1,0 +1,74 @@
+[
+  {
+    "insertId": "gcp-bucket-iam-public-001",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:20:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "gcs_bucket",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "storage.googleapis.com",
+      "methodName": "storage.setIamPermissions",
+      "resourceName": "projects/_/buckets/osramp-public-artifacts",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.30"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-bucket-iam-public-002",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:21:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "gcs_bucket",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "storage.googleapis.com",
+      "methodName": "storage.setIamPermissions",
+      "resourceName": "projects/_/buckets/osramp-public-artifacts",
+      "authenticationInfo": {
+        "principalEmail": "attacker-2@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.31"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-bucket-iam-public-003",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:22:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "gcs_bucket",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "storage.googleapis.com",
+      "methodName": "storage.setIamPermissions",
+      "resourceName": "projects/_/buckets/osramp-public-artifacts",
+      "authenticationInfo": {
+        "principalEmail": "storage-admin@controlplane.io"
+      },
+      "requestMetadata": {
+        "callerIp": "198.51.100.30"
+      }
+    }
+  }
+]

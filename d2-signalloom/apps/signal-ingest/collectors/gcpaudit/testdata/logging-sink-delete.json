@@ -1,0 +1,74 @@
+[
+  {
+    "insertId": "gcp-logging-sink-delete-001",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:30:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "logging_sink",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "logging.googleapis.com",
+      "methodName": "google.logging.v2.ConfigServiceV2.DeleteSink",
+      "resourceName": "projects/osramp-demo/sinks/audit-export",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.40"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-logging-sink-delete-002",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:31:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "logging_sink",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "logging.googleapis.com",
+      "methodName": "google.logging.v2.ConfigServiceV2.DeleteSink",
+      "resourceName": "projects/osramp-demo/sinks/audit-export",
+      "authenticationInfo": {
+        "principalEmail": "logging-admin@controlplane.io"
+      },
+      "requestMetadata": {
+        "callerIp": "198.51.100.40"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-logging-sink-delete-003",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:32:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "logging_sink",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "logging.googleapis.com",
+      "methodName": "google.logging.v2.ConfigServiceV2.CreateSink",
+      "resourceName": "projects/osramp-demo/sinks/audit-export",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.41"
+      }
+    }
+  }
+]

@@ -117,7 +117,7 @@ func contractIdentifiers(o model.Observation) []model.TypedIdentifier {
 			}
 		}
 	case "gcp-cloud-audit":
-		p := o.Labels["principal_email"]
+		p := o.ActorHint
 		if p != "" && p != "unknown" && p == o.ActorHint {
 			issuer := "gcp:" + o.Labels["project_id"]
 			ids = addIdentifier(ids, typedPrincipal(p, issuer))

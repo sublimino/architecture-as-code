@@ -12,6 +12,22 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/factory-appraiser/validator"
 )
 
+// defaultStaleTTL is the appraisal TTL applied when the caller does not pin one.
+const defaultStaleTTL = 30 * time.Minute
+
+// appraiseHandler serves POST /api/v1/factory/appraise.
+func appraiseHandler(clock func() time.Time) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		now := clock()
+		res, esc := appraiser.Appraise(nil, nil, now, defaultStaleTTL)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"appraisal":  res,
+			"escalation": esc,
+		})
+	}
+}
+
 func main() {
 	port := flag.Int("port", 8094, "HTTP port for factory appraiser")
 	flag.Parse()
@@ -21,15 +37,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("POST /api/v1/factory/appraise", func(w http.ResponseWriter, _ *http.Request) {
-		now := time.Now().UTC()
-		res, esc := appraiser.Appraise(nil, nil, now, 30*time.Minute)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"appraisal":  res,
-			"escalation": esc,
-		})
-	})
+	mux.HandleFunc("POST /api/v1/factory/appraise", appraiseHandler(func() time.Time { return time.Now().UTC() }))
 	mux.HandleFunc("POST /api/v1/factory/validate-promotion", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Candidate validator.Candidate  `json:"candidate"`

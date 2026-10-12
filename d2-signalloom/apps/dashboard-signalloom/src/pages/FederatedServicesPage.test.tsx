@@ -138,54 +138,183 @@ describe('FederatedServicesPage', () => {
       vi.spyOn(demoModeModule, 'isDemoMode').mockReturnValue(false)
     })
 
-    it('fetches live data via api.federation.summary and displays Live Mode banner', async () => {
-      const mockLiveSummary = {
-        zones: [
-          { name: 'live-zone-alpha', domain: 'alpha.signalloom.live', clusters: 4, servers: 2, status: 'active' },
-        ],
-        federations: [
-          { left: 'live-zone-alpha', right: 'live-zone-beta', mode: 'bidirectional', policy: 'ap-live-policy', status: 'federated' },
-        ],
-        services: [
-          { service: 'live-order-service', home: 'live-zone-alpha', consumer: 'live-zone-beta', endpoint: 'orders.live:8443', transport: 'Cofide Go SDK', status: 'active' },
-        ],
-        policies: [
-          { name: 'ap-live-policy', selector: 'k8s:ns:orders', zones: 'alpha, beta' },
-        ],
-        identities: [
-          { uri: 'spiffe://live.domain/ns/orders/sa/order-svc', workload: 'service', ns: 'orders', sa: 'order-svc', svid: 'X.509', expiry: '2027-01-01T00:00:00Z' },
-        ],
-        events: [
-          { ts: '2026-09-29T10:00:00Z', zone: 'live-zone-alpha', event: 'Live Bundle Sync', detail: 'Trust bundle synced', severity: 'info' },
-        ],
-      }
+    // The measured half of the live response: trust domains and SPIFFE IDs
+    // observed on real workloads. Everything else is refused by name. This is
+    // the shape fe-signalloom's federation_state actually emits.
+    const panel = <T,>(items: T[], extra: Record<string, unknown> = {}) => ({
+      available: true as const,
+      items,
+      evidence_state: 'observed' as const,
+      assurance: 'observed',
+      freshness: 'fresh' as const,
+      observed_at: '2026-10-12T00:00:00Z',
+      evidence_source: 'trust-topology collector',
+      reason: 'SPIFFE IDs observed on in-cluster workloads',
+      unmeasured_fields: [],
+      ...extra,
+    })
+    const refused = (reason: string) => ({
+      available: false as const,
+      items: [],
+      evidence_state: 'unavailable' as const,
+      assurance: 'unavailable',
+      freshness: 'unavailable' as const,
+      observed_at: '2026-10-12T00:00:00Z',
+      evidence_source: null,
+      reason,
+      unmeasured_fields: [],
+    })
 
-      const summarySpy = vi.spyOn(api.federation, 'summary').mockResolvedValue(mockLiveSummary)
+    const LIVE_STATE = () => ({
+      generated_at: '2026-10-12T00:00:00Z',
+      tenant: 'tenant-a',
+      collectors: { kubernetes: { status: 'ok', observed_at: '2026-10-12T00:00:00Z', reason: '' } },
+      zones: panel(
+        [{ name: 'osramp.local', domain: 'osramp.local', identities: 1, clusters: null, servers: null, status: null }],
+        {
+          unmeasured_fields: [
+            { field: 'clusters', reason: 'no source enumerates clusters per trust domain' },
+            { field: 'servers', reason: 'counting SPIRE servers needs a read this service cannot perform' },
+            { field: 'status', reason: 'zone status is bundle-exchange state and nothing collects it' },
+          ],
+        },
+      ),
+      identities: panel(
+        [{ uri: 'spiffe://osramp.local/ns/tenant-a/sa/alpha', workload: 'alpha', ns: 'tenant-a', sa: 'alpha', svid: null, expiry: null }],
+        {
+          unmeasured_fields: [
+            { field: 'svid', reason: 'the SVID type lives in the SVID, which this service never handles' },
+            { field: 'expiry', reason: 'SVID expiry is carried inside the SVID' },
+          ],
+        },
+      ),
+      federations: refused('a federation is a ClusterFederatedTrustDomain object and nothing reads one'),
+      services: refused('the Cofide Connect xDS fabric this panel describes is not deployed'),
+      policies: refused('attestation policies are ClusterSPIFFEID resources and no collector reads them'),
+      events: refused('no federation event stream is collected, published or stored'),
+      counts: {
+        trust_zones: 1,
+        spiffe_identities: 1,
+        federations: null,
+        federated_services: null,
+        attestation_policies: null,
+        attestation_success_rate: null,
+        active_alerts: null,
+      },
+      unmeasured_fields: [
+        { field: 'attestation_success_rate', reason: 'no attestation outcome stream is collected' },
+        { field: 'active_alerts', reason: 'there is no federation alert source' },
+      ],
+    })
 
+    const renderLive = async (state: unknown = LIVE_STATE()) => {
+      const spy = vi
+        .spyOn(api.federation, 'summary')
+        .mockResolvedValue(state as Awaited<ReturnType<typeof api.federation.summary>>)
       render(
         <MemoryRouter>
           <FederatedServicesPage />
         </MemoryRouter>,
       )
-
       await waitFor(() => {
-        expect(summarySpy).toHaveBeenCalledTimes(1)
+        expect(spy).toHaveBeenCalledTimes(1)
       })
+      return spy
+    }
+
+    it('renders measured zones and SPIFFE identities from the live API', async () => {
+      await renderLive()
 
       const sourceBanner = screen.getByTestId('federated-source')
       expect(sourceBanner).toHaveTextContent('Live Mode')
       expect(sourceBanner).toHaveTextContent(/Connected to live SPIFFE trust bundle federation/i)
 
       await waitFor(() => {
-        expect(screen.getAllByText('live-zone-alpha').length).toBeGreaterThan(0)
-        expect(screen.getByText('alpha.signalloom.live')).toBeInTheDocument()
-        expect(screen.getByText('live-order-service')).toBeInTheDocument()
-        expect(screen.getAllByText('ap-live-policy').length).toBeGreaterThan(0)
-        expect(screen.getByText('spiffe://live.domain/ns/orders/sa/order-svc')).toBeInTheDocument()
+        expect(screen.getAllByText('osramp.local').length).toBeGreaterThan(0)
+        expect(screen.getByText('spiffe://osramp.local/ns/tenant-a/sa/alpha')).toBeInTheDocument()
       })
 
-      // Strict Anti-Criterion check: zero occurrences of "illustrative" in Live Mode
       expect(screen.queryByText(/illustrative/i)).toBeNull()
+    })
+
+    it('refuses the four panels with no source instead of rendering rows', async () => {
+      await renderLive()
+
+      for (const name of ['federations', 'services', 'policies', 'events']) {
+        const refusal = await screen.findByTestId(`fed-${name}-unavailable`)
+        expect(refusal).toHaveTextContent('Not measured.')
+        expect(refusal.textContent?.length ?? 0).toBeGreaterThan(40)
+      }
+      // A refused panel renders no table at all, so no row and no empty-state
+      // that could read as "we looked and there is nothing".
+      expect(screen.queryByTestId('fed-federations-toolbar')).toBeNull()
+      expect(screen.queryByTestId('fed-federations-empty')).toBeNull()
+    })
+
+    it('shows per-field refusals rather than a plausible value', async () => {
+      await renderLive()
+
+      const zoneRefusals = await screen.findByTestId('fed-zones-refusals')
+      for (const field of ['clusters', 'servers', 'status']) {
+        expect(zoneRefusals).toHaveTextContent(field)
+      }
+      const idRefusals = screen.getByTestId('fed-identities-refusals')
+      expect(idRefusals).toHaveTextContent('svid')
+      expect(idRefusals).toHaveTextContent('expiry')
+
+      // Refused cells say so in the table body; they are not blank, not zero,
+      // and not a badge that reads as a healthy state.
+      expect(screen.getAllByTestId('fed-unmeasured-cell').length).toBeGreaterThanOrEqual(4)
+      // No zone row carries a status badge: the only 'active' text on the page
+      // is the filter chip label, never a claim about a trust zone.
+      const zoneRow = screen.getAllByText('osramp.local')[0].closest('tr') as HTMLElement
+      expect(zoneRow).not.toBeNull()
+      expect(within(zoneRow).queryByText('active')).toBeNull()
+      expect(within(zoneRow).queryByText('federated')).toBeNull()
+      expect(within(zoneRow).getAllByTestId('fed-unmeasured-cell').length).toBe(3)
+    })
+
+    it('reports counts it has and refuses the two it never could', async () => {
+      await renderLive()
+
+      expect(screen.getAllByText('Trust zones').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('SPIFFE identities').length).toBeGreaterThan(0)
+      // Federations / services / policies have no source, so their cards say so
+      // rather than showing 0, which would read as "federated nothing" instead
+      // of "we do not know".
+      expect(screen.getAllByText('not measured').length).toBeGreaterThanOrEqual(3)
+      expect(screen.queryByText('99.8')).toBeNull()
+      expect(screen.queryByText('99.8%')).toBeNull()
+    })
+
+    it('never renders a demo fixture value in live mode', async () => {
+      // The mutation this pins: forcing the demo gate false must not change what
+      // live mode renders, and no fixture may leak into the live path. The gate
+      // symbol is invoked on this path (isDemoMode() in useFederatedServices),
+      // so a fixture reaching the screen here would be a live-mode fabrication.
+      await renderLive()
+
+      for (const zone of TRUST_ZONES) {
+        expect(screen.queryByText(zone.domain)).toBeNull()
+      }
+      for (const policy of POLICIES) {
+        expect(screen.queryByText(policy.name)).toBeNull()
+      }
+      for (const service of FEDERATED_SERVICES) {
+        expect(screen.queryByText(service.service)).toBeNull()
+      }
+      for (const federation of FEDERATIONS) {
+        expect(screen.queryByText(federation.policy)).toBeNull()
+      }
+    })
+
+    it('treats a panel missing from the response as unavailable, not as empty', async () => {
+      const partial: Record<string, unknown> = LIVE_STATE()
+      delete partial.identities
+      await renderLive(partial)
+
+      const refusal = await screen.findByTestId('fed-identities-unavailable')
+      expect(refusal).toHaveTextContent(/carried no identities panel/i)
     })
 
     it('renders error boundary alert when live fetch fails', async () => {
@@ -203,6 +332,10 @@ describe('FederatedServicesPage', () => {
         expect(errorElement).toHaveTextContent('Network error: Gateway timeout')
       })
 
+      // A failed live read shows the failure. It does not quietly show fixtures.
+      for (const zone of TRUST_ZONES) {
+        expect(screen.queryByText(zone.domain)).toBeNull()
+      }
       expect(screen.queryByText(/illustrative/i)).toBeNull()
     })
   })

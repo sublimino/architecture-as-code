@@ -20,6 +20,7 @@ import (
 // Engine performs deterministic full-epoch identity resolution.
 type Engine struct {
 	mu            sync.RWMutex
+	correlateMu   sync.Mutex
 	store         store.SignalStore
 	resolver      ResolverStore
 	rules         []compiledRule
@@ -131,6 +132,9 @@ func obsToMap(o model.Observation) map[string]any {
 }
 
 func (e *Engine) Correlate(ctx context.Context) ([]*model.ProvisionalActor, error) {
+	e.correlateMu.Lock()
+	defer e.correlateMu.Unlock()
+
 	observations, err := e.store.QueryRange(ctx, store.Query{})
 	if err != nil {
 		return nil, fmt.Errorf("query observations: %w", err)

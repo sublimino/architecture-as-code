@@ -121,8 +121,8 @@ func TestAttackChainDetector_DefaultChains(t *testing.T) {
 					maxSingle = observation.Confidence
 				}
 			}
-			if match.Confidence < 0.5 || match.Confidence <= maxSingle {
-				t.Fatalf("correlated confidence %f must be actionable and exceed max single %f", match.Confidence, maxSingle)
+			if match.Confidence < 0.9 || match.Confidence <= maxSingle {
+				t.Fatalf("correlated confidence %f must be high and exceed max single %f", match.Confidence, maxSingle)
 			}
 			if !match.StunDispatched || match.StunResponse == nil || !match.StunResponse.Frozen {
 				t.Fatalf("stun result not recorded: %#v", match)
@@ -215,6 +215,73 @@ func TestAttackChainDetector_IdempotentStun(t *testing.T) {
 	}
 	if calls, _ := stun.snapshot(); calls != 1 {
 		t.Fatalf("repeated evaluation must dispatch once, got %d", calls)
+	}
+}
+
+func TestAttackChainDetector_IdempotencyIsActorScoped(t *testing.T) {
+	now := time.Now().UTC()
+	stun := &recordingStunClient{}
+	detector := NewAttackChainDetector(stun)
+	observations := append(
+		attackChainFixtures(now, "resolved-actor-a")["exfil"],
+		attackChainFixtures(now, "resolved-actor-b")["exfil"]...,
+	)
+	for index := 3; index < len(observations); index++ {
+		observations[index].ID += "-b"
+	}
+	matches, err := detector.Evaluate(context.Background(), observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("want one match per resolved actor, got %#v", matches)
+	}
+	if calls, _ := stun.snapshot(); calls != 2 {
+		t.Fatalf("distinct actors must dispatch independently, got %d calls", calls)
+	}
+}
+
+func TestAttackChainDetector_EqualTimestampsUseStageOrder(t *testing.T) {
+	at := time.Now().UTC()
+	observations := attackChainFixtures(at, "resolved-equal-time")["exfil"]
+	observations[0].ID = "z-cloud"
+	observations[1].ID = "a-host"
+	observations[1].Timestamp = at
+	observations[2].ID = "m-network"
+	observations[2].Timestamp = at
+
+	detector := NewAttackChainDetector(nil)
+	matches, err := detector.Evaluate(context.Background(), observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("equal timestamps are non-decreasing and must match: %#v", matches)
+	}
+	want := []string{"z-cloud", "a-host", "m-network"}
+	if !reflect.DeepEqual(matches[0].ObservationIDs, want) {
+		t.Fatalf("want stage order %v, got %v", want, matches[0].ObservationIDs)
+	}
+}
+
+func TestAttackChainDetector_DetectsLaterWindowBucket(t *testing.T) {
+	now := time.Now().UTC()
+	first := attackChainFixtures(now, "resolved-repeat-actor")["exfil"]
+	second := attackChainFixtures(now.Add(20*time.Minute), "resolved-repeat-actor")["exfil"]
+	for index := range second {
+		second[index].ID += "-second"
+	}
+	stun := &recordingStunClient{}
+	detector := NewAttackChainDetector(stun)
+	matches, err := detector.Evaluate(context.Background(), append(first, second...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("want both completed window buckets, got %#v", matches)
+	}
+	if calls, _ := stun.snapshot(); calls != 2 {
+		t.Fatalf("each completed window bucket must dispatch once, got %d", calls)
 	}
 }
 

@@ -143,13 +143,34 @@ func detectAttackChainMatches(observations []model.Observation, chains []AttackC
 	matches := make([]ChainMatch, 0)
 	for _, actorID := range actorIDs {
 		for _, chain := range chains {
-			if matched, ok := matchAttackChain(actorID, groups[actorID], chain); ok {
-				matches = append(matches, matched)
-			}
+			matches = append(matches, matchAttackChainOccurrences(actorID, groups[actorID], chain)...)
 		}
 	}
 	sortChainMatches(matches)
 	return matches
+}
+
+func matchAttackChainOccurrences(actorID string, findings []model.Observation, chain AttackChain) []ChainMatch {
+	remaining := append([]model.Observation(nil), findings...)
+	matches := make([]ChainMatch, 0)
+	for {
+		match, ok := matchAttackChain(actorID, remaining, chain)
+		if !ok {
+			return matches
+		}
+		matches = append(matches, match)
+		matchedIDs := make(map[string]struct{}, len(match.ObservationIDs))
+		for _, observationID := range match.ObservationIDs {
+			matchedIDs[observationID] = struct{}{}
+		}
+		unmatched := remaining[:0]
+		for _, finding := range remaining {
+			if _, matched := matchedIDs[finding.ID]; !matched {
+				unmatched = append(unmatched, finding)
+			}
+		}
+		remaining = unmatched
+	}
 }
 
 func (d *AttackChainDetector) pruneHandled(now time.Time) {
@@ -239,22 +260,25 @@ func matchAttackChain(actorID string, findings []model.Observation, chain Attack
 func matchStagesFromAnchor(findings []model.Observation, chain AttackChain, anchorIndex int) ([]model.Observation, bool) {
 	selected := []model.Observation{findings[anchorIndex]}
 	usedIDs := map[string]struct{}{findings[anchorIndex].ID: {}}
-	previousIndex := anchorIndex
+	previousAt := findings[anchorIndex].Timestamp
 	for stageIndex := 1; stageIndex < len(chain.Stages); stageIndex++ {
-		candidateIndex := nextStageFinding(findings, chain.Stages[stageIndex], previousIndex+1, usedIDs)
+		candidateIndex := nextStageFinding(findings, chain.Stages[stageIndex], previousAt, usedIDs)
 		if candidateIndex < 0 {
 			return nil, false
 		}
 		selected = append(selected, findings[candidateIndex])
 		usedIDs[findings[candidateIndex].ID] = struct{}{}
-		previousIndex = candidateIndex
+		previousAt = findings[candidateIndex].Timestamp
 	}
 	withinWindow := selected[len(selected)-1].Timestamp.Sub(selected[0].Timestamp) <= chain.Window
 	return selected, withinWindow
 }
 
-func nextStageFinding(findings []model.Observation, stage ChainStage, start int, usedIDs map[string]struct{}) int {
-	for index := start; index < len(findings); index++ {
+func nextStageFinding(findings []model.Observation, stage ChainStage, notBefore time.Time, usedIDs map[string]struct{}) int {
+	for index := range findings {
+		if findings[index].Timestamp.Before(notBefore) {
+			continue
+		}
 		if _, used := usedIDs[findings[index].ID]; used || !stageMatches(stage, findings[index]) {
 			continue
 		}

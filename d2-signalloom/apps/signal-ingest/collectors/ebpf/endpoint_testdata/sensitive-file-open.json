@@ -1,0 +1,58 @@
+[
+  {
+    "time": "2026-10-12T10:00:00Z",
+    "cgroup_id": 5101,
+    "seq_num": 1,
+    "pod_name": "agent-snoop-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-snoop-0",
+    "service_account": "agent-snoop-sa",
+    "agent_role": "snoop_suspect",
+    "provider": "tetragon",
+    "classification": "file_access",
+    "domain": "/etc/shadow",
+    "node_name": "kind-worker-1"
+  },
+  {
+    "time": "2026-10-12T10:01:00Z",
+    "cgroup_id": 5102,
+    "seq_num": 2,
+    "pod_name": "agent-snoop-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-snoop-0",
+    "service_account": "agent-snoop-sa",
+    "agent_role": "snoop_suspect",
+    "provider": "tetragon",
+    "classification": "file_access",
+    "domain": "/etc/passwd",
+    "node_name": "kind-worker-1"
+  },
+  {
+    "time": "2026-10-12T10:02:00Z",
+    "cgroup_id": 5103,
+    "seq_num": 3,
+    "pod_name": "agent-snoop-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-snoop-0",
+    "service_account": "agent-snoop-sa",
+    "agent_role": "snoop_suspect",
+    "provider": "tetragon",
+    "classification": "file_access",
+    "domain": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+    "node_name": "kind-worker-1"
+  },
+  {
+    "time": "2026-10-12T10:03:00Z",
+    "cgroup_id": 5104,
+    "seq_num": 4,
+    "pod_name": "agent-snoop-0",
+    "pod_namespace": "fe-signalloom-agents",
+    "pod_uid": "uid-snoop-0",
+    "service_account": "agent-snoop-sa",
+    "agent_role": "snoop_suspect",
+    "provider": "tetragon",
+    "classification": "file_access",
+    "domain": "/tmp/scratch.log",
+    "node_name": "kind-worker-1"
+  }
+]

@@ -32,6 +32,7 @@ shift 2
 # shellcheck source=../scripts/package-tenant-bundle.sh
 source "${_slsi_root}/scripts/package-tenant-bundle.sh"
 
+# shellcheck disable=SC2034  # read by the stages sourced above, not by this file
 BUNDLE_DIR="${_slsi_bundle}"
 
 for _slsi_stage in "$@"; do

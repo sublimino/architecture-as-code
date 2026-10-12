@@ -159,7 +159,7 @@ jobs:
         # `make test-offline-install-boundary` line does NOT satisfy it and would
         # leave the guard red while looking like the registration had worked.
         # Measured before registering: all seven pass offline with zero skips
-        # and need no cluster -- 3 + 24 + 16 + 12 + 17 + 11 + 20 = 103 tests
+        # and need no cluster -- 3 + 24 + 16 + 12 + 17 + 11 + 20 + 8 = 111 tests
         # that until now ran nowhere. Two of them (agent-behavior-signal-loop,
         # hostile-agent-admission-eval) pre-date this wave and were unrun at
         # e077d5ec; they are registered rather than excluded because a suite
@@ -173,6 +173,7 @@ jobs:
           bats test/offline-count-contract.bats
           bats test/cel-admission-image-trust.bats
           bats test/attached-mode-preflight.bats
+          bats test/ed25519-keygen-interop.bats
 
       - name: make test-eap-offline
         # The exit status of `make` is the exit status of this step. Nothing is

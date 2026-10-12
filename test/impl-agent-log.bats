@@ -167,3 +167,132 @@ teardown() {
     grep -q "\[worker-$i\]" "$IMPL_AGENT_LOG"
   done
 }
+
+@test "IMPL_LOG claim self-renewal succeeds for owning agent without --force" {
+  run bash "$script" claim "src/service.ts" "Phase 1 work"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[src/service.ts]"* ]]
+
+  # Same agent re-claims to renew lease or update progress
+  run bash "$script" claim "src/service.ts" "Phase 2 work"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"(renewed)"* ]]
+  [[ "$output" == *"Phase 2 work"* ]]
+}
+
+@test "IMPL_LOG release permission check prevents unauthorized release" {
+  run bash "$script" claim "src/protected.ts" "Alpha exclusive lock"
+  [ "$status" -eq 0 ]
+
+  # Sibling agent attempts to release alpha's claim without --force -> REFUSED
+  AGENT_ID="test-agent-gamma" run bash "$script" release "src/protected.ts" "Rogue release"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Error: Resource [src/protected.ts] is claimed by [test-agent-alpha], not [test-agent-gamma]"* ]]
+
+  # Sibling agent with --force succeeds
+  AGENT_ID="test-agent-gamma" run bash "$script" --force release "src/protected.ts" "Coordinator takeover"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[RELEASE]"* ]]
+
+  # Claim is now cleared
+  run bash "$script" claims
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"[src/protected.ts]"* ]]
+}
+
+@test "IMPL_LOG claim lease TTL expiration permits graceful recovery" {
+  # Claim with 1 second TTL
+  run bash "$script" --ttl 1 claim "src/expiring.ts" "Short-lived lock"
+  [ "$status" -eq 0 ]
+
+  # Immediate attempt by sibling fails with conflict
+  AGENT_ID="test-agent-delta" run bash "$script" claim "src/expiring.ts" "Should conflict"
+  [ "$status" -eq 1 ]
+
+  # Sleep past TTL
+  sleep 2
+
+  # Active claims should show empty
+  run bash "$script" claims
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"[src/expiring.ts]"* ]]
+
+  run bash "$script" claims --expired
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[src/expiring.ts]"* ]]
+  [[ "$output" == *"[EXPIRED:"* ]]
+
+  # Sibling agent delta can now acquire without --force
+  AGENT_ID="test-agent-delta" run bash "$script" claim "src/expiring.ts" "Acquiring expired lease"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"lease-acquired:expired-from:test-agent-alpha"* ]]
+}
+
+@test "IMPL_LOG handles resources with brackets, spaces, and path slashes" {
+  local res="bundle/[slug]/components/Header (v2).tsx"
+  run bash "$script" claim "$res" "Bracket path editing"
+  [ "$status" -eq 0 ]
+
+  run bash "$script" claims
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$res"* ]]
+
+  # Conflict check works with brackets
+  AGENT_ID="test-agent-beta" run bash "$script" claim "$res" "Conflicting bracket"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Conflict warning: Resource [$res] is already claimed"* ]]
+
+  # Clean release works
+  run bash "$script" release "$res" "Done bracket edits"
+  [ "$status" -eq 0 ]
+
+  run bash "$script" claims
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"$res"* ]]
+}
+
+@test "IMPL_LOG msg normalizes @ prefix cleanly" {
+  run bash "$script" msg "@all" "Testing @all normalization"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[@all]"* ]]
+  [[ "$output" != *"[@@all]"* ]]
+
+  run bash "$script" msg "team" "Testing team normalization"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[@team]"* ]]
+}
+
+@test "IMPL_LOG read filtering by event, agent, and topic" {
+  bash "$script" init
+  bash "$script" discover "HIGH" "sec-vuln" "Demo key leak"
+  bash "$script" msg "ops" "Please rotate keys"
+  bash "$script" heartbeat "Monitoring active"
+
+  # Filter by event
+  run bash "$script" read --event DISCOVERY
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DISCOVERY]"* ]]
+  [[ "$output" != *"[MSG]"* ]]
+  [[ "$output" != *"[HEARTBEAT]"* ]]
+
+  # Filter by topic
+  run bash "$script" read --topic sec-vuln
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[sec-vuln]"* ]]
+  [[ "$output" != *"rotate keys"* ]]
+
+  # Invalid count validation
+  run bash "$script" read --invalid
+  [ "$status" -eq 2 ]
+}
+
+@test "IMPL_LOG status detects all active agents regardless of entry type" {
+  # Agent without announce, only doing claim and discover
+  AGENT_ID="unannounced-worker" bash "$script" claim "worker-file.txt" "Silent worker"
+  AGENT_ID="discovery-scout" bash "$script" discover "LOW" "lint" "Minor lint issue"
+
+  run bash "$script" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unannounced-worker"* ]]
+  [[ "$output" == *"discovery-scout"* ]]
+}

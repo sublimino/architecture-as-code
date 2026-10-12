@@ -19,7 +19,7 @@ Non-GET requests to `/quote` return 405 and do not count towards the hostile cad
 
 ### Provocation routes (`/act/*`)
 
-Deliberate adversarial triggers the SLDC containment suite fires. All are **POST-only** (GET/PUT/DELETE → `405` with `Allow: POST`) and answer the shared `actResult` JSON envelope (`{"action","ok",...}`). None of them ever return sensitive file contents or uploaded bytes; the syscall (the `openat`, the outbound `connect`) is the signal, recorded on the wire and in a structured `event=act` stdout line. Counts are ground truth in `/stats`.
+Deliberate adversarial triggers the SLDC containment suite fires. All are **POST-only** (GET/PUT/DELETE → `405` with `Allow: POST`) and answer the shared `actResult` JSON envelope (`{"action","ok",...}`). None of them ever return sensitive file contents or uploaded bytes. The syscall (the `openat`, the outbound `connect`) is the signal. It is recorded on the wire and in a structured `event=act` stdout line. Counts are ground truth in `/stats`.
 
 | Method | Path | Behaviour |
 |---|---|---|
@@ -55,7 +55,9 @@ Upstream responses whose author is `zenquotes.io` are the keyless rate-limit rep
 
 ## Structured log
 
-One JSON object per line on stdout. Events: `start`, `quote`, `quote_fallback` (with a sanitised `reason`), `hostile_write`, `hostile_write_failed`, `act` (one per `/act/*` provocation, with the `action` and its outcome), `act_scheduled` (a deferred read order).
+One JSON object per line on stdout.
+Events include `start`, `quote`, `quote_fallback` (with sanitised `reason`), `hostile_write`, and `hostile_write_failed`.
+Provocations emit `act` (recording `action` and outcome) and `act_scheduled` (a deferred read order).
 
 ```json
 {"agent":"kusari-agent","event":"hostile_write","path":"/tmp/hostile-test.txt","request":5,"ts":"2026-09-28T14:00:00.000Z"}

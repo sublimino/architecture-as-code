@@ -31,7 +31,7 @@ nono binary (nono.sh v0.79.0) via `Dockerfile.nono`, verified end-to-end** —
 `/act/read-shadow` returns a real `open /etc/shadow: permission denied` both
 in a local container and live on kind-osramp (agent log), under
 `seccompProfile: RuntimeDefault` with all capabilities dropped, and the
-`test/kusari-nono-enforcement.bats` suite asserts the kernel deny/allow
+`d2-signalloom/test/kusari-nono-enforcement.bats` suite asserts the kernel deny/allow
 directly. R3 below therefore now scopes to the `nono-containment-probe` shim
 Dockerfile and the `agent-nono-evidenced` SP-5 fallback, which remain demo
 abstractions — this agent is the real reference.

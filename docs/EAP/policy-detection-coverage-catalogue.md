@@ -148,7 +148,7 @@ and named in `actor_vars`.
 
 ## The coverage gate
 
-`test/policy-coverage-matrix.bats` (to be added) asserts: every registered
+The policy-coverage-matrix test suite (to be added) asserts: every registered
 collector layer has ≥1 stage-1 rule in some loaded bundle, and every rule has a
 positive and a negative fixture (the kusari-e2e expectations-table discipline,
 estate-wide). A new collector with no rule, or a rule with no negative, fails CI

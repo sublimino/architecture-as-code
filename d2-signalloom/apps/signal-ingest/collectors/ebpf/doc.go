@@ -27,9 +27,11 @@
 //	        └─ ProjectEndpoint      InboundFlowEvent → endpoint_host observation
 //	           └─ IngestionSink → FrostDB
 //
-// The live in-collector subscriber to that stream is deferred (Collector returns
-// ErrLiveDeferred in ModeLive); fixture mode replays the embedded endpoint corpus
-// through the SAME ProjectEndpoint the production path uses.
+// Live mode consumes that stream through an injectable EndpointEventStream seam
+// (Collector.SetStream) and projects each event with the SAME ProjectEndpoint;
+// with no stream wired it fails loudly with ErrLiveSourceNotWired rather than
+// reporting a live collector that consumes nothing. Fixture mode replays the
+// embedded endpoint corpus through that same projection.
 //
 // The InboundFlowEvent struct is NOT modified by this package. Sentinel syscall
 // events reuse the existing schema; the SFDP-P2-4 contract and every sibling

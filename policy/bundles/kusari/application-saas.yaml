@@ -1,0 +1,118 @@
+# The Kusari APPLICATION / SaaS threat bundle.
+#
+# This reads only the application_saas projection (collectors/workspacesaas,
+# model.LayerApplicationSaaS, Source "<provider>.audit"). Every rule source-gates
+# on the ".audit" suffix AND layer-gates on application_saas, so it never crosses
+# the SaaS LOGIN surface (same collector, same source suffix, but layer
+# identity_authorization) which identity-auth.yaml owns, and never reads the
+# spirea or OpenBao identity projections. See review H3.
+#
+# Mode is `shadow`: every rule emits and stores findings, nothing alerts.
+#
+# # What the rules may read
+#
+# collectors/workspacesaas ToObservation projects: provider, event_type, action,
+# resource_id, volume_bytes, item_count, client_ip, oauth_app_id, oauth_app_name,
+# oauth_scopes, risk_level, plus passthrough labels (this stream sets
+# sensitivity). obs.actor is the pseudonymised principal.
+#
+# # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+#
+#   * Every rule source-gates on obs.source.endsWith(".audit") and layer-gates on
+#     obs.layer == "application_saas". "openbao-audit" ends "-audit", not
+#     ".audit", so the OpenBao identity projection is never read here.
+#   * Every label read is guarded with has().
+#   * These rules key on resource/action/scope attributes, not on actor identity,
+#     so there is no actor_vars set. sensitive_classes and admin_change_actions are
+#     attribute allowlists compared against labels. When an application_saas rule
+#     does need to key on identity, it must do so via obs.actor against an
+#     actor_var, exactly as identity-auth.yaml's saas-admin-role-grant does.
+#
+# # Fixtures
+#
+# collectors/workspacesaas/testdata/app. Every rule has a positive fixture that
+# fires it and a negative that does not. The per-rule expectation table lives in
+# d2-signalloom/apps/signal-ingest/e2e/saas_expectations.go and is asserted by
+# TestApplicationSaaSE2E_FixtureCorpusMatchesTheExpectationTable.
+
+id: kusari-application-saas
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+vars:
+  # Document sensitivity classes that make an external share a finding. A share of
+  # a public document is not.
+  sensitive_classes:
+    - "confidential"
+    - "restricted"
+
+  # Admin-console actions that mutate tenant configuration. A read/view of the
+  # same console is not a change.
+  admin_change_actions:
+    - "setting_change"
+    - "policy_change"
+    - "security_setting_change"
+
+rules:
+  # --- Mass file download ---------------------------------------------------
+  - id: saas-mass-file-download
+    name: Bulk file download / export above the item threshold
+    severity: high
+    # A volume-spike event whose item count crosses 100 (the contract's bulk
+    # threshold, contract_doc.go). int() parses the projected numeric label; the
+    # has() guard keeps it off any record without the label.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "application_saas" &&
+      has(obs.labels.event_type) && obs.labels.event_type == "workspace_volume_spike" &&
+      has(obs.labels.item_count) && int(obs.labels.item_count) >= 100
+
+  # --- External share of a sensitive document -------------------------------
+  - id: saas-external-sensitive-share
+    name: External share of a sensitive document
+    severity: high
+    # A document-access event whose action is an external share and whose
+    # sensitivity is in the sensitive set. An internal share, or an external share
+    # of a public document, does not fire.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "application_saas" &&
+      has(obs.labels.event_type) && obs.labels.event_type == "workspace_document_access" &&
+      has(obs.labels.action) && obs.labels.action == "external_share" &&
+      has(obs.labels.sensitivity) && obs.labels.sensitivity in vars.sensitive_classes
+
+  # --- OAuth application grant with write scopes ----------------------------
+  - id: saas-oauth-app-grant
+    name: External OAuth application grant with read-write scopes
+    severity: high
+    # An external OAuth consent whose granted scopes include a ReadWrite scope.
+    # oauth_scopes is projected as the Go slice rendering, so a substring test on
+    # "ReadWrite" is the available signal; a read-only grant does not fire.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "application_saas" &&
+      has(obs.labels.event_type) && obs.labels.event_type == "workspace_external_oauth_grant" &&
+      has(obs.labels.oauth_scopes) && obs.labels.oauth_scopes.contains("ReadWrite")
+
+  # --- Admin-console setting change -----------------------------------------
+  - id: saas-admin-console-change
+    name: Admin-console configuration change
+    severity: high
+    # An admin-privilege event whose action mutates tenant configuration. A read
+    # of the same console (view_settings) does not fire.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "application_saas" &&
+      has(obs.labels.event_type) && obs.labels.event_type == "workspace_admin_privilege" &&
+      has(obs.labels.action) && obs.labels.action in vars.admin_change_actions
+
+windows:
+  # Repeated bulk downloads by one principal in a short window is the shape of
+  # staged data exfiltration rather than a single large export.
+  - id: mass-download-burst
+    over_rule: saas-mass-file-download
+    key: [tenant_id, actor]
+    window: 10m
+    threshold: 3
+    severity: high

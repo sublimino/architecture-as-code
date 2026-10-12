@@ -142,7 +142,7 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	want := map[string]bool{
 		"syscall": true, "target": true, "pod_name": true, "namespace": true,
 		"tenant_id": true, "severity": true, "direct_reaction": true, "cgroup_path": true,
-		"domain_pseudonym": true,
+		"domain_pseudonym": true, "classification": true,
 	}
 	for k := range got {
 		if !want[k] {
@@ -157,6 +157,64 @@ func TestIngestLabelsAreExactlyTheSentinelsOwnKeys(t *testing.T) {
 	}
 	if _, exists := got["domain"]; exists {
 		t.Fatalf("cleartext domain label leaked to wire: %v", got)
+	}
+}
+
+// TestWireCarriesActorHintForLiveActorScoping pins the actor_hint wire field:
+// signal-ingest derives obs.actor from ActorHint only (policy.ActorIdentity), so
+// without it obs.actor is empty on the live stream and the identity-scoped
+// unexpected-execve rule fires on every process_exec. The probe has no service
+// account, so the hint is the workload ACTOR identity, falling back to the pod.
+func TestWireCarriesActorHintForLiveActorScoping(t *testing.T) {
+	// Actor present: the hint is the actor identity, and ActorID matches it so
+	// correlation and CEL scoping agree on one identity.
+	got := sampleObservation().toIngest()
+	if got.ActorHint == "" {
+		t.Fatal("actor_hint is empty; obs.actor would be empty on the live stream and unexpected-execve would fire on every exec")
+	}
+	if got.ActorHint != "kusari-agent" || got.ActorHint != got.ActorID {
+		t.Fatalf("actor_hint = %q, actor_id = %q; both must be the actor identity", got.ActorHint, got.ActorID)
+	}
+
+	// No actor: the hint falls back to the pod identity, never empty.
+	o := sampleObservation()
+	o.ActorID = ""
+	if h := o.toIngest().ActorHint; h != o.PodName {
+		t.Fatalf("with no actor_id the hint must fall back to the pod name %q, got %q", o.PodName, h)
+	}
+}
+
+// TestClassificationLabelDerivesFromSyscall pins the alignment of the live
+// sentinel wire onto the collector's endpoint label contract: the endpoint
+// classification is derived from the sentinel's syscall value, so the
+// endpoint-runtime CEL rules (which gate on classification) fire on this stream.
+func TestClassificationLabelDerivesFromSyscall(t *testing.T) {
+	cases := []struct {
+		name    string
+		syscall string
+		want    string // "" means the classification key must be ABSENT
+	}{
+		{"openat is a file access", SyscallNameOpenat, "file_access"},
+		{"execve is a process exec", SyscallNameExecve, "process_exec"},
+		{"execve burst is a process exec", SyscallNameEvasiveBurst, "process_exec"},
+		{"connect maps to neither", SyscallNameConnect, ""},
+		{"an unknown syscall maps to neither", "sys_enter_unknowable", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := sampleObservation()
+			o.Syscall = tc.syscall
+			got, present := o.toIngest().Labels["classification"]
+			if tc.want == "" {
+				if present {
+					t.Fatalf("syscall %q: classification must be omitted, got %q", tc.syscall, got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("syscall %q: classification = %q, want %q", tc.syscall, got, tc.want)
+			}
+		})
 	}
 }
 

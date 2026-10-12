@@ -22,6 +22,14 @@ type ingestObservation struct {
 	Fidelity       string            `json:"fidelity"`
 	Source         string            `json:"source"`
 	Confidence     float64           `json:"confidence"`
+	// ActorHint is the wire field signal-ingest pseudonymises into obs.actor
+	// (policy.ActorIdentity derives obs.actor from ActorHint ONLY, by design).
+	// The kernel probe cannot see a service account, so this carries the
+	// workload ACTOR/POD identity, which is what scopes the identity-aware
+	// endpoint rules (unexpected-execve) on the live stream. Without it
+	// obs.actor was empty on every live observation and unexpected-execve
+	// fired on every process_exec regardless of workload.
+	ActorHint      string            `json:"actor_hint,omitempty"`
 	ActorID        string            `json:"actor_id,omitempty"`
 	RawEvidenceRef string            `json:"raw_evidence_ref"`
 	Labels         map[string]string `json:"labels"`
@@ -45,6 +53,27 @@ func targetDigest(target string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
+// syscallClassification maps a sentinel syscall value to the endpoint
+// classification the endpoint-runtime bundle gates on, mirroring the collector
+// projection's vocabulary (collectors/ebpf/endpoint.go):
+//
+//	SyscallNameOpenat                           -> "file_access"
+//	SyscallNameExecve / SyscallNameEvasiveBurst -> "process_exec"
+//	anything else (SyscallNameConnect, unknown) -> "" (omit the label)
+//
+// The keys switch on the SyscallName* consts, so a rename of a sentinel syscall
+// name cannot silently desync the classification from the value actually sent.
+func syscallClassification(syscall string) string {
+	switch syscall {
+	case SyscallNameOpenat:
+		return "file_access"
+	case SyscallNameExecve, SyscallNameEvasiveBurst:
+		return "process_exec"
+	default:
+		return ""
+	}
+}
+
 func (o TelemetryObservation) toIngest() ingestObservation {
 	// Only the sentinel's own keys. Pod labels are chosen by whoever deploys
 	// the pod, so they are attacker-influenced and must not ride along (review
@@ -58,6 +87,19 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 		if v != "" {
 			labels[k] = v
 		}
+	}
+	// classification aligns the live sentinel wire onto the one endpoint label
+	// contract the collector projection (collectors/ebpf/endpoint.go) already
+	// emits, so the endpoint-runtime CEL rules fire on this stream too. It is
+	// derived from the sentinel's own syscall value, never hardcoded: an openat
+	// is a file access, an execve (and the execve-burst behavioural detection) is
+	// a process exec. The string values "file_access"/"process_exec" match the
+	// collector's ClassFileAccess/ClassProcessExec exactly; they are plain local
+	// literals rather than an import of the signal-ingest collector package.
+	// A connect (tcp_connect) or any unknown syscall maps to neither, so no
+	// classification key is set rather than guessing one.
+	if c := syscallClassification(o.Syscall); c != "" {
+		labels["classification"] = c
 	}
 	if o.Domain != "" {
 		tenant := o.TenantID
@@ -82,6 +124,11 @@ func (o TelemetryObservation) toIngest() ingestObservation {
 		Fidelity:       ingestFidelity,
 		Source:         ingestSource,
 		Confidence:     ingestConfidence,
+		// ActorHint and ActorID carry the same workload identity: ActorHint so
+		// signal-ingest pseudonymises it into obs.actor for CEL identity scoping,
+		// ActorID because correlation keys on it. The probe has no service
+		// account to offer, so both are the actor/pod identity.
+		ActorHint:      actor,
 		ActorID:        actor,
 		RawEvidenceRef: fmt.Sprintf("ebpf://%s/%s", o.Syscall, digest),
 		Labels:         labels,

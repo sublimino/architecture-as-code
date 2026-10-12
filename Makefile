@@ -1008,6 +1008,16 @@ flux-coverage: ## Print the Flux-managed and unmanaged workload sets, and fail o
 flux-coverage-test: ## Run the BATS gate for Flux workload management: undeclared gaps AND stale exceptions both fail. No cluster.
 	bats test/flux-workload-coverage.bats
 
+# The operator-facing demo is the highest-blast-radius surface in the repo: every
+# other figure here is read by an engineer who can check it, and this one is read
+# aloud to a room that cannot. This target is registered explicitly because this
+# Makefile has no `test/*.bats` glob (see flux-coverage-test above, and
+# d2-signalloom/test/bats-registry-coverage.bats, which fails on any suite that
+# no runner invokes).
+.PHONY: demo-mission-honesty-test
+demo-mission-honesty-test: riskctl ## Gate the operator demo: it may print only figures it measured. No cluster.
+	bats test/demo-mission-honesty.bats
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh

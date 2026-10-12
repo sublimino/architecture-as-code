@@ -1,0 +1,65 @@
+{
+  "suite": "e2e-dual-cluster-containment",
+  "command": "make test-e2e-dual-cluster-containment",
+  "executedAt": "2026-10-11T16:24:50+01:00",
+  "finishedAt": "2026-10-11T16:28:07+01:00",
+  "durationSeconds": 196.92,
+  "exitCode": 1,
+  "score": {
+    "passed": 4,
+    "failed": 2,
+    "total": 6,
+    "percentage": 66.67
+  },
+  "steps": [
+    {
+      "step": 1,
+      "name": "Kusari workload deployment reconciled by Flux on the workload cluster",
+      "status": "FAIL",
+      "exitCode": 1,
+      "reason": "Wait for rollout of deployment/kusari-agent timed out after 180s; Flux has not reconciled Kusari workload onto the cluster"
+    },
+    {
+      "step": 2,
+      "name": "Tenant registration and database claim for tenant kusari",
+      "status": "PASS",
+      "exitCode": 0,
+      "reason": "Successfully registered and claimed tenant kusari in PostgreSQL registry"
+    },
+    {
+      "step": 3,
+      "name": "Provoke malicious actor via /act/read-passwd",
+      "status": "PASS",
+      "exitCode": 0,
+      "reason": "Successfully invoked /act/read-passwd on agent pod"
+    },
+    {
+      "step": 4,
+      "name": "In-sentinel eBPF probe intercepts syscall and emits observation",
+      "status": "FAIL",
+      "exitCode": 1,
+      "reason": "Observation recorded but actor_id resolved null (actor_id != null assertion failed)"
+    },
+    {
+      "step": 5,
+      "name": "Pod is frozen and stays frozen past a resync, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts",
+      "status": "PASS",
+      "exitCode": 0,
+      "reason": "cgroup.events frozen 1 verified, Flux reconciliation suppressed, 0 restarts, cAdvisor CPU flatlined"
+    },
+    {
+      "step": 6,
+      "name": "Authorised recovery replaces the contained pod with a clean one and lifts the Flux pin",
+      "status": "PASS",
+      "exitCode": 0,
+      "reason": "fleet-manager on kind-osramp processed /api/v1/fleet/recover (HTTP 200), retired old pod, and deployed unstunned clean replacement pod"
+    }
+  ],
+  "evidenceDir": "/tmp/kusari-e2e/20261011-162450",
+  "clusterState": {
+    "workloadCluster": "kind-osramp",
+    "hubCluster": "kind-signalloom-hub",
+    "hubPodCount": 11,
+    "hubState": "Hub carries only kube-system and local-path-storage (11 containers); no signal-ingest and no fleet-manager on hub"
+  }
+}

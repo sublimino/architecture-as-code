@@ -150,4 +150,24 @@ test.describe("architecture diagrams page", () => {
       expect(head.status(), `unexpected status for ${href}`).toBe(200);
     }
   });
+
+  test("diagram images support click-to-zoom modal", async ({ page }) => {
+    await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
+
+    const firstDiagramImg = page.locator(`img[src$="/diagrams/${DIAGRAMS[0]}.svg"]`).first();
+    await expect(firstDiagramImg).toBeVisible();
+
+    const dialog = page.locator("dialog.starlight-image-zoom-dialog");
+    await expect(dialog).toHaveCount(0);
+
+    // Clicking the image opens the portaled zoom dialog
+    await firstDiagramImg.click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAttribute("open", "");
+    await expect(page.locator("body")).toHaveClass(/starlight-image-zoom-opened/);
+
+    // Pressing Escape closes the dialog and removes it
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
 });

@@ -32,6 +32,9 @@ KEYS_DIR="$(keys_dir)"
 COSIGN_KEY="${COSIGN_KEY:-${KEYS_DIR}/cosign.key}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-docs/signalloom/evidence}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
+if kubectl config get-contexts "kind-${CLUSTER_NAME}" >/dev/null 2>&1; then
+  kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null 2>&1 || true
+fi
 CONTEXT="${CONTEXT:-d2-signalloom/apps/dashboard-signalloom}"
 
 if [ "${WORKLOAD}" = "dashboard-signalloom" ]; then
@@ -98,7 +101,7 @@ trap cleanup EXIT
 if curl -fsS "http://localhost:5001/v2/" >/dev/null 2>&1; then
   echo "using existing registry endpoint on localhost:5001"
 else
-  kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
+  kubectl --context "kind-${CLUSTER_NAME}" -n registry port-forward --address 127.0.0.1 svc/zot 5001:5000 >/dev/null 2>&1 &
   PORT_FORWARD_PID=$!
   echo "started registry port-forward on localhost:5001"
 fi

@@ -22,7 +22,7 @@ test.describe(`AFM Frontend (${MODE} mode)`, () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    if (MODE === "iframe") await login(page);
+    if (MODE === "iframe") await login(page, { demoMode: false });
   });
 
   test("dashboard page loads and renders the title", async ({ page }) => {

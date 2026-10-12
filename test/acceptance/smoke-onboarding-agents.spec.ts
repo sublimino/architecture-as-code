@@ -1,7 +1,8 @@
 /**
  * Signal Loom Demo Smoke Suite — Rapid Verification (<90s).
  *
- * Dedicated lightweight acceptance test suite designed for live partner walk-throughs,
+ * Dedicated lightweight acceptance test suite designed for in-person partner
+ * walk-throughs (it opts into `{ demoMode: true }`: fixtures, not live data),
  * customer evaluations, and CI rapid smoke gating.
  *
  * Scope:

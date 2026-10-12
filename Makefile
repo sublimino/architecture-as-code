@@ -526,6 +526,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	$(MAKE) test-kpai
 	@echo "=== [Offline 5/5] Static Config, Manifests, Registries & Guards ==="
 	bats test/acceptance-spec-coverage.bats
+	bats test/acceptance-demo-mode-honesty.bats
 	bats d2-signalloom/test/bats-registry-coverage.bats
 	$(MAKE) test-sler-multiplane-acceptance
 	bats test/sler-p6-3-multiplane-acceptance.bats

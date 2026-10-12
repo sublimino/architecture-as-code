@@ -40,7 +40,7 @@ const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
 
 test.describe("3-Tier Navigation Hierarchy & Structure", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("renders all 3 tier headings (View, Control, Design) in the sidebar", async ({ page }) => {

@@ -588,7 +588,7 @@ Binding note for P1-2, which was previously visible only by reading the JSON: **
 
 - **Status:** INCOMPLETE (recorded by the lead, not by the card)
 - **Authored by:** the lead, from the card's committed evidence. **Both attempts stopped without writing an errata**, so this block is adjudication rather than self-report and is marked as such.
-- **Branch / commit:** `P1-3-w1` at `bda32e0d`, clean tree, 3,626 insertions
+**Commit:** `8a67b624` on `P1-3-w1`, merged to `integration/slsi-v0.1.1` as `94a427d8`. The branch carries the worker's `bda32e0d` (3,626 insertions, clean tree) plus the lead remediation `8a67b624`. Recorded per the convention established after P1-1's dangling-SHA incident: **the card records its branch, the lead records the merged SHA**, because a commit cannot contain its own hash.
 - **Attempts:** 2 of 2. Both ended `awaiting_review` with the process hung after output stopped (run 1: 6 tool calls over 88 minutes; run 2: 2 tool calls over 26 minutes). Both reaped with `kanban-check.sh stop`; both recorded `exit 0`.
 
 ##### What was built, and verified present

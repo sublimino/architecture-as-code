@@ -18,11 +18,19 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from api_compat import (
+    TRUST_TOPOLOGY_URL,
     APIError,
     Principal,
     _error_response,
+    _now_iso,
+    agents,
     authenticated_principal,
     authenticated_tenant,
+)
+from federation_state import (
+    LOCAL_READ_SUBPATHS,
+    build_federation_state,
+    project_subpath,
 )
 from ingest_client import ACTING_TENANT_HEADER, ALL_TENANTS, ingest_headers
 
@@ -259,6 +267,21 @@ async def proxy_federation_request(
             resp.status_code,
             clean_subpath,
         )
+        # For the seven read subpaths the dashboard's Federated Services page
+        # actually calls, this service can derive the measurable part of the
+        # answer itself (federation_state) and refuse the rest per field. That
+        # is NOT a reinstatement of the deleted dataset: every figure it emits
+        # is a function of the trust-topology collector's observations or of the
+        # authenticated tenant's own registry, every item carries its own
+        # evidence label, and anything with no source is absent with a reason.
+        #
+        # It runs here, as the unserved-route branch, rather than ahead of the
+        # proxy, so that (a) upstream stays authoritative the day signal-ingest
+        # registers a real handler, and (b) the proxy's own contract - identity
+        # header stripping, IDOR rejection, upstream error translation - keeps
+        # applying to these paths unchanged.
+        if clean_subpath in LOCAL_READ_SUBPATHS:
+            return await local_federation_read(clean_subpath, principal)
         return _error_response(
             502,
             "upstream_route_not_served",
@@ -319,6 +342,58 @@ async def proxy_federation_request(
     )
 
 
+_TOPOLOGY_TIMEOUT = float(os.getenv("FEDERATION_TOPOLOGY_TIMEOUT", "5.0"))
+
+
+async def local_federation_read(subpath: str, principal: Principal) -> Response:
+    """Derive the federation view for one read subpath from the sources that exist.
+
+    Collector first, exactly as ``api_compat.trust_topology`` does, and for the
+    same reason: it is the only thing in this estate that observes SPIFFE state
+    on real workloads. A transport failure is an outage, not a contract
+    violation, so it degrades to the tenant's own registry with every row
+    labelled ``modeled`` and the cause carried on
+    ``collectors.kubernetes.reason`` - it never substitutes a figure.
+
+    A collector that answers with a payload this code cannot read is a different
+    thing and is NOT degraded over: ``nodes`` is read defensively, and anything
+    that is not a list yields no identities rather than invented ones.
+    """
+    topology: dict[str, Any] | None = None
+    reason = ""
+    try:
+        async with httpx.AsyncClient(timeout=_TOPOLOGY_TIMEOUT) as client:
+            response = await client.get(TRUST_TOPOLOGY_URL)
+            response.raise_for_status()
+            payload = response.json()
+        if isinstance(payload, dict):
+            topology = payload
+        else:
+            reason = (
+                f"trust-topology collector returned {type(payload).__name__}, not a v1 object"
+            )
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("federation state: trust-topology collector unreachable", exc_info=True)
+        reason = f"trust-topology collector unreachable: {exc}"
+
+    registry: list[Any] = []
+    if topology is None:
+        try:
+            registry = list((await agents(principal)).agents)
+        except Exception as exc:  # pragma: no cover - registry failure is reported, not hidden
+            logger.warning("federation state: agent registry unavailable: %s", exc)
+            reason = f"{reason}; agent registry also unavailable: {exc}"
+
+    state = build_federation_state(
+        tenant_id=principal.tenant,
+        now=_now_iso(),
+        topology=topology,
+        topology_reason=reason,
+        agents=registry,
+    )
+    return JSONResponse(status_code=200, content=project_subpath(state, subpath))
+
+
 # ---------------------------------------------------------------------------
 # Federation Routes (/api/v1/federation/* and /v1/federation/*)
 # ---------------------------------------------------------------------------
@@ -345,7 +420,13 @@ async def proxy_federation_route(
     subpath: str = "",
     principal: Principal = Depends(authenticated_principal),
 ) -> Response:
-    """Proxy federation requests to upstream signal-ingest service with tenant isolation."""
+    """Proxy federation requests to upstream signal-ingest service with tenant isolation.
+
+    Upstream remains authoritative. When it answers that it does not serve a
+    read route, ``proxy_federation_request`` derives the measurable part of the
+    answer locally for the seven subpaths the dashboard calls, and keeps the
+    ``502 upstream_route_not_served`` refusal for every other one.
+    """
     return await proxy_federation_request(
         request, subpath, tenant_id=principal.tenant, principal=principal
     )

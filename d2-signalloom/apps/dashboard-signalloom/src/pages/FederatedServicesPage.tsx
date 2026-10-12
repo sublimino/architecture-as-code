@@ -8,7 +8,7 @@
  * that fabric legible: trust zones, federations, the federated services flowing
  * across them, and the attestation policies that gate who may federate.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { StatCard, Section } from '../components/DashKit'
 import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
@@ -33,38 +33,97 @@ import type {
   AttestationPolicy,
   SpiffeIdentity,
   FederationEvent,
+  FederationFieldRefusal,
+  FederationPanel,
+  FederationStateResponse,
 } from '../types/api'
 
+/**
+ * Live mode reads measured federation state and refuses the rest. Demo mode
+ * reads fixtures. The two are never mixed and a fixture is never a live
+ * fallback: if the live read fails, the page shows the failure.
+ *
+ * Why the panels are shaped like this. GET /v1/federation/* used to answer from
+ * a hardcoded dataset (three zones, three federations, four services, three
+ * policies, five SPIFFE IDs, attestation_success_rate 99.8, active_alerts 0)
+ * that the dashboard got 100% of the time in live mode, because signal-ingest
+ * registers no federation handler and the proxy treated its default-deny as
+ * "serve the canonical dataset". What is actually measurable in this estate is
+ * narrow - trust domains and SPIFFE IDs observed on real workloads - so the
+ * page now renders four honest panels and refuses the others by name.
+ */
 export interface FederatedServicesData {
-  zones: TrustZone[]
-  federations: Federation[]
-  services: FederatedService[]
-  policies: AttestationPolicy[]
-  identities: SpiffeIdentity[]
-  events: FederationEvent[]
+  zones: FederationPanel<TrustZone>
+  federations: FederationPanel<Federation>
+  services: FederationPanel<FederatedService>
+  policies: FederationPanel<AttestationPolicy>
+  identities: FederationPanel<SpiffeIdentity>
+  events: FederationPanel<FederationEvent>
+  counts: FederationStateResponse['counts'] | null
+  unmeasuredCounts: FederationFieldRefusal[]
+  collectorReason: string | null
 }
+
+/** A fixture panel: available, observed, nothing refused. Demo mode only. */
+function fixturePanel<T>(items: T[]): FederationPanel<T> {
+  return {
+    available: true,
+    items,
+    evidence_state: 'observed',
+    assurance: 'fixture',
+    freshness: 'fresh',
+    observed_at: null,
+    evidence_source: 'local demo fixtures',
+    reason: 'demo fixtures',
+    unmeasured_fields: [],
+  }
+}
+
+function emptyPanel<T>(reason: string): FederationPanel<T> {
+  return {
+    available: false,
+    items: [],
+    evidence_state: 'unavailable',
+    assurance: 'unavailable',
+    freshness: 'unavailable',
+    observed_at: null,
+    evidence_source: null,
+    reason,
+    unmeasured_fields: [],
+  }
+}
+
+const DEMO_DATA = (): FederatedServicesData => ({
+  zones: fixturePanel(TRUST_ZONES),
+  federations: fixturePanel(FEDERATIONS),
+  services: fixturePanel(FEDERATED_SERVICES),
+  policies: fixturePanel(POLICIES),
+  identities: fixturePanel(SPIFFE_IDS),
+  events: fixturePanel(FEDERATION_EVENTS),
+  counts: null,
+  unmeasuredCounts: [],
+  collectorReason: null,
+})
+
+const PENDING = 'not yet read'
+
+const PENDING_DATA = (): FederatedServicesData => ({
+  zones: emptyPanel(PENDING),
+  federations: emptyPanel(PENDING),
+  services: emptyPanel(PENDING),
+  policies: emptyPanel(PENDING),
+  identities: emptyPanel(PENDING),
+  events: emptyPanel(PENDING),
+  counts: null,
+  unmeasuredCounts: [],
+  collectorReason: null,
+})
 
 export function useFederatedServices() {
   const isDemo = isDemoMode()
   const { getAccessTokenSilently } = useAuth0()
   const [data, setData] = useState<FederatedServicesData>(() =>
-    isDemo
-      ? {
-          zones: TRUST_ZONES,
-          federations: FEDERATIONS,
-          services: FEDERATED_SERVICES,
-          policies: POLICIES,
-          identities: SPIFFE_IDS,
-          events: FEDERATION_EVENTS,
-        }
-      : {
-          zones: [],
-          federations: [],
-          services: [],
-          policies: [],
-          identities: [],
-          events: [],
-        },
+    isDemo ? DEMO_DATA() : PENDING_DATA(),
   )
   const [loading, setLoading] = useState(!isDemo)
   const [error, setError] = useState<string | null>(null)
@@ -72,14 +131,7 @@ export function useFederatedServices() {
   useEffect(() => {
     let active = true
     if (isDemo) {
-      setData({
-        zones: TRUST_ZONES,
-        federations: FEDERATIONS,
-        services: FEDERATED_SERVICES,
-        policies: POLICIES,
-        identities: SPIFFE_IDS,
-        events: FEDERATION_EVENTS,
-      })
+      setData(DEMO_DATA())
       setLoading(false)
       setError(null)
       return
@@ -93,13 +145,21 @@ export function useFederatedServices() {
         const token = await getAccessTokenSilently()
         const res = await api.federation.summary(token)
         if (!active) return
+        // No `?? []` on a panel: a missing panel is not an empty one. An answer
+        // that omits a panel is a contract break and is shown as unavailable,
+        // not as a tidy zero.
+        const panel = <T,>(p: FederationPanel<T> | undefined, name: string) =>
+          p ?? emptyPanel<T>(`the API response carried no ${name} panel`)
         setData({
-          zones: res.zones ?? [],
-          federations: res.federations ?? [],
-          services: res.services ?? [],
-          policies: res.policies ?? [],
-          identities: res.identities ?? [],
-          events: res.events ?? [],
+          zones: panel(res.zones, 'zones'),
+          federations: panel(res.federations, 'federations'),
+          services: panel(res.services, 'services'),
+          policies: panel(res.policies, 'policies'),
+          identities: panel(res.identities, 'identities'),
+          events: panel(res.events, 'events'),
+          counts: res.counts ?? null,
+          unmeasuredCounts: res.unmeasured_fields ?? [],
+          collectorReason: res.collectors?.kubernetes?.reason || null,
         })
         setLoading(false)
       } catch (err: unknown) {
@@ -115,6 +175,76 @@ export function useFederatedServices() {
   }, [isDemo, getAccessTokenSilently])
 
   return { data, loading, error, isDemo }
+}
+
+/** A refused cell. Renders the absence, with the cause on hover. */
+function Unmeasured({ reason }: { reason: string }) {
+  return (
+    <span
+      data-testid="fed-unmeasured-cell"
+      title={reason}
+      style={{ color: 'var(--dim)', fontStyle: 'italic', fontSize: 11.5 }}
+    >
+      not measured
+    </span>
+  )
+}
+
+function refusalOf(panel: FederationPanel<unknown>, field: string): string | null {
+  return panel.unmeasured_fields.find((r) => r.field === field)?.reason ?? null
+}
+
+/** A whole panel with no source: say which source is missing, show no rows. */
+function PanelRefusal({ panel, testId }: { panel: FederationPanel<unknown>; testId: string }) {
+  return (
+    <div
+      data-testid={testId}
+      className="card"
+      style={{
+        padding: '14px 16px', fontSize: 12.5, lineHeight: 1.6,
+        color: 'var(--muted)', borderLeft: '3px solid var(--dim)',
+      }}
+    >
+      <strong style={{ color: 'var(--text)' }}>Not measured.</strong> {panel.reason}
+    </div>
+  )
+}
+
+/** The per-field refusals of an otherwise measured panel, listed under it. */
+function FieldRefusals({ panel, testId }: { panel: FederationPanel<unknown>; testId: string }) {
+  if (panel.unmeasured_fields.length === 0) return null
+  return (
+    <ul
+      data-testid={testId}
+      style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}
+    >
+      {panel.unmeasured_fields.map((r) => (
+        <li key={r.field}>
+          <code style={{ color: 'var(--dim)' }}>{r.field}</code>: {r.reason}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** A panel section: the table when there is a source, a named refusal when there is not. */
+function Panel({
+  panel, name, children,
+}: { panel: FederationPanel<unknown>; name: string; children: ReactNode }) {
+  if (!panel.available) {
+    return <PanelRefusal panel={panel} testId={`fed-${name}-unavailable`} />
+  }
+  return (
+    <>
+      {children}
+      <FieldRefusals panel={panel} testId={`fed-${name}-refusals`} />
+    </>
+  )
+}
+
+/** A StatCard value that is either a measured number or an explicit refusal. */
+function countValue(value: number | null | undefined, fallback: number): string {
+  return value === null || value === undefined ? String(fallback) : String(value)
 }
 
 const PROOFS: Proof[] = [
@@ -341,8 +471,10 @@ function chipCounts<T>(
   ) as Record<string, number>
 }
 
-const ZONE_CHIPS = ['all', 'active', 'connecting'] as const
-const zoneChip = (z: TrustZone) => z.status
+// 'unmeasured' is a real bucket, not a placeholder: in live mode no zone has a
+// status, because zone status is bundle-exchange state and nothing collects it.
+const ZONE_CHIPS = ['all', 'active', 'connecting', 'unmeasured'] as const
+const zoneChip = (z: TrustZone) => z.status ?? 'unmeasured' 
 const zoneMatches = (z: TrustZone, q: string) =>
   z.name.toLowerCase().includes(q) || z.domain.toLowerCase().includes(q)
 
@@ -366,7 +498,9 @@ const policyMatches = (p: AttestationPolicy, q: string) =>
 const SPIFFE_CHIPS = ['all', 'dashboard', 'agent', 'service'] as const
 const spiffeChip = (s: SpiffeIdentity) => s.workload
 const spiffeMatches = (s: SpiffeIdentity, q: string) =>
-  s.uri.toLowerCase().includes(q) || s.ns.toLowerCase().includes(q) || s.sa.toLowerCase().includes(q)
+  s.uri.toLowerCase().includes(q)
+  || (s.ns ?? '').toLowerCase().includes(q)
+  || (s.sa ?? '').toLowerCase().includes(q)
 
 const EVENT_CHIPS = ['all', 'signalloom-eu', 'signalloom-us', 'partner-acme'] as const
 const eventChip = (e: FederationEvent) => e.zone
@@ -384,21 +518,23 @@ export default function FederatedServicesPage() {
   const { data, loading, error, isDemo } = useFederatedServices()
   const [proofOpen, setProofOpen] = useState(false)
 
-  const activeFed = data.services.filter((s) => s.status === 'active').length
+  const activeFed = data.services.items.filter((s) => s.status === 'active').length
 
-  const zones = useFilter(data.zones, zoneChip, zoneMatches)
-  const federations = useFilter(data.federations, federationChip, federationMatches)
-  const services = useFilter(data.services, serviceChip, serviceMatches)
-  const policies = useFilter(data.policies, policyChip, policyMatches)
-  const identities = useFilter(data.identities, spiffeChip, spiffeMatches)
-  const events = useFilter(data.events, eventChip, eventMatches)
+  const zones = useFilter(data.zones.items, zoneChip, zoneMatches)
+  const federations = useFilter(data.federations.items, federationChip, federationMatches)
+  const services = useFilter(data.services.items, serviceChip, serviceMatches)
+  const policies = useFilter(data.policies.items, policyChip, policyMatches)
+  const identities = useFilter(data.identities.items, spiffeChip, spiffeMatches)
+  const events = useFilter(data.events.items, eventChip, eventMatches)
 
-  const zoneCounts = useMemo(() => chipCounts(data.zones, ZONE_CHIPS, zoneChip), [data.zones])
-  const federationCounts = useMemo(() => chipCounts(data.federations, FEDERATION_CHIPS, federationChip), [data.federations])
-  const serviceCounts = useMemo(() => chipCounts(data.services, SERVICE_CHIPS, serviceChip), [data.services])
-  const policyCounts = useMemo(() => chipCounts(data.policies, POLICY_CHIPS, policyChip), [data.policies])
-  const spiffeCounts = useMemo(() => chipCounts(data.identities, SPIFFE_CHIPS, spiffeChip), [data.identities])
-  const eventCounts = useMemo(() => chipCounts(data.events, EVENT_CHIPS, eventChip), [data.events])
+  const zoneCounts = useMemo(() => chipCounts(data.zones.items, ZONE_CHIPS, zoneChip), [data.zones])
+  const federationCounts = useMemo(() => chipCounts(data.federations.items, FEDERATION_CHIPS, federationChip), [data.federations])
+  const serviceCounts = useMemo(() => chipCounts(data.services.items, SERVICE_CHIPS, serviceChip), [data.services])
+  const policyCounts = useMemo(() => chipCounts(data.policies.items, POLICY_CHIPS, policyChip), [data.policies])
+  const spiffeCounts = useMemo(() => chipCounts(data.identities.items, SPIFFE_CHIPS, spiffeChip), [data.identities])
+  const eventCounts = useMemo(() => chipCounts(data.events.items, EVENT_CHIPS, eventChip), [data.events])
+
+  const NOT_MEASURED = 'not measured'
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -460,13 +596,40 @@ export default function FederatedServicesPage() {
       )}
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 28 }}>
-        <StatCard label="Trust zones" value={String(data.zones.length)} sub="isolated SPIFFE domains" accent="var(--cyan)" />
-        <StatCard label="Federations" value={String(data.federations.length)} sub="cross-zone trust links" accent="var(--violet)" />
-        <StatCard label="Federated services" value={`${activeFed}/${data.services.length}`} sub="active cross-zone routes" accent="var(--teal)" />
-        <StatCard label="Attestation policies" value={String(data.policies.length)} sub="gate who may federate" accent="var(--amber)" />
+        <StatCard
+          label="Trust zones"
+          value={countValue(data.counts?.trust_zones, data.zones.items.length)}
+          sub="observed SPIFFE trust domains"
+          accent="var(--cyan)"
+        />
+        <StatCard
+          label="SPIFFE identities"
+          value={countValue(data.counts?.spiffe_identities, data.identities.items.length)}
+          sub="observed on live workloads"
+          accent="var(--cyan)"
+        />
+        <StatCard
+          label="Federations"
+          value={data.federations.available ? String(data.federations.items.length) : NOT_MEASURED}
+          sub={data.federations.available ? 'cross-zone trust links' : 'no federation source'}
+          accent="var(--violet)"
+        />
+        <StatCard
+          label="Federated services"
+          value={data.services.available ? `${activeFed}/${data.services.items.length}` : NOT_MEASURED}
+          sub={data.services.available ? 'active cross-zone routes' : 'no service fabric deployed'}
+          accent="var(--teal)"
+        />
+        <StatCard
+          label="Attestation policies"
+          value={data.policies.available ? String(data.policies.items.length) : NOT_MEASURED}
+          sub={data.policies.available ? 'gate who may federate' : 'ClusterSPIFFEID not read'}
+          accent="var(--amber)"
+        />
       </div>
 
       <Section title="Trust Zones" hint="each a SPIFFE trust domain">
+        <Panel panel={data.zones} name="zones">
         <DataTable
           columns={ZONE_COLUMNS}
           data={zones.filtered}
@@ -484,7 +647,7 @@ export default function FederatedServicesPage() {
               active={zones.chip}
               onChip={zones.setChip}
               shown={zones.filtered.length}
-              total={data.zones.length}
+              total={data.zones.items.length}
             />
           }
           emptyState={<NoMatch what="status" />}
@@ -492,15 +655,25 @@ export default function FederatedServicesPage() {
             <tr key={z.name} style={rowStyle}>
               <td style={nameCell}>{z.name}</td>
               <td style={DataTable.td}><code style={codeStyle}>{z.domain}</code></td>
-              <td style={DataTable.td}>{z.clusters}</td>
-              <td style={DataTable.td}>{z.servers}</td>
-              <td style={DataTable.td}><StatusBadge status={z.status} variant="federation" /></td>
+              <td style={DataTable.td}>
+                {z.clusters ?? <Unmeasured reason={refusalOf(data.zones, 'clusters') ?? NOT_MEASURED} />}
+              </td>
+              <td style={DataTable.td}>
+                {z.servers ?? <Unmeasured reason={refusalOf(data.zones, 'servers') ?? NOT_MEASURED} />}
+              </td>
+              <td style={DataTable.td}>
+                {z.status
+                  ? <StatusBadge status={z.status} variant="federation" />
+                  : <Unmeasured reason={refusalOf(data.zones, 'status') ?? NOT_MEASURED} />}
+              </td>
             </tr>
           )}
         />
+        </Panel>
       </Section>
 
       <Section title="Federations" hint="trust relationships between zones">
+        <Panel panel={data.federations} name="federations">
         <DataTable
           columns={FEDERATION_COLUMNS}
           data={federations.filtered}
@@ -518,7 +691,7 @@ export default function FederatedServicesPage() {
               active={federations.chip}
               onChip={federations.setChip}
               shown={federations.filtered.length}
-              total={data.federations.length}
+              total={data.federations.items.length}
             />
           }
           emptyState={<NoMatch what="status" />}
@@ -532,9 +705,11 @@ export default function FederatedServicesPage() {
             </tr>
           )}
         />
+        </Panel>
       </Section>
 
       <Section title="Federated Services" hint="local endpoint -> remote-zone workload">
+        <Panel panel={data.services} name="services">
         <DataTable
           columns={SERVICE_COLUMNS}
           data={services.filtered}
@@ -552,7 +727,7 @@ export default function FederatedServicesPage() {
               active={services.chip}
               onChip={services.setChip}
               shown={services.filtered.length}
-              total={data.services.length}
+              total={data.services.items.length}
             />
           }
           emptyState={<NoMatch what="home zone" />}
@@ -567,9 +742,11 @@ export default function FederatedServicesPage() {
             </tr>
           )}
         />
+        </Panel>
       </Section>
 
       <Section title="Attestation Policies" hint="who is allowed to federate">
+        <Panel panel={data.policies} name="policies">
         <DataTable
           columns={POLICY_COLUMNS}
           data={policies.filtered}
@@ -587,7 +764,7 @@ export default function FederatedServicesPage() {
               active={policies.chip}
               onChip={policies.setChip}
               shown={policies.filtered.length}
-              total={data.policies.length}
+              total={data.policies.items.length}
             />
           }
           emptyState={<NoMatch what="bound zone" />}
@@ -599,9 +776,11 @@ export default function FederatedServicesPage() {
             </tr>
           )}
         />
+        </Panel>
       </Section>
 
       <Section title="SPIFFE Identities" hint="SVIDs issued by the trust fabric">
+        <Panel panel={data.identities} name="identities">
         <DataTable
           columns={SPIFFE_COLUMNS}
           data={identities.filtered}
@@ -619,7 +798,7 @@ export default function FederatedServicesPage() {
               active={identities.chip}
               onChip={identities.setChip}
               shown={identities.filtered.length}
-              total={data.identities.length}
+              total={data.identities.items.length}
             />
           }
           emptyState={<NoMatch what="workload" />}
@@ -631,13 +810,19 @@ export default function FederatedServicesPage() {
               <td style={DataTable.td}><StatusBadge status={s.workload} /></td>
               <td style={mutedCell}>{s.ns}</td>
               <td style={mutedCell}>{s.sa}</td>
-              <td style={DataTable.td}><StatusBadge status={s.svid} /></td>
+              <td style={DataTable.td}>
+                {s.svid
+                  ? <StatusBadge status={s.svid} />
+                  : <Unmeasured reason={refusalOf(data.identities, 'svid') ?? NOT_MEASURED} />}
+              </td>
             </tr>
           )}
         />
+        </Panel>
       </Section>
 
       <Section title="Federation Events" hint="recent trust fabric activity">
+        <Panel panel={data.events} name="events">
         <DataTable
           columns={EVENT_COLUMNS}
           data={events.filtered}
@@ -655,7 +840,7 @@ export default function FederatedServicesPage() {
               active={events.chip}
               onChip={events.setChip}
               shown={events.filtered.length}
-              total={data.events.length}
+              total={data.events.items.length}
             />
           }
           emptyState={<NoMatch what="zone" />}
@@ -668,6 +853,7 @@ export default function FederatedServicesPage() {
             </tr>
           )}
         />
+        </Panel>
       </Section>
 
       <Section title="Cofide Go SDK" hint="github.com/cofide/cofide-sdk-go">

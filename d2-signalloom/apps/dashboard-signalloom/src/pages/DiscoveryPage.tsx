@@ -5,6 +5,7 @@ import DiscoveredWorkloadDrawer from '../components/DiscoveredWorkloadDrawer'
 import ClaimModal from '../components/agents/ClaimModal'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { isDemoMode } from '../api/demoMode'
 import type {
   DiscoveryWorkload,
   DiscoverySource,
@@ -675,7 +676,7 @@ function workloadToClaimAgent(w: DiscoveryWorkload): AgentResponse {
     name: w.name,
     type: 'Discovered Workload',
     owner: w.owner || 'unassigned',
-    tenant_id: (w as any).tenant_id || 'tenant-demo',
+    tenant_id: (w as any).tenant_id || (isDemoMode() ? 'tenant-demo' : 'default'),
     lifecycle_state: w.status === 'governed' ? 'governed' : 'discovered',
     last_transition_at: w.last_seen_at || new Date().toISOString(),
     last_transition_by: 'system',
@@ -782,29 +783,32 @@ export default function DiscoveryPage() {
     try {
       const token = await getAccessTokenSilently()
       const [workloadsRes, scansData, agentsData] = await Promise.all([
-        api.discovery.workloads(token, { limit: 100 }).catch(async () => {
-          // Fallback to demo fixture endpoint if live aggregate fails
-          const nhiData = await api.nhi.discovered(token, 1, 100).catch(() => ({ accounts: [] }))
-          const mapped: DiscoveryWorkload[] = nhiData.accounts.map((a) => ({
-            id: a.id,
-            name: a.account_name,
-            source: 'idp',
-            source_label: a.directory_source.includes('entra') ? 'Entra ID' : 'Okta',
-            namespace: `identity-${a.directory_source.toLowerCase()}`,
-            status: a.status === 'dismissed' ? 'ignored' : (a.status === 'needs_triage' ? 'in_review' : 'discovered'),
-            owner: a.owner_email,
-            spiffe_id: null,
-            model: null,
-            last_seen_at: a.last_seen_at || a.first_discovered_at,
-            recommendations: {
-              config: 'warning',
-              content: 'not_applicable',
-              supply_chain: 'pass',
-              eu_ai_act: 'pass',
-            },
-            metadata: { privilege_level: a.privilege_level },
-          }))
-          return { workloads: mapped, total: mapped.length, summary: { total_discovered: mapped.length, in_review: 0, ignored: 0, revoked: 0, governed: 0 } }
+        api.discovery.workloads(token, { limit: 100 }).catch(async (err) => {
+          // Fallback to demo fixture endpoint if live aggregate fails, but ONLY in demo mode
+          if (isDemoMode()) {
+            const nhiData = await api.nhi.discovered(token, 1, 100).catch(() => ({ accounts: [] }))
+            const mapped: DiscoveryWorkload[] = nhiData.accounts.map((a) => ({
+              id: a.id,
+              name: a.account_name,
+              source: 'idp',
+              source_label: a.directory_source.includes('entra') ? 'Entra ID' : 'Okta',
+              namespace: `identity-${a.directory_source.toLowerCase()}`,
+              status: a.status === 'dismissed' ? 'ignored' : (a.status === 'needs_triage' ? 'in_review' : 'discovered'),
+              owner: a.owner_email,
+              spiffe_id: null,
+              model: null,
+              last_seen_at: a.last_seen_at || a.first_discovered_at,
+              recommendations: {
+                config: 'warning',
+                content: 'not_applicable',
+                supply_chain: 'pass',
+                eu_ai_act: 'pass',
+              },
+              metadata: { privilege_level: a.privilege_level },
+            }))
+            return { workloads: mapped, total: mapped.length, summary: { total_discovered: mapped.length, in_review: 0, ignored: 0, revoked: 0, governed: 0 } }
+          }
+          return { workloads: [], total: 0, summary: { total_discovered: 0, in_review: 0, ignored: 0, revoked: 0, governed: 0 } }
         }),
         api.nhi.scans(token).catch(() => ({ scans: [] as NHIScan[] })),
         api.agents?.list
@@ -1001,7 +1005,7 @@ export default function DiscoveryPage() {
             ? {
                 ...w,
                 status: 'governed' as DiscoveryLifecycleState,
-                spiffe_id: w.spiffe_id || `spiffe://signalloom.demo/ns/${targetNamespace}/sa/${w.name}`,
+                spiffe_id: w.spiffe_id || `spiffe://signalloom.svc.cluster.local/ns/${targetNamespace}/sa/${w.name}`,
               }
             : w
         )

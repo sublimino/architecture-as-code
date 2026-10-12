@@ -1127,9 +1127,8 @@ async def enroll_external_agent_handler(
     agent_id = req_dict["agent_id"]
     host_id = req_dict["host_id"]
     key_id = req_dict["key_id"]
-    credential_ref = req_dict.get("credential_reference") or f"spiffe://signalloom.demo/platform/signalloom/tenant/tenant-demo/agent/{agent_id}"
-
     tenant_id = principal.tenant if principal else "tenant-demo"
+    credential_ref = req_dict.get("credential_reference") or f"spiffe://signalloom.demo/platform/signalloom/tenant/{tenant_id}/agent/{agent_id}"
     now = _now_iso()
 
     pool = await api_compat._get_pool()
@@ -1201,7 +1200,7 @@ async def upload_external_agent_evidence_handler(
     session_id = upload_dict.get("session_id", "session-default")
 
     # Extract agent_id from upload or envelope
-    agent_id = "agent-maxxing-linux-01"
+    agent_id = upload_dict.get("agent_id") or "agent-maxxing-linux-01"
     if "assertion_envelope" in upload_dict and "assertions" in upload_dict["assertion_envelope"]:
         assertions = upload_dict["assertion_envelope"]["assertions"]
         if assertions and isinstance(assertions, list) and "agent_id" in assertions[0]:

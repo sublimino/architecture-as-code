@@ -127,11 +127,22 @@
     {
       "suite": "d2-signalloom/test/bats-registry-coverage.bats",
       "runBy": "make test-all-offline, static section",
-      "failingTests": 2,
+      "failingTests": 1,
       "state": "RED_NEW",
       "attribution": "not-owned-by-OSD-5",
-      "detail": "Test 10 names 4 repo-root bats suites that no pipeline runs: slsi-airgap-bundle.bats (SLSI-P1-4), slsi-bundle-manifest.bats (SLSI-P1-1), and two PRE-EXISTING on e077d5ec, agent-behavior-signal-loop.bats and hostile-agent-admission-eval.bats. Test 1 names 1 unrun proof script, test/slsi-bundle-seal-falsification.sh (SLSI-P1-1). P0 never measured this suite: its test-all-offline died at stage 2/5 on the install, long before the static section.",
-      "adjudication": "Lead owns d2-signalloom/test/bats-registry-coverage.bats and ruled REGISTER rather than EXCLUDE, because none of the four suites is reachable from any of the three pipeline files the guard greps, so an exclusion would silence the guard while guaranteeing nothing ever runs them. Resolution is applied by the lead at integration. OSD-5 did not edit that file."
+      "legLine": 17,
+      "detail": "Test 10 names 6 repo-root bats suites that no pipeline runs: offline-count-contract.bats and offline-install-boundary.bats (this card), slsi-bundle-manifest.bats (SLSI-P1-1), slsi-airgap-bundle.bats (SLSI-P1-4), and two PRE-EXISTING at e077d5ec, agent-behavior-signal-loop.bats and hostile-agent-admission-eval.bats. Test 1 of the same suite named an unrun proof script, test/slsi-bundle-seal-falsification.sh, and is now GREEN: the test-slsi-bundle-seal target this card added satisfies the proof-script rule, which accepts registration in any Makefile target. That is why this count is 1 and not 2. P0 never measured this suite at all: its test-all-offline died at stage 2/5 on the install, long before the static section.",
+      "adjudication": "Lead owns d2-signalloom/test/bats-registry-coverage.bats and ruled REGISTER rather than EXCLUDE, because none of the named suites is reachable from any of the three pipeline files the guard greps, so an exclusion would silence the guard while guaranteeing nothing ever runs them. Registration must name each suite's BASENAME literally in a pipeline file -- the guard greps pipeline text for the .bats filename, so a line reading `make <target>` does not satisfy it. Applied by the lead at integration. OSD-5 did not edit that file."
+    },
+    {
+      "suite": "d2-signalloom contracts bootstrap drift",
+      "runBy": "make test-all-offline via `make demo-signalloom-test-config` (leg line 20) and `bats test/test-count-floor.bats` test 8 (leg line 54)",
+      "failingTests": 2,
+      "state": "RED_PRE_EXISTING",
+      "attribution": "inherited: 24f1d1b7, an ancestor of the wave's original base e077d5ec",
+      "legLine": 20,
+      "detail": "d2-signalloom/test/validate-dependencies.sh reports two DRIFT findings: both generated copies of discovery-portal-bootstrap.sql (one in d2-signalloom/contracts/, one in d2-signalloom/infra/inf-signalloom/configs/base/bootstrap/) are 4733 lines against a generated 4785, missing migration 061_policy_check_mapping.sql. The migration landed in 24f1d1b7 (2026-10-10, Andrew Martin) and the two build artefacts were never regenerated. ONE root cause, counted as 2 because it reddens two separate lines of the offline leg. P0 never saw it for the same reason as the suite above.",
+      "adjudication": "Not fixed by OSD-5. The artefacts are generated, not hand-written, and the remedy is to run d2-signalloom/infra/inf-signalloom/scripts/generate-bootstrap.py twice and commit both outputs. That is a d2-signalloom contracts change in nobody's declared ownership for this wave, and regenerating could carry further drift beyond migration 061, so it is the lead's to assign."
     }
   ],
   "coverageCaveat": "test-all-offline is itself named by none of the three pipeline files the bats registry guard treats as runners (scripts/ci/vm-pipeline.sh, scripts/gcp-tf/demo-pipeline.sh, .github/workflows/signalloom-eap-pr.yaml). A green `make test-all-offline` therefore proves the leg passes locally and proves NOTHING about CI coverage. Registering the leg, or its individual targets, in a pipeline is a lead decision and is not taken by this card."

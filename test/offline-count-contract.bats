@@ -124,8 +124,15 @@ setup() {
 	local n
 	n="$(jq '[.residualReds[]|select((.failingTests|type)=="number" and (.attribution|length)>0 and (.detail|length)>0)]|length' "${CONTRACT}")"
 	[ "$n" -eq "$(jq '.residualReds|length' "${CONTRACT}")" ]
-	# The one we measured on this base.
-	[ "$(jq -r '.residualReds[]|select(.suite|test("bats-registry-coverage"))|.failingTests' "${CONTRACT}")" = "2" ]
+	# The two we measured on this base, by running the leg's 56 recipe lines
+	# individually -- `make -k` cannot enumerate them, because the whole leg is a
+	# single recipe and make aborts a recipe at its first failing line regardless
+	# of -k.
+	[ "$(jq -r '.residualReds[]|select(.suite|test("bats-registry-coverage"))|.failingTests' "${CONTRACT}")" = "1" ]
+	[ "$(jq -r '.residualReds[]|select(.suite|test("bootstrap drift"))|.failingTests' "${CONTRACT}")" = "2" ]
+	# Every residual must name the leg line it reddens, so the next person can
+	# reproduce it without re-deriving the enumeration.
+	[ "$(jq '[.residualReds[]|select((.legLine|type)=="number")]|length' "${CONTRACT}")" -eq "$(jq '.residualReds|length' "${CONTRACT}")" ]
 }
 
 @test "the coverage caveat states that no pipeline runs the offline leg" {

@@ -33,7 +33,9 @@ D2-BAO adds an OpenBao-focused reference composition:
 
 - OpenBao server and agent injector;
 - cert-manager issuers and trust bundles for OpenBao;
-- Kyverno policies, including image-verification policy;
+- Kyverno policies, including image-verification policy — **note this is what
+  D2-BAO brings, not what OSRAMP has.** OSRAMP has no admission controller at
+  all (OSD-7); adopting these would be a new dependency, not an extension;
 - Secrets Store CSI driver;
 - optional SPIRE/SPIFFE and trust-manager patterns;
 - application examples that consume secrets through the injector;
@@ -77,8 +79,12 @@ Flux Operator / FluxInstance
    Kubernetes service-account auth and narrowly scoped policies. SPIFFE/SPIRE
    is a later enhancement, not an initial hard dependency.
 6. **Prove the whole trust chain.** The OpenBao manifests and every demo image
-   must pass OSRAMP's existing OCI/Cosign source verification and Kyverno image
-   verification. Local exceptions must be narrow and explicit.
+   must pass OSRAMP's existing OCI/Cosign source verification (Flux
+   `verify.provider: cosign`) and its CEL `ValidatingAdmissionPolicy` image
+   gate — digest-pinned, from the trusted in-cluster registry. There is no
+   Kyverno `verifyImages` step to pass: OSD-7 removed it, and CEL cannot verify
+   a signature at admission. The signature guarantee is Flux's, one layer
+   earlier. Local exceptions must be narrow and explicit.
 
 ## Delivery sequence
 
@@ -87,7 +93,9 @@ Flux Operator / FluxInstance
 Before changing manifests, create a short ADR answering:
 
 - Which D2-BAO components will be adopted now: OpenBao server, injector,
-  cert-manager trust material, Kyverno and CSI driver.
+  cert-manager trust material, CSI driver, and whether to take Kyverno at all
+  (it would be a net-new controller for OSRAMP, not a shared one — see the
+  OSD-7 errata below).
 - Which are deferred: SPIRE/SPIFFE, external secrets patterns, HA/production
   storage, migration of all existing secrets and multi-cluster replication.
 - Local topology: namespaces, local domain/certificates, storage class, seeded
@@ -111,8 +119,14 @@ the existing `controllers/<environment>` and `configs/<environment>` split:
 2. `openbao-agent-injector` controller and configuration layers.
 3. OpenBao-specific cert-manager issuers/trust bundles, extending rather than
    duplicating OSRAMP's current cert-manager installation.
-4. Kyverno only after comparing it with OSRAMP's current admission approach;
-   one controller/policy owner, not two.
+4. Kyverno only after comparing it with OSRAMP's current admission approach,
+   which is CEL `ValidatingAdmissionPolicy` evaluated by the API server with no
+   controller (`policy/cel/`). The comparison is therefore not
+   "one owner, not two" — it is "zero controllers, or one". Adopting Kyverno
+   means owning an admission controller's lifecycle in the air-gapped bundle,
+   which is precisely what OSD-7 removed. The case for it is `mutate`/`generate`,
+   which CEL cannot express; registry and digest enforcement alone does not
+   justify it.
 5. Secrets Store CSI driver only when a concrete OSRAMP consumer needs mounted
    secret material; injector consumption is enough for the first demo.
 
@@ -179,8 +193,13 @@ bootstrap state.
 
 Add objective proof that the new platform component is safe to demonstrate:
 
-- Kyverno rejects an unsigned/non-compliant OpenBao consumer image while
-  accepting the signed local/hosted identity as appropriate.
+- Admission rejects a non-compliant OpenBao consumer image — one not pinned to
+  a digest, or not from the trusted registry — while admitting the compliant
+  one. Note the honest limit: this does **not** prove the image is *signed*.
+  CEL cannot verify a signature, so "unsigned" is caught one layer earlier, by
+  Flux refusing to place an unverified artefact in the registry. An acceptance
+  test that claims to reject an *unsigned* image at admission would be testing
+  something nothing in the bundle does.
 - NetworkPolicies deny all traffic to OpenBao except required clients,
   monitoring and cert-manager paths.
 - Prometheus scrapes server/injector metrics and Grafana exposes a useful
@@ -205,7 +224,7 @@ diagnosis.
 | Fleet wiring | Infra tenant ResourceSet, OCI sources, `dependsOn` graph | Fresh Kind reconcile succeeds |
 | Artefact pipeline | Component packaging, local push/sign and CI validation | Only signed artefacts reconcile |
 | Consumer example | Dedicated service account, policy and demo deployment | Allowed secret read and denied cross-namespace read |
-| Guardrails | Kyverno, NetworkPolicy, PSS, resource controls | Negative admission and connectivity tests |
+| Guardrails | CEL `ValidatingAdmissionPolicy`, NetworkPolicy, PSS, resource controls | Negative admission and connectivity tests |
 | Operations | Metrics, dashboard, reset/recovery docs | Operator drill and documented evidence |
 
 ## Acceptance test matrix
@@ -220,7 +239,8 @@ diagnosis.
 | Authorised consumer | Dedicated OSRAMP service account receives only its allowed demo secret. |
 | Unauthorised consumer | Different namespace/service account receives denial and no secret data. |
 
-| Unsigned image | Kyverno/admission rejects it. |
+| Unpinned or untrusted-registry image | CEL admission rejects it. |
+| Unsigned image | Flux refuses to reconcile the artefact, so it never reaches the registry. **Not** an admission test — CEL cannot verify a signature. |
 | Network-deny | Pod outside the approved path cannot reach OpenBao. |
 | Reset | Documented local teardown/rebuild returns to a known baseline. |
 | Existing demo regression | Current OSRAMP `make test` and workload checks continue to pass with OpenBao disabled and enabled. |
@@ -229,7 +249,8 @@ diagnosis.
 
 | Risk | Control |
 | --- | --- |
-| Duplicated cert-manager, Kyverno or monitoring controllers | Compare current OSRAMP components first; extend the existing owner rather than import a duplicate. |
+| Duplicated cert-manager or monitoring controllers | Compare current OSRAMP components first; extend the existing owner rather than import a duplicate. |
+| Kyverno imported as a *new* controller, not a duplicate | There is no existing OSRAMP Kyverno owner to extend — OSD-7 removed it. This is the larger risk of the two: it adds an admission controller to the air-gapped bundle, with an image to pin, a webhook in the pod-admission path, and a failure mode that can block all scheduling. Treat as a new platform dependency requiring its own decision, not as a component merge. |
 | Bootstrap secrets accidentally committed or published | Use generated local-only material, `.gitignore`, sealed/external mechanisms as appropriate; add secret scanning. |
 | Flux repeatedly changes OpenBao initialisation state | Isolate bootstrap in an idempotent Job and use server-side apply behaviour designed for one-time state. |
 | Local demo treated as production secrets system | Label it disposable; require storage/backup/restore ADR and exercise before any hosted credential. |
@@ -331,3 +352,50 @@ No `board.json` modification, remote push, or pull request was performed.
 
 <!-- machine-tag: SLDPB25-P1-GOV-CANONICAL-CONTRACT-LOCK-2026-07-27T14:45:00+01:00 -->
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no scope=phase-1-canonical-contract-lock -->
+
+## Proposal errata — OSD-7 admission path (2026-10-12)
+
+OSD-7 removed Kyverno as a bundled runtime dependency and adopted CEL
+`ValidatingAdmissionPolicy`. This plan was written against a baseline that no
+longer holds, so eight sites were corrected in place rather than left to
+mislead. The prior intent is recorded here so the edit is auditable.
+
+**Why corrected in place and not marked superseded.** This is an unexecuted
+forward plan, which argues for a superseded marker. But four of the eight sites
+were in **Purpose / Current baseline / Target architecture** and stated things
+about what OSRAMP *is* — that it has Kyverno policies, that an image "must pass
+OSRAMP's existing ... Kyverno image verification", that Kyverno is a shared
+component to extend, and that adopting it means "one owner, not two". A reader
+uses the baseline to judge whether the plan is sound. A superseded banner leaves
+those four readable and still false, so it would not have fixed the actual
+defect. The forward sites were reframed rather than deleted, per the
+surgical-fix rule.
+
+What changed:
+
+| Site | Was | Now |
+| --- | --- | --- |
+| Current baseline | "Kyverno policies, including image-verification policy" listed as present | Marked as what D2-BAO *brings*; OSRAMP has no admission controller |
+| Target architecture | images "must pass ... Kyverno image verification" | Must pass Flux cosign verification + the CEL digest/registry gate |
+| Delivery sequence (Phase 0 ADR) | Kyverno listed among components to adopt | Now an open question, flagged as net-new |
+| Delivery sequence (component order) | "Kyverno only after comparing ...; one owner, not two" | Comparison restated as "zero controllers, or one" |
+| Phase 4 proof | "Kyverno rejects an unsigned ... image" | Admission rejects unpinned/untrusted; *unsigned* is Flux's gate, not admission's |
+| Work breakdown | Guardrails: "Kyverno, NetworkPolicy, PSS" | CEL `ValidatingAdmissionPolicy`, NetworkPolicy, PSS |
+| Acceptance matrix | "Unsigned image \| Kyverno/admission rejects it" | Split into an admission row and a Flux row, with the limit stated |
+| Risks | "Duplicated cert-manager, Kyverno or monitoring controllers" | Kyverno split out as a *new dependency* risk, which is the larger one |
+
+**The substantive consequence for this plan, not just its wording.** If D2-BAO
+is adopted with its Kyverno policies, that is a net-new admission controller in
+an air-gapped bundle — an image to pin, a webhook in the pod-admission path, and
+a failure mode that can block all scheduling. It is not a component merge and
+should not be sequenced as one. The one capability that would justify it is
+`mutate`/`generate`, which CEL `ValidatingAdmissionPolicy` cannot express;
+registry and digest enforcement alone does not.
+
+**The limit that applies to any acceptance test written from this plan.** CEL
+cannot verify a cryptographic signature — it cannot call out of the API server.
+Flux + CEL is sound only while the in-cluster registry's contents are
+exclusively Flux-placed; anything else with push access to Zot bypasses the
+signature gate while still satisfying admission. Signature verification *at*
+admission needs Sigstore policy-controller, which is not deployed. See
+`docs/signalloom/image-verification-without-kyverno.md`.

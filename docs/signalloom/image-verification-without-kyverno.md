@@ -130,9 +130,10 @@ admission layer is required.
 
 Kyverno was never a working control in this repo, only an apparent one:
 
-- It appears in **zero** files under `d2-osramp-fleet/` and `d2-infra/`, **zero** of the 30 entries in
+- It appears in **zero** files under `d2-osramp-fleet/` and `d2-infra/`, **zero** entries in
   `bundle/.manifest.d/images.json`, and **zero** lines of either source image list. The appliance
-  bundled no admission controller at all.
+  bundled no admission controller at all. (Counts are deliberately not restated here — that manifest
+  carries its own `count` field and grows as first-party apps land.)
 - `policy/kyverno-verify-images.yaml` was delivered by **no** Kustomization and **no** ResourceSet —
   only imperatively, by `scripts/admission-demo.sh`, which `kubectl apply`d Kyverno's upstream
   `install.yaml` from a GitHub release URL. An air-gapped appliance cannot make that fetch.

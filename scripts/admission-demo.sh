@@ -7,7 +7,7 @@
 # OSD-7: this demo used to install Kyverno v1.13.4 by
 # `kubectl apply -f https://github.com/kyverno/kyverno/releases/...`. That
 # made the demo depend on the internet, which an air-gapped appliance does
-# not have, and on a controller that appears in NONE of the 30 entries of
+# not have, and on a controller that appears in NO entry of
 # bundle/.manifest.d/images.json -- so the P2-4 deliverable it was meant to
 # evidence was unsatisfiable as built. CEL ValidatingAdmissionPolicy needs
 # no controller and no extra image: Kubernetes 1.30+ evaluates it in the

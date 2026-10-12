@@ -1,0 +1,132 @@
+# The Kusari endpoint-runtime threat bundle (Tetragon eBPF syscall stream).
+#
+# This reads only the Tetragon endpoint projection (collectors/ebpf
+# ProjectEndpoint, model.LayerEndpointHost, Source "tetragon") and every rule
+# source-gates on it, so it never crosses the OTHER endpoint_host stream on the
+# same layer — the agent-nono Landlock evidence (Source "agent-nono-evidenced"),
+# whose landlock-denial rule gates on verification_status. A Tetragon event
+# carries no verification_status, and these rules gate on source "tetragon", so
+# the two endpoint_host streams share a layer and never a rule.
+#
+# Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+# in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+# bumps `version`.
+#
+# # What the rules may read
+#
+# Only the Tetragon endpoint label contract (collectors/ebpf/endpoint.go
+# ProjectEndpoint): classification, syscall, target, pod_name, namespace, node,
+# agent_role, service_account, pod_uid, provider, direction — plus obs.actor,
+# which is the keyed PSEUDONYM of the acting workload's service account (via
+# ActorHint) and supports EQUALITY and membership only.
+#
+# # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+#
+#   * Every rule gates on obs.source == "tetragon": the endpoint_host layer
+#     carries more than one projection, so the source gate is mandatory to stay
+#     off the agent-nono Landlock stream.
+#   * Every label read is guarded with has(): a syscall event may carry a target
+#     or not (a file access does, a bare ptrace kprobe does not), so a bare read
+#     of an absent key would be a CEL fault degrading the whole bundle.
+#   * Identity is obs.actor against an actor_vars set, NEVER a label. The acting
+#     service account reaches obs.actor via ActorHint, pseudonymised at the store
+#     and at bundle load with the same key, so a cleartext allowlist would never
+#     match and every negative test would be vacuously true. Conform refuses a
+#     rule comparing obs.actor against a var absent from actor_vars.
+#
+# # Fixtures
+#
+# Every rule has positives and a negative under collectors/ebpf/endpoint_testdata/,
+# one detection class per file. The per-rule expectation table lives in
+# d2-signalloom/apps/signal-ingest/e2e/endpoint_expectations.go and is asserted
+# exactly by TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable.
+
+id: kusari-endpoint-runtime
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+# Actor-identity sets, rewritten at load through the same keyed pseudonymiser
+# obs.actor is rewritten with. Conform refuses a rule comparing obs.actor against
+# a var absent from this list.
+actor_vars:
+  - allowed_exec_actors
+
+vars:
+  # Service accounts permitted to exec a new process without producing a finding.
+  # A workload whose job is to run subprocesses lives here; an agent that should
+  # only make API calls does not, so its exec is the signal. obs.actor is a
+  # pseudonym, so the test is membership, never a string match.
+  allowed_exec_actors:
+    - "agent-trusted-sa"
+
+  # Files whose open is high-signal on their own: credential stores and the
+  # service-account token a workload could steal to impersonate itself elsewhere.
+  sensitive_files:
+    - "/etc/shadow"
+    - "/etc/passwd"
+    - "/root/.ssh/authorized_keys"
+    - "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+  # Syscalls that are high-signal regardless of actor: ptrace (process injection /
+  # debugger attach) and the kernel capability check (privilege use). Both the
+  # bare symbol and the x86_64 syscall-wrapper name are listed because the
+  # normaliser carries whichever the kprobe was attached under.
+  sensitive_syscalls:
+    - "ptrace"
+    - "__x64_sys_ptrace"
+    - "cap_capable"
+    - "capable"
+
+rules:
+  # --- Sensitive-file open --------------------------------------------------
+  - id: sensitive-file-open
+    name: Open of a credential store or the service-account token
+    severity: high
+    # A file_access whose target is a credential store. target is the file the
+    # workload opened; the sensitive set is a var, membership-tested.
+    expression: |-
+      obs.source == "tetragon" &&
+      obs.layer == "endpoint_host" &&
+      has(obs.labels.classification) && obs.labels.classification == "file_access" &&
+      has(obs.labels.target) && obs.labels.target in vars.sensitive_files
+
+  # --- Unexpected execve (identity-scoped) ----------------------------------
+  - id: unexpected-execve
+    name: Process exec by a workload not permitted to exec
+    severity: high
+    # An execve by a service account outside the allow-list. This is the one
+    # identity-scoped rule: obs.actor is the pseudonymised service account, tested
+    # against the actor_vars set, never a cleartext label.
+    expression: |-
+      obs.source == "tetragon" &&
+      obs.layer == "endpoint_host" &&
+      has(obs.labels.classification) && obs.labels.classification == "process_exec" &&
+      !(obs.actor in vars.allowed_exec_actors)
+
+  # --- Capability use / ptrace ----------------------------------------------
+  - id: capability-or-ptrace
+    name: ptrace or a kernel capability check
+    severity: high
+    # ptrace is process injection / debugger attach; cap_capable is the kernel
+    # privilege-check hook. Both are high-signal host-runtime primitives, gated on
+    # the syscall discriminator against a var set, independent of actor.
+    expression: |-
+      obs.source == "tetragon" &&
+      obs.layer == "endpoint_host" &&
+      has(obs.labels.syscall) && obs.labels.syscall in vars.sensitive_syscalls
+
+windows:
+  # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+  # arriving finding takes the counter from below the threshold to at or above it —
+  # anchored on the ARRIVING finding's timestamp, so a replay reproduces live.
+
+  # One workload opening several credential stores in a short window is the shape
+  # of credential sweeping, which a single open is not. Keyed on the actor
+  # pseudonym, so it is per-workload-identity.
+  - id: sensitive-file-open-burst
+    over_rule: sensitive-file-open
+    key: [tenant_id, actor]
+    window: 5m
+    threshold: 3
+    severity: high

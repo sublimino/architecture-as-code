@@ -385,16 +385,10 @@ const BASELINE: Array<{ file: string; line: number; detail: string; note: string
   // bidirectional lock people are tempted to leave out. A list that only fails on
   // ADDITIONS rots into a list of things that used to be wrong.
   //
-  // Only one fabrication survives on this tree: CryptographyPage.tsx:83.
-  // The three previously locked rows (AgentActivityTab confidence, IdentityAuditPanel
-  // activeLeasesCount, agentDiscovery ungated fixture import) were fixed to report
-  // honest absence or properly gate on isDemoMode.
-  {
-    file: 'pages/CryptographyPage.tsx',
-    line: 83,
-    detail: 'total: 6',
-    note: 'Hardcoded SPIRE inventory -- server version, agent counts, five SVIDs with TTLs -- rendered across nine sites with no demo gate on the page at all. The real sources exist (trustTopology, federation SpiffeIdentity) so wiring it is a feature, not a fabrication fix. Unfixed, and the largest remaining one.',
-  },
+  // Zero fabrications survive on this tree: all four previously locked
+  // fabrications (AgentActivityTab confidence, IdentityAuditPanel activeLeasesCount,
+  // agentDiscovery ungated fixture import, and CryptographyPage SPIRE bootstrap)
+  // have been fully eliminated or properly gated behind isDemoMode with honest live state.
 ]
 
 
@@ -421,7 +415,7 @@ describe('live-mode figure baseline', () => {
     for (const row of BASELINE) {
       expect(row.note.length, `${row.file}:${row.line} needs a reason`).toBeGreaterThan(20)
     }
-    expect(BASELINE).toHaveLength(1)
+    expect(BASELINE).toHaveLength(0)
   })
 
   it('has a stated reason for every pinned sweep exception', () => {
@@ -446,6 +440,9 @@ describe('live-mode figure baseline', () => {
       // W5: the fourth copy of the fabricated per-agent compliance summary is
       // gone; a discovered workload now reports the honest empty shape.
       'pages/DiscoveryPage.tsx',
+      // W6: CryptographyPage hardcoded SPIRE inventory moved to fakeFederationData fixture
+      // and gated behind isDemoMode, reporting honest unavailable state in live mode.
+      'pages/CryptographyPage.tsx',
     ]
     for (const file of fixed) {
       expect(

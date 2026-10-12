@@ -102,3 +102,54 @@ export const FEDERATION_ROUTES = [
   { method: 'GET', test: re(/^\/v1\/federation\/events$/), data: () => FEDERATION_EVENTS },
   { method: 'GET', test: re(/^\/federation\/events$/), data: () => FEDERATION_EVENTS },
 ]
+
+export interface SpireSvidFixture {
+  spiffeId: string
+  workload: string
+  selector: string
+  ttl: string
+  status: 'active' | 'revoked' | 'pending'
+}
+
+export interface SpireBootstrapFixture {
+  trustDomain: string
+  server: {
+    version: string
+    nodeAttestor: string
+    keyManager: string
+    ha: string
+    oidcDiscovery: string
+  }
+  agents: {
+    total: number
+    attested: number
+    method: string
+  }
+  svids: SpireSvidFixture[]
+}
+
+const SPIRE_BOOTSTRAP_TRUST_DOMAIN = 'signalloom.svc.cluster.local'
+
+export const SPIRE_BOOTSTRAP_FIXTURE: SpireBootstrapFixture = {
+  trustDomain: SPIRE_BOOTSTRAP_TRUST_DOMAIN,
+  server: {
+    version: '1.11.1',
+    nodeAttestor: 'join_token',
+    keyManager: 'disk',
+    ha: '1 server / sqlite datastore',
+    oidcDiscovery: 'spire-oidc.inf-bao:8008/keys',
+  },
+  agents: {
+    total: 6,
+    attested: 6,
+    method: 'join_token',
+  },
+  svids: [
+    { spiffeId: `spiffe://${SPIRE_BOOTSTRAP_TRUST_DOMAIN}/ns/fe-signalloom/sa/dashboard`, workload: 'dashboard-signalloom', selector: 'k8s:sa:dashboard', ttl: '1h', status: 'active' },
+    { spiffeId: `spiffe://${SPIRE_BOOTSTRAP_TRUST_DOMAIN}/ns/fe-signalloom/sa/api`, workload: 'fe-signalloom-api', selector: 'k8s:sa:api', ttl: '1h', status: 'active' },
+    { spiffeId: `spiffe://${SPIRE_BOOTSTRAP_TRUST_DOMAIN}/ns/inf-signalloom/sa/fake-proxy`, workload: 'fake-integration-proxy', selector: 'k8s:sa:fake-proxy', ttl: '30m', status: 'active' },
+    { spiffeId: `spiffe://${SPIRE_BOOTSTRAP_TRUST_DOMAIN}/ns/inf-bao/sa/openbao`, workload: 'openbao', selector: 'k8s:sa:openbao', ttl: '1h', status: 'active' },
+    { spiffeId: `spiffe://${SPIRE_BOOTSTRAP_TRUST_DOMAIN}/ns/inf-signalloom/sa/legacy-batch`, workload: 'legacy-batch-runner', selector: 'k8s:sa:legacy-batch', ttl: '15m', status: 'revoked' },
+  ],
+}
+

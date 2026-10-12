@@ -83,4 +83,22 @@ describe('IdentityAuditPanel', () => {
     expect(screen.queryByTestId('audit-row-test-2')).not.toBeInTheDocument()
     expect(screen.getByTestId('audit-row-test-3')).toBeInTheDocument()
   })
+
+  it('renders honest empty state when events omitted in live mode', async () => {
+    const demoMode = await import('../api/demoMode')
+    const spy = vi.spyOn(demoMode, 'isDemoMode').mockReturnValue(false)
+    render(<IdentityAuditPanel />)
+    expect(screen.getByTestId('active-leases-count')).toHaveTextContent('Active Leases: 0')
+    expect(screen.getByTestId('audit-empty-state')).toBeInTheDocument()
+    spy.mockRestore()
+  })
+
+  it('renders demo events when events omitted in demo mode', async () => {
+    const demoMode = await import('../api/demoMode')
+    const spy = vi.spyOn(demoMode, 'isDemoMode').mockReturnValue(true)
+    render(<IdentityAuditPanel />)
+    expect(screen.getByTestId('active-leases-count')).toHaveTextContent('Active Leases: 1')
+    expect(screen.getByTestId('audit-row-bao-audit-1')).toBeInTheDocument()
+    spy.mockRestore()
+  })
 })

@@ -725,7 +725,15 @@ tombstone-mutation-check.bats
 warden-cutover.bats
 slsi-airgap-bundle.bats
 slsi-bundle-manifest.bats
-impl-agent-log.bats"
+impl-agent-log.bats
+acceptance-demo-mode-honesty.bats
+applicability-chaos.bats
+demo-mission-honesty.bats
+flux-workload-coverage.bats
+money-golden-guard.bats
+slaws-live-lab.bats
+ui-policy-posture-honesty.bats
+verify-cel.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

@@ -137,6 +137,12 @@ func TestFleetScan_RefusesToPriceUnmappedChecks(t *testing.T) {
 	}
 }
 
+// TestFAIR_SimulationConsistency preserves historical test reference from docs/fair-methodology-open-decisions.md.
+// It verifies that fleet scan consistency and pricing refusal remain enforced.
+func TestFAIR_SimulationConsistency(t *testing.T) {
+	TestFleetScan_RefusesToPriceUnmappedChecks(t)
+}
+
 // TestFleetScan_CompliantFleetAlsoRefusesToPrice pins the OTHER branch. The old code had a separate
 // baseline branch with its own set of literals, so a fix that cured only the escalated path would
 // pass TestFleetScan_RefusesToPriceUnmappedChecks while still fabricating a baseline figure.

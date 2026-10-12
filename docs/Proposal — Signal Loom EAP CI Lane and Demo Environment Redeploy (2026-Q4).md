@@ -761,8 +761,18 @@ Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/
 - `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:266`: `t.Errorf("expected no collector named 'tetragon', found %T", c)`
 - `d2-signalloom/apps/signal-ingest/collectors/registry_test.go:273`: `if c.Name() == "tetragon" || c.Name() == "ebpf" {`
 
+##### Addendum — 2026-10-12, re-executed on `integration/slsi-v0.1.0` (SLSI detection-coverage work)
+
+The 2026-10-07 removal above (commit `4a0a767b`) **did not reach `integration/slsi-v0.1.0`**: that line still carried `collectors/ebpf/client.go` (the Tetragon gRPC `FineGuidanceSensorsClient` dial) and `github.com/cilium/tetragon/api v1.1.0` at `go.mod:14`. P1-8 was therefore re-executed here as part of the full-CEL-detection-coverage effort, and **deliberately differently** from the original:
+
+- **The `collectors/ebpf` package is NOT deleted — it is de-Tetragoned and re-sourced.** Since 4a0a767b the package gained our OWN eBPF endpoint_host detection: `ProjectEndpoint`, the `endpoint-runtime.yaml` bundle (sensitive-file-open / unexpected-execve / capability-or-ptrace), fixtures and an exact-count e2e. So the original "delete the whole package" decision is superseded — deleting it now would delete working endpoint detection. Instead: removed `client.go` (gRPC dial), `normalize.go`, `jsonstream.go`, `ringbuffer.go`, `metrics.go`, `testserver.go`, `tetragon_test.go`; kept `collector.go`/`endpoint.go`/`doc.go` as the own-eBPF endpoint collector.
+- **Re-sourced to the stun-sentinel's own eBPF**, sibling of netebpf's `sentinel.ebpf.socket_trace`. Observation `Source = "sentinel.ebpf.syscall_trace"`; `provider = "sentinel-ebpf"`; `CollectorName = "ebpf-endpoint"`; env `COLLECTOR_EBPF_ENDPOINT_MODE`. **Divergence from the card text**, which specified the literal source tag `sentinel-ebpf`: the observation `Source` is the dotted netebpf-parallel form, and `sentinel-ebpf` is the provider label. Reconcile with any dashboard/P1-10 filter that keys on a literal `sentinel-ebpf` source.
+- `go mod tidy` drops `cilium/tetragon/api` (0 refs in go.mod/go.sum); `rg -i tetragon d2-signalloom/apps/signal-ingest` returns only comment/migration context. `go test ./...` + `-tags frostdb` green; signal-ingest image re-pinned. Commit: the `feat/fu-de-tetragon` merge on `integration/slsi-v0.1.0` (ccd6e1c2), re-pin `b5bd818b`.
+- **Acceptance met for P1-8's narrow scope (signal-ingest).** NOT done — broader Tetragon residue outside signal-ingest (original P1-9 scope): `d2-signalloom/deploy/tetragon-*.yaml`, `test/mocks/tetragon_grpc_mock.go`, `scripts/test-tetragon-stream.sh`, `test/tetragon-telemetry-stream.bats`, the `test-tetragon-*` Makefile targets, and dashboard/`docs/osramp-component-flows.html`/`agent-claim.spec.ts` wording. See the remaining-work scope in `docs/EAP/policy-detection-coverage-catalogue.md`.
+
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-8","status":"pass","commit":"4a0a767be9179f4098354a0b1f12c83508e9bf28"} -->
+<!-- kanban-check: {"card":"EAPCI-P1-8","status":"re-executed","commit":"b5bd818b","note":"re-done differently on integration/slsi-v0.1.0: ebpf package kept + de-Tetragoned + re-sourced to sentinel.ebpf.syscall_trace, not deleted; residue outside signal-ingest remains"} -->
 
 #### Errata — EAPCI-P1-10 SLSE D5: dashboard labels say Sentinel eBPF
 **Created:** 2026-10-07 04:43:51+01:00

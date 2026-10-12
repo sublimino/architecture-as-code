@@ -1,0 +1,140 @@
+[
+  {
+    "event_id": "login-benign-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-03T08:00:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "alice@corp.internal",
+    "layer": "identity_authorization",
+    "action": "login",
+    "client_ip": "203.0.113.10",
+    "risk_level": "low",
+    "labels": {
+      "mfa": "present",
+      "geo": "GB",
+      "risk_reason": "none"
+    },
+    "description": "Benign interactive login from a known geography with MFA"
+  },
+  {
+    "event_id": "login-impossible-travel-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-03T08:01:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "bob@corp.internal",
+    "layer": "identity_authorization",
+    "action": "login",
+    "client_ip": "198.51.100.20",
+    "risk_level": "high",
+    "labels": {
+      "mfa": "present",
+      "geo": "GB",
+      "risk_reason": "impossible_travel"
+    },
+    "description": "Login flagged as impossible travel for bob"
+  },
+  {
+    "event_id": "login-new-geo-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-03T08:02:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "carol@corp.internal",
+    "layer": "identity_authorization",
+    "action": "login",
+    "client_ip": "198.51.100.33",
+    "risk_level": "medium",
+    "labels": {
+      "mfa": "present",
+      "geo": "RO",
+      "risk_reason": "none"
+    },
+    "description": "Login from a geography never seen for carol"
+  },
+  {
+    "event_id": "login-mfa-absent-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-03T08:03:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "dave@corp.internal",
+    "layer": "identity_authorization",
+    "action": "login",
+    "client_ip": "203.0.113.44",
+    "risk_level": "medium",
+    "labels": {
+      "mfa": "absent",
+      "geo": "GB",
+      "risk_reason": "none"
+    },
+    "description": "Login without MFA for dave (1 of 3 in burst)"
+  },
+  {
+    "event_id": "login-mfa-absent-002",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-03T08:04:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "dave@corp.internal",
+    "layer": "identity_authorization",
+    "action": "login",
+    "client_ip": "203.0.113.44",
+    "risk_level": "medium",
+    "labels": {
+      "mfa": "absent",
+      "geo": "GB",
+      "risk_reason": "none"
+    },
+    "description": "Login without MFA for dave (2 of 3 in burst)"
+  },
+  {
+    "event_id": "login-mfa-absent-003",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-03T08:05:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "dave@corp.internal",
+    "layer": "identity_authorization",
+    "action": "login",
+    "client_ip": "203.0.113.44",
+    "risk_level": "medium",
+    "labels": {
+      "mfa": "absent",
+      "geo": "GB",
+      "risk_reason": "none"
+    },
+    "description": "Login without MFA for dave (3 of 3 in burst)"
+  },
+  {
+    "event_id": "admin-role-grant-unexpected-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-03T08:06:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "mallory@corp.internal",
+    "layer": "identity_authorization",
+    "action": "admin_role_grant",
+    "client_ip": "198.51.100.77",
+    "risk_level": "high",
+    "labels": {
+      "mfa": "present",
+      "geo": "GB",
+      "risk_reason": "none",
+      "role_granted": "tenant_admin"
+    },
+    "description": "Admin role granted by mallory, who is not a sanctioned grantor"
+  },
+  {
+    "event_id": "admin-role-grant-expected-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-03T08:07:00Z",
+    "event_type": "workspace_suspicious_login_egress",
+    "actor_hint": "admin@corp.internal",
+    "layer": "identity_authorization",
+    "action": "admin_role_grant",
+    "client_ip": "203.0.113.5",
+    "risk_level": "low",
+    "labels": {
+      "mfa": "present",
+      "geo": "GB",
+      "risk_reason": "none",
+      "role_granted": "tenant_admin"
+    },
+    "description": "Admin role granted by the sanctioned grantor admin@corp.internal"
+  }
+]

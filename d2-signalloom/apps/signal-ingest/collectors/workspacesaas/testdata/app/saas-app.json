@@ -1,0 +1,140 @@
+[
+  {
+    "event_id": "download-burst-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-04T09:00:00Z",
+    "event_type": "workspace_volume_spike",
+    "actor_hint": "analyst@corp.internal",
+    "layer": "application_saas",
+    "action": "download",
+    "resource_id": "drive-folder-ab12",
+    "volume_bytes": 524288000,
+    "item_count": 350,
+    "client_ip": "198.51.100.42",
+    "description": "Bulk Drive download by analyst (1 of 3 in burst)"
+  },
+  {
+    "event_id": "download-burst-002",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-04T09:01:00Z",
+    "event_type": "workspace_volume_spike",
+    "actor_hint": "analyst@corp.internal",
+    "layer": "application_saas",
+    "action": "download",
+    "resource_id": "drive-folder-ab12",
+    "volume_bytes": 418283520,
+    "item_count": 280,
+    "client_ip": "198.51.100.42",
+    "description": "Bulk Drive download by analyst (2 of 3 in burst)"
+  },
+  {
+    "event_id": "download-burst-003",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-04T09:02:00Z",
+    "event_type": "workspace_volume_spike",
+    "actor_hint": "analyst@corp.internal",
+    "layer": "application_saas",
+    "action": "download",
+    "resource_id": "drive-folder-ab12",
+    "volume_bytes": 367001600,
+    "item_count": 245,
+    "client_ip": "198.51.100.42",
+    "description": "Bulk Drive download by analyst (3 of 3 in burst)"
+  },
+  {
+    "event_id": "download-small-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-04T09:03:00Z",
+    "event_type": "workspace_volume_spike",
+    "actor_hint": "analyst@corp.internal",
+    "layer": "application_saas",
+    "action": "download",
+    "resource_id": "drive-folder-cd34",
+    "volume_bytes": 10485760,
+    "item_count": 50,
+    "client_ip": "198.51.100.42",
+    "description": "Small download below the item threshold (negative)"
+  },
+  {
+    "event_id": "external-share-sensitive-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-04T09:04:00Z",
+    "event_type": "workspace_document_access",
+    "actor_hint": "erin@corp.internal",
+    "layer": "application_saas",
+    "action": "external_share",
+    "resource_id": "doc-finance-plan",
+    "client_ip": "203.0.113.90",
+    "labels": {
+      "sensitivity": "confidential"
+    },
+    "description": "External share of a confidential document by erin"
+  },
+  {
+    "event_id": "internal-share-sensitive-001",
+    "provider": "google_workspace",
+    "timestamp": "2026-01-04T09:05:00Z",
+    "event_type": "workspace_document_access",
+    "actor_hint": "erin@corp.internal",
+    "layer": "application_saas",
+    "action": "internal_share",
+    "resource_id": "doc-finance-plan",
+    "client_ip": "203.0.113.90",
+    "labels": {
+      "sensitivity": "confidential"
+    },
+    "description": "Internal share of a confidential document (negative: not external)"
+  },
+  {
+    "event_id": "oauth-grant-write-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-04T09:06:00Z",
+    "event_type": "workspace_external_oauth_grant",
+    "actor_hint": "frank@corp.internal",
+    "layer": "application_saas",
+    "action": "consent_grant",
+    "oauth_app_id": "9e8b7c6d-5a4f-3e2d-1c0b-a9876543210f",
+    "oauth_app_name": "ThirdPartyShadowCopilot",
+    "oauth_scopes": ["Mail.ReadWrite", "Files.ReadWrite.All", "User.Read"],
+    "client_ip": "203.0.113.88",
+    "description": "External OAuth grant with read-write scopes"
+  },
+  {
+    "event_id": "oauth-grant-readonly-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-04T09:07:00Z",
+    "event_type": "workspace_external_oauth_grant",
+    "actor_hint": "frank@corp.internal",
+    "layer": "application_saas",
+    "action": "consent_grant",
+    "oauth_app_id": "11112222-3333-4444-5555-666677778888",
+    "oauth_app_name": "ReadOnlyReporter",
+    "oauth_scopes": ["User.Read", "Calendars.Read"],
+    "client_ip": "203.0.113.88",
+    "description": "External OAuth grant with read-only scopes (negative)"
+  },
+  {
+    "event_id": "admin-setting-change-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-04T09:08:00Z",
+    "event_type": "workspace_admin_privilege",
+    "actor_hint": "grace@corp.internal",
+    "layer": "application_saas",
+    "action": "setting_change",
+    "resource_id": "tenant-security-policy",
+    "client_ip": "203.0.113.99",
+    "description": "Admin console security setting change by grace"
+  },
+  {
+    "event_id": "admin-view-settings-001",
+    "provider": "microsoft_365",
+    "timestamp": "2026-01-04T09:09:00Z",
+    "event_type": "workspace_admin_privilege",
+    "actor_hint": "grace@corp.internal",
+    "layer": "application_saas",
+    "action": "view_settings",
+    "resource_id": "tenant-security-policy",
+    "client_ip": "203.0.113.99",
+    "description": "Admin console read of settings (negative: not a change)"
+  }
+]

@@ -264,6 +264,72 @@ def _dispatch(mgr, assignments, iterations):
         return [f.result() for f in futures]
 
 
+def _warm_up():
+    """Pay every first-call cost on a throwaway manager, before anything is timed.
+
+    WHY THIS EXISTS. `test_multitenant_scenario_concurrency_and_stress` asserts
+    `max(latencies) < 50.0` over 150 contended executions. A MAX is a pause
+    detector: it reports the worst moment, so anything that stalls the
+    interpreter once lands in it even if throughput is fine.
+
+    THE SYMPTOM. The test passes standalone 3/3 in 1.2-1.4s. Run in ONE pytest
+    invocation alongside `tests/test_cadvisor_poller.py` -- which is how
+    `verify-cel` runs it, as its two-file serial pass -- it failed at 103-116ms.
+    Deterministic: 4/4 alternating against the baseline tree, which passed.
+
+    THE MECHANISM, and note this is NOT the first thing it looked like. The
+    partner module does `from main import app` at module scope, so pytest's
+    COLLECTION builds the whole FastAPI app before any test in this file runs.
+    That is a large, long-lived object graph, and every generational collection
+    during the 150 executions walks it. The pauses are what the max catches. When
+    `src/api_compat.py` grew by 204 lines the graph crossed the point where one
+    pause exceeded 50ms. So the number was tracking the size of an imported
+    object graph, not the scheduler.
+
+    FIVE EXPLANATIONS WERE TESTED AND REFUTED BEFORE THAT ONE, recorded because
+    each looked right and cost a measurement to kill:
+      1. Ambient host load. The baseline passed at load average 22.5 while the
+         change failed at 8.7.
+      2. "It passes in isolation, so it is environmental." That evidence was
+         worthless: the run used the host interpreter, not the
+         `uv run --python 3.12` the runner uses.
+      3. Tier concurrency starving it. It still failed with
+         `VERIFY_CEL_ISOLATE_T4=1`, which demonstrably took effect (80s wall
+         clock instead of 45s).
+      4. A hot box left by the preceding parallel wave. The 3-second two-file
+         reproducer has no parallel wave at all.
+      5. First-call import cost inside the measurement -- i.e. warm-up alone.
+         It helped and did not close it: 90-103ms, still over. Warm-up stays
+         because it is correct on its own terms, but it was not the cause.
+
+    THE FIX is `gc.collect()` then `gc.freeze()`: freeze moves everything alive
+    at that moment into a permanent generation that later collections do not
+    traverse. The imported app is exactly that -- alive for the whole session and
+    never garbage -- so excluding it removes a cost that was never the
+    scheduler's. 3/3 at 2.37-2.52s.
+
+    THE BOUND IS DELIBERATELY UNCHANGED AT 50ms, and that was the explicit
+    instruction. Raising it was the other option and it is the wrong one: the
+    number would stop meaning anything about the scheduler, and a future real
+    regression would land inside the new headroom unnoticed.
+
+    AND THE BOUND IS PROVEN TO STILL BITE, because a "fix" that quietly neutered
+    the assertion would be the same defect class this whole change set exists to
+    remove. Injecting `time.sleep(0.06)` into the measured path after the freeze
+    fails the test at 65.71ms. A guard that cannot fail is worse than no guard,
+    since it carries the authority of a passing suite.
+
+    Throwaway manager on purpose: the real test asserts exactly 150 history rows
+    and an event index that agrees with them, so a warm-up execution on the
+    measured manager would break counts that are themselves load-bearing.
+    """
+    mgr = ScenarioManager()
+    company, h = next(iter(EVALUATION_TENANTS.items()))
+    _dispatch(mgr, [(company, h)], 1)
+    gc.collect()
+    gc.freeze()
+
+
 def _assert_index_consistent(mgr):
     """Check the event index and history agree exactly, with every write whole.
 
@@ -298,6 +364,7 @@ def test_multitenant_scenario_concurrency_and_stress(preemptive_scheduler):
     so the card's "ten concurrent workers" is read as ten per tenant pool,
     each worker running 5 scenarios.
     """
+    _warm_up()  # one-time costs paid before anything is timed; see _warm_up.
     mgr = ScenarioManager()
     workers_per_tenant, iterations = 10, 5
     assignments = [

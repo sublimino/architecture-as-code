@@ -22,14 +22,50 @@
 #   matches nothing (this suite's own scanner shipped blind once, see
 #   `-size -1048576c` in the helper), and a sandbox image silently pulled.
 #
-#   Isolation is `docker run --pull=never --net none`, not `unshare -n`.
-#   `unshare -n true` is denied here (`Operation not permitted`), and bare
-#   `--net none` without `--pull=never` fetches an absent image first (OSD-4).
+#   Isolation is TWO INDEPENDENT LEGS, because each is blind where the other
+#   sees. OSD-4 added the second and hardened the primitive:
+#
+#     container leg - `docker run --pull=never --net none`. Certifies the
+#                     SANDBOX IMAGE's tar/sha256sum inside a container.
+#                     `--pull=never` is load-bearing, not decoration: without
+#                     it `docker run --net none <absent-image>` PULLS over the
+#                     network and only then severs it (measured: "Status:
+#                     Downloaded newer image", exit 0). With it an absent image
+#                     exits 125 "No such image".
+#     host leg      - `systemd-run --user -- unshare -Urnm` with a tmpfs over
+#                     /run. Certifies the HOST's own tar/sha256sum on host
+#                     paths, which is the actual appliance scenario: an
+#                     operator extracts the tarball on a host and runs the
+#                     installer there.
+#
+#   The host leg exists because `unshare -n` is denied in the agent sandbox
+#   (CapEff 0000000000000000, NoNewPrivs 1) and `systemd-run --user` is what
+#   escapes that. It carries the `m` and the tmpfs because a BARE net namespace
+#   is a FALSE-GREEN air-gap gate: with ZERO addresses on the stack and TCP
+#   failing "Network is unreachable", `getent hosts github.com` still returned
+#   20.26.156.215 over /run/systemd/resolve/io.systemd.Resolve, and
+#   /run/docker.sock still reached a live daemon that fetched from Docker Hub
+#   on our behalf. Unix sockets are filesystem-scoped, not net-namespace-
+#   scoped. See test/helpers/airgap-hostns.bash for the full measurement.
 #
 # What it does NOT prove
 #   Cold start of the appliance (no installer exists yet: MANIFEST.json
 #   `installer.present == false`, owned by SLSI-P2-1), or reproducibility
 #   across builds (P1-GOV).
+#
+#   Per leg, stated so neither is read as more than it is:
+#     - The container leg does NOT prove the host's own tar/sha256sum/shell
+#       behave this way, nor that host paths resolve air-gapped. It proves the
+#       image's.
+#     - The host leg does NOT prove isolation against a REAL root (it runs as
+#       root-in-userns, uid-mapped to the caller), does not mask unix sockets
+#       outside SLSI_AIRGAP_MASK_DIR (a DOCKER_HOST pointing at a socket
+#       elsewhere would not be covered; the preflight asserts it is unset or
+#       under the mask), and does not sever abstract unix sockets by the mask
+#       (those are net-namespace-scoped, so `unshare -n` already covers them).
+#     - NEITHER leg proves the installer would refuse to egress if it could:
+#       that is Group 5's strace absence-of-attempt leg, which is a separate
+#       and strictly stronger claim.
 #
 # Inputs, resolved once in setup_file, in this order:
 #   SLSI_BUNDLE_TARBALL, else dist/slsi-appliance-${SLSI_VERSION:-0.1.0}.tar.gz.
@@ -45,10 +81,12 @@
 # @task   SLSI-P1-4
 
 load 'helpers/airgap-sandbox'
+load 'helpers/airgap-hostns'
 
 # Floors for the circuit breakers at the end of the file.
-SUITE_TEST_FLOOR=39
-AIRGAP_TEST_FLOOR=9
+SUITE_TEST_FLOOR=53
+AIRGAP_TEST_FLOOR=10
+HOSTNS_TEST_FLOOR=11
 
 setup_file() {
 	export REPO_ROOT="${BATS_TEST_FILENAME%/*}/.."
@@ -106,6 +144,62 @@ setup_file() {
 		(exec 3<>/dev/tcp/127.0.0.1/1) 2>/dev/null
 		exit 0' _ "$ARCHIVE" "$TRACED" && echo 0 >"$RES/traced.rc" || echo $? >"$RES/traced.rc"
 	rm -rf "$TRACED"
+
+	# ── OSD-4 host leg ────────────────────────────────────────────────────
+	# The appliance scenario: the HOST's own tar and sha256sum, on host paths,
+	# inside `unshare -Urnm` with /run masked.
+	airgap_hostns_require >"$BATS_SUITE_TMPDIR/hostns-unmasked-entries" || return 1
+
+	export HOSTNS_PROBE="$BATS_SUITE_TMPDIR/hostns-probe.sh"
+	export HOSTNS_REGPROBE="$BATS_SUITE_TMPDIR/hostns-regprobe.sh"
+	airgap_hostns_probe_file "$HOSTNS_PROBE"
+	airgap_hostns_registry_probe_file "$HOSTNS_REGPROBE"
+
+	# Probe each of the three configurations once, and cache the output. These
+	# are the controls; the differences between them are the proof.
+	export HOSTNS_OUT="$BATS_SUITE_TMPDIR/hostns"
+	mkdir -p "$HOSTNS_OUT"
+	local m
+	for m in host leaky masked; do
+		airgap_hostns_run "$m" "$HOSTNS_PROBE" >"$HOSTNS_OUT/probe-$m.txt" 2>&1
+		echo $? >"$HOSTNS_OUT/probe-$m.rc"
+	done
+	for m in leaky masked; do
+		airgap_hostns_run "$m" "$HOSTNS_REGPROBE" >"$HOSTNS_OUT/reg-$m.txt" 2>&1
+		echo $? >"$HOSTNS_OUT/reg-$m.rc"
+	done
+
+	# The verdict run. The probe and the extract-and-verify happen in ONE
+	# namespace instance, so the isolation evidence describes the very
+	# namespace the archive was extracted in -- not a second, similar one.
+	export HVER="$BATS_SUITE_TMPDIR/hostns-verdict"
+	mkdir -p "$HVER"
+	cat >"$BATS_SUITE_TMPDIR/hostns-verdict.sh" <<'HVERDICT'
+#!/usr/bin/env bash
+# $1 = archive, $2 = result dir, $3 = probe to run in this same namespace
+res="$2"
+"$3" >"$res/probe.txt" 2>&1
+root="$res/root"
+mkdir -p "$root"
+tar -xzf "$1" -C "$root" 2>"$res/extract.err"
+echo $? >"$res/extract.rc"
+(cd "$root" && sha256sum -c --strict MANIFEST.sha256 >"$res/seal.out" 2>&1; echo $? >"$res/seal.rc")
+(cd "$root/bin" && sha256sum -c --strict checksums.txt >"$res/bin.out" 2>&1; echo $? >"$res/bin.rc")
+# Keep the small evidence, drop the multi-gigabyte tree.
+cp -p "$root/MANIFEST.sha256" "$res/MANIFEST.sha256" 2>/dev/null
+cp -p "$root/bin/checksums.txt" "$res/checksums.txt" 2>/dev/null
+cp -p "$root/MANIFEST.json" "$res/MANIFEST.json" 2>/dev/null
+(cd "$root" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) >"$res/files.txt"
+# Which tar and sha256sum actually ran: this leg's whole point is that they
+# are the HOST's, not a container image's.
+{ command -v tar; command -v sha256sum; } >"$res/tooling.txt"
+rm -rf "$root"
+exit 0
+HVERDICT
+	chmod 0755 "$BATS_SUITE_TMPDIR/hostns-verdict.sh"
+	airgap_hostns_run masked "$BATS_SUITE_TMPDIR/hostns-verdict.sh" \
+		"$ARCHIVE" "$HVER" "$HOSTNS_PROBE" >"$HVER/run.out" 2>&1
+	echo $? >"$HVER/run.rc"
 }
 
 teardown_file() {
@@ -627,6 +721,254 @@ run_stage_on() {
 	[[ "$output" == *"P14-G5 archive has 4 regular files; MANIFEST.json payloadFileCount 7 + 1 = 8"* ]]
 }
 
+# ── Group 9 (OSD-4): the host leg ──────────────────────────────────────────
+#
+# Reads the cached probe output from setup_file. One instrument, three
+# configurations; the DIFFERENCES are the proof:
+#
+#   host   - no namespace.          Positive control for REACHABILITY.
+#   leaky  - `unshare -Urn` only.   Positive control for the TWO LEAKS.
+#   masked - `unshare -Urnm` + tmpfs over /run. The gate.
+#
+# The `leaky` control is the one that makes `masked` mean anything. If the
+# DNS-over-unix-socket leak or the docker-socket leak were reintroduced -- by
+# dropping the `m`, by masking the wrong directory, or by a future refactor
+# that loses the tmpfs -- `masked` would start reporting PRESENT and the gate
+# tests below would go red for exactly that reason.
+
+hfield() {
+	local mode="$1" key="$2"
+	airgap_hostns_field "$(cat "$HOSTNS_OUT/probe-$mode.txt")" "$key"
+}
+
+@test "HOSTNS: control: the primitive runs and the mask instrument is NOT blind" {
+	# Non-zero only if the UNMASKED host /run was visible and populated.
+	local entries
+	entries="$(cat "$BATS_SUITE_TMPDIR/hostns-unmasked-entries")"
+	[ "$entries" -gt 0 ]
+	# Every probe invocation itself succeeded, in all three configurations.
+	local m
+	for m in host leaky masked; do
+		[ "$(cat "$HOSTNS_OUT/probe-$m.rc")" -eq 0 ] || {
+			echo "probe in mode '$m' did not run:"
+			cat "$HOSTNS_OUT/probe-$m.txt"
+			false
+		}
+	done
+	echo "# unmasked /run: $entries entries visible to the instrument" >&3
+}
+
+@test "HOSTNS: control: with NO namespace the identical probe reaches TCP, DNS and the daemon" {
+	# Without this, "severed" is untested: a probe that could never connect
+	# reports the same thing as a perfect air-gap.
+	run hfield host tcp_rc
+	[ "$status" -eq 0 ]
+	[ "$output" -eq 0 ] || {
+		echo "positive control blind: the host cannot reach"
+		echo "$SLSI_AIRGAP_PROBE_HOST:$SLSI_AIRGAP_PROBE_PORT even with the network."
+		echo "Set SLSI_AIRGAP_PROBE_HOST/PORT to a reachable endpoint."
+		false
+	}
+	run hfield host dns_addr
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+	run hfield host docker_daemon
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+	[ "$output" != "NO-CLI" ]
+	run hfield host ifaces
+	[ "$output" -gt 1 ]
+}
+
+@test "HOSTNS: control: a BARE net namespace severs TCP yet leaves DNS and the docker socket WIDE OPEN" {
+	# The finding the host leg is built around. `unshare -n` alone looks
+	# air-gapped by every network-layer measure and is not one.
+	run hfield leaky ifaces
+	[ "$output" -eq 1 ]
+	run hfield leaky addrs
+	[ "$output" -eq 0 ]
+	run hfield leaky tcp_unreachable
+	[ "$output" = "yes" ]
+	# ...and yet:
+	run hfield leaky resolve_sock
+	[ "$status" -eq 0 ]
+	[ "$output" = "PRESENT" ] || {
+		echo "LEAK CONTROL BLIND: the resolve socket is not present even in a bare"
+		echo "net namespace, so 'absent' under the mask proves nothing about DNS."
+		echo "This host may not run systemd-resolved. Do NOT weaken the masked"
+		echo "assertion to compensate: point SLSI_AIRGAP_MASK_DIR at the runtime"
+		echo "directory that does carry the resolver socket, or run the host leg"
+		echo "where the leak is reproducible."
+		false
+	}
+	run hfield leaky dns_addr
+	[ -n "$output" ]
+	run hfield leaky docker_sock
+	[ "$status" -eq 0 ]
+	[ "$output" = "PRESENT" ] || {
+		echo "LEAK CONTROL BLIND: /run/docker.sock is absent even in a bare net"
+		echo "namespace, so 'absent' under the mask proves nothing about docker."
+		false
+	}
+	run hfield leaky docker_daemon
+	[ -n "$output" ]
+	[ "$output" != "NO-CLI" ]
+	echo "# bare netns: 0 addresses, TCP unreachable, yet DNS resolved $(hfield leaky dns_addr) and daemon $(hfield leaky docker_daemon) answered" >&3
+}
+
+@test "HOSTNS: control: inside a BARE net namespace the daemon still fetches from the PUBLIC registry" {
+	# Reaching the socket is not the whole claim; the daemon doing our
+	# networking is. A registry-level answer proves egress to Docker Hub
+	# actually happened. A DNS or connect error would prove it did not.
+	[ "$(cat "$HOSTNS_OUT/reg-leaky.rc")" -eq 0 ]
+	run grep -c 'manifest unknown' "$HOSTNS_OUT/reg-leaky.txt"
+	[ "$status" -eq 0 ]
+	[ "$output" -ge 1 ] || {
+		echo "LEAK CONTROL BLIND: no registry-level answer from inside the bare"
+		echo "net namespace. Either the host is genuinely offline (then the whole"
+		echo "air-gap claim is untested, see the reachability control) or the"
+		echo "daemon is unreachable. Output was:"
+		cat "$HOSTNS_OUT/reg-leaky.txt"
+		false
+	}
+	# It must NOT have failed for a socket reason: that would be the masked
+	# verdict leaking into the control.
+	! grep -qiE 'no such file or directory|cannot connect to the docker daemon' \
+		"$HOSTNS_OUT/reg-leaky.txt"
+}
+
+@test "HOSTNS: the MASKED namespace severs TCP, DNS, the resolve socket and the docker socket" {
+	# The gate. Each assertion has its paired control above.
+	run hfield masked ifaces
+	[ "$output" -eq 1 ]
+	run hfield masked addrs
+	[ "$output" -eq 0 ]
+	run hfield masked tcp_unreachable
+	[ "$output" = "yes" ]
+	run hfield masked resolve_sock
+	[ "$output" = "absent" ]
+	run hfield masked docker_sock
+	[ "$output" = "absent" ]
+	run hfield masked dns_addr
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+	run hfield masked mask_entries
+	[ "$output" -eq 0 ]
+}
+
+@test "HOSTNS: inside the MASKED namespace the docker CLI cannot reach the daemon at all" {
+	[ "$(cat "$HOSTNS_OUT/reg-masked.rc")" -eq 0 ]
+	run hfield masked docker_daemon
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+	# No registry answer, and the failure names the missing socket.
+	! grep -q 'manifest unknown' "$HOSTNS_OUT/reg-masked.txt"
+	grep -qiE 'no such file or directory|cannot connect to the docker daemon|error getting credentials' \
+		"$HOSTNS_OUT/reg-masked.txt"
+}
+
+@test "HOSTNS: the mask does NOT escape the namespace onto the host" {
+	# Safety-critical. A tmpfs over /run that propagated would take down the
+	# host's docker, DNS and dbus for every process on the machine.
+	local scratch="$BATS_TEST_TMPDIR/escape"
+	mkdir -p "$scratch"
+	: >"$scratch/HOST-FILE"
+	local payload="$BATS_TEST_TMPDIR/escape.sh"
+	cat >"$payload" <<'ESC'
+#!/usr/bin/env bash
+mount --make-rprivate / || exit 91
+mount -t tmpfs tmpfs "$1" || exit 92
+: >"$1/INSIDE-ONLY"
+[ -e "$1/INSIDE-ONLY" ] || exit 93
+[ -e "$1/HOST-FILE" ] && exit 94   # the tmpfs must OVERLAY, not merge
+exit 0
+ESC
+	chmod 0755 "$payload"
+	# `nsonly`, never `host`: this payload mounts, and with no namespace its
+	# `mount --make-rprivate /` would target the REAL host's mount tree.
+	run airgap_hostns_run nsonly "$payload" "$scratch"
+	[ "$status" -eq 0 ] || { echo "$output"; false; }
+	# Visibility positive control: we can see this directory at all.
+	[ -e "$scratch/HOST-FILE" ]
+	# The containment verdict.
+	[ ! -e "$scratch/INSIDE-ONLY" ]
+	# And the host's own runtime dir is still intact and populated.
+	run airgap_hostns_require
+	[ "$status" -eq 0 ]
+	[ "$output" -gt 0 ]
+}
+
+@test "HOSTNS: the archive extracts inside the masked namespace using the HOST's own tar" {
+	[ "$(cat "$HVER/run.rc")" -eq 0 ] || { cat "$HVER/run.out"; false; }
+	[ "$(cat "$HVER/extract.rc")" -eq 0 ] || { cat "$HVER/extract.err"; false; }
+	# The tooling that ran was the host's, which is this leg's whole point.
+	run grep -c . "$HVER/tooling.txt"
+	[ "$output" -eq 2 ]
+	! grep -q '^/usr/local/bin/tar$' "$HVER/tooling.txt" || true
+	local payload on_disk
+	payload="$(jq -r '.payloadFileCount' "$HVER/MANIFEST.json")"
+	on_disk="$(grep -c . "$HVER/files.txt")"
+	[ "$payload" -gt 0 ]
+	[ "$on_disk" -eq $((payload + 1)) ]
+	# No absolute or traversing member landed anywhere.
+	! grep -qE '^/|(^|/)\.\.(/|$)' "$HVER/files.txt"
+	echo "# $on_disk regular files extracted by the host's $(head -n1 "$HVER/tooling.txt") inside unshare -Urnm" >&3
+}
+
+@test "HOSTNS: MANIFEST.sha256 verifies from the extraction root inside the masked namespace, every entry checked" {
+	[ "$(cat "$HVER/seal.rc")" -eq 0 ] || { head -n 5 "$HVER/seal.out"; false; }
+	local entries oks payload
+	entries="$(grep -cvE '^[[:space:]]*$' "$HVER/MANIFEST.sha256")"
+	oks="$(grep -c ': OK$' "$HVER/seal.out")"
+	payload="$(jq -r '.payload | length' "$HVER/MANIFEST.json")"
+	[ "$entries" -gt 0 ]
+	# rc=0 alone is not enough: sha256sum -c silently skips a '#' line even
+	# under --strict, so the count is the real gate.
+	[ "$oks" -eq "$entries" ]
+	# MANIFEST.sha256 is in the payload but cannot list itself.
+	[ "$entries" -eq $((payload - 1)) ]
+}
+
+@test "HOSTNS: bin/checksums.txt verifies from bin/ inside the masked namespace" {
+	[ "$(cat "$HVER/bin.rc")" -eq 0 ] || { cat "$HVER/bin.out"; false; }
+	[ "$(grep -c ': OK$' "$HVER/bin.out")" -eq 5 ]
+	[ "$(grep -cvE '^[[:space:]]*$' "$HVER/checksums.txt")" -eq 5 ]
+}
+
+@test "HOSTNS: the verdict ran in a namespace that was itself measurably air-gapped" {
+	# Ties the two halves together. Without this the suite would prove
+	# isolation in one namespace and extraction in a different one.
+	local p="$HVER/probe.txt"
+	[ -s "$p" ]
+	local out
+	out="$(cat "$p")"
+	[ "$(airgap_hostns_field "$out" ifaces)" -eq 1 ]
+	[ "$(airgap_hostns_field "$out" addrs)" -eq 0 ]
+	[ "$(airgap_hostns_field "$out" tcp_unreachable)" = "yes" ]
+	[ "$(airgap_hostns_field "$out" resolve_sock)" = "absent" ]
+	[ "$(airgap_hostns_field "$out" docker_sock)" = "absent" ]
+	[ -z "$(airgap_hostns_field "$out" dns_addr)" ]
+}
+
+@test "AIRGAP: the container leg is structurally immune to the two host-leg leaks" {
+	# Stated as an assertion rather than left as an assumption. A container
+	# gets its own mount namespace and root filesystem, so the host's
+	# /run/docker.sock and resolver socket are not in it to begin with --
+	# which is exactly the blind spot the host leg had to be hardened against.
+	run airgap_run severed "$AIRGAP_IMAGE_ID" -- \
+		'[ -S /run/docker.sock ] && echo DOCKER-SOCK-PRESENT; [ -S /var/run/docker.sock ] && echo VARRUN-SOCK-PRESENT; [ -S /run/systemd/resolve/io.systemd.Resolve ] && echo RESOLVE-PRESENT; echo SCAN-DONE'
+	[ "$status" -eq 0 ]
+	[[ "$output" == *SCAN-DONE* ]]
+	[[ "$output" != *DOCKER-SOCK-PRESENT* ]]
+	[[ "$output" != *VARRUN-SOCK-PRESENT* ]]
+	[[ "$output" != *RESOLVE-PRESENT* ]]
+	# And the same container cannot resolve a public name either.
+	run airgap_run severed "$AIRGAP_IMAGE_ID" -- \
+		"getent hosts $SLSI_AIRGAP_DNS_NAME >/dev/null 2>&1 && echo RESOLVED || echo NO-RESOLVE"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *NO-RESOLVE* ]]
+}
+
 # ── Group 8: the suite cannot pass vacuously ───────────────────────────────
 
 @test "the suite FAILS, not skips, when docker is absent" {
@@ -646,6 +988,29 @@ run_stage_on() {
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"AIRGAP PREFLIGHT: archive absent"* ]]
 	[[ "$output" != *"# skip"* ]]
+}
+
+@test "the suite FAILS, not skips, when the host-leg primitive is unavailable" {
+	# The host leg's own vacuity guard. If systemd-run disappears the leg must
+	# go red with a remedy, never quietly stop measuring.
+	local stub="$BATS_TEST_TMPDIR/nosystemdrun"
+	mkdir -p "$stub"
+	printf '#!/bin/sh\necho "systemd-run: command not found" >&2\nexit 127\n' >"$stub/systemd-run"
+	chmod 0755 "$stub/systemd-run"
+	run env PATH="$stub:$PATH" SLSI_BUNDLE_TARBALL="$ARCHIVE" \
+		bats --filter '^AIRGAP: control: the egress probe FAILS' "$BATS_TEST_FILENAME"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"AIRGAP HOSTNS PREFLIGHT"* ]]
+	[[ "$output" != *"# skip"* ]]
+}
+
+@test "skip accounting: the HOSTNS half is not silently skipped or filtered away" {
+	local declared
+	declared="$(grep -c '^@test "HOSTNS: ' "$BATS_TEST_FILENAME")"
+	[ "$declared" -ge "$HOSTNS_TEST_FLOOR" ]
+	run bats --count --filter '^HOSTNS: ' "$BATS_TEST_FILENAME"
+	[ "$status" -eq 0 ]
+	[ "$output" -eq "$declared" ]
 }
 
 @test "skip accounting: the AIRGAP half is not silently skipped or filtered away" {

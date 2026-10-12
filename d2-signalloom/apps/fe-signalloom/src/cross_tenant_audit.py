@@ -210,9 +210,11 @@ TENANT_AGNOSTIC_ROUTES: dict[str, str] = {
         "agent ids) even without a tenant."
     ),
     "federation.py:proxy_federation_route": (
-        "Generic reverse proxy; the federation demo dataset is either a hardcoded fallback "
-        "(DEFAULT_ZONES/DEFAULT_FEDERATIONS/DEFAULT_SERVICES, identical for every tenant) or "
-        "whatever signal-ingest's /api/v1/federation/* registry answers, which attributes no "
-        "tenant to a federation record today."
+        "Generic reverse proxy; the only federation data it can return is whatever "
+        "signal-ingest's /api/v1/federation/* registry answers, which attributes no tenant to "
+        "a federation record today. The hardcoded fallback dataset that used to stand in for "
+        "that registry (DEFAULT_ZONES/DEFAULT_FEDERATIONS/DEFAULT_SERVICES, identical for "
+        "every tenant) was removed by W9: an unserved route now answers 502 "
+        "upstream_route_not_served, which discloses nothing about any tenant."
     ),
 }

@@ -1,48 +1,35 @@
 {
   "mission": "Signal Loom Runtime Confinement, Live FAIR Risk & Kernel Containment",
-  "version": "v1.0.0",
-  "timestamp": "2026-09-07T22:35:00Z",
+  "version": "v2.0.0",
+  "contract": {
+    "note": "Every entry declares an evidence_state. 'measured' requires a provenance command that reproduces the figure; 'unavailable' requires a reason and MUST carry no figure. sla_ceiling_ms and internal_target_ms are declared REQUIREMENTS -- a threshold is a decision, legitimately authorable -- and are never themselves observations.",
+    "history": "v1.0.0 of this file was an authored benchmark with no producer: p50/p90/p95/p99 ladders for two latencies, flood_rate_pps 100000 / dropped_pps 100000 / drop_rate 1.0, retention_rate 1.0, parity_rate 1.0, every status PASS, a fixed timestamp. The percentile ladders were the tell -- a distribution cannot be authored. scripts/demo-crkc-mission.sh 'verified' it with [ -f ... ], and scripts/verify-demo-reproducibility.sh asserted its typed literals against its own typed thresholds, which is an assertion that cannot fail. Both are fixed; test/demo-mission-honesty.bats is the guard.",
+    "gate": "make demo-mission-honesty-test"
+  },
   "benchmarks": {
     "tier0_killswitch_freeze_latency": {
       "sla_ceiling_ms": 1000.0,
       "internal_target_ms": 250.0,
-      "p50_ms": 6.4,
-      "p90_ms": 10.2,
-      "p95_ms": 12.0,
-      "p99_ms": 18.5,
-      "status": "PASS",
-      "verdict": "Well under 250ms target and 1s SLA ceiling"
+      "evidence_state": "unavailable",
+      "reason": "requires a live cgroup v2 freezer acting on a running agent workload, sampled enough times to support a quantile. No cluster is in scope for the offline demonstration. The one local delegate, test/bench-redteam-stress.sh, derives its per-cycle figure from a modulo of a python loop's duration and then hardcodes its p95 outright, so it is not a source for this field."
     },
     "live_fair_risk_calculation_latency": {
       "sla_ceiling_ms": 50.0,
       "internal_target_ms": 35.0,
-      "p50_ms": 4.2,
-      "p90_ms": 12.5,
-      "p95_ms": 18.4,
-      "p99_ms": 24.1,
-      "status": "PASS",
-      "verdict": "Well under 35ms target and 50ms SLA ceiling"
+      "evidence_state": "unavailable",
+      "reason": "the SLA is written against the in-cluster policy-engine FAIR endpoint, which the offline demonstration does not exercise. scripts/demo-crkc-mission.sh does time the real riskctl Monte Carlo and prints that wall clock, but it is a different measurement -- a 200k-iteration in-process simulation including process start -- and is deliberately not recorded here as if it satisfied this threshold."
     },
     "tc_classifier_drop_throughput": {
-      "flood_rate_pps": 100000,
-      "dropped_pps": 100000,
-      "drop_rate": 1.0,
-      "latency_to_drop_ns": 420,
-      "status": "PASS",
-      "verdict": "100% wire-speed drop with zero packet leaks"
+      "evidence_state": "unavailable",
+      "reason": "requires a tc clsact qdisc attached to a real veth and a generated flood whose offered and dropped rates are both counted. No dataplane is in scope here. The former drop_rate of exactly 1.0 against an offered rate of exactly 100000 pps was authored, not counted."
     },
     "flux_drift_ignore_label_retention": {
-      "sync_cycles_tested": 10,
-      "labels_retained": 10,
-      "retention_rate": 1.0,
-      "status": "PASS",
-      "verdict": "100% retention across reconciles"
+      "evidence_state": "unavailable",
+      "reason": "requires N observed Flux reconcile cycles against a live cluster with the label applied and re-read after each. bin/policy-compiler proves the invariant manifest is well-formed, which is a different claim and not a substitute."
     },
     "demo_toggle_parity": {
-      "routes_tested": 52,
-      "parity_rate": 1.0,
-      "status": "PASS",
-      "verdict": "Full parity between demo and live mode"
+      "evidence_state": "unavailable",
+      "reason": "requires the route sweep to actually run against both demo and live mode and compare renders. The former parity_rate of 1.0 over 52 routes was authored; the live route inventory has since moved, so even the denominator was stale."
     }
   }
 }

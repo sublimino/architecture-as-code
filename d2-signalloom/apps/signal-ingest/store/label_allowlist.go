@@ -232,6 +232,31 @@ var defaultLabelAllowList = map[string]struct{}{
 	"prev_digest":         {},
 	"signature_gitoid":    {},
 	"delegation_chain_id": {},
+
+	// Full-coverage streams (catalogue review C3/C4/C5): keys these collectors
+	// already project but the closed set refused, so their signal could not
+	// persist. All are closed-vocabulary or topology scalars chosen by no
+	// natural person; human identities (gcp principal_email) go to ActorHint →
+	// pseudonymised obs.actor, never a label.
+	//   gcpaudit (GCP admin activity):
+	"service_name": {},
+	"method_name":  {},
+	"project_id":   {},
+	//   netebpf (live network_egress; src_ip→source_ip, bytes_sent→bytes, node_name→node already allowed):
+	"classification":  {},
+	"src_port":        {},
+	"pod_uid":         {},
+	"service_account": {},
+	"agent_role":      {},
+	"gap_start_seq":   {},
+	"gap_end_seq":     {},
+	"dropped_count":   {},
+	"coverage_status": {},
+	//   baoaudit (OpenBao audit):
+	"operation":   {},
+	"accessor":    {},
+	"role":        {},
+	"mount_point": {},
 }
 
 // labelValueRedactors are applied to a label VALUE at the Append chokepoint, for the keys whose

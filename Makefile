@@ -526,6 +526,7 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	$(MAKE) test-kpai
 	@echo "=== [Offline 5/5] Static Config, Manifests, Registries & Guards ==="
 	bats test/acceptance-spec-coverage.bats
+	bats test/acceptance-demo-mode-honesty.bats
 	bats d2-signalloom/test/bats-registry-coverage.bats
 	$(MAKE) test-sler-multiplane-acceptance
 	bats test/sler-p6-3-multiplane-acceptance.bats
@@ -995,6 +996,62 @@ docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrit
 docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.
 	./scripts/docs-rewrite-guard.sh $(FILES)
 
+# WHY THIS TARGET EXISTS AT ALL, which is the whole point of it.
+#
+# `test/flux-workload-coverage.bats` was written, passed 10/10, was proven red in
+# both directions by mutation -- and ran in NO path. A cross-vendor audit found it
+# by grepping this Makefile and the ten workflow files for its name and getting
+# nothing back, while the same grep found `docs-lint` at line 982, which is how it
+# knew the instrument worked rather than the search being broken.
+#
+# The trap is that this repo's convention is EXPLICIT registration: 68 `bats
+# test/...` invocations named one by one against 257 bats files on disk. There is
+# no `test/*.bats` glob. So a new suite is invisible by default, and "I added a
+# gate" means "I added a test" until a line like this one exists. The author
+# believed a glob picked it up; it does not.
+#
+# The general form, worth stating because it recurs: an artefact called a GATE
+# needs the line that INVOKES it produced alongside it, or the name is a claim
+# about CI that CI has never heard.
+.PHONY: flux-coverage flux-coverage-test
+flux-coverage: ## Print the Flux-managed and unmanaged workload sets, and fail on any undeclared gap. No cluster.
+	python3 scripts/flux-workload-coverage.py
+
+flux-coverage-test: ## Run the BATS gate for Flux workload management: undeclared gaps AND stale exceptions both fail. No cluster.
+	bats test/flux-workload-coverage.bats
+
+# The operator-facing demo is the highest-blast-radius surface in the repo: every
+# other figure here is read by an engineer who can check it, and this one is read
+# aloud to a room that cannot. This target is registered explicitly because this
+# Makefile has no `test/*.bats` glob (see flux-coverage-test above, and
+# d2-signalloom/test/bats-registry-coverage.bats, which fails on any suite that
+# no runner invokes).
+.PHONY: demo-mission-honesty-test
+demo-mission-honesty-test: riskctl ## Gate the operator demo: it may print only figures it measured. No cluster.
+	bats test/demo-mission-honesty.bats
+
+# THE THIRD INSTANCE OF THIS DEFECT IN ONE WAVE, so the pattern is worth naming
+# here rather than in a commit message nobody re-reads.
+#
+# test/ui-policy-posture-honesty.bats was written, is correct, and ran in NO
+# path: a close-out audit grepped all ten Makefiles plus the whole tree for its
+# name and found zero references. It carries the guard asserting that
+# DEMO_FRAMEWORKS and the nine hardcoded posture figures are absent from
+# ui/windows/policy-posture.js -- so the fabrication is gone today, and the gate
+# was green by luck rather than by enforcement. It would not have caught a
+# regression.
+#
+# The two earlier instances this wave: test/flux-workload-coverage.bats (no
+# target AND a non-executable script), and cpai-engineer's browser tests (behind
+# //go:build acceptance, a tag nothing passed). Three different mechanisms, one
+# failure: an artefact called a gate needs the line that INVOKES it, or the name
+# is a claim about CI that CI has never heard. This repo registers bats suites
+# explicitly -- there is no test/*.bats glob -- so a new suite is invisible by
+# default.
+.PHONY: ui-policy-posture-honesty-test
+ui-policy-posture-honesty-test: ## Gate the Estate95 policy-posture window: it may show no figure it was not given. No cluster.
+	bats test/ui-policy-posture-honesty.bats
+
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
 	test/bench-cgroup-freezer.sh
@@ -1232,7 +1289,8 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	d2-signalloom/test/netassert-gitops.bats \
 	d2-signalloom/test/netassert-policy-contract.bats \
 	d2-signalloom/test/severance-probe-contract.bats \
-	test/stun-evidence-ownership-generator.bats
+	test/stun-evidence-ownership-generator.bats \
+	test/slaws-live-lab.bats
 SLDC_GO_DIRS = d2-signalloom/apps/fe-signalloom/pkg/telemetry d2-signalloom/apps/fe-signalloom/pkg/tenant \
 	d2-signalloom/apps/kusari-agent d2-signalloom/apps/stun-sentinel \
 	d2-signalloom/apps/signalloom-stun-sentinel d2-signalloom/apps/signal-ingest \
@@ -2211,6 +2269,26 @@ demo-signalloom-fleet-up: demo-signalloom-fleet-image ## TEST ESCAPE HATCH ONLY 
 
 demo-signalloom-fleet-down: ## Remove the hand-applied Fleet Manager (Flux restores it on the next reconcile).
 	kubectl delete -k d2-signalloom/apps/fleet-manager/base --ignore-not-found
+
+# WHY THIS TARGET EXISTS.
+#
+# d2-signalloom/apps/cpai-engineer/{acceptance_test.go,browser_test.go} both
+# carry `//go:build acceptance`, and NOTHING in this repository passed that tag
+# -- not a make target, not a script, not a workflow. So those files were never
+# COMPILED, let alone run: a `go test ./...` in that module silently excludes
+# them and reports the package ok. That is weaker than a skipped test, because a
+# skip at least appears in the output.
+#
+# Two of their tests made it worse by skipping on 404 for /tui and /ws, which
+# newServer never registers, so even under the tag they asserted nothing. Both
+# are now characterisation assertions that pin the 404 and FAIL on a 405 or 400.
+#
+# Same class as a bats gate that is proven red in both directions and invoked by
+# nothing: an artefact called a test needs the line that runs it, or the name is
+# a claim about CI that CI has never heard.
+.PHONY: test-cpai-engineer-acceptance
+test-cpai-engineer-acceptance: ## Run cpai-engineer's acceptance-tagged tests, which no default go test compiles. No cluster.
+	cd d2-signalloom/apps/cpai-engineer && go test ./... -count=1 -tags acceptance
 
 .PHONY: swarm-cpai-engineer-image swarm-daytona-coder-image swarm-coding-images
 swarm-cpai-engineer-image: ## Build and kind-load the cpai-engineer image (Tier 4A in-cluster sandboxed coding).
@@ -3533,3 +3611,250 @@ install-git-hooks: ## Install the pre-push hook that runs scan-secrets.
 	@chmod +x .git/hooks/pre-push
 	@echo "installed .git/hooks/pre-push -> make scan-secrets"
 	@echo "  bypass: git push --no-verify   or   SKIP_SECRET_SCAN=1 git push"
+
+##@ CEL policy verification
+
+# One entry point, five tiers, parallel by default, honest aggregation. The
+# tier map, the measured wall clock of each, how the fe suite was parallelised
+# and which two files had to stay serial are all documented in the header of
+# scripts/verify-cel.sh; test/verify-cel.bats proves the aggregator goes red.
+VERIFY_CEL = scripts/verify-cel.sh
+
+.PHONY: verify-cel verify-cel-engine verify-cel-conformance verify-cel-fe verify-cel-db
+
+# verify-cel runs the external-oracle tier (below) BEFORE the parallel tiers.
+# Ordering is load-bearing, not cosmetic: with the oracle last, the script printed
+# its own `verify-cel: PASS` line and the oracle's FAIL appeared underneath it. The
+# exit code was correct (2) but a human reading top-down saw PASS above a failure,
+# which is the exact dishonesty the aggregator was built to prevent. Proven by
+# injecting a t.Fatal into the oracle and reading the output, not just the status.
+verify-cel: ## Every tier of CEL-policy verification in parallel, one pass/fail (40s). Runs the external PSA oracle FIRST so a red oracle can never sit under a printed PASS.
+	@$(MAKE) --no-print-directory verify-cel-oracle
+	$(VERIFY_CEL) all
+
+verify-cel-engine: ## CEL tier 1 alone: go test ./... -count=1 in apps/policy-engine (14-20s, 1105 tests).
+	$(VERIFY_CEL) engine
+
+verify-cel-conformance: ## CEL tier 2 alone: -run TestConformance, every framework fixture through the real engine (0.8s, 755 fixtures). Fast enough to run on save.
+	$(VERIFY_CEL) conformance
+
+verify-cel-fe: ## CEL tiers 3+4: the four fe policy files without Postgres (5s), then the whole fe pytest suite parallel (40s, 3443 passed — 404s serial).
+	$(VERIFY_CEL) fe
+
+verify-cel-db: ## CEL tier 5 alone: throwaway Postgres container, policy-scan integration + test/cel-frameworks-api-e2e.py (26s, 20 tests). Fails loudly without Docker; never skips.
+	$(VERIFY_CEL) db
+
+.PHONY: verify-cel-applicability-chaos
+
+# The enforcement windows and the as-of date, attacked. Two Go suites (a 66-case
+# on-disk date corpus, and the scan path's boundaries/resolution/exposure/
+# determinism/replay properties) plus the bats suite that proves they are not
+# vacuous: full corpus walk compared as SETS, a trimmed corpus going red, and
+# every chaos test paired with a mutation that breaks the guard it names.
+#
+# The Go suites already run inside `verify-cel-engine` (tier 1 is `go test
+# ./...`). This target adds what that tier CANNOT tell you: whether those tests
+# can fail at all. ~90s, dominated by the 22 mutation compile-and-run cycles.
+verify-cel-applicability-chaos: ## Applicability-window chaos suites PLUS their mutation proof — 22 guards, each shown to go red (90s). Needs bats and go only.
+	bats test/applicability-chaos.bats
+
+.PHONY: verify-cel-money verify-cel-money-golden verify-cel-money-golden-acknowledged verify-cel-money-independent
+
+# The priced figures (ale, var95, tvar, carriedGbp) are pinned by one golden
+# file per pack under d2-signalloom/apps/policy-engine/testdata/money-golden/ and
+# anchored to a closed-form beta-PERT oracle. The assertions run inside the
+# conformance tier (they are TestConformance_Money*), so `verify-cel` already
+# covers them; these targets are for working on the money alone.
+#
+# WHAT THE ORACLES ACTUALLY COVER, stated plainly because the difference matters:
+#
+#   ale     — pinned by a CLOSED FORM independent of fair.go (E[freq]*E[loss]
+#             from the beta-PERT moments, to within 5 standard errors of the
+#             engine's own estimator) AND by the golden.
+#   var95   — pinned by the GOLDEN, by the closed-form support bounds, and by
+#   tvar      the ordering identities. There is no closed form for a quantile of
+#   carried   a product of two beta-PERT variates, and the only independent
+#             numerical treatment available (verify-cel-money-independent) is
+#             bounded by the engine's OWN 10,000-iteration quantile noise, which
+#             is several per cent — the same order as a one-rank percentile error.
+#             So for three of the four figures the product quotes, the
+#             deterministic golden is the gate, and the guard on how a golden may
+#             be rewritten (below) is what makes that gate worth anything.
+#
+# WHAT NO TIER COVERS: whether a figure is the RIGHT figure. Every triple in
+# every pack is a declared expert estimate with no provenance field, no author,
+# no date and no anchor class, and no public dataset prices these controls. The
+# oracles pin the arithmetic over those inputs. Calibration is an input, not a
+# computable property, so nothing here can test it. Quote the single calibration
+# statement in policy/frameworks/README.md with any figure. The scan field
+# calibrationSource reads `declared-estimate-unanchored` and says exactly this.
+#
+# NEVER SUM var95, tvar OR carried ACROSS CHECKS. Means add; percentiles do not.
+# Summing per-check quantiles assumes the losses are perfectly correlated and
+# overstates the tail. Only `ale` is additive. For a portfolio figure make ONE
+# joint run through fair.Engine.RunDistribution and take the quantile of the
+# aggregate, which fair/fair.go already implements and tests. Two live call sites
+# in the dashboard do sum them and are a known defect, not a pattern to copy:
+#   dashboard-signalloom/src/api/supercredProjection.ts:319-320 (totalVar95,
+#     totalTvar, each a .reduce over the per-check figure)
+#   dashboard-signalloom/src/api/fakeComplianceData.ts:248-250 (totalVar95,
+#     totalTvar, totalCarried, each a sumMoney over the per-check figure)
+# See the "Not additive" section of policy/frameworks/CONFORMANCE.md.
+verify-cel-money: ## The money tier alone: golden files + closed-form analytic anchor + properties (1.6s, 134 pinned checks across 11 packs, of which 53 are priced).
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run 'TestConformance_Money' .
+
+# Pins a NEW check's figures in one command. REFUSES to rewrite an
+# already-pinned figure — it prints a per-figure delta table and writes nothing,
+# because `MONEY_GOLDEN=update` used to absorb an engine regression and turn the
+# whole suite green (one character in fair.go moved 64 figures across 5 packs by
+# 4-5%). Use verify-cel-money-golden-acknowledged for a deliberate movement.
+verify-cel-money-golden: ## REGENERATE the money goldens for NEW checks, then verify. Refuses to move an existing price; prints the deltas.
+	cd d2-signalloom/apps/policy-engine && MONEY_GOLDEN=update go test -count=1 -v -run TestWriteMoneyGolden .
+	@$(MAKE) --no-print-directory verify-cel-money
+
+# Target-specific exports rather than inline assignments, so a REASON
+# containing spaces, quotes or a shell metacharacter reaches the test verbatim.
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN = update
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN_MOVE_REASON = $(REASON)
+verify-cel-money-golden-acknowledged: export MONEY_GOLDEN_MOVE_CHECKS = $(CHECKS)
+verify-cel-money-golden-acknowledged: ## Move already-pinned prices deliberately: make ... REASON="why" CHECKS=<n>. Both are recorded into each golden's lastMovement and land in the commit.
+	@[ -n "$(REASON)" ] || { echo 'verify-cel-money-golden-acknowledged: REASON="<why these prices moved>" is required'; exit 2; }
+	@[ -n "$(CHECKS)" ] || { echo 'verify-cel-money-golden-acknowledged: CHECKS=<exact number of checks expected to move> is required; run verify-cel-money-golden to see the table'; exit 2; }
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v -run TestWriteMoneyGolden .
+	@$(MAKE) --no-print-directory verify-cel-money
+
+verify-cel-money-independent: ## Cross-check the priced figures against an independent NumPy derivation (needs NumPy; not part of verify-cel).
+	python3 scripts/verify-cel-money-independent.py
+
+.PHONY: policy-pricing-counts policy-pricing-counts-update
+
+# How many checks are priced at all is the most load-bearing number on a pack
+# page: a reader who takes the check count for the priced count reads a scan
+# total as over twice the coverage it has (53 of 134 today). So the counts are
+# not typed. Each pack page carries a block written from framework.json, and
+# these targets make it drift and regenerate. Same family as the sibling
+# policy/frameworks/nist-800-53/catalogue/pricing-test.sh, which asks whether an
+# unpriced check is DECLARED rather than whether the page counts it correctly.
+# Neither is in verify-cel yet. Wiring them into the gate is an open decision in
+# docs/fair-methodology-open-decisions.md.
+policy-pricing-counts: ## Check every pack page's priced/unpriced counts against its framework.json. No cluster, no Go.
+	policy/frameworks/pricing-counts-test.sh
+
+policy-pricing-counts-update: ## REWRITE every pack page's priced/unpriced counts block from the packs, then check.
+	policy/frameworks/pricing-counts-test.sh --update
+
+.PHONY: verify-cel-money-chaos verify-cel-money-chaos-mutation-proof verify-cel-money-golden-guard
+
+# Adversarial probes of the tenant risk profile (migration 062) and the money it
+# modulates: reportingCurrency and riskLoad arrive as JSON on the scan request,
+# so NONE of migration 062's CHECK constraints govern this path. These suites ask
+# whether the Go guard that replaces them is the same guard, and pin the places
+# it is not.
+#
+# They are TestConformance-free and live in the engine package, so the engine
+# tier already runs them; this target is for working on the chaos alone. The
+# figures are only READ here -- no triple, no celExpression and no golden value
+# is touched by anything in this section.
+#
+# WHAT THEY FOUND, in one line each, so a reader does not have to run them.
+# THREE OF THE FOUR ARE NOW FIXED and the suites assert the fix rather than the
+# defect; the characterisation tests were re-pointed, not deleted, so each still
+# has a named mutant proving it is a tripwire.
+#   * FIXED: riskLoad=1e307 overflowed carried to +Inf; encoding/json refuses it
+#     and compliance.go had already written 200, so the client got HTTP 200 with
+#     ZERO bytes -- a fabricated all-clear. The load is now refused where it is
+#     applied (400, naming the field and the figure), and every encode site
+#     buffers and checks before committing a status.
+#   * FIXED: GET /compliance/summary read one unkeyed slot and took no tenant
+#     input, so it served the last scanner's total under the last scanner's
+#     declared currency to every caller. Now keyed by tenant, 404 with no counts
+#     for a tenant that has not scanned, and bounded.
+#   * FIXED: ZZZ/XXX/AAA/QQQ/KWD passed the shape check and labelled figures no
+#     table can convert. Refused by an allow-list equal to risk/fx/rates.yaml's
+#     key set, with that equality asserted against the real file.
+#   * STILL OPEN (_DEFECT, characterised): a declared reportingCurrency that IS
+#     in the table RELABELS without converting -- USD figures are byte-identical
+#     to GBP, JPY additionally re-quantises to whole units. Refuse-not-convert
+#     was the decision; the relabel for table currencies is unchanged.
+#   * STILL OPEN: published carried cannot be re-derived from published tvar at
+#     large loads (the engine rounds tvar for display and computes carried from
+#     the unrounded value).
+verify-cel-money-chaos: ## Adversarial probes of the tenant risk profile and its money: numeric poison, currency relabelling, declared zero, tenant isolation, percentile gap.
+	cd d2-signalloom/apps/policy-engine && go test -count=1 -v \
+		-run 'Poison|RiskLoad|ReportingCurrenc|Currenc|DeclaredZero|Denomination|Isolation|Percentile|Overflow|Relabel|TailDominated|RiskProfileIsolat|WriteJSONChecked|SummaryIntact|ScopedToTheCallingTenant|ScanStoreIsBounded|RateTable|NoRateIsRefused' .
+
+# Proves the suites above are not decoration. Twenty-four mutants: twenty delete
+# a real guard and must go red, FOUR INVERT the proof by fixing a defect the
+# suites still characterise -- a `_DEFECT` test that still passes once its
+# subject is fixed was pinning nothing. Four mutants that used to be inverted
+# (M3, M11, M12, M16) are now ordinary forward mutants, because the defects they
+# described have been fixed for real. Restores every file from an explicit cp backup in an EXIT trap and
+# verifies byte-identity by checksum; a missing test is reported as MISSING
+# (exit 3) and never as a surviving mutant, because `go test -run` on a
+# non-matching regex exits 0.
+verify-cel-money-chaos-mutation-proof: ## Prove verify-cel-money-chaos is not decoration: 24 mutants (4 of them inverted fixes) plus 2 negative controls.
+	test/verify-cel-money-chaos-mutation-proof.sh
+
+# Attacks on the MONEY_GOLDEN=update movement guard, which is the only thing
+# between an engine regression and a green suite for three of the four figures
+# the product quotes. The guard lives in compliance_money_test.go and was
+# asserted nowhere; this suite is the test OF the guard.
+#
+# It RUNS UPDATE MODE against the real checked-in goldens and mutates fair.go to
+# make figures move, restoring both from explicit cp backups and verifying
+# byte-identity by checksum. Not in verify-cel: it is slow (one full engine run
+# per attack) and it writes to testdata, so it is an explicit, deliberate run.
+#
+# WHAT IT FOUND: the guard refuses everything it claims to (no reason, a
+# whitespace reason, a wrong count, either field alone) but the count is a
+# CARDINALITY claim with no identity binding -- a reason naming one check was
+# accepted for an engine-wide movement and recorded into 5 golden files. And the
+# `engineMoved` diagnostic ("the ENGINE moved, not the inputs") is computed,
+# printed, and then not used in the decision.
+verify-cel-money-golden-guard: ## Attack the money-golden movement guard: 9 attacks on REASON/CHECKS. Writes to testdata and restores from cp backups; not part of verify-cel.
+	bats test/money-golden-guard.bats
+
+.PHONY: verify-cel-selftest verify-cel-mutation-proof
+
+verify-cel-selftest: ## Prove the verify-cel aggregator can go red: 14 injected conditions (failing tier, zero collection, skip-only, zero fixtures, no Docker, unready Postgres).
+	bats test/verify-cel.bats
+
+verify-cel-mutation-proof: ## Prove verify-cel-selftest is not decoration: delete each gate from the runner and require the one test that pins it to go red (6 mutants).
+	test/verify-cel-mutation-proof.sh
+# verify-cel-oracle holds the CIS Kubernetes pack against an EXTERNAL oracle:
+# k8s.io/pod-security-admission, the module the API server itself runs to
+# enforce the Pod Security Standards, plus two rules transcribed from
+# kubernetes/kubernetes v1.34.0 (seccomp localhostProfile validation, and
+# hostNetwork hostPort defaulting). Every other CEL tier compares an expression
+# against a fixture written by the same author in the same sitting, so this is
+# the only tier whose oracle nobody here wrote.
+#
+# It lives in its own Go module (d2-signalloom/apps/policy-engine/oracle) so the
+# engine's production module graph does not carry 17 test-only dependencies into
+# a signed image. That is also why it is not reached by the engine's own
+# `go test ./...` and needs a target of its own.
+#
+# Divergences are failures unless individually justified in oracleExceptions,
+# and an exception that stops diverging fails as stale. ~2s, no cluster.
+#
+# Coverage is every pack that reads a workload object, not just CIS:
+# psa_oracle_test.go owns cis-kubernetes/v1.8, allpacks_test.go owns eu-ai-act
+# v1.0/v2.0/v2.1 and nist-800-53 v1.0/v2.0/v2.1 (apkExceptions, same interlock).
+# cra, dora, finos-aigf and nis2 are out of scope because no check in them
+# references object or manifest and no fixture is pod-shaped — re-derived from
+# the policy tree on every run by TestAllPacks_ScopeIsMeasuredNotAsserted, so a
+# pack that grows an object-reading check fails until it is brought in or declared.
+.PHONY: verify-cel-oracle
+verify-cel-oracle: ## Hold every object-reading pack against upstream Pod Security Admission (external oracle, no cluster).
+	@command -v go >/dev/null || { echo "verify-cel-oracle: go not on PATH"; exit 127; }
+	@echo "==> verify-cel-oracle: CIS + eu-ai-act + nist-800-53 packs vs k8s.io/pod-security-admission"
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  { [ -z "$$(gofmt -l .)" ] || { echo "gofmt: $$(gofmt -l .)"; exit 1; }; } && \
+	  go vet ./... && go test ./... -count=1
+	@echo "==> verify-cel-oracle: agrees with Pod Security Admission, or diverges only where recorded"
+
+.PHONY: verify-cel-oracle-report
+verify-cel-oracle-report: ## Print every pack/PSA divergence, including the ones recorded as accepted.
+	@cd d2-signalloom/apps/policy-engine/oracle && \
+	  go test -count=1 -v -run 'TestPSAOracle_PackAgreesWithPodSecurityAdmission|TestAllPacks_AgreeWithPodSecurityAdmission' ./... \
+	  | grep -E 'cases:|divergence:|skipped:|UNEXCUSED|STALE|groups:' || true

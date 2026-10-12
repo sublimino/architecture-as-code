@@ -18,11 +18,19 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from api_compat import (
+    TRUST_TOPOLOGY_URL,
     APIError,
     Principal,
     _error_response,
+    _now_iso,
+    agents,
     authenticated_principal,
     authenticated_tenant,
+)
+from federation_state import (
+    LOCAL_READ_SUBPATHS,
+    build_federation_state,
+    project_subpath,
 )
 from ingest_client import ACTING_TENANT_HEADER, ALL_TENANTS, ingest_headers
 
@@ -32,234 +40,6 @@ router = APIRouter(tags=["federation"])
 
 SIGNAL_INGEST_URL = os.getenv("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 _TIMEOUT = float(os.getenv("FEDERATION_PROXY_TIMEOUT", "10.0"))
-
-DEFAULT_ZONES: list[dict[str, Any]] = [
-    {
-        "id": "zone-k8s-prod",
-        "name": "signalloom-eu",
-        "domain": "eu.signalloom.svc.cluster.local",
-        "clusters": 2,
-        "servers": 2,
-        "status": "active",
-    },
-    {
-        "id": "zone-k8s-staging",
-        "name": "signalloom-us",
-        "domain": "us.signalloom.svc.cluster.local",
-        "clusters": 1,
-        "servers": 1,
-        "status": "active",
-    },
-    {
-        "id": "zone-partner",
-        "name": "partner-acme",
-        "domain": "acme.partner.example",
-        "clusters": 1,
-        "servers": 1,
-        "status": "active",
-    },
-]
-
-DEFAULT_FEDERATIONS: list[dict[str, Any]] = [
-    {
-        "left": "signalloom-eu",
-        "right": "signalloom-us",
-        "mode": "bidirectional",
-        "policy": "ap-payments",
-        "status": "federated",
-    },
-    {
-        "left": "signalloom-eu",
-        "right": "partner-acme",
-        "mode": "one-way (eu -> acme)",
-        "policy": "ap-partner-read",
-        "status": "federated",
-    },
-    {
-        "left": "signalloom-us",
-        "right": "partner-acme",
-        "mode": "pending bundle exchange",
-        "policy": "ap-partner-read",
-        "status": "connecting",
-    },
-]
-
-DEFAULT_SERVICES: list[dict[str, Any]] = [
-    {
-        "id": "svc-payments",
-        "name": "payments-api",
-        "service": "payments-api",
-        "home": "signalloom-eu",
-        "consumer": "signalloom-us",
-        "endpoint": "payments.local:8443",
-        "transport": "xDS (Envoy)",
-        "status": "active",
-    },
-    {
-        "id": "svc-ledger",
-        "name": "ledger-grpc",
-        "service": "ledger-grpc",
-        "home": "signalloom-eu",
-        "consumer": "signalloom-us",
-        "endpoint": "ledger.local:9443",
-        "transport": "Cofide Go SDK",
-        "status": "active",
-    },
-    {
-        "id": "svc-kyc",
-        "name": "kyc-lookup",
-        "service": "kyc-lookup",
-        "home": "partner-acme",
-        "consumer": "signalloom-eu",
-        "endpoint": "kyc.local:8443",
-        "transport": "xDS (Envoy)",
-        "status": "active",
-    },
-    {
-        "id": "svc-settle",
-        "name": "settlement-feed",
-        "service": "settlement-feed",
-        "home": "signalloom-us",
-        "consumer": "partner-acme",
-        "endpoint": "settle.local:8443",
-        "transport": "Cofide Go SDK",
-        "status": "connecting",
-    },
-]
-
-DEFAULT_POLICIES: list[dict[str, Any]] = [
-    {
-        "name": "ap-payments",
-        "selector": "k8s:ns:payments, k8s:sa:api",
-        "zones": "eu, us",
-    },
-    {
-        "name": "ap-partner-read",
-        "selector": "k8s:ns:partner, k8s:label:federate=true",
-        "zones": "eu, acme",
-    },
-    {
-        "name": "ap-node-tpm",
-        "selector": "tpm:ek_sha256:9f3c...",
-        "zones": "eu, us",
-    },
-]
-
-DEFAULT_IDENTITIES: list[dict[str, Any]] = [
-    {
-        "uri": "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom",
-        "workload": "dashboard",
-        "ns": "fe-signalloom",
-        "sa": "fe-signalloom",
-        "svid": "X.509",
-        "expiry": "2026-08-02T18:00:00Z",
-    },
-    {
-        "uri": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent",
-        "workload": "agent",
-        "ns": "fe-signalloom-agents",
-        "sa": "cardvault-agent",
-        "svid": "JWT",
-        "expiry": "2026-08-02T14:30:00Z",
-    },
-    {
-        "uri": "spiffe://signalloom.demo/ns/payments/sa/payments-api",
-        "workload": "service",
-        "ns": "payments",
-        "sa": "payments-api",
-        "svid": "X.509",
-        "expiry": "2026-08-03T06:00:00Z",
-    },
-    {
-        "uri": "spiffe://signalloom.demo/ns/payments/sa/ledger-grpc",
-        "workload": "service",
-        "ns": "payments",
-        "sa": "ledger-grpc",
-        "svid": "X.509",
-        "expiry": "2026-08-03T06:00:00Z",
-    },
-    {
-        "uri": "spiffe://acme.partner.example/ns/kyc/sa/kyc-lookup",
-        "workload": "service",
-        "ns": "kyc",
-        "sa": "kyc-lookup",
-        "svid": "X.509",
-        "expiry": "2026-08-02T22:00:00Z",
-    },
-]
-
-DEFAULT_EVENTS: list[dict[str, Any]] = [
-    {
-        "ts": "2026-08-02T09:14:22Z",
-        "zone": "signalloom-eu",
-        "event": "Bundle refreshed",
-        "detail": "Trust bundle rotated (SHA-256: 9f3c...a1b2)",
-        "severity": "info",
-    },
-    {
-        "ts": "2026-08-02T09:12:05Z",
-        "zone": "signalloom-us",
-        "event": "Federation established",
-        "detail": "Bidirectional bundle exchange with signalloom-eu complete",
-        "severity": "info",
-    },
-    {
-        "ts": "2026-08-02T08:58:33Z",
-        "zone": "partner-acme",
-        "event": "Bundle exchange pending",
-        "detail": "Awaiting signalloom-us bundle acceptance",
-        "severity": "pending",
-    },
-    {
-        "ts": "2026-08-02T08:45:01Z",
-        "zone": "signalloom-eu",
-        "event": "SVID issued",
-        "detail": "payments-api X.509 SVID renewed (TTL 24h)",
-        "severity": "info",
-    },
-    {
-        "ts": "2026-08-02T08:30:00Z",
-        "zone": "signalloom-eu",
-        "event": "Attestation passed",
-        "detail": "cardvault-agent k8s workload attestation (SA match)",
-        "severity": "info",
-    },
-]
-
-DEFAULT_FEDERATION_SUMMARY: dict[str, Any] = {
-    "total_zones": len(DEFAULT_ZONES),
-    "active_federations": len(DEFAULT_FEDERATIONS),
-    "federated_services": len(DEFAULT_SERVICES),
-    "active_spiffe_ids": len(DEFAULT_IDENTITIES),
-    "attestation_success_rate": 99.8,
-    "active_alerts": 0,
-    "zones": DEFAULT_ZONES,
-    "federations": DEFAULT_FEDERATIONS,
-    "services": DEFAULT_SERVICES,
-    "policies": DEFAULT_POLICIES,
-    "identities": DEFAULT_IDENTITIES,
-    "events": DEFAULT_EVENTS,
-}
-
-
-def _get_federation_fallback(subpath: str) -> Any | None:
-    norm = subpath.strip("/").lower()
-    if norm in ("", "summary"):
-        return DEFAULT_FEDERATION_SUMMARY
-    if norm in ("zones",):
-        return DEFAULT_ZONES
-    if norm in ("federations",):
-        return DEFAULT_FEDERATIONS
-    if norm in ("services",):
-        return DEFAULT_SERVICES
-    if norm in ("policies",):
-        return DEFAULT_POLICIES
-    if norm in ("identities",):
-        return DEFAULT_IDENTITIES
-    if norm in ("events",):
-        return DEFAULT_EVENTS
-    return None
-
 
 SERVER_SPIFFE_ID = os.getenv(
     "SERVER_SPIFFE_ID",
@@ -463,27 +243,51 @@ async def proxy_federation_request(
             f"signal-ingest federation proxy error: {exc}",
         )
 
-    # If upstream signal-ingest does not implement the requested federation route, serve the
-    # canonical federation fallback dataset rather than failing with 502/404. signal-ingest
-    # answers a path outside its route registry with 403 {"error":"unregistered_route"} before
-    # its mux can 404 (api/auth.go, default deny), so that exact shape means "not implemented"
-    # too; any other 403 is a real denial and passes through. The registry also returns no
-    # pattern for a registered path with the wrong method, so a GET against a write-only
-    # federation route would land here as well; the fallback map bounds that to its seven
-    # read subpaths.
+    # If upstream signal-ingest does not implement the requested federation route, say so.
+    #
+    # This branch used to substitute a hardcoded dataset - zones, federations, services,
+    # policies, SPIFFE identities with fixed expiry timestamps, a fixed event log, and a
+    # summary carrying attestation_success_rate=99.8 and active_alerts=0. None of it was a
+    # function of any request input or of any observed system state: W9 perturbation
+    # (test_w9_federation_unserved_route_does_not_fabricate) showed all seven read subpaths
+    # returning a byte-identical 200 body across two different authenticated tenants. And it
+    # was not a degraded-mode fallback - signal-ingest registers no /api/v1/federation handler
+    # outside its own tests, so default-deny (api/auth.go) answers every such request with
+    # 403 {"error":"unregistered_route"} and the invented dataset was what the dashboard got
+    # 100% of the time in live mode.
+    #
+    # The honest answer is the one this proxy already gives for every other upstream failure:
+    # a structured error naming the cause. ``upstream_route_not_served`` is distinct from
+    # ``upstream_unavailable`` (reachable but failing) and from a real 403 denial, so a caller
+    # can tell "this capability is not deployed" from "this capability is broken" from
+    # "you are not allowed". A federation figure that cannot be derived is not emitted.
     if request.method == "GET" and (resp.status_code == 404 or _is_unregistered_route(resp)):
-        fallback = _get_federation_fallback(clean_subpath)
-        if fallback is not None:
-            logger.info(
-                "signal-ingest %d on federation subpath %r (route not served): returning canonical fallback",
-                resp.status_code,
-                clean_subpath,
-            )
-            return JSONResponse(
-                status_code=200,
-                content=fallback,
-                headers={"Content-Type": "application/json"},
-            )
+        logger.info(
+            "signal-ingest %d on federation subpath %r: route not served upstream",
+            resp.status_code,
+            clean_subpath,
+        )
+        # For the seven read subpaths the dashboard's Federated Services page
+        # actually calls, this service can derive the measurable part of the
+        # answer itself (federation_state) and refuse the rest per field. That
+        # is NOT a reinstatement of the deleted dataset: every figure it emits
+        # is a function of the trust-topology collector's observations or of the
+        # authenticated tenant's own registry, every item carries its own
+        # evidence label, and anything with no source is absent with a reason.
+        #
+        # It runs here, as the unserved-route branch, rather than ahead of the
+        # proxy, so that (a) upstream stays authoritative the day signal-ingest
+        # registers a real handler, and (b) the proxy's own contract - identity
+        # header stripping, IDOR rejection, upstream error translation - keeps
+        # applying to these paths unchanged.
+        if clean_subpath in LOCAL_READ_SUBPATHS:
+            return await local_federation_read(clean_subpath, principal)
+        return _error_response(
+            502,
+            "upstream_route_not_served",
+            "signal-ingest does not serve federation route "
+            f"{target_path!r}; no federation state is available to report",
+        )
 
     # Outbound content-type validation: reject HTML fallbacks or non-JSON payloads
     resp_content_type = resp.headers.get("content-type", "")
@@ -538,6 +342,58 @@ async def proxy_federation_request(
     )
 
 
+_TOPOLOGY_TIMEOUT = float(os.getenv("FEDERATION_TOPOLOGY_TIMEOUT", "5.0"))
+
+
+async def local_federation_read(subpath: str, principal: Principal) -> Response:
+    """Derive the federation view for one read subpath from the sources that exist.
+
+    Collector first, exactly as ``api_compat.trust_topology`` does, and for the
+    same reason: it is the only thing in this estate that observes SPIFFE state
+    on real workloads. A transport failure is an outage, not a contract
+    violation, so it degrades to the tenant's own registry with every row
+    labelled ``modeled`` and the cause carried on
+    ``collectors.kubernetes.reason`` - it never substitutes a figure.
+
+    A collector that answers with a payload this code cannot read is a different
+    thing and is NOT degraded over: ``nodes`` is read defensively, and anything
+    that is not a list yields no identities rather than invented ones.
+    """
+    topology: dict[str, Any] | None = None
+    reason = ""
+    try:
+        async with httpx.AsyncClient(timeout=_TOPOLOGY_TIMEOUT) as client:
+            response = await client.get(TRUST_TOPOLOGY_URL)
+            response.raise_for_status()
+            payload = response.json()
+        if isinstance(payload, dict):
+            topology = payload
+        else:
+            reason = (
+                f"trust-topology collector returned {type(payload).__name__}, not a v1 object"
+            )
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("federation state: trust-topology collector unreachable", exc_info=True)
+        reason = f"trust-topology collector unreachable: {exc}"
+
+    registry: list[Any] = []
+    if topology is None:
+        try:
+            registry = list((await agents(principal)).agents)
+        except Exception as exc:  # pragma: no cover - registry failure is reported, not hidden
+            logger.warning("federation state: agent registry unavailable: %s", exc)
+            reason = f"{reason}; agent registry also unavailable: {exc}"
+
+    state = build_federation_state(
+        tenant_id=principal.tenant,
+        now=_now_iso(),
+        topology=topology,
+        topology_reason=reason,
+        agents=registry,
+    )
+    return JSONResponse(status_code=200, content=project_subpath(state, subpath))
+
+
 # ---------------------------------------------------------------------------
 # Federation Routes (/api/v1/federation/* and /v1/federation/*)
 # ---------------------------------------------------------------------------
@@ -564,7 +420,13 @@ async def proxy_federation_route(
     subpath: str = "",
     principal: Principal = Depends(authenticated_principal),
 ) -> Response:
-    """Proxy federation requests to upstream signal-ingest service with tenant isolation."""
+    """Proxy federation requests to upstream signal-ingest service with tenant isolation.
+
+    Upstream remains authoritative. When it answers that it does not serve a
+    read route, ``proxy_federation_request`` derives the measurable part of the
+    answer locally for the seven subpaths the dashboard calls, and keeps the
+    ``502 upstream_route_not_served`` refusal for every other one.
+    """
     return await proxy_federation_request(
         request, subpath, tenant_id=principal.tenant, principal=principal
     )

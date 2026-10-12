@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -171,41 +172,56 @@ func TestTopologyAggregateRiskMatchesRiskSummary(t *testing.T) {
 		t.Fatalf("aggregateRisk = %#v, want an object", body["aggregateRisk"])
 	}
 
-	// ale and var95 must be numbers. The Fleet page formats them as currency,
-	// and a string renders as NaN rather than failing — so the TYPE is part of
-	// the contract, not just the key.
-	for _, key := range []string{"ale", "var95"} {
-		if _, ok := risk[key].(float64); !ok {
-			t.Errorf("aggregateRisk.%s = %#v, want a number", key, risk[key])
+	// ale and var95 used to be REQUIRED to be numbers here, on the reasoning that the
+	// Fleet page formats them as currency and a string would render as NaN — so the
+	// type, not just the key, was part of the contract. That reasoning was sound about
+	// the client and wrong about the figure: the only numbers available to satisfy it
+	// were authored in fleet.yaml, so this assertion is what kept an authored figure
+	// flowing to a risk gauge. It is inverted rather than relaxed. The keys must now be
+	// ABSENT, and the response must say why in the shared refusal object.
+	//
+	// Absent and not zero: FleetDemoPage.tsx:328 defaults a missing aggregateRisk to
+	// zeros, which is the failure this file was originally written to catch. That is why
+	// `pricing` is mandatory below — the client needs something it cannot mistake for a
+	// measurement, rather than merely nothing.
+	for _, key := range []string{"ale", "var95", "previousAle", "trend"} {
+		if v, present := risk[key]; present {
+			t.Errorf("aggregateRisk.%s = %#v, want absent: no computation stands behind it", key, v)
 		}
 	}
 
-	switch risk["trend"] {
-	case "up", "down", "stable":
-	default:
-		t.Errorf("aggregateRisk.trend = %#v, want one of up/down/stable", risk["trend"])
+	pricing, ok := risk["pricing"].(map[string]any)
+	if !ok {
+		t.Fatalf("aggregateRisk.pricing = %#v, want the shared refusal object", risk["pricing"])
+	}
+	for _, key := range []string{"available", "status", "reason", "unpricedFields", "unmappedChecks"} {
+		if _, present := pricing[key]; !present {
+			t.Errorf("aggregateRisk.pricing.%s is missing from the shared shape", key)
+		}
 	}
 }
 
-func TestTopologyAggregateRiskComesFromFleetConfig(t *testing.T) {
-	body := topologyBody(t, contractFleetYAML)
-	risk := body["aggregateRisk"].(map[string]any)
-
-	// The figures are authored demo data in the fleet ConfigMap, deliberately
-	// not computed in Go. Serving them straight through is what makes them
-	// reviewable and changeable without a rebuild; a hardcoded constant here
-	// would be a risk figure invented in code, which is the failure mode this
-	// repo has already shipped once. This test fails if anyone replaces the
-	// config lookup with a literal.
-	if risk["ale"].(float64) != 847000 {
-		t.Errorf("aggregateRisk.ale = %v, want the value from the fleet config", risk["ale"])
-	}
-	if risk["var95"].(float64) != 1200000 {
-		t.Errorf("aggregateRisk.var95 = %v, want the value from the fleet config", risk["var95"])
-	}
-
-	// A config with different figures must produce different output.
-	other := topologyBody(t, `
+// TestTopologyAggregateRiskDoesNotComeFromFleetConfig replaces a test that asserted the
+// exact opposite, and the inversion is the fix rather than a weakening.
+//
+// It used to require aggregateRisk.ale == 847000 and, with a second config, that 11 and 22
+// came through — on the reasoning that serving the authored config kept the figures
+// reviewable and that a hardcoded constant here would be a figure invented in code. The
+// second half of that reasoning was right and is still enforced below. The first half was
+// wrong: it made "the authored number reaches the client" a thing the suite REQUIRED, so
+// the test could only pass while an authored figure was being presented as a measurement
+// on a risk gauge. A literal in Go and a literal in YAML are the same fabrication; the
+// manifest only makes it reviewable, not computed.
+//
+// So the assertion is now that NO figure from the config reaches the wire, from either
+// config. That still fails if anyone hardcodes a number here — a constant would show up as
+// a present key — and it additionally fails if anyone reconnects the manifest to the
+// response, which the old test demanded.
+func TestTopologyAggregateRiskDoesNotComeFromFleetConfig(t *testing.T) {
+	// Two configs with different authored figures must be indistinguishable on the wire.
+	// If either number were being served, these two bodies would differ.
+	first := topologyBody(t, contractFleetYAML)
+	second := topologyBody(t, `
 aggregateRisk:
   ale: 11
   var95: 22
@@ -218,9 +234,33 @@ agents:
     dependencies: []
     namespace: ns
 `)
-	otherRisk := other["aggregateRisk"].(map[string]any)
-	if otherRisk["ale"].(float64) != 11 || otherRisk["var95"].(float64) != 22 {
-		t.Errorf("aggregateRisk ignores the fleet config: got %#v", otherRisk)
+
+	firstRisk, err := json.Marshal(first["aggregateRisk"])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	secondRisk, err := json.Marshal(second["aggregateRisk"])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	if string(firstRisk) != string(secondRisk) {
+		t.Errorf("aggregateRisk differs between two configs with different authored figures:\n"+
+			" 847000/1200000 -> %s\n      11/22 -> %s\n"+
+			"the authored numbers are reaching the client", firstRisk, secondRisk)
+	}
+
+	// And neither of the authored values appears anywhere in the response, in any field.
+	// Belt and braces against a figure arriving under a key this test did not think to
+	// check — including one a future edit adds.
+	whole, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, authored := range []string{"847000", "1200000", "650000"} {
+		if bytes.Contains(whole, []byte(authored)) {
+			t.Errorf("authored figure %s appears in the topology response: %s", authored, whole)
+		}
 	}
 }
 

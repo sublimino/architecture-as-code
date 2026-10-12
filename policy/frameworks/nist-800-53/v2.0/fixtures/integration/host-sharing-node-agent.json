@@ -1,0 +1,218 @@
+{
+  "name": "host-sharing-node-agent",
+  "level": "integration",
+  "description": "Host-sharing node-agent DaemonSet pod (eBPF/monitoring style): shares all three host namespaces, a privileged init container installs the probe, the agent runs as root with NET_ADMIN and SYS_PTRACE added. Everything a node agent does not need is hardened, so the host-namespace, privileged, root, escalation and capability verdicts are attributable. A hostNetwork pod is not subject to NetworkPolicy ingress isolation, so that request fact is false.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "node-agent-7fbd5",
+        "namespace": "observability",
+        "labels": {
+          "app": "node-agent",
+          "version": "1.9.3",
+          "managed_by": "flux",
+          "environment": "production",
+          "audit_logging": "enabled",
+          "owner": "platform-team"
+        },
+        "annotations": {
+          "osramp.io/tls-config": "mtls-spiffe",
+          "osramp.io/encryption-at-rest": "aes-256-gcm",
+          "osramp.io/vuln-scan-url": "https://scan.example.com/node-agent",
+          "osramp.io/log-format": "json"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "node-agent",
+        "automountServiceAccountToken": false,
+        "hostNetwork": true,
+        "hostPID": true,
+        "hostIPC": true,
+        "dnsPolicy": "ClusterFirstWithHostNet",
+        "tolerations": [
+          {
+            "operator": "Exists"
+          }
+        ],
+        "securityContext": {
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "initContainers": [
+          {
+            "name": "install-probe",
+            "image": "registry.internal/node-agent-init@sha256:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "args": [
+              "install",
+              "--bpf-dir=/sys/fs/bpf"
+            ],
+            "securityContext": {
+              "privileged": true,
+              "runAsUser": 0,
+              "readOnlyRootFilesystem": true
+            },
+            "resources": {
+              "limits": {
+                "cpu": "200m",
+                "memory": "256Mi"
+              },
+              "requests": {
+                "cpu": "50m",
+                "memory": "64Mi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "bpf",
+                "mountPath": "/sys/fs/bpf"
+              }
+            ]
+          }
+        ],
+        "containers": [
+          {
+            "name": "agent",
+            "image": "registry.internal/node-agent@sha256:b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1",
+            "env": [
+              {
+                "name": "NODE_NAME",
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "spec.nodeName"
+                  }
+                }
+              }
+            ],
+            "securityContext": {
+              "runAsUser": 0,
+              "privileged": false,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ],
+                "add": [
+                  "NET_ADMIN",
+                  "SYS_PTRACE"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 9099
+              },
+              "periodSeconds": 10
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 9099
+              },
+              "periodSeconds": 10
+            },
+            "volumeMounts": [
+              {
+                "name": "logs",
+                "mountPath": "/var/log/node-agent"
+              },
+              {
+                "name": "proc",
+                "mountPath": "/host/proc",
+                "readOnly": true
+              }
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "name": "bpf",
+            "hostPath": {
+              "path": "/sys/fs/bpf",
+              "type": "DirectoryOrCreate"
+            }
+          },
+          {
+            "name": "proc",
+            "hostPath": {
+              "path": "/proc"
+            }
+          },
+          {
+            "name": "logs",
+            "emptyDir": {}
+          }
+        ]
+      }
+    },
+    "agent": {
+      "audit_config": {
+        "event_logging_enabled": true
+      },
+      "telemetry": {
+        "monitoring_active": true
+      }
+    },
+    "request": {
+      "peer": {
+        "spiffe_id": "spiffe://signalloom.demo/ns/observability/sa/node-agent"
+      },
+      "source": {
+        "namespace": "observability"
+      },
+      "destination": {
+        "namespace": "observability"
+      },
+      "auth": {
+        "svid_presented": true
+      },
+      "network_policy": {
+        "ingress_isolated": false
+      }
+    }
+  },
+  "expect": {
+    "container-run-as-non-root": "fail",
+    "no-privilege-escalation": "fail",
+    "no-privileged-mode": "fail",
+    "no-automount-sa-token": "pass",
+    "pod-security-context": "fail",
+    "no-host-network": "fail",
+    "no-host-pid": "fail",
+    "no-host-ipc": "fail",
+    "app-label": "pass",
+    "version-label": "pass",
+    "resource-limits-set": "pass",
+    "resource-requests-set": "pass",
+    "managed-by-label": "pass",
+    "env-label": "pass",
+    "drop-all-capabilities": "fail",
+    "read-only-rootfs": "pass",
+    "tls-annotation": "pass",
+    "seccomp-profile": "pass",
+    "encryption-annotation": "pass",
+    "image-digest-required": "pass",
+    "trusted-registry": "pass",
+    "vuln-scan-annotation": "pass",
+    "liveness-probe-present": "pass",
+    "readiness-probe-present": "pass",
+    "audit-label": "pass",
+    "log-volume-mount": "pass",
+    "log-format-annotation": "pass",
+    "owner-label": "pass"
+  }
+}

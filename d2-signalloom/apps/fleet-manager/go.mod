@@ -17,6 +17,14 @@ require (
 
 replace github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel => ../stun-sentinel
 
+// NOTE: fleet-manager deliberately does NOT depend on apps/policy-engine, though it shares
+// the money-refusal wire shape with it. The two are independently deployable services, and a
+// require+replace here would couple them for the sake of five small types while being
+// invisible to anyone reading either service alone. The shape is declared locally in
+// topology.go and held in agreement by TestRefusalShapeParityWithPolicyEngine, which reads
+// the engine's own declaration out of its source. Duplication plus a parity test, not a
+// module edge.
+
 require (
 	cel.dev/expr v0.25.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect

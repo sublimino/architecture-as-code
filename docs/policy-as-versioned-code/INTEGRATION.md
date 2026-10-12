@@ -192,6 +192,15 @@ good looks like.
 
 ## 5. Honest limits
 
+> **Errata, 2026-10-11.** The first bullet below is true of the triples in
+> `risk/org/*.yaml` and `risk/packs/**`, which this record was written about. It
+> is **false of the 61 priced triples in `policy/frameworks/**`**, which are what
+> the policy engine and the dashboard actually read. Those carry no anchor class
+> and no provenance string, and the check shape has no field for either. The
+> record is left as written. The current position is in
+> [the calibration statement](../../policy/frameworks/README.md#the-calibration-statement)
+> and in [FAIR methodology: the open decisions](../fair-methodology-open-decisions.md).
+
 - **The triples are calibrated estimates, not measurements.** Every one carries a named anchor class
   and a provenance string so it can be argued with. They must be re-calibrated against real incident
   history before any external, board, or underwriter use. The apparatus is real; the inputs are

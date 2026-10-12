@@ -1,0 +1,24 @@
+{
+  "name": "default-secure-configuration--flag-true",
+  "level": "unit",
+  "description": "agent.security_profile.secure_by_default is true.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_3"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "default-secure-configuration": "pass"
+  }
+}

@@ -285,9 +285,35 @@ function emitKeyValue(key: string, value: YamlValue | undefined, depth: number, 
  */
 export const IMPORT_ID_PREFIX = 'signalloom-'
 
+// IMPORT_ID_RANDOM_HEX is 12, not 4, and the widening was a correctness fix
+// rather than a test fix.
+//
+// The stamp is SECOND-resolution, so the random suffix is the only thing
+// separating two imports pushed inside the same second. At 4 hex chars that is
+// 65,536 values: 20 imports in one second collide with probability ~0.3%, and a
+// collision is not cosmetic — `selectMostRecentImport` identifies our pushes by
+// this id, so two indistinguishable ids mean the embed can select the wrong
+// cluster.
+//
+// WHICH SIDE WAS WRONG MATTERS. `produces unique ids across calls` had been
+// failing intermittently (observed: 19 unique out of 20) and the tempting read
+// is "flaky test, loosen it". That is backwards: the test asserted exactly the
+// property the id is for, and the code did not provide it. Loosening the
+// assertion would have converted a real, rare production defect into a
+// permanently green suite. 12 hex chars is 2^48, which puts 20 samples at
+// ~3e-12 and makes the original assertion honest rather than lucky.
+//
+// `Math.random().toString(16)` yields at most ~13 fractional hex digits, so 12
+// is taken in two slices rather than one to stay clear of that edge; the
+// `padEnd` keeps the width fixed when the mantissa renders short.
+const IMPORT_ID_RANDOM_HEX = 12
+
 export function generateImportId(now = new Date()): string {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '')
-  const rand = Math.random().toString(16).slice(2, 6).padEnd(4, '0')
+  const rand = (
+    Math.random().toString(16).slice(2, 2 + IMPORT_ID_RANDOM_HEX / 2) +
+    Math.random().toString(16).slice(2, 2 + IMPORT_ID_RANDOM_HEX / 2)
+  ).padEnd(IMPORT_ID_RANDOM_HEX, '0')
   return `${IMPORT_ID_PREFIX}${stamp}-${rand}`
 }
 

@@ -315,7 +315,24 @@ def test_db_claim_upsert_matches_tenant_scoped_registry_constraint() -> None:
     assert "ON CONFLICT (name) DO UPDATE SET" not in source
 
 
-def test_compliance_posture_seeding(client: TestClient) -> None:
+def test_compliance_posture_is_refused_without_a_control_catalogue(
+    client: TestClient,
+) -> None:
+    """Was ``test_compliance_posture_seeding``, and it asserted a fabrication.
+
+    The name claimed this proved "seeding of 6 governance controls upon
+    successful claim". It did not: this fixture runs with no database, so no
+    ``governance_controls`` row is read and no ``agent_compliance_results`` row
+    is written. The 6 / 5 / 1 / 0.83 it asserted were four literals in the
+    no-database branch of the claim route, and the test's greenness is what
+    made them look measured. Six is the row count of the demo
+    ``governance_controls`` seed -- a fact about one database, not about this
+    agent.
+
+    The seeded path is still worth a test, but it needs a real pool; see
+    ``tests/test_posture_truth.py`` for the refusal contract and
+    ``_compliance_summary_for_agent`` for the derivation.
+    """
     payload = {
         "pod_name": "posture-test-agent",
         "namespace": "fe-signalloom-agents",
@@ -339,11 +356,13 @@ def test_compliance_posture_seeding(client: TestClient) -> None:
     assert agent_data["record_class"] == "resolved"
 
     summary = agent_data["compliance_summary"]
-    assert summary["total_controls"] == 6
-    assert summary["passing"] == 5
-    assert summary["pending"] == 1
+    assert summary["evidence_state"] == "unavailable"
+    assert summary["reason"]
+    assert summary["total_controls"] == 0
+    assert summary["passing"] == 0
+    assert summary["pending"] == 0
     assert summary["failing"] == 0
-    assert summary["posture_score"] == 0.83
+    assert summary["posture_score"] is None
 
 
 def test_audit_event_logged_on_claim(client: TestClient) -> None:

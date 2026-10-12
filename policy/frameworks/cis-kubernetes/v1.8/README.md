@@ -13,6 +13,31 @@ from kube-bench, which carries them for the `cis-1.8` benchmark (Kubernetes
 
 <https://github.com/aquasecurity/kube-bench/blob/main/cfg/cis-1.8/policies.yaml>
 
+## The frame: admissibility, not runtime effect
+
+CIS §5.2 is worded "Minimize the **admission** of …". So where a manifest's
+runtime effect and its admissibility under the
+[Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
+disagree, **these checks follow admissibility**: a pod that a `restricted`
+namespace rejects fails, even if the container runtime would have produced a
+safe process had the pod ever been admitted. A pod that is rejected never runs,
+so reporting it compliant is a false negative, and a false negative is the
+dangerous direction for a compliance product.
+
+Three places where this bites, each pinned by a fixture:
+
+| Manifest | Runtime effect | Admissibility | Verdict |
+|----------|----------------|---------------|---------|
+| `capabilities.drop: ["all"]` | containerd/CRI-O normalise the name and drop everything | PSA compares the `ALL` token exactly and rejects | `capabilities-dropped-all` **fails** (`drop-all-lowercase`) |
+| `runAsUser: 1000`, no `runAsNonRoot` | the process gets UID 1000 | PSS `restricted` requires `runAsNonRoot: true` | `no-root-containers` **fails** (`root-container-uid-1000-no-pod-identity`) |
+| pod `seccompProfile: Unconfined`, container overrides `RuntimeDefault` | that one container is confined | pod-level `Unconfined` is forbidden at baseline, so the pod is rejected | `seccomp-runtime-default` **fails** (`seccomp-container-runtimedefault-overrides-pod-unconfined`) |
+
+**Stricter than PSS where CIS is stricter.** The frame resolves disagreements
+about what a manifest *means*, not about where the bar sits. `no-added-capabilities`
+fails any non-empty `capabilities.add`, including `NET_BIND_SERVICE`, which PSS
+`restricted` explicitly permits — CIS 5.2.9 permits no added capability, and
+this pack implements CIS (fixture `added-capability-net-bind-service`).
+
 ## Input
 
 `object` is a Pod-shaped object `{metadata, spec}`. No check reads `agent` or
@@ -29,15 +54,15 @@ from kube-bench, which carries them for the `cis-1.8` benchmark (Kubernetes
 | `no-host-ipc` | 5.2.4 | Minimize the admission of containers wishing to share the host IPC namespace | Absent `hostIPC` is `false`: pass. |
 | `no-host-network` | 5.2.5 | Minimize the admission of containers wishing to share the host network namespace | Absent `hostNetwork` is `false`: pass. |
 | `no-privilege-escalation` | 5.2.6 | Minimize the admission of containers with allowPrivilegeEscalation | Absent `allowPrivilegeEscalation` is effectively `true`: **fail**. Windows exempt. |
-| `no-root-containers` | 5.2.7 | Minimize the admission of root containers | Effective `runAsUser` = container, else pod; if set it must be `> 0`. If unset everywhere, effective `runAsNonRoot` (container, else pod) must be `true`. Neither set: the image USER decides, unknown: **fail**. |
-| `no-net-raw` | 5.2.8 | Minimize the admission of containers with the NET_RAW capability | Runtimes grant NET_RAW by default, so absent `capabilities` **fails**. Names compare case-insensitively, as containerd and CRI-O do. Passes only if `drop` holds `ALL`, `NET_RAW` or `CAP_NET_RAW` (any case), `add` does not re-add any of those (any case, including `cap_all`), and the container is not privileged. Windows exempt. |
+| `no-root-containers` | 5.2.7 | Minimize the admission of root containers | As PSA decides it. Effective `runAsNonRoot` (container, else pod) must be explicitly `true` — a non-zero `runAsUser` alone does **not** substitute for it, because `runAsNonRoot: true` is what makes the kubelet refuse an image whose USER is root. And no `runAsUser` may be `0`: not at pod level (even if every container overrides it) and not at container level. A container setting `runAsNonRoot: false` fails whatever the effective UID. |
+| `no-net-raw` | 5.2.8 | Minimize the admission of containers with the NET_RAW capability | Runtimes grant NET_RAW by default, so absent `capabilities` **fails**. Names compare case-insensitively, as containerd and CRI-O do. Passes only if `drop` holds `ALL`, `NET_RAW` or `CAP_NET_RAW` (any case), `add` does not re-add any of those (any case, including `cap_all`), and the container is not privileged. Windows exempt. This check stays case-insensitive on purpose: PSS has no NET_RAW-specific rule, so there is no admissibility reading to follow, and the question is whether the process holds the capability — CRI normalises the name, so `add: ["net_raw"]` really does re-grant it and must be detected. A pod whose only drop is a lowercase `all` therefore passes `no-net-raw` and fails `capabilities-dropped-all`, which is where PSA rejects it. |
 | `no-added-capabilities` | 5.2.9 | Minimize the admission of containers with added capabilities | Absent or empty `capabilities.add`: pass. |
-| `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain `ALL` in any case: containerd and CRI-O compare case-insensitively, so `"all"` drops everything (Pod Security Admission would reject it; this check judges the runtime effect). Absent: **fail**. Windows exempt. |
+| `capabilities-dropped-all` | 5.2.10 | Minimize the admission of containers with capabilities assigned | `drop` must contain the exact token `ALL`, as Pod Security Admission compares it. `"all"` in any other case is rejected by a `restricted` namespace: **fail**. Absent: **fail**. Windows exempt. |
 | `no-windows-hostprocess` | 5.2.11 | Minimize the admission of Windows HostProcess containers | Absent `windowsOptions.hostProcess` is `false`. Fails if the pod or any container sets `true` (the API rejects a pod/container mismatch, so either level is decisive). |
 | `no-hostpath-volumes` | 5.2.12 | Minimize the admission of HostPath volumes | Absent `volumes`: pass. |
-| `no-host-ports` | 5.2.13 | Minimize the admission of containers which use HostPorts | Absent or `0` `hostPort`: pass. With `hostNetwork: true` the API server defaults `hostPort` to `containerPort`, so any declared port on a hostNetwork pod **fails**. |
+| `no-host-ports` | 5.2.13 | Minimize the admission of containers which use HostPorts | Absent or `0` `hostPort`: pass. `hostNetwork: true` **fails whether or not any port is declared**: the pod shares the host network namespace, so every port its processes bind is a host port, and declaring a port is optional metadata rather than the thing that creates the exposure. The test is deliberately outside the `ports` loop — nested inside it, a hostNetwork pod with no ports short-circuited to pass and the documented rule was unreachable. This overlaps `no-host-network` by design; a Windows HostProcess pod fails here too, because HostProcess requires `hostNetwork: true`. |
 | `no-secrets-in-env` | 5.4.1 | Prefer using Secrets as files over Secrets as environment variables | Fails on `env[].valueFrom.secretKeyRef` or `envFrom[].secretRef`. Absent `env`/`envFrom`: pass. |
-| `seccomp-runtime-default` | 5.7.2 | Ensure that the seccomp profile is set to docker/default in your Pod definitions | Effective profile = container, else pod; type must be `RuntimeDefault` or `Localhost`. `Unconfined` fails; absent everywhere **fails** (kubelet default is Unconfined). The deprecated `seccomp.security.alpha.kubernetes.io/*` annotations are not read: since 1.19 the API server mirrors them into the field on create. Windows exempt. |
+| `seccomp-runtime-default` | 5.7.2 | Ensure that the seccomp profile is set to docker/default in your Pod definitions | As PSA decides it. A **pod-level** `Unconfined` **fails outright**, whatever the containers override it with: PSA forbids it at baseline as well as restricted, and a container added later without an override inherits it. Otherwise effective profile = container, else pod; type must be `RuntimeDefault`, or `Localhost` with a non-empty `localhostProfile` — `Localhost` with no `localhostProfile` is rejected by the API server itself ([`validateSeccompProfileField`](https://github.com/kubernetes/kubernetes/blob/master/pkg/apis/core/validation/validation.go)), so it **fails**. `Unconfined` fails; absent everywhere **fails** (kubelet default is Unconfined). The deprecated `seccomp.security.alpha.kubernetes.io/*` annotations are not read: since 1.19 the API server mirrors them into the field on create. Windows exempt. |
 | `security-context-applied` | 5.7.3 | Apply SecurityContext to your Pods and Containers | Pod `securityContext` present and non-empty, and every container's `securityContext` present and non-empty. `{}` counts as absent. |
 | `no-default-namespace` | 5.7.4 | The default namespace should not be used | `metadata.namespace` must be set, non-empty and not `default`. Absent **fails**: it resolves to `default` unless the client context says otherwise. |
 
@@ -52,7 +77,22 @@ relies on a `kubernetes.io/os` nodeSelector is evaluated as Linux
 Per-container checks pass vacuously because nothing runs; pod-level checks
 still evaluate (fixture `empty-containers-vacuous`).
 
-**Missing `spec`.** Not a pod. Every spec-reading check fails closed (`has(object.spec)` guard), never `error`.
+**Missing `spec`.** Not a pod. Every spec-reading check fails closed
+(`has(object.spec)` guard), never `error` (fixture `malformed-no-spec`).
+
+This was re-examined in this pass, because `fail` is not obviously the honest
+verdict: the pack reports 16 specific violations — "no privileged containers",
+"all capabilities dropped" — for an object that has no containers to judge, and
+`error` would describe the epistemic state better. It stays `fail` for one
+decisive reason: the identical shape is a **production** input, not just a
+malformed fixture. Per [`../../CONFORMANCE.md`](../../CONFORMANCE.md) an empty
+`object` (`{}`) is bound when the scan supplies no manifest, so removing the
+guards to make a missing `spec` error would make *every* check error on *every*
+scan that carries no manifest (fixture `object-empty`). Failing closed on an
+unevidenced pod is the behaviour we want there, and a verdict rule that depends
+on how the absence arrived would be worse than either. The cost is recorded
+here rather than hidden: a no-`spec` object contributes 16 failures to exposure
+that no CEL expression actually examined.
 
 **Numbers.** JSON numbers reach CEL as `double`. `runAsUser > 0`, `hostPort != 0`
 compare int literals against doubles correctly (fixtures `root-container-uid-0`,
@@ -76,8 +116,11 @@ These CIS v1.8.0 section 5 recommendations are not evaluable from one pod spec:
 The engine caps CEL cost at 10000 (`cel_eval.go`). Fixture `ten-container-cost`
 (4 init + 5 main + 1 ephemeral container, each with 25 env vars, 4 envFrom,
 5 ports) evaluates every check; the highest measured cost is
-`no-secrets-in-env` at 2178, which scales with containers × env entries.
-The longest expression is 743 bytes against the 4096-byte limit.
+`no-secrets-in-env` at 2178, which scales with containers × env entries
+(unchanged: this pass did not touch that check).
+The longest expression is now `seccomp-runtime-default` at 1320 bytes against
+the 4096-byte limit; `ten-container-cost` evaluates it, and every other check,
+without hitting the cost cap.
 
 ## Fixtures
 
@@ -94,3 +137,43 @@ Run:
 cd d2-signalloom/apps/policy-engine
 go test -run 'TestConformance_(Verdicts|Coverage|FixturesWellFormed)' -count=1 -v .
 ```
+
+## Pricing coverage
+
+The table below is produced from `framework.json`. It is not typed by hand.
+`make policy-pricing-counts` fails if it drifts from the packs.
+
+A check is priced when its `freqTriple` has a non-zero `min`, `mode`, or `max`.
+A check with no frequency triple, or an all-zero one, is unpriced. An unpriced
+check contributes GBP 0.00 to every reported total however often it fails. That
+state is allowed, because a loss magnitude with no calibrated frequency is not a
+price. It is not a small-print detail, because a reader who adds up a scan gets
+a total over the priced checks only.
+
+Read [the calibration statement](../../README.md#the-calibration-statement) before you quote
+any figure in this table or any figure the engine produces from this pack.
+
+### What these figures are a share of
+
+A `riskTriple` mode here is the **attributable share of one loss event assigned
+to one failed control**. It is not the cost of the loss event. Published
+single-event loss medians sit one to two orders of magnitude above these modes
+(IRIS 2022, <https://www.cyentia.com/iris-2022/>). The event-level figures are
+the `SCN-*` magnitudes in [`risk/org/acme.yaml`](../../../../risk/org/acme.yaml).
+
+Every priced check carries a derivation entry in `CALIBRATION.md` beside this
+pack. It names the anchor classes behind both triples, the scenario the check
+is a share of, and a confidence letter. The registry is
+[ANCHORS.md](../../ANCHORS.md). Statutory ceilings are a `max` and never a
+`mode`, and they are in [PENALTIES.md](../../PENALTIES.md).
+
+<!-- pricing-counts:begin -->
+| Version | Checks | Priced | Unpriced | Placeholder |
+| :--- | ---: | ---: | ---: | ---: |
+| `v1.8.0` | 17 | 17 | 0 | 0 |
+| **Pack total** | **17** | **17** | **0** | **0** |
+
+An unpriced check contributes GBP 0.00 to every total however often it
+fails. Of 17 check(s) on this page, 17 are priced and 0 are not.
+Written by `policy/frameworks/pricing-counts-test.sh`. Do not edit by hand.
+<!-- pricing-counts:end -->

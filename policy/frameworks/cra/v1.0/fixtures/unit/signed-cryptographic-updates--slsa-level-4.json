@@ -1,0 +1,24 @@
+{
+  "name": "signed-cryptographic-updates--slsa-level-4",
+  "level": "unit",
+  "description": "Provenance at SLSA_LEVEL_4 fails: the check is string equality with SLSA_LEVEL_3, not a threshold, so a stronger stated level fails a control it exceeds. Recorded rather than silently fixed because loosening it to a >= comparison changes what the pack claims.",
+  "input": {
+    "agent": {
+      "model_type": "generative",
+      "security_profile": {
+        "secure_by_default": true
+      },
+      "sbom": {
+        "format": "CycloneDX",
+        "verified": true
+      },
+      "provenance": {
+        "slsa_level": "SLSA_LEVEL_4"
+      }
+    },
+    "request": {}
+  },
+  "expect": {
+    "signed-cryptographic-updates": "fail"
+  }
+}

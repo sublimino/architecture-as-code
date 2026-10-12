@@ -7,7 +7,59 @@ export interface TenantProfileData {
   adminEmail: string
   environment: 'production' | 'staging' | 'evaluation'
   description?: string
+  // ── The declared risk profile ──────────────────────────────────────────────
+  //
+  // Empty string means UNDECLARED, and the wizard sends null for it.  These are
+  // the institution's half of the pricing split: the policy pack owns how OFTEN
+  // a loss event happens (a property of the control environment), this tenant
+  // owns what one COSTS here (a property of the institution).
+  //
+  // Not asked for: the per-scenario magnitude triples, which carry mandatory
+  // provenance prose naming the reference class they were calibrated against.
+  // A wizard cannot elicit that, and a fabricated triple is worse than none.
+  // Also not asked for: risk_load, the markup on tail risk that produces the
+  // carried figure.  The API accepts it, but it is an actuarial parameter, not
+  // something an operator can state on day one -- so this form does not pretend
+  // to collect it.
+  sector?: string
+  jurisdiction?: string
+  reportingCurrency?: string
+  riskAppetiteTolerance?: string
 }
+
+/** The currencies the product can actually price a figure in.
+ *
+ * Must stay in step with SUPPORTED_DISPLAY_CURRENCIES in api_compat.py and
+ * SUPPORTED_CURRENCIES in money/currency.ts -- all three are the currency list
+ * in risk/fx/rates.yaml, because a currency with no rate renders every figure
+ * as Unavailable.  The server rejects anything outside the set, so offering a
+ * closed <select> here is what keeps the form from being able to compose a
+ * request the API will refuse.
+ */
+const REPORTING_CURRENCIES = [
+  'USD', 'GBP', 'EUR', 'JPY',
+  'AED', 'AUD', 'CAD', 'CHF', 'DKK', 'HKD', 'INR', 'NOK', 'SEK', 'SGD', 'ZAR',
+] as const
+
+/** Jurisdictions, matched against a scenario's `territories`.
+ *
+ * '*' is global and is NOT the same as declining to declare: an unstated
+ * jurisdiction matches no scoped scenario at all (Scenario.AppliesTo), whereas
+ * '*' matches every one.  Saying nothing and saying "everywhere" are different
+ * claims and the form has to let an operator make either.
+ */
+const JURISDICTIONS = [
+  { id: '*', label: 'Global / multiple territories' },
+  { id: 'UK', label: 'United Kingdom' },
+  { id: 'US', label: 'United States' },
+  { id: 'EU', label: 'European Union' },
+  { id: 'DE', label: 'Germany' },
+  { id: 'FR', label: 'France' },
+  { id: 'SG', label: 'Singapore' },
+  { id: 'AU', label: 'Australia' },
+  { id: 'CA', label: 'Canada' },
+  { id: 'JP', label: 'Japan' },
+] as const
 
 interface TenantIdentityStepProps {
   initialValues?: Partial<TenantProfileData>
@@ -31,6 +83,12 @@ export default function TenantIdentityStep({
   )
   const [description, setDescription] = useState(
     initialValues?.description ?? 'Enterprise autonomous agent governance, runtime confinement, and tamper-evident audit.',
+  )
+  const [sector, setSector] = useState(initialValues?.sector ?? '')
+  const [jurisdiction, setJurisdiction] = useState(initialValues?.jurisdiction ?? '')
+  const [reportingCurrency, setReportingCurrency] = useState(initialValues?.reportingCurrency ?? '')
+  const [riskAppetiteTolerance, setRiskAppetiteTolerance] = useState(
+    initialValues?.riskAppetiteTolerance ?? '',
   )
   const [errors, setErrors] = useState<string[]>([])
 
@@ -64,9 +122,31 @@ export default function TenantIdentityStep({
       errs.push('Please enter a valid email address for the Primary Operator.')
     }
 
+    // The risk profile is entirely optional -- the whole step is skippable, and
+    // declaring nothing is a real state the engine understands. But a tolerance
+    // is a MONEY value, and an amount without its denomination is not a
+    // quantity: "6000" could be the band or four times it depending on the
+    // currency. So the two are validated as a pair rather than separately.
+    const tolerance = riskAppetiteTolerance.trim()
+    if (tolerance) {
+      const parsed = Number(tolerance)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        errs.push('Risk Appetite Tolerance must be a positive number, or left blank.')
+      } else if (!reportingCurrency) {
+        errs.push(
+          'Choose a Reporting Currency for the Risk Appetite Tolerance — an amount ' +
+          'without a currency is not an amount.',
+        )
+      }
+    }
+
     setErrors(errs)
     return errs.length === 0
   }
+
+  /** Blank means UNDECLARED, which the API expects as null rather than ''. */
+  const declaredOrNull = (value: string): string | undefined =>
+    value.trim() ? value.trim() : undefined
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,6 +157,10 @@ export default function TenantIdentityStep({
         adminEmail: adminEmail.trim(),
         environment,
         description: description.trim(),
+        sector: declaredOrNull(sector),
+        jurisdiction: declaredOrNull(jurisdiction),
+        reportingCurrency: declaredOrNull(reportingCurrency),
+        riskAppetiteTolerance: declaredOrNull(riskAppetiteTolerance),
       })
     }
   }
@@ -261,6 +345,136 @@ export default function TenantIdentityStep({
                 boxSizing: 'border-box',
               }}
             />
+          </div>
+
+          {/* ── Declared risk profile (all optional) ───────────────────────── */}
+          <div style={{ paddingTop: 4, borderTop: '1px solid var(--border)' }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', margin: '16px 0 6px' }}>
+              Risk profile <span style={{ fontWeight: 500, color: 'var(--muted)' }}>(optional)</span>
+            </h2>
+            <p style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.6, marginBottom: 16 }}>
+              What a loss event costs <em>here</em>. The policy pack decides how often something
+              goes wrong; these decide what it is worth when it does — so the same control can
+              warrant enforcement at one institution and only an audit note at another, without
+              anyone having an opinion. Leave any of it blank and the platform uses its own
+              defaults instead.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+              {/* Sector */}
+              <div>
+                <label
+                  htmlFor="org-sector"
+                  style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                >
+                  Sector
+                </label>
+                <input
+                  id="org-sector"
+                  data-testid="input-sector"
+                  type="text"
+                  value={sector}
+                  onChange={(e) => setSector(e.target.value)}
+                  placeholder="e.g. retail-ecommerce"
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 6,
+                    border: '1px solid var(--border)', background: 'var(--bg)',
+                    color: 'var(--text)', fontSize: 14, boxSizing: 'border-box',
+                  }}
+                />
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  Recorded for reporting. It does not price anything on its own.
+                </span>
+              </div>
+
+              {/* Jurisdiction */}
+              <div>
+                <label
+                  htmlFor="org-jurisdiction"
+                  style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                >
+                  Primary jurisdiction
+                </label>
+                <select
+                  id="org-jurisdiction"
+                  data-testid="input-jurisdiction"
+                  value={jurisdiction}
+                  onChange={(e) => setJurisdiction(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 6,
+                    border: '1px solid var(--border)', background: 'var(--bg)',
+                    color: 'var(--text)', fontSize: 14, boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="">Not declared</option>
+                  {JURISDICTIONS.map((j) => (
+                    <option key={j.id} value={j.id}>{j.label}</option>
+                  ))}
+                </select>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  Regimes scoped to other territories are reported as out of scope. Leaving this
+                  undeclared is not the same as choosing Global.
+                </span>
+              </div>
+
+              {/* Reporting currency */}
+              <div>
+                <label
+                  htmlFor="org-reporting-currency"
+                  style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                >
+                  Reporting currency
+                </label>
+                <select
+                  id="org-reporting-currency"
+                  data-testid="input-reporting-currency"
+                  value={reportingCurrency}
+                  onChange={(e) => setReportingCurrency(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 6,
+                    border: '1px solid var(--border)', background: 'var(--bg)',
+                    color: 'var(--text)', fontSize: 14, boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="">Not declared</option>
+                  {REPORTING_CURRENCIES.map((code) => (
+                    <option key={code} value={code}>{code}</option>
+                  ))}
+                </select>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  The denomination every figure in your reports is expressed in.
+                </span>
+              </div>
+
+              {/* Risk appetite tolerance */}
+              <div>
+                <label
+                  htmlFor="org-risk-appetite"
+                  style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                >
+                  Risk appetite tolerance
+                </label>
+                <input
+                  id="org-risk-appetite"
+                  data-testid="input-risk-appetite-tolerance"
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={riskAppetiteTolerance}
+                  onChange={(e) => setRiskAppetiteTolerance(e.target.value)}
+                  placeholder="e.g. 25000"
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 6,
+                    border: '1px solid var(--border)', background: 'var(--bg)',
+                    color: 'var(--text)', fontSize: 14, boxSizing: 'border-box',
+                  }}
+                />
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  Annualised loss you will absorb before enforcement is worth its friction. This
+                  is the band that turns a number into a verdict.
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 

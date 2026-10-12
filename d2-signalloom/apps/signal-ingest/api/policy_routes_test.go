@@ -27,6 +27,9 @@ const (
 	policyReviewerToken = "policyReviewerTenantAkey0000000000000000000"
 	policyCrossToken    = "policyCrossTenantReaderKey00000000000000000"
 	policyGatewayToken  = "policyGatewayActsForTenantsKey00000000000000"
+	// policyActForReaderToken has act-for-tenant and policy:read, but lacks policy:review.
+	policyActForReaderToken = "policyActForReaderNoReviewKey000000000000"
+	policyReviewer2Token    = "policyReviewer2TenantAKey0000000000000000"
 	// evidenceReaderToken stands in for the shipped sldc-evidence-reader key: observations:read
 	// and nothing else. The contract's explicit requirement is that this key cannot review.
 	evidenceReaderToken = "policyEvidenceReaderObsReadOnlyKey000000000"
@@ -55,11 +58,15 @@ func policyAPIFixture(t *testing.T) (http.Handler, *Handlers) {
 			TenantID: "tenant-a", Permissions: []Permission{PermissionPolicyRead}, ExpiresAt: expires},
 		{Name: "policy-reviewer", Token: policyReviewerToken, Subject: "static-key/policy-reviewer",
 			TenantID: "tenant-a", Permissions: []Permission{PermissionPolicyRead, PermissionPolicyReview}, ExpiresAt: expires},
+		{Name: "policy-reviewer-2", Token: policyReviewer2Token, Subject: "static-key/policy-reviewer-2",
+			TenantID: "tenant-a", Permissions: []Permission{PermissionPolicyRead, PermissionPolicyReview}, ExpiresAt: expires},
 		{Name: "policy-cross", Token: policyCrossToken, Subject: "static-key/policy-cross",
 			TenantID: "tenant-a", Permissions: []Permission{PermissionPolicyRead, PermissionPolicyReview, PermissionCrossTenantRead}, ExpiresAt: expires},
 		{Name: "policy-gateway", Token: policyGatewayToken, Subject: "static-key/fe-signalloom-gateway",
 			TenantID: "fe-signalloom", Permissions: []Permission{PermissionActForTenant, PermissionCrossTenantRead,
 				PermissionPolicyRead, PermissionPolicyReview}, ExpiresAt: expires},
+		{Name: "policy-act-for-reader", Token: policyActForReaderToken, Subject: "static-key/policy-act-for-reader",
+			TenantID: "fe-signalloom", Permissions: []Permission{PermissionActForTenant, PermissionPolicyRead}, ExpiresAt: expires},
 		{Name: "evidence-reader", Token: evidenceReaderToken, Subject: "static-key/sldc-evidence-reader",
 			TenantID: "tenant-a", Permissions: readOnly, ExpiresAt: expires},
 	}, delegate)
@@ -201,6 +208,25 @@ func TestPolicyReadDoesNotGrantReview(t *testing.T) {
 		policyReaderToken, `{"verdict":"true_positive","note":"n"}`, nil, nil)
 	if code != http.StatusForbidden {
 		t.Errorf("POST review with policy:read only returned %d, want 403", code)
+	}
+}
+
+// Even when a caller possesses PermissionActForTenant and can impersonate any tenant to read
+// feeds, without PermissionPolicyReview they cannot submit a review verdict.
+func TestPolicyReviewRequiresTheReviewPermissionEvenWithActForTenant(t *testing.T) {
+	router, _ := policyAPIFixture(t)
+	headers := map[string]string{ActingTenantHeader: "tenant-a"}
+	// Reading feeds succeeds
+	for _, path := range []string{"/api/v1/policy/findings", "/api/v1/policy/decisions", "/api/v1/policy/rates"} {
+		if code := policyRequest(t, router, http.MethodGet, path, policyActForReaderToken, "", headers, nil); code != http.StatusOK {
+			t.Errorf("GET %s with policy:read + act-for-tenant returned %d, want 200", path, code)
+		}
+	}
+	// Posting a review fails with 403 Forbidden
+	code := policyRequest(t, router, http.MethodPost, "/api/v1/policy/decisions/dec-a1/review",
+		policyActForReaderToken, `{"verdict":"true_positive","note":"unauthorized review"}`, headers, nil)
+	if code != http.StatusForbidden {
+		t.Errorf("POST review with act-for-tenant but no policy:review returned %d, want 403", code)
 	}
 }
 
@@ -690,6 +716,129 @@ func TestPolicyReviewRevisionIsASecondRowAndTheFeedShowsTheLatest(t *testing.T) 
 	}
 	if decisions[0].Review.Verdict != "false_positive" {
 		t.Errorf("feed shows verdict %q, want the latest false_positive", decisions[0].Review.Verdict)
+	}
+}
+
+// A changed note with the same verdict is a revision (a new assertion with a different ReviewID),
+// not a conflict. Replaying the exact same revision is a 409 conflict.
+func TestPolicyReviewChangedNoteIsARevisionNotAConflict(t *testing.T) {
+	router, h := policyAPIFixture(t)
+	clock := make([]time.Time, 0, 2)
+	base, _ := time.Parse(time.RFC3339, policyReviewFixedNow)
+	clock = append(clock, base, base.Add(30*time.Minute))
+	i := 0
+	h.now = func() time.Time {
+		t := clock[i]
+		if i < len(clock)-1 {
+			i++
+		}
+		return t
+	}
+
+	body1 := `{"verdict":"true_positive","note":"initial suspicion"}`
+	code, first := recordReview(t, router, policyReviewerToken, "dec-a1", body1, nil)
+	if code != http.StatusCreated {
+		t.Fatalf("first review returned %d, want 201", code)
+	}
+
+	body2 := `{"verdict":"true_positive","note":"confirmed after IR triage"}`
+	code, second := recordReview(t, router, policyReviewerToken, "dec-a1", body2, nil)
+	if code != http.StatusCreated {
+		t.Fatalf("changed note review returned %d, want 201 (a changed note is a revision)", code)
+	}
+	if second.ID == first.ID {
+		t.Errorf("changed note got same review ID %s", first.ID)
+	}
+
+	// Replaying the exact same second review is a 409 Conflict
+	var conflict struct {
+		Error  string         `json:"error"`
+		Review reviewResponse `json:"review"`
+	}
+	code = policyRequest(t, router, http.MethodPost, "/api/v1/policy/decisions/dec-a1/review",
+		policyReviewerToken, body2, nil, &conflict)
+	if code != http.StatusConflict {
+		t.Fatalf("replaying exact second review returned %d, want 409", code)
+	}
+	if conflict.Review.ID != second.ID {
+		t.Errorf("409 named review %s, want %s", conflict.Review.ID, second.ID)
+	}
+
+	rows, err := h.Store.QueryRange(context.Background(), store.Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for j := range rows {
+		if policy.IsReview(&rows[j]) {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d review rows in store, want 2 (initial note and revised note)", n)
+	}
+
+	var decisions []decisionView
+	policyRequest(t, router, http.MethodGet, "/api/v1/policy/decisions", policyReviewerToken, "", nil, &decisions)
+	if len(decisions) != 1 || decisions[0].Review == nil {
+		t.Fatalf("feed lost review: %+v", decisions)
+	}
+	if decisions[0].Review.Note != "confirmed after IR triage" {
+		t.Errorf("feed note is %q, want latest revision %q", decisions[0].Review.Note, "confirmed after IR triage")
+	}
+}
+
+// Two distinct reviewers recording the same verdict and note against the same decision each
+// produce a distinct row in the evidence store. Collapsing them would destroy agreement.
+func TestPolicyReviewDistinctReviewersEachRecordARow(t *testing.T) {
+	router, h := policyAPIFixture(t)
+	body := `{"verdict":"true_positive","note":"unambiguous compromise"}`
+
+	// Reviewer 1 records review
+	code1, rev1 := recordReview(t, router, policyReviewerToken, "dec-a1", body, nil)
+	if code1 != http.StatusCreated {
+		t.Fatalf("reviewer 1 returned %d, want 201", code1)
+	}
+
+	// Reviewer 2 records review with identical verdict and note
+	code2, rev2 := recordReview(t, router, policyReviewer2Token, "dec-a1", body, nil)
+	if code2 != http.StatusCreated {
+		t.Fatalf("reviewer 2 returned %d, want 201 (distinct reviewers must both record)", code2)
+	}
+
+	if rev1.ID == rev2.ID {
+		t.Fatalf("distinct reviewers got identical review ID: %s", rev1.ID)
+	}
+	if rev1.Reviewer == rev2.Reviewer {
+		t.Fatalf("expected distinct reviewer subjects, got %s for both", rev1.Reviewer)
+	}
+
+	// Replay reviewer 1 -> 409
+	code := policyRequest(t, router, http.MethodPost, "/api/v1/policy/decisions/dec-a1/review",
+		policyReviewerToken, body, nil, nil)
+	if code != http.StatusConflict {
+		t.Errorf("replay of reviewer 1 returned %d, want 409", code)
+	}
+
+	// Replay reviewer 2 -> 409
+	code = policyRequest(t, router, http.MethodPost, "/api/v1/policy/decisions/dec-a1/review",
+		policyReviewer2Token, body, nil, nil)
+	if code != http.StatusConflict {
+		t.Errorf("replay of reviewer 2 returned %d, want 409", code)
+	}
+
+	rows, err := h.Store.QueryRange(context.Background(), store.Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for j := range rows {
+		if policy.IsReview(&rows[j]) {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d review rows in store, want 2 (one per reviewer)", n)
 	}
 }
 

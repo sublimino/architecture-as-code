@@ -248,6 +248,9 @@
     "network-boundary-enforcement": "pass",
     "anomaly-detection-telemetry": "pass",
     "image-digest": "pass",
-    "trusted-registry": "pass"
+    "trusted-registry": "pass",
+    "no-host-ipc": "pass",
+    "no-host-pid": "pass",
+    "no-host-network": "pass"
   }
 }

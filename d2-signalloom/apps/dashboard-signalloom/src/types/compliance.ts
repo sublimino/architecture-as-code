@@ -35,6 +35,27 @@ export interface ComplianceCheck {
   calibrationSource: string
 }
 
+/**
+ * Why a route reported no money figure.
+ *
+ * The same object policy-engine and fe-signalloom both send, every key always
+ * present. `status` is the only field to branch on -- `available` is derived
+ * from it server-side and reading both can only ever write a disagreement the
+ * server cannot produce. See api/fleetApi.ts for the canonical commentary.
+ *
+ * On the policy summary response this appears at TWO levels: once for the
+ * headline figures and once inside each `frameworks` entry. Both say the same
+ * thing there, and that is correct -- the cause is the same -- so read the
+ * outer one for the headline and the inner one per row.
+ */
+export interface PricingRefusal {
+  available: boolean
+  status: 'PRICED' | 'NO_DECLARED_LOSS_FREQUENCY' | 'NO_RISK_DATA_PLANE' | string
+  reason: string
+  unpricedFields: string[]
+  unmappedChecks: string[]
+}
+
 export interface FrameworkSummary {
   id: string
   name: string
@@ -42,10 +63,21 @@ export interface FrameworkSummary {
   totalControls: number
   passedControls: number
   failedControls: number
-  totalExposure: Money
+  /**
+   * `null` when this route could not price its own findings.
+   *
+   * GET /compliance/policy/frameworks answers from `agent_compliance_results`,
+   * which has no money column (migration 004), so there is nothing to
+   * aggregate and it now reports null rather than a hardcoded 0. Nullable here
+   * so the compiler forces each reader to distinguish "not computed" from
+   * "computed as zero" -- they are different claims and only one is a figure.
+   */
+  totalExposure: Money | null
   /** Denominated twin returned by backend API (/compliance/policy/frameworks) */
-  exposure?: Money
-  totalExposureGbp?: number
+  exposure?: Money | null
+  totalExposureGbp?: number | null
+  /** This framework row's own refusal. Same cause as the outer one. */
+  pricing?: PricingRefusal
 }
 
 export interface ComplianceScanRequest {
@@ -67,13 +99,32 @@ export interface PostureSummary {
    * no figure to take a currency from.
    */
   currency: CurrencyCode
-  totalAle: Money
-  totalVar95: Money
-  totalTvar: Money
-  totalCarried: Money
+  /**
+   * The four aggregate money figures, or `null` on a route that cannot
+   * compute them.
+   *
+   * GET /compliance/policy/summary used to hardcode all four to 0 and emit a
+   * denominated `{amount: 0}` beside each. The zeros were never computed and
+   * cannot be: the route answers from `agent_compliance_results`, which has no
+   * money column. A comment said the zero meant "no exposure value available",
+   * but a comment is not on the wire -- a consumer receives an int it can add,
+   * chart and quote, and a total exposure of 0 reads as a clean posture.
+   *
+   * They are null now, which is not addable and cannot render as a currency
+   * amount, so absence survives serialisation. Nullable HERE because the
+   * client's own normaliser was converting that null straight back into
+   * `{ amount: 0, currency }` before any page saw it, which silently undid the
+   * whole server-side change.
+   */
+  totalAle: Money | null
+  totalVar95: Money | null
+  totalTvar: Money | null
+  totalCarried: Money | null
   /** Denominated twin returned by backend API (/compliance/policy/summary) */
-  carried?: Money
-  totalCarriedGbp?: number
+  carried?: Money | null
+  totalCarriedGbp?: number | null
   scanTimestamp: string
   frameworks: FrameworkSummary[]
+  /** Why there is no figure, when there is none. Read this one for the headline. */
+  pricing?: PricingRefusal
 }

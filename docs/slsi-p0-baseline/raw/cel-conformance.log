@@ -1,0 +1,1555 @@
+# COMMAND: cd d2-signalloom/apps/policy-engine && go test -run TestConformance -v . (sha: 504405b9e7e91efdf5c97bcd701b6511f712f6db)
+=== RUN   TestConformance_ChecksCompile
+--- PASS: TestConformance_ChecksCompile (0.11s)
+=== RUN   TestConformance_FixturesWellFormed
+--- PASS: TestConformance_FixturesWellFormed (0.04s)
+=== RUN   TestConformance_Coverage
+--- PASS: TestConformance_Coverage (0.04s)
+=== RUN   TestConformance_VersionSelection
+--- PASS: TestConformance_VersionSelection (0.13s)
+=== RUN   TestConformance_Verdicts
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/hardened-distroless-api
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/helm-nginx-defaults
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-node-agent-daemonset
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/ten-container-cost
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-agent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/added-capability-empty-list
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/added-capability-init-container
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/added-capability-net-bind-service
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/ape-absent-init-container
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/ape-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/ape-true
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/baseline-linux-compliant
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/baseline-windows-compliant
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/container-securitycontext-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/drop-all-lowercase
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/drop-all-missing-init-container
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/drop-empty-list
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/empty-containers-vacuous
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/env-configmap-and-fieldref
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-ipc-false-explicit
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-ipc-true
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-network-false-explicit
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-network-true-no-ports
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-network-true-with-container-port
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-pid-false-explicit
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-pid-true
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-port-8080
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-port-init-container
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/host-port-zero-explicit
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/hostpath-docker-sock
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/init-container-compliant
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/init-container-securitycontext-empty
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/malformed-no-spec
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/namespace-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/namespace-default
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/namespace-empty-string
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-add-lowercase-all
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back-cap-prefix
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back-lowercase
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back-mixed-case-cap-prefix
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-drop-lowercase-net-raw
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-drop-net-raw-only
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-ephemeral-no-drop
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-no-capabilities
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/object-empty
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/pod-securitycontext-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/pod-securitycontext-empty
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/ports-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-ephemeral-container-only
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-false-explicit
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-init-container-only
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-main-container
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-container-nonroot-false-uid-10001
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-container-uid-0
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-container-uid-1000-no-pod-identity
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-init-container-uid-0
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-no-identity-anywhere
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-nonroot-container-override-false
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-nonroot-only
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-uid-0-container-uid-1000
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-uid-0
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/sa-token-automount-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/sa-token-automount-true
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-absent-everywhere
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-container-localhost-no-pod
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-container-runtimedefault-overrides-pod-unconfined
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-container-unconfined-overrides-pod
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-init-container-unconfined
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-pod-unconfined
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/secret-env-init-container
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/secret-env-secretkeyref
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/secret-envfrom-secretref
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/volumes-absent
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/volumes-non-host
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-container-level
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-false-explicit
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-pod-level
+=== RUN   TestConformance_Verdicts/cis-kubernetes/v1.8/windows-without-os-field
+=== RUN   TestConformance_Verdicts/cra/v1.0/bare-pod
+=== RUN   TestConformance_Verdicts/cra/v1.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/cra/v1.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/cra/v1.0/default-secure-configuration--flag-absent
+=== RUN   TestConformance_Verdicts/cra/v1.0/default-secure-configuration--flag-false
+=== RUN   TestConformance_Verdicts/cra/v1.0/default-secure-configuration--flag-not-bool
+=== RUN   TestConformance_Verdicts/cra/v1.0/default-secure-configuration--no-agent-context
+=== RUN   TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--custom-format
+=== RUN   TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--format-absent
+=== RUN   TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--no-agent-context
+=== RUN   TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--spdx-format
+=== RUN   TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--unverified
+=== RUN   TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--verified-absent
+=== RUN   TestConformance_Verdicts/cra/v1.0/signed-cryptographic-updates--level-absent
+=== RUN   TestConformance_Verdicts/cra/v1.0/signed-cryptographic-updates--no-agent-context
+=== RUN   TestConformance_Verdicts/cra/v1.0/signed-cryptographic-updates--slsa-level-1
+=== RUN   TestConformance_Verdicts/dora/v1.0/bare-pod
+=== RUN   TestConformance_Verdicts/dora/v1.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/dora/v1.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/bare-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--container-sets-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--field-absent-everywhere
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--inherits-pod-level
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--no-container-security-context-pod-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--no-security-context-anywhere
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--label-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--no-labels
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/ephemeral-container-compliant
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--label-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--no-labels
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--empty-digest
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--short-digest
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--tag-and-digest
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--tag-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--container-sets-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--field-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--container-sets-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--field-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--no-resources
+=== RUN   TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--requests-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/bare-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--container-sets-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--field-absent-everywhere
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--inherits-pod-level
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--no-container-security-context-pod-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--no-security-context-anywhere
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--label-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--no-labels
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--adds-without-drop
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--drop-lowercase-all
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--drops-net-admin-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--no-capabilities
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/ephemeral-container-compliant
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--label-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--no-labels
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--empty-digest
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--short-digest
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--tag-and-digest
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--tag-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--init-container-has-no-probe
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--probe-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--container-sets-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--field-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--container-sets-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--field-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--empty-value
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--label-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--no-labels
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--no-metadata
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--container-sets-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--field-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/readiness-probe-present--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/readiness-probe-present--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/readiness-probe-present--probe-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--no-resources
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--requests-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--limits-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--no-resources
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-gcr-distroless
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-ghcr-controlplaneio-fluxcd
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-ghcr-controlplaneio-in-toto
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-ghcr-controlplaneio
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-registry-internal
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-zot-local
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--docker-hub-image
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--gcr-io-outside-distroless
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--init-container-untrusted
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--lookalike-host
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--org-prefix-lookalike
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--public-ghcr-other-org
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/bare-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--flag-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--flag-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--flag-not-bool
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--no-agent-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--flag-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--flag-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--flag-not-bool
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--no-agent-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-approval-invalid
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-claim-missing-valid
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-no-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-unapproved
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--modify-iam-unapproved
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--no-tool-call
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--read-action-unapproved
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--write-file-unapproved
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--container-sets-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--field-absent-everywhere
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--inherits-pod-level
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--no-container-security-context-pod-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--no-security-context-anywhere
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--flag-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--flag-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--flag-not-bool
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--no-agent-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--adds-without-drop
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--drop-lowercase-all
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--drops-net-admin-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--no-capabilities
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/ephemeral-container-compliant
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--container-sets-true
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--field-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--no-security-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--empty-object
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--init-container-violates
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--no-containers
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--no-resources
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--requests-only
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--generative-flag-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--generative-no-transparency
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--generative-unmarked
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--model-type-undeclared
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--not-generative
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--flag-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--flag-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--flag-not-bool
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--no-agent-context
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--flag-absent
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--flag-false
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--flag-not-bool
+=== RUN   TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--no-agent-context
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/coding-agent-exec-with-hitl
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/customer-chatbot-partially-governed
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/enterprise-rag-assistant-fully-governed
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/shadow-agent-ungoverned
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-authn-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-authn-not-required
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-authn-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-rbac-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-rbac-not-enforced
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/access-rbac-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/agent-context-doc-minimal-example
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/agent-data-empty-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/agent-document-empty
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/audit-logging-disabled
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/audit-logging-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/audit-logging-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/baseline-compliant
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/cost-controls-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/credentials-flag-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/credentials-flag-string-false
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/credentials-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/credentials-long-lived-exposed
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/data-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/data-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/explainability-disabled
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/explainability-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/explainability-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/governance-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/governance-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/guardrails-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/guardrails-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/hitl-approval-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/hitl-high-impact-without-approval
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/hitl-not-applicable-low-impact-only
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/hitl-unclassified-tool-with-approval
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/hitl-unclassified-tool-without-approval
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-allowlisted-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-allowlisted-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-element-not-an-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-empty-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-empty-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/mcp-one-not-allowlisted
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-bare-latest-uppercase
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-dated-snapshot-dashed
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-digest
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-empty
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-floating-alias-claude-sonnet-4-5
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-floating-alias-gpt-4o
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-latest-alias
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-latest-prefix-is-pinned
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-minor-only-gemini-1-5-pro
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-not-string
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/model-version-semver
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/observability-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/observability-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/output-filter-disabled
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/output-filter-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/output-filter-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/prompt-injection-filter-disabled
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/prompt-injection-filter-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/prompt-injection-filter-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rag-applicability-string-typed
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rag-applicability-undeclared
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rag-enabled-filter-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rag-enabled-filter-false
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rag-filter-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rag-not-applicable-no-filter
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-fractional
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-string
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-zero
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/rate-limits-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/registry-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/registry-is-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/registry-model-registered-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/registry-model-registered-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/registry-model-unregistered
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/registry-not-an-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/spend-alerting-disabled
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/spend-alerting-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/spend-alerting-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/spend-budget-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/spend-budget-string
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/spend-budget-zero
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-element-not-an-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-empty-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-empty-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-encrypted-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-encryption-flag-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-not-a-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/stores-one-unencrypted
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tamper-evident-disabled
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tamper-evident-key-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tamper-evident-string-true
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-embedded-wildcard-scope
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-mid-segment-wildcard-scope
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-prefix-wildcard-scope
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-scope-empty-string
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-scopes-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-scopes-empty
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tool-wildcard-scope
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tools-absent
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tools-element-not-an-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tools-empty-list
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tools-empty-object
+=== RUN   TestConformance_Verdicts/finos-aigf/v1.0/tools-not-a-list
+=== RUN   TestConformance_Verdicts/nis2/v1.0/bare-pod
+=== RUN   TestConformance_Verdicts/nis2/v1.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/nis2/v1.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/bare-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/app-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/app-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/app-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/app-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/audit-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/audit-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/audit-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/audit-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--container-sets-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--field-absent-everywhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--inherits-pod-level
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--no-container-security-context-pod-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--no-security-context-anywhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--adds-without-drop
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--drop-lowercase-all
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--drops-net-admin-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--no-capabilities
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/ephemeral-container-compliant
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--empty-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--short-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--tag-and-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--tag-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-automount-sa-token--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-automount-sa-token--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-automount-sa-token--set-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--container-sets-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--container-sets-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--container-sets-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--no-resources
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--requests-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/version-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/version-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/version-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v1.0/version-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/bare-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/app-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/app-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/app-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/app-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/audit-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/audit-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/audit-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/audit-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--container-sets-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--field-absent-everywhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--inherits-pod-level
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--no-container-security-context-pod-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--no-security-context-anywhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--adds-without-drop
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--drop-lowercase-all
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--drops-net-admin-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--no-capabilities
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/env-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/env-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/env-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/env-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/ephemeral-container-compliant
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--empty-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--short-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--tag-and-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--tag-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--init-container-has-no-probe
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--probe-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--mounts-elsewhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--no-volume-mounts
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-automount-sa-token--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-automount-sa-token--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-automount-sa-token--set-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-host-network--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-host-network--set-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-host-network--set-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-host-pid--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-host-pid--set-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-host-pid--set-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--container-sets-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--container-sets-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/owner-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/owner-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/owner-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/owner-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--no-pod-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--run-as-non-root-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--run-as-non-root-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--container-sets-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/readiness-probe-present--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/readiness-probe-present--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/readiness-probe-present--probe-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--no-resources
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--requests-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--limits-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--no-resources
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--container-level-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--container-overrides-unconfined
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--containers-override-pod-unconfined
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--ephemeral-container-unconfined
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--init-container-overrides-unconfined
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--no-pod-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-localhost
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-profile-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-profile-without-type
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-unconfined
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-gcr-distroless
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-ghcr-controlplaneio-fluxcd
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-ghcr-controlplaneio-in-toto
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-ghcr-controlplaneio
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-registry-internal
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-zot-local
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--docker-hub-image
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--gcr-io-outside-distroless
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--init-container-untrusted
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--lookalike-host
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--org-prefix-lookalike
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--public-ghcr-other-org
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/version-label--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/version-label--label-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/version-label--no-labels
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/version-label--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--annotation-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--annotation-as-label-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--empty-value
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--no-annotations
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--no-metadata
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/bare-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/compliant-agent-workload
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/helm-chart-redis-pod
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--flag-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--flag-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--flag-not-bool
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--no-agent-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--container-sets-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--field-absent-everywhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--inherits-pod-level
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--no-container-security-context-pod-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--no-security-context-anywhere
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--both-namespaces-empty
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--cross-namespace-authorized
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--cross-namespace-no-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--cross-namespace-unauthorized
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--empty-destination-authorized
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--no-request-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--no-source
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--adds-without-drop
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--drop-lowercase-all
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--drops-net-admin-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--no-capabilities
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/ephemeral-container-compliant
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--empty-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--short-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--tag-and-digest
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/image-digest--tag-only
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--flag-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--flag-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--flag-not-bool
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--no-agent-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/mfa-spiffe-svid-required--flag-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/mfa-spiffe-svid-required--flag-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/mfa-spiffe-svid-required--no-request-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/network-boundary-enforcement--flag-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/network-boundary-enforcement--flag-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/network-boundary-enforcement--no-request-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-automount-sa-token--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-automount-sa-token--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-automount-sa-token--set-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--container-sets-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--container-sets-true
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--container-sets-false
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--empty-object
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--field-absent
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--init-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--no-containers
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--no-security-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--foreign-trust-domain
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--lookalike-trust-domain
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--no-request-context
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--peer-without-spiffe-id
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-gcr-distroless
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-ghcr-controlplaneio-fluxcd
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-ghcr-controlplaneio-in-toto
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-ghcr-controlplaneio
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-registry-internal
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-zot-local
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--docker-hub-image
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--ephemeral-container-violates
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--gcr-io-outside-distroless
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--init-container-untrusted
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--lookalike-host
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--org-prefix-lookalike
+=== RUN   TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--public-ghcr-other-org
+--- PASS: TestConformance_Verdicts (0.13s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/hardened-distroless-api (0.01s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/helm-nginx-defaults (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-node-agent-daemonset (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/ten-container-cost (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-agent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/added-capability-empty-list (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/added-capability-init-container (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/added-capability-net-bind-service (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/ape-absent-init-container (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/ape-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/ape-true (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/baseline-linux-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/baseline-windows-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/container-securitycontext-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/drop-all-lowercase (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/drop-all-missing-init-container (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/drop-empty-list (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/empty-containers-vacuous (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/env-configmap-and-fieldref (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-ipc-false-explicit (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-ipc-true (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-network-false-explicit (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-network-true-no-ports (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-network-true-with-container-port (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-pid-false-explicit (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-pid-true (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-port-8080 (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-port-init-container (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/host-port-zero-explicit (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/hostpath-docker-sock (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/init-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/init-container-securitycontext-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/malformed-no-spec (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/namespace-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/namespace-default (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/namespace-empty-string (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-add-lowercase-all (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back-cap-prefix (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back-lowercase (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back-mixed-case-cap-prefix (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-added-back (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-drop-lowercase-net-raw (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-drop-net-raw-only (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-ephemeral-no-drop (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/net-raw-no-capabilities (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/object-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/pod-securitycontext-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/pod-securitycontext-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/ports-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-ephemeral-container-only (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-false-explicit (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-init-container-only (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/privileged-main-container (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-container-nonroot-false-uid-10001 (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-container-uid-0 (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-container-uid-1000-no-pod-identity (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-init-container-uid-0 (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-no-identity-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-nonroot-container-override-false (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-nonroot-only (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-uid-0-container-uid-1000 (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/root-pod-uid-0 (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/sa-token-automount-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/sa-token-automount-true (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-container-localhost-no-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-container-runtimedefault-overrides-pod-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-container-unconfined-overrides-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-init-container-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/seccomp-pod-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/secret-env-init-container (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/secret-env-secretkeyref (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/secret-envfrom-secretref (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/volumes-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/volumes-non-host (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-container-level (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-false-explicit (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/windows-hostprocess-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/cis-kubernetes/v1.8/windows-without-os-field (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/default-secure-configuration--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/default-secure-configuration--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/default-secure-configuration--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/default-secure-configuration--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--custom-format (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--format-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--spdx-format (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--unverified (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/sbom-verified-provenance--verified-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/signed-cryptographic-updates--level-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/signed-cryptographic-updates--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/cra/v1.0/signed-cryptographic-updates--slsa-level-1 (0.00s)
+    --- PASS: TestConformance_Verdicts/dora/v1.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/dora/v1.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/dora/v1.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--field-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--inherits-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--no-container-security-context-pod-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/container-run-as-non-root--no-security-context-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/data-classification-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/ephemeral-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/hitl-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--empty-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--short-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--tag-and-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/image-digest-required--tag-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privilege-escalation--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/no-privileged-mode--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v1.0/resource-limits-set--requests-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/approval-gate-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--field-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--inherits-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--no-container-security-context-pod-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/container-run-as-non-root--no-security-context-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-classification-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/data-retention-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--adds-without-drop (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--drop-lowercase-all (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--drops-net-admin-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--no-capabilities (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/drop-all-capabilities--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/ephemeral-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/hitl-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--empty-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--short-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--tag-and-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/image-digest-required--tag-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--init-container-has-no-probe (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/liveness-probe-present--probe-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privilege-escalation--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/no-privileged-mode--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/override-contact-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/pii-handling-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/policy-version-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/read-only-rootfs--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/readiness-probe-present--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/readiness-probe-present--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/readiness-probe-present--probe-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-limits-set--requests-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--limits-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/resource-requests-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-gcr-distroless (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-ghcr-controlplaneio-fluxcd (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-ghcr-controlplaneio-in-toto (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-ghcr-controlplaneio (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-registry-internal (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--allowed-zot-local (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--docker-hub-image (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--gcr-io-outside-distroless (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--init-container-untrusted (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--lookalike-host (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--org-prefix-lookalike (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.0/trusted-registry--public-ghcr-other-org (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/annex-iv-technical-documentation--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/automatic-record-keeping--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-approval-invalid (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-claim-missing-valid (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-no-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--exec-unapproved (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--modify-iam-unapproved (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--no-tool-call (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--read-action-unapproved (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/block-unauthorized-host-exec--write-file-unapproved (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--field-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--inherits-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--no-container-security-context-pod-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/container-run-as-non-root--no-security-context-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/deployer-monitoring-active--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--adds-without-drop (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--drop-lowercase-all (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--drops-net-admin-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--no-capabilities (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/drop-all-capabilities--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/ephemeral-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/no-privilege-escalation--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/resource-limits-set--requests-only (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--generative-flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--generative-no-transparency (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--generative-unmarked (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--model-type-undeclared (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/synthetic-content-marking--not-generative (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/training-data-provenance--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/eu-ai-act/v2.1/user-instructions-transparency--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/coding-agent-exec-with-hitl (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/customer-chatbot-partially-governed (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/enterprise-rag-assistant-fully-governed (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/shadow-agent-ungoverned (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-authn-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-authn-not-required (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-authn-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-rbac-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-rbac-not-enforced (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/access-rbac-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/agent-context-doc-minimal-example (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/agent-data-empty-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/agent-document-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/audit-logging-disabled (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/audit-logging-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/audit-logging-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/baseline-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/cost-controls-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/credentials-flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/credentials-flag-string-false (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/credentials-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/credentials-long-lived-exposed (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/data-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/data-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/explainability-disabled (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/explainability-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/explainability-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/governance-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/governance-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/guardrails-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/guardrails-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/hitl-approval-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/hitl-high-impact-without-approval (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/hitl-not-applicable-low-impact-only (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/hitl-unclassified-tool-with-approval (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/hitl-unclassified-tool-without-approval (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-allowlisted-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-allowlisted-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-element-not-an-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-empty-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/mcp-one-not-allowlisted (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-bare-latest-uppercase (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-dated-snapshot-dashed (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-floating-alias-claude-sonnet-4-5 (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-floating-alias-gpt-4o (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-latest-alias (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-latest-prefix-is-pinned (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-minor-only-gemini-1-5-pro (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-not-string (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/model-version-semver (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/observability-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/observability-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/output-filter-disabled (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/output-filter-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/output-filter-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/prompt-injection-filter-disabled (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/prompt-injection-filter-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/prompt-injection-filter-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rag-applicability-string-typed (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rag-applicability-undeclared (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rag-enabled-filter-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rag-enabled-filter-false (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rag-filter-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rag-not-applicable-no-filter (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-fractional (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-string (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rate-limit-zero (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/rate-limits-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/registry-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/registry-is-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/registry-model-registered-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/registry-model-registered-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/registry-model-unregistered (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/registry-not-an-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/spend-alerting-disabled (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/spend-alerting-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/spend-alerting-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/spend-budget-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/spend-budget-string (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/spend-budget-zero (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-element-not-an-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-empty-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-encrypted-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-encryption-flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-not-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/stores-one-unencrypted (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tamper-evident-disabled (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tamper-evident-key-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tamper-evident-string-true (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-embedded-wildcard-scope (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-mid-segment-wildcard-scope (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-prefix-wildcard-scope (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-scope-empty-string (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-scopes-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-scopes-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tool-wildcard-scope (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tools-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tools-element-not-an-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tools-empty-list (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tools-empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/finos-aigf/v1.0/tools-not-a-list (0.00s)
+    --- PASS: TestConformance_Verdicts/nis2/v1.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nis2/v1.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/nis2/v1.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/app-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/app-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/app-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/app-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/audit-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/audit-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/audit-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/audit-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--field-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--inherits-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--no-container-security-context-pod-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/container-run-as-non-root--no-security-context-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--adds-without-drop (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--drop-lowercase-all (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--drops-net-admin-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--no-capabilities (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/drop-all-capabilities--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/ephemeral-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--empty-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--short-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--tag-and-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/image-digest-required--tag-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-automount-sa-token--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-automount-sa-token--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-automount-sa-token--set-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privilege-escalation--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/no-privileged-mode--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/read-only-rootfs--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/resource-limits-set--requests-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/version-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/version-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/version-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v1.0/version-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/app-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/app-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/app-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/app-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/audit-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/audit-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/audit-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/audit-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--field-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--inherits-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--no-container-security-context-pod-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/container-run-as-non-root--no-security-context-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--adds-without-drop (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--drop-lowercase-all (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--drops-net-admin-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--no-capabilities (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/drop-all-capabilities--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/encryption-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/env-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/env-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/env-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/env-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/ephemeral-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--empty-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--short-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--tag-and-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/image-digest-required--tag-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--init-container-has-no-probe (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/liveness-probe-present--probe-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-format-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--mounts-elsewhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/log-volume-mount--no-volume-mounts (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/managed-by-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-automount-sa-token--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-automount-sa-token--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-automount-sa-token--set-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-host-network--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-host-network--set-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-host-network--set-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-host-pid--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-host-pid--set-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-host-pid--set-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privilege-escalation--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/no-privileged-mode--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/owner-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/owner-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/owner-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/owner-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--no-pod-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--run-as-non-root-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/pod-security-context--run-as-non-root-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/read-only-rootfs--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/readiness-probe-present--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/readiness-probe-present--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/readiness-probe-present--probe-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-limits-set--requests-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--limits-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/resource-requests-set--no-resources (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--container-level-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--container-overrides-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--containers-override-pod-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--ephemeral-container-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--init-container-overrides-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--no-pod-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-localhost (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-profile-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-profile-without-type (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/seccomp-profile--pod-unconfined (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/tls-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-gcr-distroless (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-ghcr-controlplaneio-fluxcd (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-ghcr-controlplaneio-in-toto (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-ghcr-controlplaneio (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-registry-internal (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--allowed-zot-local (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--docker-hub-image (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--gcr-io-outside-distroless (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--init-container-untrusted (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--lookalike-host (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--org-prefix-lookalike (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/trusted-registry--public-ghcr-other-org (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/version-label--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/version-label--label-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/version-label--no-labels (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/version-label--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--annotation-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--annotation-as-label-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--empty-value (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--no-annotations (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.0/vuln-scan-annotation--no-metadata (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/bare-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/compliant-agent-workload (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/helm-chart-redis-pod (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/anomaly-detection-telemetry--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--field-absent-everywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--inherits-pod-level (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--no-container-security-context-pod-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/container-run-as-non-root--no-security-context-anywhere (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--both-namespaces-empty (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--cross-namespace-authorized (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--cross-namespace-no-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--cross-namespace-unauthorized (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--empty-destination-authorized (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--no-request-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/cross-namespace-egress-authorization--no-source (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--adds-without-drop (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--drop-lowercase-all (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--drops-net-admin-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--no-capabilities (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/drop-all-capabilities--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/ephemeral-container-compliant (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--empty-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--short-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--tag-and-digest (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/image-digest--tag-only (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--flag-not-bool (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/immutable-audit-sink--no-agent-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/mfa-spiffe-svid-required--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/mfa-spiffe-svid-required--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/mfa-spiffe-svid-required--no-request-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/network-boundary-enforcement--flag-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/network-boundary-enforcement--flag-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/network-boundary-enforcement--no-request-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-automount-sa-token--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-automount-sa-token--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-automount-sa-token--set-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privilege-escalation--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--container-sets-true (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/no-privileged-mode--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--container-sets-false (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--empty-object (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--field-absent (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--init-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--no-containers (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/read-only-rootfs--no-security-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--foreign-trust-domain (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--lookalike-trust-domain (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--no-request-context (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/spiffe-peer-authorization--peer-without-spiffe-id (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-gcr-distroless (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-ghcr-controlplaneio-fluxcd (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-ghcr-controlplaneio-in-toto (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-ghcr-controlplaneio (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-registry-internal (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--allowed-zot-local (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--docker-hub-image (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--ephemeral-container-violates (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--gcr-io-outside-distroless (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--init-container-untrusted (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--lookalike-host (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--org-prefix-lookalike (0.00s)
+    --- PASS: TestConformance_Verdicts/nist-800-53/v2.1/trusted-registry--public-ghcr-other-org (0.00s)
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/bad_verdict
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/undocumented_error
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/incomplete_integ
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/name_!=_basename
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/unknown_check
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/empty_expect
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/bad_level
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/duplicate_names
+=== RUN   TestConformanceHarness_RejectsMalformedFixtures/well-formed_accepted
+--- PASS: TestConformanceHarness_RejectsMalformedFixtures (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/bad_verdict (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/undocumented_error (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/incomplete_integ (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/name_!=_basename (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/unknown_check (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/empty_expect (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/bad_level (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/duplicate_names (0.00s)
+    --- PASS: TestConformanceHarness_RejectsMalformedFixtures/well-formed_accepted (0.00s)
+=== RUN   TestConformanceHarness_CoverageNeedsPassAndFail
+--- PASS: TestConformanceHarness_CoverageNeedsPassAndFail (0.00s)
+=== RUN   TestConformanceHarness_PackWithoutFixturesFailsCoverage
+--- PASS: TestConformanceHarness_PackWithoutFixturesFailsCoverage (0.00s)
+=== RUN   TestConformanceHarness_VersionSelectionDetectsMultiDirectoryScan
+--- PASS: TestConformanceHarness_VersionSelectionDetectsMultiDirectoryScan (0.00s)
+=== RUN   TestConformanceHarness_PlaceholderVerdicts
+--- PASS: TestConformanceHarness_PlaceholderVerdicts (0.00s)
+=== RUN   TestConformanceHarness_ErrorIsNotFail
+--- PASS: TestConformanceHarness_ErrorIsNotFail (0.00s)
+=== RUN   TestConformanceHarness_AbsentInputsBoundEmpty
+--- PASS: TestConformanceHarness_AbsentInputsBoundEmpty (0.00s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine	(cached)

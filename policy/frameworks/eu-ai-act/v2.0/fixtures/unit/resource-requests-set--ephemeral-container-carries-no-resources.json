@@ -1,0 +1,100 @@
+{
+  "name": "resource-requests-set--ephemeral-container-carries-no-resources",
+  "level": "unit",
+  "description": "An attached ephemeral debug container declares no resources, which the Kubernetes EphemeralContainer schema requires. The check must not read ephemeralContainers, and passes.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "tenant-demo",
+        "labels": {
+          "data_classification": "confidential",
+          "ai_human_oversight": "required",
+          "policy_version": "v2.0.0"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "180d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "ai-ops@example.com"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "agent",
+            "image": "ghcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              }
+            }
+          }
+        ],
+        "ephemeralContainers": [
+          {
+            "name": "debugger",
+            "image": "ghcr.io/controlplaneio/debug@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "targetContainerName": "agent"
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "resource-requests-set": "pass"
+  }
+}

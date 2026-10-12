@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import decimal
 import enum
 import hashlib
 import itertools
@@ -118,7 +119,23 @@ class ComplianceSummaryInline(BaseModel):
     passing: int
     failing: int
     pending: int
+    #: Controls whose assessment could not evaluate. Folded into ``pending``
+    #: until now, which read as "not assessed yet" for a control the engine
+    #: tried and failed to judge. Additive: counted in ``total_controls``, and
+    #: no longer in ``pending``.
+    errored: int = 0
     posture_score: float | None
+    #: Whether the counts above were measured, or could not be derived at all.
+    #: ``"unavailable"`` is the non-money refusal verdict already used by
+    #: ``_derived_topology`` (``evidence_state="modeled"/"unavailable"``): the
+    #: control set for this agent is not knowable from the live inputs, so
+    #: every count is 0 and ``posture_score`` is ``None``. It is NOT "zero
+    #: controls passed" and NOT "posture 0" -- no assessment exists to score.
+    #: A reader must render it as "not assessed", never as a number.
+    evidence_state: Literal["measured", "unavailable"] = "measured"
+    #: Why the figures are unavailable. Set iff ``evidence_state`` is
+    #: ``"unavailable"``; ``None`` when measured.
+    reason: str | None = None
 
 
 class AgentCreateRequest(BaseModel):
@@ -241,6 +258,9 @@ class AssessmentSummaryMetadata(BaseModel):
     passed_controls: int = 0
     failed_controls: int = 0
     pending_controls: int = 0
+    #: Controls the assessment could not evaluate. Additive, and the reason
+    #: pending_controls no longer silently carries them.
+    errored_controls: int = 0
     normalized_score: float | None = None
 
 
@@ -868,7 +888,14 @@ class AgentTelemetryResponse(BaseModel):
     observations: list[TelemetryObservationModel] = Field(default_factory=list)
     total_count: int = 0
     pushdown_filters: dict[str, Any] = Field(default_factory=dict)
+    # source_health describes a source that was actually probed. "unavailable" means no
+    # telemetry data plane answered; it is never a synonym for "nothing to report".
     source_health: str = "healthy"
+    # evidence_state follows the in-repo honest-degradation idiom (_derived_topology,
+    # cadvisor_poller): "observed" when every observation came from a real source,
+    # "unavailable" when none could be obtained. reason carries why.
+    evidence_state: str = "observed"
+    reason: str | None = None
 
 
 class AuditListResponse(BaseModel):
@@ -1012,6 +1039,10 @@ class ComplianceSummaryResponse(BaseModel):
     controls_passing: int
     controls_failing: int
     controls_pending: int
+    #: Controls whose assessment could not evaluate; see
+    #: ``ComplianceSummaryInline.errored``. Additive and excluded from
+    #: ``controls_pending``.
+    controls_errored: int = 0
     posture_score: float | None
 
 
@@ -1041,21 +1072,146 @@ class MoneyResponse(BaseModel):
     currency: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
 
 
+class PricingStatus(str, enum.Enum):
+    """Why a route is or is not reporting a money figure.
+
+    WHY A STATUS AND NOT AN ABSENCE. Three routes withhold the same class of figure --
+    the policy engine's ``POST /api/v1/compliance/scan-fleet`` and the two persisted
+    summaries below -- and until this existed they said so three different ways: omitted
+    fields, ``null``, and ``0`` on older paths. An API that signals one condition three
+    ways invites the reader to ask whether any of it is deliberate.
+
+    And ``null`` alone is not self-describing. It is indistinguishable from a field this
+    version does not implement, from version skew between client and server, from a
+    serialisation bug, and from a crash midway through encoding. Null makes a field
+    silent, not honest -- the reader fills in the blank themselves, and a dashboard fills
+    it in with zero. So the value stays ``None``, because the figure must not be
+    forgeable, but the absence now travels with a status saying who withheld it and why.
+
+    WHY TWO REFUSAL VALUES. The causes demand different operator actions, so one label
+    over both would repeat the mistake the currency path already made and fixed.
+
+    The vocabulary is shared with ``PricingStatus`` in the Go engine's
+    ``pkg/compliance/fleet_scan.go``; ``tests/test_refusal_shape_parity.py`` fails if the
+    two drift.
+    """
+
+    #: A figure is present and was computed from declared inputs.
+    PRICED = "PRICED"
+    #: The checks evaluated resolve to no control in the risk pack, so no loss-event
+    #: frequency is declared for these findings. Operator action: declare the mapping in
+    #: ``risk/packs/agent-policy/<version>/pack.yaml``. Emitted by the Go engine.
+    NO_DECLARED_LOSS_FREQUENCY = "NO_DECLARED_LOSS_FREQUENCY"
+    #: The route answers from a store that holds no money at all, so there is nothing to
+    #: aggregate. Operator action: run a priced scan, or give the route a risk data plane.
+    NO_RISK_DATA_PLANE = "NO_RISK_DATA_PLANE"
+
+
+class PricingRefusalResponse(BaseModel):
+    """The refusal object, with the key set the Go engine emits.
+
+    Identical on all three refusing routes so a client has one shape to deserialise and
+    one to render, rather than three conditions to recognise.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Derived from ``status`` -- see ``of``. Kept because it predates ``status`` and
+    #: today's clients read it.
+    available: bool
+    status: PricingStatus
+    #: For the operator, where ``status`` is for the machine. Says what is missing and
+    #: where it would be declared, so a reader knows the next action.
+    reason: str
+    #: The money fields this response withheld, by their JSON names, so a client can tell
+    #: "withheld" from "this version has no such field" without consulting a schema.
+    unpricedFields: list[str] = Field(default_factory=list)
+    #: Checks that resolved to no declared control. Empty where the refusal is not
+    #: per-check, which is both of this app's routes: their cause is the absent data
+    #: plane, not any particular check. Always present, never ``null``, so the key set is
+    #: genuinely identical across the three routes rather than merely similar.
+    unmappedChecks: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def of(
+        cls,
+        status: PricingStatus,
+        *,
+        reason: str,
+        unpriced_fields: list[str],
+        unmapped_checks: list[str] | None = None,
+    ) -> PricingRefusalResponse:
+        """Build a refusal with ``available`` derived from ``status``.
+
+        There is deliberately no way to pass ``available``. Two hand-maintained fields
+        carrying one fact eventually disagree, and a boolean that disagrees with the
+        status beside it is worse than either alone -- it is a fabrication carried by the
+        field clients already read.
+        """
+        return cls(
+            available=status is PricingStatus.PRICED,
+            status=status,
+            reason=reason,
+            unpricedFields=list(unpriced_fields),
+            unmappedChecks=list(unmapped_checks or []),
+        )
+
+
+#: The money fields on ``PolicySummaryResponse``, by JSON name.
+SUMMARY_MONEY_FIELDS = ["totalAle", "totalVar95", "totalTvar", "totalCarriedGbp", "carried"]
+#: The money fields on ``PolicyFrameworkSummaryResponse``, by JSON name.
+FRAMEWORK_MONEY_FIELDS = ["totalExposureGbp", "exposure"]
+
+#: The refusal text for both persisted-summary routes. Names the store and the migration
+#: that defines it, so an operator reading the response knows what is missing rather than
+#: only that something is.
+NO_RISK_DATA_PLANE_REASON = (
+    "this route cannot report a money figure: it answers from the governance store "
+    "(agent_compliance_results, defined in db/migrations/004_agent_governance_schema.sql), "
+    "whose rows record a control status and carry no money column, so there is no priced "
+    "scan behind this response to aggregate. Priced figures come from "
+    "POST /compliance/policy/scan, which prices each check it evaluates; this summary "
+    "reports the counts it genuinely has and withholds the figures it does not"
+)
+
+#: The accompanying statement on the priced path. The key set is identical on both, so
+#: this field is populated there too rather than left to mean "refusal" by its presence.
+PRICED_REASON = (
+    "these figures are the sum of the per-check figures the policy engine returned for "
+    "this scan; each check's own ale, var95, tvar and carriedGbp are reported alongside it"
+)
+
+
 class PolicyFrameworkSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     name: str
     versions: list[str]
+    #: Distinct controls, counted once however many agents and checks assessed
+    #: them. Not the number of rows -- that is ``totalResults``.
     totalControls: int
     passedControls: int
     failedControls: int
-    totalExposureGbp: int
+    #: Assessment rows behind the counts above: one per (agent, check) in a scan
+    #: response. Zero on the persisted summary, which reports no per-agent rows.
+    #: Additive, so a consumer reading only totalControls is unaffected.
+    totalResults: int = 0
+    #: ``None`` means NOT COMPUTED, and is not interchangeable with ``0``.
+    #: A scan response prices every check it evaluated, so this is a real sum
+    #: there. The persisted summary is read from ``agent_compliance_results``,
+    #: which stores no money, so no exposure figure exists to report and the
+    #: route says so rather than emitting a zero a client renders as "clean".
+    totalExposureGbp: int | None
     # Denominated twin of totalExposureGbp. Additive on purpose: the *Gbp fields stay until every
     # consumer has migrated, because a breaking rename would take the dashboard down mid-flight.
     # New consumers should read `exposure` and treat `totalExposureGbp` as deprecated -- its name
     # is a lie the moment a tenant reports in anything other than sterling.
     exposure: MoneyResponse | None = None
+    # Why the two fields above are populated, or are not. The same shape the Go engine's
+    # scan-fleet route emits, so one condition has one signal across the estate.
+    # `None` only for a client constructing this model itself; every route sets it.
+    pricing: PricingRefusalResponse | None = None
 
 
 class PolicySummaryResponse(BaseModel):
@@ -1064,12 +1220,23 @@ class PolicySummaryResponse(BaseModel):
     totalChecks: int
     passed: int
     failed: int
-    totalAle: int
-    totalVar95: int
-    totalTvar: int
-    totalCarriedGbp: int
+    # The four money figures below are ``None`` when the serving route has no
+    # risk data plane behind it, and a real sum when it does. ``None`` is NOT a
+    # synonym for ``0``: a zero here is an affirmative claim that exposure was
+    # calculated and came to nothing, which is exactly how an HTTP 200 carrying
+    # no risk data gets quoted as a clean posture. Only the scan path computes
+    # these; the persisted summary reads rows that carry no money at all.
+    totalAle: int | None
+    totalVar95: int | None
+    totalTvar: int | None
+    totalCarriedGbp: int | None
     # Denominated twin of totalCarriedGbp; see PolicyFrameworkSummaryResponse.exposure.
     carried: MoneyResponse | None = None
+    # Why the five money fields above are populated, or are not. Previously the only
+    # signal was that they were `null`, which a reader cannot distinguish from a field
+    # this version does not implement, from version skew, or from a serialisation fault.
+    # The same shape the Go engine's scan-fleet route emits; see PricingStatus.
+    pricing: PricingRefusalResponse | None = None
     # The denomination of totalAle / totalVar95 / totalTvar / totalCarriedGbp above.
     currency: str | None = None
     scanTimestamp: str
@@ -1086,6 +1253,17 @@ class PolicyScanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     namespace: str = Field(min_length=1, max_length=253)
+    # A FALLBACK, not an override. Each pack is evaluated at the version the
+    # tenant activated it at (``governance_frameworks.version``), and this value
+    # is used only for a requested pack the tenant has not mapped. That is
+    # deliberate: the activated version is a recorded governance decision, and a
+    # caller who could override it by passing a string could have the fleet
+    # assessed against a policy version the tenant never adopted. It is not
+    # rejected when it matches nothing either -- packs activate at different
+    # versions, so any single value a caller sends matches at most one of them,
+    # and a 4xx there would fail the ordinary case. What the scan was actually
+    # evaluated at is reported per framework in the response summary's
+    # ``versions`` and recorded in the audit event's ``pack_versions``.
     policyVersion: str = Field(min_length=1, max_length=64)
     # Policy-engine pack ids (``cis-kubernetes``, ``finos-aigf``). Empty: every
     # pack the tenant's governance_controls map to.
@@ -1111,8 +1289,12 @@ class PolicyComplianceCheck(BaseModel):
     carried: MoneyResponse | None = None
     # The denomination of ale / var95 / tvar / carriedGbp above.
     currency: str | None = None
-    scanTimestamp: str
-    calibrationSource: str
+    # Both are the engine's own, reported or absent. Null rather than a stand-in:
+    # a defaulted ``calibrationSource`` asserted a calibration provenance the
+    # engine never reported, and a defaulted ``scanTimestamp`` asserted it had
+    # just looked. Consumers must render "unknown", not fill one in.
+    scanTimestamp: str | None = None
+    calibrationSource: str | None = None
     # The agent this verdict is about. Each agent is scanned with its own subject.
     agentId: str | None = None
     agentName: str | None = None
@@ -1122,6 +1304,22 @@ class PolicyComplianceCheck(BaseModel):
     # The governance_controls row this check maps to by
     # (policy_framework_id, policy_check_id); None when no control maps it.
     controlId: str | None = None
+
+
+class PolicyControlGap(BaseModel):
+    """A mapped control this scan did not get a verdict for from the engine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agentId: str
+    framework: str
+    check: str
+    controlId: str
+    # What was stored for it: ``pending`` (not assessed) or ``error``.
+    stored: Literal["pending", "error"]
+    # ``no_workload``: the agent has no observed workload and the pack reads
+    # only ``object``, so the engine was not asked.
+    reason: Literal["no_workload", "missing_from_engine_response"]
 
 
 class PolicyScanResponse(BaseModel):
@@ -1135,6 +1333,12 @@ class PolicyScanResponse(BaseModel):
     agentsScanned: int = 0
     # Registry ids of agents whose scan call failed. Their rows were not touched.
     agentsFailed: list[str] = Field(default_factory=list)
+    # Requested ``agentIds`` this tenant has no agent for, as the caller wrote
+    # them. Another tenant's agent, a deleted one or a typo all land here; the
+    # scan neither reads nor writes anything for them.
+    agentsNotFound: list[str] = Field(default_factory=list)
+    # Mapped controls of scanned agents that got no engine verdict, and why.
+    controlGaps: list[PolicyControlGap] = Field(default_factory=list)
 
 
 class ControlResponse(BaseModel):
@@ -1144,6 +1348,85 @@ class ControlResponse(BaseModel):
     name: str
     description: str | None
     control_order: int
+
+
+#: The territory a framework's obligations actually bite in.
+#:
+#: WHY THIS LIVES HERE AND NOT ON THE ENGINE'S FRAMEWORK STRUCT. The policy
+#: engine's ``frameworks`` package has no territory, jurisdiction or
+#: applicability concept at all -- ``ListFrameworks`` returns
+#: ``map[string][]string`` of id to versions, and there is no ``Regime`` type.
+#: Adding one is in flight as a separate change to ``frameworks/types.go``, and
+#: a second applicability concept alongside it would be precisely the failure
+#: ``model.go`` warns about in its own comment: "a parallel concept would have
+#: meant two answers to 'where is this institution' and eventually two
+#: different answers". So this map is REPORTING-ONLY and deliberately
+#: provisional -- it exists to surface out-of-jurisdiction regimes to an
+#: operator, and it must be replaced by the engine's applicability data once
+#: that lands rather than grown.
+#:
+#: An ABSENT entry means global, matching the engine's own permissive default
+#: (``Scenario.Territories`` omitted means every institution). That is the
+#: behaviour every framework has today, so adding this axis moves nothing.
+FRAMEWORK_TERRITORIES: dict[str, tuple[str, ...]] = {
+    # UK/EU data protection and the EU's AI regulation.
+    "uk-gdpr": ("UK",),
+    "eu-ai-act": ("EU", "DE", "FR"),
+    "gdpr": ("EU", "DE", "FR"),
+    "dora": ("EU", "DE", "FR"),
+    "nis2": ("EU", "DE", "FR"),
+    # US sectoral regimes.
+    "hipaa": ("US",),
+    "sox": ("US",),
+    "ccpa": ("US",),
+    "nist-800-53": ("US",),
+    # Deliberately NOT listed, and therefore global: cis-kubernetes,
+    # finos-aigf, iso-27001, soc2, pci-dss. A control baseline, an industry
+    # framework and three international standards are adopted by choice rather
+    # than imposed by a territory, so scoping them would exclude them from
+    # institutions that genuinely follow them.
+}
+
+#: A tenant or framework that operates everywhere.
+GLOBAL_TERRITORY = "*"
+
+
+def framework_territories(framework_id: str) -> tuple[str, ...]:
+    """The territories a framework is scoped to; empty means global."""
+    return FRAMEWORK_TERRITORIES.get((framework_id or "").strip().lower(), ())
+
+
+def framework_applies_to(territories: tuple[str, ...], jurisdiction: str | None) -> bool:
+    """Ported from ``Scenario.AppliesTo`` (model.go), not reinvented.
+
+    The two semantics that matter and are easy to get backwards:
+
+      * Omitted territories means GLOBAL. The permissive default, on purpose:
+        it is the behaviour every pack already had, so adding this axis moves
+        no existing number. Scoping is an affirmative act.
+      * An institution that does not say where it is matches NO scoped
+        framework. The framework is excluded rather than assumed, because
+        silence must never read as a match.
+
+    Comparison is case-insensitive and whitespace-trimmed: 'uk' and 'UK'
+    naming different things would be a data trap, not a feature.
+
+    ONE DELIBERATE EXTENSION beyond the Go original, flagged because it is a
+    semantic decision and not a port: a tenant whose jurisdiction is ``*``
+    matches EVERY scoped framework. ``AppliesTo`` only ever receives a concrete
+    jurisdiction from a YAML file, so it never had to answer "what if the
+    institution says it operates everywhere" -- under a strict reading such a
+    tenant would match only global frameworks, which would be the opposite of
+    what declaring global operation means. Worth a second opinion.
+    """
+    if not territories or any(t.strip() == GLOBAL_TERRITORY for t in territories):
+        return True
+    j = (jurisdiction or "").strip().upper()
+    if not j:
+        return False
+    if j == GLOBAL_TERRITORY:
+        return True
+    return any(t.strip().upper() == j for t in territories)
 
 
 class FrameworkResponse(BaseModel):
@@ -1156,6 +1439,80 @@ class FrameworkResponse(BaseModel):
     compliance_deadline: str | None
     control_count: int
     controls: list[ControlResponse]
+
+    # ── Jurisdiction reporting: READ-ONLY, prices nothing ───────────────────
+    #
+    # These REPORT whether a regime is in scope for the tenant's declared
+    # jurisdiction. Nothing downstream filters, excludes or re-prices on them
+    # yet -- deliberately, because changing what is priced is a separate
+    # decision from telling an operator what looks out of scope, and the
+    # second is useful on its own.
+    #
+    # in_jurisdiction is never None: under the ported semantics an unstated
+    # jurisdiction gives a definite False for a scoped framework, not an
+    # unknown. out_of_jurisdiction_reason carries WHY, for the same reason
+    # magnitudes carry provenance -- an unexplained exclusion is
+    # indistinguishable from an oversight.
+    territories: list[str] = []
+    in_jurisdiction: bool = True
+    out_of_jurisdiction_reason: str | None = None
+
+
+def _with_jurisdiction_reporting(
+    frameworks_list: list[FrameworkResponse], jurisdiction: str | None,
+) -> list[FrameworkResponse]:
+    """Stamp the three reporting fields onto an already-built list.
+
+    Applied as a post-pass over both read paths rather than threaded into each
+    constructor: the in-memory path builds seven literals and the pooled path
+    builds from rows, so one pass over the result is the only shape in which
+    the two cannot disagree about whether a regime is in scope.
+
+    ORDER AND MEMBERSHIP ARE UNCHANGED. Nothing is filtered out -- an
+    out-of-jurisdiction regime is still returned, still with all its controls,
+    and merely carries the reporting fields. Dropping it would change what the
+    compliance board counts, which is a pricing decision and not this one.
+    """
+    stamped = []
+    for framework in frameworks_list:
+        stamped.append(
+            framework.model_copy(
+                update=framework_jurisdiction_fields(framework.id, jurisdiction),
+            ),
+        )
+    return stamped
+
+
+def framework_jurisdiction_fields(
+    framework_id: str, jurisdiction: str | None,
+) -> dict[str, Any]:
+    """The three reporting fields for one framework, in one place.
+
+    Shared by both read paths (pooled and in-memory fixture) so they cannot
+    disagree about whether a regime is in scope.
+    """
+    territories = framework_territories(framework_id)
+    applies = framework_applies_to(territories, jurisdiction)
+    reason: str | None = None
+    if not applies:
+        scoped = ", ".join(territories)
+        if (jurisdiction or "").strip():
+            reason = (
+                f"{framework_id} applies in {scoped}; this organisation declares "
+                f"{jurisdiction}."
+            )
+        else:
+            reason = (
+                f"{framework_id} applies in {scoped}, and this organisation has not "
+                f"declared a jurisdiction. An unstated jurisdiction matches no scoped "
+                f"regime rather than all of them, so declare one to see whether this "
+                f"regime is in scope."
+            )
+    return {
+        "territories": list(territories),
+        "in_jurisdiction": applies,
+        "out_of_jurisdiction_reason": reason,
+    }
 
 
 class AgentComplianceResultResponse(BaseModel):
@@ -1285,6 +1642,21 @@ class TenantSettingsResponse(BaseModel):
     alert_email: str | None
     alert_threshold: int
 
+    # ── The declared organisational risk profile (migration 062) ────────────
+    #
+    # All five are None for a tenant that has not declared one, and None means
+    # UNDECLARED rather than "zero" or "the usual value".  The engine falls
+    # back to its own documented constants in that case, which is what keeps
+    # every existing money figure where it is for tenants who never opted in.
+    #
+    # Mirrored in tests/contract.py::TenantSettingsResponse, which carries
+    # extra="forbid" on both sides so a drift between the two is a red test.
+    sector: str | None = None
+    jurisdiction: str | None = None
+    reporting_currency: str | None = None
+    risk_appetite_tolerance: float | None = None
+    risk_load: float | None = None
+
 
 class InitialApiKeyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1407,6 +1779,125 @@ SUPPORTED_DISPLAY_CURRENCIES: frozenset[str] = frozenset({
     "USD", "GBP", "EUR", "JPY",
     "AED", "AUD", "CAD", "CHF", "DKK", "HKD", "INR", "NOK", "SEK", "SGD", "ZAR",
 })
+
+
+class RiskProfilePatchRequest(BaseModel):
+    """What a tenant DECLARES about itself: sector, place, money, appetite.
+
+    The declared half of the pricing split.  risk/org/acme.yaml:3-6 states it:
+    the policy pack owns loss event FREQUENCY, a property of the control
+    environment; the institution owns loss MAGNITUDE, a property of the
+    institution.  These five fields are the subset of that institutional half
+    which can be elicited honestly at onboarding.
+
+    The per-scenario magnitude triples are deliberately NOT here.  Every one of
+    them carries mandatory ``provenance`` prose naming the anchor class it was
+    calibrated against, because an unsourced number is not reviewable.  A
+    wizard cannot elicit that from someone clicking through onboarding, and a
+    fabricated triple is strictly worse than no triple -- it prices agent risk
+    in pounds nobody can argue with because nobody wrote down where they came
+    from.  Those stay in reviewed, version-controlled YAML.
+
+    EVERY FIELD IS OPTIONAL, and the step is skippable.  An omitted field means
+    UNDECLARED -- see the handler for why this is a whole-profile declaration
+    and not a partial merge.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sector: str | None = Field(default=None, max_length=120)
+    jurisdiction: str | None = Field(default=None, max_length=32)
+    reporting_currency: str | None = Field(default=None, max_length=3)
+    risk_appetite_tolerance: float | None = Field(default=None)
+    risk_load: float | None = Field(default=None)
+
+    @field_validator("sector")
+    @classmethod
+    def _blank_sector_is_undeclared(cls, value: str | None) -> str | None:
+        """A skipped text input arrives as '', which is not a declaration."""
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("jurisdiction")
+    @classmethod
+    def _canonical_jurisdiction(cls, value: str | None) -> str | None:
+        """Trim and upper-case, or treat as undeclared.
+
+        ``Scenario.AppliesTo`` compares case-insensitively and trimmed, so
+        storing both 'uk' and 'UK' buys nothing and makes two rows that differ
+        only by case -- a data trap, not a feature.  Normalising here is also
+        what lets the column carry a canonical-form CHECK: without it a
+        valid-looking payload would be rejected by the database rather than by
+        the handler, which can explain itself.
+        """
+        if value is None:
+            return None
+        return value.strip().upper() or None
+
+    @field_validator("reporting_currency")
+    @classmethod
+    def _priceable_currency(cls, value: str | None) -> str | None:
+        """Reject an unpriceable code rather than storing it.
+
+        Membership of the rate table, NOT ISO 4217 membership and not a shape
+        check.  ``XXX`` is a real ISO assignment meaning "no currency" and
+        ``XAU`` is gold; both are valid codes and neither is something this
+        product can price.  And the failure mode is not a 500:
+        ``Intl.NumberFormat`` renders an unrecognised code instead of throwing,
+        so an accepted-but-unpriceable code arrives on screen looking like real
+        money while the figures silently fall back to the default currency.
+        """
+        if value is None:
+            return None
+        candidate = value.strip()
+        if not candidate:
+            return None
+        if candidate not in SUPPORTED_DISPLAY_CURRENCIES:
+            raise ValueError(
+                f"unsupported reporting currency {candidate!r}; "
+                f"choose one of {', '.join(sorted(SUPPORTED_DISPLAY_CURRENCIES))}",
+            )
+        return candidate
+
+    @field_validator("risk_load")
+    @classmethod
+    def _finite_non_negative_risk_load(cls, value: float | None) -> float | None:
+        """Finite and >= 0.  Zero is coherent: the tail with no load on top.
+
+        JSON has no NaN, but Python's decoder accepts the bare literal, so a
+        client genuinely can send one.  A NaN here would propagate through
+        ``tvar * (1 + risk_load)`` and yield a carried figure that passes every
+        structural check and is not a number -- the same trap
+        ``LoadOrgRiskPosture`` guards with math.IsNaN/IsInf at the YAML
+        boundary, and the same one the column CHECK guards with ``< 'Infinity'``
+        (PostgreSQL sorts NaN above every value, so ``>= 0`` alone admits it).
+        """
+        if value is None:
+            return None
+        if not math.isfinite(value):
+            raise ValueError("risk_load must be a finite number")
+        if value < 0:
+            raise ValueError(
+                "risk_load must be >= 0; a negative load would make carried risk "
+                "less than tail risk, which is not a coherent risk posture",
+            )
+        return value
+
+    @field_validator("risk_appetite_tolerance")
+    @classmethod
+    def _finite_positive_tolerance(cls, value: float | None) -> float | None:
+        """Strictly positive: without a tolerance band a number cannot become a verdict."""
+        if value is None:
+            return None
+        if not math.isfinite(value):
+            raise ValueError("risk_appetite_tolerance must be a finite number")
+        if value <= 0:
+            raise ValueError(
+                "risk_appetite_tolerance must be > 0; without a tolerance band a "
+                "number cannot become a verdict",
+            )
+        return value
 
 
 class UserPreferencesResponse(BaseModel):
@@ -2319,6 +2810,59 @@ async def _audit_log(
     )
 
 
+def _unassessed_compliance_summary(reason: str) -> ComplianceSummaryInline:
+    """The refusal summary: no control set is derivable, so nothing is counted.
+
+    Every count is 0 and ``posture_score`` is ``None`` because a posture figure
+    is real only if it is a function of its inputs. The alternative -- carrying
+    a plausible constant (6 controls, 83) or defaulting a missing column to 100
+    -- publishes a measurement nobody took, and the "better than reality"
+    direction (100) is the dangerous one: it reports perfect compliance for an
+    agent that has never been assessed.
+    """
+    return ComplianceSummaryInline(
+        total_controls=0,
+        passing=0,
+        failing=0,
+        pending=0,
+        errored=0,
+        posture_score=None,
+        evidence_state="unavailable",
+        reason=reason,
+    )
+
+
+def _compliance_summary_from_findings(row: dict[str, Any]) -> ComplianceSummaryInline:
+    """Summary for a store row that carries ``findings_count`` and nothing else.
+
+    This is the no-database branch of ``list_agents``. There is no
+    ``agent_compliance_results`` table and no ``governance_controls`` table in
+    the in-process store, so the agent's control set -- the denominator -- is
+    not knowable here by any means.
+
+    What is derivable is carried: ``findings_count`` is the estate's count of
+    failing controls (same mapping as ``_agent_response_from_discovered``).
+    What is not derivable is refused:
+
+    * ``total_controls`` was the literal ``6``. Six is the row count of the
+      demo ``governance_controls`` seed, an environment fact about one
+      database -- not a property of this agent, and not available here.
+    * ``passing`` was ``max(6 - fc, 0)``, derived from that literal, so it
+      inherited the fiction and reported five passing controls for an agent
+      that had never been assessed against any.
+    * ``posture_score`` was ``float(row.get("compliance_posture", 100)) / 100``.
+      No store row in this tree ever carries a ``compliance_posture`` key, so
+      the default fired every time and every such agent was published at
+      posture 1.0 -- perfect compliance synthesised from absent data.
+    """
+    failing = int(row.get("findings_count", 0) or 0)
+    summary = _unassessed_compliance_summary(
+        "the in-process store holds no control results and no control "
+        "catalogue, so this agent's control count and posture are not derivable"
+    )
+    return summary.model_copy(update={"failing": failing})
+
+
 async def _compliance_summary_for_agent(
     executor: Any, agent_id: uuid.UUID,
 ) -> ComplianceSummaryInline:
@@ -2335,20 +2879,34 @@ async def _compliance_summary_for_agent(
     passing = 0
     failing = 0
     pending = 0
+    errored = 0
     for row in rows:
         total += row["cnt"]
         if row["status"] == "pass":
             passing += row["cnt"]
         elif row["status"] == "fail":
             failing += row["cnt"]
+        elif row["status"] == "error":
+            errored += row["cnt"]
         else:
             pending += row["cnt"]
+    # Errored controls stay in the denominator, alongside pending. They are
+    # unassessed, and dropping them would raise the posture score of an agent
+    # the engine could not judge -- the one direction a posture figure must
+    # never move on its own. The score is "controls known to pass, of all
+    # controls", which is why it is not a pass rate over assessments.
     posture_score = round(passing / total, 2) if total > 0 else None
+    if total == 0:
+        return _unassessed_compliance_summary(
+            "no agent_compliance_results rows exist for this agent: its control "
+            "set has never been assessed, so posture is not derivable"
+        )
     return ComplianceSummaryInline(
         total_controls=total,
         passing=passing,
         failing=failing,
         pending=pending,
+        errored=errored,
         posture_score=posture_score,
     )
 
@@ -2702,10 +3260,13 @@ def _agent_response_from_row(
         passed_controls=compliance.passing,
         failed_controls=compliance.failing,
         pending_controls=compliance.pending,
+        errored_controls=compliance.errored,
         normalized_score=normalized_score,
     )
 
-    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or raw_lifecycle_state in ("error", "failed")) else ("warning" if compliance.pending > 0 else "none")
+    # An errored control warrants the same attention as a pending one: in both
+    # cases nobody knows whether the agent complies.
+    attention_level: Literal["critical", "warning", "info", "none"] = "critical" if (compliance.failing > 0 or raw_lifecycle_state in ("error", "failed")) else ("warning" if (compliance.pending > 0 or compliance.errored > 0) else "none")
     attention = AttentionMetadata(
         level=attention_level,
         highest_issue=f"{compliance.failing} failing controls" if compliance.failing > 0 else None,
@@ -3065,6 +3626,10 @@ _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
 _NHI_ACCOUNTS: dict[str, dict[str, dict[str, Any]]] = {}
 _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
 _TENANT_PREFERENCES: dict[str, dict[str, Any]] = {}
+#: The declared organisational risk profile, in-memory path.  ABSENT means
+#: undeclared; there is deliberately no default entry, so a tenant nobody has
+#: asked reads back all-NULL exactly as it does from Postgres.
+_TENANT_RISK_PROFILE: dict[str, dict[str, Any]] = {}
 _TENANT_CONNECTORS: dict[str, dict[str, bool]] = {}
 # Per-user display currency for the no-pool path, keyed tenant -> actor.
 # Nested by tenant so _reset_tenant can drop it with the rest.
@@ -3168,6 +3733,7 @@ def reset_tenant_state(tenant_id: str) -> None:
             _AGENTS, _AGENT_CREDENTIALS, _VIOLATIONS, _NHI_ACCOUNTS,
             _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _TENANT_CONNECTORS, _COOKIE_PREFS,
             _CONSENT, _CLAIMS, _AUDIT_EVENTS, _USER_PREFERENCES,
+            _TENANT_RISK_PROFILE,
         ):
             store.pop(tenant_id, None)
 
@@ -3580,12 +4146,49 @@ def _cookie_preferences_for_tenant(tenant_id: str) -> CookiePreferences:
     return CookiePreferences(**prefs)
 
 
+#: The five columns migration 062 added, in one place so the two read paths
+#: (pooled and in-memory) cannot disagree about which fields a risk profile has.
+RISK_PROFILE_FIELDS = (
+    "sector",
+    "jurisdiction",
+    "reporting_currency",
+    "risk_appetite_tolerance",
+    "risk_load",
+)
+
+
+def _risk_profile_from(source: Any) -> dict[str, Any]:
+    """Project a risk profile out of an asyncpg Record or an in-memory dict.
+
+    A missing key and a NULL column both mean UNDECLARED and both come back as
+    None.  No field acquires a fallback value here: the engine's own constants
+    are the fallback, and inventing one at this layer would move every existing
+    money figure for tenants who never declared anything.
+
+    ``risk_appetite_tolerance`` is NUMERIC in Postgres and so arrives as
+    ``Decimal``; it is cast to float because that is what the response model
+    declares and what JSON can carry.
+    """
+    profile: dict[str, Any] = {}
+    for field in RISK_PROFILE_FIELDS:
+        try:
+            value = source[field]
+        except (KeyError, IndexError, TypeError):
+            value = None
+        if value is not None and field in ("risk_appetite_tolerance", "risk_load"):
+            value = float(value)
+        profile[field] = value
+    return profile
+
+
 def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
     prefs = _scan_preferences_from(
         _TENANT_PREFERENCES.get(tenant_id, {}),
         f"tenant {tenant_id} (in-memory fixture store)",
     )
+    risk_profile = _risk_profile_from(_TENANT_RISK_PROFILE.get(tenant_id, {}))
     return TenantSettingsResponse(
+        **risk_profile,
         tenant_id=tenant_id,
         org_name=f"{tenant_id} Org",
         plan_tier="enterprise",
@@ -4102,14 +4705,7 @@ async def agents(
                     if matched_row.get("compliance_summary") is not None:
                         compliance = matched_row["compliance_summary"]
                     elif isinstance(matched_row, dict) and "findings_count" in matched_row:
-                        fc = int(matched_row.get("findings_count", 0))
-                        compliance = {
-                            "total_controls": 6,
-                            "passing": max(6 - fc, 0),
-                            "failing": fc,
-                            "pending": 0,
-                            "posture_score": float(matched_row.get("compliance_posture", 100)) / 100.0,
-                        }
+                        compliance = _compliance_summary_from_findings(matched_row)
                     else:
                         compliance = _default_compliance_summary()
                     all_records.append(_agent_response_from_row(
@@ -4129,14 +4725,7 @@ async def agents(
                 if row.get("compliance_summary") is not None:
                     compliance = row["compliance_summary"]
                 elif isinstance(row, dict) and "findings_count" in row:
-                    fc = int(row.get("findings_count", 0))
-                    compliance = {
-                        "total_controls": 6,
-                        "passing": max(6 - fc, 0),
-                        "failing": fc,
-                        "pending": 0,
-                        "posture_score": float(row.get("compliance_posture", 100)) / 100.0,
-                    }
+                    compliance = _compliance_summary_from_findings(row)
                 else:
                     compliance = _default_compliance_summary()
                 all_records.append(_agent_response_from_row(
@@ -4900,7 +5489,13 @@ async def _execute_claim(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Signal Loom Built', 83, NULL, $6,
+                    -- compliance_posture is NULL, not 83: claiming a workload
+                    -- measures nothing about its compliance. The column is
+                    -- nullable by design (004_agent_governance_schema.sql
+                    -- CHECK (n IS NULL OR n BETWEEN 0 AND 100)); the real
+                    -- score is derived from agent_compliance_results, which
+                    -- this route seeds below.
+                    'Signal Loom Built', NULL, NULL, $6,
                     $7, $8,
                     NOW(), NOW(), NOW()
                 )
@@ -4908,7 +5503,10 @@ async def _execute_claim(
                     display_name = COALESCE(EXCLUDED.display_name, agent_registry.display_name),
                     lifecycle_state = 'active',
                     status = 'active',
-                    compliance_posture = 83,
+                    -- compliance_posture is deliberately NOT in this SET list.
+                    -- A re-claim took no measurement, so it may neither write a
+                    -- figure nor clear one: resetting the column to 83 here
+                    -- destroyed any real score computed since the first claim.
                     model_name = EXCLUDED.model_name,
                     owner = COALESCE(EXCLUDED.owner, agent_registry.owner),
                     owner_id = COALESCE(EXCLUDED.owner_id, agent_registry.owner_id),
@@ -5067,12 +5665,16 @@ async def _execute_claim(
         proxy_path="/api/v1/agents/claim",
         source_health=SourceHealthDetail(status="healthy", message="Verified SPIFFE SVID"),
     )
-    compliance_inline = ComplianceSummaryInline(
-        total_controls=6,
-        passing=5,
-        failing=0,
-        pending=1,
-        posture_score=0.83,
+    # The database branch of this route seeds one agent_compliance_results row
+    # per governance_controls row and the summary is then counted off those
+    # rows. This is the no-database branch: there is no control catalogue to
+    # seed from, so the control count and posture are refused rather than
+    # restated as the 6/5/1 + 0.83 shape the seeded path happens to produce in
+    # the demo database. Six is that database's row count, not this agent's.
+    compliance_inline = _unassessed_compliance_summary(
+        "the in-process store has no governance_controls catalogue to assess "
+        "this agent against, so no controls were seeded and posture is not "
+        "derivable"
     )
 
     with _STORE_LOCK:
@@ -6434,164 +7036,41 @@ async def get_agent_telemetry(
     if not agent_found:
         raise APIError(404, "not_found", f"Agent {agent_id} not found")
 
-    # Generate comparative telemetry observations based on agent security profile
+    # REFUSAL, not fabrication.
+    #
+    # This route has no telemetry data plane behind it. The pool above is used only to
+    # confirm the agent exists; no observation store is ever queried -- not signal-ingest
+    # observations, not the cAdvisor sampler at /api/v1/telemetry/agents/{pod_name}.
+    #
+    # It previously synthesised three observations chosen by substring match on the agent
+    # ID ("nono" / "standard"|"baseline" / else), each carrying a hardcoded confidence
+    # (1.0 / 0.98 / 0.95), an observed_at stamped with the request clock, and attribution
+    # to named sensors including "tetragon-ebpf-flow" -- a sensor never deployed in this
+    # estate. That was 100% of responses; there was no real path to fall back from.
+    #
+    # Per the project doctrine a figure that cannot be derived must be refused, so the
+    # route now reports that no source answered and returns no observations. Wiring a
+    # real source is a product decision: see the W11 report.
     observations: list[TelemetryObservationModel] = []
-    agent_id_lower = agent_id.lower()
-
-    if "nono" in agent_id_lower:
-        observations = [
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-nono-1",
-                observed_at=_now_iso(),
-                source="nono-audit-verifier",
-                layer="LayerLSMConfinement",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="landlock.confinement_verified",
-                details={
-                    "confinement_status": "enforcing",
-                    "lsm": "landlock",
-                    "hash_chain_sha256": "3a7f9c2e4b8d1f0a5e6c7b8a9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e",
-                    "detached_signature": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced",
-                    "fs_sandbox": "strict_readonly",
-                    "verification": "cryptographically_verified",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-nono-2",
-                observed_at=_now_iso(),
-                source="nono-audit-verifier",
-                layer="LayerCryptographicAudit",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="nono.hash_chain_appended",
-                details={
-                    "block_height": 104,
-                    "previous_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                    "current_hash": "3a7f9c2e4b8d1f0a5e6c7b8a9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e",
-                    "audit_trail_signature": "verified",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-1",
-                observed_at=_now_iso(),
-                source="frostdb-columnar",
-                layer="LayerNetworkEgress",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="egress.traffic_allowed",
-                details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
-                confidence=0.98,
-            ),
-        ]
-    elif "standard" in agent_id_lower or "baseline" in agent_id_lower:
-        observations = [
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-tetragon-1",
-                observed_at=_now_iso(),
-                source="tetragon-ebpf-flow",
-                layer="LayerKernelTracepoint",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="tetragon.process_exec",
-                details={
-                    "binary": "/usr/local/bin/agent-worker",
-                    "syscall": "sys_enter_execve",
-                    "namespace": "fe-signalloom-agents",
-                    "cgroup": "fe-signalloom-agents/agent-standard-baseline",
-                    "pid": 48123,
-                    "event": "PROCESS_EXEC",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-tetragon-2",
-                observed_at=_now_iso(),
-                source="tetragon-ebpf-flow",
-                layer="LayerKernelSocket",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="tetragon.socket_connect",
-                details={
-                    "daddr": "10.96.0.1",
-                    "dport": 443,
-                    "protocol": "TCP",
-                    "syscall": "sys_enter_connect",
-                    "tracepoint": "tcp_connect",
-                    "event": "SOCKET_CONNECT",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-2",
-                observed_at=_now_iso(),
-                source="ebpf-sentinel",
-                layer="LayerKernelSocket",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="socket.ebpf_traced",
-                details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
-                confidence=1.0,
-            ),
-        ]
-    else:
-        observations = [
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-1",
-                observed_at=_now_iso(),
-                source="frostdb-columnar",
-                layer="LayerNetworkEgress",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="egress.traffic_allowed",
-                details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
-                confidence=0.98,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-2",
-                observed_at=_now_iso(),
-                source="ebpf-sentinel",
-                layer="LayerKernelSocket",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="socket.ebpf_traced",
-                details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-3",
-                observed_at=_now_iso(),
-                source="tc-ebpf",
-                layer="LayerCgroup",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="cgroup.containment_probe",
-                details={"state": "active", "filter": "tc_clsact"},
-                confidence=0.95,
-            ),
-        ]
-
-    if layer:
-        observations = [o for o in observations if o.layer.lower() == layer.strip().lower()]
-    if source:
-        observations = [o for o in observations if source.strip().lower() in o.source.lower()]
 
     pushdown_filters: dict[str, Any] = {}
     if layer:
         pushdown_filters["layer"] = layer
     if source:
         pushdown_filters["source"] = source
-    pushdown_filters["limit"] = limit
 
     return AgentTelemetryResponse(
         agent_id=agent_id,
         tenant_id=tenant_id,
-        observations=observations[:limit],
-        total_count=len(observations),
+        observations=observations,
+        total_count=0,
         pushdown_filters=pushdown_filters,
-        source_health="healthy",
+        source_health="unavailable",
+        evidence_state="unavailable",
+        reason=(
+            "no telemetry observation source is wired to this route: neither the "
+            "signal-ingest observation store nor the cAdvisor sampler is queried here"
+        ),
     )
 
 
@@ -6795,7 +7274,10 @@ async def compliance_summary(
                           WHERE r.tenant_id = $1 AND r.status = 'fail'), 0) AS controls_failing,
                COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
-                          WHERE r.tenant_id = $1 AND r.status NOT IN ('pass', 'fail')), 0) AS controls_pending,
+                          WHERE r.tenant_id = $1 AND r.status = 'error'), 0) AS controls_errored,
+               COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
+                         JOIN agent_registry a ON r.agent_id = a.id
+                          WHERE r.tenant_id = $1 AND r.status NOT IN ('pass', 'fail', 'error')), 0) AS controls_pending,
                COALESCE((SELECT COUNT(DISTINCT r.agent_id)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
                          WHERE r.tenant_id = $1), 0) AS agents_assessed
@@ -6806,7 +7288,9 @@ async def compliance_summary(
     passing = row["controls_passing"]
     failing = row["controls_failing"]
     pending = row["controls_pending"]
-    total_controls = passing + failing + pending
+    errored = row["controls_errored"]
+    # Errored controls stay in the denominator; see _compliance_summary_for_agent.
+    total_controls = passing + failing + pending + errored
     posture_score = round(passing / total_controls, 2) if total_controls > 0 else None
     return ComplianceSummaryResponse(
         total_agents=total_agents,
@@ -6814,6 +7298,7 @@ async def compliance_summary(
         controls_passing=passing,
         controls_failing=failing,
         controls_pending=pending,
+        controls_errored=errored,
         posture_score=posture_score,
     )
 
@@ -6922,7 +7407,9 @@ async def compliance_frameworks(
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
-        return [
+        with _STORE_LOCK:
+            jurisdiction = _TENANT_RISK_PROFILE.get(tenant_id, {}).get("jurisdiction")
+        fixtures = [
             FrameworkResponse(
                 id="eu-ai-act",
                 name="EU AI Act",
@@ -7032,12 +7519,34 @@ async def compliance_frameworks(
                 ],
             ),
         ]
+        return _with_jurisdiction_reporting(fixtures, jurisdiction)
 
-    fw_rows = await pool.fetch("SELECT * FROM governance_frameworks ORDER BY name")
+    # A targeted SELECT, deliberately NOT _ensure_tenant_settings: that helper
+    # INSERTs a row when one is absent, and a GET must not write. The first
+    # version of this called it and turned a read-only endpoint into one with a
+    # side-effect (caught by test_tenant_isolation's fake pool, which rightly
+    # refused to serve it).
+    #
+    # A missing row means UNDECLARED, which is a real state the reporting
+    # handles -- not an error, and not an excuse to report everything as in
+    # scope.
+    juris_row = await pool.fetchrow(
+        "SELECT jurisdiction FROM tenant_settings WHERE tenant_id = $1", tenant_id,
+    )
+    jurisdiction = juris_row["jurisdiction"] if juris_row is not None else None
+
+    # Both tables are tenant-owned (migration 004). Unfiltered, a tenant saw every
+    # other tenant's frameworks, and _policy_framework_summaries -- which groups by
+    # framework name -- merged a same-named foreign framework into the caller's.
+    fw_rows = await pool.fetch(
+        "SELECT * FROM governance_frameworks WHERE tenant_id = $1 ORDER BY name", tenant_id,
+    )
     result = []
     for fw in fw_rows:
         ctrl_rows = await pool.fetch(
-            "SELECT * FROM governance_controls WHERE framework_id = $1 ORDER BY control_order",
+            """SELECT * FROM governance_controls
+                WHERE tenant_id = $1 AND framework_id = $2 ORDER BY control_order""",
+            tenant_id,
             fw["id"],
         )
         controls = [
@@ -7060,7 +7569,7 @@ async def compliance_frameworks(
                 controls=controls,
             )
         )
-    return result
+    return _with_jurisdiction_reporting(result, jurisdiction)
 
 
 async def _policy_framework_summaries(
@@ -7091,12 +7600,23 @@ async def _policy_framework_summaries(
                     any(status in {"fail", "failing"} for status in statuses)
                     for statuses in controls.values()
                 ),
-                # The governance API has no risk-calculation data plane. Zero states
-                # that no exposure value is available; it does not fabricate fixture risk.
-                totalExposureGbp=0,
-                # Zero still needs a denomination: a bare 0 is addable to anything, and a consumer
-                # that later sums it against a real figure must be able to see they agree.
-                exposure=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+                # The governance API has no risk-calculation data plane: these
+                # summaries are built from `compliance_posture`, whose rows carry
+                # statuses and no money. Previously this reported 0 with a comment
+                # saying zero meant "unavailable" -- but a comment is not on the
+                # wire. A consumer receives an int it can add, chart and quote, and
+                # 0 exposure reads as "no risk carried". None is unrenderable as a
+                # currency amount, so absence survives the serialization boundary.
+                totalExposureGbp=None,
+                exposure=None,
+                # The absence, stated. `None` above keeps the figure unforgeable; this
+                # says which of the three possible causes produced it and what an
+                # operator would do about it.
+                pricing=PricingRefusalResponse.of(
+                    PricingStatus.NO_RISK_DATA_PLANE,
+                    reason=NO_RISK_DATA_PLANE_REASON,
+                    unpriced_fields=FRAMEWORK_MONEY_FIELDS,
+                ),
             )
         )
     return summaries
@@ -7112,26 +7632,60 @@ def _policy_scan_summary(
     checks: list[PolicyComplianceCheck],
     policy_version: str,
 ) -> PolicySummaryResponse:
-    checks_by_framework: dict[tuple[str, str], list[PolicyComplianceCheck]] = {}
+    # One summary per framework.  Grouping on (controlSet, framework) turned a
+    # pack with four control sets into four "frameworks", each identified by a
+    # control set and named after the pack -- id and name the wrong way round
+    # for a response field pair that elsewhere carries a framework's own id and
+    # human name.  A control set is a subdivision inside a pack, not a
+    # framework, and the engine reports no human name, so the pack id is both.
+    checks_by_framework: dict[str, list[PolicyComplianceCheck]] = {}
     for check in checks:
-        checks_by_framework.setdefault((check.controlSet, check.framework), []).append(check)
+        checks_by_framework.setdefault(check.framework, []).append(check)
 
     def count(selected: list[PolicyComplianceCheck], verdict: str) -> int:
         return sum(_check_verdict(check) == verdict for check in selected)
 
-    frameworks = [
-        PolicyFrameworkSummaryResponse(
-            id=framework_id,
-            name=framework_name,
-            versions=[policy_version],
-            totalControls=len(framework_checks),
-            passedControls=count(framework_checks, "pass"),
-            failedControls=count(framework_checks, "fail"),
-            totalExposureGbp=sum(check.carriedGbp for check in framework_checks),
-            exposure=MoneyResponse(amount=sum(check.carriedGbp for check in framework_checks), currency=REPORTING_CURRENCY),
+    def by_control(selected: list[PolicyComplianceCheck]) -> dict[Any, list[str]]:
+        """Verdicts per control.  One control may be assessed several times in
+        one scan -- once per agent, and once per check when a control carries
+        more than one.  ``totalControls`` used to be the number of those rows,
+        so it grew with the fleet (17 CIS controls across 5 agents reported 85).
+        The control is the ``governance_controls`` row the check maps to, which
+        is what the persisted summary counts too; an unmapped check has no such
+        row and stands as its own control rather than vanishing."""
+        out: dict[Any, list[str]] = {}
+        for check in selected:
+            key = check.controlId or (check.controlSet, check.control, check.check)
+            out.setdefault(key, []).append(_check_verdict(check))
+        return out
+
+    frameworks = []
+    for framework_id, framework_checks in checks_by_framework.items():
+        controls = by_control(framework_checks)
+        exposure = sum(check.carriedGbp for check in framework_checks)
+        frameworks.append(
+            PolicyFrameworkSummaryResponse(
+                id=framework_id,
+                name=framework_id,
+                # The versions the checks were actually evaluated at: each pack
+                # is activated at its own version, so the request's is not it.
+                versions=sorted({check.policyVersion for check in framework_checks}),
+                totalControls=len(controls),
+                totalResults=len(framework_checks),
+                passedControls=sum(all(v == "pass" for v in verdicts) for verdicts in controls.values()),
+                failedControls=sum(any(v == "fail" for v in verdicts) for verdicts in controls.values()),
+                totalExposureGbp=exposure,
+                exposure=MoneyResponse(amount=exposure, currency=REPORTING_CURRENCY),
+                # Priced. The same key set as the refusal, carrying the affirmative
+                # value -- so a client branches on one field rather than inferring from
+                # whether an object is present.
+                pricing=PricingRefusalResponse.of(
+                    PricingStatus.PRICED,
+                    reason=PRICED_REASON,
+                    unpriced_fields=[],
+                ),
+            )
         )
-        for (framework_id, framework_name), framework_checks in checks_by_framework.items()
-    ]
     total_carried = sum(check.carriedGbp for check in checks)
     total_ale = sum(check.ale for check in checks)
     total_var95 = sum(check.var95 for check in checks)
@@ -7147,8 +7701,16 @@ def _policy_scan_summary(
         totalTvar=total_tvar,
         totalCarriedGbp=total_carried,
         carried=MoneyResponse(amount=total_carried, currency=REPORTING_CURRENCY),
+        pricing=PricingRefusalResponse.of(
+            PricingStatus.PRICED,
+            reason=PRICED_REASON,
+            unpriced_fields=[],
+        ),
         currency=REPORTING_CURRENCY,
-        scanTimestamp=max((check.scanTimestamp for check in checks), default=_now_iso()),
+        # The latest time any check reports, or -- when none reports one -- this
+        # response's own time. Never a time attributed to a check that had none.
+        scanTimestamp=max((check.scanTimestamp for check in checks if check.scanTimestamp),
+                          default=_now_iso()),
         frameworks=frameworks,
     )
 
@@ -7194,7 +7756,20 @@ async def _db_policy_scan(
     ``governance_controls (policy_framework_id, policy_check_id)``.  When the
     engine gives no answer for an agent, that agent's rows are left as they
     were: an unassessed control stays pending, it is never reported as passed.
+
+    Two scans of one tenant race.  Each reads the registry, then makes its slow
+    sequential engine calls, then upserts -- so the one that started first can
+    finish last and bury a newer assessment under its stale view.  Two things
+    stop that: the write transaction holds a per-tenant advisory lock, so the
+    reconciliations cannot interleave row by row; and each upsert replaces a
+    row only when that row is older than this scan's start, so the loser of
+    the race writes nothing rather than winning on arrival order.
     """
+    # The instant this scan's view of the registry was taken.  This, and not the
+    # instant the write got round to happening, is what a row records as
+    # assessed_at: a scan that spent a minute in the engine assessed the agent
+    # as it was a minute ago, and freshness has to order by that.
+    scan_started = datetime.now(timezone.utc)
     async with _read(pool) as conn:
         control_rows = await conn.fetch(
             """SELECT c.id AS control_id, c.policy_framework_id, c.policy_check_id,
@@ -7209,22 +7784,47 @@ async def _db_policy_scan(
             tenant_id,
             request.frameworks,
         )
-        agent_rows = await conn.fetch(
-            """SELECT id, name, model_approved,
-                      config -> 'policy_context' AS policy_context,
-                      workload_spec
-               FROM agent_registry
-               WHERE tenant_id = $1
-                 AND (cardinality($2::text[]) = 0 OR id::text = ANY($2::text[]))
-               ORDER BY created_at, id""",
-            tenant_id,
-            request.agentIds,
-        )
+        # L2: ``agent_registry.id`` is a uuid and the filter compares
+        # ``id::text``, which Postgres renders in lower case -- so an id the
+        # caller typed in upper case, or with braces, matched nothing and the
+        # agent silently dropped out of its own scan.  Canonicalise the ids
+        # here; anything that is not a uuid cannot be an agent id at all and
+        # never reaches the database.  The empty list must not reach the query
+        # either: ``cardinality($2) = 0`` means "every agent in the tenant", so
+        # a request naming three unparseable ids would scan the whole fleet.
+        requested = list(dict.fromkeys(request.agentIds))
+        canonical = [str(parsed) for raw in requested if (parsed := _try_uuid(raw)) is not None]
+        if requested and not canonical:
+            agent_rows = []
+        else:
+            agent_rows = await conn.fetch(
+                """SELECT id, name, model_approved,
+                          config -> 'policy_context' AS policy_context,
+                          workload_spec
+                   FROM agent_registry
+                   WHERE tenant_id = $1
+                     AND (cardinality($2::text[]) = 0 OR id::text = ANY($2::text[]))
+                   ORDER BY created_at, id""",
+                tenant_id,
+                canonical,
+            )
+
+    # Ids this tenant has no agent for: another tenant's, a deleted one, a typo.
+    # Reported rather than dropped -- a caller that asked about four agents and
+    # got verdicts for one is owed the difference, not left to infer it.
+    found = {str(row["id"]) for row in agent_rows}
+    agents_not_found = [
+        raw for raw in requested
+        if (parsed := _try_uuid(raw)) is None or str(parsed) not in found
+    ]
 
     control_for: dict[tuple[str, str], uuid.UUID] = {
         (row["policy_framework_id"], row["policy_check_id"]): row["control_id"]
         for row in control_rows
     }
+    mapped_checks: dict[str, list[str]] = {}
+    for framework, check in control_for:
+        mapped_checks.setdefault(framework, []).append(check)
     frameworks = list(request.frameworks) or sorted({framework for framework, _ in control_for})
     # The engine evaluates only checks listed for the request's policyVersion,
     # and each pack is activated at its own version (governance_frameworks.version),
@@ -7243,10 +7843,12 @@ async def _db_policy_scan(
     scan_url = f"{policy_engine_url}/api/v1/compliance/scan"
     checks: list[PolicyComplianceCheck] = []
     # (agent_id, control_id) -> (verdict, evidence_ref): one stored row per pair.
-    verdicts: dict[tuple[Any, uuid.UUID], tuple[str, str]] = {}
+    verdicts: dict[tuple[Any, uuid.UUID], tuple[str, str | None]] = {}
     agents_failed: list[str] = []
     agents_scanned = 0
+    engine_answers = 0
     unmapped = 0
+    gaps: list[PolicyControlGap] = []
 
     if frameworks and agent_rows:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -7254,11 +7856,24 @@ async def _db_policy_scan(
                 obj = policy_scan.build_agent_object(agent_row)
                 agent_context = policy_scan.build_agent_policy_context(agent_row)
                 results: list[dict[str, Any]] | None = []
+                # H1: with no observed workload, a pack whose checks read only
+                # ``object`` is not asked (the engine would judge ``{}``).
+                unobserved: list[str] = []
+                answered = 0
+                # (framework, check) mapped for a pack that was asked but absent
+                # from the engine's answer.
+                missing: list[tuple[str, str]] = []
                 for version, version_frameworks in calls.items():
+                    send = list(version_frameworks)
+                    if obj is None:
+                        unobserved += [f for f in send if (f, version) in policy_scan.OBJECT_ONLY_PACKS]
+                        send = [f for f in send if (f, version) not in policy_scan.OBJECT_ONLY_PACKS]
+                    if not send:
+                        continue
                     body = policy_scan.scan_request_body(
                         namespace=request.namespace,
                         policy_version=version,
-                        frameworks=version_frameworks,
+                        frameworks=send,
                         obj=obj,
                         agent=agent_context,
                     )
@@ -7268,13 +7883,47 @@ async def _db_policy_scan(
                         # as a complete one.
                         results = None
                         break
+                    # H2: every mapped check of every pack sent is expected back.
+                    expected = {(f, c) for f in send for c in mapped_checks.get(f, [])}
+                    if expected and not answer:
+                        # An empty 200 where checks were expected is a failed
+                        # call, not "nothing to report".
+                        logger.warning("policy-engine scan returned no checks for %s@%s", send, version)
+                        results = None
+                        break
+                    seen = {(str(i.get("framework", "")), str(i.get("check", ""))) for i in answer}
+                    missing += sorted(expected - seen)
+                    answered += 1
                     results.extend(answer)
                 if results is None:
                     agents_failed.append(str(agent_row["id"]))
                     continue
                 agents_scanned += 1
+                # Counted only for agents whose whole scan was usable.
+                engine_answers += answered
+                for framework, check_id in missing:
+                    control_id = control_for[(framework, check_id)]
+                    verdicts[(agent_row["id"], control_id)] = ("error", None)
+                    gaps.append(PolicyControlGap(
+                        agentId=str(agent_row["id"]), framework=framework, check=check_id,
+                        controlId=str(control_id), stored="error", reason="missing_from_engine_response",
+                    ))
+                for framework in unobserved:
+                    for check_id in mapped_checks.get(framework, []):
+                        control_id = control_for[(framework, check_id)]
+                        # Stored pending, not left as it was: an earlier verdict
+                        # describes a workload this agent no longer has on record.
+                        verdicts[(agent_row["id"], control_id)] = ("not_evaluated", None)
+                        gaps.append(PolicyControlGap(
+                            agentId=str(agent_row["id"]), framework=framework, check=check_id,
+                            controlId=str(control_id), stored="pending", reason="no_workload",
+                        ))
                 for item in results:
-                    verdict = policy_scan.verdict_of(item)
+                    # M2: a result this API cannot read is one errored check with
+                    # a reason -- not a defaulted figure, and not a 500 that takes
+                    # the whole tenant's scan down with it.
+                    defect = policy_scan.defect_of(item)
+                    verdict = "error" if defect else policy_scan.verdict_of(item)
                     framework = str(item.get("framework", ""))
                     check_id = str(item.get("check", ""))
                     result_version = str(item.get("policyVersion") or request.policyVersion)
@@ -7283,14 +7932,29 @@ async def _db_policy_scan(
                         unmapped += 1
                     else:
                         key = (agent_row["id"], control_id)
-                        previous = verdicts[key][0] if key in verdicts else None
-                        verdicts[key] = (
-                            policy_scan.worse(previous, verdict),
-                            policy_scan.evidence_ref(framework, check_id, result_version),
-                        )
+                        evidence = policy_scan.evidence_ref(framework, check_id, result_version)
+                        previous = verdicts.get(key)
+                        if previous is None:
+                            verdicts[key] = (verdict, evidence)
+                        else:
+                            # L4: the evidence must name the result the stored
+                            # verdict came from. It was overwritten by whichever
+                            # result arrived last, so a row could read ``fail``
+                            # and cite the evaluation that passed. ``worse``
+                            # keeps the earlier verdict on a tie; so does this.
+                            resolved = policy_scan.worse(previous[0], verdict)
+                            verdicts[key] = (
+                                resolved,
+                                previous[1] if resolved == previous[0] else evidence,
+                            )
                     # Integer pounds: the engine reports pounds at pence precision (e.g. 1234.57),
-                    # and these response fields are int.
-                    carried_gbp = round(float(item.get("carriedGbp", 0.0)))
+                    # and these response fields are int. A defective result has no
+                    # figure at all; it reports 0 under an ``error`` status, which is
+                    # what says the zero is an absence rather than a measurement.
+                    ale, var95, tvar, carried_gbp = (
+                        round(policy_scan.money_of(item, field) or 0.0)
+                        for field in policy_scan.MONEY_FIELDS
+                    )
                     checks.append(
                         PolicyComplianceCheck(
                             framework=framework,
@@ -7299,39 +7963,54 @@ async def _db_policy_scan(
                             check=check_id,
                             passed=verdict == "pass",
                             policyVersion=result_version,
-                            ale=round(float(item.get("ale", 0.0))),
-                            var95=round(float(item.get("var95", 0.0))),
-                            tvar=round(float(item.get("tvar", 0.0))),
+                            ale=ale,
+                            var95=var95,
+                            tvar=tvar,
                             carriedGbp=carried_gbp,
                             carried=MoneyResponse(amount=carried_gbp, currency=REPORTING_CURRENCY),
                             currency=REPORTING_CURRENCY,
-                            scanTimestamp=str(item.get("scanTimestamp") or _now_iso()),
-                            calibrationSource=str(item.get("calibrationSource") or "industry-indicative"),
+                            scanTimestamp=policy_scan.text_of(item, "scanTimestamp"),
+                            calibrationSource=policy_scan.text_of(item, "calibrationSource"),
                             agentId=str(agent_row["id"]),
                             agentName=agent_row["name"],
                             status=verdict,
-                            error=item.get("error") if verdict == "error" else None,
+                            error=defect or (item.get("error") if verdict == "error" else None),
                             controlId=str(control_id) if control_id is not None else None,
                         )
                     )
 
     stored = [verdict for verdict, _ in verdicts.values()]
     async with _write(pool) as conn:
+        # Serialise the write half per tenant. Taken inside the transaction, so
+        # commit or rollback releases it and a failed scan cannot leak it.
+        # hashtext() because the lock key is a bigint and tenant ids are text;
+        # a collision between two tenants costs serialisation, never correctness.
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", tenant_id)
         for (agent_id, control_id), (verdict, evidence) in verdicts.items():
+            status = policy_scan.stored_status(verdict)
             await conn.execute(
                 """INSERT INTO agent_compliance_results
-                       (tenant_id, agent_id, control_id, status, assessed_at, evidence_ref)
-                   VALUES ($1, $2, $3, $4, now(), $5)
+                       (tenant_id, agent_id, control_id, status, evidence_ref, assessed_at)
+                   VALUES ($1, $2, $3, $4, $5, $6)
                    ON CONFLICT (agent_id, control_id) DO UPDATE
                       SET status = EXCLUDED.status,
                           assessed_at = EXCLUDED.assessed_at,
                           evidence_ref = EXCLUDED.evidence_ref
-                    WHERE agent_compliance_results.tenant_id = EXCLUDED.tenant_id""",
+                    WHERE agent_compliance_results.tenant_id = EXCLUDED.tenant_id
+                      -- Only a row older than this scan's view may be replaced.
+                      -- assessed_at is the writing scan's start; a row stored
+                      -- pending has none, so updated_at (the trigger's write
+                      -- time) is the floor for those.
+                      AND COALESCE(agent_compliance_results.assessed_at,
+                                   agent_compliance_results.updated_at) < $7""",
                 tenant_id,
                 agent_id,
                 control_id,
-                policy_scan.stored_status(verdict),
+                status,
                 evidence,
+                # pending (not_evaluated) is not an assessment: no assessed_at.
+                None if status == "pending" else scan_started,
+                scan_started,
             )
 
         summary = _policy_scan_summary(checks, request.policyVersion)
@@ -7341,6 +8020,9 @@ async def _db_policy_scan(
             {
                 "frameworks": frameworks,
                 "policy_version": request.policyVersion,
+                # The versions the packs were actually evaluated at. The field
+                # above is only what the caller asked for, which is a fallback.
+                "pack_versions": {version: sorted(names) for version, names in calls.items()},
                 "controls_assessed": len(stored),
                 "controls_passed": stored.count("pass"),
                 "controls_failed": stored.count("fail"),
@@ -7350,17 +8032,22 @@ async def _db_policy_scan(
                 "checks_unmapped": unmapped,
                 "agents_scanned": agents_scanned,
                 "agents_failed": len(agents_failed),
+                "agents_not_found": len(agents_not_found),
+                "controls_no_workload": sum(g.reason == "no_workload" for g in gaps),
+                "controls_missing_from_engine": sum(g.reason == "missing_from_engine_response" for g in gaps),
                 "total_exposure_gbp": summary.totalCarriedGbp,
-                "engine_invoked": agents_scanned > 0,
+                "engine_invoked": engine_answers > 0,
             },
         )
 
     return PolicyScanResponse(
         checks=checks,
         summary=summary,
-        engineInvoked=agents_scanned > 0,
+        engineInvoked=engine_answers > 0,
         agentsScanned=agents_scanned,
         agentsFailed=agents_failed,
+        agentsNotFound=agents_not_found,
+        controlGaps=gaps,
     )
 
 
@@ -7427,18 +8114,36 @@ async def policy_compliance_summary(
         if result.assessed_at is not None
     ]
     return PolicySummaryResponse(
-        totalChecks=summary.controls_passing + summary.controls_failing + summary.controls_pending,
+        totalChecks=(summary.controls_passing + summary.controls_failing
+                     + summary.controls_pending + summary.controls_errored),
         passed=summary.controls_passing,
         failed=summary.controls_failing,
-        # Counted inside controls_pending above (that contract has no error bucket).
-        errored=sum(
-            result.status == "error" for agent in posture.agents for result in agent.results
+        # Counted by the same query as the rest, rather than recounted from the
+        # posture rows: the two disagreed whenever the posture read lagged.
+        errored=summary.controls_errored,
+        # NOT COMPUTED, and reported as such. This route answers from
+        # `agent_compliance_results`, which has no money column (see
+        # db/migrations/004_agent_governance_schema.sql) -- there is no priced
+        # scan behind it to aggregate. These were hardcoded zeros, so the same
+        # four field names were a true sum on POST /compliance/policy/scan and a
+        # literal 0 here, with nothing on the wire to tell the two apart.
+        totalAle=None,
+        totalVar95=None,
+        totalTvar=None,
+        totalCarriedGbp=None,
+        carried=None,
+        # The absence, stated. The four `None`s above keep the figures unforgeable; this
+        # distinguishes "this route has no risk data plane" from the three other things a
+        # null could mean, and names a different operator action from the engine's
+        # NO_DECLARED_LOSS_FREQUENCY -- which is why there are two refusal statuses.
+        pricing=PricingRefusalResponse.of(
+            PricingStatus.NO_RISK_DATA_PLANE,
+            reason=NO_RISK_DATA_PLANE_REASON,
+            unpriced_fields=SUMMARY_MONEY_FIELDS,
         ),
-        totalAle=0,
-        totalVar95=0,
-        totalTvar=0,
-        totalCarriedGbp=0,
-        carried=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+        # The tenant's reporting denomination is a real fact even with no amount
+        # to denominate, so it stays: a consumer that later receives a figure
+        # from the scan path can confirm the two agree on currency.
         currency=REPORTING_CURRENCY,
         scanTimestamp=max(assessed_at, default=_now_iso()),
         frameworks=await _policy_framework_summaries(tenant_id),
@@ -8416,6 +9121,7 @@ async def tenant_settings(
         ts_row, f"tenant {tenant_id} (tenant_settings row)",
     )
     return TenantSettingsResponse(
+        **_risk_profile_from(ts_row),
         tenant_id=ts_row["tenant_id"],
         org_name=ts_row["org_name"],
         plan_tier=ts_row["plan_tier"],
@@ -8532,6 +9238,70 @@ async def patch_tenant_preferences(
                 "alert_email": body.alert_email,
                 "alert_threshold": body.alert_threshold,
             },
+        )
+    # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
+    # connection and so must run after the commit to observe the new values.
+    return await tenant_settings(tenant_id)
+
+
+@router.patch("/tenant/settings/risk-profile", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
+async def patch_tenant_risk_profile(
+    body: RiskProfilePatchRequest,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> TenantSettingsResponse:
+    """Declare the organisation's sector, jurisdiction, currency and appetite.
+
+    WHOLE-PROFILE DECLARATION, NOT A PARTIAL MERGE.  An omitted field means
+    UNDECLARED and is written as NULL.  The alternative was considered and
+    rejected: a merge cannot express "I no longer wish to declare a
+    jurisdiction", and a route that silently keeps a stale declaration is how a
+    tenant ends up priced against a posture it believes it withdrew.  Same
+    whole-value semantics as the sibling preferences route, which also replaces
+    all three of its fields on every call.
+
+    The step is skippable, so an empty body is valid and leaves the tenant
+    undeclared -- which is a real state, distinct from every default.
+    """
+    tenant_id = principal.tenant
+    declared = {field: getattr(body, field) for field in RISK_PROFILE_FIELDS}
+
+    # risk_appetite_tolerance is NUMERIC(20,2): asyncpg binds Decimal to numeric
+    # and rejects a float outright.  Converted via str() rather than
+    # Decimal(float) so a money column never inherits a binary-float artefact
+    # (Decimal(0.1) is 0.1000000000000000055511151231257827, Decimal("0.1") is
+    # not).
+    tolerance = declared["risk_appetite_tolerance"]
+    tolerance_param = None if tolerance is None else decimal.Decimal(str(tolerance))
+
+    pool = await _require_pool("Declaring the organisation risk profile")
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            _TENANT_RISK_PROFILE[tenant_id] = dict(declared)
+            return _tenant_settings_response(tenant_id)
+
+    async with _write(pool) as conn:
+        await _ensure_tenant_settings(conn, tenant_id)
+        await conn.execute(
+            """UPDATE tenant_settings
+                  SET sector                  = $1,
+                      jurisdiction            = $2,
+                      reporting_currency      = $3,
+                      risk_appetite_tolerance = $4,
+                      risk_load               = $5
+                WHERE tenant_id = $6""",
+            declared["sector"],
+            declared["jurisdiction"],
+            declared["reporting_currency"],
+            tolerance_param,
+            declared["risk_load"],
+            tenant_id,
+        )
+        # Audited because it changes what the tenant's risk is priced against:
+        # a later "why did our figures move" is answerable from the trail.
+        await _audit_log(
+            conn, tenant_id, "tenant.risk_profile_updated", None, None, principal.actor,
+            dict(declared),
         )
     # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
     # connection and so must run after the commit to observe the new values.

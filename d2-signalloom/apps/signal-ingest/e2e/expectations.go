@@ -82,6 +82,17 @@ var ruleExpectations = []ruleExpectation{
 		Negative: "kusari/guardduty-tamper.json: GetDetector (a read)",
 	},
 	{
+		// Two negatives. The mechanically checked one is the tamper file: four
+		// GuardDuty MANAGEMENT calls on the CloudTrail path, none of which may
+		// fire a FINDING rule (the two GuardDuty rules are disjoint on
+		// event_source). The second is the severity 2 finding, which is a
+		// one-record object and so cannot carry the per-object check; Findings: 1
+		// over a corpus holding both envelopes is what proves it stays silent.
+		Bundle: bundleCloudSignals, Rule: "guardduty-high-severity", Findings: 1,
+		Positive: "kusari/guardduty-eventbridge-envelope.json: a severity 8 UnauthorizedAccess finding on an AccessKey",
+		Negative: "kusari/guardduty-tamper.json: four management calls; and kusari/guardduty-eventbridge-low-severity.json, a severity 2 Recon finding",
+	},
+	{
 		Bundle: bundleCloudSignals, Rule: "iam-credential-or-policy-change", Findings: 3,
 		Positive: "kusari/iam-credential-burst.json: CreateAccessKey, AttachUserPolicy, CreateLoginProfile by kusari-builder",
 		Negative: "kusari/iam-credential-burst.json: CreateAccessKey by break-glass",
@@ -148,7 +159,7 @@ var windowExpectations = []windowExpectation{
 // tables above: a row added to a table and not to the totals, or the reverse, is
 // red. Bookkeeping that agrees with itself is the point.
 const (
-	wantKusariObservations = 47
-	wantKusariFindings     = 62
+	wantKusariObservations = 49
+	wantKusariFindings     = 63
 	wantKusariDecisions    = 3
 )

@@ -58,3 +58,6 @@ Message deletion happens only after `Store.Append` returns, so a crash between r
 
 - Will: read objects, project them, store findings and decisions, post alert webhooks, show the cloud layer on Weave.
 - Will not: create, modify or delete anything in the customer account. Revocation, if ever wanted, is a separate proposal with a write-scoped role and a dry-run default.
+
+See [`runbooks/slaws-live-lab.md`](runbooks/slaws-live-lab.md) for the live collector lab and operator runbook.
+

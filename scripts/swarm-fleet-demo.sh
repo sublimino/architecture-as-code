@@ -346,8 +346,23 @@ case "${1:-help}" in
     deploy_infra
     deploy_fleet
     echo ""
-    log "Waiting 30s for pods to settle..."
-    sleep 30
+    # A bare `sleep 30` used to stand here. Replaced by the readiness wait this
+    # script already uses in deploy_fleet, because a fixed sleep makes a flake
+    # and a real failure indistinguishable: under load -- this box has reached
+    # load average 25 -- verification ran against a partially-scheduled fleet
+    # and failed for reasons that had nothing to do with the fleet.
+    #
+    # Note `deploy_fleet` already waits and only WARNS on timeout, so reaching
+    # here does not imply ready. This second wait is therefore not redundant;
+    # it is the one whose result gates verification. A timeout is reported as a
+    # timeout rather than slept through, so an unready fleet is named instead
+    # of being discovered as a confusing verification failure.
+    log "Waiting for agent pods to become Ready before verifying..."
+    if ! kubectl wait --for=condition=Ready pod -l signalloom.ai/agent=true \
+      -n "$NAMESPACE" --timeout=180s 2>/dev/null; then
+      warn "Agent pods were not Ready within 180s. Verifying anyway, but treat"
+      warn "any failure below as unready-fleet first: kubectl get pods -n $NAMESPACE"
+    fi
     run_verification
     ;;
   *)

@@ -1,7 +1,7 @@
 {
   "name": "windows-hostprocess-pod-level",
   "level": "unit",
-  "description": "Pod windowsOptions.hostProcess: true (HostProcess pods must use hostNetwork).",
+  "description": "Pod windowsOptions.hostProcess: true (HostProcess pods must use hostNetwork). A HostProcess pod must set hostNetwork: true, so it shares the host network namespace and no-host-ports fails too, as it does for the hostNetwork integration fixtures.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -52,7 +52,7 @@
     "capabilities-dropped-all": "pass",
     "no-windows-hostprocess": "fail",
     "no-hostpath-volumes": "pass",
-    "no-host-ports": "pass",
+    "no-host-ports": "fail",
     "no-secrets-in-env": "pass",
     "seccomp-runtime-default": "pass",
     "security-context-applied": "pass",

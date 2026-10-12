@@ -69,7 +69,7 @@ test("unauthenticated visit is redirected to the Dex login", async ({ page }) =>
 
 test.describe("authenticated dashboard", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("dashboard shows the full sidebar navigation", async ({ page }) => {
@@ -113,6 +113,24 @@ test.describe("authenticated dashboard", () => {
     await expect(page.getByTestId("ktp-graph-bg")).toHaveCount(0);
   });
 
+});
+
+// ── The one block in this file that must NOT run on fixtures ────────────────
+//
+// Everything above is the UI shell — sidebar structure, routes, scroll
+// contexts, backdrops — where fixture data is a backdrop and not the subject,
+// so it opts into `{ demoMode: true }` by name. The AFM test below is the
+// opposite: its whole claim is about what /afm/health answered. Under demo
+// mode the api client short-circuits before any network call
+// (`client.ts:309`), so the unreachable banner could never render, the iframe
+// is always present and `cluster-count` is always a non-zero fixture — i.e.
+// every assertion in it passed with no AFM deployed at all, which is exactly
+// the state its own comments say must fail.
+test.describe("authenticated dashboard — live AFM", () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, { demoMode: false });
+  });
+
   test("RBAC Analysis renders live AFM data, not its unreachable banner", async ({ page }) => {
     await page.getByRole("link", { name: "RBAC Analysis", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible({ timeout: 20_000 });
@@ -154,6 +172,14 @@ test.describe("authenticated dashboard", () => {
     ).not.toHaveText(/^\s*0 clusters\s*$/);
   });
 
+});
+
+// Back to the fixture-backed UI shell.
+test.describe("authenticated dashboard (demo fixtures, continued)", () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, { demoMode: true });
+  });
+
   test("DemoToggle widget is visible on every page", async ({ page }) => {
     const toggle = page.getByTestId("demo-toggle");
     await expect(toggle).toBeVisible({ timeout: 10_000 });
@@ -189,7 +215,10 @@ test.describe("authenticated dashboard", () => {
     expect(page.url()).toContain("/agents");
   });
 
-  test("Agents page renders past loading (API round-trip)", async ({ page }) => {
+  // Not "(API round-trip)" any more: this block runs on fixtures, where
+  // client.ts resolves without crossing the wire. What it still proves is that
+  // the page leaves its loading state and mounts the Governed tab.
+  test("Agents page renders past its loading state", async ({ page }) => {
     await page.getByRole("link", { name: "Agents", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible({ timeout: 20_000 });
     // The heading only renders after the API responds — the loading state

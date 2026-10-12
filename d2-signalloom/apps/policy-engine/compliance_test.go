@@ -111,8 +111,11 @@ func TestComplianceScan_BasicPass(t *testing.T) {
 		if r.ScanTimestamp == "" {
 			t.Fatal("scanTimestamp should not be empty")
 		}
-		if r.CalibrationSource != "industry-indicative" {
-			t.Fatalf("expected calibrationSource 'industry-indicative', got %q", r.CalibrationSource)
+		// Not "industry-indicative". That tag claimed an industry anchor no
+		// shipped triple has. See the comment at the assignment in compliance.go
+		// and policy/frameworks/README.md for the calibration statement.
+		if r.CalibrationSource != "declared-estimate-unanchored" {
+			t.Fatalf("expected calibrationSource 'declared-estimate-unanchored', got %q", r.CalibrationSource)
 		}
 	}
 }
@@ -302,20 +305,88 @@ func TestComplianceSummary(t *testing.T) {
 	}
 }
 
+// TestComplianceSummary_NoScan asserts the one distinction that matters most on
+// this endpoint, and it is NOT simply "404 instead of 200".
+//
+// THERE ARE TWO DIFFERENT FACTS AND THEY MUST NOT BE CONFUSABLE:
+//
+//	A. no scan exists for this tenant        -> 404, no counts at all
+//	B. a scan exists and priced nothing      -> 200, totalControls > 0,
+//	                                            totalExposureGbp 0
+//
+// On this product (B) is a real, meaningful, reportable answer: zero exposure.
+// (A) is the absence of an answer. Before fix 2 the endpoint answered (A) with
+// a zero-valued 200 -- byte-compatible with (B) and with a genuinely clean
+// posture -- so a client could not tell "we have no data for you" from "we
+// looked and you are clean". That is the same fabrication class as the empty
+// 200 of fix 1, one level up, and it is the reason the no-scan case is a 404
+// carrying NO numeric field rather than a 200 carrying zeroes.
+//
+// Both directions are asserted here, against each other, in one test. Asserting
+// them separately would let a future change make the 404 body carry zeroed
+// counts "for client convenience" and still pass both.
 func TestComplianceSummary_NoScan(t *testing.T) {
 	h := testComplianceHandler(t)
+
+	// (A) No scan.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil)
 	w := httptest.NewRecorder()
 	h.handleSummary(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("no-scan summary: expected 404, got %d: %.300q", w.Code, w.Body.String())
+	}
+	var absent map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &absent); err != nil {
+		t.Fatalf("no-scan body is not JSON: %v (%.300q)", err, w.Body.String())
+	}
+	if absent["error"] != "no_scan_for_tenant" {
+		t.Errorf("no-scan error = %v, want no_scan_for_tenant", absent["error"])
+	}
+	// The load-bearing half: NOT ONE numeric summary field. A client defaulting
+	// absent numbers to zero must get nothing to default.
+	for _, numeric := range []string{
+		"totalControls", "passed", "failed", "errored", "notEvaluated",
+		"notInForce", "totalExposureGbp", "exposure", "currency",
+	} {
+		if _, present := absent[numeric]; present {
+			t.Errorf("the no-scan refusal carries %q. That makes 'we have no scan for you' "+
+				"readable as 'we scanned and you are clean', which are different facts "+
+				"and only one of them is an answer.", numeric)
+		}
 	}
 
-	var summary ComplianceSummary
-	json.NewDecoder(w.Body).Decode(&summary)
+	// (B) A scan that exists. Same caller, same endpoint, and now a real
+	// document -- whose shape must not be reachable from (A).
+	scanReq := ComplianceScanRequest{
+		Namespace:     "test-ns",
+		PolicyVersion: "v2.1.0",
+		Frameworks:    []string{"nist-800-53"},
+		Manifest:      map[string]any{},
+	}
+	body, _ := json.Marshal(scanReq)
+	sw := httptest.NewRecorder()
+	h.handleScan(sw, httptest.NewRequest(http.MethodPost, "/api/v1/compliance/scan", bytes.NewReader(body)))
+	if sw.Code != http.StatusOK {
+		t.Fatalf("scan: got %d: %.300q", sw.Code, sw.Body.String())
+	}
 
-	if summary.TotalControls != 0 {
-		t.Fatalf("expected 0 total controls before any scan, got %d", summary.TotalControls)
+	w2 := httptest.NewRecorder()
+	h.handleSummary(w2, httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil))
+	if w2.Code != http.StatusOK {
+		t.Fatalf("post-scan summary: expected 200, got %d: %.300q", w2.Code, w2.Body.String())
+	}
+	var present map[string]any
+	if err := json.Unmarshal(w2.Body.Bytes(), &present); err != nil {
+		t.Fatalf("summary body is not JSON: %v", err)
+	}
+	if _, isErr := present["error"]; isErr {
+		t.Errorf("a real summary carries an %q field, so a refusal and an answer are no "+
+			"longer distinguishable by shape: %.300q", "error", w2.Body.String())
+	}
+	tc, ok := present["totalControls"].(float64)
+	if !ok || tc <= 0 {
+		t.Errorf("post-scan totalControls = %#v, want > 0 -- (B) must be a real document "+
+			"or this test cannot contrast it with (A)", present["totalControls"])
 	}
 }

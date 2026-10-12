@@ -1,0 +1,84 @@
+{
+  "name": "drop-all-capabilities--drops-all-then-adds-sys-admin",
+  "level": "unit",
+  "description": "The only container drops ALL and then adds SYS_ADMIN, which grants mount, ptrace of any process and kernel-module loading — a standard container-escape primitive. PSS restricted and PSS baseline both reject it. Checking only the drop half reported this COMPLIANT (oracle class D, the highest-severity divergence found in this pack).",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "tenant-demo",
+        "labels": {
+          "data_classification": "confidential",
+          "ai_human_oversight": "required",
+          "policy_version": "v2.0.0"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "180d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "ai-ops@example.com"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "agent",
+            "image": "ghcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ],
+                "add": [
+                  "SYS_ADMIN"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              }
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "drop-all-capabilities": "fail"
+  }
+}

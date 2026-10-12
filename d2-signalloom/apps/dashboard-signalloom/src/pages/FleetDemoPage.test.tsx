@@ -79,6 +79,21 @@ function renderPage(audience = false) {
   )
 }
 
+// ── The scripted risk scenario lives on the demo path ───────────────────────
+//
+// The baseline-£12,400 / escalated-£847,000 cascade is demo content. It used to
+// render in live mode too, because the page never read the API for these
+// figures at all -- so a test that asserted £12,400 while the mocked /topology
+// reported £847,000 passed, and proved only that the page ignored its own API.
+// Any test whose SUBJECT is the scenario now flips onto the demo fixture
+// first; any test whose subject is something else asserts the API's figure.
+async function useDemoFixture(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId('fleet-source-toggle'))
+  await waitFor(() => {
+    expect(screen.getByTestId('fleet-source-toggle')).toHaveTextContent('Use Live Cluster')
+  })
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('FleetDemoPage', () => {
@@ -1124,11 +1139,14 @@ describe("SLSC-P2-2 FleetDemoPage risk scan wiring", () => {
     vi.useRealTimers()
   })
 
-  it("displays baseline risk £12,400 on initial load", async () => {
+  it("displays the demo scenario's baseline risk £12,400 on the demo fixture", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     renderPage()
     await waitFor(() => {
       expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
     })
+    await useDemoFixture(user)
+    act(() => { vi.advanceTimersByTime(700) })
     const aleEls = screen.getAllByTestId("fleet-risk-ale")
     expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
     const carriedEls = screen.getAllByTestId("fleet-risk-carried")
@@ -1141,6 +1159,8 @@ describe("SLSC-P2-2 FleetDemoPage risk scan wiring", () => {
     await waitFor(() => {
       expect(screen.getByTestId("fleet-scan-btn")).toBeInTheDocument()
     })
+    await useDemoFixture(user)
+    act(() => { vi.advanceTimersByTime(700) })
 
     // Baseline: £12,400
     const aleEl = screen.getAllByTestId("fleet-risk-ale")[0]
@@ -1209,6 +1229,9 @@ describe("SLSC-P3-2 FleetDemoPage animated cascade and stepwise risk recalculati
     await waitFor(() => {
       expect(screen.getByTestId("fleet-stun-btn")).toBeInTheDocument()
     })
+
+    await useDemoFixture(user)
+    act(() => { vi.advanceTimersByTime(700) })
 
     // Baseline risk: £12,400
     const aleEls = screen.getAllByTestId("fleet-risk-ale")
@@ -1408,10 +1431,16 @@ describe("SLSC-P4-2 FleetDemoPage role-aware views and RoleViewSelector", () => 
     expect(screen.getByTestId("fleet-node-agent-gateway")).toBeInTheDocument()
     expect(screen.getByTestId("fleet-node-agent-monitor")).toBeInTheDocument()
 
-    // Full FAIR risk metrics visible
-    const aleEls = screen.getAllByTestId("fleet-risk-ale")
-    expect(aleEls[0]).toHaveTextContent(/12[,.]?400/)
-    expect(screen.getByText(/VaR95:\s*£58[,.]?000/i)).toBeInTheDocument()
+    // Full FAIR risk metrics visible, and they are TOPOLOGY.aggregateRisk.
+    // This test is about what a compliance officer may see and do, so the
+    // figures it asserts are the ones the fleet API reported, not the demo
+    // scenario's. It used to assert £12,400 against a mock reporting £847,000,
+    // which is how a page that ignored its own API read as correct.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("fleet-risk-ale")[0]).toHaveTextContent(/847[,.]?000/)
+    })
+    // Compact above the million threshold, so 1,200,000 reads "£1.2M".
+    expect(screen.getByText(/VaR95:\s*£1\.2M/i)).toBeInTheDocument()
 
     // Controls disabled with compliance read-only tooltip
     const stunBtn = screen.getByTestId("fleet-stun-btn")

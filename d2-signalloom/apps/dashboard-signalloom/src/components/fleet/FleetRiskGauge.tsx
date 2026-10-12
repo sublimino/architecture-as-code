@@ -2,24 +2,55 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import HelpHint from '../HelpHint'
 import { useMoney } from '../../money/CurrencyContext'
 import type { CurrencyCode } from '../../money/currency'
+import type { PricingStatus } from '../../api/fleetApi'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface FleetRiskGaugeProps {
   /**
-   * Annual loss expectancy, in the SOURCE currency (see money/currency.ts).
+   * Annual loss expectancy, in the SOURCE currency (see money/currency.ts), or
+   * `null`/`undefined` when the producer declined to price the fleet.
    *
-   * Still a bare number: the gauge is handed raw figures by the fleet topology
-   * and converts them for display itself, so callers are not each obliged to
-   * convert before rendering. The currency this ends up shown in comes from the
-   * user preference, not from this prop.
+   * Still a bare number rather than a `Money`: the gauge is handed raw figures
+   * by the fleet topology and converts them for display itself, so callers are
+   * not each obliged to convert before rendering. The currency this ends up
+   * shown in comes from the user preference, not from this prop.
+   *
+   * Absence is a first-class case, not an error: the pricing routes omit their
+   * money fields entirely when no declared loss frequency exists for the checks
+   * they ran. When this is absent the gauge renders an explicit "not priced"
+   * state carrying `unavailableReason`, rather than a number.
    */
-  ale: number
-  /** Value at risk, 95th percentile, in the source currency. */
-  var95: number
+  ale?: number | null
+  /** Value at risk, 95th percentile, in the source currency, or absent. */
+  var95?: number | null
   trend: 'up' | 'down' | 'stable'
   /** Previous ALE for delta display, in the source currency. */
-  previousAle?: number
+  previousAle?: number | null
+  /**
+   * Why there is no figure. Shown verbatim when `ale` is absent.
+   *
+   * Prefer the SERVER's own `pricing.reason`. The fallback below names the
+   * endpoint that owes the figure, because "Unavailable" with no cause sends a
+   * reader looking for a dashboard bug instead of a missing price declaration.
+   */
+  unavailableReason?: string
+  /**
+   * The refusal's machine-readable cause, which selects the action line.
+   *
+   * Passed separately from `unavailableReason` because the reason is prose the
+   * server wrote and the action is a mapping this client owns. Both are shown:
+   * the reason says what happened, the action says who fixes it.
+   */
+  unavailableStatus?: PricingStatus | string
+  /**
+   * Where these figures came from, shown beside them.
+   *
+   * Scripted demo figures are legitimate, but only if a viewer can tell they
+   * are scripted at the point of display. A number on a gauge is otherwise
+   * indistinguishable from a measurement.
+   */
+  sourceLabel?: string
   /**
    * The currency these figures are denominated in.
    *
@@ -29,9 +60,9 @@ export interface FleetRiskGaugeProps {
    * currency field this default goes and the prop becomes required.
    */
   currency?: CurrencyCode
-  /** Carried GBP exposure figure from the compliance evaluation. */
-  carriedGbp?: number
-  carried?: number
+  /** Carried GBP exposure figure from the compliance evaluation, or absent. */
+  carriedGbp?: number | null
+  carried?: number | null
   /** Stepwise cascade indicator: true if cascade in progress or stepwise updates active */
   stepwise?: boolean
   /** Stepwise cascade status: current step index (1-based) */
@@ -44,23 +75,88 @@ export interface FleetRiskGaugeProps {
 
 // ── Colour boundaries ───────────────────────────────────────────────────────
 
-function riskColour(ale: number): string {
-  // NaN fails every < comparison and would fall through to var(--error),
-  // making "unknown risk" display as maximum risk (misleading). A non-finite
-  // ALE is not a risk level; it is a missing value, so it gets the neutral
-  // muted colour.
-  if (!Number.isFinite(ale)) return 'var(--muted)'
+function riskColour(ale: number | null | undefined): string {
+  // NaN, null and undefined all fail every < comparison and would fall through
+  // to var(--error), making "unknown risk" display as maximum risk
+  // (misleading). An absent or non-finite ALE is not a risk level; it is a
+  // missing value, so it gets the neutral muted colour.
+  if (typeof ale !== 'number' || !Number.isFinite(ale)) return 'var(--muted)'
   if (ale < 50_000) return 'var(--teal)'
   if (ale < 500_000) return 'var(--amber)'
   return 'var(--error)'
 }
 
-function riskBandLabel(amount: number): string {
-  if (!Number.isFinite(amount)) return 'Unknown'
+/**
+ * The band a figure falls in, or the fact that there is no figure.
+ *
+ * "Not priced" rather than "Unknown": the fleet's risk is not unknown to the
+ * system, it is undeclared. The distinction tells a reader whether to go
+ * looking for a measurement or for a price declaration.
+ */
+function riskBandLabel(amount: number | null | undefined): string {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return 'Not priced'
   if (amount < 50_000) return 'Low Risk'
   if (amount < 500_000) return 'Medium Risk'
   return 'High Risk'
 }
+
+/**
+ * True when a risk summary carries a figure a reader can be shown.
+ *
+ * `pricing.status` is the contract, and it is the ONLY field branched on:
+ * anything other than `PRICED` means there is no figure, including a status
+ * this build has never heard of. `available` is deliberately not read -- the
+ * server derives it from the status, so reading both could only ever produce
+ * a disagreement the server cannot express.
+ *
+ * The `ale`-presence fallback is for a producer that predates the shared
+ * refusal shape and sends no `pricing` at all. It is a fallback, not the rule:
+ * once every route sends `pricing`, the first branch answers every case.
+ *
+ * A measured `0` IS priced. A gauge that refused on zero would be as wrong as
+ * one that invented a figure.
+ *
+ * It lives here rather than in api/fleetApi.ts because both fleet page suites
+ * wholesale-mock that module with no `importOriginal`, so any helper added
+ * there is missing at runtime under test.
+ */
+export function isPriced(
+  risk: { ale?: number | null; pricing?: { status: PricingStatus | string } } | null | undefined,
+): boolean {
+  if (risk?.pricing) return risk.pricing.status === 'PRICED'
+  return typeof risk?.ale === 'number' && Number.isFinite(risk.ale)
+}
+
+/**
+ * What the reader should DO about a refusal, by cause.
+ *
+ * The two refusal statuses are kept apart here on purpose. Collapsing them
+ * into one sentence would repeat the mistake the currency path already made
+ * and fixed: one label over two facts, which reads as authoritative precisely
+ * because it is uniform. An unrecognised status gets no action line rather
+ * than a guessed one.
+ */
+export function unpricedAction(status: PricingStatus | string | undefined): string | undefined {
+  switch (status) {
+    case 'NO_DECLARED_LOSS_FREQUENCY':
+      return 'No control in the risk pack maps to the checks evaluated. Declare the mapping in risk/packs/agent-policy.'
+    case 'NO_RISK_DATA_PLANE':
+      return 'This route answers from a store that holds no money. Run a priced scan, or give the route a risk data plane.'
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Shown when there is no figure and the producer gave no reason.
+ *
+ * Names the endpoint that owes the figure. /fleet-api/v1/fleet/topology is the
+ * only source this gauge has; when its `aggregateRisk` carries no `ale` there
+ * is nothing else to fall back to, and saying so is the whole fix.
+ */
+export const UNPRICED_NO_SERVER_REASON =
+  'No priced figure from /fleet-api/v1/fleet/topology (aggregateRisk carries no ale), ' +
+  'and the response stated no reason.'
 
 // ── Animated counter ────────────────────────────────────────────────────────
 
@@ -162,26 +258,51 @@ export default function FleetRiskGauge({
   currency = 'GBP',
   carriedGbp,
   carried,
+  unavailableReason,
+  unavailableStatus,
+  sourceLabel,
   stepwise = false,
   cascadeStep,
   totalCascadeSteps,
   cascadingAgent,
 }: FleetRiskGaugeProps) {
+  // `priced` is the discriminator for the whole component. Absent and zero are
+  // two different claims and only one of them is a figure.
+  // The status wins where the caller supplied one, and `ale` presence is the
+  // fallback for a producer that predates the shared refusal shape. Same rule
+  // as `isPriced`, expressed over the gauge's flattened props.
+  const priced = isPriced(
+    unavailableStatus === undefined ? { ale } : { ale, pricing: { status: unavailableStatus } },
+  )
+  const action = priced ? undefined : unpricedAction(unavailableStatus)
   const isStepwiseActive = stepwise || cascadeStep !== undefined
-  const displayAle = useAnimatedNumber(ale, isStepwiseActive)
-  const carriedValue = carriedGbp ?? carried ?? ale
-  const displayCarried = useAnimatedNumber(carriedValue, isStepwiseActive)
+  // Hooks run unconditionally. 0 is the animation INPUT when unpriced, never
+  // the rendered value: every read of displayAle below is behind `priced`.
+  const displayAle = useAnimatedNumber(priced ? (ale as number) : 0, isStepwiseActive)
+  // `?? ale` only when carried is itself absent AND ale is a figure: falling
+  // back to ale is a stated approximation, falling back to 0 would be an
+  // invented one.
+  const carriedValue = carriedGbp ?? carried ?? (priced ? (ale as number) : null)
+  const carriedPriced = typeof carriedValue === 'number' && Number.isFinite(carriedValue)
+  const displayCarried = useAnimatedNumber(carriedPriced ? (carriedValue as number) : 0, isStepwiseActive)
 
   const colour = riskColour(ale)
   const carriedColour = riskColour(carriedValue)
   const { fmtMoney, asOfFor } = useMoney()
-  const money = (value: number) => fmtMoney({ amount: value, currency }, { compact: true })
+  // `null` in, MONEY_UNAVAILABLE out. money/format.ts is null-safe by
+  // construction, so absence survives all the way to the glyph.
+  const money = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? fmtMoney({ amount: value, currency }, { compact: true })
+      : fmtMoney(null)
   const asOfNote = asOfFor(currency)
 
   const trendIcon = trend === 'up' ? '\u25B2' : trend === 'down' ? '\u25BC' : '-'
   const trendColour = trend === 'up' ? 'var(--error)' : trend === 'down' ? 'var(--teal)' : 'var(--muted)'
 
-  const needleCoords = getNeedleCoords(displayAle)
+  // NaN parks the needle at the low end (val <= 0 branch), which is a reading.
+  // Unpriced gets no needle at all, below.
+  const needleCoords = getNeedleCoords(priced ? displayAle : Number.NaN)
 
   const container: CSSProperties = {
     display: 'flex',
@@ -291,17 +412,21 @@ export default function FleetRiskGauge({
           data-testid="fleet-gauge-band-high"
         />
 
-        {/* Dynamic Needle */}
-        <line
-          x1="100"
-          y1="95"
-          x2={needleCoords.x}
-          y2={needleCoords.y}
-          stroke={colour}
-          strokeWidth="3.5"
-          strokeLinecap="round"
-          data-testid="fleet-gauge-needle"
-        />
+        {/* Dynamic Needle. Absent when there is no figure: a needle resting on
+            "Low" is a reading, and the one thing this gauge must not do is
+            report an unpriced fleet as a low-risk one. */}
+        {priced && (
+          <line
+            x1="100"
+            y1="95"
+            x2={needleCoords.x}
+            y2={needleCoords.y}
+            stroke={colour}
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            data-testid="fleet-gauge-needle"
+          />
+        )}
         <circle cx="100" cy="95" r="5" fill={colour} />
 
         {/* Band range labels */}
@@ -327,8 +452,35 @@ export default function FleetRiskGauge({
           lineHeight: 1.1,
         }}
       >
-        {money(displayAle)}
+        {priced ? money(displayAle) : money(null)}
       </div>
+
+      {/* Why there is no figure. Rendered only in the unpriced state, and
+          carrying the producer's own reason when it gave one. */}
+      {!priced && (
+        <div
+          data-testid="fleet-risk-unpriced-reason"
+          style={{
+            fontSize: 11,
+            lineHeight: 1.4,
+            color: 'var(--muted)',
+            textAlign: 'center',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '6px 8px',
+          }}
+        >
+          {unavailableReason ?? UNPRICED_NO_SERVER_REASON}
+          {action !== undefined && (
+            <div
+              data-testid="fleet-risk-unpriced-action"
+              style={{ marginTop: 4, color: 'var(--text)', fontWeight: 600 }}
+            >
+              {action}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Carried GBP Exposure */}
       <div
@@ -344,7 +496,7 @@ export default function FleetRiskGauge({
       >
         <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Carried GBP:</span>
         <span style={{ color: carriedColour, fontVariantNumeric: 'tabular-nums' }}>
-          {money(displayCarried)}
+          {carriedPriced ? money(displayCarried) : money(null)}
         </span>
       </div>
 
@@ -353,9 +505,11 @@ export default function FleetRiskGauge({
         <span data-testid="fleet-risk-trend" style={{ color: trendColour, fontWeight: 600 }}>
           {trendIcon}
         </span>
-        {previousAle !== undefined && trend !== 'stable' && (
+        {/* A delta needs BOTH endpoints. `Math.abs(undefined - x)` is NaN, and
+            a NaN delta used to reach Intl as currency-prefixed garbage. */}
+        {priced && typeof previousAle === 'number' && Number.isFinite(previousAle) && trend !== 'stable' && (
           <span data-testid="fleet-risk-delta" style={{ color: 'var(--muted)', fontSize: 13 }}>
-            {money(Math.abs(ale - previousAle))}
+            {money(Math.abs((ale as number) - previousAle))}
           </span>
         )}
       </div>
@@ -375,6 +529,26 @@ export default function FleetRiskGauge({
         Annual Loss Expectancy (FAIR Monte Carlo)
         {asOfNote !== null && ` \u00B7 ${asOfNote}`}
       </div>
+
+      {/* Provenance. Scripted demo figures are a legitimate product feature;
+          presenting them without saying so is not. */}
+      {sourceLabel !== undefined && (
+        <div
+          data-testid="fleet-risk-source"
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: 'var(--amber)',
+            border: '1px solid var(--amber)',
+            borderRadius: 4,
+            padding: '2px 7px',
+          }}
+        >
+          {sourceLabel}
+        </div>
+      )}
     </div>
   )
 }

@@ -133,6 +133,7 @@ Kusari AWS signal e2e — stage 1
   cloud-signals        eks-access-entry-created              2    2  ok
   cloud-signals        eks-cluster-config-changed            1    1  ok
   cloud-signals        guardduty-detection-tampered          3    3  ok
+  cloud-signals        guardduty-high-severity               1    1  ok
   cloud-signals        iam-credential-or-policy-change       3    3  ok
   cloud-signals        s3-bucket-exposure-changed            2    2  ok
   cloud-signals        vpc-egress-rejected                  23   23  ok
@@ -148,7 +149,7 @@ Kusari AWS signal e2e — stage 2
   cloud-signals        vpc-reject-burst-5m                   1    1  ok
   iam-change           iam-change-burst                      0    0  ok
 
-  stored: 47 observations, 62 findings, 3 decisions
+  stored: 49 observations, 63 findings, 3 decisions
 ```
 
 The `want` column is the table in `d2-signalloom/apps/signal-ingest/e2e/expectations.go`.
@@ -197,7 +198,7 @@ In `collectors/awslogs`:
 | `TestKusariFixtures_NegativeContractHolds` | no policy document, access key, MFA field or raw body reaches a label or a description |
 | `TestKusariFixtures_IDsAreDerivedAndUnique` | ids are derived and reproducible, so replay deduplicates |
 | `TestKusariFixtures_VPCFlowIndexSkipsHeaderAndComments` | the flow record index counts data lines only |
-| `TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing` | **pins a known gap** — see below |
+| `TestKusariFixtures_EventBridgeEnvelopeProjectsToAGuardDutyObservation` | the GuardDuty EventBridge envelope is in the replay set and projects to one `aws:guardduty` observation — see below |
 
 In `collectors/awslogs/synth`: `TestGenerate_SameSeedIsByteIdentical`,
 `TestGenerate_DifferentSeedsDiffer`,
@@ -252,7 +253,7 @@ routes an allowlisted identity firing everywhere to the `actor_vars` omission.
 The in-memory path was never affected, and `TestKusariE2E_ReplayReproducesLive`
 remains its positive claim.
 
-## GuardDuty findings: a known gap
+## GuardDuty findings over EventBridge
 
 The `guardduty-detection-tampered` rule covers GuardDuty **management** calls:
 `DeleteDetector`, `UpdateDetector`, `CreateFilter`, `ArchiveFindings` and the
@@ -260,17 +261,39 @@ rest. This is what GuardDuty actually writes to CloudTrail, and it is the
 detection-evasion signal worth the `critical` severity.
 
 A GuardDuty **finding** is a different thing. It is delivered over EventBridge
-in a `{detail-type, detail{...}}` envelope with no `Records[]` array. That
-envelope is valid JSON, so `ProjectCloudTrail` decodes it successfully. It
-returns **zero observations with no error**: a silent zero that reads exactly
-like a quiet account.
+in a `{detail-type, detail{...}}` envelope with no `Records[]` array. Until
+SLAWS-P5-3 that envelope decoded as a CloudTrail file with no records. It
+projected to **zero observations with no error**, a silent zero that read
+exactly like a quiet account.
 
-`collectors/awslogs/testdata/kusari/guardduty-eventbridge-envelope.json` holds
-one, deliberately **outside** `KusariFixtureFiles()` so it never reaches a
-rule. `TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing` pins the
-zero. Closing the gap needs an EventBridge-shaped projection path with its
-own §2.3 label rows. The alternative is a forwarder that re-shapes findings
-onto the CloudTrail envelope before they reach the bucket.
+`Projector.Project` now probes the envelope shape before choosing a path:
+
+- `detail-type: "GuardDuty Finding"` goes to `ProjectGuardDuty`, which emits
+  one observation with `source = aws:guardduty`.
+- A `Records` array goes to `ProjectCloudTrail`, as before.
+- Anything else is `ErrUnrecognisedEnvelope`, which the collector stores as a
+  `projection_failure` record instead of reporting success with zero rows.
+
+The GuardDuty column of the §2.3 table in `collectors/awslogs/contract_doc.go`
+is the contract. `event_source` is the envelope source (`aws.guardduty`),
+`event_name` is the finding type, and `severity` is the integer floor of
+`detail.severity`. The floor means 7.5 reads as 7, so the GuardDuty high band is
+exactly `int(obs.labels.severity) >= 7` and CEL never fails to parse the label.
+`resource_type` is `detail.resource.resourceType`. `resource_name` appears only
+when the finding carries an `eni-` network interface id. The description is
+`guardduty <type> on <resourceType>` and nothing else. The title, the access key
+id and the principal `userName` are never decoded, and
+`TestNegativeContract_GuardDutyDetailNeverBecomesALabel` proves none of them
+reaches any field. The observation has no actor: the envelope names a
+`userName`, not an ARN, and the projection does not invent an ARN from it.
+
+Two fixtures carry the path. `guardduty-eventbridge-envelope.json` is a
+severity 8 finding, the positive for `guardduty-high-severity`.
+`guardduty-eventbridge-low-severity.json` is a severity 2 finding, which must
+not fire it. Both are in `KusariFixtureFiles()`. The rule is disjoint from
+`guardduty-detection-tampered` on `event_source`, and
+`TestKusariE2E_GuardDutyHighSeverityFiresOnTheEnvelopeOnly` asserts that the
+one finding it produces traces back to the severity 8 envelope.
 
 ## Three fields the rules cannot read
 

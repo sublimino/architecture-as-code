@@ -1,0 +1,76 @@
+{
+  "name": "container-run-as-non-root--pod-absent-container-true",
+  "level": "unit",
+  "description": "The pod declares no securityContext at all and the only container sets runAsNonRoot: true. Nothing is explicitly false, so the pod is admissible and the check passes. Pins that the pod-level fatal-false clause does not also reject an absent pod securityContext.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "tenant-demo",
+        "labels": {
+          "data_classification": "confidential",
+          "ai_human_oversight": "required",
+          "policy_version": "v2.0.0"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "180d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "ai-ops@example.com"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {},
+        "containers": [
+          {
+            "name": "agent",
+            "image": "ghcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "privileged": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              }
+            }
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "container-run-as-non-root": "pass"
+  }
+}

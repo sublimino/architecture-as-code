@@ -1,0 +1,156 @@
+# COMMAND: make test-obscel (sha: 504405b9e7e91efdf5c97bcd701b6511f712f6db)
+cd d2-signalloom/pkg/obscel && env GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -v -count=1
+=== RUN   TestPseudonymiseActorVars_RewritesOnlyDeclaredLists
+--- PASS: TestPseudonymiseActorVars_RewritesOnlyDeclaredLists (0.00s)
+=== RUN   TestPseudonymiseActorVars_NilFuncLeavesTheBundleAlone
+--- PASS: TestPseudonymiseActorVars_NilFuncLeavesTheBundleAlone (0.00s)
+=== RUN   TestValidateBundle_ActorVarMustBeDeclared
+--- PASS: TestValidateBundle_ActorVarMustBeDeclared (0.00s)
+=== RUN   TestConform_RejectsActorComparisonAgainstUndeclaredActorVar
+--- PASS: TestConform_RejectsActorComparisonAgainstUndeclaredActorVar (0.00s)
+=== RUN   TestConform_AcceptsDeclaredActorVar
+--- PASS: TestConform_AcceptsDeclaredActorVar (0.00s)
+=== RUN   TestActorComparedVars_CoversEverySpelling
+=== RUN   TestActorComparedVars_CoversEverySpelling/vars.x
+=== RUN   TestActorComparedVars_CoversEverySpelling/vars_index
+=== RUN   TestActorComparedVars_CoversEverySpelling/bundle.vars.x
+=== RUN   TestActorComparedVars_CoversEverySpelling/bundle.vars_index
+=== RUN   TestActorComparedVars_CoversEverySpelling/positive_form
+--- PASS: TestActorComparedVars_CoversEverySpelling (0.00s)
+    --- PASS: TestActorComparedVars_CoversEverySpelling/vars.x (0.00s)
+    --- PASS: TestActorComparedVars_CoversEverySpelling/vars_index (0.00s)
+    --- PASS: TestActorComparedVars_CoversEverySpelling/bundle.vars.x (0.00s)
+    --- PASS: TestActorComparedVars_CoversEverySpelling/bundle.vars_index (0.00s)
+    --- PASS: TestActorComparedVars_CoversEverySpelling/positive_form (0.00s)
+=== RUN   TestActorComparedVars_IgnoresNonActorComparisons
+--- PASS: TestActorComparedVars_IgnoresNonActorComparisons (0.00s)
+=== RUN   TestPseudonymiseActorVars_FaultAbortsWholeBundle
+--- PASS: TestPseudonymiseActorVars_FaultAbortsWholeBundle (0.00s)
+=== RUN   TestLoadBundleDirLoadsAConfigMapMountExactlyOnce
+--- PASS: TestLoadBundleDirLoadsAConfigMapMountExactlyOnce (0.00s)
+=== RUN   TestShippedKusariBundleLoadsAndConforms
+--- PASS: TestShippedKusariBundleLoadsAndConforms (0.00s)
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/AttachUserPolicy_by_dev
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/CreatePolicyVersion_by_dev
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/PutUserPolicy_by_dev
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/CreateAccessKey_by_dev
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/AttachUserPolicy_by_break-glass
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/CreateAccessKey_by_break-glass
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/benign_ListUsers_by_dev
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/VPC_REJECT
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/VPC_ACCEPT
+=== RUN   TestKusariBundleRulesMatchTheIntendedEvents/unlabelled_cloud_record
+--- PASS: TestKusariBundleRulesMatchTheIntendedEvents (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/AttachUserPolicy_by_dev (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/CreatePolicyVersion_by_dev (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/PutUserPolicy_by_dev (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/CreateAccessKey_by_dev (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/AttachUserPolicy_by_break-glass (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/CreateAccessKey_by_break-glass (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/benign_ListUsers_by_dev (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/VPC_REJECT (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/VPC_ACCEPT (0.00s)
+    --- PASS: TestKusariBundleRulesMatchTheIntendedEvents/unlabelled_cloud_record (0.00s)
+=== RUN   TestLoadBundleDirIsSortedAndRepeatable
+--- PASS: TestLoadBundleDirIsSortedAndRepeatable (0.00s)
+=== RUN   TestLoadBundleDirEmptyOrMissingIsNotAnError
+--- PASS: TestLoadBundleDirEmptyOrMissingIsNotAnError (0.00s)
+=== RUN   TestLoadBundleDirIsFailClosed
+--- PASS: TestLoadBundleDirIsFailClosed (0.00s)
+=== RUN   TestLoadBundleDirRejectsDuplicateIdentity
+--- PASS: TestLoadBundleDirRejectsDuplicateIdentity (0.00s)
+=== RUN   TestLoadBundleFileRejectsUnknownFields
+--- PASS: TestLoadBundleFileRejectsUnknownFields (0.00s)
+=== RUN   TestValidateBundleHeader
+=== RUN   TestValidateBundleHeader/missing_id
+=== RUN   TestValidateBundleHeader/missing_tenant_id
+=== RUN   TestValidateBundleHeader/two-component_version
+=== RUN   TestValidateBundleHeader/v-prefixed_version
+=== RUN   TestValidateBundleHeader/non-numeric_version
+=== RUN   TestValidateBundleHeader/unknown_mode
+=== RUN   TestValidateBundleHeader/empty_mode
+=== RUN   TestValidateBundleHeader/no_rules
+=== RUN   TestValidateBundleHeader/empty_vars_list
+--- PASS: TestValidateBundleHeader (0.00s)
+    --- PASS: TestValidateBundleHeader/missing_id (0.00s)
+    --- PASS: TestValidateBundleHeader/missing_tenant_id (0.00s)
+    --- PASS: TestValidateBundleHeader/two-component_version (0.00s)
+    --- PASS: TestValidateBundleHeader/v-prefixed_version (0.00s)
+    --- PASS: TestValidateBundleHeader/non-numeric_version (0.00s)
+    --- PASS: TestValidateBundleHeader/unknown_mode (0.00s)
+    --- PASS: TestValidateBundleHeader/empty_mode (0.00s)
+    --- PASS: TestValidateBundleHeader/no_rules (0.00s)
+    --- PASS: TestValidateBundleHeader/empty_vars_list (0.00s)
+=== RUN   TestConformReportsDefectsAgainstTheOffendingRuleID
+--- PASS: TestConformReportsDefectsAgainstTheOffendingRuleID (0.00s)
+=== RUN   TestConformCatchesUndeclaredVarsReference
+--- PASS: TestConformCatchesUndeclaredVarsReference (0.00s)
+=== RUN   TestVarsReferencesExtraction
+--- PASS: TestVarsReferencesExtraction (0.00s)
+=== RUN   TestConformResolvesWindowReferences
+=== RUN   TestConformResolvesWindowReferences/dangling_over_rule
+=== RUN   TestConformResolvesWindowReferences/empty_over_rule
+=== RUN   TestConformResolvesWindowReferences/no_key
+=== RUN   TestConformResolvesWindowReferences/unaddressable_key
+=== RUN   TestConformResolvesWindowReferences/bare_labels_prefix
+=== RUN   TestConformResolvesWindowReferences/zero_window
+=== RUN   TestConformResolvesWindowReferences/negative_window
+=== RUN   TestConformResolvesWindowReferences/zero_threshold
+=== RUN   TestConformResolvesWindowReferences/missing_severity
+=== RUN   TestConformResolvesWindowReferences/missing_id
+--- PASS: TestConformResolvesWindowReferences (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/dangling_over_rule (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/empty_over_rule (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/no_key (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/unaddressable_key (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/bare_labels_prefix (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/zero_window (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/negative_window (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/zero_threshold (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/missing_severity (0.00s)
+    --- PASS: TestConformResolvesWindowReferences/missing_id (0.00s)
+=== RUN   TestConformRejectsDuplicateIDs
+--- PASS: TestConformRejectsDuplicateIDs (0.00s)
+=== RUN   TestConformOnNilBundle
+--- PASS: TestConformOnNilBundle (0.00s)
+=== RUN   TestJoinRuleErrorsIsNilWhenClean
+--- PASS: TestJoinRuleErrorsIsNilWhenClean (0.00s)
+=== RUN   TestEnvExportsEveryObservationField
+--- PASS: TestEnvExportsEveryObservationField (0.00s)
+=== RUN   TestHasOnAbsentLabelIsFalseAndNeverErrors
+--- PASS: TestHasOnAbsentLabelIsFalseAndNeverErrors (0.00s)
+=== RUN   TestMisspelledObservationFieldIsACompileError
+--- PASS: TestMisspelledObservationFieldIsACompileError (0.00s)
+=== RUN   TestVarsAndBundleVarsAreEquivalent
+--- PASS: TestVarsAndBundleVarsAreEquivalent (0.00s)
+=== RUN   TestNonBooleanExpressionRejected
+--- PASS: TestNonBooleanExpressionRejected (0.00s)
+=== RUN   TestCompilerRejectsEmptyAndOversizeExpressions
+--- PASS: TestCompilerRejectsEmptyAndOversizeExpressions (0.00s)
+=== RUN   TestProgramCacheKeyedByExpressionHash
+--- PASS: TestProgramCacheKeyedByExpressionHash (0.00s)
+=== RUN   TestCostLimitRejectsExpensiveEvaluation
+--- PASS: TestCostLimitRejectsExpensiveEvaluation (0.00s)
+=== RUN   TestRulesEvaluateInSortedRuleIDOrder
+--- PASS: TestRulesEvaluateInSortedRuleIDOrder (0.00s)
+=== RUN   TestRepeatedEvaluationIsByteIdentical
+--- PASS: TestRepeatedEvaluationIsByteIdentical (0.00s)
+=== RUN   TestEvaluatorFaultIsIsolated
+--- PASS: TestEvaluatorFaultIsIsolated (0.00s)
+=== RUN   TestFindingFieldsAreDerivedNotGenerated
+--- PASS: TestFindingFieldsAreDerivedNotGenerated (0.00s)
+=== RUN   TestBundleVersionParticipatesInFindingIdentity
+--- PASS: TestBundleVersionParticipatesInFindingIdentity (0.00s)
+=== RUN   TestEvaluateObservationRejectsNilBundle
+--- PASS: TestEvaluateObservationRejectsNilBundle (0.00s)
+=== RUN   TestNonMatchingRuleIsNotAFault
+--- PASS: TestNonMatchingRuleIsNotAFault (0.00s)
+=== RUN   TestFindingIDIsDerivedAndStable
+--- PASS: TestFindingIDIsDerivedAndStable (0.00s)
+=== RUN   TestDecisionIDIgnoresFindingOrder
+--- PASS: TestDecisionIDIgnoresFindingOrder (0.00s)
+=== RUN   TestCanonicalFindingSortsLabels
+--- PASS: TestCanonicalFindingSortsLabels (0.00s)
+PASS
+ok  	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel	0.019s

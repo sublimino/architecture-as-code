@@ -41,6 +41,32 @@ func (ht handlerTransport) scan(body []byte) ([]ComplianceScanResult, error) {
 	return out, json.Unmarshal(w.Body.Bytes(), &out)
 }
 
+// handlerRemembering builds a handler whose ONLY remembered scan is the rows
+// given, stored under the anonymous tenant.
+//
+// It replaces `&complianceHandler{lastResults: rows}`, which stopped compiling
+// when the single unkeyed results slot became a map keyed by tenant (fix 2 --
+// handleSummary used to serve the last scanner's figures to every caller). The
+// tests that use it are white-box summary-arithmetic tests: they need rows in
+// the store without running a scan, and they do not care whose rows they are.
+// The anonymous key is the right one because handlerTransport.summary sends no
+// tenant header, so what it stores is exactly what that request reads back.
+func handlerRemembering(rows []ComplianceScanResult) *complianceHandler {
+	h := &complianceHandler{}
+	h.rememberScan("", rows, nil)
+	return h
+}
+
+// mustScan returns the anonymous tenant's remembered rows, panicking if there
+// are none -- a test that asks for rows it never stored has a bug in the test.
+func (ch *complianceHandler) mustScan() tenantScan {
+	s, ok := ch.scanFor("")
+	if !ok {
+		panic("no remembered scan for the anonymous tenant")
+	}
+	return s
+}
+
 func (ht handlerTransport) summary() (ComplianceSummary, error) {
 	w := httptest.NewRecorder()
 	ht.h.handleSummary(w, httptest.NewRequest(http.MethodGet, "/api/v1/compliance/summary", nil))
@@ -189,7 +215,10 @@ func throwawayRoot(t *testing.T) string {
 	writePack(t, root, "throwaway", "v2.0", frameworks.Framework{ID: "throwaway", Version: "v2.0.0",
 		ControlSets: controls("v2.0.0", "!(has(agent.registry) && agent.registry.model_registered == true)")})
 
-	nonRoot := map[string]any{"spec": map[string]any{"securityContext": map[string]any{"runAsNonRoot": true}}}
+	// containers is required by the Pod schema, so the shape guard in
+	// workload_shape.go requires it of any spec it is given (an empty list is a
+	// caller asserting there are no containers, which is judgeable).
+	nonRoot := map[string]any{"spec": map[string]any{"containers": []any{}, "securityContext": map[string]any{"runAsNonRoot": true}}}
 	registered := map[string]any{"registry": map[string]any{"model_registered": true}}
 	write := func(name string, f map[string]any) {
 		dir := filepath.Join(root, "frameworks", "throwaway", "v1.0", "fixtures", "unit")

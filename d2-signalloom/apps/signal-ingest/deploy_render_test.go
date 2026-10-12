@@ -58,6 +58,10 @@ var bootstrapSecrets = map[string]map[string]string{
 		"SIGNAL_SEGMENT_PSEUDONYM_KEY":   strings.Repeat("cd", 32),
 		"SIGNAL_SEGMENT_PSEUDONYM_EPOCH": "1",
 	},
+	// Multi-account AWSLogs configuration Secret (optional in base/deployment.yaml).
+	"signal-ingest-awslogs-accounts": {
+		"accounts.json": `[{"account_id":"123456789012","role_arn":"arn:aws:iam::123456789012:role/kusari-read","external_id":"ext-1","queue_url":"https://sqs.us-east-1.amazonaws.com/123456789012/kusari-queue","tenant_id":"kusari","region":"us-east-1"}]`,
+	},
 }
 
 // keySecretPrefix names every static key's Secret: signal-ingest-key-<name>, minted by
@@ -891,5 +895,34 @@ func TestReconciledManifestStoresSignalsDurably(t *testing.T) {
 	// provisioning and is not the same as taking the cluster default.
 	if spec.StorageClassName != nil {
 		t.Errorf("storageClassName = %q, want it unset so the cluster default provisions the volume", *spec.StorageClassName)
+	}
+}
+
+// TestReconciledManifestWiresAWSLogsAccountsFromASecret verifies that the
+// reconciled Deployment configures COLLECTOR_AWSLOGS_ACCOUNTS from the
+// optional Secret signal-ingest-awslogs-accounts/accounts.json (SLAWS D11).
+func TestReconciledManifestWiresAWSLogsAccountsFromASecret(t *testing.T) {
+	r := renderReconciledManifest(t)
+	var found bool
+	for _, e := range r.container.Env {
+		if e.Name == "COLLECTOR_AWSLOGS_ACCOUNTS" {
+			found = true
+			if e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+				t.Fatalf("COLLECTOR_AWSLOGS_ACCOUNTS has no SecretKeyRef: %+v", e)
+			}
+			ref := e.ValueFrom.SecretKeyRef
+			if ref.Name != "signal-ingest-awslogs-accounts" {
+				t.Errorf("Secret name = %q, want signal-ingest-awslogs-accounts", ref.Name)
+			}
+			if ref.Key != "accounts.json" {
+				t.Errorf("Secret key = %q, want accounts.json", ref.Key)
+			}
+			if ref.Optional == nil || !*ref.Optional {
+				t.Errorf("SecretKeyRef optional = %v, want true", ref.Optional)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("rendered Deployment does not wire COLLECTOR_AWSLOGS_ACCOUNTS")
 	}
 }

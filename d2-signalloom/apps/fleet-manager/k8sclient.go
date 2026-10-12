@@ -1841,8 +1841,13 @@ func (c *k8sFleetClient) SaveFleetToConfigMap(ctx context.Context, namespace, co
 		rawAgents[i] = *a
 	}
 	cfg := FleetConfig{
-		Agents:        rawAgents,
-		AggregateRisk: dag.AggregateRisk(),
+		Agents: rawAgents,
+		// The AUTHORED inputs, not the served summary. This writes fleet.yaml back to
+		// the ConfigMap, so it must round-trip what the manifest declared; serialising
+		// the refusal here would silently erase the authored numbers from the config on
+		// the next write, and a later reader would have no idea a figure was ever
+		// declared.
+		AggregateRisk: dag.AuthoredRiskInputs(),
 	}
 
 	dataBytes, err := yaml.Marshal(cfg)

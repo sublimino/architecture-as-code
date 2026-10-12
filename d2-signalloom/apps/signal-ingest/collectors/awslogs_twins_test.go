@@ -215,3 +215,76 @@ func TestAWSLogs_FixtureModeBindsTheConfiguredTenant(t *testing.T) {
 		}
 	}
 }
+
+// TestAWSLogs_AccountsEnvRegistersOneCollectorPerEntryWithItsOwnTenant proves that
+// COLLECTOR_AWSLOGS_ACCOUNTS registers one collector per declared account, each
+// with its own tenant binding and WAL directory.
+func TestAWSLogs_AccountsEnvRegistersOneCollectorPerEntryWithItsOwnTenant(t *testing.T) {
+	raw := `[
+		{
+			"account_id": "111111111111",
+			"role_arn": "arn:aws:iam::111111111111:role/read-telemetry",
+			"external_id": "ext-1",
+			"queue_url": "https://sqs.us-east-1.amazonaws.com/111111111111/q1",
+			"tenant_id": "tenant-alpha",
+			"region": "us-east-1"
+		},
+		{
+			"account_id": "222222222222",
+			"role_arn": "arn:aws:iam::222222222222:role/read-telemetry",
+			"external_id": "ext-2",
+			"queue_url": "https://sqs.eu-west-1.amazonaws.com/222222222222/q2",
+			"tenant_id": "tenant-beta",
+			"region": "eu-west-1"
+		}
+	]`
+	t.Setenv("COLLECTOR_AWSLOGS_ACCOUNTS", raw)
+	t.Setenv("COLLECTOR_AWSLOGS_MODE", "fixture")
+
+	sink := &trackingSink{}
+	reg := NewRegistryFromEnv(sink)
+
+	col1 := reg.GetCollector("awslogs")
+	if col1 == nil {
+		t.Fatal("first collector awslogs is not registered")
+	}
+	col2 := reg.GetCollector("awslogs/222222222222")
+	if col2 == nil {
+		t.Fatal("second collector awslogs/222222222222 is not registered")
+	}
+
+	awsCol1, ok := col1.(*AWSLogsCollector)
+	if !ok || awsCol1.Config().TenantID != "tenant-alpha" {
+		t.Errorf("col1 TenantID = %q, want tenant-alpha", awsCol1.Config().TenantID)
+	}
+	awsCol2, ok := col2.(*AWSLogsCollector)
+	if !ok || awsCol2.Config().TenantID != "tenant-beta" {
+		t.Errorf("col2 TenantID = %q, want tenant-beta", awsCol2.Config().TenantID)
+	}
+
+	ctx := context.Background()
+	sink1 := &trackingSink{}
+	col1Custom := NewAWSLogsCollectorWithConfig(ModeFixture, sink1, awsCol1.Config())
+	if err := col1Custom.Start(ctx); err != nil {
+		t.Fatalf("col1 Start: %v", err)
+	}
+	col1Custom.Stop()
+	for _, o := range sink1.Observations() {
+		if o.Labels["tenant_id"] != "tenant-alpha" {
+			t.Errorf("col1 observation %s has tenant_id %q, want tenant-alpha", o.ID, o.Labels["tenant_id"])
+		}
+	}
+
+	sink2 := &trackingSink{}
+	col2Custom := NewAWSLogsCollectorWithConfig(ModeFixture, sink2, awsCol2.Config())
+	if err := col2Custom.Start(ctx); err != nil {
+		t.Fatalf("col2 Start: %v", err)
+	}
+	col2Custom.Stop()
+	for _, o := range sink2.Observations() {
+		if o.Labels["tenant_id"] != "tenant-beta" {
+			t.Errorf("col2 observation %s has tenant_id %q, want tenant-beta", o.ID, o.Labels["tenant_id"])
+		}
+	}
+}
+

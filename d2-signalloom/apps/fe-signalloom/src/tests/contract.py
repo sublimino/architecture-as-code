@@ -34,7 +34,14 @@ class ComplianceSummaryInline(BaseModel):
     passing: int
     failing: int
     pending: int
+    # See AssessmentSummaryMetadata.errored_controls.
+    errored: int = 0
     posture_score: float | None
+    # Refusal verdict: "unavailable" means no control set is derivable for this
+    # agent, so every count is 0 and posture_score is None. See
+    # api_compat.ComplianceSummaryInline for the full contract.
+    evidence_state: Literal["measured", "unavailable"] = "measured"
+    reason: str | None = None
 
 
 # ---- Agents ----------------------------------------------------------------
@@ -157,6 +164,9 @@ class AssessmentSummaryMetadata(BaseModel):
     passed_controls: int = 0
     failed_controls: int = 0
     pending_controls: int = 0
+    # Controls the assessment could not evaluate. Additive; pending_controls no
+    # longer carries them silently.
+    errored_controls: int = 0
     normalized_score: float | None = None
 
 
@@ -506,6 +516,9 @@ class ComplianceSummaryResponse(BaseModel):
     controls_passing: int
     controls_failing: int
     controls_pending: int
+    # Controls whose assessment could not evaluate. Additive, and excluded from
+    # controls_pending -- which used to fold them in and read as "not yet".
+    controls_errored: int = 0
     posture_score: float | None
 
 
@@ -528,6 +541,12 @@ class FrameworkResponse(BaseModel):
     compliance_deadline: str | None
     control_count: int
     controls: list[ControlResponse]
+    # Jurisdiction reporting, read-only. Mirrors api_compat.FrameworkResponse;
+    # both carry extra="forbid", so a drift between the two declarations is a
+    # red contract test rather than a field the dashboard never receives.
+    territories: list[str] = []
+    in_jurisdiction: bool = True
+    out_of_jurisdiction_reason: str | None = None
 
 
 class AgentComplianceResultResponse(BaseModel):
@@ -693,6 +712,25 @@ class TenantSettingsResponse(BaseModel):
     preferred_scan_cadence_hours: int
     alert_email: str | None
     alert_threshold: int
+    # The declared organisational risk profile (migration 062).  Mirrors
+    # api_compat.TenantSettingsResponse; both carry extra="forbid", so a drift
+    # between the two declarations shows up as a red contract test rather than
+    # as a field the dashboard silently never receives.
+    sector: str | None = None
+    jurisdiction: str | None = None
+    reporting_currency: str | None = None
+    risk_appetite_tolerance: float | None = None
+    risk_load: float | None = None
+
+
+class RiskProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sector: str | None = None
+    jurisdiction: str | None = None
+    reporting_currency: str | None = None
+    risk_appetite_tolerance: float | None = None
+    risk_load: float | None = None
 
 
 class PreferencesUpdateRequest(BaseModel):

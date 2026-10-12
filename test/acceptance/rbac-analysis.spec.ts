@@ -25,7 +25,7 @@ test.describe("RBAC analysis importer", () => {
 
   test("generates, copies, sends through the gateway, and verifies frontend-agent namespace RBAC", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await login(page);
+    await login(page, { demoMode: false });
 
     await page.getByRole("link", { name: "RBAC Analysis", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible();

@@ -1,0 +1,227 @@
+# Declared exceptions to Flux workload coverage.
+#
+# Consumed by scripts/flux-workload-coverage.py and enforced by
+# test/flux-workload-coverage.bats. Every workload manifest in a delivery root
+# (d2-*, olly-replica, deploy, infra) that no Flux object reconciles MUST appear
+# here with a reason, or the gate fails. The register exists so an exception is
+# DECLARED rather than DISCOVERED -- the failure mode it ends is a manifest that
+# reads like production config, is reviewed and committed, and is applied by
+# nothing.
+#
+# The register is NOT a waiver and is deliberately hard to use as one. Three
+# properties make it bite in both directions:
+#
+#   1. An undeclared uncovered manifest fails the gate (a new workload with no
+#      Flux object naming it cannot land silently).
+#   2. A STALE entry fails the gate -- one whose file has been deleted, or whose
+#      manifest is now genuinely Flux-reconciled. So the register cannot
+#      accumulate stop-energy for gaps that were since closed, and it cannot
+#      pre-authorise a path that does not exist yet.
+#   3. `class: gap` is an admission of drift, not an exemption. Those entries
+#      are open decisions for the repo owner, recorded here only so the gate
+#      reports a known number instead of an unknown one.
+#
+# class values
+#   bootstrap        must exist BEFORE Flux can reconcile anything (chicken/egg).
+#   out-of-band-lab  applied by a named script against a lab, a remote cluster,
+#                    or an opt-in demo; never part of a cluster's steady state.
+#   runtime-template not a deliverable -- a template a workload renders at runtime.
+#   test-fixture     exercised by a test suite that owns its own lifecycle.
+#   gap              SHOULD be reconciled by Flux and is not. Open decision.
+#
+# Live evidence for the `gap` entries marked `live: true` was taken from
+# kind-osramp on 2026-10-11: the workload is running with NO
+# kustomize.toolkit.fluxcd.io/name, helm.toolkit.fluxcd.io/name or
+# resourceset.fluxcd.io/name label and no ownerReference, i.e. nothing in GitOps
+# would recreate it after a rebuild. See docs/flux-coverage.md.
+
+exceptions:
+  # ---- bootstrap: precedes Flux by construction -----------------------------
+  - path: d2-osramp-fleet/local/zot.yaml
+    class: bootstrap
+    reason: >-
+      The in-cluster OCI registry that every OCIRepository pulls from. Flux
+      cannot deliver the thing Flux reads its own artifacts out of.
+    applied_by: make registry (scripts/registry.sh)
+    live: true
+
+  - path: infra/kind/probe.yaml
+    class: bootstrap
+    reason: >-
+      Cluster-foundation reachability probe used by `make healthcheck` before
+      any tenant exists.
+    applied_by: scripts/cluster.sh
+    live: true
+
+  - path: d2-agent-trust/spire-federation-bridge-relay.yaml
+    class: bootstrap
+    reason: >-
+      Cross-cluster SPIRE federation relay. Sits OUTSIDE d2-agent-trust/manifests,
+      which is the only directory published as the signalloom/agent-trust
+      artifact, so it is structurally unreachable from any Flux object. It must
+      be applied to BOTH clusters before either trust domain can validate the
+      other, which is upstream of the fleet it would be delivered by.
+    applied_by: scripts/bootstrap-spire-federation.sh
+
+  - path: d2-agent-trust/spire-federation-config.yaml
+    class: bootstrap
+    reason: Same federation bring-up as the relay above; same artifact exclusion.
+    applied_by: scripts/bootstrap-spire-federation.sh
+
+  # ---- out-of-band labs, remote clusters, opt-in demos ---------------------
+  - path: d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant/daemonset-remote.yaml
+    class: out-of-band-lab
+    reason: >-
+      Warden overlay for a REMOTE tenant cluster. No cluster in
+      d2-osramp-fleet/clusters/ selects it; the remote cluster runs its own
+      fleet. Deliberately outside this repo's reconcile graph (ADR-12).
+    applied_by: scripts/remote-tenant-lab.sh
+
+  - path: d2-signalloom/apps/stun-sentinel/deploy/capability-audit.yaml
+    class: out-of-band-lab
+    reason: >-
+      Capability-audit variant of the sentinel DaemonSet, applied by hand into
+      an isolated lab to measure kernel-freeze behaviour. The production
+      sentinel path is the signalloom-warden overlay, which IS Flux-reconciled.
+    applied_by: scripts/ (stun liveness/distributed labs)
+
+  - path: d2-signalloom/apps/fe-signalloom/base/agents-cardvault.yaml
+    class: out-of-band-lab
+    reason: >-
+      SuperCred demo agent Pod, created and deleted by the demo script within a
+      single run. A bare Pod is not steady state.
+    applied_by: scripts/supercred-demo.sh, scripts/supercred-fleet-demo.sh
+
+  - path: d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
+    class: out-of-band-lab
+    reason: SuperCred demo Job; one-shot, scoped to the demo run.
+    applied_by: scripts/supercred-demo.sh
+
+  - path: d2-signalloom/apps/fleet-agents/base/agent-api-gateway.yaml
+    class: out-of-band-lab
+    reason: >-
+      Fleet-agent demo cohort (bare Pods) applied as a group by the fleet demo
+      to exercise discovery and auto-claim, then removed.
+    applied_by: scripts/supercred-fleet-demo.sh
+
+  - path: d2-signalloom/apps/fleet-agents/base/agent-llm-classifier.yaml
+    class: out-of-band-lab
+    reason: Fleet-agent demo cohort; see agent-api-gateway.yaml.
+    applied_by: scripts/supercred-fleet-demo.sh
+
+  - path: d2-signalloom/apps/fleet-agents/base/agent-monitor.yaml
+    class: out-of-band-lab
+    reason: Fleet-agent demo cohort; see agent-api-gateway.yaml.
+    applied_by: scripts/supercred-fleet-demo.sh
+
+  - path: d2-signalloom/apps/fleet-agents/base/agent-txn-pipeline.yaml
+    class: out-of-band-lab
+    reason: Fleet-agent demo cohort; see agent-api-gateway.yaml.
+    applied_by: scripts/supercred-fleet-demo.sh
+
+  - path: deploy/kusari-agent-workload.yaml
+    class: out-of-band-lab
+    reason: >-
+      Standalone Kusari pilot workload for the EAP walkthrough. The
+      Flux-reconciled Kusari agent is d2-signalloom/infra/agent-swarm/kusari-agent
+      (Kustomization agent-kusari-agent); this file is the hand-applied variant
+      the playbook uses.
+    applied_by: docs/kusari walkthrough (kubectl apply -f)
+
+  # ---- runtime templates and test fixtures ---------------------------------
+  - path: d2-signalloom/infra/agent-swarm/hosted-daytona-coder/workspace-pod-template.yaml
+    class: runtime-template
+    reason: >-
+      Pod template the daytona coder renders per workspace at runtime. Applying
+      it directly would be wrong; it is input to a controller, not a deliverable.
+    applied_by: hosted-daytona-coder (in-cluster)
+
+  - path: olly-replica/test/fixtures/reseed-job.yaml
+    class: test-fixture
+    reason: Olly reseed fixture; the suite that uses it owns setup and teardown.
+    applied_by: olly-replica test suite
+
+  # ---- gap: SHOULD be Flux-reconciled and is not. Open decisions. ----------
+  - path: d2-k8s-afm/apps/afm-platform/base/deployment.yaml
+    class: gap
+    reason: >-
+      d2-k8s-afm is published as no OCI artifact (scripts/push-local.sh has no
+      push target for it) and no ResourceSet references it, so the whole slice is
+      outside GitOps. Running live in kind-osramp with no Flux label: a rebuild
+      silently drops the AFM platform the dashboard RBAC pages read.
+    applied_by: scripts/k8s-afm.sh (kubectl apply -k d2-k8s-afm/apps/afm-platform/local)
+    live: true
+
+  - path: d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml
+    class: gap
+    reason: AFM cluster-import CronJob; same unpublished slice as the deployment above.
+    applied_by: scripts/k8s-afm.sh
+    live: true
+
+  - path: d2-signalloom/apps/cardvault/base/deployment.yaml
+    class: gap
+    reason: >-
+      Inside the signalloom/apps artifact but no Kustomization names
+      ./cardvault/base -- the only apps Kustomization is ./fe-signalloom/local.
+      Running live in inf-signalloom with no Flux label.
+    applied_by: scripts/supercred-demo.sh (kubectl apply -k)
+    live: true
+
+  - path: d2-infra/components/coredns/cross-cluster-stubs.yaml
+    class: gap
+    reason: >-
+      components/coredns is not one of the four infra tenants the fleet declares
+      (cert-manager, ingress, monitoring, trivy-system), so no infra/<tenant>
+      artifact is ever built from it. Live as kube-system/sldc-bridge-dns with no
+      Flux label. push-local.sh asserts the reverse direction only -- that every
+      declared tenant has a directory -- so an undeclared directory is invisible.
+    applied_by: SLDC bridge bring-up (kubectl apply)
+    live: true
+
+  - path: d2-cpai/apps/cpai-runtime/base/deployment.yaml
+    class: gap
+    reason: >-
+      d2-cpai is published as no artifact and referenced by no ResourceSet.
+      Not currently running, so this is dead-or-manual rather than live drift.
+    applied_by: scripts/cpai-up.sh (kubectl apply -k d2-cpai/apps/cpai-runtime/local)
+
+  - path: d2-signalloom/infra/inf-bao/configs/base/openbao-fleet-bootstrap.yaml
+    class: gap
+    reason: >-
+      Single-file gap where the SIBLINGS ARE WIRED: configs/base/kustomization.yaml
+      lists openbao-bootstrap.yaml, openbao-fleet-manager-bootstrap.yaml and
+      openbao-supercred-bootstrap.yaml but not this one. Most likely a rename
+      leftover. Adding it CREATES a Job in inf-bao on the next reconcile, so the
+      fix needs an owner decision, not a drive-by edit.
+    applied_by: nothing
+
+  - path: d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml
+    class: gap
+    reason: >-
+      Same shape: controllers/base/kustomization.yaml lists spire-openbao-config.yaml
+      but not the CronJob beside it. Adding it creates a CronJob in inf-bao.
+    applied_by: nothing
+
+  - path: d2-signalloom/apps/node-capability-guard/base/deployment.yaml
+    class: gap
+    reason: >-
+      Inside the signalloom/apps artifact, referenced by no Kustomization, not
+      running. Either wire it or delete it -- a manifest in the artifact that
+      nothing applies is the exact ambiguity this register exists to remove.
+    applied_by: nothing
+
+  - path: d2-signalloom/infra/agent-swarm/test-agent.yaml
+    class: gap
+    reason: >-
+      Sits in the agent-swarm artifact root but agent-swarm/kustomization.yaml
+      does not list it, so the agent-swarm-base Kustomization (path `.`) skips it.
+    applied_by: nothing
+
+  - path: d2-osramp-apps/components/backend/base/minio-operator.yaml
+    class: gap
+    reason: >-
+      backend/base/kustomization.yaml lists memcached, nats and redis but not
+      minio-operator. The OSRAMP `apps` ResourceSet ships
+      `fluxcd.controlplane.io/reconcile: disabled` and is activated by
+      `make demo-osramp-up`, so the blast radius is the OSRAMP demo only.
+    applied_by: nothing

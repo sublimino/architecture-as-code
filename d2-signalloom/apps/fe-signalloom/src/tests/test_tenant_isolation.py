@@ -434,6 +434,7 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/audit", None),
     ("GET", "/api/compliance/summary", None),
     ("GET", "/api/compliance/posture", None),
+    ("GET", "/api/compliance/frameworks", None),
     ("GET", "/api/nhi/scans", None),
     ("GET", "/api/nhi/discovered", None),
     ("GET", "/api/nhi/discovered/00000000-0000-0000-0000-0000000000c1", None),
@@ -516,6 +517,11 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "PATCH",
         "/api/tenant/settings/preferences",
         {"preferred_scan_cadence_hours": 24, "alert_threshold": 3},
+    ),
+    (
+        "PATCH",
+        "/api/tenant/settings/risk-profile",
+        {"jurisdiction": "UK", "reporting_currency": "GBP", "risk_load": 0.1},
     ),
     ("PATCH", "/api/user/preferences", {"display_currency": "GBP"}),
     ("POST", "/api/support", {"subject": "probe", "urgency": "low", "message": "probe"}),
@@ -814,7 +820,6 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results
     ("GET", "/api/trust-topology"),                      # derived from live discovery
-    ("GET", "/api/compliance/frameworks"),               # SEE test_compliance_frameworks_*
     ("GET", "/api/compliance/export"),                   # returns a URL, no query
     ("POST", "/api/agents/{agent_id}/stun"),             # cluster call; covered by test_agent_stun
     ("GET", "/api/capabilities"),                        # in-memory capability projection
@@ -1937,35 +1942,22 @@ class GovernancePool(RecordingPool):
         return []
 
 
-def test_compliance_frameworks_reads_governance_tables_without_a_tenant_filter(
+def test_compliance_frameworks_reads_only_the_callers_governance_tables(
     client, monkeypatch
 ):
-    """FINDING: the framework catalogue is read across all tenants.
+    """RESOLVED (was a pinned FINDING): the framework catalogue is tenant-scoped.
 
     ``governance_frameworks`` and ``governance_controls`` both declare
-    ``tenant_id TEXT NOT NULL DEFAULT 'tenant-demo'`` in migration 004, so the
-    schema author treated them as tenant-owned.  ``GET /compliance/frameworks``
-    reads them as global reference data::
+    ``tenant_id TEXT NOT NULL`` (migration 004).  ``GET /compliance/frameworks``
+    used to read them as global reference data::
 
         SELECT * FROM governance_frameworks ORDER BY name
-        SELECT * FROM governance_controls WHERE framework_id = $1 ORDER BY control_order
 
-    Neither statement mentions the caller's tenant.  A tenant therefore sees
-    every other tenant's activated frameworks, their versions, their
-    ``compliance_deadline`` and their ``activated_by`` -- which is an email
-    address.
-
-    This is not a judgement call about whether the tables are reference data,
-    because the same module answers the question in the other direction.
-    ``_db_policy_scan``, thirty lines away, reads the SAME two tables with::
-
-        WHERE r.tenant_id = $1 AND c.tenant_id = $1 AND f.tenant_id = $1
-
-    One of the two is wrong.  The filtered one matches the schema.
-
-    Pinned as current behaviour and escalated rather than fixed here: adding
-    the filter changes what the dashboard's framework picker shows on a
-    seeded estate, which is a product call.
+    so a tenant saw every other tenant's activated frameworks, and
+    ``_policy_framework_summaries`` -- which groups by framework NAME -- merged
+    another tenant's identically named framework into the caller's.  Both reads
+    now bind the caller's tenant.  The two-tenant, same-name case is proven
+    against real Postgres in ``test_policy_scan_integration.py``.
     """
     pool = GovernancePool()
 
@@ -1977,17 +1969,17 @@ def test_compliance_frameworks_reads_governance_tables_without_a_tenant_filter(
     response = client.get("/api/compliance/frameworks", headers=bearer(ALICE))
 
     assert response.status_code == 200, response.text
-    offenders = unscoped_statements(pool, TENANT_A)
-    offending_sql = [" ".join(sql.split()) for sql, _ in offenders]
-
-    assert "SELECT * FROM governance_frameworks ORDER BY name" in offending_sql, offending_sql
-    # The control read is scoped to a framework id, but that id came from the
-    # unscoped list above, so it inherits the leak rather than containing it.
-    assert any("FROM governance_controls" in sql for sql in offending_sql), offending_sql
-
-    # The leak is observable in the response body, not merely in the SQL: a
-    # framework belonging to tenant-b is rendered to tenant-a.
-    assert response.json()[0]["name"] == "Tenant B Bespoke Framework", response.text
+    governance = [
+        (" ".join(sql.split()), args) for sql, args in pool.statements
+        if "governance_frameworks" in sql or "governance_controls" in sql
+    ]
+    # Both the framework list and (because GovernancePool returns a row) the
+    # per-framework control read were issued, so the check below is not vacuous.
+    assert any("FROM governance_frameworks" in sql for sql, _ in governance), governance
+    assert any("FROM governance_controls" in sql for sql, _ in governance), governance
+    assert unscoped_statements(pool, TENANT_A) == []
+    for sql, args in governance:
+        assert TENANT_A in args, (sql, args)
 
 
 def test_the_policy_scan_path_does_filter_the_same_governance_tables(client, recording):
@@ -1995,7 +1987,7 @@ def test_the_policy_scan_path_does_filter_the_same_governance_tables(client, rec
 
     If this test ever fails, the two paths have converged and the finding is
     either fixed or has spread; either way the comparison in
-    ``test_compliance_frameworks_reads_governance_tables_without_a_tenant_filter``
+    ``test_compliance_frameworks_reads_only_the_callers_governance_tables``
     needs rewriting rather than deleting.
     """
     response = client.post(
@@ -2452,7 +2444,7 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     "test_superadmin_is_decided_from_the_token_identity_not_from_the_request",
     # findings, pinned
     "test_api_key_routes_ignore_the_tenant_named_in_their_own_path",
-    "test_compliance_frameworks_reads_governance_tables_without_a_tenant_filter",
+    "test_compliance_frameworks_reads_only_the_callers_governance_tables",
     "test_the_policy_scan_path_does_filter_the_same_governance_tables",
     "test_rbac_correlation_routes_are_not_tenant_scoped_at_all",
     "test_demo_runs_are_a_global_singleton_readable_by_every_tenant",

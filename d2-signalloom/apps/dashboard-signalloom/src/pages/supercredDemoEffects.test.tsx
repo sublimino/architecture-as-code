@@ -1,3 +1,4 @@
+import { requirePriced } from '../money/money'
 /**
  * The step -> page effect matrix, as an executable spec.
  *
@@ -180,8 +181,8 @@ async function findAgentRow(): Promise<HTMLElement> {
  * asserts is that the SuperCred phases move risk ON TOP OF whatever the policy
  * baseline is, so that is what it now says.
  */
-const BASELINE_ALE = POSTURE_SUMMARY.totalAle.amount
-const BASELINE_CARRIED = POSTURE_SUMMARY.totalCarried.amount
+const BASELINE_ALE = requirePriced(POSTURE_SUMMARY.totalAle, "POSTURE_SUMMARY.totalAle").amount
+const BASELINE_CARRIED = requirePriced(POSTURE_SUMMARY.totalCarried, "POSTURE_SUMMARY.totalCarried").amount
 
 /** Carried risk at a phase = the policy baseline plus the agent's own exposure. */
 const carriedAt = (phase: SuperCredPhase) => BASELINE_CARRIED + carriedGbp(phase)

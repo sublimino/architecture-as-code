@@ -114,6 +114,7 @@ who onboards from zero on the pilot's secondary cluster.
 | [`EAP/enforcement.md`](EAP/enforcement.md) | Detection triggers, the freeze chain, how it is recorded, how to resume, and the forensic bundle |
 | [`EAP/faq-and-limits.md`](EAP/faq-and-limits.md) | Known limits with the file that proves each one, and what to do instead |
 | [`EAP/remote-contract.md`](EAP/remote-contract.md) | The wire contract between a remote warden, fleet-manager and the portal: TLS, workload report, remote stun, stun state and resume, discovery |
+| [`attached-mode-central-issuance.md`](attached-mode-central-issuance.md) | Why `APPLIANCE_MODE=attached` cannot self-provision: the two centrally minted Secrets, who issues them, and the preflight that enforces it |
 
 Deploy to GCP after the local tests pass. The GCP workflow costs money and needs cloud credentials.
 

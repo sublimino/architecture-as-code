@@ -42,7 +42,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-98de0adb8dcae6b9
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-1109476f5572325f
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

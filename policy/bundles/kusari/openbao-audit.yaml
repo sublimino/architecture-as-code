@@ -1,0 +1,139 @@
+# The Kusari OpenBao AUDIT threat bundle.
+#
+# This bundle reads only the OpenBao audit projection (collectors/baoaudit,
+# model.LayerIdentityAuth, Source "openbao-audit"). LayerIdentityAuth is shared
+# with the existing Kubernetes delegation projection, so every rule source-gates
+# on "openbao-audit" as well as the identity_authorization layer.
+#
+# Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+# in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+# bumps `version`.
+#
+# # What the rules may read
+#
+# Only the OpenBao projection labels: operation, accessor, role, path,
+# mount_point, event_type, namespace, service_account, spiffe_id, tenant_id —
+# plus obs.actor, which is a keyed PSEUDONYM and so supports EQUALITY and
+# membership only (never startsWith / substring; it has no internal structure to
+# read).
+#
+# # Binding corrections applied
+#
+#   * Every rule gates on obs.source == "openbao-audit": LayerIdentityAuth also
+#     carries the Kubernetes delegation projection, so the source gate is
+#     mandatory.
+#   * Identity is obs.actor against an actor_vars set, NEVER a label. The OpenBao
+#     SPIFFE ID, service account, role, or accessor reaches obs.actor via
+#     ActorHint, pseudonymised at the store and at bundle load with the same key.
+#   * root-token-use is a membership-is-the-signal rule: role:root being the
+#     actor is the detection, like anonymous-allowed in the k8s audit vertical.
+#   * Every label read is guarded with has(): a bare read of an absent key is a
+#     CEL fault that would degrade the whole bundle on one unlabelled record.
+#
+# # Missing from the contract on purpose
+#
+# Token policy breadth is in the request body, not in the projected labels. So
+# token-create-broad fires on the token-mint surface, a deliberate over-trigger
+# in the same spirit as k8s-audit privileged-pod-create. Reading policy breadth
+# is a richer OpenBao request-body projection, not this stream.
+#
+# # Fixtures
+#
+# Every rule has a positive fixture that fires it and a negative that does not,
+# under collectors/baoaudit/testdata/. The per-rule expectation table lives in
+# d2-signalloom/apps/signal-ingest/e2e/baoaudit_expectations.go and is asserted
+# by TestBaoAuditE2E_FixtureCorpusMatchesTheExpectationTable.
+
+id: kusari-openbao-audit
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+actor_vars:
+  - root_principals
+  - secret_read_automation
+  - platform_admins
+  - token_minters
+
+vars:
+  # The OpenBao root token role. Use of this role is the signal, not an allow-list exception.
+  root_principals:
+    - "role:root"
+
+  # Automation allowed to read KV secrets as part of synchronisation.
+  secret_read_automation:
+    - "spiffe://cluster.local/ns/kube-system/sa/secret-syncer"
+
+  # Platform operators allowed to manage policies, mounts, and auth backends.
+  platform_admins:
+    - "spiffe://cluster.local/ns/kube-system/sa/platform-admin"
+
+  # Controllers allowed to mint OpenBao tokens routinely.
+  token_minters:
+    - "spiffe://cluster.local/ns/kube-system/sa/token-minter"
+
+rules:
+  # --- Root token use -------------------------------------------------------
+  - id: root-token-use
+    name: OpenBao root token use
+    severity: critical
+    # Membership is the signal: a root principal touching OpenBao is what the
+    # rule records, independent of the specific operation.
+    expression: |-
+      obs.source == "openbao-audit" &&
+      obs.layer == "identity_authorization" &&
+      obs.actor in vars.root_principals
+
+  # --- Secret reads outside automation -------------------------------------
+  - id: secret-read
+    name: OpenBao secret read outside automation
+    severity: high
+    # Stage 1 for the burst: a single read is a finding, repeated reads by one
+    # actor become a stage-2 decision.
+    expression: |-
+      obs.source == "openbao-audit" &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.operation) && obs.labels.operation == "read" &&
+      has(obs.labels.mount_point) && obs.labels.mount_point == "secret" &&
+      !(obs.actor in vars.secret_read_automation)
+
+  # --- Policy, mount, or auth backend changes ------------------------------
+  - id: policy-or-mount-change
+    name: OpenBao policy, mount, or auth backend changed outside platform admins
+    severity: high
+    # These sys paths are OpenBao's privilege-shaping surface. Platform admins
+    # are allow-listed via obs.actor; everyone else is the signal.
+    expression: |-
+      obs.source == "openbao-audit" &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.mount_point) && obs.labels.mount_point == "sys" &&
+      has(obs.labels.path) &&
+      (obs.labels.path.startsWith("sys/policies/") ||
+       obs.labels.path.startsWith("sys/mounts/") ||
+       obs.labels.path.startsWith("sys/auth/")) &&
+      has(obs.labels.operation) && obs.labels.operation in ["create", "update", "delete"] &&
+      !(obs.actor in vars.platform_admins)
+
+  # --- Token minting --------------------------------------------------------
+  - id: token-create-broad
+    name: OpenBao token minted outside token-minter automation
+    severity: high
+    # A DELIBERATE OVER-TRIGGER. The token policy breadth is in the request body,
+    # which this projection does not read, so the rule fires on token creation.
+    expression: |-
+      obs.source == "openbao-audit" &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.mount_point) && obs.labels.mount_point == "auth" &&
+      has(obs.labels.path) && obs.labels.path.startsWith("auth/token/create") &&
+      has(obs.labels.operation) && obs.labels.operation in ["create", "update"] &&
+      !(obs.actor in vars.token_minters)
+
+windows:
+  # A principal reading several secrets quickly is credential sweeping, which one
+  # read is not.
+  - id: secret-read-burst
+    over_rule: secret-read
+    key: [tenant_id, actor]
+    window: 5m
+    threshold: 3
+    severity: high

@@ -1,0 +1,74 @@
+[
+  {
+    "insertId": "gcp-sa-key-create-001",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:10:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "service_account",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.admin.v1.CreateServiceAccountKey",
+      "resourceName": "projects/osramp-demo/serviceAccounts/agent@osramp-demo.iam.gserviceaccount.com",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.20"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-sa-key-create-002",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:11:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "service_account",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.admin.v1.CreateServiceAccountKey",
+      "resourceName": "projects/osramp-demo/serviceAccounts/agent@osramp-demo.iam.gserviceaccount.com",
+      "authenticationInfo": {
+        "principalEmail": "sa-key-bot@controlplane.io"
+      },
+      "requestMetadata": {
+        "callerIp": "198.51.100.20"
+      }
+    }
+  },
+  {
+    "insertId": "gcp-sa-key-create-003",
+    "logName": "projects/osramp-demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-10-12T09:12:00Z",
+    "severity": "NOTICE",
+    "resource": {
+      "type": "service_account",
+      "labels": {
+        "project_id": "osramp-demo"
+      }
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "serviceName": "iam.googleapis.com",
+      "methodName": "google.iam.admin.v1.CreateServiceAccount",
+      "resourceName": "projects/osramp-demo/serviceAccounts/new-agent@osramp-demo.iam.gserviceaccount.com",
+      "authenticationInfo": {
+        "principalEmail": "attacker-1@evil.example"
+      },
+      "requestMetadata": {
+        "callerIp": "203.0.113.21"
+      }
+    }
+  }
+]

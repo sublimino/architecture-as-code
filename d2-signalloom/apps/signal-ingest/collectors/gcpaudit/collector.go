@@ -217,7 +217,7 @@ func New(ctx context.Context, sink IngestionSink, dedupTTL time.Duration, opts .
 	}
 	cctx, cancel := context.WithCancel(ctx)
 	c := &Collector{
-		sink:          sink,
+		sink:         sink,
 		dedupCache:   make(map[string]time.Time),
 		dedupTTL:     dedupTTL,
 		ctx:          cctx,
@@ -609,16 +609,12 @@ func (c *Collector) convertToObservation(e *GCPLogEntry) *model.Observation {
 	}
 
 	labels := map[string]string{
-		"insert_id":       e.InsertID,
-		"service_name":    serviceName,
-		"method_name":     methodName,
-		"resource_name":   resourceName,
-		"principal_email": principal,
-		"caller_ip":       callerIP,
-		"project_id":      projectID,
-		"status_code":     statusCode,
-		"severity":        e.Severity,
-		"log_name":        e.LogName,
+		"service_name":  serviceName,
+		"method_name":   methodName,
+		"resource_name": resourceName,
+		"source_ip":     callerIP,
+		"project_id":    projectID,
+		"status_code":   statusCode,
 	}
 
 	id := e.InsertID
@@ -684,4 +680,3 @@ func (c *Collector) Metrics() map[string]interface{} {
 		"cache_size":   cacheSize,
 	}
 }
-

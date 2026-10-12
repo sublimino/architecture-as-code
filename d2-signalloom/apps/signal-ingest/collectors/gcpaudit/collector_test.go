@@ -342,8 +342,11 @@ func TestGCPAuditCollector_LiveModeSingleEventEndToEnd(t *testing.T) {
 	if obs.Labels["method_name"] != "v1.compute.instances.insert" {
 		t.Errorf("expected method_name v1.compute.instances.insert, got %s", obs.Labels["method_name"])
 	}
-	if obs.Labels["principal_email"] != "deployer-sa@osramp-demo.iam.gserviceaccount.com" {
-		t.Errorf("expected principal_email deployer-sa@osramp-demo.iam.gserviceaccount.com, got %s", obs.Labels["principal_email"])
+	if obs.Labels["source_ip"] != "34.120.45.67" {
+		t.Errorf("expected source_ip 34.120.45.67, got %s", obs.Labels["source_ip"])
+	}
+	if obs.Labels["principal_email"] != "" {
+		t.Errorf("expected no principal_email label, got %s", obs.Labels["principal_email"])
 	}
 	if obs.Labels["service_name"] != "compute.googleapis.com" {
 		t.Errorf("expected service_name compute.googleapis.com, got %s", obs.Labels["service_name"])
@@ -537,4 +540,3 @@ func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
 		t.Fatal("Start returned but no background subscription pull ever reached the endpoint")
 	}
 }
-

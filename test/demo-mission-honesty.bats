@@ -62,11 +62,31 @@ setup() {
 # iteration count and a timestamp are identifiers, not measurements.
 METRIC_RE='£[0-9][0-9,]*(\.[0-9]+)?|[0-9]+(\.[0-9]+)?(ms|%)'
 
+# Both literal tests read the EXECUTABLE source only — lines whose first
+# non-whitespace character is `#` are blanked first. Two reasons, and the second
+# is the load-bearing one:
+#
+#   - The script's header records, verbatim, the four fabrications it replaced,
+#     including the figures. That provenance is the most useful thing in the
+#     file and a comment cannot reach stdout, so forbidding it buys nothing.
+#
+#   - Without the strip, test 2 produces a FALSE POSITIVE on a genuinely
+#     measured value. The real ALE for the agent the demo names is £13,346.97 —
+#     the same figure the old banner faked half of — so the header's account of
+#     the fabrication collides with the honest output. A guard that goes red on
+#     correct behaviour gets deleted, and then the guard is gone.
+#
+# A fabricated figure cannot hide in a comment: to be printed it has to be on an
+# executable line, which is exactly what remains after the strip.
+exec_source() {
+    sed -e 's/^[[:space:]]*#.*$//' "$1"
+}
+
 @test "demo script source carries no metric-shaped literal" {
     [ -f "$demo" ]
-    run grep -oE "$METRIC_RE" "$demo"
+    run bash -c "sed -e 's/^[[:space:]]*#.*\$//' '$demo' | grep -oE '$METRIC_RE'"
     [ "$status" -ne 0 ] || {
-        printf 'metric-shaped literals in the demo source:\n%s\n' "$output" >&2
+        printf 'metric-shaped literals on executable lines of the demo source:\n%s\n' "$output" >&2
         printf 'Every figure the demo prints must come from this run. Remove the literal\n' >&2
         printf 'or move it to the benchmarks contract as a declared threshold.\n' >&2
         return 1
@@ -78,9 +98,11 @@ METRIC_RE='£[0-9][0-9,]*(\.[0-9]+)?|[0-9]+(\.[0-9]+)?(ms|%)'
     run "$demo"
     [ "$status" -eq 0 ]
     local tok leaked=""
+    local src="$BATS_TEST_TMPDIR/exec-source"
+    exec_source "$demo" > "$src"
     while read -r tok; do
         [ -n "$tok" ] || continue
-        if grep -qF -- "$tok" "$demo"; then
+        if grep -qF -- "$tok" "$src"; then
             leaked="${leaked}${tok}"$'\n'
         fi
     done < <(printf '%s\n' "$output" | grep -oE "$METRIC_RE" || true)
@@ -93,7 +115,7 @@ METRIC_RE='£[0-9][0-9,]*(\.[0-9]+)?|[0-9]+(\.[0-9]+)?(ms|%)'
 }
 
 @test "demo script prints no unmeasured success banner" {
-    run grep -nE '100% Green|Completed Successfully|100\.0%|p95:' "$demo"
+    run bash -c "sed -e 's/^[[:space:]]*#.*\$//' '$demo' | grep -nE '100% Green|Completed Successfully|100\.0%|p95:'"
     [ "$status" -ne 0 ] || {
         printf 'unmeasured banner text survives:\n%s\n' "$output" >&2
         return 1
@@ -101,7 +123,7 @@ METRIC_RE='£[0-9][0-9,]*(\.[0-9]+)?|[0-9]+(\.[0-9]+)?(ms|%)'
 }
 
 @test "demo script never swallows a failed computation" {
-    run grep -nE '\|\|[[:space:]]*true|> ?/dev/null 2>&1' "$demo"
+    run bash -c "sed -e 's/^[[:space:]]*#.*\$//' '$demo' | grep -nE '\|\|[[:space:]]*true|> ?/dev/null 2>&1'"
     [ "$status" -ne 0 ] || {
         printf 'a computation whose failure cannot be seen:\n%s\n' "$output" >&2
         printf 'If the figure matters, a failure to produce it must be a failure.\n' >&2
@@ -131,7 +153,11 @@ METRIC_RE='£[0-9][0-9,]*(\.[0-9]+)?|[0-9]+(\.[0-9]+)?(ms|%)'
     # loop duration and hardcodes its p95. It is a known fabrication owned
     # elsewhere (P6-1). Whatever it is worth, it must not reach an audience
     # through this script, which presents its output as a benchmark.
-    run grep -n 'bench-redteam-stress' "$demo"
+    #
+    # Comment lines AND echo/printf lines are stripped: the script explains at
+    # length why it does not call this thing, and naming it is the point of the
+    # explanation. What is forbidden is the name in a COMMAND position.
+    run bash -c "sed -e 's/^[[:space:]]*#.*\$//' -e '/^[[:space:]]*\(echo\|printf\)/d' '$demo' | grep -n 'bench-redteam-stress'"
     [ "$status" -ne 0 ] || {
         printf 'the demo delegates to a simulated benchmark:\n%s\n' "$output" >&2
         return 1
@@ -239,7 +265,7 @@ PY
 
 @test "reproducibility script asserts no authored literal against an authored threshold" {
     [ -f "$repro" ]
-    run grep -nE "p95_ms|demonstration_status|step\['status'\]|== 'SUCCESS'" "$repro"
+    run bash -c "sed -e 's/^[[:space:]]*#.*\$//' '$repro' | grep -nE \"p95_ms|demonstration_status|step\['status'\]|== 'SUCCESS'\""
     [ "$status" -ne 0 ] || {
         printf 'tautological assertions survive:\n%s\n' "$output" >&2
         printf 'Asserting that a literal you typed satisfies a threshold you typed cannot fail.\n' >&2

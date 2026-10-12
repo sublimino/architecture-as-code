@@ -5,7 +5,7 @@
 # @id     slsi-bundle-osd-bats
 # @target scripts/package-tenant-bundle.sh, scripts/init-tenant.sh
 # @schema schemas/slsi-appliance-manifest-schema.json
-# @lib    test/slsi-bundle-build-driver.sh, test/slsi-bundle-fake-crane.sh
+# @lib    test/helpers/slsi-bundle-build-driver.bash, test/helpers/slsi-bundle-fake-crane.bash
 # @task   SLSI-OSD-1, SLSI-OSD-2, SLSI-OSD-3
 #
 # Hermetic: it copies the repository's bundle tree to a temporary directory and
@@ -17,7 +17,7 @@
 #
 # Everything it needs is on disk already: stage_osd_1_first_party_images reaches
 # the registry only through the SLSI_CRANE_BIN seam, which is pointed at
-# test/slsi-bundle-fake-crane.sh, and stage_p1_3_manifest reads
+# test/helpers/slsi-bundle-fake-crane.bash, and stage_p1_3_manifest reads
 # bundle/.manifest.d/images.json and the repository's own fleet and infra trees.
 # No network, no Docker, no OpenBao, and therefore no reason to skip: a skip in
 # setup() turns a build failure into a silent pass, which once read green for
@@ -33,9 +33,9 @@ setup_file() {
 	cp -a "$REPO_ROOT/bundle" "$OSD_WORK/bundle"
 
 	set +e
-	SLSI_CRANE_BIN="$REPO_ROOT/test/slsi-bundle-fake-crane.sh" \
+	SLSI_CRANE_BIN="$REPO_ROOT/test/helpers/slsi-bundle-fake-crane.bash" \
 		SLSI_BUNDLE_OUT="$OSD_WORK/dist" \
-		bash "$REPO_ROOT/test/slsi-bundle-build-driver.sh" \
+		bash "$REPO_ROOT/test/helpers/slsi-bundle-build-driver.bash" \
 		"$REPO_ROOT" "$OSD_WORK/bundle" \
 		stage_osd_1_first_party_images stage_p1_3_manifest \
 		>"$OSD_WORK/build.log" 2>&1
@@ -108,9 +108,9 @@ setup() {
 	cp -a "$REPO_ROOT/bundle" "$w/bundle"
 
 	run env FAKE_CRANE_UNRESOLVABLE=1 \
-		SLSI_CRANE_BIN="$REPO_ROOT/test/slsi-bundle-fake-crane.sh" \
+		SLSI_CRANE_BIN="$REPO_ROOT/test/helpers/slsi-bundle-fake-crane.bash" \
 		SLSI_BUNDLE_OUT="$w/dist" \
-		bash "$REPO_ROOT/test/slsi-bundle-build-driver.sh" \
+		bash "$REPO_ROOT/test/helpers/slsi-bundle-build-driver.bash" \
 		"$REPO_ROOT" "$w/bundle" \
 		stage_osd_1_first_party_images stage_p1_3_manifest
 
@@ -120,9 +120,9 @@ setup() {
 }
 
 @test "OSD-1: re-running the export does not duplicate the first-party records" {
-	run env SLSI_CRANE_BIN="$REPO_ROOT/test/slsi-bundle-fake-crane.sh" \
+	run env SLSI_CRANE_BIN="$REPO_ROOT/test/helpers/slsi-bundle-fake-crane.bash" \
 		SLSI_BUNDLE_OUT="$OSD_WORK/dist" \
-		bash "$REPO_ROOT/test/slsi-bundle-build-driver.sh" \
+		bash "$REPO_ROOT/test/helpers/slsi-bundle-build-driver.bash" \
 		"$REPO_ROOT" "$OSD_WORK/bundle" \
 		stage_osd_1_first_party_images
 	[ "$status" -eq 0 ]

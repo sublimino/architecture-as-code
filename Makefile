@@ -634,6 +634,7 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	@# run the same two suites for anyone who wants them individually.
 	./scripts/assert-bats-ran-something.sh bats test/offline-count-contract.bats
 	./scripts/assert-bats-ran-something.sh bats test/offline-install-boundary.bats
+	./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-osd.bats
 	@echo "=== [Offline] All offline test suites passed successfully! ==="
 
 
@@ -1248,7 +1249,7 @@ test-slsi-airgap: ## SLSI-P1-4: extract and verify the appliance bundle under do
 # build artefact that a cold checkout does not have -- the same class of defect
 # as the absent node_modules this card exists to fix, one layer up.
 #
-# test/slsi-bundle-build-driver.sh and test/slsi-bundle-fake-crane.sh are
+# test/helpers/slsi-bundle-build-driver.bash and test/helpers/slsi-bundle-fake-crane.bash are
 # helpers for these suites and deliberately get no targets of their own. A
 # target per helper would make them look independently runnable, and the bats
 # registry guard's proof-script check is satisfied by the suite that drives them.

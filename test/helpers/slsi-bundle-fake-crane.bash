@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# slsi-bundle-fake-crane.sh - a deterministic stand-in for crane, so the OSD-1
+# slsi-bundle-fake-crane.bash - a deterministic stand-in for crane, so the OSD-1
 # first-party export can be tested with no registry and no network.
 #
 # @id     slsi-bundle-fake-crane

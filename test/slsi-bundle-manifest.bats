@@ -197,10 +197,16 @@ setup() {
 }
 
 @test "Gate G-COVERAGE: coverageExclusions reasons are restricted to permitted set" {
+  # Three permitted reasons since AJM decision OSD-2 added dev-deferred-pin, and
+  # every entry must carry a justification: the reason word alone cannot say why
+  # THIS reference was excused, so an unjustified entry is an oversight wearing a
+  # reason. The deferral-specific shape (tag, mutableTag) is asserted in
+  # test/slsi-bundle-osd.bats, which owns that decision.
   [ -f "$MANIFEST_JSON" ]
   run jq -e '
     (.coverageExclusions | length > 0) and
-    ([.coverageExclusions[] | select(.reason == "helm-chart-repository" or .reason == "local-never-pulled")] | length) == (.coverageExclusions | length)
+    ([.coverageExclusions[] | select(.reason == "helm-chart-repository" or .reason == "local-never-pulled" or .reason == "dev-deferred-pin")] | length) == (.coverageExclusions | length) and
+    ([.coverageExclusions[] | select(((.justification // "") | length) >= 40)] | length) == (.coverageExclusions | length)
   ' "$MANIFEST_JSON"
   [ "$status" -eq 0 ]
 }

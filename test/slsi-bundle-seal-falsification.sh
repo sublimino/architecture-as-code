@@ -125,16 +125,47 @@ assert_pass "absent_utility_image_fails_loudly" bash -c '
   # it reached the utility-image check, the ERR trap fired with an unrelated
   # message, and the case reported FAILED while proving nothing. Hardlink the
   # real bundle instead, then strip exactly the one entry under test.
-  tmp_parent="$(mktemp -d -p "'"$REPO_ROOT"'/.falsification-tmp")"
+  #
+  # Two defects fixed here, both of which made this case prove nothing:
+  #
+  # 1. `mktemp -d -p "$REPO_ROOT/.falsification-tmp"` required a directory
+  #    nothing in the repository creates -- not .gitignore, not the Makefile --
+  #    so mktemp failed, the ERR trap fired, and the case reported FAILED on
+  #    every run it has ever had. A plain mktemp -d needs no such parent.
+  # 2. `cp -al` hardlinked the real bundle tree. Hardlinks share inodes, and
+  #    stage_p1_3_manifest copies over bundle/images/index.json and
+  #    bundle/images/images.json in place, so the fixture would have written
+  #    THROUGH the links into the repository'"'"'s own tracked bundle. That is the
+  #    failure mode that dirtied 16 tracked files in this repository once. The
+  #    in-repo parent only existed to keep the links on one filesystem, so both
+  #    defects go away together.
+  tmp_parent="$(mktemp -d -t slsi-falsify-utility.XXXXXX)"
   tmp_bundle="$tmp_parent/bundle"
-  cp -al "'"$REPO_ROOT"'/bundle" "$tmp_bundle"
+  cp -a "'"$REPO_ROOT"'/bundle" "$tmp_bundle"
   jq "del(.images[] | select(.ref | test(\"slsi-util\")))"      "'"$REPO_ROOT"'/bundle/.manifest.d/images.json" > "$tmp_bundle/.manifest.d/images.json.new"
   mv -f "$tmp_bundle/.manifest.d/images.json.new" "$tmp_bundle/.manifest.d/images.json"
   ( cd "$tmp_bundle/.manifest.d" && sha256sum images.json > images.sha256 )
+  # Gate 7 reads bundle/images/index.json, NOT images.json. Stripping only the
+  # images.json record left the gate looking at an index that still carried the
+  # utility descriptor, so the build succeeded and the case asserted its own
+  # success message contained "utility image". It has to be removed from the
+  # artefact the gate actually inspects, or the fixture does not express the
+  # fault under test.
+  for idx in "$tmp_bundle/images/index.json" "$tmp_bundle/images/oci/index.json"; do
+    [ -f "$idx" ] || continue
+    jq "del(.manifests[] | select(((.annotations // {})[\"org.opencontainers.image.ref.name\"] // \"\") | test(\"slsi-util\")))" "$idx" > "$idx.new"
+    mv -f "$idx.new" "$idx"
+  done
   tmp_out="$tmp_parent/out"
   mkdir -p "$tmp_out"
   source "'"$REPO_ROOT"'/scripts/package-tenant-bundle.sh" --help >/dev/null 2>&1 || true
-  err_msg="$(SLSI_BUNDLE_OUT="$tmp_out" BUNDLE_DIR="$tmp_bundle" stage_p1_3_manifest 2>&1 || true)"
+  # `|| true` on the ASSIGNMENT, not inside the substitution. `fail` ends with
+  # `exit 1`, and an exit cannot be caught by a `||` inside the subshell it
+  # exits; the substitution then returns 1, the assignment inherits it, and the
+  # sourced script'"'"'s own `trap ... ERR` kills this fixture before the grep it
+  # exists to run. Moving the guard outward is what makes the expected failure
+  # survivable.
+  err_msg="$(SLSI_BUNDLE_OUT="$tmp_out" BUNDLE_DIR="$tmp_bundle" stage_p1_3_manifest 2>&1)" || true
   rm -rf "$tmp_parent"
   echo "$err_msg" | grep -qi "utility image"
 '

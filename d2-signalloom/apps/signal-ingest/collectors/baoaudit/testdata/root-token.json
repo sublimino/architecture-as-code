@@ -1,0 +1,28 @@
+[
+  {
+    "type": "request",
+    "time": "2026-10-12T10:00:00Z",
+    "auth": {
+      "metadata": {
+        "role": "root"
+      }
+    },
+    "request": {
+      "operation": "read",
+      "path": "auth/token/lookup-self"
+    }
+  },
+  {
+    "type": "request",
+    "time": "2026-10-12T10:01:00Z",
+    "auth": {
+      "metadata": {
+        "role": "app"
+      }
+    },
+    "request": {
+      "operation": "read",
+      "path": "cubbyhole/entry"
+    }
+  }
+]

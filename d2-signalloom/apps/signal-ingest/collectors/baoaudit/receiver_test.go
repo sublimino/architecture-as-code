@@ -198,6 +198,9 @@ func TestAuditReceiver_IngestRawBytes(t *testing.T) {
 	if obs.Labels["operation"] != "read" || obs.Labels["path"] != "secret/data/cardvault/master-keys" {
 		t.Fatalf("labels mismatch: %+v", obs.Labels)
 	}
+	if obs.Labels["mount_point"] != "secret" {
+		t.Fatalf("mount_point = %q, want secret", obs.Labels["mount_point"])
+	}
 }
 
 func TestAuditReceiver_UnixgramSocket(t *testing.T) {
@@ -353,4 +356,3 @@ func BenchmarkRingBuffer_PushPop(b *testing.B) {
 		_, _ = rb.Pop()
 	}
 }
-

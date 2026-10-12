@@ -1,0 +1,41 @@
+[
+  {
+    "type": "request",
+    "time": "2026-10-12T10:30:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/apps/sa/attacker"
+      }
+    },
+    "request": {
+      "operation": "create",
+      "path": "auth/token/create"
+    }
+  },
+  {
+    "type": "request",
+    "time": "2026-10-12T10:31:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/kube-system/sa/token-minter"
+      }
+    },
+    "request": {
+      "operation": "create",
+      "path": "auth/token/create"
+    }
+  },
+  {
+    "type": "request",
+    "time": "2026-10-12T10:32:00Z",
+    "auth": {
+      "metadata": {
+        "spiffe_id": "spiffe://cluster.local/ns/apps/sa/attacker"
+      }
+    },
+    "request": {
+      "operation": "read",
+      "path": "auth/token/accessors"
+    }
+  }
+]

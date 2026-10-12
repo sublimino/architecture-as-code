@@ -1278,4 +1278,32 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
     expect(screen.getByText('Healthy Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByText('Failing Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
   })
+
+  it('renders tenant badge in agent row and preserves 7-column layout', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({ id: 'agent-tenant-test', name: 'Tenant Bot', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      ],
+      total: 1,
+    })
+    renderPage()
+
+    await screen.findByText('Tenant Bot')
+    expect(screen.getByTestId('agent-tenant-badge-agent-tenant-test')).toHaveTextContent('tenant-demo')
+    const row = screen.getByTestId('agent-row-agent-tenant-test')
+    expect(row.querySelectorAll('td')).toHaveLength(7)
+  })
+
+  it('renders Undeclared tenant badge and responsibility text when agent declares no tenant', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({ id: 'agent-undeclared-test', name: 'Undeclared Bot', tenant: null, tenant_id: 'undeclared' }),
+      ],
+      total: 1,
+    })
+    renderPage()
+
+    await screen.findByText('Undeclared Bot')
+    expect(screen.getByTestId('agent-tenant-badge-agent-undeclared-test')).toHaveTextContent('Undeclared')
+  })
 })

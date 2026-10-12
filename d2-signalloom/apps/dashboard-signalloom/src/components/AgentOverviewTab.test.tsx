@@ -554,4 +554,32 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
     expect(screen.getByTestId('noncompliant-control-art-14-human-oversight-authorization')).toBeInTheDocument()
     expect(screen.getByTestId('cel-rule-expression-art-14-human-oversight-authorization')).toHaveTextContent('human_approval_svid')
   })
+
+  it('renders tenant banner and runtime tenant in AgentOverviewTab', () => {
+    const agent = createMockAgent({
+      tenant: 'tenant-demo',
+      tenant_id: 'tenant-demo',
+      is_registry_linked: false,
+      record_class: 'discovered',
+    })
+    renderTab(<AgentOverviewTab agent={agent} onClaim={vi.fn()} />)
+
+    expect(screen.getByTestId('overview-tenant-banner')).toHaveTextContent('Tenant: tenant-demo')
+    expect(screen.getByTestId('overview-runtime-tenant')).toHaveTextContent('tenant-demo')
+    expect(screen.getByTestId('overview-responsibility-tenant')).toHaveTextContent('tenant-demo')
+  })
+
+  it('renders Undeclared tenant banner and runtime tenant in AgentOverviewTab when agent declares no tenant', () => {
+    const agent = createMockAgent({
+      tenant: null,
+      tenant_id: 'undeclared',
+      is_registry_linked: false,
+      record_class: 'discovered',
+    })
+    renderTab(<AgentOverviewTab agent={agent} onClaim={vi.fn()} />)
+
+    expect(screen.getByTestId('overview-tenant-banner')).toHaveTextContent('Tenant: Undeclared')
+    expect(screen.getByTestId('overview-runtime-tenant')).toHaveTextContent('Undeclared')
+    expect(screen.getByTestId('overview-responsibility-tenant')).toHaveTextContent('Undeclared')
+  })
 })

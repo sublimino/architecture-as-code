@@ -169,6 +169,7 @@ export interface AgentResponse {
   origin_verification?: OriginVerificationMetadata | null
   owner?: string | null
   tenant_id: string
+  tenant?: string | null
   lifecycle_state: AgentLifecycleState | string
   last_transition_at: string | null
   last_transition_by?: string | null

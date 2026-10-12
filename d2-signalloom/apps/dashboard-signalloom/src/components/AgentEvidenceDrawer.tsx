@@ -248,6 +248,52 @@ export default function AgentEvidenceDrawer({
                   <StatusBadge status={agent.lifecycle_state} variant="lifecycle" testId="drawer-lifecycle-badge" />
                 )}
                 <KernelStateBadge view={agent} testId="drawer-kernel-state-badge" />
+                {agent.tenant ? (
+                  <span
+                    data-testid="drawer-tenant-badge"
+                    className="tag"
+                    title={`Tenant: ${agent.tenant}`}
+                    style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      background: 'rgba(139, 92, 246, 0.15)',
+                      color: 'var(--violet)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                    }}
+                  >
+                    {agent.tenant}
+                  </span>
+                ) : agent.tenant_id && agent.tenant_id !== 'undeclared' ? (
+                  <span
+                    data-testid="drawer-tenant-badge"
+                    className="tag"
+                    title={`Tenant: ${agent.tenant_id}`}
+                    style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      background: 'rgba(139, 92, 246, 0.15)',
+                      color: 'var(--violet)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                    }}
+                  >
+                    {agent.tenant_id}
+                  </span>
+                ) : (
+                  <span
+                    data-testid="drawer-tenant-badge"
+                    className="tag"
+                    title="Tenant: Undeclared"
+                    style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      background: 'rgba(148, 163, 184, 0.15)',
+                      color: 'var(--muted)',
+                      border: '1px solid rgba(148, 163, 184, 0.3)',
+                    }}
+                  >
+                    Undeclared
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                 Quick Evidence Dossier · {framework} · {executionMode}
@@ -513,7 +559,7 @@ export default function AgentEvidenceDrawer({
               <div>
                 <span style={{ color: 'var(--muted)' }}>Tenant Boundary</span>
                 <div data-testid="drawer-responsibility-tenant" style={{ color: 'var(--muted)', fontFamily: 'monospace', fontSize: 11, marginTop: 1 }}>
-                  {agent.tenant_id}
+                  {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}
                 </div>
               </div>
             </div>

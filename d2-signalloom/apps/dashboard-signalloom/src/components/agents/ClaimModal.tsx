@@ -48,7 +48,7 @@ export interface ClaimModalProps {
 }
 
 export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProps) {
-  const { getAccessTokenSilently } = useAuth0()
+  const { user, getAccessTokenSilently } = useAuth0()
   const titleId = useId()
   const descriptionId = useId()
 
@@ -62,12 +62,15 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
   const defaultHarness = agent.runtime?.framework || agent.framework || agent.type || 'claude-code'
   const defaultModel = agent.runtime?.model || agent.model_name || 'claude-3-5-sonnet'
 
+  const claimantOwner = user?.email || user?.name || user?.sub || ''
+
   const [podName, setPodName] = useState(defaultPodName)
   const [namespace, setNamespace] = useState(defaultNamespace)
   const [spiffeId, setSpiffeId] = useState(defaultSpiffeId)
   const [harness, setHarness] = useState(defaultHarness)
   const [model, setModel] = useState(defaultModel)
   const [tokenBudget, setTokenBudget] = useState<number>(250000)
+  const [owner, setOwner] = useState(claimantOwner)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -86,6 +89,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
       declared_tools: [],
       token_budget_limit: tokenBudget > 0 ? tokenBudget : 100000,
       agent_id: agent.id,
+      owner: (owner.trim() || claimantOwner) || undefined,
     }
 
     try {
@@ -362,6 +366,49 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
                 }}
               />
             </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+              Tenant Boundary
+            </label>
+            <div
+              data-testid="claim-modal-tenant"
+              style={{
+                fontSize: 12,
+                fontFamily: 'monospace',
+                padding: '8px 12px',
+                borderRadius: 4,
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                color: agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared') ? 'var(--text)' : 'var(--muted)',
+              }}
+            >
+              {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared (Will bind to claimant tenant on claim)')}
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+              Assigned Owner / Operator
+            </label>
+            <input
+              type="text"
+              data-testid="claim-modal-owner"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              placeholder="e.g. operator@signalloom.local"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 4,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                fontSize: 13,
+                boxSizing: 'border-box',
+              }}
+            />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>

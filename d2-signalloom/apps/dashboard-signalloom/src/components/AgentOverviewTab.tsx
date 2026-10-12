@@ -339,8 +339,37 @@ export default function AgentOverviewTab({
         <div style={{ flex: '1 1 420px', minWidth: 0 }}>
           {isUnclaimed ? (
             <>
-              <div data-testid="overview-unclaimed-banner" style={{ color: claimError ? 'var(--error)' : 'var(--amber)', fontWeight: 700, marginBottom: 4 }}>
-                Unclaimed Workload
+              <div data-testid="overview-unclaimed-banner" style={{ color: claimError ? 'var(--error)' : 'var(--amber)', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>Unclaimed Workload</span>
+                {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared') ? (
+                  <span
+                    data-testid="overview-tenant-banner"
+                    className="tag"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: 'rgba(139, 92, 246, 0.15)',
+                      color: 'var(--violet)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                    }}
+                  >
+                    Tenant: {agent.tenant || agent.tenant_id}
+                  </span>
+                ) : (
+                  <span
+                    data-testid="overview-tenant-banner"
+                    className="tag"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: 'rgba(148, 163, 184, 0.15)',
+                      color: 'var(--muted)',
+                      border: '1px solid rgba(148, 163, 184, 0.3)',
+                    }}
+                  >
+                    Tenant: Undeclared
+                  </span>
+                )}
               </div>
               <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
                 {claimError ?? 'Enroll this discovered workload to activate cryptographic identity, policy evaluation, and governance controls.'}
@@ -348,9 +377,40 @@ export default function AgentOverviewTab({
             </>
           ) : (
             <>
-              <span data-testid="overview-enrolled-badge" className="tag" style={{ color: 'var(--teal)', background: 'rgba(16, 185, 129, 0.15)', fontWeight: 700 }}>
-                Enrolled in Governance
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span data-testid="overview-enrolled-badge" className="tag" style={{ color: 'var(--teal)', background: 'rgba(16, 185, 129, 0.15)', fontWeight: 700 }}>
+                  Enrolled in Governance
+                </span>
+                {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared') ? (
+                  <span
+                    data-testid="overview-tenant-banner"
+                    className="tag"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: 'rgba(139, 92, 246, 0.15)',
+                      color: 'var(--violet)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                    }}
+                  >
+                    Tenant: {agent.tenant || agent.tenant_id}
+                  </span>
+                ) : (
+                  <span
+                    data-testid="overview-tenant-banner"
+                    className="tag"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: 'rgba(148, 163, 184, 0.15)',
+                      color: 'var(--muted)',
+                      border: '1px solid rgba(148, 163, 184, 0.3)',
+                    }}
+                  >
+                    Tenant: Undeclared
+                  </span>
+                )}
+              </div>
               <div data-testid="overview-active-controls" style={{ color: 'var(--muted)', fontSize: 12, marginTop: 7 }}>
                 {complianceSummary.total_controls} active compliance controls
               </div>
@@ -789,7 +849,7 @@ export default function AgentOverviewTab({
                           fontFamily: 'monospace',
                           fontSize: 11,
                           overflowX: 'auto',
-                          color: '#e2e8f0',
+                          color: 'var(--text)',
                         }}
                       >
                         <code>{policy.celExpression}</code>
@@ -879,6 +939,12 @@ export default function AgentOverviewTab({
               </div>
             </div>
             <div>
+              <span style={{ color: 'var(--muted)' }}>Tenant</span>
+              <div data-testid="overview-runtime-tenant" style={{ color: 'var(--text)', fontFamily: 'monospace', fontSize: 11, marginTop: 2 }}>
+                {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}
+              </div>
+            </div>
+            <div>
               <span style={{ color: 'var(--muted)' }}>Runtime State</span>
               <div data-testid="overview-runtime-phase" style={{ color: 'var(--text)', fontWeight: 500, marginTop: 2 }}>
                 {phase}
@@ -926,7 +992,7 @@ export default function AgentOverviewTab({
             <div>
               <span style={{ color: 'var(--muted)' }}>Tenant Boundary</span>
               <div data-testid="overview-responsibility-tenant" style={{ color: 'var(--muted)', fontFamily: 'monospace', fontSize: 11, marginTop: 2 }}>
-                {agent.tenant_id}
+                {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}
               </div>
             </div>
             <div style={{ gridColumn: 'span 2', background: 'var(--surface2)', padding: '8px 12px', borderRadius: 4, marginTop: 4 }}>

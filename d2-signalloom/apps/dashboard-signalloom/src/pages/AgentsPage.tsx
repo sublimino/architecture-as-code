@@ -276,7 +276,7 @@ interface ClaimNotification {
   message: string
 }
 
-function buildClaimRequest(agent: AgentResponse): AgentClaimRequest {
+function buildClaimRequest(agent: AgentResponse, claimantOwner?: string): AgentClaimRequest {
   const podName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || podName
@@ -291,6 +291,7 @@ function buildClaimRequest(agent: AgentResponse): AgentClaimRequest {
     declared_tools: [],
     token_budget_limit: 100000,
     agent_id: agent.id,
+    owner: claimantOwner,
   }
 }
 
@@ -730,6 +731,52 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
             >
               {secProfile.label}
             </span>
+            {agent.tenant ? (
+              <span
+                data-testid={`agent-tenant-badge-${agent.id}`}
+                className="tag"
+                title={`Tenant: ${agent.tenant}`}
+                style={{
+                  fontSize: 10,
+                  padding: '1px 5px',
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  color: 'var(--violet)',
+                  border: '1px solid rgba(139, 92, 246, 0.3)',
+                }}
+              >
+                {agent.tenant}
+              </span>
+            ) : agent.tenant_id && agent.tenant_id !== 'undeclared' ? (
+              <span
+                data-testid={`agent-tenant-badge-${agent.id}`}
+                className="tag"
+                title={`Tenant: ${agent.tenant_id}`}
+                style={{
+                  fontSize: 10,
+                  padding: '1px 5px',
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  color: 'var(--violet)',
+                  border: '1px solid rgba(139, 92, 246, 0.3)',
+                }}
+              >
+                {agent.tenant_id}
+              </span>
+            ) : (
+              <span
+                data-testid={`agent-tenant-badge-${agent.id}`}
+                className="tag"
+                title="Tenant: Undeclared"
+                style={{
+                  fontSize: 10,
+                  padding: '1px 5px',
+                  background: 'rgba(148, 163, 184, 0.15)',
+                  color: 'var(--muted)',
+                  border: '1px solid rgba(148, 163, 184, 0.3)',
+                }}
+              >
+                Undeclared
+              </span>
+            )}
             <span
               title={`Agent ID: ${agent.id}`}
               style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}
@@ -759,11 +806,19 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
             <div>
               <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ownerName}</span>
               {team && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{team}</div>}
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                Tenant: <span style={{ color: 'var(--text)' }}>{agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}</span>
+              </div>
             </div>
           ) : (
-            <span style={{ color: 'var(--muted)' }}>
-              {recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned'}
-            </span>
+            <div>
+              <span style={{ color: 'var(--muted)' }}>
+                {recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned'}
+              </span>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                Tenant: <span style={{ color: 'var(--text)' }}>{agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}</span>
+              </div>
+            </div>
           )}
         </td>
 
@@ -1587,7 +1642,7 @@ function SignalSummaryPanel() {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AgentsPage() {
-  const { getAccessTokenSilently } = useAuth0()
+  const { user, getAccessTokenSilently } = useAuth0()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeMainTab = searchParams.get('tab') === 'coding-agents' ? 'coding-agents' : 'governed'
 
@@ -1641,7 +1696,8 @@ export default function AgentsPage() {
 
     try {
       const token = await getAccessTokenSilently()
-      const result = await claimDiscoveredAgent(token, agent.id, buildClaimRequest(agent))
+      const claimantOwner = user?.email || user?.name || user?.sub || undefined
+      const result = await claimDiscoveredAgent(token, agent.id, buildClaimRequest(agent, claimantOwner))
       if (result.status !== 'granted') {
         throw new Error(`Claim was ${result.status}.`)
       }
@@ -1688,7 +1744,7 @@ export default function AgentsPage() {
       claimingIdsRef.current.delete(agent.id)
       setClaimingAgentIds(new Set(claimingIdsRef.current))
     }
-  }, [getAccessTokenSilently, loadAgents])
+  }, [getAccessTokenSilently, loadAgents, user])
 
   const handleComplianceScan = useCallback(async () => {
     setScanning(true)

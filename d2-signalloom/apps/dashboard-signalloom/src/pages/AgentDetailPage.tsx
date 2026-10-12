@@ -52,7 +52,7 @@ function fmtRelativeMinutes(iso: string | null) {
   return fmtDate(iso)
 }
 
-function buildDossierClaimRequest(agent: AgentResponse): AgentClaimRequest {
+function buildDossierClaimRequest(agent: AgentResponse, claimantOwner?: string): AgentClaimRequest {
   const normalizedId = agent.id?.includes(':') ? agent.id.split(':').pop()! : agent.id
   const podName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? normalizedId : (agent.name || normalizedId))
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
@@ -68,6 +68,7 @@ function buildDossierClaimRequest(agent: AgentResponse): AgentClaimRequest {
     declared_tools: [],
     token_budget_limit: 250000,
     agent_id: agent.id,
+    owner: claimantOwner,
   }
 }
 
@@ -708,8 +709,60 @@ function DossierHeader({
                 {agent.type}
               </span>
             )}
+            {agent.tenant ? (
+              <span
+                data-testid="dossier-tenant-badge"
+                className="tag"
+                title={`Tenant: ${agent.tenant}`}
+                style={{
+                  fontSize: 10,
+                  padding: '2px 8px',
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  color: 'var(--violet)',
+                  border: '1px solid rgba(139, 92, 246, 0.3)',
+                }}
+              >
+                {agent.tenant}
+              </span>
+            ) : agent.tenant_id && agent.tenant_id !== 'undeclared' ? (
+              <span
+                data-testid="dossier-tenant-badge"
+                className="tag"
+                title={`Tenant: ${agent.tenant_id}`}
+                style={{
+                  fontSize: 10,
+                  padding: '2px 8px',
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  color: 'var(--violet)',
+                  border: '1px solid rgba(139, 92, 246, 0.3)',
+                }}
+              >
+                {agent.tenant_id}
+              </span>
+            ) : (
+              <span
+                data-testid="dossier-tenant-badge"
+                className="tag"
+                title="Tenant: Undeclared"
+                style={{
+                  fontSize: 10,
+                  padding: '2px 8px',
+                  background: 'rgba(148, 163, 184, 0.15)',
+                  color: 'var(--muted)',
+                  border: '1px solid rgba(148, 163, 184, 0.3)',
+                }}
+              >
+                Undeclared
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span data-testid="dossier-tenant-header">
+              Tenant:{' '}
+              <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+                {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}
+              </span>
+            </span>
             <span>
               Owner:{' '}
               <span style={{ color: agent.owner ? 'var(--text)' : colors.amber, fontWeight: agent.owner ? 400 : 600 }}>
@@ -824,7 +877,7 @@ export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { getAccessTokenSilently } = useAuth0()
+  const { user, getAccessTokenSilently } = useAuth0()
 
   const [agent, setAgent] = useState<AgentResponse | null>(null)
   const [auditEvents, setAuditEvents] = useState<AuditEventResponse[]>([])
@@ -1034,7 +1087,8 @@ export default function AgentDetailPage() {
 
     try {
       const token = await getAccessTokenSilently()
-      const result = await claimDiscoveredAgent(token, agent.id, buildDossierClaimRequest(agent))
+      const claimantOwner = user?.email || user?.name || user?.sub || undefined
+      const result = await claimDiscoveredAgent(token, agent.id, buildDossierClaimRequest(agent, claimantOwner))
       if (generation !== claimGenerationRef.current) return
       if (result.status !== 'granted') {
         throw new Error(`Claim was ${result.status}.`)
@@ -1059,7 +1113,7 @@ export default function AgentDetailPage() {
       if (generation === claimGenerationRef.current) setClaiming(false)
       claimInFlightRef.current = false
     }
-  }, [agent, getAccessTokenSilently, refreshClaimedDossier])
+  }, [agent, getAccessTokenSilently, refreshClaimedDossier, user])
 
   const handleClaimRefresh = useCallback(async () => {
     if (!agent || !claimRefreshId || claimInFlightRef.current) return

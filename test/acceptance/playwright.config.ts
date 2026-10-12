@@ -102,6 +102,18 @@ export default defineConfig({
       },
     },
     {
+      // Cluster-free source proof. The spec starts Vite on an ephemeral loopback
+      // port, seeds a synthetic OIDC user, and intercepts read-only API calls.
+      name: "agent-claim-truthfulness",
+      testMatch: /agent-claim-truthfulness\.spec\.ts/,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // The two-window SuperCredential demo.
       //
       // Its own project because it needs BOTH of the things only `chromium`

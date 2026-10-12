@@ -643,6 +643,7 @@ function DossierHeader({
   const canTransition = (VALID_NEXT_STATES[agent.lifecycle_state] ?? []).length > 0
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
   const recordClassLabel = recordClass.charAt(0).toUpperCase() + recordClass.slice(1)
+  const ownerName = agent.responsibility?.owner_name || agent.owner
   const secProfile = getAgentWorkloadSecurityProfile(agent)
 
   function handleCopyId() {
@@ -763,10 +764,10 @@ function DossierHeader({
                 {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}
               </span>
             </span>
-            <span>
+            <span data-testid="dossier-owner-header">
               Owner:{' '}
-              <span style={{ color: agent.owner ? 'var(--text)' : colors.amber, fontWeight: agent.owner ? 400 : 600 }}>
-                {agent.owner ?? (recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned')}
+              <span style={{ color: ownerName ? 'var(--text)' : colors.amber, fontWeight: ownerName ? 400 : 600 }}>
+                {ownerName ?? (recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned')}
               </span>
             </span>
             {agent.last_transition_at && (

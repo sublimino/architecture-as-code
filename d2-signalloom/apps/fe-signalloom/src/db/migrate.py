@@ -119,9 +119,35 @@ async def apply_migrations(pool: Any, directory: Path = MIGRATIONS_DIR) -> list[
         try:
             await conn.execute(SCHEMA_MIGRATIONS_DDL)
             recorded = {
-                row["version"]
-                for row in await conn.fetch("SELECT version FROM public.schema_migrations")
+                str(row["version"]): str(row["filename"])
+                for row in await conn.fetch(
+                    "SELECT version, filename FROM public.schema_migrations"
+                )
             }
+            discovered_versions = {migration.version for migration in migrations}
+            unknown_versions = sorted(
+                set(recorded) - discovered_versions,
+                key=int,
+            )
+            if unknown_versions:
+                version = unknown_versions[0]
+                raise MigrationError(
+                    f"migration history mismatch: database recorded version {version} "
+                    f"as {recorded[version]!r}, but that version is absent from the "
+                    "repository; manually audit and reconcile the divergent ledger "
+                    "outside startup. The runner refuses before applying another "
+                    "migration and never repairs or rewrites schema_migrations"
+                )
+            for migration in migrations:
+                recorded_filename = recorded.get(migration.version)
+                if recorded_filename is not None and recorded_filename != migration.filename:
+                    raise MigrationError(
+                        f"migration history divergence for version {migration.version}: "
+                        f"database recorded {recorded_filename!r}, but repository expects "
+                        f"{migration.filename!r}; do not rewrite schema_migrations. "
+                        "Manually audit and reconcile the ledger outside startup; the "
+                        "runner refuses before applying another migration"
+                    )
             for migration in migrations:
                 if migration.version in recorded:
                     continue

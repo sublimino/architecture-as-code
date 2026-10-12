@@ -993,4 +993,22 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
     expect(await screen.findByTestId('dossier-tenant-badge')).toHaveTextContent('Undeclared')
     expect(screen.getByTestId('dossier-tenant-header')).toHaveTextContent('Tenant: Undeclared')
   })
+
+  it('uses responsibility owner metadata in both dossier header and overview', async () => {
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeAgent({
+        owner: null,
+        responsibility: {
+          owner_id: 'owner-42',
+          owner_name: 'responsibility-owner@acme.test',
+          team: 'Platform Security',
+          assignment_status: 'assigned',
+        },
+      }),
+    )
+    renderPage('/agents/agent-123?tab=overview')
+
+    expect(await screen.findByTestId('dossier-owner-header')).toHaveTextContent('Owner: responsibility-owner@acme.test')
+    expect(screen.getByTestId('overview-responsibility-owner')).toHaveTextContent('responsibility-owner@acme.test')
+  })
 })

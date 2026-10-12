@@ -90,11 +90,16 @@ Demo user: `demo-user@signalloom.local` / `demo-user` via Dex password grant.
 
 **Migrations run at startup.** [`src/db/migrate.py`](src/db/migrate.py) applies
 each `src/db/migrations/*.sql` file in version order before it gives out the
-pool. It records each file in `schema_migrations`, so each file runs once. A
-`pg_advisory_lock` serialises concurrent replicas. A failed migration stops the
-startup, so the API never serves a half-migrated schema. The bootstrap SQL still
-seeds a new cluster through `/docker-entrypoint-initdb.d`. That path runs only on
-an empty data directory. The runner keeps an *existing* database current.
+pool. It records each version and filename in `schema_migrations`, so each file
+runs once. Startup refuses any recorded version missing from the checkout or
+whose filename differs from the repository. Operators must manually audit and
+reconcile a divergent ledger outside startup before restarting the service.
+The runner refuses before applying another migration. It never self-repairs or
+rewrites the ledger. A `pg_advisory_lock` serialises concurrent replicas. A failed
+migration stops startup, so the API never serves a half-migrated schema. The
+bootstrap SQL still seeds a new cluster through `/docker-entrypoint-initdb.d`.
+That path runs only on an empty data directory. The runner keeps an *existing*
+database current.
 
 Every migration must stay idempotent.
 [`src/tests/test_migrations.py`](src/tests/test_migrations.py) enforces this.

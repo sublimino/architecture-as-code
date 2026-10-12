@@ -4,10 +4,14 @@ import ClaimModal, { getAgentWorkloadSecurityProfile } from './ClaimModal'
 import type { AgentResponse } from '../../types/api'
 import * as agentClaimApi from '../../api/agentClaim'
 
+const authState = vi.hoisted(() => ({
+  user: { sub: 'test-user' } as { email?: string; name?: string; sub?: string },
+}))
+
 vi.mock('../../auth/oidc', () => ({
   useAuth0: () => ({
     getAccessTokenSilently: vi.fn().mockResolvedValue('test-token'),
-    user: { sub: 'test-user' },
+    user: authState.user,
     isAuthenticated: true,
   }),
 }))
@@ -57,6 +61,7 @@ function createMockDiscoveredAgent(overrides: Partial<AgentResponse> = {}): Agen
 describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    authState.user = { sub: 'test-user' }
   })
 
   it('correctly classifies Nono sandboxed agent profile', () => {
@@ -98,6 +103,25 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
     expect((screen.getByTestId('claim-modal-pod-name') as HTMLInputElement).value).toBe('agent-nono-evidenced-fccfbb-xp8v7')
     expect((screen.getByTestId('claim-modal-namespace') as HTMLInputElement).value).toBe('fe-signalloom-agents')
     expect((screen.getByTestId('claim-modal-spiffe-id') as HTMLInputElement).value).toBe('spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced')
+  })
+
+  it('separates editable owner assignment from authenticated operator identity', () => {
+    render(<ClaimModal agent={createMockDiscoveredAgent()} onClose={vi.fn()} />)
+
+    expect(screen.getByText('Assigned Owner')).toBeInTheDocument()
+    expect(screen.queryByText(/Assigned Owner \/ Operator/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('claim-modal-owner')).toBeInstanceOf(HTMLInputElement)
+    expect(screen.getByTestId('claim-modal-operator')).not.toBeInstanceOf(HTMLInputElement)
+    expect(screen.getByTestId('claim-modal-operator')).toHaveTextContent('test-user')
+  })
+
+  it('uses subject for operator authority while preserving name-based owner prefill', () => {
+    authState.user = { name: 'Owner Display Name', sub: 'operator-subject-42' }
+    render(<ClaimModal agent={createMockDiscoveredAgent()} onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('claim-modal-owner')).toHaveValue('Owner Display Name')
+    expect(screen.getByTestId('claim-modal-operator')).toHaveTextContent('operator-subject-42')
+    expect(screen.getByTestId('claim-modal-operator')).not.toHaveTextContent('Owner Display Name')
   })
 
   it('submits claim successfully and triggers onSuccess & onClose', async () => {

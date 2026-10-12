@@ -1060,9 +1060,14 @@ export interface AutoclaimNamespaceRequest {
 export interface TrustZone {
   name: string
   domain: string
-  clusters: number
-  servers: number
-  status: string
+  /** Observed identities in this trust domain. Measured; absent in demo fixtures. */
+  identities?: number
+  /** null = not measured. No source in this estate enumerates clusters per trust domain. */
+  clusters: number | null
+  /** null = not measured. Needs a read of the SPIRE server API. */
+  servers: number | null
+  /** null = not measured. Zone status is bundle-exchange state, which nothing collects. */
+  status: string | null
 }
 
 export interface Federation {
@@ -1091,10 +1096,12 @@ export interface AttestationPolicy {
 export interface SpiffeIdentity {
   uri: string
   workload: string
-  ns: string
-  sa: string
-  svid: string
-  expiry: string
+  ns: string | null
+  sa: string | null
+  /** null = not measured. The SVID type lives in the SVID, which the portal never handles. */
+  svid: string | null
+  /** null = not measured. Same reason as svid. */
+  expiry: string | null
 }
 
 export interface FederationEvent {
@@ -1103,6 +1110,58 @@ export interface FederationEvent {
   event: string
   detail: string
   severity: string
+}
+
+/** One refused field, with the source that would have to exist to measure it. */
+export interface FederationFieldRefusal {
+  field: string
+  reason: string
+}
+
+/**
+ * One panel of the federation view. `available: false` means no source exists
+ * for the panel at all and `reason` says which one is missing; it never means
+ * "empty". `unmeasured_fields` refuses individual columns of an otherwise
+ * measured panel. Same vocabulary as the trust-topology response.
+ */
+export interface FederationPanel<T> {
+  available: boolean
+  items: T[]
+  evidence_state: 'observed' | 'modeled' | 'unavailable'
+  assurance: string
+  freshness: 'fresh' | 'stale' | 'unavailable'
+  observed_at: string | null
+  evidence_source: string | null
+  reason: string
+  unmeasured_fields: FederationFieldRefusal[]
+}
+
+export interface FederationCollector {
+  status: string
+  observed_at: string
+  reason: string
+}
+
+export interface FederationStateResponse {
+  generated_at: string
+  tenant: string
+  collectors: Record<string, FederationCollector>
+  zones: FederationPanel<TrustZone>
+  identities: FederationPanel<SpiffeIdentity>
+  federations: FederationPanel<Federation>
+  services: FederationPanel<FederatedService>
+  policies: FederationPanel<AttestationPolicy>
+  events: FederationPanel<FederationEvent>
+  counts: {
+    trust_zones: number | null
+    spiffe_identities: number | null
+    federations: number | null
+    federated_services: number | null
+    attestation_policies: number | null
+    attestation_success_rate: number | null
+    active_alerts: number | null
+  }
+  unmeasured_fields: FederationFieldRefusal[]
 }
 
 export interface FederationSummaryResponse {

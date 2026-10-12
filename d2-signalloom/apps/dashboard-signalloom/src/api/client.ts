@@ -59,7 +59,8 @@ import type {
   AttestationPolicy,
   SpiffeIdentity,
   FederationEvent,
-  FederationSummaryResponse,
+  FederationPanel,
+  FederationStateResponse,
 } from '../types/api'
 import type { FeaturesResponse } from '../types/features'
 import type {
@@ -935,19 +936,19 @@ export const api = {
 
   federation: {
     summary: (token: string, signal?: AbortSignal) =>
-      req<FederationSummaryResponse>('/v1/federation/summary', token, { signal }),
+      req<FederationStateResponse>('/v1/federation/summary', token, { signal }),
     zones: (token: string, signal?: AbortSignal) =>
-      req<TrustZone[]>('/v1/federation/zones', token, { signal }),
+      req<FederationPanel<TrustZone>>('/v1/federation/zones', token, { signal }),
     federations: (token: string, signal?: AbortSignal) =>
-      req<Federation[]>('/v1/federation/federations', token, { signal }),
+      req<FederationPanel<Federation>>('/v1/federation/federations', token, { signal }),
     services: (token: string, signal?: AbortSignal) =>
-      req<FederatedService[]>('/v1/federation/services', token, { signal }),
+      req<FederationPanel<FederatedService>>('/v1/federation/services', token, { signal }),
     policies: (token: string, signal?: AbortSignal) =>
-      req<AttestationPolicy[]>('/v1/federation/policies', token, { signal }),
+      req<FederationPanel<AttestationPolicy>>('/v1/federation/policies', token, { signal }),
     identities: (token: string, signal?: AbortSignal) =>
-      req<SpiffeIdentity[]>('/v1/federation/identities', token, { signal }),
+      req<FederationPanel<SpiffeIdentity>>('/v1/federation/identities', token, { signal }),
     events: (token: string, signal?: AbortSignal) =>
-      req<FederationEvent[]>('/v1/federation/events', token, { signal }),
+      req<FederationPanel<FederationEvent>>('/v1/federation/events', token, { signal }),
   },
 
   features: {

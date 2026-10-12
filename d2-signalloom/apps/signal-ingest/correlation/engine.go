@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,14 +19,17 @@ import (
 
 // Engine performs deterministic full-epoch identity resolution.
 type Engine struct {
-	mu         sync.RWMutex
-	store      store.SignalStore
-	resolver   ResolverStore
-	rules      []compiledRule
-	options    ResolverOptions
-	verifier   ProducerVerifier
-	snapshot   model.ResolverSnapshot
-	quarantine *QuarantineEngine
+	mu            sync.RWMutex
+	correlateMu   sync.Mutex
+	store         store.SignalStore
+	resolver      ResolverStore
+	rules         []compiledRule
+	options       ResolverOptions
+	verifier      ProducerVerifier
+	snapshot      model.ResolverSnapshot
+	quarantine    *QuarantineEngine
+	chainDetector *AttackChainDetector
+	chainMatches  []ChainMatch
 }
 
 type compiledRule struct {
@@ -128,6 +132,9 @@ func obsToMap(o model.Observation) map[string]any {
 }
 
 func (e *Engine) Correlate(ctx context.Context) ([]*model.ProvisionalActor, error) {
+	e.correlateMu.Lock()
+	defer e.correlateMu.Unlock()
+
 	observations, err := e.store.QueryRange(ctx, store.Query{})
 	if err != nil {
 		return nil, fmt.Errorf("query observations: %w", err)
@@ -135,7 +142,53 @@ func (e *Engine) Correlate(ctx context.Context) ([]*model.ProvisionalActor, erro
 	if err = e.resolver.ReplaceObservations(ctx, observations); err != nil {
 		return nil, fmt.Errorf("replace resolver observations: %w", err)
 	}
-	return e.rebuild(ctx)
+	actors, err := e.rebuild(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e.mu.RLock()
+	detector := e.chainDetector
+	e.mu.RUnlock()
+	if detector == nil {
+		return actors, nil
+	}
+	matches, detectionErr := detector.Evaluate(ctx, observations)
+	actors = e.applyAttackChainMatches(matches)
+	if detectionErr != nil {
+		return nil, fmt.Errorf("evaluate attack chains: %w", detectionErr)
+	}
+	return actors, nil
+}
+
+func (e *Engine) applyAttackChainMatches(matches []ChainMatch) []*model.ProvisionalActor {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.chainMatches = cloneChainMatches(matches)
+	for _, match := range matches {
+		for _, actor := range e.snapshot.Actors {
+			if !actorCarriesResolvedIdentity(actor, match.ActorID) {
+				continue
+			}
+			if actor.Attributes == nil {
+				actor.Attributes = make(map[string]string)
+			}
+			actor.Attributes["attack_chain"] = match.ChainID
+			if actor.Confidence < match.Confidence {
+				actor.Confidence = match.Confidence
+			}
+			if actor.Status == model.ActorProvisional {
+				actor.Status = model.ActorActionable
+			}
+		}
+	}
+	return cloneSnapshot(e.snapshot).Actors
+}
+
+func actorCarriesResolvedIdentity(actor *model.ProvisionalActor, resolvedID string) bool {
+	if actor == nil || resolvedID == "" {
+		return false
+	}
+	return actor.PrincipalID == resolvedID || actor.ID == resolvedID || strings.HasSuffix(actor.ID, resolvedID)
 }
 
 // Rebuild performs an immutable full epoch from the resolver store.
@@ -616,6 +669,23 @@ func (e *Engine) SetQuarantineEngine(q *QuarantineEngine) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.quarantine = q
+}
+
+// SetAttackChainDetector enables or disables cross-stream attack-chain correlation.
+func (e *Engine) SetAttackChainDetector(detector *AttackChainDetector) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.chainDetector = detector
+	if detector == nil {
+		e.chainMatches = nil
+	}
+}
+
+// AttackChainMatches returns a deep copy of the latest authoritative chain matches.
+func (e *Engine) AttackChainMatches() []ChainMatch {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return cloneChainMatches(e.chainMatches)
 }
 
 // IsActorQuarantined returns true if the actor has been placed in containment.

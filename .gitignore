@@ -236,3 +236,6 @@ bundle/images/*.tar.gz
 bundle/images/signatures/
 bundle/images/flux/charts/*.tgz
 
+# SLSI-P1-3: bundle distribution archives and manifests
+dist/
+

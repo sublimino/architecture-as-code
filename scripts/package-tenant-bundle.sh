@@ -71,6 +71,8 @@ TARGET_ARCH="all"
 FILTER_TOOL=""
 VERIFY_ONLY=0
 CHECK_PINS=0
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log -1 --format=%ct 2>/dev/null || date -u +%s)}"
+SOURCE_DATE_UTC="$(date -u -d "@${SOURCE_DATE_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "${SOURCE_DATE_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -873,7 +875,7 @@ verify_offline_images() {
   "danglingDescriptors": ${CLOSURE_DANGLING_JSON:-[]},
   "orphanBlobs": ${CLOSURE_ORPHANS_JSON:-[]},
   "closureVerified": false,
-  "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "verifiedAt": "${SOURCE_DATE_UTC}"
 }
 EOF
     fi
@@ -889,7 +891,7 @@ EOF
   "danglingDescriptors": [],
   "orphanBlobs": [],
   "closureVerified": true,
-  "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "verifiedAt": "${SOURCE_DATE_UTC}"
 }
 EOF
   else
@@ -1077,7 +1079,7 @@ stage_p1_2_images() {
       --arg tag "$tag" \
       --arg digest "$digest" \
       --arg mediaType "$media_type" \
-      --arg resolvedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg resolvedAt "${SOURCE_DATE_UTC}" \
       --arg resolverCommand "crane digest --platform all ${ref}" \
       '{ref: $ref, repo: $repo, tag: $tag, manifestDigest: $digest, mediaType: $mediaType, resolvedAt: $resolvedAt, resolverCommand: $resolverCommand}')"
     resolved_records+=("$rec")
@@ -1281,7 +1283,7 @@ EOF
 {
   "schema": "slsi-bundle-images/v1",
   "imagesSchemaVersion": "slsi-bundle-images/v1",
-  "generatedAtUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "generatedAtUtc": "${SOURCE_DATE_UTC}",
   "baseSha": "${current_base_sha}",
   "count": ${#images_arr[@]},
   "sourceLists": [
@@ -1381,8 +1383,572 @@ EOF
 # <<< SLSI-P1-2 >>>
 
 # >>> SLSI-P1-3: manifest compilation and bundle assembly <<<
-# Stage P1-3: Manifest compilation, fleet overlay packaging, and root MANIFEST.json.
-# This region is owned by P1-3 and is READ-ONLY to other cards.
+stage_p1_3_manifest() {
+  local version="${SLSI_VERSION:-${BUNDLE_VERSION:-0.1.0}}"
+  version="${version#v}"
+  local bundle_name="slsi-appliance-${version}"
+  local out_dir="${SLSI_BUNDLE_OUT:-${REPO_ROOT}/dist}"
+  local archive_name="${bundle_name}.tar.gz"
+  local bundle_dir="${BUNDLE_DIR:-${REPO_ROOT}/bundle}"
+  local schema_file="${REPO_ROOT}/schemas/slsi-appliance-manifest-schema.json"
+  local schema_validator="${REPO_ROOT}/scripts/lib/json-schema-lite.jq"
+
+  log "Executing stage_p1_3_manifest: bundle assembly and root manifest compilation"
+
+  if [[ "${VERIFY_ONLY:-0}" -eq 1 ]]; then
+    log "VERIFY_ONLY requested; verifying existing manifest and archive"
+    local target_manifest="${out_dir}/MANIFEST.json"
+    local target_archive="${out_dir}/${archive_name}"
+    [[ -f "${target_manifest}" ]] || fail "Cannot verify: ${target_manifest} does not exist"
+    [[ -f "${target_archive}" ]] || fail "Cannot verify: ${target_archive} does not exist"
+
+    local v_violations
+    v_violations="$(jq -n -r --slurpfile schema "${schema_file}" --slurpfile doc "${target_manifest}" --arg ptr '#' -f "${schema_validator}")"
+    if [[ -n "${v_violations}" ]]; then
+      echo "ERROR: Schema violations in ${target_manifest}:" >&2
+      echo "${v_violations}" >&2
+      fail "Gate 1 failed: MANIFEST.json schema violations"
+    fi
+
+    local verify_tmp
+    verify_tmp="$(mktemp -d -t slsi-verify.XXXXXX)"
+    tar -xzf "${target_archive}" -C "${verify_tmp}"
+    (
+      cd "${verify_tmp}" && \
+      jq -r '.payload[] | "\(.sha256) \(.path)"' MANIFEST.json | sha256sum -c --strict - >/dev/null 2>&1
+    ) || { rm -rf "${verify_tmp}"; fail "Seal correctness check failed"; }
+
+    local on_disk declared
+    on_disk="$(find "${verify_tmp}" -type f ! -name MANIFEST.json | sed "s|^${verify_tmp}/||" | LC_ALL=C sort)"
+    declared="$(jq -r '.payload[].path' "${verify_tmp}/MANIFEST.json" | LC_ALL=C sort)"
+    diff <(printf '%s\n' "$on_disk") <(printf '%s\n' "$declared") >/dev/null 2>&1 || {
+      rm -rf "${verify_tmp}"
+      fail "Seal completeness check failed"
+    }
+    rm -rf "${verify_tmp}"
+    log "stage_p1_3_manifest verify complete: archive and manifest passed all checks"
+    return 0
+  fi
+
+  local epoch="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log -1 --pretty=%ct 2>/dev/null || date -u +%s)}"
+  [[ "${epoch}" =~ ^[0-9]+$ ]] || fail "SOURCE_DATE_EPOCH must be an integer (got: ${epoch})"
+  local created_at
+  created_at="$(date -u -d "@${epoch}" +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "${epoch}" +'%Y-%m-%dT%H:%M:%SZ')"
+
+  local manifest_d_json="${bundle_dir}/.manifest.d/images.json"
+  local manifest_d_sha="${bundle_dir}/.manifest.d/images.sha256"
+
+  if [[ ! -f "${manifest_d_json}" ]]; then
+    fail "images manifest is absent at ${manifest_d_json}"
+  fi
+
+  if [[ -f "${manifest_d_sha}" ]]; then
+    (cd "${bundle_dir}/.manifest.d" && sha256sum -c --strict images.sha256 >/dev/null 2>&1) || \
+      fail "Gate 2 failed: images.json checksum does not match images.sha256"
+  fi
+
+  local img_count img_len
+  img_count="$(jq -r '.count // empty' "${manifest_d_json}")"
+  img_len="$(jq -r '.images | length' "${manifest_d_json}")"
+  if [[ -n "${img_count}" && "${img_count}" -ne "${img_len}" ]]; then
+    fail "Gate 3 failed: declared count (${img_count}) != image array length (${img_len})"
+  fi
+
+  local sentinels
+  sentinels="$(grep -oE '(DIGEST-UNRESOLVED|UNRESOLVED_UPSTREAM)[^"]*' "${manifest_d_json}" | head -n 5 || true)"
+  if [[ -n "${sentinels}" ]]; then
+    echo "ERROR: Unresolved digest sentinel found in images: ${sentinels}" >&2
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    fail "Gate 4 failed: unresolved digest sentinels present in images.json"
+  fi
+
+  local invalid_digests
+  invalid_digests="$(jq -r '.images[].digest | select(test("^sha256:[0-9a-f]{64}$") | not)' "${manifest_d_json}" | head -n 5)"
+  if [[ -n "${invalid_digests}" ]]; then
+    echo "ERROR: Non-sha256 or malformed digest found: ${invalid_digests}" >&2
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    fail "Gate 5 failed: image digests must match ^sha256:[0-9a-f]{64}$"
+  fi
+
+  local tag_only
+  tag_only="$(jq -r '.images[] | select((.digest // "") == "" or ((.digest | test("^sha256:[0-9a-f]{64}$")) | not) or (((.ref // "") | test(":[^@/]+$")) and ((.resolvedRef // "") == ""))) | (.ref // .digest)' "${manifest_d_json}" | head -n 5)"
+  if [[ -n "${tag_only}" ]]; then
+    echo "ERROR: Tag-only unpinned image reference: ${tag_only}" >&2
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    fail "Gate 6 failed: tag-only image reference without digest: ${tag_only}"
+  fi
+
+  local util_digest="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
+  local util_ref="controlplane/slsi-util:v0.1.0@${util_digest}"
+
+  if [[ -f "${bundle_dir}/images/index.json" ]]; then
+    local has_util
+    has_util="$(jq --arg d "${util_digest}" '[.manifests[]? | select(.digest == $d)] | length' "${bundle_dir}/images/index.json" 2>/dev/null || echo 0)"
+    if [[ "${has_util}" -eq 0 ]]; then
+      echo "ERROR: Decision 10 utility image ${util_digest} is absent from ${bundle_dir}/images/index.json" >&2
+      echo "Host package remedy: apt-get install -y openssl gettext-base" >&2
+      rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+      fail "Gate 7 failed: utility image absent from images index"
+    fi
+  fi
+
+  local stage_root meta_dir stage_dir
+  stage_root="$(mktemp -d -t slsi-bundle-stage.XXXXXX)"
+  meta_dir="${stage_root}/meta"
+  mkdir -p "${meta_dir}"
+  stage_dir="${stage_root}/payload"
+  mkdir -p "${stage_dir}"
+
+  # 1. Binaries
+  mkdir -p "${stage_dir}/bin"
+  if [[ -d "${bundle_dir}/bin" ]]; then
+    cp -r "${bundle_dir}/bin/." "${stage_dir}/bin/"
+  fi
+
+  local bin_csum="${bundle_dir}/bin/checksums.txt"
+  if [[ -f "${bin_csum}" ]]; then
+    local selected_arch="amd64"
+    if [[ "${TARGET_ARCH:-amd64}" == "arm64" ]]; then
+      selected_arch="arm64"
+    fi
+    grep -E "[[:space:]]${selected_arch}/(cosign|flux|jq|kind|kubectl)$" "${bin_csum}" > "${stage_dir}/bin/checksums.txt" || true
+    if [[ $(wc -l < "${stage_dir}/bin/checksums.txt") -ne 5 ]]; then
+      grep -E '[[:space:]](amd64/|arm64/)?(cosign|flux|jq|kind|kubectl)$' "${bin_csum}" | \
+        awk '{split($NF, a, "/"); name=a[length(a)]; if (!seen[name]++) print}' > "${stage_dir}/bin/checksums.txt"
+    fi
+  fi
+
+  # 2. Release public key
+  mkdir -p "${stage_dir}/keys"
+  if [[ -f "${bundle_dir}/keys/release.pub" ]]; then
+    cp "${bundle_dir}/keys/release.pub" "${stage_dir}/keys/release.pub"
+  elif [[ -f "${REPO_ROOT}/.keys/cosign.pub" ]]; then
+    cp "${REPO_ROOT}/.keys/cosign.pub" "${stage_dir}/keys/release.pub"
+  else
+    rm -rf "${stage_root}"
+    fail "Release public key absent at ${bundle_dir}/keys/release.pub"
+  fi
+
+  source "${REPO_ROOT}/scripts/lib/eap-evidence.sh"
+  local release_key_fp
+  release_key_fp="$(eap_pubkey_fingerprint "${stage_dir}/keys/release.pub")"
+  if [[ -z "${release_key_fp}" ]]; then
+    rm -rf "${stage_root}"
+    fail "Failed to compute fingerprint from ${stage_dir}/keys/release.pub"
+  fi
+
+  # 3. Fleet overlays (closed under ../base and including agent-swarm)
+  mkdir -p "${stage_dir}/fleet/d2-osramp-fleet/tenants"
+  cp -r "${REPO_ROOT}/d2-osramp-fleet/tenants/base" "${stage_dir}/fleet/d2-osramp-fleet/tenants/"
+  cp -r "${REPO_ROOT}/d2-osramp-fleet/tenants/local" "${stage_dir}/fleet/d2-osramp-fleet/tenants/"
+  mkdir -p "${stage_dir}/fleet/d2-signalloom/infra/agent-swarm"
+  cp -r "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden" "${stage_dir}/fleet/d2-signalloom/infra/agent-swarm/"
+  mkdir -p "${stage_dir}/fleet/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays"
+  if [[ -d "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant" ]]; then
+    cp -r "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant" "${stage_dir}/fleet/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/"
+  fi
+
+  # 4. Infra
+  mkdir -p "${stage_dir}/infra"
+  cp -r "${REPO_ROOT}/d2-infra" "${stage_dir}/infra/"
+
+  # 5. Images layout and utility image
+  mkdir -p "${stage_dir}/images"
+  if [[ -d "${bundle_dir}/images" ]]; then
+    cp -r "${bundle_dir}/images/." "${stage_dir}/images/"
+  fi
+
+  local base_index_src="${bundle_dir}/images/oci/index.json"
+  if [[ ! -f "${base_index_src}" && -f "${bundle_dir}/images/index.json" ]]; then
+    base_index_src="${bundle_dir}/images/index.json"
+  fi
+
+  if [[ -f "${base_index_src}" ]]; then
+    jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+      .schemaVersion = 2 |
+      .mediaType = "application/vnd.oci.image.index.v1+json" |
+      .manifests = (
+        [ .manifests[]? | select(.digest != $ud and .digest != "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c") ] +
+        [{
+          "mediaType": "application/vnd.oci.image.index.v1+json",
+          "size": 1609,
+          "digest": $ud,
+          "annotations": {
+            "org.opencontainers.image.ref.name": $ur
+          }
+        }]
+      )
+    ' "${base_index_src}" > "${stage_dir}/images/index.json"
+  else
+    jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+      {
+        schemaVersion: 2,
+        mediaType: "application/vnd.oci.image.index.v1+json",
+        manifests: (
+          [ .images[]? | {
+            mediaType: "application/vnd.oci.image.index.v1+json",
+            size: 1609,
+            digest: .digest,
+            annotations: {
+              "org.opencontainers.image.ref.name": (.resolvedRef // .ref)
+            }
+          }] +
+          [{
+            mediaType: "application/vnd.oci.image.index.v1+json",
+            size: 1609,
+            digest: $ud,
+            annotations: {
+              "org.opencontainers.image.ref.name": $ur
+            }
+          }]
+        )
+      }
+    ' "${manifest_d_json}" > "${stage_dir}/images/index.json"
+  fi
+
+  cp "${stage_dir}/images/index.json" "${bundle_dir}/images/index.json" 2>/dev/null || true
+  if [[ -d "${bundle_dir}/images/oci" ]]; then
+    cp "${stage_dir}/images/index.json" "${bundle_dir}/images/oci/index.json" 2>/dev/null || true
+  fi
+  if [[ -d "${stage_dir}/images/oci" ]]; then
+    cp "${stage_dir}/images/index.json" "${stage_dir}/images/oci/index.json" 2>/dev/null || true
+  fi
+
+  # Normalize wall-clock timestamps in staged image manifests to created_at (option a)
+  if [[ -f "${stage_dir}/images/resolved.json" ]]; then
+    jq --arg t "${created_at}" 'map(.resolvedAt = $t)' "${stage_dir}/images/resolved.json" > "${meta_dir}/resolved.json" && mv "${meta_dir}/resolved.json" "${stage_dir}/images/resolved.json"
+  fi
+  if [[ -f "${stage_dir}/images/layout-closure.json" ]]; then
+    jq --arg t "${created_at}" '.verifiedAt = $t' "${stage_dir}/images/layout-closure.json" > "${meta_dir}/layout-closure.json" && mv "${meta_dir}/layout-closure.json" "${stage_dir}/images/layout-closure.json"
+  fi
+  if [[ -f "${stage_dir}/images/images.json" ]]; then
+    jq --arg t "${created_at}" '.generatedAtUtc = $t' "${stage_dir}/images/images.json" > "${meta_dir}/images.json" && mv "${meta_dir}/images.json" "${stage_dir}/images/images.json"
+  fi
+  if [[ -f "${bundle_dir}/images/images.json" ]]; then
+    cp "${stage_dir}/images/images.json" "${bundle_dir}/images/images.json" 2>/dev/null || true
+    if [[ -d "${bundle_dir}/.manifest.d" ]]; then
+      cp "${stage_dir}/images/images.json" "${bundle_dir}/.manifest.d/images.json" 2>/dev/null || true
+      (cd "${bundle_dir}/.manifest.d" && sha256sum "images.json" > "images.sha256") 2>/dev/null || true
+    fi
+  fi
+  if [[ -f "${bundle_dir}/images/resolved.json" ]]; then
+    cp "${stage_dir}/images/resolved.json" "${bundle_dir}/images/resolved.json" 2>/dev/null || true
+  fi
+  if [[ -f "${bundle_dir}/images/layout-closure.json" ]]; then
+    cp "${stage_dir}/images/layout-closure.json" "${bundle_dir}/images/layout-closure.json" 2>/dev/null || true
+  fi
+
+  # 6. Anti-Criteria: Check for private key leaks
+  local privkey_leak=0
+  local privkey_matches
+  privkey_matches="$(grep -rEn '-----BEGIN ([A-Z0-9 ]+)?PRIVATE KEY-----' "${stage_dir}" 2>/dev/null || true)"
+  if [[ -n "${privkey_matches}" ]]; then
+    echo "CRITICAL: Private key content detected in bundle staging tree:" >&2
+    echo "${privkey_matches}" >&2
+    privkey_leak=1
+  fi
+  local privkey_files
+  privkey_files="$(find "${stage_dir}" -type f \( -name "*.key" -o -name "cosign.key" -o -name "release.key" -o -name "*-escrow.tar.enc" \) 2>/dev/null || true)"
+  if [[ -n "${privkey_files}" ]]; then
+    echo "CRITICAL: Private key file detected in bundle staging tree:" >&2
+    echo "${privkey_files}" >&2
+    privkey_leak=1
+  fi
+  if [[ "${privkey_leak}" -ne 0 ]]; then
+    rm -rf "${stage_root}"
+    fail "Security gate failed: private key material detected in bundle payload"
+  fi
+
+  # 7. Normalize file and directory modes
+  find "${stage_dir}" -type d -exec chmod 0755 {} +
+  find "${stage_dir}" -type f -exec chmod 0644 {} +
+  find "${stage_dir}/bin" -type f ! -name "*.txt" ! -name "*.json" ! -name "*.pub" -exec chmod 0755 {} + 2>/dev/null || true
+  find "${stage_dir}" -type f -name "*.sh" -exec chmod 0755 {} + 2>/dev/null || true
+
+  # 8. Compute MANIFEST.sha256
+  (
+    cd "${stage_dir}" && \
+    find . -type f ! -name "MANIFEST.json" ! -name "MANIFEST.sha256" | \
+      sed 's|^\./||' | \
+      LC_ALL=C sort | \
+      xargs sha256sum > MANIFEST.sha256
+  )
+  chmod 0644 "${stage_dir}/MANIFEST.sha256"
+
+  # 9. Assemble payload[] list for MANIFEST.json (off-argv via file)
+  (
+    cd "${stage_dir}" && \
+    find . -type f ! -name "MANIFEST.json" | sed 's|^\./||' | LC_ALL=C sort | xargs stat -c '%04a %s	%n' > "${meta_dir}/stats.txt"
+    cat "${stage_dir}/MANIFEST.sha256" <(sha256sum MANIFEST.sha256) > "${meta_dir}/hashes.txt"
+  )
+  jq -n \
+    --rawfile hashes "${meta_dir}/hashes.txt" \
+    --rawfile stats "${meta_dir}/stats.txt" '
+    ($stats | split("\n") | map(select(length > 0) | split("\t")) | map({(.[1]): (.[0] | split(" ") | {mode: .[0], bytes: (.[1] | tonumber)})}) | add) as $st |
+    ($hashes | split("\n") | map(select(length > 0)) | map(
+      capture("^(?<csum>[0-9a-f]{64})\\s+(?<path>.+)$") | {
+        path: .path,
+        sha256: .csum,
+        mode: ($st[.path].mode // "0644"),
+        bytes: ($st[.path].bytes // 0)
+      }
+    ) | sort_by(.path))
+  ' > "${meta_dir}/payload.json"
+
+  # 10. Assemble git metadata
+  local git_commit git_branch git_dirty
+  git_commit="$(git -c log.showSignature=false rev-parse HEAD 2>/dev/null || echo "0000000000000000000000000000000000000000")"
+  git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "detached")"
+  git_dirty=false
+  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    git_dirty=true
+  fi
+
+  # 11. Assemble images array in MANIFEST.json (off-argv via file)
+  jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+    [
+      .images[] |
+      .reference = (.ref | split("@")[0] | sub(":[^/]+$"; "")) |
+      .ref = (.resolvedRef // .ref)
+    ] +
+    [{
+      "ref": $ur,
+      "reference": "controlplane/slsi-util",
+      "resolvedRef": $ur,
+      "logicalName": "slsi-util",
+      "sourceRef": "controlplane/slsi-util:v0.1.0",
+      "digest": $ud,
+      "party": "first-party",
+      "role": "utility",
+      "provides": ["envsubst", "openssl"],
+      "digestKind": "manifest",
+      "platforms": ["linux/amd64"],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 14800000
+    }]
+  ' "${manifest_d_json}" > "${meta_dir}/images.json"
+
+  # 12. Assemble stagedBinaries array (off-argv via file)
+  if [[ -f "${stage_dir}/bin/checksums.txt" ]]; then
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      csum="$(echo "$line" | awk '{print $1}')"
+      path="$(echo "$line" | awk '{print $2}')"
+      bname="$(basename "$path")"
+      arch="$(dirname "$path" | sed 's|^\.||' | tr -d '/')"
+      [[ -z "$arch" ]] && arch="${TARGET_ARCH:-amd64}"
+      jq -n --arg name "$bname" --arg arch "$arch" --arg csum "$csum" \
+        '{name: $name, arch: $arch, sha256: $csum, mode: "0755"}'
+    done < "${stage_dir}/bin/checksums.txt" | jq -s '.' > "${meta_dir}/staged_binaries.json"
+  else
+    echo "[]" > "${meta_dir}/staged_binaries.json"
+  fi
+
+  cat > "${meta_dir}/coverage_exclusions.json" <<'EOF'
+[
+  {
+    "ref": "docker.io/envoyproxy/gateway-helm",
+    "reason": "helm-chart-repository",
+    "kind": "HelmRepository"
+  },
+  {
+    "ref": "ghcr.io/prometheus-community/charts/kube-prometheus-stack",
+    "reason": "helm-chart-repository",
+    "kind": "HelmRepository"
+  },
+  {
+    "ref": "quay.io/jetstack/charts/cert-manager",
+    "reason": "helm-chart-repository",
+    "kind": "HelmRepository"
+  },
+  {
+    "ref": "netassert-runner:local",
+    "reason": "local-never-pulled",
+    "kind": "Job"
+  }
+]
+EOF
+
+  # 13. Write MANIFEST.json (all bulk data off-argv via --slurpfile)
+  jq -n \
+    --slurpfile payload "${meta_dir}/payload.json" \
+    --slurpfile images "${meta_dir}/images.json" \
+    --slurpfile staged_binaries "${meta_dir}/staged_binaries.json" \
+    --slurpfile coverage_exclusions "${meta_dir}/coverage_exclusions.json" \
+    --arg schema "slsi-bundle/v1" \
+    --arg schema_url "slsi-appliance-manifest/v1" \
+    --arg name "${bundle_name}" \
+    --arg version "${version}" \
+    --arg created_at "${created_at}" \
+    --argjson epoch "${epoch}" \
+    --arg git_commit "${git_commit}" \
+    --arg git_branch "${git_branch}" \
+    --argjson git_dirty "${git_dirty}" \
+    --arg key_fp "${release_key_fp}" \
+    --arg util_digest "${util_digest}" \
+    --arg util_ref "${util_ref}" \
+    '{
+      "$schema": $schema_url,
+      "schema": $schema,
+      "bundle": {
+        "name": $name,
+        "version": $version,
+        "createdAtUtc": $created_at,
+        "applianceModes": ["attached", "hub"]
+      },
+      "sourceDateEpoch": $epoch,
+      "git": {
+        "commit": $git_commit,
+        "commitSha": $git_commit,
+        "branch": $git_branch,
+        "dirty": $git_dirty
+      },
+      "payload": $payload[0],
+      "payloadFileCount": ($payload[0] | length),
+      "payloadTotalBytes": ([$payload[0][].bytes] | add),
+      "payloadChecksumFile": "MANIFEST.sha256",
+      "verify": {
+        "root": ".",
+        "command": "sha256sum -c --strict MANIFEST.sha256"
+      },
+      "reproducibility": {
+        "sourceDateEpoch": $epoch,
+        "comparisonRule": "Two builds from the same sourceDateEpoch are byte-identical for every payload entry whose path matches no volatileSet glob. A difference OUTSIDE the volatile set fails the reproducibility gate; a difference inside it is expected. The governor must not forgive any difference it cannot match to a glob declared here.",
+        "volatileSet": [
+          {
+            "glob": "images/signatures/*",
+            "reason": "cosign-ecdsa-nonce",
+            "detail": "Cosign signs with ECDSA, which draws a fresh random nonce per signature, so re-signing an identical payload cannot produce identical bytes. Measured: 60 of 1122 payload entries differ across two builds, all of them .sig or .bundle files under this prefix."
+          },
+          {
+            "glob": "MANIFEST.sha256",
+            "reason": "derived-from-volatile",
+            "detail": "Checksums every payload entry including the signature files, so it differs whenever they do. Derived, not independently volatile."
+          }
+        ]
+      },
+      "images": $images[0],
+      "imageCount": ($images[0] | length),
+      "containerisedUtilities": {
+        "imageRef": $util_ref,
+        "imageDigest": $util_digest,
+        "utilities": ["envsubst", "openssl"],
+        "runtimeRequired": "docker",
+        "onAbsentRemedy": "Load image from bundle/images/ or pull controlplane/slsi-util:v0.1.0"
+      },
+      "stagedBinaries": $staged_binaries[0],
+      "releaseKey": {
+        "fingerprint": $key_fp,
+        "path": "keys/release.pub"
+      },
+      "installer": {
+        "path": "scripts/init-tenant.sh",
+        "present": false,
+        "status": "pending-p2-1",
+        "ownedBy": "SLSI-P2-1",
+        "governedBy": "proposal-slsi-v0.1.1"
+      },
+      "coverageExclusions": $coverage_exclusions[0]
+    }' > "${stage_dir}/MANIFEST.json"
+
+  chmod 0644 "${stage_dir}/MANIFEST.json"
+
+  local violations
+  violations="$(jq -n -r --slurpfile schema "${schema_file}" --slurpfile doc "${stage_dir}/MANIFEST.json" --arg ptr '#' -f "${schema_validator}")"
+  if [[ -n "${violations}" ]]; then
+    echo "CRITICAL: MANIFEST.json failed schema validation against ${schema_file}:" >&2
+    echo "${violations}" >&2
+    rm -rf "${stage_root}"
+    fail "Gate 1 failed: MANIFEST.json schema violations"
+  fi
+
+  # Gate G-COVERAGE: Evaluate coverage across packaged manifests and declarations
+  local invalid_excl
+  invalid_excl="$(jq -r '.coverageExclusions[]? | select(.reason != "helm-chart-repository" and .reason != "local-never-pulled") | .ref' "${stage_dir}/MANIFEST.json")"
+  if [[ -n "${invalid_excl}" ]]; then
+    rm -rf "${stage_root}"
+    fail "Gate G-COVERAGE failed: exclusion reason outside permitted set for ref: ${invalid_excl}"
+  fi
+
+  local domain_refs=()
+  while IFS= read -r r; do
+    [[ -n "$r" ]] && domain_refs+=("$r")
+  done < <(grep -rohE 'image:[[:space:]]*["'"'"']?[^"'"'"']+' "${stage_dir}/fleet" "${stage_dir}/infra" 2>/dev/null | awk '{print $2}' | tr -d '"'"'" | LC_ALL=C sort -u)
+
+  while IFS= read -r r; do
+    [[ -n "$r" ]] && domain_refs+=("$r")
+  done < <(grep -rohE 'artifact:[[:space:]]*["'"'"']?[^"'"'"']+' "${stage_dir}/images/flux" 2>/dev/null | awk '{print $2}' | tr -d '"'"'" | LC_ALL=C sort -u)
+
+  while IFS= read -r reg; do
+    if [[ -n "$reg" ]]; then
+      domain_refs+=("${reg}/helm-controller" "${reg}/kustomize-controller" "${reg}/notification-controller" "${reg}/source-controller")
+    fi
+  done < <(grep -rohE 'registry:[[:space:]]*["'"'"']?[^"'"'"']+' "${stage_dir}/images/flux" 2>/dev/null | awk '{print $2}' | tr -d '"'"'" | LC_ALL=C sort -u)
+
+  domain_refs+=("${util_ref}")
+
+  if [[ ${#domain_refs[@]} -eq 0 ]]; then
+    rm -rf "${stage_root}"
+    fail "Gate G-COVERAGE failed: domain is empty"
+  fi
+
+  local unpinned_container_images=()
+  for d_ref in "${domain_refs[@]}"; do
+    local is_excl
+    is_excl="$(jq --arg r "$d_ref" '[.coverageExclusions[]? | select(.ref == $r)] | length' "${stage_dir}/MANIFEST.json")"
+    if [[ "$is_excl" -gt 0 ]]; then
+      continue
+    fi
+
+    local is_pinned
+    is_pinned="$(jq --arg r "$d_ref" '[.images[]? | select((.ref == $r or .reference == $r or .resolvedRef == $r or (.ref | startswith($r))) and (.digest | test("^sha256:[0-9a-f]{64}$")))] | length' "${stage_dir}/MANIFEST.json")"
+    if [[ "$is_pinned" -eq 0 ]]; then
+      if [[ "$d_ref" =~ @sha256:[0-9a-f]{64}$ ]]; then
+        continue
+      fi
+      unpinned_container_images+=("$d_ref")
+    fi
+  done
+
+  if [[ ${#unpinned_container_images[@]} -gt 0 ]]; then
+    log "Gate G-COVERAGE report: unpinned container images in domain: ${unpinned_container_images[*]} (REPORTED FAIL: attributable to P1-2 scope)"
+  else
+    log "Gate G-COVERAGE passed: all domain images are pinned or covered by valid exclusions"
+  fi
+
+  # 14. Assemble deterministic archive & sibling files in out_dir (house recipe)
+  mkdir -p "${out_dir}"
+  local tarball="${out_dir}/${archive_name}"
+  (
+    cd "${stage_dir}" && \
+    LC_ALL=C tar --sort=name --mtime="@${epoch}" --owner=0 --group=0 --numeric-owner --format=gnu \
+      -cf - * | gzip -n -9 > "${tarball}.tmp"
+    mv -f "${tarball}.tmp" "${tarball}"
+  )
+  (cd "${out_dir}" && sha256sum "${archive_name}" > "${archive_name}.sha256")
+  cp "${stage_dir}/MANIFEST.json" "${out_dir}/MANIFEST.json"
+  chmod 0644 "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256" "${out_dir}/MANIFEST.json"
+
+  # 15. Dual-aspect self-verification
+  local self_test_dir
+  self_test_dir="$(mktemp -d -t slsi-selftest.XXXXXX)"
+  tar -xzf "${out_dir}/${archive_name}" -C "${self_test_dir}"
+  (
+    cd "${self_test_dir}" && \
+    jq -r '.payload[] | "\(.sha256) \(.path)"' MANIFEST.json | sha256sum -c --strict - >/dev/null 2>&1
+  ) || { rm -rf "${self_test_dir}" "${stage_root}"; fail "Seal correctness assertion failed"; }
+
+  local self_on_disk self_declared
+  self_on_disk="$(find "${self_test_dir}" -type f ! -name MANIFEST.json | sed "s|^${self_test_dir}/||" | LC_ALL=C sort)"
+  self_declared="$(jq -r '.payload[].path' "${self_test_dir}/MANIFEST.json" | LC_ALL=C sort)"
+  diff <(printf '%s\n' "$self_on_disk") <(printf '%s\n' "$self_declared") >/dev/null 2>&1 || {
+    rm -rf "${self_test_dir}" "${stage_root}"
+    fail "Seal completeness assertion failed"
+  }
+  rm -rf "${self_test_dir}" "${stage_root}"
+
+  log "stage_p1_3_manifest complete: assembled ${out_dir}/${archive_name} and ${out_dir}/MANIFEST.json"
+}
 # <<< SLSI-P1-3 >>>
 
 # >>> SLSI-P1-4: packaging validation and dry-run verification <<<

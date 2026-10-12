@@ -1,0 +1,7 @@
+MANIFEST.json
+MANIFEST.sha256
+bin
+fleet
+images
+infra
+keys

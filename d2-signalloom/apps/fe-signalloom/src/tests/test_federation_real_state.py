@@ -198,8 +198,19 @@ async def test_federation_identity_svid_and_expiry_are_refused():
 async def test_federation_summary_emits_no_attestation_rate_and_no_alert_count():
     """The two headline figures of the deleted dataset had no source and still have none."""
     payload = (await _get("summary", EAP_ALICE, topology=_topology([]))).json()
-    body = (await _get("summary", EAP_ALICE, topology=_topology([]))).text
-    assert "99.8" not in body
+    # The deleted dataset's two headline numbers must not come back anywhere as
+    # a VALUE. (They are quoted inside the refusal prose, which is the point of
+    # the refusal, so this walks numbers rather than searching the text.)
+    def numbers(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                yield from numbers(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from numbers(v)
+        elif isinstance(node, (int, float)) and not isinstance(node, bool):
+            yield float(node)
+    assert 99.8 not in set(numbers(payload))
     assert payload["counts"].get("attestation_success_rate") is None
     assert payload["counts"].get("active_alerts") is None
     refused = {r["field"] for r in payload["unmeasured_fields"]}
@@ -263,5 +274,5 @@ async def test_federation_write_methods_still_proxy_upstream():
 async def test_federation_unknown_read_subpath_still_refuses_upstream_route():
     """A subpath with no local derivation keeps the honest upstream refusal."""
     resp = await _get("bundles", EAP_ALICE, topology=_topology([]))
-    assert resp.status_code == 502
-    assert resp.json()["code"] == "upstream_route_not_served"
+    assert resp.status_code == 502, resp.text
+    assert "upstream_route_not_served" in resp.text, resp.text

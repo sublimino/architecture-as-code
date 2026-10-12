@@ -18,6 +18,12 @@ import DonutChart from '../components/DonutChart'
 import HelpHint from '../components/HelpHint'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { isDemoMode } from '../api/demoMode'
+import {
+  SPIRE_BOOTSTRAP_FIXTURE,
+  type SpireBootstrapFixture,
+  type SpireSvidFixture,
+} from '../api/fakeFederationData'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import { StatCard, Section, td } from '../components/DashKit'
 import EmptyState from '../components/EmptyState'
@@ -69,26 +75,26 @@ const BAO = {
   ] as SecretEngine[],
 }
 
-interface Svid {
-  spiffeId: string
-  workload: string
-  selector: string
-  ttl: string
-  status: 'active' | 'revoked' | 'pending'
+type Svid = SpireSvidFixture
+
+const LIVE_SPIRE_BOOTSTRAP: SpireBootstrapFixture = {
+  trustDomain: TRUST_DOMAIN,
+  server: {
+    version: 'unavailable',
+    nodeAttestor: 'n/a',
+    keyManager: 'n/a',
+    ha: 'No live SPIRE server connected',
+    oidcDiscovery: 'n/a',
+  },
+  agents: {
+    total: 0,
+    attested: 0,
+    method: 'n/a',
+  },
+  svids: [],
 }
 
-const SPIRE = {
-  trustDomain: TRUST_DOMAIN,
-  server: { version: '1.11.1', nodeAttestor: 'join_token', keyManager: 'disk', ha: '1 server / sqlite datastore', oidcDiscovery: 'spire-oidc.inf-bao:8008/keys' },
-  agents: { total: 6, attested: 6, method: 'join_token' },
-  svids: [
-    { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/fe-signalloom/sa/dashboard`, workload: 'dashboard-signalloom', selector: 'k8s:sa:dashboard', ttl: '1h', status: 'active' },
-    { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/fe-signalloom/sa/api`, workload: 'fe-signalloom-api', selector: 'k8s:sa:api', ttl: '1h', status: 'active' },
-    { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/inf-signalloom/sa/fake-proxy`, workload: 'fake-integration-proxy', selector: 'k8s:sa:fake-proxy', ttl: '30m', status: 'active' },
-    { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/inf-bao/sa/openbao`, workload: 'openbao', selector: 'k8s:sa:openbao', ttl: '1h', status: 'active' },
-    { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/inf-signalloom/sa/legacy-batch`, workload: 'legacy-batch-runner', selector: 'k8s:sa:legacy-batch', ttl: '15m', status: 'revoked' },
-  ] as Svid[],
-}
+const SPIRE: SpireBootstrapFixture = isDemoMode() ? SPIRE_BOOTSTRAP_FIXTURE : LIVE_SPIRE_BOOTSTRAP
 
 interface AlgorithmEntry {
   algorithm: string
@@ -734,10 +740,10 @@ export default function CryptographyPage() {
       {/* SPIFFE / SPIRE Bootstrap */}
       <Section title="SPIFFE / SPIRE Bootstrap" hint={`trust domain ${SPIRE.trustDomain}`}>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
-          <StatCard label="SPIRE server" value={`v${SPIRE.server.version}`} sub={SPIRE.server.ha} accent="var(--cyan)" />
+          <StatCard label="SPIRE server" value={SPIRE.server.version === 'unavailable' ? 'Unavailable' : `v${SPIRE.server.version}`} sub={SPIRE.server.ha} accent="var(--cyan)" />
           <StatCard label="Agents attested" value={`${SPIRE.agents.attested}/${SPIRE.agents.total}`} sub={`via ${SPIRE.agents.method}`} accent="var(--teal)" />
           <StatCard label="Node attestor" value="join_token" sub={`key manager: ${SPIRE.server.keyManager}`} accent="var(--violet)" />
-          <StatCard label="OIDC discovery" value="Active (JWKS)" sub={SPIRE.server.oidcDiscovery} accent="var(--teal)" />
+          <StatCard label="OIDC discovery" value={SPIRE.server.version === 'unavailable' ? 'Inactive' : 'Active (JWKS)'} sub={SPIRE.server.oidcDiscovery} accent="var(--teal)" />
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
           Bootstrap posture only. The live, per-workload credential state (SVID, OpenBao lease and

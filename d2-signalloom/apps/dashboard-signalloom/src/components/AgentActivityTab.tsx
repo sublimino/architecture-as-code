@@ -8,6 +8,7 @@ import type { AuthorizationChain } from '../api/weaveApi'
 import DelegationEventFilter from './DelegationEventFilter'
 import AuthorizationProofDrawer from './AuthorizationProofDrawer'
 import DelegationAttestationDrawer, { type AttestationPayload } from './DelegationAttestationDrawer'
+import { isDemoMode } from '../api/demoMode'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -132,10 +133,10 @@ export default function AgentActivityTab({
   const handleViewProof = useCallback((actionId: string, item: AttributableTimelineItem) => {
     setActiveActionId(actionId)
     const evRef = item.kind === 'audit'
-      ? (item.event.evidence_ref || 'frostdb-segment-001')
+      ? (item.event.evidence_ref || (isDemoMode() ? 'frostdb-segment-001' : 'none'))
       : item.kind === 'external_evidence'
-      ? (item.evidence.hash_chain_digest || 'frostdb-segment-001')
-      : 'frostdb-segment-001'
+      ? (item.evidence.hash_chain_digest || (isDemoMode() ? 'frostdb-segment-001' : 'none'))
+      : (isDemoMode() ? 'frostdb-segment-001' : 'none')
     setActiveEvidenceRef(evRef)
     const rawDetail = item.kind === 'audit' && item.event.detail && typeof item.event.detail === 'object'
       ? (item.event.detail as Record<string, unknown>)
@@ -147,21 +148,30 @@ export default function AgentActivityTab({
       : typeof rawDetail.score === 'number'
       ? rawDetail.score
       : 0
+    const authorizingPrincipal = (item.kind === 'audit' && item.event.authorizing_principal_id)
+      ? item.event.authorizing_principal_id
+      : (isDemoMode() ? 'secops@signal-loom.ai' : (agent.owner || 'unassigned'))
+    const evidenceRefs: string[] = [evRef]
+    if (typeof rawDetail.rekor_entry === 'string') {
+      evidenceRefs.push(rawDetail.rekor_entry)
+    } else if (isDemoMode()) {
+      evidenceRefs.push('rekor:entry:49c0fb1278ba9e1c25514f')
+    }
     setActiveChain({
       action: actionId,
       actorId: agent.id,
       agentIdentity: agent.identity?.spiffe_id || `spiffe://signalloom.demo/agents/${agent.id}`,
-      principal: (item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai',
-      actsOnBehalfOf: `${agent.name} acts-on-behalf-of ${(item.kind === 'audit' && item.event.authorizing_principal_id) || 'secops@signal-loom.ai'}`,
-      decision: 'ALLOW',
+      principal: authorizingPrincipal,
+      actsOnBehalfOf: `${agent.name} acts-on-behalf-of ${authorizingPrincipal}`,
+      decision: (item.kind === 'audit' && typeof rawDetail.decision === 'string') ? (rawDetail.decision as 'ALLOW' | 'DENY') : 'ALLOW',
       confidence: measuredConfidence,
-      evidenceRefs: [evRef, 'rekor:entry:49c0fb1278ba9e1c25514f'],
+      evidenceRefs,
       attestationGitoid: `gitoid:blob:sha256:${evRef.replace('sha256:', '')}`,
       complete: true,
       cycleDetected: false,
     })
     setProofDrawerOpen(true)
-  }, [agent.id, agent.identity?.spiffe_id, agent.name])
+  }, [agent.id, agent.identity?.spiffe_id, agent.name, agent.owner])
 
   const handleViewAttestation = useCallback((actionId: string, item: AttributableTimelineItem) => {
     const rawDetail = item.kind === 'audit' && item.event.detail && typeof item.event.detail === 'object'
@@ -177,19 +187,21 @@ export default function AgentActivityTab({
     setActiveAttestation({
       actionId,
       timestamp: item.ts,
-      cosignSignature: 'MEUCIQD37fa8b9c...[detached-cosign-svid-p256]...AiEA29bcf01',
+      cosignSignature: typeof rawDetail.signature === 'string'
+        ? rawDetail.signature
+        : (isDemoMode() ? 'MEUCIQD37fa8b9c...[detached-cosign-svid-p256]...AiEA29bcf01' : 'none (unsigned)'),
       landlockStatus: {
-        enabled: true,
-        profile: 'agent-nono-evidenced',
-        abi: 3,
-        ruleset: { filesystem: 'ro', network: 'egress-only' },
+        enabled: Boolean(rawDetail.landlock_enabled ?? (agent.kernel_telemetry?.cgroup_frozen || isDemoMode())),
+        profile: (typeof rawDetail.landlock_profile === 'string' && rawDetail.landlock_profile) || (isDemoMode() ? 'agent-nono-evidenced' : 'unconfined'),
+        abi: typeof rawDetail.landlock_abi === 'number' ? rawDetail.landlock_abi : (isDemoMode() ? 3 : 0),
+        ruleset: (rawDetail.landlock_ruleset as Record<string, string>) || (isDemoMode() ? { filesystem: 'ro', network: 'egress-only' } : {}),
       },
       rawPayload: rawDetail,
-      gitOid: evRef ? `gitoid:blob:sha256:${evRef}` : 'gitoid:blob:sha256:49c0fb1278ba9e1c25514f',
-      rekorEntryUrl: 'https://rekor.sigstore.dev',
+      gitOid: evRef ? `gitoid:blob:sha256:${evRef}` : (isDemoMode() ? 'gitoid:blob:sha256:49c0fb1278ba9e1c25514f' : 'gitoid:blob:sha256:none'),
+      rekorEntryUrl: typeof rawDetail.rekor_url === 'string' ? rawDetail.rekor_url : (isDemoMode() ? 'https://rekor.sigstore.dev' : undefined),
     })
     setAttestationDrawerOpen(true)
-  }, [])
+  }, [agent.kernel_telemetry?.cgroup_frozen])
 
   useEffect(() => {
     const t = searchParams.get('type') || searchParams.get('event_type') || 'all'

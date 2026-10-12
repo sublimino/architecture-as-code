@@ -2,6 +2,7 @@
 // Copyright 2026 ControlPlane Security Authors
 
 import React, { useState } from 'react'
+import { isDemoMode } from '../api/demoMode'
 
 export interface IdentityAuditEvent {
   id: string
@@ -61,16 +62,21 @@ const DEFAULT_EVENTS: IdentityAuditEvent[] = [
 ]
 
 export const IdentityAuditPanel: React.FC<IdentityAuditPanelProps> = ({
-  events = DEFAULT_EVENTS,
+  events,
   activeLeasesCount,
   onFilterChange,
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>('all')
 
+  const resolvedEvents =
+    events !== undefined
+      ? events
+      : (isDemoMode() ? DEFAULT_EVENTS : [])
+
   const leasesCount =
     activeLeasesCount !== undefined
       ? activeLeasesCount
-      : events.filter((ev) => ev.operation === 'svid_issuance').length
+      : resolvedEvents.filter((ev) => ev.operation === 'svid_issuance').length
 
   const handleFilter = (filter: string) => {
     setActiveFilter(filter)
@@ -79,7 +85,7 @@ export const IdentityAuditPanel: React.FC<IdentityAuditPanelProps> = ({
     }
   }
 
-  const filteredEvents = events.filter((ev) => {
+  const filteredEvents = resolvedEvents.filter((ev) => {
     if (activeFilter === 'out_of_role') return ev.isOutOfRole
     if (activeFilter === 'vault') return ev.operation !== 'svid_issuance'
     if (activeFilter === 'spire') return ev.operation === 'svid_issuance'
@@ -174,74 +180,86 @@ export const IdentityAuditPanel: React.FC<IdentityAuditPanelProps> = ({
             </tr>
           </thead>
           <tbody>
-            {filteredEvents.map((ev) => (
-              <tr
-                key={ev.id}
-                data-testid={`audit-row-${ev.id}`}
-                style={{
-                  borderBottom: '1px solid var(--border-subtle)',
-                  background: ev.isOutOfRole ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
-                }}
-              >
-                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--dim)' }}>
-                  {new Date(ev.timestamp).toLocaleTimeString()}
-                </td>
-                <td style={{ padding: '8px 10px' }}>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      background: 'var(--surface2)',
-                      color: ev.operation === 'svid_issuance' ? 'var(--violet)' : 'var(--cyan)',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {ev.operation.toUpperCase()}
-                  </span>
-                </td>
-                <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>
-                  {ev.path}
-                </td>
-                <td style={{ padding: '8px 10px' }}>
-                  <div style={{ color: 'var(--text)', fontWeight: 500 }}>{ev.agentRole}</div>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{ev.spiffeId}</div>
-                </td>
-                <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11, color: 'var(--dim)' }}>
-                  {ev.accessor}
-                </td>
-                <td style={{ padding: '8px 10px' }}>
-                  {ev.isOutOfRole ? (
-                    <span
-                      data-testid={`status-out-of-role-${ev.id}`}
-                      style={{
-                        fontSize: 11,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        background: 'var(--error)',
-                        color: 'var(--on-accent, #fff)',
-                        fontWeight: 600,
-                      }}
-                    >
-                      OUT-OF-ROLE
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        color: 'var(--teal)',
-                        fontWeight: 600,
-                      }}
-                    >
-                      AUTHORIZED
-                    </span>
-                  )}
+            {filteredEvents.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  data-testid="audit-empty-state"
+                  style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}
+                >
+                  No cryptographic identity or audit events recorded
                 </td>
               </tr>
-            ))}
+            ) : (
+              filteredEvents.map((ev) => (
+                <tr
+                  key={ev.id}
+                  data-testid={`audit-row-${ev.id}`}
+                  style={{
+                    borderBottom: '1px solid var(--border-subtle)',
+                    background: ev.isOutOfRole ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
+                  }}
+                >
+                  <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--dim)' }}>
+                    {new Date(ev.timestamp).toLocaleTimeString()}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: 'var(--surface2)',
+                        color: ev.operation === 'svid_issuance' ? 'var(--violet)' : 'var(--cyan)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {ev.operation.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>
+                    {ev.path}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>
+                    <div style={{ color: 'var(--text)', fontWeight: 500 }}>{ev.agentRole}</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{ev.spiffeId}</div>
+                  </td>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11, color: 'var(--dim)' }}>
+                    {ev.accessor}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>
+                    {ev.isOutOfRole ? (
+                      <span
+                        data-testid={`status-out-of-role-${ev.id}`}
+                        style={{
+                          fontSize: 11,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          background: 'var(--error)',
+                          color: 'var(--on-accent, #fff)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        OUT-OF-ROLE
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          background: 'rgba(16, 185, 129, 0.15)',
+                          color: 'var(--teal)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        AUTHORIZED
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

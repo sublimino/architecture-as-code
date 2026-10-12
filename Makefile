@@ -229,6 +229,24 @@ wait-lib-sync: ## Re-vendor scripts/lib/wait.sh from the ~/.andy_sync source of 
 
 ##@ Supply chain
 
+# cmd/ed25519-keygen is this repository's own replacement for the two openssl
+# calls that used to mint the witness and orbit-approval keypairs, and for the
+# `openssl pkey -pubin -outform DER | openssl dgst -sha256` pipeline that
+# derives the key ID below. Decision 10 proposed containerising openssl
+# instead; the image it named was never published and has no Dockerfile, and
+# openssl cannot be digest-pinned like the five staged Go tools because
+# upstream ships source tarballs only. The encodings are identical either way:
+# PKCS#8 PRIVATE KEY PEM and SPKI PUBLIC KEY PEM, proven in both directions by
+# test/ed25519-keygen-interop.bats.
+#
+# `go -C` changes directory before running, so the helper's cwd is the
+# fleet-manager module, not the repo root. Every path handed to it is therefore
+# made absolute first -- KEYS_DIR legitimately defaults to the relative
+# '.keys' (see scripts/lib/keys.sh on why that branch is reachable on CI).
+ED25519_KEYGEN_MODULE = $(abspath d2-signalloom/apps/fleet-manager)
+ED25519_KEYGEN = go -C $(ED25519_KEYGEN_MODULE) run ./cmd/ed25519-keygen
+KEYS_DIR_ABS = $(abspath $(KEYS_DIR))
+
 .PHONY: signing-keys
 signing-keys: ## Generate the local cosign and witness keys.
 	@mkdir -p $(KEYS_DIR)
@@ -244,11 +262,16 @@ signing-keys: ## Generate the local cosign and witness keys.
 			--out $(KEYS_DIR)/signing-config.json; \
 	fi
 	@if [ ! -f $(KEYS_DIR)/witness.pem ]; then \
-		openssl genpkey -algorithm ed25519 -out $(KEYS_DIR)/witness.pem; \
-		openssl pkey -in $(KEYS_DIR)/witness.pem -pubout -out $(KEYS_DIR)/witness-pub.pem; \
+		$(ED25519_KEYGEN) generate --key $(KEYS_DIR_ABS)/witness.pem --pub $(KEYS_DIR_ABS)/witness-pub.pem; \
 	fi
 	@test -f $(KEYS_DIR)/witness-pub.pem || { echo "$(KEYS_DIR)/witness-pub.pem missing for existing witness key" >&2; exit 1; }
-	@actual_id=$$(openssl pkey -pubin -in $(KEYS_DIR)/witness-pub.pem -outform DER 2>/dev/null | openssl dgst -sha256 -r | cut -d' ' -f1); \
+	@# The old form piped openssl into openssl with 2>/dev/null, so a failure to
+	@# read the public key produced an EMPTY key id that was then written into a
+	@# fresh policy as the pinned signer. key-id reports failure on stderr and
+	@# the emptiness is checked explicitly, because a blank pin is worse than no
+	@# pin: it reads as a configured policy.
+	@actual_id=$$($(ED25519_KEYGEN) key-id --pub $(KEYS_DIR_ABS)/witness-pub.pem) || exit 1; \
+		[ -n "$$actual_id" ] || { echo "could not derive a key id from $(KEYS_DIR)/witness-pub.pem" >&2; exit 1; }; \
 		policy=$(KEYS_DIR)/segment-signing-policy.json; \
 		if [ ! -f "$$policy" ]; then \
 			tmp="$$policy.tmp.$$$$"; \
@@ -266,8 +289,7 @@ signing-keys: ## Generate the local cosign and witness keys.
 	@# approval JWTs; the sentinel gets only the PUBLIC half and can verify but
 	@# never sign, so the agent process cannot forge its own approval.
 	@if [ ! -f $(KEYS_DIR)/orbit-approval.pem ]; then \
-		openssl genpkey -algorithm ed25519 -out $(KEYS_DIR)/orbit-approval.pem; \
-		openssl pkey -in $(KEYS_DIR)/orbit-approval.pem -pubout -out $(KEYS_DIR)/orbit-approval-pub.pem; \
+		$(ED25519_KEYGEN) generate --key $(KEYS_DIR_ABS)/orbit-approval.pem --pub $(KEYS_DIR_ABS)/orbit-approval-pub.pem; \
 	fi
 
 .PHONY: push-local

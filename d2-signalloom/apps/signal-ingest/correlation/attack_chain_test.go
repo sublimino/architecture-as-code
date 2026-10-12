@@ -234,6 +234,9 @@ func TestAttackChainDetector_StunErrorIsWrapped(t *testing.T) {
 
 func TestEngine_AttackChainMatchesAndStuns(t *testing.T) {
 	observations := attackChainFixtures(time.Now().UTC(), "resolved-engine-actor")["account-takeover"]
+	for index := range observations {
+		observations[index].ActorHint = "resolved-engine-actor"
+	}
 	signalStore := store.NewMemoryStore()
 	if err := signalStore.Append(context.Background(), observations); err != nil {
 		t.Fatal(err)
@@ -244,7 +247,8 @@ func TestEngine_AttackChainMatchesAndStuns(t *testing.T) {
 	}
 	stun := &recordingStunClient{}
 	engine.SetAttackChainDetector(NewAttackChainDetector(stun))
-	if _, err := engine.Correlate(context.Background()); err != nil {
+	actors, err := engine.Correlate(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
 	matches := engine.AttackChainMatches()
@@ -253,6 +257,19 @@ func TestEngine_AttackChainMatchesAndStuns(t *testing.T) {
 	}
 	if calls, _ := stun.snapshot(); calls != 1 {
 		t.Fatalf("engine correlation must dispatch one stun, got %d", calls)
+	}
+	enriched := false
+	for _, actor := range actors {
+		if actor.PrincipalID != "resolved-engine-actor" {
+			continue
+		}
+		if actor.Attributes["attack_chain"] != "account-takeover" || actor.Confidence < matches[0].Confidence || actor.Status != model.ActorActionable {
+			t.Fatalf("resolved actor did not receive correlated risk: %#v", actor)
+		}
+		enriched = true
+	}
+	if !enriched {
+		t.Fatal("no engine actor carried the resolved identity for enrichment")
 	}
 
 	matches[0].ObservationIDs[0] = "mutated"

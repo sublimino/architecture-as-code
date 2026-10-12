@@ -546,8 +546,9 @@ This reduces containment latency from API-watch-speed (~100ms-1s) to Tetragon-ev
 ### 5.5 Declarative Stun Policies via a Mutating Policy Engine
 
 > **Not available on the appliance as built, and not convertible to CEL.** OSD-7 removed Kyverno as a
-> bundled dependency: the appliance ships no admission controller in any of the 30 entries of
-> `bundle/.manifest.d/images.json`, and the admission path is now a CEL `ValidatingAdmissionPolicy`
+> bundled dependency: no entry in `bundle/.manifest.d/images.json` is an admission controller
+> (that manifest carries its own `count`; it is not restated here, because a hardcoded length goes
+> stale the moment an app is added), and the admission path is now a CEL `ValidatingAdmissionPolicy`
 > evaluated by the API server.
 >
 > This section is retained as a design option rather than rewritten, because **it cannot be expressed

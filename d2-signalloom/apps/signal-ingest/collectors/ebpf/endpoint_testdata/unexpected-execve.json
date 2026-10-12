@@ -8,7 +8,7 @@
     "pod_uid": "uid-rogue-0",
     "service_account": "agent-rogue-sa",
     "agent_role": "rogue_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "process_exec",
     "domain": "/usr/bin/nc",
     "node_name": "kind-worker-2"
@@ -22,7 +22,7 @@
     "pod_uid": "uid-rogue-0",
     "service_account": "agent-rogue-sa",
     "agent_role": "rogue_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "process_exec",
     "domain": "/bin/sh",
     "node_name": "kind-worker-2"
@@ -36,7 +36,7 @@
     "pod_uid": "uid-trusted-0",
     "service_account": "agent-trusted-sa",
     "agent_role": "trusted_operator",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "process_exec",
     "domain": "/usr/bin/agent",
     "node_name": "kind-worker-2"

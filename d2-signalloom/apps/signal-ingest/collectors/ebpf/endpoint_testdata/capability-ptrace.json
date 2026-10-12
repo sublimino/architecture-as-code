@@ -8,7 +8,7 @@
     "pod_uid": "uid-debug-0",
     "service_account": "agent-debug-sa",
     "agent_role": "debug_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "kprobe:__x64_sys_ptrace",
     "node_name": "kind-worker-3"
   },
@@ -21,7 +21,7 @@
     "pod_uid": "uid-debug-0",
     "service_account": "agent-debug-sa",
     "agent_role": "debug_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "kprobe:cap_capable",
     "node_name": "kind-worker-3"
   },
@@ -34,7 +34,7 @@
     "pod_uid": "uid-debug-0",
     "service_account": "agent-debug-sa",
     "agent_role": "debug_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "kprobe:__x64_sys_read",
     "node_name": "kind-worker-3"
   }

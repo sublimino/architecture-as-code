@@ -8,7 +8,7 @@
     "pod_uid": "uid-snoop-0",
     "service_account": "agent-snoop-sa",
     "agent_role": "snoop_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "file_access",
     "domain": "/etc/shadow",
     "node_name": "kind-worker-1"
@@ -22,7 +22,7 @@
     "pod_uid": "uid-snoop-0",
     "service_account": "agent-snoop-sa",
     "agent_role": "snoop_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "file_access",
     "domain": "/etc/passwd",
     "node_name": "kind-worker-1"
@@ -36,7 +36,7 @@
     "pod_uid": "uid-snoop-0",
     "service_account": "agent-snoop-sa",
     "agent_role": "snoop_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "file_access",
     "domain": "/var/run/secrets/kubernetes.io/serviceaccount/token",
     "node_name": "kind-worker-1"
@@ -50,7 +50,7 @@
     "pod_uid": "uid-snoop-0",
     "service_account": "agent-snoop-sa",
     "agent_role": "snoop_suspect",
-    "provider": "tetragon",
+    "provider": "sentinel-ebpf",
     "classification": "file_access",
     "domain": "/tmp/scratch.log",
     "node_name": "kind-worker-1"

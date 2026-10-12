@@ -1,12 +1,13 @@
-# The Kusari endpoint-runtime threat bundle (Tetragon eBPF syscall stream).
+# The Kusari endpoint-runtime threat bundle (Sentinel eBPF syscall stream).
 #
-# This reads only the Tetragon endpoint projection (collectors/ebpf
-# ProjectEndpoint, model.LayerEndpointHost, Source "tetragon") and every rule
-# source-gates on it, so it never crosses the OTHER endpoint_host stream on the
-# same layer — the agent-nono Landlock evidence (Source "agent-nono-evidenced"),
-# whose landlock-denial rule gates on verification_status. A Tetragon event
-# carries no verification_status, and these rules gate on source "tetragon", so
-# the two endpoint_host streams share a layer and never a rule.
+# This reads only the sentinel eBPF endpoint projection (collectors/ebpf
+# ProjectEndpoint, model.LayerEndpointHost, Source "sentinel.ebpf.syscall_trace")
+# and every rule source-gates on it, so it never crosses the OTHER endpoint_host
+# stream on the same layer — the agent-nono Landlock evidence (Source
+# "agent-nono-evidenced"), whose landlock-denial rule gates on verification_status.
+# A sentinel eBPF syscall event carries no verification_status, and these rules
+# gate on source "sentinel.ebpf.syscall_trace", so the two endpoint_host streams
+# share a layer and never a rule.
 #
 # Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
 # in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
@@ -14,7 +15,7 @@
 #
 # # What the rules may read
 #
-# Only the Tetragon endpoint label contract (collectors/ebpf/endpoint.go
+# Only the sentinel eBPF endpoint label contract (collectors/ebpf/endpoint.go
 # ProjectEndpoint): classification, syscall, target, pod_name, namespace, node,
 # agent_role, service_account, pod_uid, provider, direction — plus obs.actor,
 # which is the keyed PSEUDONYM of the acting workload's service account (via
@@ -22,9 +23,9 @@
 #
 # # Binding corrections applied (docs/EAP "Adversarial-review corrections")
 #
-#   * Every rule gates on obs.source == "tetragon": the endpoint_host layer
-#     carries more than one projection, so the source gate is mandatory to stay
-#     off the agent-nono Landlock stream.
+#   * Every rule gates on obs.source == "sentinel.ebpf.syscall_trace": the
+#     endpoint_host layer carries more than one projection, so the source gate is
+#     mandatory to stay off the agent-nono Landlock stream.
 #   * Every label read is guarded with has(): a syscall event may carry a target
 #     or not (a file access does, a bare ptrace kprobe does not), so a bare read
 #     of an absent key would be a CEL fault degrading the whole bundle.
@@ -86,7 +87,7 @@ rules:
     # A file_access whose target is a credential store. target is the file the
     # workload opened; the sensitive set is a var, membership-tested.
     expression: |-
-      obs.source == "tetragon" &&
+      obs.source == "sentinel.ebpf.syscall_trace" &&
       obs.layer == "endpoint_host" &&
       has(obs.labels.classification) && obs.labels.classification == "file_access" &&
       has(obs.labels.target) && obs.labels.target in vars.sensitive_files
@@ -99,7 +100,7 @@ rules:
     # identity-scoped rule: obs.actor is the pseudonymised service account, tested
     # against the actor_vars set, never a cleartext label.
     expression: |-
-      obs.source == "tetragon" &&
+      obs.source == "sentinel.ebpf.syscall_trace" &&
       obs.layer == "endpoint_host" &&
       has(obs.labels.classification) && obs.labels.classification == "process_exec" &&
       !(obs.actor in vars.allowed_exec_actors)
@@ -112,7 +113,7 @@ rules:
     # privilege-check hook. Both are high-signal host-runtime primitives, gated on
     # the syscall discriminator against a var set, independent of actor.
     expression: |-
-      obs.source == "tetragon" &&
+      obs.source == "sentinel.ebpf.syscall_trace" &&
       obs.layer == "endpoint_host" &&
       has(obs.labels.syscall) && obs.labels.syscall in vars.sensitive_syscalls
 

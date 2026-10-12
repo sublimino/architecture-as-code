@@ -13,7 +13,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
 
-// endpointCorpus is the Tetragon endpoint_host fixture projection — the same
+// endpointCorpus is the sentinel eBPF endpoint_host fixture projection — the same
 // observations ProjectEndpoint produces in production, so the e2e asserts the
 // production projection and not a test-only corpus.
 func endpointCorpus(t *testing.T) []model.Observation {
@@ -23,14 +23,14 @@ func endpointCorpus(t *testing.T) []model.Observation {
 		t.Fatalf("ebpf.FixtureEndpointObservations: %v", err)
 	}
 	if len(obs) == 0 {
-		t.Fatal("the Tetragon endpoint fixture corpus is empty; every assertion would be vacuous")
+		t.Fatal("the sentinel eBPF endpoint fixture corpus is empty; every assertion would be vacuous")
 	}
 	return obs
 }
 
 // TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable: every rule produces
 // exactly the findings the table names and every window exactly the decisions,
-// over the Tetragon corpus through the production chain. Exact, not "at least".
+// over the sentinel eBPF corpus through the production chain. Exact, not "at least".
 func TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable(t *testing.T) {
 	h := newHarness(t, store.NewMemoryStore(), bundlesDir(t), collectors.NewDeduper(8192))
 	c := endpointCorpus(t)
@@ -44,7 +44,7 @@ func TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable(t *testing.T) {
 	// layer but gates on verification_status), and nothing from the other bundles.
 	for key, n := range byRule {
 		if !strings.HasPrefix(key, bundleEndpoint+"/") {
-			t.Errorf("a non-tetragon rule %s fired %d findings on the endpoint corpus; source/layer gating leaked", key, n)
+			t.Errorf("a non-endpoint rule %s fired %d findings on the endpoint corpus; source/layer gating leaked", key, n)
 		}
 	}
 
@@ -104,7 +104,7 @@ func TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable(t *testing.T) {
 		t.Errorf("endpointWindowExpectations sum to %d decisions but wantEndpointDecisions is %d", sumWindows, wantEndpointDecisions)
 	}
 	if len(c) != wantEndpointObservations {
-		t.Errorf("the Tetragon fixture corpus projects %d observations, want %d", len(c), wantEndpointObservations)
+		t.Errorf("the sentinel eBPF fixture corpus projects %d observations, want %d", len(c), wantEndpointObservations)
 	}
 
 	nFindings, nDecisions := 0, 0
@@ -119,11 +119,11 @@ func TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable(t *testing.T) {
 		}
 	}
 	if nFindings != wantEndpointFindings || nDecisions != wantEndpointDecisions {
-		t.Errorf("recorded %d tetragon findings and %d decisions, want %d and %d", nFindings, nDecisions, wantEndpointFindings, wantEndpointDecisions)
+		t.Errorf("recorded %d endpoint findings and %d decisions, want %d and %d", nFindings, nDecisions, wantEndpointFindings, wantEndpointDecisions)
 	}
 
 	if snap := h.Metrics.Snapshot(); snap.EvaluatorErrors != 0 {
-		t.Errorf("evaluator faults: %d; a tetragon rule errored per observation (an unguarded label read)", snap.EvaluatorErrors)
+		t.Errorf("evaluator faults: %d; an endpoint rule errored per observation (an unguarded label read)", snap.EvaluatorErrors)
 	}
 }
 

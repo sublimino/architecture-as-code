@@ -5,74 +5,61 @@ package ebpf
 
 import (
 	"context"
-	"log/slog"
+	"errors"
+	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/netebpf"
 )
 
-// CollectorName is the registry name for the Tetragon collector.
+// CollectorName is the registry name for the sentinel eBPF endpoint collector.
 //
-// Deliberately NOT "netebpf". The netebpf collector consumes stun-sentinel's
-// socket traces and is owned by a different card; giving Tetragon its own name
-// keeps the two sources independently mode-gateable and independently
-// diagnosable in `collector started` log lines.
-const CollectorName = "tetragon"
+// Deliberately NOT "netebpf". The netebpf collector consumes the stun-sentinel's
+// socket traces onto the network_egress layer and is owned by a different card;
+// giving the endpoint syscall stream its own name keeps the two sources
+// independently mode-gateable and independently diagnosable in
+// `collector started` log lines.
+const CollectorName = "ebpf-endpoint"
 
-// Environment variables consumed by NewCollectorFromEnv.
+// Environment variables consumed by NewCollectorFromEnv. The retired
+// COLLECTOR_TETRAGON_* variables are gone (P1-8); this stream is the
+// stun-sentinel's own eBPF syscall trace, not Tetragon.
 const (
-	EnvMode              = "COLLECTOR_TETRAGON_MODE"
-	EnvModeAlt           = "SIGNAL_COLLECTOR_TETRAGON"
-	EnvModeLegacy        = "TETRAGON_MODE"
-	EnvSocketPath        = "TETRAGON_SOCKET_PATH"
-	EnvRingCapacity      = "TETRAGON_RING_CAPACITY"
-	EnvAllowedNamespaces = "TETRAGON_NAMESPACES"
+	EnvMode    = "COLLECTOR_EBPF_ENDPOINT_MODE"
+	EnvModeAlt = "SIGNAL_COLLECTOR_EBPF_ENDPOINT"
 )
 
-// Collector adapts the Tetragon StreamClient to the signal-ingest collector
-// lifecycle interface (Name / Mode / Start, plus optional Health and Stop).
+// ErrLiveDeferred is the explicit deferred / not-implemented error returned when
+// live mode is started. The sentinel eBPF endpoint stream reaches signal-ingest
+// over /api/v1/observations; the in-collector live wiring that subscribes to it
+// is deliberately deferred so the projection contract (ProjectEndpoint) and the
+// endpoint-runtime bundle stabilise first. This mirrors the deferred-live seam of
+// the awslogs and k8saudit cloud sources — live mode never silently passes.
+var ErrLiveDeferred = errors.New(
+	"ebpf-endpoint: live mode deferred — sentinel eBPF syscall observations arrive over /api/v1/observations; " +
+		"the in-collector subscriber is not yet wired (fixture mode replays the embedded corpus)")
+
+// Collector adapts the sentinel eBPF endpoint projection to the signal-ingest
+// collector lifecycle interface (Name / Mode / Start, plus Health and Stop).
 type Collector struct {
 	mode   collectors.Mode
 	sink   collectors.IngestionSink
-	cfg    StreamConfig
-	client *StreamClient
-	flow   *netebpf.LiveNetworkEgressCollector
 	cancel context.CancelFunc
 }
 
-// NewCollector constructs a Tetragon collector writing into sink.
-func NewCollector(mode collectors.Mode, sink collectors.IngestionSink, cfg StreamConfig) *Collector {
-	return &Collector{mode: mode, sink: sink, cfg: cfg.withDefaults()}
+// NewCollector constructs an endpoint collector writing into sink.
+func NewCollector(mode collectors.Mode, sink collectors.IngestionSink) *Collector {
+	return &Collector{mode: mode, sink: sink}
 }
 
-// NewCollectorFromEnv constructs a Tetragon collector configured from the
+// NewCollectorFromEnv constructs an endpoint collector configured from the
 // environment, defaulting to ModeOff when unset. Off-by-default matches every
-// sibling collector: a collector that started dialling a socket merely because
-// the binary was upgraded would be a surprise in production.
+// sibling collector: a collector that started ingesting merely because the
+// binary was upgraded would be a surprise in production.
 func NewCollectorFromEnv(sink collectors.IngestionSink) *Collector {
-	mode := collectors.ParseMode(firstNonEmptyEnv(EnvMode, EnvModeAlt, EnvModeLegacy))
-
-	cfg := StreamConfig{
-		SocketPath: os.Getenv(EnvSocketPath),
-		Logger:     slog.Default(),
-	}
-	if raw := os.Getenv(EnvRingCapacity); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			cfg.RingCapacity = n
-		}
-	}
-	if raw := os.Getenv(EnvAllowedNamespaces); raw != "" {
-		for _, ns := range strings.Split(raw, ",") {
-			if ns = strings.TrimSpace(ns); ns != "" {
-				cfg.AllowedNamespaces = append(cfg.AllowedNamespaces, ns)
-			}
-		}
-	}
-
-	return NewCollector(mode, sink, cfg)
+	mode := collectors.ParseMode(firstNonEmptyEnv(EnvMode, EnvModeAlt))
+	return NewCollector(mode, sink)
 }
 
 // Name satisfies collectors.Collector.
@@ -81,27 +68,15 @@ func (c *Collector) Name() string { return CollectorName }
 // Mode satisfies collectors.Collector.
 func (c *Collector) Mode() collectors.Mode { return c.mode }
 
-// Client exposes the underlying stream client for metrics scraping and tests.
-// It is nil until Start has run in live mode.
-func (c *Collector) Client() *StreamClient { return c.client }
-
-// Metrics returns the collector's counters, or a zeroed set before Start.
-// Returning a zeroed set rather than nil means a /metrics scrape before startup
-// renders "0" instead of panicking or returning an empty body that reads as
-// "this collector does not exist".
-func (c *Collector) Metrics() *Metrics {
-	if c.client == nil {
-		return NewMetrics()
-	}
-	return c.client.Metrics()
-}
-
 // Start satisfies collectors.Collector.
 //
-// In ModeLive it dials Tetragon and spawns the reader and drain goroutines. It
-// does NOT block on a successful connection: Tetragon may legitimately start
-// after signal-ingest, and refusing to boot until the socket exists would make
-// pod start ordering load-bearing. The reconnect loop covers the gap.
+//   - ModeOff:     no-op.
+//   - ModeFixture: replays the embedded endpoint corpus through ProjectEndpoint —
+//     the SAME projection production uses — so an offline demo shows the endpoint
+//     lane populated rather than blank.
+//   - ModeLive:    returns ErrLiveDeferred. The live subscriber to the sentinel
+//     eBPF syscall stream is a follow-up; until it lands, live mode fails loudly
+//     rather than reporting a silent success it has not earned.
 func (c *Collector) Start(ctx context.Context) error {
 	switch c.mode {
 	case collectors.ModeOff:
@@ -111,52 +86,36 @@ func (c *Collector) Start(ctx context.Context) error {
 		return c.startFixture(ctx)
 
 	case collectors.ModeLive:
-		runCtx, cancel := context.WithCancel(ctx)
-		c.cancel = cancel
-
-		c.flow = netebpf.NewLiveNetworkEgressCollector(runCtx, c.sink)
-		c.client = NewStreamClient(c.cfg, c.flow)
-
-		go func() {
-			if err := c.client.Run(runCtx); err != nil && runCtx.Err() == nil {
-				c.cfg.Logger.Error("tetragon stream client stopped", "error", err)
-			}
-		}()
-		go func() {
-			if err := c.client.Drain(runCtx); err != nil && runCtx.Err() == nil {
-				c.cfg.Logger.Error("tetragon drain loop stopped", "error", err)
-			}
-		}()
-		return nil
+		return ErrLiveDeferred
 	}
 	return nil
 }
 
-// startFixture ingests one deterministic event of each modelled class so that
-// an offline demo shows the Tetragon lane populated rather than blank.
+// startFixture replays the embedded endpoint_testdata corpus through the
+// production projection so fixture mode asserts the real contract.
 func (c *Collector) startFixture(ctx context.Context) error {
 	if c.sink == nil {
 		return nil
 	}
-	c.flow = netebpf.NewLiveNetworkEgressCollector(ctx, c.sink)
-	for _, ev := range FixtureFlowEvents() {
-		e := ev
-		if err := c.flow.ProcessFlowEvent(ctx, e); err != nil {
-			return err
+	obs, err := FixtureEndpointObservations()
+	if err != nil {
+		return fmt.Errorf("ebpf-endpoint fixture projection failed: %w", err)
+	}
+	for i := range obs {
+		o := obs[i]
+		if err := c.sink.IngestObservation(ctx, &o); err != nil {
+			return fmt.Errorf("ebpf-endpoint fixture ingestion failed: %w", err)
 		}
 	}
 	return nil
 }
 
-// Health satisfies collectors.HealthChecker. In live mode it reports unhealthy
-// when the socket is absent, which is the single most common misconfiguration
-// (Tetragon not installed, or installed with grpc.enabled=false).
-func (c *Collector) Health(ctx context.Context) error {
-	if c.mode != collectors.ModeLive {
-		return nil
-	}
-	if _, err := os.Stat(c.cfg.SocketPath); err != nil {
-		return err
+// Health satisfies collectors.HealthChecker. In live mode it reports
+// ErrLiveDeferred so an unconfigured/deferred live mode is never reported ready;
+// every other mode is healthy.
+func (c *Collector) Health(_ context.Context) error {
+	if c.mode == collectors.ModeLive {
+		return ErrLiveDeferred
 	}
 	return nil
 }
@@ -165,18 +124,13 @@ func (c *Collector) Health(ctx context.Context) error {
 func (c *Collector) Stop() {
 	if c.cancel != nil {
 		c.cancel()
-	}
-	if c.client != nil {
-		c.client.Close()
-	}
-	if c.flow != nil {
-		c.flow.Close()
+		c.cancel = nil
 	}
 }
 
 func firstNonEmptyEnv(keys ...string) string {
 	for _, k := range keys {
-		if v := os.Getenv(k); v != "" {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 			return v
 		}
 	}

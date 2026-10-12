@@ -12,23 +12,44 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
-// EndpointObservationSource is the obs.source every Tetragon endpoint_host
-// observation carries. It is deliberately distinct from both the netebpf socket
-// trace ("sentinel.ebpf.socket_trace", a network_egress stream) and the
-// agent-nono Landlock evidence ("agent-nono-evidenced", the other endpoint_host
-// stream). The endpoint-runtime CEL bundle source-gates on this value so it never
-// double-fires with the landlock-denial rule, which shares the endpoint_host
-// layer but gates on verification_status — a label Tetragon events never carry.
-const EndpointObservationSource = "tetragon"
+// Classification values carried on a sentinel eBPF endpoint event. These are the
+// discriminator downstream correlation uses to tell a process event from a
+// socket event once both are flattened into the canonical
+// netebpf.InboundFlowEvent struct the stun-sentinel posts.
+const (
+	ClassProcessExec    = "process_exec"
+	ClassNetworkConnect = "network_connect"
+	ClassFileAccess     = "file_access"
+	// ClassUnattributed marks an event that carried no Kubernetes pod metadata.
+	// Such events are still ingested — a syscall we cannot attribute is more
+	// interesting than one we can, not less — but they are flagged so that
+	// confidence scoring downstream can discount them.
+	ClassUnattributed = "unattributed"
+)
 
-// IsEndpointClass reports whether a normalised Tetragon classification is a
-// host-endpoint syscall event (a process, a file access, or any other kprobe /
-// tracepoint) as opposed to a network flow.
+// ProviderSentinelEBPF is the provider tag every sentinel eBPF endpoint event
+// carries. It replaces the retired "tetragon" provider tag (P1-8) and names the
+// producer of the syscall trace: the stun-sentinel's own in-kernel eBPF engine.
+const ProviderSentinelEBPF = "sentinel-ebpf"
+
+// EndpointObservationSource is the obs.source every sentinel eBPF endpoint_host
+// observation carries. It is the sibling of netebpf's
+// "sentinel.ebpf.socket_trace" (a network_egress stream) and is deliberately
+// distinct from both it and the agent-nono Landlock evidence
+// ("agent-nono-evidenced", the other endpoint_host stream). The endpoint-runtime
+// CEL bundle source-gates on this value so it never double-fires with the
+// landlock-denial rule, which shares the endpoint_host layer but gates on
+// verification_status — a label a sentinel eBPF syscall event never carries.
+const EndpointObservationSource = "sentinel.ebpf.syscall_trace"
+
+// IsEndpointClass reports whether a normalised classification is a host-endpoint
+// syscall event (a process, a file access, or any other kprobe / tracepoint) as
+// opposed to a network flow.
 //
 // network_connect is NOT an endpoint event: it is egress, projected by the
 // netebpf collector onto the network_egress layer, and projecting it here too
 // would duplicate the signal across two layers. "unattributed" is also skipped —
-// the normaliser replaces the real class with it when a pod could not be
+// the sentinel replaces the real class with it when a pod could not be
 // attributed, so it carries no syscall to detect on.
 func IsEndpointClass(classification string) bool {
 	switch classification {
@@ -37,7 +58,7 @@ func IsEndpointClass(classification string) bool {
 	case ClassNetworkConnect, ClassUnattributed, "":
 		return false
 	default:
-		// The normaliser emits "kprobe:<fn>" / "tracepoint:<subsys>/<event>" for
+		// The sentinel emits "kprobe:<fn>" / "tracepoint:<subsys>/<event>" for
 		// classes it does not model (ptrace, capability checks, etc). Those ARE
 		// host-endpoint evidence.
 		return strings.HasPrefix(classification, "kprobe:") ||
@@ -47,7 +68,7 @@ func IsEndpointClass(classification string) bool {
 
 // EndpointSyscall derives the syscall discriminator label from the normalised
 // classification, so a rule can gate on a specific syscall (ptrace, cap_capable)
-// without re-deriving it. It mirrors the normaliser's own vocabulary:
+// without re-deriving it. It mirrors the sentinel's own vocabulary:
 //   - file_access             -> "openat"  (the modelled file-open path)
 //   - process_exec            -> "execve"  (the modelled exec path)
 //   - "kprobe:<fn>"           -> "<fn>"
@@ -72,23 +93,29 @@ func EndpointSyscall(classification string) string {
 	return ""
 }
 
-// ProjectEndpoint maps one normalised Tetragon event to an endpoint_host
+// ProjectEndpoint maps one sentinel eBPF syscall event to an endpoint_host
 // observation, or (zero, false) when the event is not a host-endpoint syscall
 // (a network flow, an unattributed event, or a nil event).
 //
 // It is the production projection the endpoint-runtime bundle is written against
-// and that FixtureObservations replays, so the e2e asserts production and not a
-// test-only corpus. Every label key it emits is in the segment label allow-list
-// (store/label_allowlist.go): classification, syscall, target, pod_name,
-// namespace, node, agent_role, service_account, pod_uid, provider, direction.
-// Labels are emitted only when their source field is present, which is why the
-// bundle guards every read with has(): a file access has a target, a bare kprobe
-// may not, and an unattributed-but-classed event may lack pod identity.
+// and that FixtureEndpointObservations replays, so the e2e asserts production and
+// not a test-only corpus. Every label key it emits is in the segment label
+// allow-list (store/label_allowlist.go): classification, syscall, target,
+// pod_name, namespace, node, agent_role, service_account, pod_uid, provider,
+// direction. Labels are emitted only when their source field is present, which is
+// why the bundle guards every read with has(): a file access has a target, a bare
+// kprobe may not, and an unattributed-but-classed event may lack pod identity.
 //
 // Identity is NOT a label. The acting workload's service account goes to
 // ActorHint, which the store pseudonymises into obs.actor, so an actor-scoped
 // rule (unexpected-execve) compares obs.actor against an actor_vars set and a
 // cleartext service-account label can never leak the identity into a segment.
+//
+// The INPUT is netebpf.InboundFlowEvent — the stun-sentinel's own wire format,
+// the same substrate the netebpf socket-trace collector consumes. The live
+// ingestion path for this stream is deferred (see Collector): events reach
+// signal-ingest over /api/v1/observations, and the fixture path replays the
+// embedded corpus through this exact projection.
 func ProjectEndpoint(ev *netebpf.InboundFlowEvent, originRef string) (model.Observation, bool) {
 	if ev == nil || !IsEndpointClass(ev.Classification) {
 		return model.Observation{}, false
@@ -137,7 +164,7 @@ func ProjectEndpoint(ev *netebpf.InboundFlowEvent, originRef string) (model.Obse
 	}
 
 	obs := model.Observation{
-		ID:             fmt.Sprintf("tetragon-%s-%d-%d", ev.PodName, ev.CgroupID, ev.SeqNum),
+		ID:             fmt.Sprintf("sentinel-ebpf-%s-%d-%d", ev.PodName, ev.CgroupID, ev.SeqNum),
 		Timestamp:      ts,
 		Layer:          model.LayerEndpointHost,
 		Fidelity:       model.FidelityStrong,

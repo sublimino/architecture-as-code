@@ -820,17 +820,19 @@ func main() {
 	// P2-6: workspacesaas (Workspace/M365 thin adapter collector)
 	// Registered via NewRegistryFromEnvWithReceiver (COLLECTOR_WORKSPACESAAS_MODE) with live/fixture/off modes.
 
-	// --- CRKC-P1-4: tetragon (audit-only runtime telemetry) ---
+	// --- Sentinel eBPF endpoint collector (host-runtime syscall telemetry) ---
 	// Registered HERE rather than inside collectors.NewRegistryFromEnv because
 	// collectors/ebpf imports collectors for the shared Mode type; registering
 	// it from the parent package would close an import cycle. Guarded by
 	// TestAntiParentPackageDoesNotImportEbpf.
 	//
-	// Tetragon is a telemetry producer only — no LSM enforcement. Containment
-	// belongs to stun-sentinel (Tier 0) and Flux (Tier 1).
-	// See docs/signalloom/tetragon-telemetry-pipeline.md.
-	tetragonCollector := ebpf.NewCollectorFromEnv(policySink)
-	collectorRegistry.Register(tetragonCollector)
+	// The stun-sentinel's in-kernel eBPF engine is a telemetry producer only — no
+	// LSM enforcement. Containment belongs to stun-sentinel (Tier 0) and Flux
+	// (Tier 1). Sentinel syscall observations reach signal-ingest over
+	// /api/v1/observations; this collector's fixture mode replays the embedded
+	// endpoint corpus and its live mode is deferred (ErrLiveDeferred).
+	ebpfEndpointCollector := ebpf.NewCollectorFromEnv(policySink)
+	collectorRegistry.Register(ebpfEndpointCollector)
 
 	if err := collectorRegistry.Start(ctx); err != nil {
 		slog.Warn("collector failed to start; serving degraded", "error", err)
@@ -933,9 +935,9 @@ func main() {
 		Privacy:         privacyService,
 	}
 
-	// --- CRKC-P1-4: Prometheus metrics for the Tetragon telemetry lane & OpenFAIR risk ---
+	// --- Prometheus metrics for the OpenFAIR risk lane and sibling collectors ---
 	// Registered through the protected router alongside every API route.
-	// Renders even before the collector starts (zeroed counters), so a scrape
+	// Renders even before the collectors start (zeroed counters), so a scrape
 	// during rollout reports "0" rather than an empty body that would read as
 	// "this collector does not exist".
 	agentNonoMetrics := agentnono.NewMetrics()
@@ -981,7 +983,6 @@ func main() {
 
 	metricsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		_, _ = io.WriteString(w, tetragonCollector.Metrics().Render())
 		_, _ = io.WriteString(w, fairService.Metrics.Render())
 		_, _ = io.WriteString(w, agentNonoMetrics.Render())
 		_, _ = io.WriteString(w, correlation.DefaultQuarantineMetrics().Render())

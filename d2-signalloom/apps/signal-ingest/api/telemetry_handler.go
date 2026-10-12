@@ -181,21 +181,28 @@ func (h *Handlers) handleCodingAgentOrdering(w http.ResponseWriter, r *http.Requ
 
 	store := h.getCodingAgentStore()
 
-	// Ingest or wrap records to obtain skew calculations
-	resA, errA := store.Ingest(r.Context(), claim.TenantID, claim.PrincipalSubject, &req.EventA)
-	resB, errB := store.Ingest(r.Context(), claim.TenantID, claim.PrincipalSubject, &req.EventB)
+	// Compute the skew estimates WITHOUT persisting. This route holds
+	// PermissionObservationRead only (see auth.go), so it must not add records to the
+	// tenant's set: persisting caller-supplied events here made every /aggregate figure
+	// -- total_events, total_tokens_in, the k-anonymity group_size -- a function of the
+	// caller's request body rather than of observed telemetry, and let a read-only
+	// caller lift the k=5 anonymity floor on demand.
+	skewA, errA := codingagent.ComputeClockSkewMs(&req.EventA)
+	skewB, errB := codingagent.ComputeClockSkewMs(&req.EventB)
 	if errA != nil || errB != nil {
-		writeError(w, http.StatusBadRequest, "failed to ingest events for ordering evaluation")
+		writeError(w, http.StatusBadRequest, "failed to evaluate event timestamps for ordering")
 		return
 	}
 
 	recA := codingagent.StoredRecord{
-		Event:       req.EventA,
-		ClockSkewMs: resA.ClockSkewMs,
+		Event:            req.EventA,
+		ClockSkewMs:      skewA,
+		DeduplicationKey: codingagent.BuildDeduplicationKey(&req.EventA),
 	}
 	recB := codingagent.StoredRecord{
-		Event:       req.EventB,
-		ClockSkewMs: resB.ClockSkewMs,
+		Event:            req.EventB,
+		ClockSkewMs:      skewB,
+		DeduplicationKey: codingagent.BuildDeduplicationKey(&req.EventB),
 	}
 
 	ordering, err := store.ResolveOrdering(r.Context(), claim.TenantID, &recA, &recB)

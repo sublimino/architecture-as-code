@@ -1877,19 +1877,29 @@ stage_p1_3_manifest() {
     fail "Gate 6 failed: tag-only image reference without digest: ${tag_only}"
   fi
 
-  local util_digest="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
-  local util_ref="controlplane/slsi-util:v0.1.0@${util_digest}"
-
-  if [[ -f "${bundle_dir}/images/index.json" ]]; then
-    local has_util
-    has_util="$(jq --arg d "${util_digest}" '[.manifests[]? | select(.digest == $d)] | length' "${bundle_dir}/images/index.json" 2>/dev/null || echo 0)"
-    if [[ "${has_util}" -eq 0 ]]; then
-      echo "ERROR: Decision 10 utility image ${util_digest} is absent from ${bundle_dir}/images/index.json" >&2
-      echo "Host package remedy: apt-get install -y openssl gettext-base" >&2
-      rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
-      fail "Gate 7 failed: utility image absent from images index"
-    fi
-  fi
+  # Gate 7, inverted. It used to REQUIRE the Decision 10 utility image in the
+  # images index and abort if it was missing. The reversal makes the opposite
+  # the invariant, and the gate is kept rather than deleted so the reversal has
+  # a gate of its own: reintroducing the entry must fail the build, not pass it
+  # quietly.
+  #
+  # The digest below is retained solely as the thing being forbidden. It is a
+  # dangling reference -- no blob with it exists in the layout. Worth stating
+  # precisely, because an earlier reading of this had it uniquely dangling:
+  # bundle/images/oci/ holds exactly two files (oci-layout, index.json) and
+  # ZERO blobs against 31 claimed manifests, so every digest in that index is
+  # blob-less. This one is uniquely *unresolvable*, which is the real defect --
+  # it names an image published in no registry, where the other 30 name real
+  # upstream images that simply have not been fetched into the layout.
+  local forbidden_util_digest="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
+  # The gate itself fires later, against the index this run STAGES rather than
+  # the one already committed. That distinction is the whole design: the
+  # committed bundle/images/index.json still carries the entry, and a gate
+  # reading it here would abort before the code below ever got the chance to
+  # filter it out -- a deadlock where the fix can never run. Gating the staged
+  # output instead asserts the thing actually being shipped, and lets the
+  # stale committed file heal on the same run (it is overwritten from the
+  # staged copy a few lines further down).
 
   local stage_root meta_dir stage_dir
   stage_root="$(mktemp -d -t slsi-bundle-stage.XXXXXX)"
@@ -1962,47 +1972,60 @@ stage_p1_3_manifest() {
     base_index_src="${bundle_dir}/images/index.json"
   fi
 
+  # The slsi-util entry was INJECTED here, from a hardcoded constant, over a
+  # base index read from the committed layout -- so the dangling digest in
+  # bundle/images/index.json was this line's output, not an upstream artefact.
+  # Dropping the injection is therefore enough to remove it, and it is
+  # hermetic: the surviving entries all come from the committed base file, so
+  # no digest is computed, fetched, or invented. The second filtered digest
+  # (41223e96...) is an older generation of the same injection and stays
+  # filtered for the same reason.
   if [[ -f "${base_index_src}" ]]; then
-    jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+    jq --arg ud "${forbidden_util_digest}" '
       .schemaVersion = 2 |
       .mediaType = "application/vnd.oci.image.index.v1+json" |
-      .manifests = (
-        [ .manifests[]? | select(.digest != $ud and .digest != "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c") ] +
-        [{
-          "mediaType": "application/vnd.oci.image.index.v1+json",
-          "size": 1609,
-          "digest": $ud,
-          "annotations": {
-            "org.opencontainers.image.ref.name": $ur
-          }
-        }]
-      )
+      .manifests = [
+        .manifests[]?
+        | select(.digest != $ud and .digest != "sha256:41223e96853ea6817d12aa8cf5dc43de49b7abab6892bb12ab39190cc12bba0c")
+      ]
     ' "${base_index_src}" > "${stage_dir}/images/index.json"
   else
-    jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+    jq '
       {
         schemaVersion: 2,
         mediaType: "application/vnd.oci.image.index.v1+json",
-        manifests: (
-          [ .images[]? | {
+        manifests: [
+          .images[]? | {
             mediaType: "application/vnd.oci.image.index.v1+json",
             size: 1609,
             digest: .digest,
             annotations: {
               "org.opencontainers.image.ref.name": (.resolvedRef // .ref)
             }
-          }] +
-          [{
-            mediaType: "application/vnd.oci.image.index.v1+json",
-            size: 1609,
-            digest: $ud,
-            annotations: {
-              "org.opencontainers.image.ref.name": $ur
-            }
-          }]
-        )
+          }
+        ]
       }
     ' "${manifest_d_json}" > "${stage_dir}/images/index.json"
+  fi
+
+  # Gate 7, inverted: the slsi-util image must NOT be in the index being
+  # shipped. Checked here, on the staged output, for the reason given where
+  # forbidden_util_digest is declared.
+  #
+  # No `2>/dev/null || echo 0` on this jq. The previous Gate 7 had it, so a jq
+  # failure read as "count is 0" -- which for the old gate meant abort, but for
+  # this inverted one would mean PASS. A check that cannot run must not look
+  # like a check that passed, so the failure is allowed to propagate.
+  local staged_has_util
+  staged_has_util="$(jq --arg d "${forbidden_util_digest}" \
+    '[.manifests[]? | select(.digest == $d)] | length' "${stage_dir}/images/index.json")"
+  if [[ "${staged_has_util}" -ne 0 ]]; then
+    rm -rf "${stage_root}"
+    rm -f "${out_dir}/MANIFEST.json" "${out_dir}/${archive_name}" "${out_dir}/${archive_name}.sha256"
+    echo "ERROR: the slsi-util image ${forbidden_util_digest} is present in the staged images index" >&2
+    echo "Decision 10 is reversed: that image was never published, has no Dockerfile in this tree," >&2
+    echo "and resolves in no registry. The appliance ships bin/<arch>/ed25519-keygen instead." >&2
+    fail "Gate 7 failed: unpublishable slsi-util image present in staged images index"
   fi
 
   cp "${stage_dir}/images/index.json" "${bundle_dir}/images/index.json" 2>/dev/null || true
@@ -2104,27 +2127,18 @@ stage_p1_3_manifest() {
   fi
 
   # 11. Assemble images array in MANIFEST.json (off-argv via file)
-  jq --arg ud "${util_digest}" --arg ur "${util_ref}" '
+  #
+  # The synthetic slsi-util entry that used to be appended here is gone. Note
+  # what it claimed: party "first-party", a 14800000-byte sizeBytes, and an
+  # ociLayoutPath into a layout holding no blobs -- all three asserted about an
+  # image that exists nowhere. Every entry in this array is now a real image
+  # the resolver actually saw.
+  jq '
     [
       .images[] |
       .reference = (.ref | split("@")[0] | sub(":[^/]+$"; "")) |
       .ref = (.resolvedRef // .ref)
-    ] +
-    [{
-      "ref": $ur,
-      "reference": "controlplane/slsi-util",
-      "resolvedRef": $ur,
-      "logicalName": "slsi-util",
-      "sourceRef": "controlplane/slsi-util:v0.1.0",
-      "digest": $ud,
-      "party": "first-party",
-      "role": "utility",
-      "provides": ["envsubst", "openssl"],
-      "digestKind": "manifest",
-      "platforms": ["linux/amd64"],
-      "ociLayoutPath": "bundle/images/oci",
-      "sizeBytes": 14800000
-    }]
+    ]
   ' "${manifest_d_json}" > "${meta_dir}/images.json"
 
   # 12. Assemble stagedBinaries array (off-argv via file)
@@ -2274,8 +2288,6 @@ EOF
     --arg git_branch "${git_branch}" \
     --argjson git_dirty "${git_dirty}" \
     --arg key_fp "${release_key_fp}" \
-    --arg util_digest "${util_digest}" \
-    --arg util_ref "${util_ref}" \
     --arg installer_path "${installer_rel}" \
     --argjson installer_present "${installer_present}" \
     --argjson installer_source_present "${installer_source_present}" \
@@ -2322,12 +2334,17 @@ EOF
       },
       "images": $images[0],
       "imageCount": ($images[0] | length),
-      "containerisedUtilities": {
-        "imageRef": $util_ref,
-        "imageDigest": $util_digest,
-        "utilities": ["envsubst", "openssl"],
-        "runtimeRequired": "docker",
-        "onAbsentRemedy": "Load image from bundle/images/ or pull controlplane/slsi-util:v0.1.0"
+      "hostUtilities": {
+        "decision": "Decision 10 reversed",
+        "notShipped": ["envsubst", "openssl"],
+        "runtimeRequired": null,
+        "rationale": "Neither tool is shipped. openssl publishes source tarballs only, so it cannot be digest-pinned like the five downloaded binaries, and GNU gettext is the same. Containerising them was tried and abandoned: the image it required (controlplane/slsi-util:v0.1.0) was never published, has no Dockerfile in this tree, and resolves in no registry, so the wrappers execd an image that cannot exist. The appliance-side requirement was narrower than either tool: two Ed25519 keypairs and a key-id derivation, all in `make signing-keys`. Every appliance-side envsubst reference is the in-cluster envsubst that Flux itself provides, not the host tool.",
+        "replacedBy": {
+          "binary": "bin/<arch>/ed25519-keygen",
+          "source": "d2-signalloom/apps/fleet-manager/cmd/ed25519-keygen",
+          "digestKind": "computed-from-source",
+          "interop": "Writes the same PKCS#8 PRIVATE KEY and SPKI PUBLIC KEY encodings openssl does, proven in both directions by test/ed25519-keygen-interop.bats."
+        }
       },
       "stagedBinaries": $staged_binaries[0],
       "releaseKey": {
@@ -2410,7 +2427,9 @@ EOF
     fi
   done < <(grep -rohE 'registry:[[:space:]]*["'"'"']?[^"'"'"']+' "${stage_dir}/images/flux" 2>/dev/null | awk '{print $2}' | tr -d '"'"'" | LC_ALL=C sort -u)
 
-  domain_refs+=("${util_ref}")
+  # The synthetic slsi-util ref used to be appended to the coverage domain
+  # here, so G-COVERAGE counted an image that does not exist as covered. The
+  # domain is now exactly the refs discovered in the staged tree.
 
   if [[ ${#domain_refs[@]} -eq 0 ]]; then
     rm -rf "${stage_root}"
@@ -2501,8 +2520,9 @@ EOF
 #           top level is exactly the declared set (P1-3 ships a root-level layout)
 #   P14-G5  regular-file member count == MANIFEST.json payloadFileCount + 1
 #           (the +1 is MANIFEST.json, which cannot list itself)
-#   P14-G6  the Decision 10 wrappers <arch>/openssl and <arch>/envsubst are
-#           regular files, mode 0755, beginning `#!/usr/bin/env bash`
+#   P14-G6  no <arch>/openssl or <arch>/envsubst wrapper is present (Decision
+#           10 reversed), AND <arch>/ed25519-keygen is a regular file, mode
+#           0755, with ELF magic bytes
 #   P14-G7  dist/MANIFEST.json is byte-identical to the archive's MANIFEST.json
 
 _P14_TOPLEVEL=$'MANIFEST.json\nMANIFEST.sha256\nbin\nfleet\nimages\ninfra\nkeys'
@@ -2610,26 +2630,45 @@ stage_p1_4_validation() {
     _p14_fail "P14-G5 archive has ${regular_count} regular files; MANIFEST.json payloadFileCount ${payload_count} + 1 = $((payload_count + 1))"
   fi
 
-  # P14-G6: every arch directory that carries binaries must carry both wrappers.
-  local arches arch util line mode shebang
+  # P14-G6, inverted. It used to REQUIRE bin/<arch>/openssl and
+  # bin/<arch>/envsubst to be present, 0755, and shell scripts. Those were the
+  # Decision 10 wrappers, which execd an image that does not exist. The gate is
+  # inverted rather than deleted, because the reversal needs a gate too: an
+  # archive that carries those wrappers again must fail the build.
+  #
+  # Both halves are asserted, because either alone is weak. Absence alone would
+  # also be satisfied by an archive with no bin/ at all; presence of the
+  # replacement alone would not notice a wrapper shipped alongside it. The arch
+  # list is derived from the archive and asserted non-empty first, so the
+  # absence half cannot pass by having nothing to look at.
+  local arches arch util line mode magic
   arches="$(awk 'substr($1,1,1)=="-" {print $6}' "${listing}" | sed -nE 's#^(\./)?bin/(amd64|arm64)/[^/]+$#\2#p' | LC_ALL=C sort -u)"
   if [[ -z "${arches}" ]]; then
     rm -f "${listing}"
     _p14_fail "P14-G6 no bin/<arch>/ binaries in the archive"
   fi
   for arch in ${arches}; do
+    # a. The Decision 10 wrappers must be gone.
     for util in openssl envsubst; do
       line="$(awk -v p="bin/${arch}/${util}" '{q=$6; sub(/^\.\//,"",q)} q==p {print; exit}' "${listing}")"
-      [[ -n "${line}" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 Decision 10 wrapper absent: bin/${arch}/${util}"; }
-      mode="$(awk '{print $1}' <<<"${line}")"
-      [[ "${mode}" == "-rwxr-xr-x" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/${util} mode is ${mode}, want -rwxr-xr-x (0755)"; }
-      shebang="$(tar -xzOf "${archive}" --occurrence=1 "bin/${arch}/${util}" 2>/dev/null | head -n 1 || true)"
-      [[ "${shebang}" == "#!/usr/bin/env bash" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/${util} does not begin '#!/usr/bin/env bash' (got '${shebang}')"; }
+      if [[ -n "${line}" ]]; then
+        rm -f "${listing}"
+        _p14_fail "P14-G6 Decision 10 wrapper is back: bin/${arch}/${util} (${line}). Neither openssl nor envsubst is shipped; the image those wrappers ran does not exist."
+      fi
     done
+
+    # b. The replacement must be there, executable, and an actual ELF binary
+    #    for the arch it claims -- not a script, and not a stub.
+    line="$(awk -v p="bin/${arch}/ed25519-keygen" '{q=$6; sub(/^\.\//,"",q)} q==p {print; exit}' "${listing}")"
+    [[ -n "${line}" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/ed25519-keygen absent from the archive"; }
+    mode="$(awk '{print $1}' <<<"${line}")"
+    [[ "${mode}" == "-rwxr-xr-x" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/ed25519-keygen mode is ${mode}, want -rwxr-xr-x (0755)"; }
+    magic="$(tar -xzOf "${archive}" --occurrence=1 "bin/${arch}/ed25519-keygen" 2>/dev/null | od -An -tx1 -N4 | tr -d ' \n' || true)"
+    [[ "${magic}" == "7f454c46" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/ed25519-keygen does not have ELF magic bytes (got '${magic}')"; }
   done
   rm -f "${listing}"
 
-  log "stage_p1_4_validation complete: ${member_count} members, ${regular_count} regular files (payload ${payload_count} + MANIFEST.json), wrappers present for: $(tr '\n' ' ' <<<"${arches}")"
+  log "stage_p1_4_validation complete: ${member_count} members, ${regular_count} regular files (payload ${payload_count} + MANIFEST.json), ed25519-keygen present and no Decision 10 wrappers for: $(tr '\n' ' ' <<<"${arches}")"
 }
 # <<< SLSI-P1-4 >>>
 

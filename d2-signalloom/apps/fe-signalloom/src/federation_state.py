@@ -142,10 +142,14 @@ _UNAVAILABLE_PANELS: dict[str, str] = {
         "a federation is a ClusterFederatedTrustDomain object (or a "
         "`spire-server federation list` row). Nothing in this deployment reads either, "
         "so no federation relationship can be reported as observed. "
-        "d2-agent-trust/spire-federation-config.yaml does DECLARE a pair "
-        "(osramp.local <-> signalloom.hub), and a declaration in git is not an "
-        "observation of a completed bundle exchange - reporting it as one is how the "
-        "deleted dataset came to show three federations as 'federated'"
+        "d2-agent-trust/spire-federation-config.yaml does DECLARE a trust-domain "
+        "pair - read that file for the two domains - and a declaration in git is not "
+        "an observation of a completed bundle exchange. Reporting it as one is how "
+        "the deleted dataset came to show three federations as 'federated'. "
+        "The domains are named by reference rather than quoted here on purpose: "
+        "test_eap_identity.py asserts that no module in this package contains a "
+        "stale trust-domain literal, and that guard is valuable precisely because "
+        "it has no exemption list to rot. Prose is not worth the first exemption"
     ),
     "services": (
         "a federated service is an entry in the Cofide Connect / xDS fabric this panel "

@@ -123,6 +123,16 @@ func (d *AttackChainDetector) Evaluate(ctx context.Context, observations []model
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	chains := append([]AttackChain(nil), d.chains...)
+	sort.Slice(chains, func(i, j int) bool { return chains[i].ID < chains[j].ID })
+	matches := detectAttackChainMatches(observations, chains)
+	now := d.now()
+	d.pruneHandled(now)
+	dispatchErr := d.dispatchMatches(ctx, matches, chains, now)
+	return cloneChainMatches(matches), dispatchErr
+}
+
+func detectAttackChainMatches(observations []model.Observation, chains []AttackChain) []ChainMatch {
 	groups := groupFindingsByResolvedActor(observations)
 	actorIDs := make([]string, 0, len(groups))
 	for actorID := range groups {
@@ -130,40 +140,37 @@ func (d *AttackChainDetector) Evaluate(ctx context.Context, observations []model
 	}
 	sort.Strings(actorIDs)
 
-	chains := append([]AttackChain(nil), d.chains...)
-	sort.Slice(chains, func(i, j int) bool { return chains[i].ID < chains[j].ID })
 	matches := make([]ChainMatch, 0)
 	for _, actorID := range actorIDs {
-		findings := groups[actorID]
 		for _, chain := range chains {
-			matched, ok := matchAttackChain(actorID, findings, chain)
-			if ok {
+			if matched, ok := matchAttackChain(actorID, groups[actorID], chain); ok {
 				matches = append(matches, matched)
 			}
 		}
 	}
 	sortChainMatches(matches)
+	return matches
+}
 
-	now := d.now()
+func (d *AttackChainDetector) pruneHandled(now time.Time) {
 	for key, handledAt := range d.handled {
 		if now.Sub(handledAt) > d.dedupe {
 			delete(d.handled, key)
 		}
 	}
+}
 
+func (d *AttackChainDetector) dispatchMatches(ctx context.Context, matches []ChainMatch, chains []AttackChain, now time.Time) error {
+	if d.stun == nil {
+		return nil
+	}
 	var dispatchErrors []error
 	for index := range matches {
 		match := &matches[index]
 		chain, ok := attackChainByID(chains, match.ChainID)
-		if !ok || d.stun == nil {
+		if !ok || d.alreadyHandled(*match, chain, now) {
 			continue
 		}
-		bucket := match.FirstAt.Truncate(chain.Window).UnixNano()
-		key := match.ActorID + "|" + match.ChainID + "|" + strconv.FormatInt(bucket, 10)
-		if _, handled := d.handled[key]; handled {
-			continue
-		}
-		d.handled[key] = now
 		response, err := d.stun.DispatchFreeze(ctx, StunFreezeRequest{
 			ActorID:         match.ActorID,
 			ViolationReason: chain.Reason,
@@ -176,8 +183,17 @@ func (d *AttackChainDetector) Evaluate(ctx context.Context, observations []model
 		}
 		match.StunDispatched = true
 	}
+	return errors.Join(dispatchErrors...)
+}
 
-	return cloneChainMatches(matches), errors.Join(dispatchErrors...)
+func (d *AttackChainDetector) alreadyHandled(match ChainMatch, chain AttackChain, now time.Time) bool {
+	bucket := match.FirstAt.Truncate(chain.Window).UnixNano()
+	key := match.ActorID + "|" + match.ChainID + "|" + strconv.FormatInt(bucket, 10)
+	if _, handled := d.handled[key]; handled {
+		return true
+	}
+	d.handled[key] = now
+	return false
 }
 
 func groupFindingsByResolvedActor(observations []model.Observation) map[string][]model.Observation {
@@ -211,54 +227,63 @@ func matchAttackChain(actorID string, findings []model.Observation, chain Attack
 		if !stageMatches(chain.Stages[0], anchor) {
 			continue
 		}
-		selected := []model.Observation{anchor}
-		usedIDs := map[string]struct{}{anchor.ID: {}}
-		previousIndex := anchorIndex
-		complete := true
-		for stageIndex := 1; stageIndex < len(chain.Stages); stageIndex++ {
-			found := false
-			for candidateIndex := previousIndex + 1; candidateIndex < len(findings); candidateIndex++ {
-				candidate := findings[candidateIndex]
-				if _, used := usedIDs[candidate.ID]; used || !stageMatches(chain.Stages[stageIndex], candidate) {
-					continue
-				}
-				selected = append(selected, candidate)
-				usedIDs[candidate.ID] = struct{}{}
-				previousIndex = candidateIndex
-				found = true
-				break
-			}
-			if !found {
-				complete = false
-				break
-			}
-		}
-		if !complete || selected[len(selected)-1].Timestamp.Sub(selected[0].Timestamp) > chain.Window {
+		selected, complete := matchStagesFromAnchor(findings, chain, anchorIndex)
+		if !complete {
 			continue
 		}
-
-		evidence := make([]model.EvidenceLink, 0, len(selected))
-		observationIDs := make([]string, 0, len(selected))
-		for index, finding := range selected {
-			observationIDs = append(observationIDs, finding.ID)
-			evidence = append(evidence, model.EvidenceLink{
-				ObservationID: finding.ID,
-				Layer:         finding.Layer,
-				Fidelity:      finding.Fidelity,
-				Contribution:  chain.Stages[index].Label,
-				Timestamp:     finding.Timestamp,
-			})
-		}
-		return ChainMatch{
-			ChainID:        chain.ID,
-			ActorID:        actorID,
-			ObservationIDs: observationIDs,
-			FirstAt:        selected[0].Timestamp,
-			LastAt:         selected[len(selected)-1].Timestamp,
-			Confidence:     completedChainConfidence(evidence),
-		}, true
+		return buildChainMatch(actorID, chain, selected), true
 	}
 	return ChainMatch{}, false
+}
+
+func matchStagesFromAnchor(findings []model.Observation, chain AttackChain, anchorIndex int) ([]model.Observation, bool) {
+	selected := []model.Observation{findings[anchorIndex]}
+	usedIDs := map[string]struct{}{findings[anchorIndex].ID: {}}
+	previousIndex := anchorIndex
+	for stageIndex := 1; stageIndex < len(chain.Stages); stageIndex++ {
+		candidateIndex := nextStageFinding(findings, chain.Stages[stageIndex], previousIndex+1, usedIDs)
+		if candidateIndex < 0 {
+			return nil, false
+		}
+		selected = append(selected, findings[candidateIndex])
+		usedIDs[findings[candidateIndex].ID] = struct{}{}
+		previousIndex = candidateIndex
+	}
+	withinWindow := selected[len(selected)-1].Timestamp.Sub(selected[0].Timestamp) <= chain.Window
+	return selected, withinWindow
+}
+
+func nextStageFinding(findings []model.Observation, stage ChainStage, start int, usedIDs map[string]struct{}) int {
+	for index := start; index < len(findings); index++ {
+		if _, used := usedIDs[findings[index].ID]; used || !stageMatches(stage, findings[index]) {
+			continue
+		}
+		return index
+	}
+	return -1
+}
+
+func buildChainMatch(actorID string, chain AttackChain, selected []model.Observation) ChainMatch {
+	evidence := make([]model.EvidenceLink, 0, len(selected))
+	observationIDs := make([]string, 0, len(selected))
+	for index, finding := range selected {
+		observationIDs = append(observationIDs, finding.ID)
+		evidence = append(evidence, model.EvidenceLink{
+			ObservationID: finding.ID,
+			Layer:         finding.Layer,
+			Fidelity:      finding.Fidelity,
+			Contribution:  chain.Stages[index].Label,
+			Timestamp:     finding.Timestamp,
+		})
+	}
+	return ChainMatch{
+		ChainID:        chain.ID,
+		ActorID:        actorID,
+		ObservationIDs: observationIDs,
+		FirstAt:        selected[0].Timestamp,
+		LastAt:         selected[len(selected)-1].Timestamp,
+		Confidence:     completedChainConfidence(evidence),
+	}
 }
 
 func stageMatches(stage ChainStage, observation model.Observation) bool {

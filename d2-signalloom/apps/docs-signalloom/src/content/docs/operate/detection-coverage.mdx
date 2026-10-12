@@ -1,0 +1,52 @@
+---
+title: Detection coverage across every signal stream
+description: How each collector's signals are tested by the CEL policy engine, how findings correlate into decisions and stuns, and how to enable each stream.
+---
+
+Signal Loom evaluates every observation from every collector against versioned
+CEL policy, logs a finding per match, correlates findings across streams, and
+stuns on a policy failure. This page is the operator map of that coverage.
+
+## The three tiers
+
+1. **Stage-1 rules** — every observation is evaluated against every tenant
+   bundle's CEL rules; a match logs a `Finding`. A rule targets one stream (via
+   `obs.source` + `obs.layer`) or several at once.
+2. **Stage-2 windows** — a burst/threshold over one rule's findings, keyed by
+   `[tenant_id, actor]`, produces a `Decision` which is routed to a stun.
+3. **Correlation engine** — resolves one actor across layers and joins findings
+   into attack-chains (exfil, account-takeover, privilege-cascade).
+
+## Streams and what each detects
+
+Every rule is source-gated (`obs.source`) and `has()`-guarded; identities are
+matched as the pseudonymised `obs.actor` via a bundle `actor_vars` set, never a
+cleartext label.
+
+| Stream (layer) | Collector · enable with | Bundle | Detects (examples) |
+|---|---|---|---|
+| kube-apiserver audit (`kubernetes`) | `k8saudit-kube` · `COLLECTOR_K8SAUDIT_KUBE_MODE=live` (warden-local file/webhook, or EKS/GKE/AKS) | `k8s-audit.yaml` | pods/exec, secret read, RBAC escalation, token mint, privileged pod, CSR approve, webhook config, impersonate |
+| cloud control plane (`cloud_control_plane`) | `awslogs` · `COLLECTOR_AWSLOGS_MODE` ; `gcpaudit` · `COLLECTOR_GCPAUDIT_MODE` | `cloud-signals.yaml`, `iam-change.yaml`, `gcp-admin.yaml` | IAM priv/key change, EKS/console/root, S3/GCS exposure, GuardDuty/logging-sink tamper |
+| endpoint host (`endpoint_host`) | `agent-nono` (Landlock) ; `tetragon` · `COLLECTOR_EBPF_MODE` | `landlock-denial.yaml`, `endpoint-runtime.yaml` | Landlock denial, sensitive-file open, unexpected execve, capability/ptrace |
+| network egress (`network_egress`) | `netebpf` ; `awslogs` VPC flow | `network-egress.yaml` | direct-IP egress, off-cluster resolver, DNS tunnel (entropy bucket), VPC reject burst |
+| identity & authz (`identity_authorization`) | `spirea` (SPIRE) ; SaaS login ; `baoaudit` | `identity-auth.yaml`, `openbao-audit.yaml` | SVID to an unexpected SPIFFE, foreign trust domain, impossible-travel/MFA-absent login, OpenBao root-token use |
+| application SaaS (`application_saas`) | `workspacesaas` · `COLLECTOR_WORKSPACESAAS_MODE` | `application-saas.yaml` | mass download, external sensitive share, OAuth app grant, admin-console change |
+
+The `behavioural` layer (evasive syscall burst) is detected in the stun-sentinel
+itself, not via a CEL bundle.
+
+## Where an operator sees it
+
+Live observations, findings and decisions stream to the dashboard **Signals**
+page (`ObservationFeed` / `FindingsList` / `DecisionCard`, grouped by layer and
+fidelity) over `/api/signals/observations` and its SSE stream; stuns appear on
+the stun timeline. The `/coverage` API reports active layers and blind spots
+(derived from the layer enum, so it never goes stale).
+
+## Adding a stream
+
+Each stream is one bundle + a collector projection into the shared label
+contract (`store/label_allowlist.go` is the closed key set — add a key there,
+never ship a label it refuses). Full method, label contract and the threat
+catalogue: `docs/EAP/policy-detection-coverage-catalogue.md`. Every rule ships a
+positive and a negative fixture asserted by a per-stream exact-count e2e table.

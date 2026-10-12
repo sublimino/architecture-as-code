@@ -24,8 +24,10 @@
  *
  * It is split in two, and the split is the whole design:
  *
- *   MOCK BLOCK  `login(page)` — demoMode defaults to true (helpers.ts:108), so
- *               `client.ts:227` short-circuits into fixtures and the client
+ *   MOCK BLOCK  `login(page, { demoMode: true })` — stated, not inherited: the
+ *               default is live since the demo-mode inversion, so fixture use
+ *               is opted into by name. `client.ts:309` then
+ *               short-circuits into fixtures and the client
  *               bridge's mock channel drives all five stages. No backend
  *               required. This block proves the CONSOLE.
  *
@@ -293,7 +295,7 @@ test.describe("AgentMaxxing demo console — mock channel", () => {
     // Default demoMode: true. The client bridge's mock channel supplies all five
     // stages client-side (AMXD-P6-PRE confirmed there are no server-side mock
     // fixtures to seed), so nothing below requires a backend.
-    await login(page);
+    await login(page, { demoMode: true });
     await openConsole(page);
   });
 

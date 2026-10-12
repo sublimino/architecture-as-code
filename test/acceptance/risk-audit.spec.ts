@@ -22,7 +22,7 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("Surface 3: Agents page renders consolidated lifecycle states (Governed, Suspended, Revoked)", async ({ page }) => {
@@ -108,7 +108,7 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     await expect(page.getByTestId("drawer-section-risk-source")).toBeVisible();
   });
 
-  test("Surface 5: The Weave renders real-time signal stream and layer filters", async ({ page }) => {
+  test("Surface 5: The Weave renders the signal stream surface and layer filters", async ({ page }) => {
     await page.goto(`${BASE}/weave`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: "The Weave" })).toBeVisible({ timeout: 15_000 });
 
@@ -182,7 +182,7 @@ test.describe("Cross-Surface Regression Suite: Risk, Audit & Infrastructure (Des
     }
   });
 
-  test("Surface 11: Federated Services displays live/demo source indicator and trust tables", async ({ page }) => {
+  test("Surface 11: Federated Services displays the source-mode indicator and trust tables", async ({ page }) => {
     await page.goto(`${BASE}/federated-services`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: /Federated Services/i })).toBeVisible({ timeout: 15_000 });
 
@@ -228,7 +228,7 @@ test.describe("Cross-Surface Suite (Mobile Viewport 375x667)", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("renders responsive layout without horizontal overflow on mobile", async ({ page }) => {

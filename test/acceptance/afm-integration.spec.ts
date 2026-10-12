@@ -10,7 +10,7 @@ test.describe("AFM integration in Signal Loom", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: false });
   });
 
   test("RBAC Analysis nav item is visible in the sidebar", async ({ page }) => {

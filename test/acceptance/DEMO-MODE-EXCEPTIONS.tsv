@@ -1,0 +1,29 @@
+# DEMO-MODE-EXCEPTIONS.tsv - specs that legitimately hold a live block and a
+# fixture block side by side.
+#
+# Enforced by test/acceptance-demo-mode-honesty.bats. That guard fails any spec
+# whose test or describe titles (or file header) claim live behaviour while the
+# file also passes `{ demoMode: true }` somewhere - because demo mode
+# short-circuits the api client before any network call, so such a title can
+# only be satisfied by a fixture.
+#
+# A row here says "both halves are present ON PURPOSE and each is labelled".
+# It is checked in both directions: a row whose spec no longer has both a live
+# claim and a `demoMode: true` is reported as STALE, so an exception cannot
+# outlive the condition that justified it.
+#
+# A row is NOT a licence to leave a live-claiming title on a fixture-backed
+# test. If the answer is "this test can never observe the thing its name
+# claims", rename the test - see signal-loom-netebpf.spec.ts, which called
+# itself a LIVE eBPF suite and asserted two fixture strings.
+#
+# The guard attributes every title to the top-level describe block that
+# governs its login() call, so the two files that first motivated this list -
+# agentmaxxing-demo-console.spec.ts with its documented MOCK BLOCK / LIVE BLOCK
+# split, and live-data.spec.ts whose single demoMode-true call is a control
+# case against its own live assertions - need no row: each live claim already
+# sits in a block that runs live. The list is empty on purpose. Add a row only
+# when a live claim and a demoMode-true login genuinely share one block, and
+# say why in the reason column.
+#
+# Columns: spec<TAB>reason

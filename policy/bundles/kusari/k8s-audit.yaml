@@ -1,0 +1,279 @@
+# The Kusari Kubernetes kube-apiserver AUDIT threat bundle (reference vertical).
+#
+# This is the NEW k8s threat stream. It reads only the k8saudit-kube projection
+# (collectors/k8saudit, model.LayerKubernetes, Source "k8saudit-kube") and every
+# rule source-gates on it, so it never crosses the EXISTING identity-auth
+# k8saudit projection (api/audit, LayerIdentityAuth, Source "k8s-apiserver-audit")
+# which tracks delegation and is untouched. See collectors/k8saudit/contract_doc.go.
+#
+# Mode is `shadow`: every rule emits and stores findings, nothing alerts, nothing
+# in the cluster is touched. Promotion to warn/enforce is a reviewed commit that
+# bumps `version`.
+#
+# # What the rules may read
+#
+# Only the k8s label contract (collectors/k8saudit/contract_doc.go): verb,
+# resource, subresource, resource_kind, api_group, api_version, namespace, name,
+# decision, response_code, source_ip, audit_id, stage, reason, user_agent — plus
+# obs.actor, which is a keyed PSEUDONYM and so supports EQUALITY and membership
+# only (never startsWith / substring; it has no internal structure to read).
+#
+# # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+#
+#   * Every rule gates on obs.source == "k8saudit-kube": LayerKubernetes could in
+#     principle carry more than one projection, so the source gate is mandatory.
+#   * Every rule requires stage == "ResponseComplete". The apiserver emits up to
+#     four stages per request; without this a single request double-counts across
+#     its stages. The projection emits all stages deliberately so this control is
+#     visible here and mutation-testable.
+#   * Identity is obs.actor against an actor_vars set, NEVER a label. The k8s user
+#     or service account reaches obs.actor via ActorHint, pseudonymised at the
+#     store and at bundle load with the same key, so a cleartext allowlist would
+#     never match and every negative test would be vacuously true. Anonymous is a
+#     pseudonymised actor_vars set (system:anonymous / system:unauthenticated),
+#     not a string match.
+#   * Every label read is guarded with has(): a bare read of an absent key is a
+#     CEL fault that would degrade the whole bundle on one unlabelled record.
+#
+# # Missing from the contract on purpose
+#
+# Pod security context (privileged, hostPath, hostPID, hostNetwork, hostIPC,
+# runAsUser, added capabilities) is NOT projected — it is the request body, not
+# an audit label, and admitting it would need allow-list keys this vertical does
+# not add. So privileged-pod-create fires on the pod-CREATE surface, a deliberate
+# over-trigger in the same spirit as awslogs' s3-bucket-exposure-changed. Reading
+# the spec is an admission-webhook source, a separate stream.
+#
+# # Fixtures
+#
+# Every rule has a positive fixture that fires it and a negative that does not,
+# under collectors/k8saudit/testdata/. The per-rule expectation table lives in
+# d2-signalloom/apps/signal-ingest/e2e/k8saudit_expectations.go and is asserted
+# by TestK8sAuditE2E_FixtureCorpusMatchesTheExpectationTable.
+
+id: kusari-k8s-audit
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+# Actor-identity sets, rewritten at load through the same keyed pseudonymiser
+# obs.actor is rewritten with. A var holding actors that is NOT named here would
+# keep its cleartext values, so `obs.actor in vars.X` could never be true and
+# every negative allowlist test would become always-true — the one inversion the
+# replay oracle cannot see. Conform refuses a rule comparing obs.actor against a
+# var absent from this list.
+actor_vars:
+  - allowed_secret_readers
+  - system_controllers
+  - anonymous_principals
+
+vars:
+  # Service accounts permitted to read secrets without producing a finding. A
+  # controller that legitimately reads a token lives here; a human or workload
+  # that should not does not.
+  allowed_secret_readers:
+    - "system:serviceaccount:kube-system:secret-reader"
+
+  # Controllers permitted to mint service-account tokens. The kube-controller-
+  # manager and the token controllers mint tokens constantly; a human or a
+  # workload minting one is the signal.
+  system_controllers:
+    - "system:serviceaccount:kube-system:token-cleaner"
+    - "system:serviceaccount:kube-system:generic-garbage-collector"
+    - "system:kube-controller-manager"
+
+  # The anonymous principals. A verb these actors were ALLOWED to perform is the
+  # finding (anonymous-allowed); a forbidden one is the authorizer doing its job.
+  anonymous_principals:
+    - "system:anonymous"
+    - "system:unauthenticated"
+
+rules:
+  # --- Interactive access to a running workload -----------------------------
+  - id: pods-exec-attach
+    name: Interactive exec/attach/ephemeralcontainers into a pod
+    severity: high
+    # The classic interactive-shell-in-a-pod path. ephemeralcontainers is the
+    # debug-container variant of the same capability.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "pods" &&
+      has(obs.labels.subresource) &&
+      obs.labels.subresource in ["exec", "attach", "ephemeralcontainers"]
+
+  # --- Secret reads outside an allow-list -----------------------------------
+  - id: secrets-read-outside-allowlist
+    name: Secret get/list by a principal outside the allow-list
+    severity: high
+    # get and list only; watch is deliberately absent — informers watch secrets
+    # constantly and would bury the signal. The allow-list is obs.actor, a
+    # pseudonym, so the test is membership, never a string match.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "secrets" &&
+      has(obs.labels.verb) && obs.labels.verb in ["get", "list"] &&
+      !(obs.actor in vars.allowed_secret_readers)
+
+  # --- Secret writes --------------------------------------------------------
+  - id: secrets-write
+    name: Secret create or update
+    severity: medium
+    # Writing a secret is a smaller set of events than reading one and is worth a
+    # look in a regulated namespace regardless of actor, so there is no allow-list
+    # here — promotion decides whether to narrow it.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "secrets" &&
+      has(obs.labels.verb) && obs.labels.verb in ["create", "update"]
+
+  # --- Pod create (privileged surface) --------------------------------------
+  - id: privileged-pod-create
+    name: Pod created (privileged/hostPath/hostPID surface)
+    severity: high
+    # A DELIBERATE OVER-TRIGGER. The security context that would make this a
+    # privileged pod is in the request body, which this projection must not read
+    # (see the bundle header). So the rule fires on the pod-CREATE surface, not on
+    # a privileged verdict. The subresource guard keeps exec/attach/portforward
+    # (which are also verb=create on pods) out of this rule — those are their own.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "pods" &&
+      has(obs.labels.verb) && obs.labels.verb == "create" &&
+      !has(obs.labels.subresource)
+
+  # --- RBAC escalation ------------------------------------------------------
+  - id: rbac-escalation
+    name: RBAC binding created/patched or an escalation verb used
+    severity: critical
+    # Two shapes of the same concern: creating/patching a role binding (granting
+    # privilege), and the escalation verbs themselves (bind/escalate/impersonate).
+    # Critical because a true positive grants the actor more than they had.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      (
+        (has(obs.labels.resource) &&
+         obs.labels.resource in ["clusterrolebindings", "rolebindings"] &&
+         has(obs.labels.verb) && obs.labels.verb in ["create", "update", "patch"])
+        ||
+        (has(obs.labels.verb) && obs.labels.verb in ["bind", "escalate", "impersonate"])
+      )
+
+  # --- Service-account token minting ----------------------------------------
+  - id: serviceaccount-token-create
+    name: Service-account token minted outside a system controller
+    severity: high
+    # serviceaccounts/token create is explicit token minting. The system
+    # controllers that do it routinely are allow-listed via obs.actor; anyone else
+    # is the signal (the account-takeover token-mint step).
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "serviceaccounts" &&
+      has(obs.labels.subresource) && obs.labels.subresource == "token" &&
+      has(obs.labels.verb) && obs.labels.verb == "create" &&
+      !(obs.actor in vars.system_controllers)
+
+  # --- Certificate signing request create + approve -------------------------
+  - id: csr-create-approve
+    name: CertificateSigningRequest created or approved
+    severity: high
+    # A create of a CSR, or an update of its approval subresource. Together these
+    # are the cluster-credential-minting path through the certificates API.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "certificatesigningrequests" &&
+      (
+        (has(obs.labels.verb) && obs.labels.verb == "create")
+        ||
+        (has(obs.labels.subresource) && obs.labels.subresource == "approval")
+      )
+
+  # --- Admission webhook configuration create -------------------------------
+  - id: webhookconfig-create
+    name: Validating/Mutating webhook configuration created
+    severity: high
+    # A mutating or validating webhook config is cluster-wide interception of the
+    # admission path; creating one is a high-leverage persistence/tamper primitive.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) &&
+      obs.labels.resource in ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"] &&
+      has(obs.labels.verb) && obs.labels.verb == "create"
+
+  # --- Node proxy -----------------------------------------------------------
+  - id: nodes-proxy
+    name: nodes/proxy access
+    severity: high
+    # nodes/proxy reaches the kubelet API directly, bypassing the apiserver's
+    # resource authorization on what runs on the node.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "nodes" &&
+      has(obs.labels.subresource) && obs.labels.subresource == "proxy"
+
+  # --- Pod port-forward -----------------------------------------------------
+  - id: pods-portforward
+    name: pods/portforward tunnel to a workload
+    severity: medium
+    # A port-forward is a tunnel from the operator's host straight to a pod port,
+    # outside the cluster's network policy.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      has(obs.labels.resource) && obs.labels.resource == "pods" &&
+      has(obs.labels.subresource) && obs.labels.subresource == "portforward"
+
+  # --- Anonymous allowed ----------------------------------------------------
+  - id: anonymous-allowed
+    name: Verb by an anonymous principal that the authorizer ALLOWED
+    severity: critical
+    # system:anonymous / system:unauthenticated being ALLOWED a verb is almost
+    # always a misconfigured RBAC binding to system:unauthenticated. decision is a
+    # label; the actor is the pseudonymised anonymous set.
+    expression: |-
+      obs.source == "k8saudit-kube" &&
+      obs.layer == "kubernetes" &&
+      has(obs.labels.stage) && obs.labels.stage == "ResponseComplete" &&
+      obs.actor in vars.anonymous_principals &&
+      has(obs.labels.decision) && obs.labels.decision == "allow"
+
+windows:
+  # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+  # arriving finding takes the counter from below the threshold to at or above it
+  # — anchored on the ARRIVING finding's timestamp, so a replay reproduces live.
+
+  # Repeated interactive access by one principal in a short window is the shape of
+  # hands-on-keyboard activity rather than a single debugging session.
+  - id: exec-burst
+    over_rule: pods-exec-attach
+    key: [tenant_id, actor]
+    window: 5m
+    threshold: 3
+    severity: high
+
+  # A principal reading many secrets quickly is credential sweeping, which one
+  # read is not.
+  - id: secret-read-burst
+    over_rule: secrets-read-outside-allowlist
+    key: [tenant_id, actor]
+    window: 5m
+    threshold: 3
+    severity: high

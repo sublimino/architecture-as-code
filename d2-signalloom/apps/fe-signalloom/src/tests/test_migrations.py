@@ -65,7 +65,10 @@ class _FakeConnection:
         if "FROM public.schema_migrations" in query:
             if not self._server.ledger_created:
                 raise AssertionError("the ledger was read before it was created")
-            return [{"version": version} for version, _ in self._server.ledger]
+            return [
+                {"version": version, "filename": filename}
+                for version, filename in self._server.ledger
+            ]
         raise AssertionError(f"unexpected fetch: {query}")
 
 
@@ -98,6 +101,17 @@ def _migration_dir(tmp_path: Path, filenames: list[str]) -> Path:
 
 def test_migrations_are_discovered_in_filename_order() -> None:
     assert [m.filename for m in discover_migrations()] == REPO_MIGRATIONS
+
+
+def test_repository_migration_versions_are_unique() -> None:
+    migrations = discover_migrations()
+
+    assert len({migration.version for migration in migrations}) == len(migrations)
+    assert [migration.filename for migration in migrations[-3:]] == [
+        "062_tenant_risk_profile.sql",
+        "063_tenant_risk_profile_audit_event_type.sql",
+        "064_backfill_claimed_agent_ownership.sql",
+    ]
 
 
 def test_discovery_orders_numerically_not_lexicographically(tmp_path: Path) -> None:
@@ -188,6 +202,58 @@ async def test_only_the_missing_migrations_are_applied(tmp_path: Path) -> None:
     applied = await apply_migrations(server)
 
     assert applied == REPO_MIGRATIONS[-1:]
+
+
+@pytest.mark.asyncio
+async def test_divergent_applied_filename_is_refused_before_any_migration_runs(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "migrations"
+    directory.mkdir()
+    (directory / "062_expected.sql").write_text("SELECT 62;\n", encoding="utf-8")
+    (directory / "063_later.sql").write_text("SELECT 63;\n", encoding="utf-8")
+    server = FakePostgres()
+    server.ledger.append(("62", "062_different_history.sql"))
+
+    with pytest.raises(
+        MigrationError,
+        match=(
+            "migration history divergence for version 62.*"
+            "062_different_history.sql.*062_expected.sql.*"
+            "Manually audit and reconcile.*outside startup"
+        ),
+    ):
+        await apply_migrations(server, directory)
+
+    assert server.executed == []
+    assert server.ledger == [("62", "062_different_history.sql")]
+
+
+@pytest.mark.asyncio
+async def test_recorded_version_absent_from_checkout_is_refused_before_migrations_run(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "migrations"
+    directory.mkdir()
+    (directory / "001_known.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    server = FakePostgres()
+    server.ledger.append(("999", "999_missing_from_checkout.sql"))
+
+    with pytest.raises(
+        MigrationError,
+        match=(
+            "migration history mismatch.*version 999.*"
+            "999_missing_from_checkout.sql.*manually audit and reconcile.*outside startup"
+        ),
+    ):
+        await apply_migrations(server, directory)
+
+    assert server.executed == []
+    assert server.ledger == [("999", "999_missing_from_checkout.sql")]
+    assert server.lock_events == [
+        ("lock", ADVISORY_LOCK_KEY),
+        ("unlock", ADVISORY_LOCK_KEY),
+    ]
 
 
 @pytest.mark.asyncio

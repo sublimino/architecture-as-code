@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import AgentOverviewTab from './AgentOverviewTab'
 import type { AgentResponse, SourceHealthMap } from '../types/api'
 import { claimableDossierAgentFixture, claimedDossierAgentFixture } from '../api/fakeData'
+import { setDemoMode } from '../api/demoMode'
 
 function renderTab(ui: React.ReactElement) {
   return render(<MemoryRouter>{ui}</MemoryRouter>)
@@ -560,6 +561,39 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
     // Vector 5: Art. 14
     expect(screen.getByTestId('noncompliant-control-art-14-human-oversight-authorization')).toBeInTheDocument()
     expect(screen.getByTestId('cel-rule-expression-art-14-human-oversight-authorization')).toHaveTextContent('human_approval_svid')
+  })
+
+  it('refuses seeded policy detail for live compliance results', () => {
+    setDemoMode(false)
+    try {
+      renderTab(<AgentOverviewTab agent={createMockAgent()} complianceResults={[mockComplianceResults[3]]} />)
+
+      expect(screen.getByTestId('cel-rule-unavailable-cis-5-7-1')).toHaveTextContent('Rule detail unavailable')
+      expect(screen.queryByTestId('cel-rule-expression-cis-5-7-1')).not.toBeInTheDocument()
+    } finally {
+      setDemoMode(true)
+    }
+  })
+
+  it('refuses fabricated policy detail for unmatched demo controls', () => {
+    setDemoMode(true)
+    renderTab(
+      <AgentOverviewTab
+        agent={createMockAgent()}
+        complianceResults={[{
+          agent_id: 'agent-123-uuid',
+          control_id: 'UNKNOWN-9.9',
+          control_name: 'Unknown synthetic control',
+          framework_name: 'Unknown Framework',
+          status: 'fail',
+          assessed_at: '2026-09-01T12:00:00Z',
+          evidence_ref: 'fixture:unknown',
+        }]}
+      />,
+    )
+
+    expect(screen.getByTestId('cel-rule-unavailable-unknown-synthetic-control')).toHaveTextContent('Rule detail unavailable')
+    expect(screen.queryByTestId('cel-rule-expression-unknown-synthetic-control')).not.toBeInTheDocument()
   })
 
   it('renders tenant banner and runtime tenant in AgentOverviewTab', () => {

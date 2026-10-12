@@ -63,6 +63,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
   const defaultModel = agent.runtime?.model || agent.model_name || 'claude-3-5-sonnet'
 
   const claimantOwner = user?.email || user?.name || user?.sub || ''
+  const authenticatedOperator = user?.email || user?.sub || ''
 
   const [podName, setPodName] = useState(defaultPodName)
   const [namespace, setNamespace] = useState(defaultNamespace)
@@ -390,7 +391,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
 
           <div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
-              Assigned Owner / Operator
+              Assigned Owner
             </label>
             <input
               type="text"
@@ -409,6 +410,26 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
                 boxSizing: 'border-box',
               }}
             />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+              Authenticated Operator
+            </div>
+            <div
+              data-testid="claim-modal-operator"
+              style={{
+                fontSize: 12,
+                fontFamily: 'monospace',
+                padding: '8px 12px',
+                borderRadius: 4,
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                color: authenticatedOperator ? 'var(--text)' : 'var(--muted)',
+              }}
+            >
+              {authenticatedOperator || 'Authenticated identity unavailable'}
+            </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>

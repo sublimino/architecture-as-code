@@ -31,6 +31,7 @@
  */
 
 import { TRUST_DOMAIN, spiffeId, type Provenance } from './credentialInventory'
+import { isDemoMode } from '../api/demoMode'
 import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
 
 // ─── Label contract ─────────────────────────────────────────────────────────
@@ -159,8 +160,11 @@ export async function discoverAgents(
   try {
     const res = await fetch(`${base}/supercred-api/agents`, { signal })
     if (!res.ok) {
-      console.warn(`[agentDiscovery] proxy returned ${res.status}, falling back to demo data`)
-      return DEMO_AGENTS
+      if (isDemoMode()) {
+        console.warn(`[agentDiscovery] proxy returned ${res.status}, falling back to demo data`)
+        return DEMO_AGENTS
+      }
+      return []
     }
     const data = await res.json() as { agents?: ProxyAgentRecord[] }
     const agents = data.agents ?? []
@@ -168,8 +172,11 @@ export async function discoverAgents(
       .filter((a) => a.labels?.[AGENT_LABELS.agent] === 'true' || a.labels?.['signalloom.ai/agent'] === 'true' || a.type === 'declarative' || a.type === 'kagent')
       .map((a) => proxyRecordToDiscovery(a, 'live'))
   } catch (err) {
-    console.warn('[agentDiscovery] proxy unreachable, using demo data', err)
-    return DEMO_AGENTS
+    if (isDemoMode()) {
+      console.warn('[agentDiscovery] proxy unreachable, using demo data', err)
+      return DEMO_AGENTS
+    }
+    return []
   }
 }
 

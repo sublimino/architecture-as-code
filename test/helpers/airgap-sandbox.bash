@@ -34,6 +34,10 @@ AIRGAP_NAMES_FILE="${AIRGAP_NAMES_FILE:-${BATS_SUITE_TMPDIR:-${TMPDIR:-/tmp}}/ai
 AIRGAP_SEQ=0
 
 airgap_require_docker() {
+	if [[ -z "${DOCKER_CONFIG:-}" ]]; then
+		export DOCKER_CONFIG="${TMPDIR:-/tmp}/docker-config"
+		mkdir -p "$DOCKER_CONFIG"
+	fi
 	command -v docker >/dev/null 2>&1 || {
 		echo "AIRGAP PREFLIGHT: docker is not on PATH. The air-gap suite needs" >&2
 		echo "  docker as its isolation primitive (unshare -n is denied here)." >&2

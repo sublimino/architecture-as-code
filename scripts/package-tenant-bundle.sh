@@ -1954,6 +1954,158 @@ EOF
 # >>> SLSI-P1-4: packaging validation and dry-run verification <<<
 # Stage P1-4: Packaging verification hooks, archive validation, and air-gap test integration.
 # This region is owned by P1-4 and is READ-ONLY to other cards.
+#
+# stage_p1_4_validation gates the ARCHIVE's own structural invariants, so a
+# defective archive fails the bundler rather than being discovered downstream.
+# It re-reads whatever P1-3 left in ${SLSI_BUNDLE_OUT:-dist}/ and never rebuilds,
+# so `--verify-only` (P1-1's existing flag) doubles as the dry-run mode: the
+# same gates run against an already-built archive.
+#
+# What lives HERE versus in test/slsi-airgap-bundle.bats: everything that needs
+# only the archive bytes and the host's tar/sha256sum. Anything that needs an
+# isolation primitive, a sandbox image, strace or a mutation belongs to the
+# suite, because a build must not depend on Docker being present.
+#
+# Gates (each fails loudly and names itself):
+#   P14-G1  archive exists, is non-empty, and starts with the gzip magic 1f8b
+#   P14-G2  the sibling <archive>.sha256 exists and verifies
+#   P14-G3  the archive name, MANIFEST.json bundle.name and bundle.version all
+#           carry the version this run validated
+#   P14-G4  member hygiene: the stream decompresses end to end, no absolute
+#           path, no `..` component, no symlink/hardlink/device member, and the
+#           top level is exactly the declared set (P1-3 ships a root-level layout)
+#   P14-G5  regular-file member count == MANIFEST.json payloadFileCount + 1
+#           (the +1 is MANIFEST.json, which cannot list itself)
+#   P14-G6  the Decision 10 wrappers <arch>/openssl and <arch>/envsubst are
+#           regular files, mode 0755, beginning `#!/usr/bin/env bash`
+#   P14-G7  dist/MANIFEST.json is byte-identical to the archive's MANIFEST.json
+
+_P14_TOPLEVEL=$'MANIFEST.json\nMANIFEST.sha256\nbin\nfleet\nimages\ninfra\nkeys'
+
+_p14_fail() {
+  fail "stage_p1_4_validation: $1"
+}
+
+# Prints the tar verbose listing of $1. Exits non-zero if the stream does not
+# decompress end to end, which is the gzip integrity check.
+_p14_listing() {
+  LC_ALL=C tar --numeric-owner -tvzf "$1"
+}
+
+stage_p1_4_validation() {
+  if [[ "${CHECK_PINS:-0}" -eq 1 || "${SLSI_RESOLVE_ONLY:-0}" -eq 1 ]]; then
+    log "stage_p1_4_validation: not applicable (--check-pins/--resolve-only build no archive)"
+    return 0
+  fi
+
+  local version="${SLSI_VERSION:-${BUNDLE_VERSION:-0.1.0}}"
+  version="${version#v}"
+  local out_dir="${SLSI_BUNDLE_OUT:-${REPO_ROOT}/dist}"
+  local bundle_name="slsi-appliance-${version}"
+  local archive="${out_dir}/${bundle_name}.tar.gz"
+  local dist_manifest="${out_dir}/MANIFEST.json"
+
+  log "Executing stage_p1_4_validation against ${archive}"
+
+  # P14-G1
+  [[ -f "${archive}" ]] || _p14_fail "P14-G1 archive absent: ${archive}"
+  [[ -s "${archive}" ]] || _p14_fail "P14-G1 archive is empty: ${archive}"
+  local magic
+  magic="$(head -c 2 "${archive}" | od -An -tx1 | tr -d ' \n')"
+  [[ "${magic}" == "1f8b" ]] || _p14_fail "P14-G1 not a gzip stream (magic '${magic}', want 1f8b): ${archive}"
+
+  # P14-G2
+  [[ -f "${archive}.sha256" ]] || _p14_fail "P14-G2 sibling checksum absent: ${archive}.sha256"
+  (cd "${out_dir}" && sha256sum -c --strict "${bundle_name}.tar.gz.sha256" >/dev/null 2>&1) \
+    || _p14_fail "P14-G2 ${bundle_name}.tar.gz does not match its .sha256"
+
+  # P14-G3 (MANIFEST.json sorts first under C collation, so --occurrence stops early)
+  [[ -f "${dist_manifest}" ]] || _p14_fail "P14-G3 ${dist_manifest} absent"
+  local archived_manifest
+  archived_manifest="$(mktemp -t slsi-p14-manifest.XXXXXX)"
+  if ! tar -xzOf "${archive}" --occurrence=1 MANIFEST.json > "${archived_manifest}" 2>/dev/null; then
+    rm -f "${archived_manifest}"
+    _p14_fail "P14-G3 archive carries no MANIFEST.json"
+  fi
+  local m_name m_version
+  m_name="$(jq -r '.bundle.name // empty' "${archived_manifest}")"
+  m_version="$(jq -r '.bundle.version // empty' "${archived_manifest}")"
+  if [[ "${m_name}" != "${bundle_name}" || "${m_version}" != "${version}" ]]; then
+    rm -f "${archived_manifest}"
+    _p14_fail "P14-G3 version mismatch: archive ${bundle_name}.tar.gz, MANIFEST bundle.name='${m_name}' bundle.version='${m_version}'"
+  fi
+
+  # P14-G7
+  if ! cmp -s "${dist_manifest}" "${archived_manifest}"; then
+    rm -f "${archived_manifest}"
+    _p14_fail "P14-G7 ${dist_manifest} differs from the MANIFEST.json inside the archive"
+  fi
+  local payload_count
+  payload_count="$(jq -r '.payloadFileCount // empty' "${archived_manifest}")"
+  rm -f "${archived_manifest}"
+  [[ "${payload_count}" =~ ^[0-9]+$ && "${payload_count}" -gt 0 ]] \
+    || _p14_fail "P14-G5 MANIFEST.json payloadFileCount is not a positive integer: '${payload_count}'"
+
+  # P14-G4: one full decompression pass, listing kept off argv in a temp file.
+  local listing
+  listing="$(mktemp -t slsi-p14-listing.XXXXXX)"
+  if ! _p14_listing "${archive}" > "${listing}" 2>/dev/null; then
+    rm -f "${listing}"
+    _p14_fail "P14-G4 archive does not decompress end to end (truncated or corrupt gzip/tar stream)"
+  fi
+  local member_count
+  member_count="$(wc -l < "${listing}" | tr -d ' ')"
+  if [[ "${member_count}" -eq 0 ]]; then
+    rm -f "${listing}"
+    _p14_fail "P14-G4 archive lists zero members"
+  fi
+
+  # GNU tar -tv: field 1 is the mode string; the path starts at field 6. Paths
+  # in this repo contain no spaces, which the next check enforces rather than
+  # assumes, since a space would shift every field after it.
+  local bad
+  bad="$(awk 'NF != 6 && substr($1,1,1) != "l" && substr($1,1,1) != "h" {print}' "${listing}" | head -n 3)"
+  [[ -z "${bad}" ]] || { rm -f "${listing}"; _p14_fail "P14-G4 unparseable member line(s) (whitespace in a path?): ${bad}"; }
+  bad="$(awk '{t=substr($1,1,1)} t!="-" && t!="d" {print $0}' "${listing}" | head -n 3)"
+  [[ -z "${bad}" ]] || { rm -f "${listing}"; _p14_fail "P14-G4 non-regular, non-directory member(s) (symlink/hardlink/device): ${bad}"; }
+  bad="$(awk '{print $6}' "${listing}" | grep -E '^/|(^|/)\.\.(/|$)' | head -n 3 || true)"
+  [[ -z "${bad}" ]] || { rm -f "${listing}"; _p14_fail "P14-G4 absolute or traversal member path(s): ${bad}"; }
+  local toplevel
+  toplevel="$(awk '{p=$6; sub(/^\.\//,"",p); sub(/\/.*/,"",p); if (p!="") print p}' "${listing}" | LC_ALL=C sort -u)"
+  if [[ "${toplevel}" != "${_P14_TOPLEVEL}" ]]; then
+    rm -f "${listing}"
+    _p14_fail "P14-G4 top-level members differ from the declared set. got: $(printf '%s' "${toplevel}" | tr '\n' ' ') want: $(printf '%s' "${_P14_TOPLEVEL}" | tr '\n' ' ')"
+  fi
+
+  # P14-G5
+  local regular_count
+  regular_count="$(awk 'substr($1,1,1)=="-"' "${listing}" | wc -l | tr -d ' ')"
+  if [[ "${regular_count}" -ne $((payload_count + 1)) ]]; then
+    rm -f "${listing}"
+    _p14_fail "P14-G5 archive has ${regular_count} regular files; MANIFEST.json payloadFileCount ${payload_count} + 1 = $((payload_count + 1))"
+  fi
+
+  # P14-G6: every arch directory that carries binaries must carry both wrappers.
+  local arches arch util line mode shebang
+  arches="$(awk 'substr($1,1,1)=="-" {print $6}' "${listing}" | sed -nE 's#^(\./)?bin/(amd64|arm64)/[^/]+$#\2#p' | LC_ALL=C sort -u)"
+  if [[ -z "${arches}" ]]; then
+    rm -f "${listing}"
+    _p14_fail "P14-G6 no bin/<arch>/ binaries in the archive"
+  fi
+  for arch in ${arches}; do
+    for util in openssl envsubst; do
+      line="$(awk -v p="bin/${arch}/${util}" '{q=$6; sub(/^\.\//,"",q)} q==p {print; exit}' "${listing}")"
+      [[ -n "${line}" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 Decision 10 wrapper absent: bin/${arch}/${util}"; }
+      mode="$(awk '{print $1}' <<<"${line}")"
+      [[ "${mode}" == "-rwxr-xr-x" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/${util} mode is ${mode}, want -rwxr-xr-x (0755)"; }
+      shebang="$(tar -xzOf "${archive}" --occurrence=1 "bin/${arch}/${util}" 2>/dev/null | head -n 1 || true)"
+      [[ "${shebang}" == "#!/usr/bin/env bash" ]] || { rm -f "${listing}"; _p14_fail "P14-G6 bin/${arch}/${util} does not begin '#!/usr/bin/env bash' (got '${shebang}')"; }
+    done
+  done
+  rm -f "${listing}"
+
+  log "stage_p1_4_validation complete: ${member_count} members, ${regular_count} regular files (payload ${payload_count} + MANIFEST.json), wrappers present for: $(tr '\n' ' ' <<<"${arches}")"
+}
 # <<< SLSI-P1-4 >>>
 
 # ── Stage Dispatcher ─────────────────────────────────────────────────────────

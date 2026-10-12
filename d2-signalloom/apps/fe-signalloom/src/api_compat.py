@@ -874,7 +874,14 @@ class AgentTelemetryResponse(BaseModel):
     observations: list[TelemetryObservationModel] = Field(default_factory=list)
     total_count: int = 0
     pushdown_filters: dict[str, Any] = Field(default_factory=dict)
+    # source_health describes a source that was actually probed. "unavailable" means no
+    # telemetry data plane answered; it is never a synonym for "nothing to report".
     source_health: str = "healthy"
+    # evidence_state follows the in-repo honest-degradation idiom (_derived_topology,
+    # cadvisor_poller): "observed" when every observation came from a real source,
+    # "unavailable" when none could be obtained. reason carries why.
+    evidence_state: str = "observed"
+    reason: str | None = None
 
 
 class AuditListResponse(BaseModel):
@@ -6875,164 +6882,41 @@ async def get_agent_telemetry(
     if not agent_found:
         raise APIError(404, "not_found", f"Agent {agent_id} not found")
 
-    # Generate comparative telemetry observations based on agent security profile
+    # REFUSAL, not fabrication.
+    #
+    # This route has no telemetry data plane behind it. The pool above is used only to
+    # confirm the agent exists; no observation store is ever queried -- not signal-ingest
+    # observations, not the cAdvisor sampler at /api/v1/telemetry/agents/{pod_name}.
+    #
+    # It previously synthesised three observations chosen by substring match on the agent
+    # ID ("nono" / "standard"|"baseline" / else), each carrying a hardcoded confidence
+    # (1.0 / 0.98 / 0.95), an observed_at stamped with the request clock, and attribution
+    # to named sensors including "tetragon-ebpf-flow" -- a sensor never deployed in this
+    # estate. That was 100% of responses; there was no real path to fall back from.
+    #
+    # Per the project doctrine a figure that cannot be derived must be refused, so the
+    # route now reports that no source answered and returns no observations. Wiring a
+    # real source is a product decision: see the W11 report.
     observations: list[TelemetryObservationModel] = []
-    agent_id_lower = agent_id.lower()
-
-    if "nono" in agent_id_lower:
-        observations = [
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-nono-1",
-                observed_at=_now_iso(),
-                source="nono-audit-verifier",
-                layer="LayerLSMConfinement",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="landlock.confinement_verified",
-                details={
-                    "confinement_status": "enforcing",
-                    "lsm": "landlock",
-                    "hash_chain_sha256": "3a7f9c2e4b8d1f0a5e6c7b8a9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e",
-                    "detached_signature": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced",
-                    "fs_sandbox": "strict_readonly",
-                    "verification": "cryptographically_verified",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-nono-2",
-                observed_at=_now_iso(),
-                source="nono-audit-verifier",
-                layer="LayerCryptographicAudit",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="nono.hash_chain_appended",
-                details={
-                    "block_height": 104,
-                    "previous_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                    "current_hash": "3a7f9c2e4b8d1f0a5e6c7b8a9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e",
-                    "audit_trail_signature": "verified",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-1",
-                observed_at=_now_iso(),
-                source="frostdb-columnar",
-                layer="LayerNetworkEgress",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="egress.traffic_allowed",
-                details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
-                confidence=0.98,
-            ),
-        ]
-    elif "standard" in agent_id_lower or "baseline" in agent_id_lower:
-        observations = [
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-tetragon-1",
-                observed_at=_now_iso(),
-                source="tetragon-ebpf-flow",
-                layer="LayerKernelTracepoint",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="tetragon.process_exec",
-                details={
-                    "binary": "/usr/local/bin/agent-worker",
-                    "syscall": "sys_enter_execve",
-                    "namespace": "fe-signalloom-agents",
-                    "cgroup": "fe-signalloom-agents/agent-standard-baseline",
-                    "pid": 48123,
-                    "event": "PROCESS_EXEC",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-tetragon-2",
-                observed_at=_now_iso(),
-                source="tetragon-ebpf-flow",
-                layer="LayerKernelSocket",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="tetragon.socket_connect",
-                details={
-                    "daddr": "10.96.0.1",
-                    "dport": 443,
-                    "protocol": "TCP",
-                    "syscall": "sys_enter_connect",
-                    "tracepoint": "tcp_connect",
-                    "event": "SOCKET_CONNECT",
-                },
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-2",
-                observed_at=_now_iso(),
-                source="ebpf-sentinel",
-                layer="LayerKernelSocket",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="socket.ebpf_traced",
-                details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
-                confidence=1.0,
-            ),
-        ]
-    else:
-        observations = [
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-1",
-                observed_at=_now_iso(),
-                source="frostdb-columnar",
-                layer="LayerNetworkEgress",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="egress.traffic_allowed",
-                details={"destination": "internal-mesh.local", "bytes": 1024, "port": 443},
-                confidence=0.98,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-2",
-                observed_at=_now_iso(),
-                source="ebpf-sentinel",
-                layer="LayerKernelSocket",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="socket.ebpf_traced",
-                details={"protocol": "tcp", "cgroup_id": 4096, "pid": 12345},
-                confidence=1.0,
-            ),
-            TelemetryObservationModel(
-                id=f"obs-{agent_id}-3",
-                observed_at=_now_iso(),
-                source="tc-ebpf",
-                layer="LayerCgroup",
-                actor_id=agent_id,
-                principal_id=tenant_id,
-                action="cgroup.containment_probe",
-                details={"state": "active", "filter": "tc_clsact"},
-                confidence=0.95,
-            ),
-        ]
-
-    if layer:
-        observations = [o for o in observations if o.layer.lower() == layer.strip().lower()]
-    if source:
-        observations = [o for o in observations if source.strip().lower() in o.source.lower()]
 
     pushdown_filters: dict[str, Any] = {}
     if layer:
         pushdown_filters["layer"] = layer
     if source:
         pushdown_filters["source"] = source
-    pushdown_filters["limit"] = limit
 
     return AgentTelemetryResponse(
         agent_id=agent_id,
         tenant_id=tenant_id,
-        observations=observations[:limit],
-        total_count=len(observations),
+        observations=observations,
+        total_count=0,
         pushdown_filters=pushdown_filters,
-        source_health="healthy",
+        source_health="unavailable",
+        evidence_state="unavailable",
+        reason=(
+            "no telemetry observation source is wired to this route: neither the "
+            "signal-ingest observation store nor the cAdvisor sampler is queried here"
+        ),
     )
 
 

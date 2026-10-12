@@ -1,0 +1,43 @@
+{
+  "_fixture": [
+    "A LOW-severity GuardDuty finding (severity 2) in its EventBridge envelope:",
+    "the negative for kusari-cloud-signals/guardduty-high-severity. It projects",
+    "to one aws:guardduty observation and must not fire the rule.",
+    "The resource is an EC2 instance whose network interface id is the only",
+    "resource identifier the projection admits as resource_name; the instance",
+    "id, the private IP and the remote IP stay in the customer's bucket."
+  ],
+  "version": "0",
+  "id": "4f1a2b3c-0000-4000-8000-0123456789ac",
+  "detail-type": "GuardDuty Finding",
+  "source": "aws.guardduty",
+  "account": "123456789012",
+  "time": "2026-10-03T12:20:00Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "schemaVersion": "2.0",
+    "accountId": "123456789012",
+    "region": "us-east-1",
+    "type": "Recon:EC2/PortProbeUnprotectedPort",
+    "severity": 2,
+    "title": "Unprotected port on EC2 instance i-0kusari0build01 is being probed.",
+    "service": {
+      "serviceName": "guardduty",
+      "detectorId": "d-kusari-prod",
+      "count": 1
+    },
+    "resource": {
+      "resourceType": "Instance",
+      "instanceDetails": {
+        "instanceId": "i-0kusari0build01",
+        "networkInterfaces": [
+          {
+            "networkInterfaceId": "eni-0a1b2c3d4e5f60789",
+            "privateIpAddress": "10.0.4.17"
+          }
+        ]
+      }
+    }
+  }
+}

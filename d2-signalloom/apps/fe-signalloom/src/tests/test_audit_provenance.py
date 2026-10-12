@@ -507,13 +507,23 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
         "is, not deletion of the field."
     ),
     # ---- POST /compliance/policy/scan --------------------------------------
-    ("api_compat.py", "_db_policy_scan", "detail", "policyVersion"): (
-        "Found by this guard rather than by review, and not otherwise on "
-        "anyone's list. The scan audit records the policy version the CALLER "
-        "named. Its sibling field `request.frameworks` is genuinely persisted "
-        "by the same handler and so passes; policyVersion is stored nowhere. "
-        "A compliance scan record that cites an unverified policy version is a "
-        "regulatory artefact asserting something the system never checked."
+    # `detail.policyVersion` was exempted here and is NOT any more, because the
+    # defect it described is gone: the version a verdict was evaluated at is now
+    # persisted, in `agent_compliance_results.evidence_ref`
+    # (`policy-engine:{framework}/{check}@{version}`), so the analysis sees it
+    # reach a business write and no longer reports it. The caller's value is
+    # also no longer the one that travels -- each pack is evaluated at the
+    # version the tenant activated it at, and the request field is only the
+    # fallback for an unmapped pack.
+    ("api_compat.py", "_db_policy_scan", "detail", "agentIds"): (
+        "ACCEPTED as a measurement rather than content. `detail.agents_not_found` "
+        "is the COUNT of requested agent ids this tenant has no agent for -- the "
+        "result of a lookup the server performed, not any string the caller "
+        "wrote. No client-supplied value is reproduced in the row; the count "
+        "cannot come from anywhere but the request, because the question it "
+        "answers is about the request. It is recorded because a scan that "
+        "silently assessed fewer agents than it was asked about is exactly the "
+        "kind of gap a compliance record has to be able to explain afterwards."
     ),
     ("api_compat.py", "_db_policy_scan", "detail", "frameworks"): (
         "Target compliance frameworks recorded in audit detail for policy compliance scan."

@@ -241,6 +241,82 @@ source_id_dirty_inputs() {
 	git -C "$root" status --porcelain --untracked-files=all --ignored=matching -- "$@"
 }
 
+# source_id_src_tag LABEL CONTEXT DOCKERFILE_REL [DIRTY_CHECK]: the immutable
+# `src-<12 hex>` image tag for a workload whose build inputs are exactly the
+# paths its Dockerfile COPYs, printed on stdout.
+#
+#   LABEL           prefix for every diagnostic, e.g. "policy-engine-image-tag"
+#   CONTEXT         docker build context, relative to the repo root
+#   DOCKERFILE_REL  the Dockerfile, relative to CONTEXT
+#   DIRTY_CHECK     1 (default) refuses when any input is not the committed
+#                   source; 0 prints the fingerprint regardless
+#
+# ─── Why this is here and not copied per workload ───────────────────────────
+#
+# scripts/sentinel-image-tag.sh and scripts/policy-engine-image-tag.sh need the
+# same seven steps in the same order: resolve the context, refuse a dirty input
+# set, read the COPY sources out of the Dockerfile, refuse a COPY of a path that
+# does not exist, refuse an empty fingerprint, hash, truncate to 12. A per
+# workload copy of that is a per workload place to forget a defence — and the
+# defences are the whole point: the dirty guard, the missing-COPY refusal and the
+# empty-hash refusal were each added after a specific failure, and a sibling
+# script written by copy-paste a month later would carry whichever subset the
+# author happened to notice. This file's own header already makes the argument
+# for the fingerprint itself ("the definition must live in exactly one place");
+# the procedure that wraps it has the same property.
+#
+# The named per-workload scripts remain, as four-line wrappers. They are not
+# ceremony: a recipe line containing $(MAKE) is executed by GNU make even under
+# -n, so the Makefiles must call a plain script rather than a sub-make target
+# (see the header of scripts/sentinel-image-tag.sh for what that cost).
+source_id_src_tag() {
+	local label="$1" context="$2" dockerfile_rel="$3" dirty_check="${4:-1}"
+	local root="${SOURCE_ID_REPO_ROOT}"
+	cd "${root}/${context}" || {
+		printf '%s: no such build context: %s\n' "$label" "$context" >&2
+		return 2
+	}
+	if [ "$dirty_check" -eq 1 ]; then
+		local dirty
+		# The inputs are the COPY sources plus the Dockerfile; refusing on the
+		# whole context would refuse on files the image never sees.
+		local -a inputs=()
+		local p
+		while IFS= read -r p; do
+			[ -n "$p" ] || continue
+			inputs+=("$p")
+		done < <(source_id_copied_paths "$dockerfile_rel" "$dockerfile_rel")
+		dirty=$(source_id_dirty_inputs . "${inputs[@]}") || {
+			printf '%s: git status failed; refusing\n' "$label" >&2
+			return 2
+		}
+		if [ -n "$dirty" ]; then
+			printf '%s: refusing a -dirty build; inputs that are not the committed source (modified, untracked or ignored -- an ignored file still enters the docker build context):\n' "$label" >&2
+			printf '%s\n' "$dirty" >&2
+			return 1
+		fi
+	fi
+	local -a paths
+	mapfile -t paths < <(source_id_copied_paths "$dockerfile_rel" "$dockerfile_rel")
+	[ "${#paths[@]}" -gt 0 ] || {
+		printf '%s: no COPY sources in %s\n' "$label" "$dockerfile_rel" >&2
+		return 2
+	}
+	local q
+	for q in "${paths[@]}"; do
+		[ -e "$q" ] || {
+			printf '%s: the Dockerfile COPYs %s, which does not exist\n' "$label" "$q" >&2
+			return 2
+		}
+	done
+	local id
+	id=$(source_id_hash_paths . "${paths[@]}") && [ -n "$id" ] || {
+		printf '%s: empty fingerprint\n' "$label" >&2
+		return 2
+	}
+	printf 'src-%s\n' "${id:0:12}"
+}
+
 # The fingerprint of a workload's build inputs as they are ON DISK RIGHT NOW.
 #
 # This is the "expected" side of the comparison. The value baked into an image

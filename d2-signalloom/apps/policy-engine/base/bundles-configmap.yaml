@@ -133,7 +133,8 @@ data:
     # Kusari runs Kubernetes workloads in AWS. kusari-iam-change.yaml covers the IAM
     # privilege path; this bundle covers the rest of the cloud surface the pilot
     # streams: the EKS control plane, console sign-in, cross-account role assumption,
-    # S3 exposure, GuardDuty tampering, and egress that the network refused.
+    # S3 exposure, GuardDuty tampering and high-severity GuardDuty findings, and egress
+    # that the network refused.
     #
     # Mode is `shadow`: every rule here emits and stores findings, nothing alerts and
     # nothing in the customer account is touched. Promotion to warn, then enforce, is
@@ -188,7 +189,7 @@ data:
     
     id: kusari-cloud-signals
     tenant_id: kusari
-    version: 1.0.0
+    version: 1.1.0
     mode: shadow
     
     # The vars that hold ACTOR IDENTITIES, rewritten at load through the same keyed
@@ -353,9 +354,10 @@ data:
         #
         # SCOPE: these are GuardDuty MANAGEMENT calls, which is what GuardDuty
         # actually writes to CloudTrail. A GuardDuty FINDING arrives over
-        # EventBridge in a different envelope and is not projectable today -- see
-        # testdata/kusari/guardduty-eventbridge-envelope.json, which pins that as a
-        # silent zero rather than leaving it to be found on the pilot.
+        # EventBridge in a different envelope, is projected as source aws:guardduty,
+        # and is the subject of guardduty-high-severity below. The two rules are
+        # disjoint: this one keys on event_source guardduty.amazonaws.com, a finding
+        # carries event_source aws.guardduty.
         expression: |-
           obs.layer == "cloud_control_plane" &&
           has(obs.labels.event_source) &&
@@ -367,6 +369,22 @@ data:
             "DisassociateMembers", "DisableOrganizationAdminAccount",
             "StopMonitoringMembers", "DeletePublishingDestination"
           ]
+    
+      - id: guardduty-high-severity
+        name: GuardDuty reported a high-severity finding
+        severity: high
+        # A GuardDuty finding delivered over EventBridge (collectors/awslogs
+        # ProjectGuardDuty, §2.3 GuardDuty column). severity is the integer floor of
+        # detail.severity, so 7.5 reads as 7 and the GuardDuty HIGH band (7.0-8.9)
+        # is exactly int >= 7. has() guards the read: a CloudTrail record carries no
+        # severity, and a bare read would be a CEL fault for the whole bundle.
+        #
+        # Keyed on the finding, never on an actor: the envelope names a userName,
+        # not an ARN, so the observation has no actor to match.
+        expression: |-
+          obs.source == "aws:guardduty" &&
+          has(obs.labels.severity) &&
+          int(obs.labels.severity) >= 7
     
       # --- IAM credentials and policy ------------------------------------------
       - id: iam-credential-or-policy-change

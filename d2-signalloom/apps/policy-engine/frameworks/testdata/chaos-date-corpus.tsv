@@ -1,0 +1,122 @@
+# CHAOS CORPUS for frameworks.ParseDate — the as-of date attack surface.
+#
+# Two columns, TAB separated. Column 1 is a JSON-quoted string so whitespace,
+# NUL and non-ASCII digits survive a round trip through this file and can be
+# read back byte-exact. Column 2 is either `reject` or the canonical YYYY-MM-DD
+# the input must parse to.
+#
+# WHY A FILE AND NOT A GO SLICE. A chaos corpus fails silently when it shrinks:
+# a run over four inputs reports PASS exactly like a run over forty. Holding it
+# on disk lets test/applicability-chaos.bats assert the corpus size and compare
+# the set of inputs the Go test REPORTED exercising against the set this file
+# declares, so a deleted row goes red instead of quietly narrowing coverage.
+#
+# CONTROL CHARACTERS ARE ESCAPED, NOT EMBEDDED. A raw NUL in column 1 works
+# fine for the Go reader and turns the whole file into a "binary file" for
+# grep, cut and bash, which silently breaks the bats coverage diff — the diff
+# reported a mismatch that was an encoding artefact, not a lost row. Write
+# NUL, tab, CR and friends as backslash escapes; strconv.Unquote decodes them,
+# and TestChaosDate_CorpusIsPlainText keeps it that way.
+#
+# THE INVARIANT EVERY ROW ENCODES: an input either errors, or parses to the
+# exact day a reader of the string would name. A third outcome — parsing to a
+# DIFFERENT day — is the defect class this corpus exists to exclude, because it
+# moves priced exposure with no error anywhere in the response.
+
+# --- the shape the contract names, and its immediate neighbours -------------
+"2027-12-11"	2027-12-11
+"2027-06-01"	2027-06-01
+"2027-6-1"	reject
+"2027-06-1"	reject
+"2027-6-01"	reject
+"27-12-11"	reject
+"2027-12"	reject
+"2027"	reject
+""	reject
+
+# --- days that are not days -------------------------------------------------
+# ParseDate's own comment says time.Parse NORMALISES these (2027-02-30 ->
+# 2027-03-02). It does not: the modern stdlib range-checks the day against the
+# month and returns "day out of range". Measured, not assumed — see
+# TestChaosDate_TheRoundTripGuardsJustificationIsStaleButHarmless. The
+# round-trip guard is therefore belt-and-braces rather than the only defence,
+# and these rows are pinned so a stdlib regression is visible rather than
+# silently shifting a window by two days.
+"2027-02-30"	reject
+"2027-02-29"	reject
+"2027-04-31"	reject
+"2027-13-01"	reject
+"2027-00-01"	reject
+"2027-01-00"	reject
+"2027-01-32"	reject
+"0000-00-00"	reject
+"2028-02-29"	2028-02-29
+"2100-02-29"	reject
+"2000-02-29"	2000-02-29
+
+# --- year boundaries, including the one that was a live defect --------------
+# 0001-01-01 is time.Time's own zero value. It is a real calendar day and must
+# parse to itself and be DISTINGUISHABLE from an absent date.
+"0001-01-01"	0001-01-01
+"0001-01-02"	0001-01-02
+"0000-01-01"	0000-01-01
+"9999-12-31"	9999-12-31
+"10000-01-01"	reject
+"99999-01-01"	reject
+"-001-01-01"	reject
+"+2027-12-11"	reject
+
+# --- things that LOOK like a date to a parser that is not strict ------------
+"2027-12-11T00:00:00Z"	reject
+"2027-12-11T23:59:59+14:00"	reject
+"2027-12-11 00:00:00"	reject
+"2027-12-11+01:00"	reject
+"2027-12-11Z"	reject
+"11 Dec 2027"	reject
+"11/12/2027"	reject
+"2027/12/11"	reject
+"20271211"	reject
+"today"	reject
+"now"	reject
+
+# --- whitespace, control characters and padding -----------------------------
+"2027-12-11 "	reject
+" 2027-12-11"	reject
+"\t2027-12-11"	reject
+"2027-12-11\n"	reject
+"2027-12-11\u0000"	reject
+" 2027-12-11"	reject
+"2027-12-11​"	reject
+
+# --- non-ASCII and homoglyph digits -----------------------------------------
+# Arabic-Indic and fullwidth digits read as a date to a human and are not one.
+"٢٠٢٧-12-11"	reject
+"２０２７-12-11"	reject
+"２０２７-１２-１１"	reject
+"2027-12-１1"	reject
+
+# --- separators and length --------------------------------------------------
+"2027.12.11"	reject
+"2027_12_11"	reject
+"2027—12—11"	reject
+"2027-12-11-01"	reject
+"2027-12-110"	reject
+"02027-12-11"	reject
+
+# --- other ISO 8601 date forms, all of which are dates and none of which are
+# --- the contract. Accepting one would mean two inputs naming the same day
+# --- with different text, and an evidence bundle that cannot be diffed.
+"2027-W50-5"	reject
+"2027-345"	reject
+"2027-12-11T12:00:00"	reject
+"--12-11"	reject
+"2027-12-11/2028-01-01"	reject
+
+# --- bidi and invisible formatting characters -------------------------------
+"2027-12-11‎"	reject
+"‏2027-12-11"	reject
+"2027-12-11\r"	reject
+
+# --- leap-year days that ARE days -------------------------------------------
+"2024-02-29"	2024-02-29
+"0001-12-31"	0001-12-31

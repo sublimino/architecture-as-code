@@ -42,7 +42,7 @@ spec:
           # TestReconciledManifestRunsTheImageBuiltFromThisSource fails when the
           # source moves and this pin does not; re-pin, build and push with
           # `make -C d2-signalloom signal-ingest-image-push`.
-          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-c6a1afab799529ea
+          image: ${IMAGE_BASE}/signalloom/apps/signal-ingest:src-045b71c2cbddceec
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -189,6 +189,12 @@ spec:
                 secretKeyRef:
                   name: discovery-portal-database
                   key: IDENTITY_ENCRYPTION_KEY
+            - name: COLLECTOR_AWSLOGS_ACCOUNTS
+              valueFrom:
+                secretKeyRef:
+                  name: signal-ingest-awslogs-accounts
+                  key: accounts.json
+                  optional: true
             - name: SIGNAL_INGEST_PROBE_PORT
               value: "8083"
           # SIGNAL_AUTH_*: the non-secret half of every static key, and the

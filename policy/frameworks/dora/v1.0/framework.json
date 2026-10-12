@@ -2,15 +2,25 @@
   "id": "dora",
   "name": "Digital Operational Resilience Act (DORA)",
   "version": "v1.0.0",
+  "description": "Regulation (EU) 2022/2554 (DORA), OJ L 333/1, 27.12.2022. Placeholder pack: nothing in it is evaluated. See README.md. Citations are anchored by cra/catalogue/anchor-test.sh.",
   "status": "placeholder",
+  "applicability": {
+    "inForceFrom": "2025-01-17",
+    "basis": "enforcement-date",
+    "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32022R2554",
+    "note": "Article 64, second subparagraph, read verbatim from the EUR-Lex primary text: 'It shall apply from 17 January 2025.' Note the article is unnumbered subparagraphs, so cite 'Art. 64, second subpara.' and not Art. 64(2). The regulation was published in OJ L 333 on 27 December 2022 and entered into force on the twentieth day following, 16 January 2023 -- entry into force and application are different dates and this window is the APPLICATION date, which is the one an obligation attaches to. Already in the past, so this window gates nothing today; it is declared so a historical scan with an earlier assessmentDate reports honestly, and so the date is on the record with its citation.",
+    "verified": true
+  },
   "controlSets": [
     {
       "id": "dora-resilience",
       "name": "DORA: ICT Risk Management",
+      "description": "Chapter II of DORA, 'ICT risk management', which binds financial entities. CITES: Article 5; Article 6",
       "controls": [
         {
           "id": "DORA-1.0",
           "name": "DORA-1.0 ICT Risk Management Framework",
+          "description": "Article 6 'ICT risk management framework' requires a financial entity to have 'a sound, comprehensive and well-documented ICT risk management framework'. This control is a placeholder: it asserts nothing about that obligation and is never evaluated. CITES: Article 6",
           "checks": [
             {
               "id": "dora-ict-risk-management",

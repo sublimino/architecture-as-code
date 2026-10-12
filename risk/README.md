@@ -41,6 +41,14 @@ No cluster. No network. No API key. Fixed seed — the same inputs reproduce the
 | `org/*.yaml` | An institution's loss magnitude per scenario, risk appetite, risk load and insurance position. |
 | [`fx/`](fx/) | The dated, offline FX rate table. [`rates.yaml`](fx/rates.yaml) is the authored source. `make fx` makes `rates.json` and `testvectors.json` from it. |
 | `out/` | Generated report. Committed so the number is reviewable in a diff; regenerable with `make risk-report`. |
+| [`APPETITE.md`](APPETITE.md) | Proposal, loaded by nothing. Why `risk_load` generalises and a scalar `tolerance` does not, and the backward-compatible loss-exceedance form that fixes it. |
+| [`modulation/`](modulation/) | Proposal, loaded by nothing. Which sector and jurisdiction multipliers are defensible, and which are invention. |
+
+The anchor classes that the `provenance` prose in `org/*.yaml` cites are
+registered in
+[`policy/frameworks/ANCHORS.md`](../policy/frameworks/ANCHORS.md). The statutory
+ceilings behind the `regimes` entries are in
+[`policy/frameworks/PENALTIES.md`](../policy/frameworks/PENALTIES.md).
 
 ## The one idea
 

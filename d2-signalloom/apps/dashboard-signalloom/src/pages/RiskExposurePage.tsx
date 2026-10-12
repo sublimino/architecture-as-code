@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { fairApi } from '../api/fairApi'
-import { colors } from '../styles/tokens'
+import { colors, exposureAccent } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import AgentSuperFilterTable, { formatFullTimestamp } from '../components/AgentSuperFilterTable'
@@ -15,8 +15,19 @@ import { scaleMoney } from '../money/money'
 import { MONEY_UNAVAILABLE } from '../money/format'
 import ConversionNote from '../components/ConversionNote'
 import AgentDeepLink from '../components/AgentDeepLink'
+import { isDemoMode } from '../api/demoMode'
 
-const DEFAULT_VERSIONS: FrameworkVersion[] = [
+/**
+ * Demo-only framework/version catalogue.
+ *
+ * There is no fixture route for the FAIR versions endpoint
+ * (`VITE_FAIR_VERSIONS_PREFIX`, default `/v1/fair/versions`), so demo mode
+ * cannot obtain this list through the api client's fixture gate. It is
+ * therefore seeded here and reachable ONLY when `isDemoMode()` is true. In
+ * live mode the version selector shows exactly what the API returned — an
+ * empty selector is the honest answer when the API serves nothing.
+ */
+export const DEMO_VERSIONS: FrameworkVersion[] = [
   { frameworkId: 'eu-ai-act', name: 'EU AI Act', version: 'v2.1', status: 'active', isDefault: true },
   { frameworkId: 'eu-ai-act', name: 'EU AI Act', version: 'v2.0', status: 'retired', isDefault: false },
   { frameworkId: 'eu-ai-act', name: 'EU AI Act', version: 'v1.0', status: 'retired', isDefault: false },
@@ -30,6 +41,29 @@ const DEFAULT_VERSIONS: FrameworkVersion[] = [
   { frameworkId: 'finos-aigf', name: 'FINOS AI Governance Framework', version: 'v1.0', status: 'retired', isDefault: false },
   { frameworkId: 'soc2-type-ii', name: 'SOC 2 Type II', version: 'v2.1', status: 'active', isDefault: false },
 ]
+
+/**
+ * Why the per-agent carried exposure column shows no figure.
+ *
+ * It used to show `failing * 12000`. That is a worse shape than a displayed
+ * constant and it is worth being precise about why: £12,000 per failing
+ * control is a fabricated UNIT RATE, so the output moved with a real count and
+ * therefore looked derived. A reviewer reading the column saw figures that
+ * responded correctly to the data and had no way to tell that the coefficient
+ * was invented -- the same property that made the discarded Monte Carlo hard
+ * to spot.
+ *
+ * No per-control rate is declared anywhere: not in `risk/packs/agent-policy`,
+ * not on any response this page receives, not in the policy engine's output.
+ * Whether one SHOULD exist is a calibration decision for the risk owner, not
+ * something a dashboard may assume, so the column reports the failing-control
+ * count -- which is real and is what the API actually sends -- and declines
+ * the money.
+ */
+const PER_CONTROL_RATE_UNDECLARED =
+  'Not priced: no per-control loss rate is declared in risk/packs/agent-policy, and no ' +
+  'response to this page carries a per-agent exposure figure. The failing-control count ' +
+  'below is the real number this row has.'
 
 interface PopulationAgent {
   id: string
@@ -72,7 +106,9 @@ export default function RiskExposurePage() {
   const [selectedVersion, setSelectedVersion] = useState('v2.0')
   const [selectedNamespace, setSelectedNamespace] = useState('all')
   const [population, setPopulation] = useState<PopulationFilter>('all')
-  const [frameworkVersions, setFrameworkVersions] = useState<FrameworkVersion[]>(DEFAULT_VERSIONS)
+  const [frameworkVersions, setFrameworkVersions] = useState<FrameworkVersion[]>(
+    () => (isDemoMode() ? DEMO_VERSIONS : []),
+  )
   const [agentList, setAgentList] = useState<PopulationAgent[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -84,8 +120,10 @@ export default function RiskExposurePage() {
       if (Array.isArray(versions) && versions.length > 0) {
         setFrameworkVersions(versions)
       }
-    } catch {
-      // Fallback kept
+    } catch (err) {
+      // A failed version lookup must be visible. Silently keeping whatever is
+      // in state presents a stale or empty selector as if it were current.
+      setError(err instanceof Error ? err.message : 'Failed to load framework versions')
     }
   }, [getAccessTokenSilently])
 
@@ -105,14 +143,17 @@ export default function RiskExposurePage() {
             namespace: a.runtime?.namespace || a.namespace || 'default',
             source: a.origin || (a as unknown as Record<string, string>).source || 'K8s Cluster',
             owner: a.responsibility?.owner_name || a.owner || null,
-            last_assessed: a.timestamps?.last_observed_at || a.last_transition_at || a.created_at || '2026-09-29T10:00:00Z',
+            last_assessed: a.timestamps?.last_observed_at || a.last_transition_at || a.created_at || null,
             compliance_summary: a.compliance_summary,
           }))
         )
         return
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      // The agent inventory is the preferred source but not the only one, so
+      // record the failure and fall through to the posture endpoint rather
+      // than swallowing it.
+      setError(err instanceof Error ? err.message : 'Failed to load agent inventory')
     }
     try {
       const token = await getAccessTokenSilently()
@@ -127,25 +168,25 @@ export default function RiskExposurePage() {
             namespace: a.namespace || 'default',
             source: 'K8s Cluster',
             owner: null,
-            last_assessed: '2026-09-29T10:00:00Z',
-            compliance_summary: {
-              total_controls: 10,
-              passing: 8,
-              failing: 2,
-              pending: 0,
-              posture_score: 80,
-            },
+            // The posture endpoint carries neither an assessment timestamp nor
+            // a per-agent control breakdown. Leaving both absent renders an
+            // explicit "unknown"; inventing them (this used to assert
+            // 10 controls / 8 passing / 2 failing / score 80 for every agent)
+            // puts a figure on screen that no backend ever produced.
+            last_assessed: null,
+            compliance_summary: undefined,
           }))
         )
+        setError(null)
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load agent posture')
     }
   }, [getAccessTokenSilently])
 
   // Dynamic versions list sorted semantically descending
   const availableVersions = useMemo(() => {
-    const list = frameworkVersions.length > 0 ? frameworkVersions : DEFAULT_VERSIONS
+    const list = frameworkVersions
     const set = new Set<string>()
     for (const fv of list) {
       if (fv.version) set.add(fv.version)
@@ -166,20 +207,21 @@ export default function RiskExposurePage() {
     return Array.from(set)
   }, [agentList])
 
-  const governedCount = useMemo(() => {
-    if (agentList.length === 0) return 15
-    return agentList.filter((a) => isGovernedState(a.lifecycle_state)).length
-  }, [agentList])
+  // Agent counts are observations, never estimates. An empty inventory means
+  // "we have not been told about any agents", which is zero — not the 20/15/5
+  // these previously asserted. Those literals also fed `ratio` below, so a
+  // fabricated population silently rescaled real ALE/VaR/TVaR money.
+  const governedCount = useMemo(
+    () => agentList.filter((a) => isGovernedState(a.lifecycle_state)).length,
+    [agentList],
+  )
 
-  const discoveredCount = useMemo(() => {
-    if (agentList.length === 0) return 5
-    return agentList.filter((a) => isDiscoveredState(a.lifecycle_state)).length
-  }, [agentList])
+  const discoveredCount = useMemo(
+    () => agentList.filter((a) => isDiscoveredState(a.lifecycle_state)).length,
+    [agentList],
+  )
 
-  const totalAgentCount = useMemo(() => {
-    if (agentList.length === 0) return 20
-    return agentList.length
-  }, [agentList])
+  const totalAgentCount = useMemo(() => agentList.length, [agentList])
 
   const loadSummary = useCallback(async (version: string, ns: string) => {
     setLoading(true)
@@ -213,7 +255,12 @@ export default function RiskExposurePage() {
     if (!summary) return null
     if (population === 'all') return summary
 
-    const total = totalAgentCount > 0 ? totalAgentCount : 1
+    // Apportioning the estate-wide figures to a sub-population requires a
+    // known denominator. With no agent inventory there is nothing to divide
+    // by, so report "unknown" rather than scaling by an assumed population.
+    if (totalAgentCount === 0) return null
+
+    const total = totalAgentCount
     const count = population === 'governed' ? governedCount : discoveredCount
 
     if (count === 0) {
@@ -234,17 +281,41 @@ export default function RiskExposurePage() {
     }
 
     const ratio = count / total
+
+    // scaleMoney returns null precisely when the product is not a usable
+    // figure. Each of these used to answer that null with
+    // `{ amount: Math.round(x * ratio) }` — recomputing by hand the number the
+    // money layer had just refused to produce, and defeating the one guard
+    // that exists. `?? 0` in those fallbacks also turned a missing carried
+    // figure into a £0 claim. If any leg cannot be scaled, the apportioned
+    // view is unavailable as a whole.
+    const scaled = {
+      totalAle: scaleMoney(summary.totalAle, ratio),
+      totalVar95: scaleMoney(summary.totalVar95, ratio),
+      totalTvar: scaleMoney(summary.totalTvar, ratio),
+      totalCarried: scaleMoney(summary.totalCarried ?? summary.carried, ratio),
+      carried: scaleMoney(summary.carried ?? summary.totalCarried, ratio),
+    }
+    if (Object.values(scaled).some((m) => m === null)) return null
+
+    const frameworks = summary.frameworks.map((fw) => ({
+      fw,
+      totalExposure: scaleMoney(fw.totalExposure ?? fw.exposure, ratio),
+      exposure: scaleMoney(fw.exposure ?? fw.totalExposure, ratio),
+    }))
+    if (frameworks.some((f) => f.totalExposure === null || f.exposure === null)) return null
+
     return {
       ...summary,
-      totalAle: scaleMoney(summary.totalAle, ratio) ?? { amount: Math.round(summary.totalAle.amount * ratio), currency: summary.currency },
-      totalVar95: scaleMoney(summary.totalVar95, ratio) ?? { amount: Math.round(summary.totalVar95.amount * ratio), currency: summary.currency },
-      totalTvar: scaleMoney(summary.totalTvar, ratio) ?? { amount: Math.round(summary.totalTvar.amount * ratio), currency: summary.currency },
-      totalCarried: scaleMoney(summary.totalCarried ?? summary.carried, ratio) ?? { amount: Math.round((summary.totalCarried?.amount ?? summary.carried?.amount ?? 0) * ratio), currency: summary.currency },
-      carried: scaleMoney(summary.carried ?? summary.totalCarried, ratio) ?? { amount: Math.round((summary.carried?.amount ?? summary.totalCarried?.amount ?? 0) * ratio), currency: summary.currency },
-      frameworks: summary.frameworks.map((fw) => ({
-        ...fw,
-        totalExposure: scaleMoney(fw.totalExposure ?? fw.exposure, ratio) ?? { amount: Math.round((fw.totalExposure?.amount ?? fw.exposure?.amount ?? 0) * ratio), currency: summary.currency },
-        exposure: scaleMoney(fw.exposure ?? fw.totalExposure, ratio) ?? { amount: Math.round((fw.exposure?.amount ?? fw.totalExposure?.amount ?? 0) * ratio), currency: summary.currency },
+      totalAle: scaled.totalAle!,
+      totalVar95: scaled.totalVar95!,
+      totalTvar: scaled.totalTvar!,
+      totalCarried: scaled.totalCarried!,
+      carried: scaled.carried!,
+      frameworks: frameworks.map((f) => ({
+        ...f.fw,
+        totalExposure: f.totalExposure!,
+        exposure: f.exposure!,
       })),
     }
   }, [summary, population, totalAgentCount, governedCount, discoveredCount])
@@ -252,7 +323,13 @@ export default function RiskExposurePage() {
   // Reactive loss exceedance curve recalculated under 250ms
   const exceedanceCurve = useMemo(() => {
     if (!effectiveSummary) return []
-    return fairApi.calculateLossExceedance(effectiveSummary.totalAle.amount, effectiveSummary.totalTvar.amount)
+    // No curve from an unpriced summary. A curve drawn through zeros is not an
+    // empty chart, it is a chart asserting zero loss at every exceedance
+    // probability -- the most confident possible statement of a figure nobody
+    // computed.
+    const { totalAle, totalTvar } = effectiveSummary
+    if (!totalAle || !totalTvar) return []
+    return fairApi.calculateLossExceedance(totalAle.amount, totalTvar.amount)
   }, [effectiveSummary])
 
   function handleVersionChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -486,7 +563,7 @@ export default function RiskExposurePage() {
           </div>
           <div className="card" style={{ flex: 1, minWidth: 180, padding: '16px 18px' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Carried Risk</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: (effectiveSummary.totalCarried?.amount ?? effectiveSummary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom, lineHeight: 1 }}>{fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: exposureAccent(effectiveSummary.totalCarried ?? effectiveSummary.carried), lineHeight: 1 }}>{fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
               residual from failing controls
               <span className="tag" style={{ background: tint('var(--cyan)', 0.12), color: 'var(--cyan)', marginLeft: 8 }}>
@@ -606,7 +683,13 @@ export default function RiskExposurePage() {
               key: 'exposure',
               label: 'Carried Exposure',
               sortable: true,
-              accessor: (a) => (a.compliance_summary?.failing ?? 0) * 12000,
+              // Sorts on the failing-control COUNT, which is a real number
+              // this row actually has. It used to sort on `failing * 12000`,
+              // which is the same ordering derived from a fabricated rate --
+              // see the note on PER_CONTROL_RATE_UNDECLARED below. Sorting by
+              // the count is honest and gives the identical order, because
+              // multiplying every row by one constant cannot reorder them.
+              accessor: (a) => a.compliance_summary?.failing ?? 0,
             },
           ]}
           renderRow={(agent) => {
@@ -614,7 +697,6 @@ export default function RiskExposurePage() {
             const agentName = agent.name || agent.agent_name || agentId || 'Unnamed'
             const state = agent.lifecycle_state || 'Governed'
             const failing = agent.compliance_summary?.failing ?? 0
-            const exposureAmt = failing * 12000
             return (
               <tr key={agent.id} style={{ borderBottom: '1px solid var(--border)' }} data-testid={`fair-agent-row-${agent.id}`}>
                 <td style={td}>
@@ -663,9 +745,16 @@ export default function RiskExposurePage() {
                   </span>
                 </td>
                 <td style={td}>
-                  <span style={{ fontWeight: 600, color: exposureAmt > 0 ? colors.amber : colors.tealLoom }}>
-                    {fmtMoney({ amount: exposureAmt, currency: effectiveSummary?.currency ?? 'GBP' })}
+                  <span
+                    data-testid={`risk-agent-exposure-${agent.id}`}
+                    style={{ fontWeight: 600, color: exposureAccent(null) }}
+                    title={PER_CONTROL_RATE_UNDECLARED}
+                  >
+                    {fmtMoney(null)}
                   </span>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    {failing} failing {failing === 1 ? 'control' : 'controls'}
+                  </div>
                 </td>
               </tr>
             )
@@ -696,7 +785,7 @@ export default function RiskExposurePage() {
               <StatCard label="ALE" value={fmtMoney(effectiveSummary.totalAle)} sub={`at ${selectedVersion}`} accent={colors.amber} />
               <StatCard label="VaR95" value={fmtMoney(effectiveSummary.totalVar95)} sub={`at ${selectedVersion}`} accent={colors.red} />
               <StatCard label="TVaR" value={fmtMoney(effectiveSummary.totalTvar)} sub={`at ${selectedVersion}`} accent={colors.red} />
-              <StatCard label="Carried" value={fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)} sub={`at ${selectedVersion}`} accent={(effectiveSummary.totalCarried?.amount ?? effectiveSummary.carried?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom} />
+              <StatCard label="Carried" value={fmtMoney(effectiveSummary.totalCarried ?? effectiveSummary.carried)} sub={`at ${selectedVersion}`} accent={exposureAccent(effectiveSummary.totalCarried ?? effectiveSummary.carried)} />
             </div>
           )}
         </div>

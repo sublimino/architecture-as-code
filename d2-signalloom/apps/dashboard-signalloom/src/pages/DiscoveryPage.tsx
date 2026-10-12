@@ -680,12 +680,28 @@ function workloadToClaimAgent(w: DiscoveryWorkload): AgentResponse {
     last_transition_at: w.last_seen_at || new Date().toISOString(),
     last_transition_by: 'system',
     eu_ai_act_risk_class: 'minimal',
+    // A DISCOVERED workload has not been assessed. That is the whole meaning
+    // of "discovered": it was found running, nothing has evaluated it, and
+    // claiming it into governance is what causes it to be evaluated.
+    //
+    // This used to assert 12 controls / 8 passing / 4 pending / score 0.67 for
+    // every workload the claim modal was opened on -- the fourth copy of that
+    // same fabricated summary, and the source of the "67%" that
+    // CryptographyPage's own comment remarks on. The figures were identical
+    // for every workload, which is the tell: a real assessment varies.
+    //
+    // Zero counts with a null score is the honest empty shape, and it is the
+    // one the API itself sends for an unassessed agent (see
+    // api/fakeData.ts:122). `posture_score` is already `number | null` in
+    // types/api.ts, and views/Agents.tsx already branches on
+    // `posture_score !== null` to render "no score" -- so the empty state this
+    // needs was built and this call site simply never used it.
     compliance_summary: {
-      total_controls: 12,
-      passing: 8,
+      total_controls: 0,
+      passing: 0,
       failing: 0,
-      pending: 4,
-      posture_score: 0.67,
+      pending: 0,
+      posture_score: null,
     },
     runtime: {
       namespace: ns,

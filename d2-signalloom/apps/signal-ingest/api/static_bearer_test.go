@@ -270,7 +270,19 @@ func TestStaticBearerDoesNotRetainPlaintextToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dump := range []string{fmt.Sprintf("%+v", a), fmt.Sprintf("%#v", *a)} {
+	// Both verbs take the POINTER, not `*a`. Dereferencing copied the struct,
+	// which holds an atomic.Pointer and therefore a sync/atomic.noCopy, so
+	// `go vet` failed the whole module on `call of fmt.Sprintf copies lock
+	// value`. fmt follows a pointer and prints the same fields either way --
+	// verified, not assumed: `%+v` and `%#v` on a pointer both render the
+	// struct's own fields, so this loses no coverage.
+	//
+	// What this test does NOT inspect, stated so the assertion is not read as
+	// wider than it is: neither verb follows the atomic.Pointer, so the key
+	// slice behind it is never rendered and was never scanned, before or after
+	// this change. The claim is "no plaintext token in the authenticator's
+	// directly-held fields", which is what the struct-level dump can support.
+	for _, dump := range []string{fmt.Sprintf("%+v", a), fmt.Sprintf("%#v", a)} {
 		if strings.Contains(dump, testSentinelToken) {
 			t.Fatalf("authenticator retains the plaintext token: %s", dump)
 		}

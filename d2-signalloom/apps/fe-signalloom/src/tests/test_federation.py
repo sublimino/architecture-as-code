@@ -230,12 +230,20 @@ async def test_federation_proxy_upstream_html_rejection():
 
 
 @pytest.mark.asyncio
-async def test_federation_proxy_upstream_404_fallback():
-    """Test 404 from upstream returns canonical federation fallback with 200 OK."""
+async def test_federation_proxy_upstream_404_route_not_served():
+    """A 404 from upstream means the route is not served; the proxy says so rather than
+    substituting an invented dataset.
+
+    Probed on a subpath with no local derivation. The seven subpaths the
+    dashboard reads (summary/zones/federations/services/policies/identities/
+    events) are derived here instead - from measured sources, with per-field
+    refusals - which is covered by test_federation_real_state.py. Everything
+    else still refuses, and that refusal is what this pins.
+    """
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
-        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/summary").mock(
+        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/bundles").mock(
             return_value=httpx.Response(
                 404,
                 text="404 page not found\n",
@@ -245,12 +253,13 @@ async def test_federation_proxy_upstream_404_fallback():
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "zones" in data
-            assert "federations" in data
-            assert len(data["zones"]) >= 1
+            resp = await client.get("/api/v1/federation/bundles", headers=eap_bearer(EAP_ALICE))
+            assert resp.status_code == 502
+            body = resp.text
+            assert "upstream_route_not_served" in body
+            # No invented federation state in the refusal.
+            for invented in ("zones", "federations", "attestation_success_rate", "signalloom-eu"):
+                assert invented not in body, f"refusal leaked invented field {invented!r}"
 
 
 @pytest.mark.asyncio
@@ -295,21 +304,23 @@ async def test_federation_superadmin_write_acts_for_its_own_tenant_only():
 
 
 @pytest.mark.asyncio
-async def test_federation_proxy_upstream_unregistered_route_fallback():
+async def test_federation_proxy_upstream_unregistered_route_not_served():
     """signal-ingest's registry denial (403 unregistered_route) of a path it does not serve is
-    the same fact as a 404: the canonical fallback is served. Seen live on the 2026-10-03 estate."""
+    the same fact as a 404: it is reported as upstream_route_not_served, distinctly from a
+    reachable-but-broken upstream (upstream_unavailable) and from a real denial (403)."""
     signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 
     with respx.mock(assert_all_called=False) as respx_mock:
-        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/summary").mock(
+        respx_mock.get(f"{signal_ingest_url}/api/v1/federation/bundles").mock(
             return_value=httpx.Response(403, json={"error": "unregistered_route"})
         )
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/api/v1/federation/summary", headers=eap_bearer(EAP_ALICE))
-            assert resp.status_code == 200
-            assert "zones" in resp.json()
+            resp = await client.get("/api/v1/federation/bundles", headers=eap_bearer(EAP_ALICE))
+            assert resp.status_code == 502
+            assert "upstream_route_not_served" in resp.text
+            assert "attestation_success_rate" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -614,5 +625,98 @@ async def test_federation_proxy_spiffe_spoofing_replaced_with_server_minted_iden
             assert spiffe_header is not None
             assert spiffe_header.startswith("spiffe://")
             assert EAP_TENANT_A in spiffe_header or "signalloom" in spiffe_header
+
+
+# ---------------------------------------------------------------------------
+# W9 perturbation probes: is every field a function of the request input and
+# the system's real state?
+# ---------------------------------------------------------------------------
+
+_FEDERATION_READ_SUBPATHS = (
+    "summary",
+    "zones",
+    "federations",
+    "services",
+    "policies",
+    "identities",
+    "events",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("subpath", _FEDERATION_READ_SUBPATHS)
+async def test_w9_federation_unserved_route_does_not_fabricate(subpath):
+    """signal-ingest serves no /api/v1/federation route in production.
+
+    Perturbation: hold the request constant and vary the authenticated tenant
+    (alice/tenant-a vs bob/tenant-b). A field that is a function of real state
+    must either move with the tenant or be absent. A byte-identical 200 body
+    across two different tenants, served from an upstream that answers "I do
+    not serve this route", is a literal.
+    """
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+    bodies = []
+    statuses = []
+    for actor in (EAP_ALICE, EAP_BOB):
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.get(f"{signal_ingest_url}/api/v1/federation/{subpath}").mock(
+                return_value=httpx.Response(403, json={"error": "unregistered_route"})
+            )
+            # The trust-topology collector is the local derivation's source. Held
+            # DOWN here, so the perturbation runs against the weakest path: the
+            # tenant's own registry, labelled modeled. Even there the rows must
+            # move with the tenant.
+            respx_mock.get(
+                "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/trust-topology"
+            ).mock(side_effect=httpx.ConnectError("collector down"))
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get(
+                    f"/api/v1/federation/{subpath}", headers=eap_bearer(actor)
+                )
+                statuses.append(resp.status_code)
+                bodies.append(resp.text)
+
+    assert statuses[0] == statuses[1], f"status moved with tenant for {subpath}: {statuses}"
+
+    if statuses[0] != 200:
+        # Refusal. Nothing further to check: a refusal is not a figure.
+        return
+
+    # 200 is now legitimate - this service derives the measurable part of the
+    # federation view itself (federation_state) when upstream does not serve the
+    # route. But the original defect's signature was a byte-identical 200 across
+    # two tenants, so that signature is still what is forbidden: a 200 whose body
+    # does not move with the tenant is only honest if it carries no measured rows.
+    import json as _json
+
+    def measured_rows(payload) -> int:
+        panels = (
+            payload.values()
+            if isinstance(payload, dict) and "items" not in payload
+            else [payload]
+        )
+        total = 0
+        for panel in panels:
+            if isinstance(panel, dict) and isinstance(panel.get("items"), list):
+                total += len(panel["items"]) if panel.get("available") else 0
+        return total
+
+    if bodies[0] == bodies[1]:
+        rows = measured_rows(_json.loads(bodies[0]))
+        assert rows == 0, (
+            f"/{subpath}: the body is byte-identical across two different "
+            f"authenticated tenants yet reports {rows} measured rows - that is a "
+            f"literal, not state. body={bodies[0][:300]}"
+        )
+
+    # And the deleted dataset's own literals must not be back, as values.
+    for body in bodies:
+        payload = _json.loads(body)
+        flat = _json.dumps(payload)
+        for literal in ('"signalloom-eu"', '"partner-acme"', '"federated"'):
+            assert literal not in flat, (
+                f"/{subpath}: deleted-dataset literal {literal} is back in the response"
+            )
 
 

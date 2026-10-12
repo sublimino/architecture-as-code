@@ -1,0 +1,80 @@
+{
+  "name": "root-pod-nonroot-false-container-true",
+  "level": "unit",
+  "description": "Pod sets runAsNonRoot: false explicitly; the sole container overrides to true. Effective runtime identity is non-root, but PSS restricted forbids an explicit false at EITHER level (\"pod must not set securityContext.runAsNonRoot=false\"), so a restricted namespace rejects this pod. Admissibility is the frame for CIS 5.2.7 (\"Minimize the admission of root containers\"). Found by the external PSA oracle inheritance matrix, not by any hand-authored fixture.",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "root-container-nonroot-true-only",
+        "namespace": "payments"
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          },
+          "runAsNonRoot": false
+        },
+        "containers": [
+          {
+            "name": "app",
+            "image": "registry.example/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 8080,
+                "protocol": "TCP"
+              }
+            ],
+            "env": [
+              {
+                "name": "LOG_LEVEL",
+                "value": "info"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "runAsNonRoot": true
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "tmp",
+            "emptyDir": {}
+          }
+        ]
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "sa-token-automount-disabled": "pass",
+    "no-privileged-containers": "pass",
+    "no-host-pid": "pass",
+    "no-host-ipc": "pass",
+    "no-host-network": "pass",
+    "no-privilege-escalation": "pass",
+    "no-root-containers": "fail",
+    "no-net-raw": "pass",
+    "no-added-capabilities": "pass",
+    "capabilities-dropped-all": "pass",
+    "no-windows-hostprocess": "pass",
+    "no-hostpath-volumes": "pass",
+    "no-host-ports": "pass",
+    "no-secrets-in-env": "pass",
+    "seccomp-runtime-default": "pass",
+    "security-context-applied": "pass",
+    "no-default-namespace": "pass"
+  }
+}

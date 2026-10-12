@@ -652,10 +652,10 @@ func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			newDAG.risk = cfg.AggregateRisk
-			if newDAG.risk.Trend == "" {
-				newDAG.risk.Trend = "stable"
-			}
+			// Retained, not served. The Trend default that used to sit here existed to
+			// keep an authored trend inside the client's up/down/stable union; the
+			// response no longer carries a trend.
+			newDAG.authoredRisk = cfg.AggregateRisk
 			s.dag = newDAG
 			if s.orchestrator != nil {
 				s.orchestrator.dag = newDAG

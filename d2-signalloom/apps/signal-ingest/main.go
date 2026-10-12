@@ -23,6 +23,7 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/agentnono"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/awslogs"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors/ebpf"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/identity"
@@ -608,6 +609,17 @@ func (a landlockDecisionAdapter) Dispatch(ctx context.Context, d obscel.Decision
 	_, _ = a.d.Dispatch(ctx, d, trigger)
 }
 
+func newIngestPipeline(
+	ctx context.Context,
+	signalStore store.SignalStore,
+	bundles []*obscel.Bundle,
+	metrics *policy.Metrics,
+	deduper *collectors.Deduper,
+) (collectors.IngestionSink, *policy.Store, *policy.AsyncAlerter) {
+	storeSink := collectors.NewStoreSink(signalStore)
+	return buildPolicyPipeline(ctx, storeSink, signalStore, bundles, metrics, deduper)
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -618,6 +630,14 @@ func main() {
 	// the store and none of it should be started by a command that exits.
 	if policy.IsReplayInvocation(os.Args) {
 		os.Exit(policy.RunReplayCommand(context.Background(), os.Args, func() (store.SignalStore, error) {
+			return store.NewStoreFromEnv(os.Getenv("SIGNAL_STORE"), os.Getenv("SIGNAL_STORE_DIR"))
+		}))
+	}
+
+	// SLAWS P5-2, ISC-58: `signal-ingest awslogs redrive ...` replays DLQ messages
+	// through the identical projection and deduplication pipeline.
+	if collectors.IsRedriveInvocation(os.Args) {
+		os.Exit(collectors.RunRedriveCommand(context.Background(), os.Args, func() (store.SignalStore, error) {
 			return store.NewStoreFromEnv(os.Getenv("SIGNAL_STORE"), os.Getenv("SIGNAL_STORE_DIR"))
 		}))
 	}
@@ -739,9 +759,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Collector sink adapter backed by signal store
-	storeSink := collectors.NewStoreSink(signalStore)
-
 	// --- W8: idempotent ingest -------------------------------------------------
 	//
 	// Observation.ID is derived precisely so a replay is recognisably the same
@@ -788,10 +805,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	policySink, policyHTTPStore, policyAlerter := buildPolicyPipeline(
-		ctx, storeSink, signalStore, policyBundles, policyMetrics, ingestDeduper)
+	policySink, policyHTTPStore, policyAlerter := newIngestPipeline(
+		ctx, signalStore, policyBundles, policyMetrics, ingestDeduper)
 	if policyAlerter != nil {
 		defer policyAlerter.Close()
+	}
+
+	// Multi-account AWSLogs configuration: validated at boot before the registry starts.
+	// An invalid or duplicate entry is a boot failure (SLAWS D11).
+	if _, err := awslogs.ParseAccounts(os.Getenv(awslogs.EnvAccounts)); err != nil {
+		slog.Error("awslogs account configuration is present and broken; refusing startup",
+			"env", awslogs.EnvAccounts, "error", err)
+		os.Exit(1)
 	}
 
 	// Audit webhook receiver. It takes the POLICY sink, not the raw store sink, so
@@ -799,8 +824,7 @@ func main() {
 	auditReceiver := apiaudit.NewWebhookReceiver(ctx, 0, 0, policySink)
 
 	// Collector registry: constructed and started at boot before HTTP server.
-	// Collector registry: constructed and started at boot before HTTP server.
-	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, workspacesaas, and fixtures collectors to the policy sink.
+	// Registers gcpaudit, baoaudit, spirea, netebpf, k8saudit, kagent, workspacesaas, awslogs, and fixtures collectors to the policy sink.
 	// Reuses the auditReceiver for k8saudit mounting.
 	collectorRegistry := collectors.NewRegistryFromEnvWithReceiver(policySink, auditReceiver)
 

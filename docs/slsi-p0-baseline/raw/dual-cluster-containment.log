@@ -1,0 +1,19 @@
+# Command: make test-e2e-dual-cluster-containment
+# Pinned SHA: 504405b9e7e91efdf5c97bcd701b6511f712f6db
+./scripts/run-e2e-dual-cluster-containment.sh --tap
+=== run 1/1 - evidence /tmp/kusari-e2e/20261011-162450
+1..6
+# evidence: /tmp/kusari-e2e/20261011-162450
+not ok 1 Step 1: Kusari workload deployment reconciled by Flux on the workload cluster
+# (in test file test/e2e-dual-cluster-containment.bats, line 431)
+#   `[ "$status" -eq 0 ]' failed
+ok 2 Step 2: Tenant registration and database claim for tenant kusari
+ok 3 Step 3: Provoke malicious actor via /act/read-passwd
+not ok 4 Step 4: In-sentinel eBPF probe intercepts syscall and emits observation
+# (in test file test/e2e-dual-cluster-containment.bats, line 608)
+#   `[ "$(printf '%s' "$obs" | jq -r '.actor_id')" != "null" ]' failed
+ok 5 Step 5: Pod is frozen and stays frozen past a resync, CPU flatlines at 0 mCPU, Flux reconcile suppressed, 0 restarts
+ok 6 Step 6: Authorised recovery replaces the contained pod with a clean one and lifts the Flux pin
+# evidence: /tmp/kusari-e2e/20261011-162450
+=== evidence root: /tmp/kusari-e2e/20261011-162450
+make: *** [Makefile:1176: test-e2e-dual-cluster-containment] Error 1

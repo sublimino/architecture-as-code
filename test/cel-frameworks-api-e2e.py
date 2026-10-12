@@ -88,13 +88,53 @@ CIS_FIXTURES = _fixtures("cis-kubernetes")
 AIGF_FIXTURES = _fixtures("finos-aigf")
 
 
+#: The seeded agents that get a recorded workload, and the one that gets none.
+#: An agent with no observed workload is the H1 path: a pack whose checks read
+#: only ``object`` is not asked about it at all, so its mapped controls come
+#: back not-evaluated with reason ``no_workload`` -- and it must be reported as
+#: that, not as a failed agent and not as 17 failing CIS controls.
+WITH_WORKLOAD = AGENTS[:4]
+NO_WORKLOAD_AGENT = AGENTS[4]
+
+
+def _check_versions() -> dict[tuple[str, str], set[str]]:
+    """(pack id, check id) -> every pack version that defines that check.
+
+    Used to assert the fe asked the engine at a version that actually carries
+    the check.  The fe groups its calls by each pack's own activated version
+    and treats the caller's ``policyVersion`` as a fallback, so nothing in the
+    request pins the version a verdict was computed at -- only the pack files
+    say which versions are even possible.
+    """
+    out: dict[tuple[str, str], set[str]] = {}
+    for path in sorted(POLICY_ROOT.glob("frameworks/*/*/framework.json")):
+        pack = json.loads(path.read_text(encoding="utf-8"))
+        for control_set in pack["controlSets"]:
+            for control in control_set["controls"]:
+                for check in control["checks"]:
+                    out.setdefault((pack["id"], check["id"]), set()).add(pack["version"])
+    return out
+
+
 def _plan() -> list[dict[str, Any]]:
-    """One seeded agent per row: its object, its agent context, its expectations."""
+    """One seeded agent per row: its object, its agent context, its expectations.
+
+    Every agent with a workload gets a DIFFERENT (CIS fixture, AIGF fixture)
+    pair, and the assignment is rejected outright if two agents end up
+    expecting the same verdict vector.  Under the previous
+    ``CIS[i % n], AIGF[i % m]`` the fixture lists wrapped at different lengths
+    and agents 1 and 5 shared a vector, as did 1 and 4 -- so a verdict landing
+    on the wrong agent, the single defect the per-agent scan exists to prevent,
+    was invisible to this test for those pairs.
+    """
     assert CIS_FIXTURES and AIGF_FIXTURES, "no integration fixtures under policy/frameworks"
-    plan = []
-    for i, agent_id in enumerate(AGENTS):
-        cis = CIS_FIXTURES[i % len(CIS_FIXTURES)]
-        aigf = AIGF_FIXTURES[i % len(AIGF_FIXTURES)]
+    assert len(CIS_FIXTURES) >= len(WITH_WORKLOAD) and len(AIGF_FIXTURES) >= len(WITH_WORKLOAD), (
+        f"need {len(WITH_WORKLOAD)} distinct fixtures per pack, have "
+        f"{len(CIS_FIXTURES)} CIS and {len(AIGF_FIXTURES)} AIGF"
+    )
+    plan: list[dict[str, Any]] = []
+    for i, agent_id in enumerate(WITH_WORKLOAD):
+        cis, aigf = CIS_FIXTURES[i], AIGF_FIXTURES[i]
         plan.append({
             "agent_id": agent_id,
             "object": cis["input"]["object"],
@@ -105,6 +145,28 @@ def _plan() -> list[dict[str, Any]]:
             },
             "fixtures": (cis["name"], aigf["name"]),
         })
+    # The no-workload agent reuses an AIGF context -- there are only as many
+    # AIGF fixtures as agents with workloads -- but it expects NO cis-kubernetes
+    # verdict at all, so its vector is still unique and a verdict mixed up with
+    # it is still visible on the CIS side.
+    aigf = AIGF_FIXTURES[-1]
+    plan.append({
+        "agent_id": NO_WORKLOAD_AGENT,
+        "object": None,
+        "context": aigf["input"]["agent"],
+        "expect": {("finos-aigf", k): v for k, v in aigf["expect"].items()},
+        "fixtures": ("<no workload>", aigf["name"]),
+    })
+
+    seen: dict[tuple[Any, ...], tuple[str, str]] = {}
+    for row in plan:
+        vector = tuple(sorted((f, c, v) for (f, c), v in row["expect"].items()))
+        clash = seen.get(vector)
+        assert clash is None, (
+            f"{row['fixtures']} and {clash} expect identical verdicts across every "
+            "control: a verdict landing on the wrong agent would be invisible"
+        )
+        seen[vector] = row["fixtures"]
     return plan
 
 
@@ -123,7 +185,35 @@ def engine_url(tmp_path_factory):
     proc = subprocess.Popen(
         [str(binary)],
         env={**os.environ, "PORT": str(port), "POLICY_ROOT": str(POLICY_ROOT),
-             "POLICY_BUNDLES_DIR": str(POLICY_ROOT / "bundles"), "POLICY_API_KEYS": ""},
+             "POLICY_BUNDLES_DIR": str(POLICY_ROOT / "bundles"), "POLICY_API_KEYS": "",
+             # SIGNAL_SEGMENT_PSEUDONYM_KEY became REQUIRED, not optional, when
+             # the SLAWS merge added policy/bundles/kusari-cloud-signals, which
+             # declares actor_vars. pkg/obscel then refuses to load the bundle
+             # without a key and the engine exits rather than start -- so this
+             # test failed with "policy-engine did not come up (rc=1)", which
+             # names the symptom and not the cause.
+             #
+             # The refusal is correct and must not be worked around: processing
+             # actor data with no pseudonymisation key is the failure the key
+             # exists to prevent, and a bundle silently skipped would be worse
+             # than a refusal to start.
+             #
+             # This value is deliberately recognisable as a test fixture rather
+             # than a plausible secret, while still being exactly 32 bytes of
+             # hex: "e2" repeated 32 times. Production keys are minted by
+             # scripts/signal-segment-key.sh into a Secret; nothing here should
+             # ever be copied there.
+             #
+             # The length is load-bearing and the error message does not say so.
+             # A 62-character key is rejected with the SAME text as no key at
+             # all -- "declares actor_vars but SIGNAL_SEGMENT_PSEUDONYM_KEY is
+             # not configured" -- while the evaluator had already logged
+             # "pseudonymisation key configured for policy evaluation" for that
+             # very key. So a wrong-length key reads as a missing one, and two
+             # log lines in the same startup appear to contradict each other.
+             # Reported as a finding; the 64 characters here are what actually
+             # makes the engine start.
+             "SIGNAL_SEGMENT_PSEUDONYM_KEY": "e2" * 32},
         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
     )
     url = f"http://127.0.0.1:{port}"
@@ -208,7 +298,8 @@ async def test_every_fixture_verdict_reaches_the_api_for_its_agent_and_control(
                       model_approved = $3,
                       config = config || jsonb_build_object('policy_context', $4::jsonb)
                 WHERE id = $1""",
-            row["agent_id"], json.dumps(row["object"]),
+            row["agent_id"],
+            json.dumps(row["object"]) if row["object"] is not None else None,
             registered if isinstance(registered, bool) else None,
             json.dumps(row["context"]),
         )
@@ -244,6 +335,51 @@ async def test_every_fixture_verdict_reaches_the_api_for_its_agent_and_control(
             if got != verdict:
                 mismatches.append(("scan", row["fixtures"], framework, check, verdict, got))
 
+    # Nothing BEYOND the expectations either: a check the fixtures say nothing
+    # about is a verdict nobody has pinned, and an extra pack reaching an agent
+    # would otherwise pass unremarked.
+    for row in plan:
+        got_keys = {(c["framework"], c["check"]) for c in scan_body["checks"]
+                    if c["agentId"] == str(row["agent_id"])}
+        extra = sorted(got_keys - set(row["expect"]))
+        if extra:
+            mismatches.append(("unexpected-checks", row["fixtures"], extra, None, None, None))
+
+    # Every verdict was computed at a version that actually defines its check.
+    # The fe asks each pack at its own activated version and uses the caller's
+    # policyVersion only as a fallback, so this is the only thing that says the
+    # version a verdict is attributed to is a version that could produce it.
+    allowed_versions = _check_versions()
+    for check in scan_body["checks"]:
+        allowed = allowed_versions.get((check["framework"], check["check"]))
+        if not allowed or check["policyVersion"] not in allowed:
+            mismatches.append(("version", check["framework"], check["check"],
+                               check["policyVersion"], sorted(allowed or ()), None))
+
+    # ---- the agent with no observed workload (H1) -------------------------------
+    assert scan_body["agentsNotFound"] == []
+    no_workload = [g for g in scan_body["controlGaps"] if g["agentId"] == str(NO_WORKLOAD_AGENT)]
+    assert no_workload, "the agent with no workload must be reported, not silently skipped"
+    assert {g["reason"] for g in no_workload} == {"no_workload"}
+    assert {g["stored"] for g in no_workload} == {"pending"}
+    assert {g["framework"] for g in no_workload} == {"cis-kubernetes"}
+    # It is not a failed agent: its AIGF checks were assessed normally.
+    assert str(NO_WORKLOAD_AGENT) not in scan_body["agentsFailed"]
+    assert {c["framework"] for c in scan_body["checks"]
+            if c["agentId"] == str(NO_WORKLOAD_AGENT)} == {"finos-aigf"}
+
+    # ---- the scan's own framework summaries, measured against its own rows ------
+    scan_frameworks = {f["id"]: f for f in scan_body["summary"]["frameworks"]}
+    for pack in ("cis-kubernetes", "finos-aigf"):
+        rows = [c for c in scan_body["checks"] if c["framework"] == pack]
+        assert rows, pack
+        assert scan_frameworks[pack]["totalResults"] == len(rows), pack
+        assert scan_frameworks[pack]["totalControls"] == len({
+            c["controlId"] or (c["controlSet"], c["control"], c["check"]) for c in rows}), pack
+        # A control counted once however many agents assessed it: the row count
+        # is strictly larger here, which is what totalControls used to report.
+        assert scan_frameworks[pack]["totalControls"] < scan_frameworks[pack]["totalResults"], pack
+
     # ---- /compliance/posture: the stored verdict, per agent, per control --------
     by_agent = {a["agent_id"]: {r["control_id"]: r["status"] for r in a["results"]} for a in posture["agents"]}
     for row in plan:
@@ -255,18 +391,40 @@ async def test_every_fixture_verdict_reaches_the_api_for_its_agent_and_control(
             got = by_agent[str(row["agent_id"])].get(control)
             if got != STORED[verdict]:
                 mismatches.append(("posture", row["fixtures"], framework, check, STORED[verdict], got))
+
+    # The no-workload agent's CIS controls: pending, never a verdict about a
+    # workload nobody observed.
+    for (framework, check), control in control_of.items():
+        if framework != "cis-kubernetes":
+            continue
+        got = by_agent[str(NO_WORKLOAD_AGENT)].get(control)
+        if got != "pending":
+            mismatches.append(("no-workload-posture", "<no workload>", framework, check, "pending", got))
     assert mismatches == [], f"{len(mismatches)} mismatches:\n" + "\n".join(map(str, mismatches))
 
     # ---- /compliance/policy/summary: per framework, across the five agents ------
     frameworks = {f["name"]: f for f in policy["frameworks"]}
     for name, pack in (("CIS Kubernetes Benchmark", "cis-kubernetes"),
                        ("FINOS AI Governance Framework", "finos-aigf")):
-        checks = sorted({check for row in plan for (fw, check) in row["expect"] if fw == pack})
-        per_control = {c: [STORED[row["expect"][(pack, c)]] for row in plan] for c in checks}
-        assert frameworks[name]["totalControls"] == len(checks), name
+        # Measured from the scan rather than compared against the seeded
+        # control_count: the catalogue's own count proving it equals itself
+        # said nothing about whether the scan reached every control.
+        assessed = {c["controlId"] for c in scan_body["checks"]
+                    if c["framework"] == pack and c["controlId"]}
+        assert frameworks[name]["totalControls"] == len(assessed), name
+        # Stored status per control, across every agent that has a row for it --
+        # which for cis-kubernetes includes the no-workload agent's pending ones.
+        per_control: dict[str, list[str]] = {}
+        for (framework, check), control in control_of.items():
+            if framework != pack:
+                continue
+            per_control[check] = [
+                by_agent[str(row["agent_id"])].get(control) for row in plan
+                if by_agent[str(row["agent_id"])].get(control) is not None
+            ]
         assert frameworks[name]["passedControls"] == sum(
-            all(s == "pass" for s in v) for v in per_control.values()), name
+            bool(v) and all(s == "pass" for s in v) for v in per_control.values()), name
         assert frameworks[name]["failedControls"] == sum(
             any(s == "fail" for s in v) for v in per_control.values()), name
-    all_stored = [STORED[v] for row in plan for v in row["expect"].values()]
-    assert policy["errored"] == all_stored.count("error")
+    stored_now = [status for agent in by_agent.values() for status in agent.values()]
+    assert policy["errored"] == stored_now.count("error")

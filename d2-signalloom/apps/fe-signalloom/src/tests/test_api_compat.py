@@ -264,6 +264,96 @@ def test_current_compatibility_contracts_are_typed_and_tenant_scoped(client):
         model.model_validate(response.json())
 
 
+def test_policy_summary_reports_uncomputed_exposure_as_null_not_zero(client):
+    """A figure this route cannot compute must say so, not report 0.
+
+    GET /compliance/policy/summary is served from ``agent_compliance_results``,
+    which has no money column (see 004_agent_governance_schema.sql): there is no
+    risk data plane behind this route, so ALE, VaR95, TVaR and carried exposure
+    are genuinely unavailable here. They used to be hardcoded to ``0``, which is
+    indistinguishable on the wire from a real, computed zero -- a clean posture.
+    That is the worst available outcome: the same field name is a true sum on
+    the POST /compliance/policy/scan path and a literal zero here, and a viewer
+    reading "total exposure GBP 0" quotes it as "we carry no risk".
+
+    ``null`` is not addable and cannot render as a currency amount, so a
+    consumer is forced to distinguish "not computed" from "computed as zero".
+    The key SET is unchanged -- this is a value contract change, not a field
+    removal -- so the dashboard keeps deserializing the same shape.
+    """
+    headers = bearer(token_for("alice"))
+    summary = client.get("/api/compliance/policy/summary", headers=headers).json()
+    frameworks = client.get("/api/compliance/policy/frameworks", headers=headers).json()
+
+    for field in ("totalAle", "totalVar95", "totalTvar", "totalCarriedGbp"):
+        assert summary[field] is None, (
+            f"{field} must be null when this route cannot compute it; "
+            f"got {summary[field]!r}, which a client renders as a real figure"
+        )
+    assert summary["carried"] is None, (
+        "carried must be absent rather than a denominated zero: a "
+        "MoneyResponse(amount=0) asserts an exposure of zero was calculated"
+    )
+    # The reporting denomination is still a fact about this tenant even when no
+    # amount exists to denominate, so `currency` stays populated.
+    assert summary["currency"] == "GBP"
+
+    for framework in frameworks:
+        assert framework["totalExposureGbp"] is None, (
+            "per-framework exposure comes from the same absent data plane"
+        )
+        assert framework["exposure"] is None
+
+    # The null is necessary and was not sufficient. A reader cannot tell a deliberate
+    # "not computed" null from a field this version does not implement, from client/server
+    # version skew, from a serialisation bug, or from a crash midway through encoding --
+    # so the null alone made the field silent, not honest, and the blank got filled in by
+    # whoever read it. The refusal below states the cause explicitly, in the same shape
+    # the Go engine's scan-fleet route emits.
+    for carrier, unpriced in (
+        (summary, {"totalAle", "totalVar95", "totalTvar", "totalCarriedGbp", "carried"}),
+        *((fw, {"totalExposureGbp", "exposure"}) for fw in frameworks),
+    ):
+        pricing = carrier.get("pricing")
+        assert pricing is not None, (
+            "pricing absent: the refusal must be a field in the payload, not an absence "
+            "the reader has to notice and interpret"
+        )
+        # NO_RISK_DATA_PLANE, and specifically not the engine's
+        # NO_DECLARED_LOSS_FREQUENCY. The two name different missing things and different
+        # operator actions -- stand up a priced scan, versus declare a control mapping in
+        # the policy pack -- so collapsing them would repeat the mistake the currency path
+        # already made and fixed.
+        assert pricing["status"] == "NO_RISK_DATA_PLANE", (
+            f"status is {pricing['status']!r}; this route's figures are missing because the "
+            "store behind it has no money column, which is a different fault from the "
+            "engine's unmapped-control refusal"
+        )
+        assert pricing["available"] is False
+        # Says what is missing and where, so the reader knows the next action.
+        assert "agent_compliance_results" in pricing["reason"]
+        assert set(pricing["unpricedFields"]) == unpriced, (
+            f"unpricedFields {pricing['unpricedFields']} does not name exactly the money "
+            f"fields this object withheld ({sorted(unpriced)})"
+        )
+        # Empty, not absent: the key set is identical on all three refusing routes, and
+        # this route's cause is not attributable to any particular check.
+        assert pricing["unmappedChecks"] == []
+        # The refusal must not be readable as a figure -- the property that separates it
+        # from an omission and from a zero.
+        with pytest.raises((ValueError, TypeError)):
+            float(pricing["status"])
+
+    # The counts on this route ARE computed from stored rows, so they must stay
+    # real -- this test must not be satisfiable by nulling the whole response.
+    assert summary["totalChecks"] == (
+        summary["passed"] + summary["failed"] + summary["errored"]
+        + (summary["totalChecks"] - summary["passed"] - summary["failed"] - summary["errored"])
+    )
+    assert isinstance(summary["totalChecks"], int)
+    assert isinstance(summary["passed"], int)
+
+
 def test_policy_compliance_compatibility_routes_match_dashboard_contract(client):
     headers = bearer(token_for("alice"))
 
@@ -283,25 +373,56 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     # This assertion is deliberately an exact set rather than a subset check, so that any future
     # field lands here as a conscious contract decision rather than by accident. Removing a *Gbp
     # field IS a breaking change and must be coordinated with the dashboard.
+    # ``totalResults`` is likewise additive: ``totalControls`` used to be the
+    # number of (agent, check) assessment rows, which grows with the fleet, so
+    # it now counts distinct controls and the row count has a field of its own.
+    #
+    # ``pricing`` is the third additive change, and a conscious contract decision made
+    # here rather than noticed later. It carries WHY the money fields above hold a figure
+    # or hold nothing. Nulling them was the previous fix and it was only half of one: a
+    # null is indistinguishable from a field this version does not implement, from
+    # version skew, from a serialisation bug and from a crash mid-encode, so it makes a
+    # field silent rather than honest and a dashboard fills the blank in with zero. The
+    # values stay null -- the figure must not be forgeable -- and the absence now travels
+    # with a machine-readable status and a human reason. The same object appears on the Go
+    # engine's scan-fleet route, so one condition has one signal across all three places
+    # that withhold money; tests/test_refusal_shape_parity.py fails if the two drift.
     assert set(frameworks.json()[0]) == {
-        "id", "name", "versions", "totalControls", "passedControls",
-        "failedControls", "totalExposureGbp", "exposure",
+        "id", "name", "versions", "totalControls", "totalResults", "passedControls",
+        "failedControls", "totalExposureGbp", "exposure", "pricing",
     }
     assert set(summary.json()) == {
         "totalChecks", "passed", "failed", "totalAle", "totalVar95",
         "totalTvar", "totalCarriedGbp", "scanTimestamp", "frameworks",
-        "carried", "currency", "errored", "notEvaluated",
+        "carried", "currency", "errored", "notEvaluated", "pricing",
     }
     assert summary.json()["frameworks"] == frameworks.json()
 
     # A denominated figure must actually be denominated: a null currency here would mean the new
     # fields are decoration and a consumer still has nothing to convert from.
     assert summary.json()["currency"] == "GBP"
-    assert summary.json()["carried"]["currency"] == "GBP"
-    assert frameworks.json()[0]["exposure"]["currency"] == "GBP"
-    # And the twins must agree with the legacy fields they mirror, or the two will drift.
-    assert summary.json()["carried"]["amount"] == summary.json()["totalCarriedGbp"]
-    assert frameworks.json()[0]["exposure"]["amount"] == frameworks.json()[0]["totalExposureGbp"]
+
+    # The twins must agree with the legacy fields they mirror, or the two will
+    # drift -- and they must agree about ABSENCE too. This route computes no
+    # exposure (no money column behind it), so both halves of each pair are
+    # null together; the failure this guards against is one half going null
+    # while the other reports 0, which would let a consumer pick the zero and
+    # render a fabricated clean posture. See
+    # test_policy_summary_reports_uncomputed_exposure_as_null_not_zero.
+    def assert_twins_agree(denominated, legacy):
+        if legacy is None:
+            assert denominated is None, (
+                "a null *Gbp figure must not keep a denominated zero beside it"
+            )
+            return
+        assert denominated is not None
+        assert denominated["currency"] == "GBP"
+        assert denominated["amount"] == legacy
+
+    assert_twins_agree(summary.json()["carried"], summary.json()["totalCarriedGbp"])
+    assert_twins_agree(
+        frameworks.json()[0]["exposure"], frameworks.json()[0]["totalExposureGbp"]
+    )
 
 
 def test_discovery_detail_reads_persisted_tenant_account(client, monkeypatch):
@@ -442,8 +563,15 @@ def test_policy_scan_without_the_engine_reports_nothing_rather_than_a_db_verdict
                     "framework_version": "v1.8.0",
                 }]
             if "FROM agent_registry" in query:
+                # H1: cis-kubernetes reads only ``object``, so an agent with no
+                # recorded workload is never sent to it -- and then the engine
+                # is never asked, which is not the path under test here.
                 return [{"id": uuid.UUID("a0000000-0000-0000-0000-000000000001"), "name": "a",
-                         "model_approved": None, "policy_context": None, "workload_spec": None}]
+                         "model_approved": None, "policy_context": None,
+                         "workload_spec": json.dumps({
+                             "apiVersion": "v1", "kind": "Pod",
+                             "metadata": {"name": "a", "namespace": "agents"},
+                             "spec": {"containers": [{"name": "runtime", "image": "i"}]}})}]
             return []  # auth and binding reads
 
     class PolicyPool:
@@ -2130,7 +2258,14 @@ def test_agent_telemetry_endpoint_side_effect_free(client, monkeypatch):
 
 
 def test_agent_telemetry_pushdown_filters(client, monkeypatch):
-    """SFAGENTS-P3-1: Verifies pushdown query parameters (layer, source, limit) filter telemetry observations."""
+    """SFAGENTS-P3-1 (revised by W11): filter params echo back, and with no telemetry
+    source wired the route refuses rather than inventing observations to filter.
+
+    This test previously pinned a fabrication: it asserted >=3 observations and
+    source_health == "healthy" against a route that queries no observation store at all,
+    so the observations it filtered were literals selected by agent-ID substring. The
+    filter-echo contract is still worth pinning; the invented population is not.
+    """
     async def mock_get_pool():
         return None
 
@@ -2141,44 +2276,41 @@ def test_agent_telemetry_pushdown_filters(client, monkeypatch):
     with api_compat._STORE_LOCK:
         agent_id = list(api_compat._AGENTS["tenant-a"].keys())[0]
 
-    # Unfiltered
+    # Unfiltered: no source is wired, so the route must say so and return nothing.
     res_all = client.get(f"/api/agents/{agent_id}/telemetry", headers=bearer(token_for("alice")))
     assert res_all.status_code == 200
     data_all = res_all.json()
-    assert len(data_all["observations"]) >= 3
-    assert data_all["source_health"] == "healthy"
+    assert data_all["observations"] == []
+    assert data_all["total_count"] == 0
+    assert data_all["source_health"] == "unavailable"
+    assert data_all["evidence_state"] == "unavailable"
+    assert data_all["reason"]
 
-    # Filter by layer
+    # Filter params are echoed in pushdown_filters so a caller can see what was requested.
     res_layer = client.get(
         f"/api/agents/{agent_id}/telemetry?layer=LayerKernelSocket",
         headers=bearer(token_for("alice")),
     )
     assert res_layer.status_code == 200
-    data_layer = res_layer.json()
-    assert len(data_layer["observations"]) == 1
-    assert data_layer["observations"][0]["layer"] == "LayerKernelSocket"
-    assert data_layer["pushdown_filters"]["layer"] == "LayerKernelSocket"
+    assert res_layer.json()["pushdown_filters"]["layer"] == "LayerKernelSocket"
 
-    # Filter by source substring
     res_source = client.get(
         f"/api/agents/{agent_id}/telemetry?source=frostdb",
         headers=bearer(token_for("alice")),
     )
     assert res_source.status_code == 200
-    data_source = res_source.json()
-    assert len(data_source["observations"]) == 1
-    assert "frostdb" in data_source["observations"][0]["source"].lower()
-    assert data_source["pushdown_filters"]["source"] == "frostdb"
+    assert res_source.json()["pushdown_filters"]["source"] == "frostdb"
 
-    # Limit filter
+    # limit is validated (1..500) but is NOT advertised as a pushdown: nothing received it.
     res_limit = client.get(
         f"/api/agents/{agent_id}/telemetry?limit=1",
         headers=bearer(token_for("alice")),
     )
     assert res_limit.status_code == 200
-    data_limit = res_limit.json()
-    assert len(data_limit["observations"]) == 1
-    assert data_limit["pushdown_filters"]["limit"] == 1
+    assert "limit" not in res_limit.json()["pushdown_filters"]
+    assert client.get(
+        f"/api/agents/{agent_id}/telemetry?limit=0", headers=bearer(token_for("alice"))
+    ).status_code == 422
 
 
 def test_agent_telemetry_unknown_agent_404(client, monkeypatch):
@@ -2235,7 +2367,12 @@ def test_agent_telemetry_discovered_agent_success(client, monkeypatch):
     assert res.status_code == 200
     data = res.json()
     assert data["agent_id"] == "agent-cardvault"
-    assert len(data["observations"]) > 0
+    # W11: this test's subject is agent RESOLUTION (a discovered agent must not 404).
+    # It previously also asserted a non-empty observation list, which only held because
+    # the handler invented observations from the agent-ID string. No telemetry source is
+    # wired to this route, so the honest population is empty and the refusal is labelled.
+    assert data["observations"] == []
+    assert data["evidence_state"] == "unavailable"
 
 
 def test_agent_sentinel_containment_feedback_model():

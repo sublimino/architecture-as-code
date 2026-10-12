@@ -37,6 +37,7 @@ import (
 // (which is what lets this package register it without an import cycle), so
 // BindTenant is applied here, where both sides are in scope.
 type AWSLogsCollector struct {
+	name     string
 	mode     Mode
 	sink     IngestionSink
 	cfg      awslogs.AWSCollectorConfig
@@ -52,6 +53,37 @@ func NewAWSLogsCollector(mode Mode, sink IngestionSink) *AWSLogsCollector {
 	return NewAWSLogsCollectorWithConfig(mode, sink, awslogs.ConfigFromEnv())
 }
 
+// NewAWSLogsCollectorsFromEnv creates AWSLogsCollector instances from the environment.
+// If COLLECTOR_AWSLOGS_ACCOUNTS is populated, it returns one collector per declared account,
+// where the first retains Name() "awslogs" and subsequent instances report "awslogs/<account_id>".
+// If COLLECTOR_AWSLOGS_ACCOUNTS is empty or unset, it returns a single collector configured from
+// the individual AWSLOGS_* environment variables.
+func NewAWSLogsCollectorsFromEnv(mode Mode, sink IngestionSink) ([]Collector, error) {
+	cfgs, err := awslogs.AccountsFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	if len(cfgs) == 0 {
+		return []Collector{NewAWSLogsCollector(mode, sink)}, nil
+	}
+
+	cols := make([]Collector, len(cfgs))
+	for i, cfg := range cfgs {
+		name := "awslogs"
+		if i > 0 {
+			if cfg.AccountID != "" {
+				name = fmt.Sprintf("awslogs/%s", cfg.AccountID)
+			} else {
+				name = fmt.Sprintf("awslogs/%d", i)
+			}
+		}
+		c := NewAWSLogsCollectorWithConfig(mode, sink, cfg)
+		c.name = name
+		cols[i] = c
+	}
+	return cols, nil
+}
+
 // NewAWSLogsCollectorWithConfig creates an AWSLogsCollector for an explicitly supplied
 // account configuration.
 //
@@ -62,7 +94,12 @@ func NewAWSLogsCollectorWithConfig(mode Mode, sink IngestionSink, cfg awslogs.AW
 	return &AWSLogsCollector{mode: mode, sink: sink, cfg: cfg, opts: opts}
 }
 
-func (c *AWSLogsCollector) Name() string { return "awslogs" }
+func (c *AWSLogsCollector) Name() string {
+	if c.name != "" {
+		return c.name
+	}
+	return "awslogs"
+}
 
 // Mode returns the configured mode. The v1 stub hard-coded live (§8).
 func (c *AWSLogsCollector) Mode() Mode { return c.mode }

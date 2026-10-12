@@ -1,0 +1,72 @@
+{
+  "name": "no-privilege-escalation--windows-pod-omits-the-field",
+  "level": "unit",
+  "description": "A Windows pod (spec.os.name == 'windows') whose container omits allowPrivilegeEscalation. The field is Linux-only and a Windows pod cannot set it, so Pod Security Admission exempts Windows pods; demanding it made a conformant Windows workload impossible to satisfy (oracle class B, the one divergence in the pack=fail / oracle=allow direction).",
+  "input": {
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "agent-alpha",
+        "namespace": "tenant-demo",
+        "labels": {
+          "data_classification": "confidential",
+          "ai_human_oversight": "required",
+          "policy_version": "v2.0.0"
+        },
+        "annotations": {
+          "osramp.io/pii-handling": "pseudonymised",
+          "osramp.io/data-retention": "180d",
+          "osramp.io/approval-gate": "required",
+          "osramp.io/override-contact": "ai-ops@example.com"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "agent-alpha",
+        "automountServiceAccountToken": false,
+        "securityContext": {},
+        "containers": [
+          {
+            "name": "agent",
+            "image": "ghcr.io/controlplaneio/agent@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "securityContext": {
+              "windowsOptions": {
+                "runAsUserName": "ContainerUser"
+              }
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              }
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/readyz",
+                "port": 8080
+              }
+            }
+          }
+        ],
+        "os": {
+          "name": "windows"
+        }
+      }
+    },
+    "agent": {},
+    "request": {}
+  },
+  "expect": {
+    "no-privilege-escalation": "pass"
+  }
+}

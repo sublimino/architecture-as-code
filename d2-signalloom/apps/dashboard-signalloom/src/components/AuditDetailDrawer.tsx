@@ -26,6 +26,7 @@ const EVENT_COLORS: Record<string, string> = {
   'nhi.dismissed': 'var(--amber)',
   'tenant.frameworks_updated': 'var(--violet)',
   'tenant.preferences_updated': 'var(--violet)',
+  'tenant.risk_profile_updated': 'var(--violet)',
   'user.currency_updated': 'var(--violet)',
   'consent.accepted': 'var(--teal)',
   'cookie.preferences_updated': 'var(--violet)',

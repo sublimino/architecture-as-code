@@ -346,13 +346,28 @@ class TestMalformedRequests:
 
         This is NOT a 500 (no unhandled exception) — the proxy's error
         handling correctly converts ConnectError to 502.
+
+        504 IS ALSO CORRECT, and its absence from the allow-list below was the
+        defect rather than the proxy's behaviour. signal_fusion.py:50-53
+        deliberately maps httpx.TimeoutException to 504 upstream_timeout,
+        distinct from the 502 upstream_unavailable it returns for a connect
+        error. Both describe "upstream unreachable" and they are deliberately
+        NOT the same signal: 502 says the host refused, 504 says it never
+        answered, and an operator acts differently on each. Whether this test
+        sees one or the other depends on whether the unroutable test address
+        refuses immediately or the connect attempt elapses, which is an
+        environment property and not a property of the proxy. Asserting only
+        502 made the test fail on a correct outcome, which is why it was red on
+        this file at base 19d7bf03 as well as here.
         """
         dep = _override_tenant()
         try:
             resp = client.get("/api/signals/actors/")
-            # Trailing slash redirects to list-actors -> upstream unreachable -> 502
-            # or 307 redirect, both are acceptable
-            assert resp.status_code in (502, 307, 200), (
+            # Trailing slash redirects to list-actors -> upstream unreachable,
+            # which is 502 (refused) or 504 (never answered), or a 307 redirect,
+            # or 200 if something answers. A 500 would be the real failure here:
+            # it would mean an unhandled exception rather than a handled refusal.
+            assert resp.status_code in (502, 504, 307, 200), (
                 f"Empty actor_id returned {resp.status_code}"
             )
         finally:

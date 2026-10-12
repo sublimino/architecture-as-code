@@ -1,7 +1,7 @@
 {
   "name": "root-pod-uid-0-container-uid-1000",
   "level": "unit",
-  "description": "Pod runAsUser: 0, container overrides runAsUser: 1000.",
+  "description": "Pod runAsUser: 0, container overrides runAsUser: 1000. PSA rejects on both counts: runAsUser must not be 0 at any level, and no runAsNonRoot is set anywhere.",
   "input": {
     "object": {
       "apiVersion": "v1",
@@ -65,7 +65,7 @@
     "no-host-ipc": "pass",
     "no-host-network": "pass",
     "no-privilege-escalation": "pass",
-    "no-root-containers": "pass",
+    "no-root-containers": "fail",
     "no-net-raw": "pass",
     "no-added-capabilities": "pass",
     "capabilities-dropped-all": "pass",

@@ -1,3 +1,4 @@
+import { requirePriced } from '../money/money'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -214,7 +215,7 @@ describe('AgentPosturePage — framework coverage', () => {
     const expected = checks.reduce((sum, c) => sum + c.carried.amount, 0)
     // Asserted as a number. jsdom reports en-US, so a GBP total and a USD total
     // can render to the same glyphs and a string assertion would not care.
-    expect(buildPostureSummary(checks).totalCarried.amount).toBe(expected)
+    expect(requirePriced(buildPostureSummary(checks).totalCarried, "built totalCarried").amount).toBe(expected)
     expect(expected).toBeGreaterThan(0)
 
     renderPage()

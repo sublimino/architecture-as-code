@@ -48,6 +48,7 @@
     "audit-label": "fail",
     "log-volume-mount": "fail",
     "log-format-annotation": "fail",
-    "owner-label": "fail"
+    "owner-label": "fail",
+    "no-host-ipc": "pass"
   }
 }

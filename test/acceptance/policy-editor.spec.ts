@@ -19,10 +19,10 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
-  test("mounts CEL policy editor on /policies with syntax validation and live diagnostics", async ({ page }) => {
+  test("mounts CEL policy editor on /policies with syntax validation and in-editor diagnostics", async ({ page }) => {
     await page.goto(`${BASE}/policies`, { waitUntil: "domcontentloaded" });
 
     await expect(
@@ -134,7 +134,7 @@ test.describe("Surfaces 7 & 8: Policy Editor & Compliance (Mobile Viewport 375x6
   test.use({ viewport: { width: 375, height: 667 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("renders responsive policy editor workspace and compliance cards on mobile", async ({ page }) => {
@@ -158,7 +158,7 @@ test.describe("Surfaces 7 & 8: Adversarial Policy and Compliance Endpoint Contra
 
   test("validates CEL syntax errors returning 422 with error diagnostics", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/policies/validate`, {
@@ -173,7 +173,7 @@ test.describe("Surfaces 7 & 8: Adversarial Policy and Compliance Endpoint Contra
 
   test("validates valid CEL expression returning valid=true", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/policies/validate`, {
@@ -187,7 +187,7 @@ test.describe("Surfaces 7 & 8: Adversarial Policy and Compliance Endpoint Contra
 
   test("querying non-existent framework ID returns 404 with structured error envelope", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.get(`${BASE}/api/v1/compliance/frameworks/non-existent-framework-xyz`, {
@@ -202,7 +202,7 @@ test.describe("Surfaces 7 & 8: Adversarial Policy and Compliance Endpoint Contra
 
   test("posture calculation endpoint bounds posture_score in [0.0, 100.0]", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/compliance/posture/calculate`, {

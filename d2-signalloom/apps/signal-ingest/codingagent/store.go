@@ -73,8 +73,11 @@ type OrderingResult struct {
 	Confidence    OrderingConfidence `json:"confidence"`     // "monotonic_anchor" | "skew_exceeded" | "skew_bounded"
 	EarlierRecord string             `json:"earlier_record"` // empty if uncertain
 	TimeDeltaMs   float64            `json:"time_delta_ms"`
-	SkewBoundMs   float64            `json:"skew_bound_ms"`
-	Explanation   string             `json:"explanation"`
+	// SkewBoundMs is the clock-skew uncertainty bound actually consulted to reach the
+	// verdict. It is nil on the intra-session monotonic-anchor path, where ordering comes
+	// from the sequence and no clock skew was measured: no bound is not a zero bound.
+	SkewBoundMs *float64 `json:"skew_bound_ms"`
+	Explanation string   `json:"explanation"`
 }
 
 // AggregateFilter specifies filter criteria for aggregate computation.
@@ -324,7 +327,9 @@ func (s *MemoryStore) ResolveOrdering(ctx context.Context, tenantID string, recA
 
 	// Intra-workstation case: same session
 	if recA.Event.SessionID == recB.Event.SessionID {
-		// Use monotonic sequence (ElapsedS, StepCount)
+		// Use monotonic sequence (ElapsedS, StepCount) as the ordering anchor. The sort
+		// key is deliberately NOT published as a duration: it is a synthetic rank, and
+		// elapsed_s*1e6 bears no relation to milliseconds.
 		seqA := int64(recA.Event.Kanban.ElapsedS)*1000000 + int64(recA.Event.Metrics.StepCount)
 		seqB := int64(recB.Event.Kanban.ElapsedS)*1000000 + int64(recB.Event.Metrics.StepCount)
 
@@ -333,27 +338,25 @@ func (s *MemoryStore) ResolveOrdering(ctx context.Context, tenantID string, recA
 			earlier = idB
 		}
 
+		// time_delta_ms must carry milliseconds, so derive it from the declared
+		// timestamps -- the same quantity the inter-session branch reports.
+		timeA, timeB := parseEventTime(recA.Event.Timestamp), parseEventTime(recB.Event.Timestamp)
+		timeDeltaMs := math.Abs(float64(timeA.Sub(timeB).Nanoseconds()) / 1e6)
+
 		return &OrderingResult{
 			RecordA:       idA,
 			RecordB:       idB,
 			Verdict:       OrderingDefinite,
 			Confidence:    ConfidenceMonotonicAnchor,
 			EarlierRecord: earlier,
-			TimeDeltaMs:   math.Abs(float64(seqA - seqB)),
-			SkewBoundMs:   0,
-			Explanation:   "Ordered definitively via intra-workstation monotonic anchor",
+			TimeDeltaMs:   timeDeltaMs,
+			SkewBoundMs:   nil, // no clock skew was consulted on this path
+			Explanation:   "Ordered definitively via intra-workstation monotonic anchor; clock skew not consulted",
 		}, nil
 	}
 
 	// Inter-workstation case: cross-session
-	timeA, errA := time.Parse(time.RFC3339Nano, recA.Event.Timestamp)
-	if errA != nil {
-		timeA, _ = time.Parse(time.RFC3339, recA.Event.Timestamp)
-	}
-	timeB, errB := time.Parse(time.RFC3339Nano, recB.Event.Timestamp)
-	if errB != nil {
-		timeB, _ = time.Parse(time.RFC3339, recB.Event.Timestamp)
-	}
+	timeA, timeB := parseEventTime(recA.Event.Timestamp), parseEventTime(recB.Event.Timestamp)
 
 	timeDelta := timeA.Sub(timeB)
 	timeDeltaMs := math.Abs(float64(timeDelta.Nanoseconds()) / 1e6)
@@ -370,7 +373,7 @@ func (s *MemoryStore) ResolveOrdering(ctx context.Context, tenantID string, recA
 			Confidence:    ConfidenceSkewBounded,
 			EarlierRecord: "",
 			TimeDeltaMs:   timeDeltaMs,
-			SkewBoundMs:   maxSkewMs,
+			SkewBoundMs:   &maxSkewMs,
 			Explanation: fmt.Sprintf(
 				"Causal order is uncertain: observed delta (%.2f ms) is within cross-workstation clock-skew uncertainty bound (%.2f ms)",
 				timeDeltaMs, maxSkewMs,
@@ -391,10 +394,40 @@ func (s *MemoryStore) ResolveOrdering(ctx context.Context, tenantID string, recA
 		Confidence:    ConfidenceSkewExceeded,
 		EarlierRecord: earlier,
 		TimeDeltaMs:   timeDeltaMs,
-		SkewBoundMs:   maxSkewMs,
+		SkewBoundMs:   &maxSkewMs,
 		Explanation: fmt.Sprintf(
 			"Ordered with high confidence: observed delta (%.2f ms) exceeds clock-skew bound (%.2f ms)",
 			timeDeltaMs, maxSkewMs,
 		),
 	}, nil
+}
+
+// parseEventTime parses a declared event timestamp, tolerating RFC3339 without
+// fractional seconds. A zero time is returned for an unparseable value; callers that
+// require a parseable timestamp validate it on ingest.
+func parseEventTime(ts string) time.Time {
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t
+	}
+	t, _ := time.Parse(time.RFC3339, ts)
+	return t
+}
+
+// ComputeClockSkewMs returns server_time - client_declared_time in milliseconds for a
+// single event, WITHOUT persisting anything. Read-only callers (notably the ordering
+// evaluator) need the skew estimate but must not mutate the tenant's record set:
+// persisting from a read route makes every downstream aggregate a function of the
+// caller's request body rather than of observed telemetry.
+func ComputeClockSkewMs(event *CodingAgentTelemetry) (float64, error) {
+	if event == nil {
+		return 0, errors.New("codingagent: event cannot be nil")
+	}
+	clientTime, err := time.Parse(time.RFC3339Nano, event.Timestamp)
+	if err != nil {
+		clientTime, err = time.Parse(time.RFC3339, event.Timestamp)
+		if err != nil {
+			return 0, fmt.Errorf("codingagent: invalid timestamp %q: %w", event.Timestamp, err)
+		}
+	}
+	return float64(time.Now().UTC().Sub(clientTime).Nanoseconds()) / 1e6, nil
 }

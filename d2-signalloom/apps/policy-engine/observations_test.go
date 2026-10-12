@@ -2,16 +2,27 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
+
+const testSegmentRootKeyHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+
+func TestMain(m *testing.M) {
+	if os.Getenv("SIGNAL_SEGMENT_PSEUDONYM_KEY") == "" {
+		_ = os.Setenv("SIGNAL_SEGMENT_PSEUDONYM_KEY", testSegmentRootKeyHex)
+	}
+	os.Exit(m.Run())
+}
 
 // shippedBundlesDir is the real Flux-reconciled tree, reached from
 // apps/policy-engine. Asserting against it rather than a copy is what proves
@@ -300,6 +311,8 @@ func newObservationHandler(t *testing.T, dir string) http.HandlerFunc {
 		t.Fatal(err)
 	}
 	store := NewPolicyStore(engine)
+	key, _ := hex.DecodeString(testSegmentRootKeyHex)
+	store.SetPseudonymConfig(key, 1)
 	if _, err := store.LoadObservationBundles(dir); err != nil {
 		t.Fatalf("LoadObservationBundles(%s): %v", dir, err)
 	}
@@ -380,7 +393,7 @@ func TestEvaluateObservationAgainstShippedBundle(t *testing.T) {
 	// mode. Asserting the SET rather than a single element is what keeps this
 	// honest: a bundle silently missing from the dry-run surface is the defect
 	// this line exists to catch, and a length-1 check could no longer see it.
-	wantBundles := map[string]bool{"kusari-iam-change@1.0.0": true, "kusari-cloud-signals@1.0.0": true}
+	wantBundles := map[string]bool{"kusari-iam-change@1.0.0": true, "kusari-cloud-signals@1.1.0": true}
 	for _, b := range resp.Bundles {
 		if !wantBundles[b] {
 			t.Errorf("unexpected bundle %q in the dry-run response", b)
@@ -518,5 +531,282 @@ func TestDefaultBundlesDirIsTheConfigMapMount(t *testing.T) {
 	}
 	if BundlesDirEnv != "POLICY_BUNDLES_DIR" {
 		t.Fatalf("env var name drifted: %q", BundlesDirEnv)
+	}
+}
+
+// TestBootRefusesActorVars asserts that booting without pseudonymisation key material
+// refuses to load any bundle that declares actor_vars (fail-closed contract).
+func TestBootRefusesActorVars(t *testing.T) {
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_KEY", "")
+
+	dir := writeFixtureBundles(t)
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewPolicyStore(engine)
+	_, err = store.LoadObservationBundles(dir)
+	if err == nil {
+		t.Fatal("expected LoadObservationBundles to fail when actor_vars is declared but no key is configured")
+	}
+	if !strings.Contains(err.Error(), "SIGNAL_SEGMENT_PSEUDONYM_KEY is not configured") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// TestRegisteredDryRun asserts that API-registered bundles with actor_vars fail without key
+// and succeed (with pseudonymised vars and dry_run: true) when key is configured.
+func TestRegisteredDryRun(t *testing.T) {
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Without key configured: registering bundle with actor_vars fails
+	storeNoKey := NewPolicyStore(engine)
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_KEY", "")
+	bundleWithActors := &PolicyBundle{
+		FrameworkID: "test-actors",
+		Version:     "v1.0.0",
+		ActorVars:   []string{"admin_actors"},
+		Vars:        map[string][]string{"admin_actors": {"arn:aws:iam::1:user/admin"}},
+		Rules:       []PolicyRule{{ID: "r", Name: "n", CELExpression: `agent.model != ""`}},
+	}
+	err = storeNoKey.RegisterBundle("tenant-a", bundleWithActors)
+	if err == nil {
+		t.Fatal("expected RegisterBundle to fail when bundle declares actor_vars and no key configured")
+	}
+
+	// Over HTTP: returns 400
+	handlersNoKey := NewPolicyEngineHandlers(storeNoKey, engine)
+	body, _ := json.Marshal(bundleWithActors)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies/bundles", bytes.NewReader(body))
+	req.Header.Set("X-Tenant-ID", "tenant-a")
+	w := httptest.NewRecorder()
+	handlersNoKey.HandleRegisterBundle(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when registering bundle with actor_vars without key, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 2. With key configured: succeeds and pseudonymises actor_vars
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_KEY", testSegmentRootKeyHex)
+	storeWithKey := NewPolicyStore(engine)
+	key, _ := hex.DecodeString(testSegmentRootKeyHex)
+	storeWithKey.SetPseudonymConfig(key, 1)
+
+	handlersWithKey := NewPolicyEngineHandlers(storeWithKey, engine)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/policies/bundles", bytes.NewReader(body))
+	req2.Header.Set("X-Tenant-ID", "tenant-a")
+	w2 := httptest.NewRecorder()
+	handlersWithKey.HandleRegisterBundle(w2, req2)
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("expected 201 when registering with key, got %d: %s", w2.Code, w2.Body.String())
+	}
+	var registered PolicyBundle
+	if err := json.Unmarshal(w2.Body.Bytes(), &registered); err != nil {
+		t.Fatal(err)
+	}
+	if !registered.DryRun {
+		t.Error("registered bundle must be marked dry_run")
+	}
+	if registered.Vars["admin_actors"][0] == "arn:aws:iam::1:user/admin" {
+		t.Error("registered bundle actor_vars must be pseudonymised, got cleartext")
+	}
+	if len(registered.Vars["admin_actors"][0]) != 64 {
+		t.Errorf("expected 64-hex pseudonym in registered bundle vars, got %q", registered.Vars["admin_actors"][0])
+	}
+}
+
+// TestEvaluateObservationUsesThePseudonymisedActorAndAllowlists asserts that cleartext actors
+// are pseudonymised before evaluation, allowlists match pseudonymised identities, and cleartext
+// allowlists against pseudonymised actors do not fire.
+func TestEvaluateObservationUsesThePseudonymisedActorAndAllowlists(t *testing.T) {
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_KEY", testSegmentRootKeyHex)
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_EPOCH", "1")
+
+	dir := t.TempDir()
+	bundleYAML := `
+id: allowlist-test-bundle
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+vars:
+  allowed_actors:
+    - "arn:aws:iam::123456789012:user/allowed-admin"
+actor_vars: [allowed_actors]
+rules:
+  - id: check-allowed
+    name: check allowed
+    severity: high
+    expression: |-
+      obs.actor in vars.allowed_actors
+  - id: check-not-allowed
+    name: check not allowed
+    severity: high
+    expression: |-
+      !(obs.actor in vars.allowed_actors)
+`
+	p := filepath.Join(dir, "kusari", "allowlist.yaml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(bundleYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewPolicyStore(engine)
+	key, _ := hex.DecodeString(testSegmentRootKeyHex)
+	store.SetPseudonymConfig(key, 1)
+
+	if _, err := store.LoadObservationBundles(dir); err != nil {
+		t.Fatalf("LoadObservationBundles: %v", err)
+	}
+
+	ev, err := obscel.NewEvaluator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewObservationHandlers(store, ev).HandleEvaluateObservation
+
+	// 1. Observation with cleartext allowed actor (actor_is_pseudonym: false)
+	// Must match check-allowed rule and NOT match check-not-allowed rule.
+	// Finding.Actor must be the 64-hex pseudonym, not cleartext!
+	w := postObservation(t, h, `{
+	  "tenant_id": "kusari",
+	  "actor_is_pseudonym": false,
+	  "observation": {
+	    "id": "obs-allowed",
+	    "timestamp": "2026-10-04T08:00:00Z",
+	    "layer": "cloud_control_plane",
+	    "actor": "arn:aws:iam::123456789012:user/allowed-admin"
+	  }
+	}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var resp EvaluateObservationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Findings) != 1 || resp.Findings[0].RuleID != "check-allowed" {
+		t.Fatalf("expected 1 finding for check-allowed, got %+v", resp.Findings)
+	}
+	if resp.Findings[0].Actor == "arn:aws:iam::123456789012:user/allowed-admin" {
+		t.Errorf("Finding.Actor must be pseudonym, got cleartext ARN: %q", resp.Findings[0].Actor)
+	}
+	if len(resp.Findings[0].Actor) != 64 {
+		t.Errorf("Finding.Actor must be 64-character pseudonym, got %q", resp.Findings[0].Actor)
+	}
+
+	// 2. Observation with non-allowed actor
+	w2 := postObservation(t, h, `{
+	  "tenant_id": "kusari",
+	  "actor_is_pseudonym": false,
+	  "observation": {
+	    "id": "obs-other",
+	    "timestamp": "2026-10-04T08:00:00Z",
+	    "layer": "cloud_control_plane",
+	    "actor": "arn:aws:iam::123456789012:user/unauthorized"
+	  }
+	}`, nil)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w2.Code, w2.Body.String())
+	}
+	var resp2 EvaluateObservationResponse
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp2); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp2.Findings) != 1 || resp2.Findings[0].RuleID != "check-not-allowed" {
+		t.Fatalf("expected 1 finding for check-not-allowed, got %+v", resp2.Findings)
+	}
+
+	// 3. Cleartext actor with actor_is_pseudonym: true should NOT match pseudonymised allowlist
+	w3 := postObservation(t, h, `{
+	  "tenant_id": "kusari",
+	  "actor_is_pseudonym": true,
+	  "observation": {
+	    "id": "obs-fake-pseudonym",
+	    "timestamp": "2026-10-04T08:00:00Z",
+	    "layer": "cloud_control_plane",
+	    "actor": "arn:aws:iam::123456789012:user/allowed-admin"
+	  }
+	}`, nil)
+	var resp3 EvaluateObservationResponse
+	json.Unmarshal(w3.Body.Bytes(), &resp3)
+	if len(resp3.Findings) != 1 || resp3.Findings[0].RuleID != "check-not-allowed" {
+		t.Fatalf("cleartext actor with actor_is_pseudonym:true must not match pseudonymised bundle var, got %+v", resp3.Findings)
+	}
+}
+
+// TestEvaluateObservationReproducesTheKusariGolden asserts that evaluating the Kusari corpus
+// through HandleEvaluateObservation reproduces the exact canonical findings in kusari-canonical-findings.txt.
+func TestEvaluateObservationReproducesTheKusariGolden(t *testing.T) {
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_KEY", testSegmentRootKeyHex)
+	t.Setenv("SIGNAL_SEGMENT_PSEUDONYM_EPOCH", "1")
+
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewPolicyStore(engine)
+	key, _ := hex.DecodeString(testSegmentRootKeyHex)
+	store.SetPseudonymConfig(key, 1)
+
+	if _, err := store.LoadObservationBundles(shippedBundlesDir); err != nil {
+		t.Fatalf("LoadObservationBundles: %v", err)
+	}
+
+	ev, err := obscel.NewEvaluator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewObservationHandlers(store, ev).HandleEvaluateObservation
+
+	corpusBytes, err := os.ReadFile(filepath.Join("..", "..", "pkg", "obscel", "testdata", "kusari-corpus.json"))
+	if err != nil {
+		t.Fatalf("reading corpus: %v", err)
+	}
+	var observations []obscel.Observation
+	if err := json.Unmarshal(corpusBytes, &observations); err != nil {
+		t.Fatalf("unmarshal corpus: %v", err)
+	}
+
+	findingsBytes, err := os.ReadFile(filepath.Join("..", "..", "pkg", "obscel", "testdata", "kusari-canonical-findings.txt"))
+	if err != nil {
+		t.Fatalf("reading golden findings: %v", err)
+	}
+	wantGolden := strings.TrimSpace(string(findingsBytes))
+
+	var gotCanonical []string
+	for _, obs := range observations {
+		reqBody, _ := json.Marshal(EvaluateObservationRequest{
+			TenantID:         "kusari",
+			Observation:      obs,
+			ActorIsPseudonym: false,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/observations/evaluate", bytes.NewReader(reqBody))
+		w := httptest.NewRecorder()
+		h(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("evaluating observation %s returned %d: %s", obs.ID, w.Code, w.Body.String())
+		}
+		var resp EvaluateObservationResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal resp: %v", err)
+		}
+		for _, f := range resp.Findings {
+			gotCanonical = append(gotCanonical, obscel.CanonicalFinding(f))
+		}
+	}
+
+	sort.Strings(gotCanonical)
+	gotText := strings.TrimSpace(strings.Join(gotCanonical, "\n"))
+
+	if gotText != wantGolden {
+		t.Fatalf("dry-run evaluation does not match kusari golden findings:\n got:\n%s\nwant:\n%s", gotText, wantGolden)
 	}
 }

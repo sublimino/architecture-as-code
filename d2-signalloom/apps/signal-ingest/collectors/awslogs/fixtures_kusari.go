@@ -36,12 +36,13 @@ const (
 	KusariFixtureIAMBurst       = "kusari/iam-credential-burst.json"
 	KusariFixtureVPCRejectBurst = "kusari/vpcflow-reject-burst.log"
 
-	// KusariFixtureEventBridgeEnvelope is a GuardDuty finding in its real
-	// EventBridge shape. It is deliberately NOT in KusariFixtureFiles: this
-	// projection cannot read it, and the point of keeping it is to pin that
-	// fact as an assertion rather than to feed it to a rule. See the file's own
-	// header and TestKusariFixtures_EventBridgeEnvelopeProjectsToNothing.
-	KusariFixtureEventBridgeEnvelope = "kusari/guardduty-eventbridge-envelope.json"
+	// KusariFixtureEventBridgeEnvelope is a high-severity GuardDuty finding in
+	// its real EventBridge shape, projected by ProjectGuardDuty: the positive for
+	// guardduty-high-severity. KusariFixtureGuardDutyLowSeverity is the same
+	// shape at severity 2, its negative. See
+	// TestKusariFixtures_EventBridgeEnvelopeProjectsToAGuardDutyObservation.
+	KusariFixtureEventBridgeEnvelope  = "kusari/guardduty-eventbridge-envelope.json"
+	KusariFixtureGuardDutyLowSeverity = "kusari/guardduty-eventbridge-low-severity.json"
 )
 
 // KusariFixtureFiles returns the Kusari pilot fixture objects in replay order.
@@ -60,6 +61,8 @@ func KusariFixtureFiles() []string {
 		KusariFixtureGuardDuty,
 		KusariFixtureIAMBurst,
 		KusariFixtureVPCRejectBurst,
+		KusariFixtureEventBridgeEnvelope,
+		KusariFixtureGuardDutyLowSeverity,
 	}
 }
 

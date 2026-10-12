@@ -4,8 +4,12 @@
 package awslogs
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -245,7 +249,7 @@ func TestProjectVPCFlow_RejectActionIsTheEventName(t *testing.T) {
 // projected observation must carry every required key for its source and must carry no
 // key that contract_doc.go does not document.
 func TestEveryDocumentedKeyIsAssertedForEveryFixture(t *testing.T) {
-	for _, name := range FixtureFiles() {
+	for _, name := range append(FixtureFiles(), KusariFixtureFiles()...) {
 		t.Run(name, func(t *testing.T) {
 			obs, err := testProjector().Project(mustFixture(t, name), FixtureOrigin(name))
 			if err != nil {
@@ -393,13 +397,42 @@ func TestNegativeContract_RawBodyContainersNeverBecomeLabels(t *testing.T) {
 	}
 }
 
+// TestNegativeContract_ActorAccountIDIsAlwaysTwelveDigits asserts that any emitted
+// actor_account_id label is strictly a 12-digit AWS account number, never an ARN,
+// never letters, and never a malformed string.
+func TestNegativeContract_ActorAccountIDIsAlwaysTwelveDigits(t *testing.T) {
+	for _, name := range FixtureFiles() {
+		t.Run(name, func(t *testing.T) {
+			obs, err := testProjector().Project(mustFixture(t, name), FixtureOrigin(name))
+			if err != nil {
+				t.Fatalf("Project: %v", err)
+			}
+			for i, o := range obs {
+				if acct, ok := o.Labels[LabelActorAccountID]; ok {
+					if len(acct) != 12 {
+						t.Errorf("obs[%d] %s = %q: must be exactly 12 digits", i, LabelActorAccountID, acct)
+					}
+					for _, c := range acct {
+						if c < '0' || c > '9' {
+							t.Errorf("obs[%d] %s = %q: non-digit character %q", i, LabelActorAccountID, acct, c)
+						}
+					}
+					if strings.Contains(acct, "arn:") || strings.Contains(acct, ":") {
+						t.Errorf("obs[%d] %s leaks ARN structure: %q", i, LabelActorAccountID, acct)
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestContractDocCoversEveryEmittedKey closes the loop the other way: every key any
 // fixture emits must be listed in contract_doc.go, and every key contract_doc.go lists
 // as required must actually be emitted by at least one fixture. Documentation that
 // drifts from the projection fails here rather than at a customer.
 func TestContractDocCoversEveryEmittedKey(t *testing.T) {
 	emitted := map[string]map[string]bool{}
-	for _, name := range FixtureFiles() {
+	for _, name := range append(FixtureFiles(), KusariFixtureFiles()...) {
 		obs, err := testProjector().Project(mustFixture(t, name), FixtureOrigin(name))
 		if err != nil {
 			t.Fatalf("%s: Project: %v", name, err)
@@ -414,7 +447,7 @@ func TestContractDocCoversEveryEmittedKey(t *testing.T) {
 		}
 	}
 
-	for _, src := range []string{SourceCloudTrail, SourceIAM, SourceVPCFlow} {
+	for _, src := range []string{SourceCloudTrail, SourceIAM, SourceVPCFlow, SourceGuardDuty} {
 		required, documented := ContractKeysFor(src)
 		if len(documented) == 0 {
 			t.Fatalf("source %q has no documented keys", src)
@@ -495,4 +528,305 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func TestProjection_GzippedObjectInflatesBeforeDispatch(t *testing.T) {
+	raw := mustFixture(t, FixtureCloudTrail)
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write(raw); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	gzippedBytes := buf.Bytes()
+	origin := Origin{
+		Bucket: "kusari-logs",
+		Key:    "AWSLogs/123456789012/CloudTrail/us-east-1/2026/10/02/123456789012_CloudTrail_us-east-1_20261002T0915Z_sample.json.gz",
+	}
+
+	obs, err := testProjector().Project(gzippedBytes, origin)
+	if err != nil {
+		t.Fatalf("Project gzipped CloudTrail: %v", err)
+	}
+	if len(obs) != 4 {
+		t.Fatalf("projected %d observations from gzipped CloudTrail, want 4", len(obs))
+	}
+
+	wantPrefix := "s3://kusari-logs/AWSLogs/123456789012/CloudTrail/us-east-1/2026/10/02/123456789012_CloudTrail_us-east-1_20261002T0915Z_sample.json.gz#"
+	for i, o := range obs {
+		wantRef := fmt.Sprintf("%s%d", wantPrefix, i)
+		if o.RawEvidenceRef != wantRef {
+			t.Errorf("obs[%d].RawEvidenceRef = %q, want %q", i, o.RawEvidenceRef, wantRef)
+		}
+		if o.ID != derivedID(t, wantRef) {
+			t.Errorf("obs[%d].ID = %q, want %q", i, o.ID, derivedID(t, wantRef))
+		}
+	}
+
+	// An invalid gzip stream under a .gz key must fail rather than silently returning nil.
+	corruptOrigin := Origin{Bucket: "kusari-logs", Key: "AWSLogs/corrupt.json.gz"}
+	if _, err := testProjector().Project([]byte("not-gzip-data"), corruptOrigin); err == nil {
+		t.Fatal("Project with corrupt gzip payload returned nil error, want inflation failure")
+	}
+}
+
+// --- §2.3 GuardDuty (EventBridge envelope) ---------------------------------
+
+func projectGuardDutyFixture(t *testing.T, name string) model.Observation {
+	t.Helper()
+	obs, err := testProjector().Project(mustFixture(t, name), FixtureOrigin(name))
+	if err != nil {
+		t.Fatalf("Project(%s): %v", name, err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("%s projected %d observations, want exactly 1 (one finding per envelope)", name, len(obs))
+	}
+	return obs[0]
+}
+
+func TestProjectGuardDuty_CarriesEveryDocumentedKey(t *testing.T) {
+	got := projectGuardDutyFixture(t, KusariFixtureEventBridgeEnvelope)
+	wantRef := "testdata/" + KusariFixtureEventBridgeEnvelope + "#0"
+
+	if got.Source != SourceGuardDuty {
+		t.Errorf("Source = %q, want %q", got.Source, SourceGuardDuty)
+	}
+	if got.RawEvidenceRef != wantRef {
+		t.Errorf("RawEvidenceRef = %q, want %q", got.RawEvidenceRef, wantRef)
+	}
+	if got.ID != derivedID(t, wantRef) {
+		t.Errorf("ID = %q, want sha256 of the evidence ref %q", got.ID, derivedID(t, wantRef))
+	}
+	if want := time.Date(2026, 10, 3, 12, 5, 0, 0, time.UTC); !got.Timestamp.Equal(want) {
+		t.Errorf("Timestamp = %s, want %s (the envelope time, never time.Now())", got.Timestamp, want)
+	}
+	if got.Layer != model.LayerCloudControlPlane {
+		t.Errorf("Layer = %q, want %q", got.Layer, model.LayerCloudControlPlane)
+	}
+	if got.Fidelity != model.FidelityStrong {
+		t.Errorf("Fidelity = %q, want %q", got.Fidelity, model.FidelityStrong)
+	}
+	if got.Confidence != 0.9 {
+		t.Errorf("Confidence = %v, want 0.9", got.Confidence)
+	}
+	// The envelope names a userName, not an ARN. Fabricating an ARN from it would
+	// make the §2.3 actor row lie and the pseudonym match no real principal.
+	if got.ActorHint != "" {
+		t.Errorf("ActorHint = %q, want empty (a GuardDuty finding carries no principal ARN)", got.ActorHint)
+	}
+
+	want := map[string]string{
+		LabelTenantID:     "kusari",
+		LabelProvider:     "aws",
+		LabelAWSAccountID: "123456789012",
+		LabelAWSRegion:    "us-east-1",
+		LabelEventSource:  "aws.guardduty",
+		LabelEventName:    "UnauthorizedAccess:IAMUser/MaliciousIPCaller.Custom",
+		LabelSeverity:     "8",
+		LabelResourceType: "AccessKey",
+	}
+	if !reflect.DeepEqual(got.Labels, want) {
+		t.Errorf("Labels mismatch\n got: %v\nwant: %v", got.Labels, want)
+	}
+	if want := "guardduty UnauthorizedAccess:IAMUser/MaliciousIPCaller.Custom on AccessKey"; got.Description != want {
+		t.Errorf("Description = %q, want %q", got.Description, want)
+	}
+
+	required, documented := ContractKeysFor(SourceGuardDuty)
+	if len(required) == 0 {
+		t.Fatalf("ContractKeysFor(%q) documents nothing", SourceGuardDuty)
+	}
+	for _, k := range required {
+		if got.Labels[k] == "" {
+			t.Errorf("missing required label %q", k)
+		}
+	}
+	for k := range got.Labels {
+		if !contains(documented, k) {
+			t.Errorf("undocumented label %q", k)
+		}
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("fails model.Observation.Validate: %v", err)
+	}
+}
+
+// The low-severity negative is an EC2 finding whose resource carries an ENI id,
+// which is the one resource identifier the projection admits as resource_name.
+func TestProjectGuardDuty_LowSeverityInstanceFindingNamesItsENI(t *testing.T) {
+	got := projectGuardDutyFixture(t, KusariFixtureGuardDutyLowSeverity)
+	if got.Labels[LabelSeverity] != "2" {
+		t.Errorf("severity = %q, want \"2\"", got.Labels[LabelSeverity])
+	}
+	if got.Labels[LabelResourceType] != "Instance" {
+		t.Errorf("resource_type = %q, want Instance", got.Labels[LabelResourceType])
+	}
+	if got.Labels[LabelResourceName] != "eni-0a1b2c3d4e5f60789" {
+		t.Errorf("resource_name = %q, want the ENI id eni-0a1b2c3d4e5f60789", got.Labels[LabelResourceName])
+	}
+	if strings.Contains(got.Description, "eni-") {
+		t.Errorf("description repeats the resource name: %q", got.Description)
+	}
+}
+
+// GuardDuty severity is a float on the wire (7.5, 8.9). The label is the integer
+// floor, so one representation answers int(obs.labels.severity) in CEL without
+// a parse error and the GuardDuty bands (low < 4, medium < 7, high >= 7) are
+// preserved: 7.5 is high, 6.9 is medium.
+func TestProjectGuardDuty_SeverityIsTheIntegerFloor(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{"7", "7"}, {"7.0", "7"}, {"7.5", "7"}, {"6.9", "6"}, {"8.9", "8"}, {"2", "2"}, {"0.1", "0"},
+	} {
+		body := []byte(`{"detail-type":"GuardDuty Finding","source":"aws.guardduty","account":"123456789012","time":"2026-10-03T12:05:00Z","region":"us-east-1",` +
+			`"detail":{"accountId":"123456789012","region":"us-east-1","type":"Recon:EC2/PortProbeUnprotectedPort","severity":` + tc.raw + `,"resource":{"resourceType":"Instance"}}}`)
+		obs, err := testProjector().Project(body, Origin{Key: "gd.json"})
+		if err != nil {
+			t.Fatalf("severity %s: Project: %v", tc.raw, err)
+		}
+		if got := obs[0].Labels[LabelSeverity]; got != tc.want {
+			t.Errorf("severity %s projected to %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestProjectGuardDuty_MissingSeverityOrTypeIsAnError(t *testing.T) {
+	for name, detail := range map[string]string{
+		"no severity": `{"type":"Recon:EC2/PortProbeUnprotectedPort","resource":{"resourceType":"Instance"}}`,
+		"no type":     `{"severity":5,"resource":{"resourceType":"Instance"}}`,
+	} {
+		body := []byte(`{"detail-type":"GuardDuty Finding","source":"aws.guardduty","account":"123456789012","time":"2026-10-03T12:05:00Z","region":"us-east-1","detail":` + detail + `}`)
+		if _, err := testProjector().Project(body, Origin{Key: "gd.json"}); err == nil {
+			t.Errorf("%s: projected without error; a finding the rule cannot classify must be a projection_failure", name)
+		}
+	}
+}
+
+// An ENI id is the only resource_name a finding may carry, and only in its own
+// shape: anything ARN-like, or anything that is not an eni- id, is dropped rather
+// than labelled.
+func TestProjectGuardDuty_ResourceNameIsOnlyAnARNFreeENIID(t *testing.T) {
+	for _, eni := range []string{"arn:aws:ec2:us-east-1:123456789012:network-interface/eni-0a1b", "i-0123456789abcdef0", "eni-../../x"} {
+		body := []byte(`{"detail-type":"GuardDuty Finding","source":"aws.guardduty","account":"123456789012","time":"2026-10-03T12:05:00Z","region":"us-east-1",` +
+			`"detail":{"type":"Recon:EC2/PortProbeUnprotectedPort","severity":2,"resource":{"resourceType":"Instance","instanceDetails":{"networkInterfaces":[{"networkInterfaceId":"` + eni + `"}]}}}}`)
+		obs, err := testProjector().Project(body, Origin{Key: "gd.json"})
+		if err != nil {
+			t.Fatalf("Project: %v", err)
+		}
+		if v, ok := obs[0].Labels[LabelResourceName]; ok {
+			t.Errorf("networkInterfaceId %q became resource_name %q", eni, v)
+		}
+	}
+}
+
+// TestNegativeContract_GuardDutyDetailNeverBecomesALabel: the finding's detail
+// carries an access key id, a principal userName and a free-text title. None of it
+// may reach any field of the observation. The banned values are derived from the
+// fixture bytes, so a value added to the fixture extends the assertion.
+func TestNegativeContract_GuardDutyDetailNeverBecomesALabel(t *testing.T) {
+	raw := mustFixture(t, KusariFixtureEventBridgeEnvelope)
+	got := projectGuardDutyFixture(t, KusariFixtureEventBridgeEnvelope)
+
+	var env struct {
+		Detail struct {
+			Title    string                     `json:"title"`
+			Service  map[string]json.RawMessage `json:"service"`
+			Resource map[string]json.RawMessage `json:"resource"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("decoding fixture: %v", err)
+	}
+	banned := []string{env.Detail.Title}
+	for k, v := range env.Detail.Resource {
+		if k == "resourceType" {
+			continue
+		}
+		banned = append(banned, scalarStrings(v, map[string]bool{"userType": true})...)
+	}
+	var detector string
+	_ = json.Unmarshal(env.Detail.Service["detectorId"], &detector)
+	banned = append(banned, detector)
+
+	var sawAccessKey bool
+	for _, b := range banned {
+		if strings.HasPrefix(b, "POISON") {
+			sawAccessKey = true
+		}
+	}
+	if !sawAccessKey || len(banned) < 4 {
+		t.Fatalf("the fixture no longer carries a POISON access key id and a userName (%v); the negative test would be vacuous", banned)
+	}
+
+	for _, field := range observationStrings(got) {
+		for _, b := range banned {
+			if b != "" && strings.Contains(field.value, b) {
+				t.Errorf("field %s leaks detail value %q: %q", field.name, b, field.value)
+			}
+		}
+		for _, f := range ForbiddenSubstrings {
+			if strings.Contains(field.value, f) {
+				t.Errorf("field %s carries banned substring %q: %q", field.name, f, field.value)
+			}
+		}
+		if v := strings.TrimSpace(field.value); strings.HasPrefix(v, "{") || strings.HasPrefix(v, "[") {
+			t.Errorf("field %s holds a serialised JSON body: %q", field.name, field.value)
+		}
+	}
+}
+
+// TestProject_UnrecognisedEnvelopeIsAnErrorNotASilentZero: an object that is
+// neither a CloudTrail Records[] file nor a GuardDuty finding must fail projection,
+// so the collector stores a projection_failure instead of reporting success with
+// zero rows. An empty Records[] file is a real CloudTrail object and stays a zero.
+func TestProject_UnrecognisedEnvelopeIsAnErrorNotASilentZero(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty object":            `{}`,
+		"other EventBridge event": `{"version":"0","detail-type":"EC2 Instance State-change Notification","source":"aws.ec2","detail":{"state":"running"}}`,
+		"null Records":            `{"Records":null}`,
+	} {
+		obs, err := testProjector().Project([]byte(body), Origin{Key: "x.json"})
+		if !errors.Is(err, ErrUnrecognisedEnvelope) {
+			t.Errorf("%s: err = %v (%d observations), want ErrUnrecognisedEnvelope", name, err, len(obs))
+		}
+	}
+	obs, err := testProjector().Project([]byte(`{"Records":[]}`), Origin{Key: "x.json"})
+	if err != nil || len(obs) != 0 {
+		t.Errorf("an empty CloudTrail Records[] file: got %d observations, err %v; want 0, nil", len(obs), err)
+	}
+}
+
+// scalarStrings returns every string scalar inside a JSON value, skipping the
+// values of the named keys.
+func scalarStrings(raw json.RawMessage, skip map[string]bool) []string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	var out []string
+	var walk func(any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case string:
+			out = append(out, t)
+		case []any:
+			for _, e := range t {
+				walk(e)
+			}
+		case map[string]any:
+			for k, e := range t {
+				if !skip[k] {
+					walk(e)
+				}
+			}
+		}
+	}
+	walk(v)
+	return out
 }

@@ -105,6 +105,7 @@ type Collector struct {
 
 	running    bool
 	noPollLoop bool
+	dryRun     bool
 	cancelFn   context.CancelFunc
 	wg         sync.WaitGroup
 
@@ -169,6 +170,11 @@ func WithNotificationParser(parse NotificationParser) Option {
 // ordering tests become flaky and then get deleted.
 func WithoutPollLoop() Option {
 	return func(c *Collector) { c.noPollLoop = true }
+}
+
+// WithDryRun disables SQS DeleteMessage calls, for redrive dry-run simulations.
+func WithDryRun() Option {
+	return func(c *Collector) { c.dryRun = true }
 }
 
 // New builds a Collector. It does no I/O: the buffer directory is created by Start,
@@ -534,6 +540,10 @@ func (c *Collector) PollOnce(ctx context.Context) (int, error) {
 // stall the real notifications queued behind it on the strength of one TestEvent the
 // collector does not need.
 func (c *Collector) discardMessage(ctx context.Context, msg Message) {
+	if c.dryRun {
+		c.discarded.Add(1)
+		return
+	}
 	if msg.ReceiptHandle == "" || c.sqs == nil {
 		return
 	}
@@ -627,7 +637,7 @@ func (c *Collector) Drain(ctx context.Context) (int, error) {
 // and the work is still owed.
 func (c *Collector) ackAndRelease(ctx context.Context, ring *DiskRingBuffer, rec *LogRecord) error {
 	// A record with no receipt handle has nothing to ack.
-	if rec.ReceiptHandle != "" && c.sqs != nil {
+	if !c.dryRun && rec.ReceiptHandle != "" && c.sqs != nil {
 		if err := c.sqs.DeleteMessage(ctx, c.cfg.QueueURL, rec.ReceiptHandle); err != nil {
 			if !rec.Replayed || !IsStaleReceiptHandle(err) {
 				return fmt.Errorf("awslogs: acknowledging %s: %w", rec.Object(), err)
@@ -649,8 +659,8 @@ func (c *Collector) ackAndRelease(ctx context.Context, ring *DiskRingBuffer, rec
 				"object", rec.Object(), "stale_ack_total", c.staleAcks.Load(), "error", err)
 			return ring.Commit()
 		}
-		c.acked.Add(1)
 	}
+	c.acked.Add(1)
 	return ring.Commit()
 }
 

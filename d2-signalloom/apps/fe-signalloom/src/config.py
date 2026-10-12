@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     api_superadmin_emails: set[str] = {"demo-user@signalloom.local"}
     api_superadmin_subjects: set[str] = {"demo-user"}
     policy_engine_url: str = "http://policy-engine:8081"
+    allow_undeclared_tenant_claims: bool = False
 
 
 settings = Settings()

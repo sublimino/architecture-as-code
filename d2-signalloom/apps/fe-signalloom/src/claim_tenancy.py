@@ -32,6 +32,7 @@ the workload did not declare. Tenants compare as exact strings, so a homoglyph
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -111,6 +112,7 @@ def authorize(
     namespace: str,
     tenant: str,
     asserted_model: str | None = None,
+    allow_undeclared_tenant: bool | None = None,
 ) -> ClaimTarget:
     import api_compat
 
@@ -151,10 +153,21 @@ def authorize(
 
     declared = _label(workload.get("tenant"))
     if not declared:
-        raise api_compat.APIError(
-            403, "workload_tenant_undeclared",
-            f"Workload '{name}' declares no signalloom.ai/tenant; it cannot be claimed",
+        allow_undeclared = (
+            allow_undeclared_tenant
+            if allow_undeclared_tenant is not None
+            else (
+                getattr(api_compat.settings, "allow_undeclared_tenant_claims", False)
+                or os.environ.get("ALLOW_UNDECLARED_TENANT_CLAIMS", "").lower() in ("1", "true", "yes")
+            )
         )
+        if allow_undeclared:
+            declared = tenant
+        else:
+            raise api_compat.APIError(
+                403, "workload_tenant_undeclared",
+                f"Workload '{name}' declares no signalloom.ai/tenant; it cannot be claimed",
+            )
     if declared != tenant:
         # The owning tenant is not named: a refusal must not become a tenant oracle.
         # By design this also refuses every tenant for workloads GitOps labels
@@ -181,16 +194,31 @@ def authorize(
 
 
 async def resolve_claim(
-    name: str, namespace: str, tenant: str, asserted_model: str | None = None
+    name: str,
+    namespace: str,
+    tenant: str,
+    asserted_model: str | None = None,
+    allow_undeclared_tenant: bool | None = None,
 ) -> ClaimTarget:
-    return authorize(await list_workloads(), name, namespace, tenant, asserted_model)
+    return authorize(await list_workloads(), name, namespace, tenant, asserted_model, allow_undeclared_tenant)
 
 
-def claimable(workloads: list[dict[str, Any]], tenant: str, namespace: str | None = None) -> list[dict[str, Any]]:
+def claimable(
+    workloads: list[dict[str, Any]],
+    tenant: str,
+    namespace: str | None = None,
+    allow_undeclared: bool | None = None,
+) -> list[dict[str, Any]]:
     """The workloads ``tenant`` may claim: its own tenant label and a declared model."""
+    import api_compat
+    if allow_undeclared is None:
+        allow_undeclared = (
+            getattr(api_compat.settings, "allow_undeclared_tenant_claims", False)
+            or os.environ.get("ALLOW_UNDECLARED_TENANT_CLAIMS", "").lower() in ("1", "true", "yes")
+        )
     return [
         w for w in workloads
-        if _label(w.get("tenant")) == tenant
+        if (_label(w.get("tenant")) == tenant or (allow_undeclared and not _label(w.get("tenant"))))
         and _label(w.get("model"))
         and (namespace is None or w.get("namespace") == namespace)
     ]

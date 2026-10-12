@@ -771,3 +771,50 @@ def test_claim_correlation_prevents_duplicate_discovered_workload(
     assert resolved_agent["runtime"] is not None
     assert resolved_agent["runtime"]["pod_name"] == "correlated-agent"
 
+
+def test_claim_attributes_owner_to_authenticated_principal(client: TestClient) -> None:
+    payload = {
+        "pod_name": "agent-runner-01",
+        "namespace": "fe-signalloom-agents",
+        "spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/agent-runner-01",
+        "harness": "claude-code",
+        "model": "claude-3-5-sonnet",
+        "declared_tools": ["bash"],
+        "token_budget_limit": 150000,
+    }
+    response = client.post("/api/v1/agents/claim", json=payload, headers=_bearer(ALICE_SUB))
+    assert response.status_code == 200, response.text
+    agent_id = response.json()["agent_id"]
+
+    agent_res = client.get(f"/api/v1/agents/{agent_id}", headers=_bearer(ALICE_SUB))
+    assert agent_res.status_code == 200, agent_res.text
+    agent = agent_res.json()
+    assert agent["owner"] == f"{ALICE_SUB}@signalloom.test"
+    assert agent["responsibility"] is not None
+    assert agent["responsibility"]["owner_name"] == f"{ALICE_SUB}@signalloom.test"
+    assert agent["responsibility"]["assignment_status"] == "assigned"
+
+
+def test_claim_with_explicit_owner_in_body(client: TestClient) -> None:
+    payload = {
+        "pod_name": "idempotent-agent",
+        "namespace": "fe-signalloom-agents",
+        "spiffe_id": "spiffe://cluster.local/ns/fe-signalloom-agents/sa/idempotent-agent",
+        "harness": "claude-code",
+        "model": "claude-3-5-sonnet",
+        "declared_tools": [],
+        "token_budget_limit": 100000,
+        "owner": "explicit-operator@acme.com",
+    }
+    response = client.post("/api/v1/agents/claim", json=payload, headers=_bearer(ALICE_SUB))
+    assert response.status_code == 200, response.text
+    agent_id = response.json()["agent_id"]
+
+    agent_res = client.get(f"/api/v1/agents/{agent_id}", headers=_bearer(ALICE_SUB))
+    assert agent_res.status_code == 200, agent_res.text
+    agent = agent_res.json()
+    assert agent["owner"] == "explicit-operator@acme.com"
+    assert agent["responsibility"]["owner_name"] == "explicit-operator@acme.com"
+    assert agent["responsibility"]["assignment_status"] == "assigned"
+
+

@@ -1811,6 +1811,22 @@ EOF
         "root": ".",
         "command": "sha256sum -c --strict MANIFEST.sha256"
       },
+      "reproducibility": {
+        "sourceDateEpoch": $epoch,
+        "comparisonRule": "Two builds from the same sourceDateEpoch are byte-identical for every payload entry whose path matches no volatileSet glob. A difference OUTSIDE the volatile set fails the reproducibility gate; a difference inside it is expected. The governor must not forgive any difference it cannot match to a glob declared here.",
+        "volatileSet": [
+          {
+            "glob": "images/signatures/*",
+            "reason": "cosign-ecdsa-nonce",
+            "detail": "Cosign signs with ECDSA, which draws a fresh random nonce per signature, so re-signing an identical payload cannot produce identical bytes. Measured: 60 of 1122 payload entries differ across two builds, all of them .sig or .bundle files under this prefix."
+          },
+          {
+            "glob": "MANIFEST.sha256",
+            "reason": "derived-from-volatile",
+            "detail": "Checksums every payload entry including the signature files, so it differs whenever they do. Derived, not independently volatile."
+          }
+        ]
+      },
       "images": $images[0],
       "imageCount": ($images[0] | length),
       "containerisedUtilities": {

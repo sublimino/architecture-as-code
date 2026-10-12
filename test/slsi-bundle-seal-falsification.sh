@@ -119,15 +119,24 @@ assert_pass "tag_only_image_reference_fails_build" bash -c '
 
 # 7. Absent utility image fails loudly
 assert_pass "absent_utility_image_fails_loudly" bash -c '
-  tmp_bundle="$(mktemp -d)"
-  mkdir -p "$tmp_bundle/.manifest.d" "$tmp_bundle/images"
-  cp -r "'"$REPO_ROOT"'/bundle/.manifest.d/." "$tmp_bundle/.manifest.d/"
-  jq "{schemaVersion: 2, mediaType: \"application/vnd.oci.image.index.v1+json\", manifests: []}" > "$tmp_bundle/images/index.json"
-  tmp_out="$(mktemp -d)"
+  # The fixture must be a COMPLETE bundle with only the utility image removed.
+  # An earlier version built a near-empty bundle (.manifest.d plus an empty OCI
+  # index), so stage_p1_3_manifest failed on a missing prerequisite long before
+  # it reached the utility-image check, the ERR trap fired with an unrelated
+  # message, and the case reported FAILED while proving nothing. Hardlink the
+  # real bundle instead, then strip exactly the one entry under test.
+  tmp_parent="$(mktemp -d -p "'"$REPO_ROOT"'/.falsification-tmp")"
+  tmp_bundle="$tmp_parent/bundle"
+  cp -al "'"$REPO_ROOT"'/bundle" "$tmp_bundle"
+  jq "del(.images[] | select(.ref | test(\"slsi-util\")))"      "'"$REPO_ROOT"'/bundle/.manifest.d/images.json" > "$tmp_bundle/.manifest.d/images.json.new"
+  mv -f "$tmp_bundle/.manifest.d/images.json.new" "$tmp_bundle/.manifest.d/images.json"
+  ( cd "$tmp_bundle/.manifest.d" && sha256sum images.json > images.sha256 )
+  tmp_out="$tmp_parent/out"
+  mkdir -p "$tmp_out"
   source "'"$REPO_ROOT"'/scripts/package-tenant-bundle.sh" --help >/dev/null 2>&1 || true
   err_msg="$(SLSI_BUNDLE_OUT="$tmp_out" BUNDLE_DIR="$tmp_bundle" stage_p1_3_manifest 2>&1 || true)"
-  echo "$err_msg" | grep -q "utility image"
-  rm -rf "$tmp_bundle" "$tmp_out"
+  rm -rf "$tmp_parent"
+  echo "$err_msg" | grep -qi "utility image"
 '
 
 # 8. Provocation: private key detection fails build

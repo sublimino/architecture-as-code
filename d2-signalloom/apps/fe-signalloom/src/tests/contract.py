@@ -37,6 +37,11 @@ class ComplianceSummaryInline(BaseModel):
     # See AssessmentSummaryMetadata.errored_controls.
     errored: int = 0
     posture_score: float | None
+    # Refusal verdict: "unavailable" means no control set is derivable for this
+    # agent, so every count is 0 and posture_score is None. See
+    # api_compat.ComplianceSummaryInline for the full contract.
+    evidence_state: Literal["measured", "unavailable"] = "measured"
+    reason: str | None = None
 
 
 # ---- Agents ----------------------------------------------------------------

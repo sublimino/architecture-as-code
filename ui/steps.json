@@ -189,7 +189,7 @@
           "description": "A signed witness policy gates promotion: artifacts with attested pipeline evidence pass, tampered ones fail closed, and both decisions land in Archivista. At the cluster boundary, Kyverno denies any pod whose image lacks a valid cosign signature. The revocation walkthrough shows trust being withdrawn and restored end to end.",
           "actions": [
             { "id": "promotion-demo", "label": "Promotion gate: approve one, reject one", "command": ["make", "promotion-demo"] },
-            { "id": "admission-demo", "label": "Admission: unsigned image denied", "command": ["make", "admission-demo"] },
+            { "id": "admission-demo", "label": "Admission: untrusted image denied", "command": ["make", "admission-demo"] },
             { "id": "revocation-demo", "label": "Revoke and restore artifact trust", "command": ["make", "revocation-demo"] }
           ]
         },

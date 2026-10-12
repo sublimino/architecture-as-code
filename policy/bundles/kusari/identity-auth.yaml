@@ -1,0 +1,189 @@
+# The Kusari IDENTITY & AUTHORIZATION threat bundle.
+#
+# The identity_authorization layer carries THREE projections that share a layer
+# but nothing else: SPIRE SVID issuance (collectors/spirea, Source "spire-agent"),
+# OpenBao audit (collectors/baoaudit, Source "openbao-audit", untouched here), and
+# SaaS login/authentication (collectors/workspacesaas, Source "<provider>.audit",
+# layer overridden to identity_authorization for login events). Every rule in this
+# bundle therefore source-gates so a spirea rule never reads a SaaS record and a
+# SaaS rule never reads a spirea or OpenBao record. See review H3.
+#
+#   * spirea rules gate obs.source == "spire-agent".
+#   * SaaS rules gate obs.source.endsWith(".audit"), which matches
+#     "<provider>.audit" and never "openbao-audit" (that ends "-audit", not
+#     ".audit"), plus obs.layer == "identity_authorization" so the SaaS login
+#     surface is read here and the application_saas surface (same collector, same
+#     source suffix) is left to application-saas.yaml.
+#
+# Mode is `shadow`: every rule emits and stores findings, nothing alerts.
+#
+# # What the rules may read
+#
+# spirea projection (collectors/spirea/collector.go convertToObservation):
+#   event_type ("spire_svid_issuance"), spiffe_id, trust_domain, svid_type,
+#   ttl_seconds, and optionally pod_name/namespace/service_account/sa_principal/
+#   node_name/serial_number/jwt_id. obs.actor is the pseudonymised SPIFFE ID.
+# SaaS login projection (collectors/workspacesaas ToObservation + passthrough
+#   labels): provider, event_type, action, client_ip, risk_level, plus the
+#   passthrough labels this stream sets — mfa, geo, risk_reason, role_granted.
+#   obs.actor is the pseudonymised principal (primary email / UPN).
+#
+# # Binding corrections applied (docs/EAP "Adversarial-review corrections")
+#
+#   * Identity is obs.actor against an actor_vars set, NEVER a label. The SPIFFE
+#     ID and the SaaS principal reach obs.actor via ActorHint, pseudonymised at
+#     the store and at bundle load with the same key, so a cleartext allowlist
+#     would never match and every negative test would be vacuously true. Only
+#     allowed_spiffe_issuers and saas_privileged_grantors are identity sets, so
+#     only they are listed in actor_vars. trusted_domains and known_login_geos are
+#     attribute allowlists (trust domain, geography), compared against labels, not
+#     against the actor, so they stay cleartext.
+#   * Every label read is guarded with has(): a bare read of an absent key is a
+#     CEL fault that would degrade the whole bundle on one unlabelled record.
+#   * Every rule source-gates (and the SaaS rules additionally layer-gate), so a
+#     rule only ever reads the projection it was written for.
+#
+# # Missing from the contract (reported as collector gaps, not written as
+# # unfireable rules)
+#
+# The spirea collector does NOT project SPIRE attestation selectors or the
+# attestation method, so a true selector-level "attestation downgrade" cannot be
+# expressed. The nearest signal the contract does project is the SVID's trust
+# domain, so svid-foreign-trust-domain stands in for the attestation-root anomaly
+# (an SVID minted under a trust domain outside the federated set). A selector-aware
+# downgrade rule needs a new projected label and is a collector gap.
+#
+# # Fixtures
+#
+# collectors/spirea/testdata (spirea) and collectors/workspacesaas/testdata/login
+# (SaaS). Every rule has a positive fixture that fires it and a negative that does
+# not. The per-rule expectation table lives in
+# d2-signalloom/apps/signal-ingest/e2e/identity_expectations.go and is asserted by
+# TestIdentityAuthE2E_FixtureCorpusMatchesTheExpectationTable.
+
+id: kusari-identity-auth
+tenant_id: kusari
+version: 1.0.0
+mode: shadow
+
+# Actor-identity sets, rewritten at load through the same keyed pseudonymiser
+# obs.actor is rewritten with. Conform refuses a rule comparing obs.actor against
+# a var absent from this list.
+actor_vars:
+  - allowed_spiffe_issuers
+  - saas_privileged_grantors
+
+vars:
+  # Full SPIFFE IDs an SVID is expected to be minted for. An issuance to any other
+  # principal is the signal (a workload identity that should not exist, or one
+  # minted on an unexpected path).
+  allowed_spiffe_issuers:
+    - "spiffe://kusari.dev/ns/tenant-demo/sa/agent-runner"
+    - "spiffe://kusari.dev/ns/signalloom/sa/fleet-manager"
+
+  # Trust domains the federation accepts. An SVID minted under any other trust
+  # domain is a foreign/attestation-root anomaly. This is an attribute allowlist,
+  # not an identity one, so it is NOT an actor_var.
+  trusted_domains:
+    - "kusari.dev"
+
+  # Geographies logins are normally seen from. A login from any other geography is
+  # a new-geo signal. Attribute allowlist, not an identity one.
+  known_login_geos:
+    - "GB"
+    - "US"
+
+  # SaaS principals sanctioned to grant admin roles. A grant by anyone else is the
+  # signal. This IS an identity set, so it is an actor_var.
+  saas_privileged_grantors:
+    - "admin@corp.internal"
+
+rules:
+  # --- SPIRE: SVID minted for an unexpected principal -----------------------
+  - id: svid-issued-unexpected-principal
+    name: SPIRE SVID issued to a SPIFFE ID outside the expected set
+    severity: high
+    # The "unexpected SPIFFE path" signal. obs.actor is the pseudonymised SPIFFE
+    # ID; membership against the pseudonymised allowlist is the only identity test
+    # available and the only one that stays correct under pseudonymisation.
+    expression: |-
+      obs.source == "spire-agent" &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.event_type) && obs.labels.event_type == "spire_svid_issuance" &&
+      !(obs.actor in vars.allowed_spiffe_issuers)
+
+  # --- SPIRE: SVID minted under a foreign trust domain ----------------------
+  - id: svid-foreign-trust-domain
+    name: SPIRE SVID issued under a trust domain outside the federation
+    severity: high
+    # Stands in for attestation downgrade: the collector does not project SPIRE
+    # selectors, so the attestation-root (trust domain) is the strongest available
+    # signal. trust_domain is an attribute label, not the actor identity.
+    expression: |-
+      obs.source == "spire-agent" &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.event_type) && obs.labels.event_type == "spire_svid_issuance" &&
+      has(obs.labels.trust_domain) &&
+      !(obs.labels.trust_domain in vars.trusted_domains)
+
+  # --- SaaS login: impossible travel ----------------------------------------
+  - id: saas-login-impossible-travel
+    name: SaaS login flagged as impossible travel
+    severity: high
+    # The provider (or a prior correlation) reports the login as impossible
+    # travel. risk_reason is a projected passthrough label on the login event.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.risk_reason) && obs.labels.risk_reason == "impossible_travel"
+
+  # --- SaaS login: new geography --------------------------------------------
+  - id: saas-login-new-geo
+    name: SaaS login from a geography outside the known set
+    severity: medium
+    # A login from a geography not previously seen for the estate. geo is an
+    # attribute label; known_login_geos is an attribute allowlist.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.action) && obs.labels.action == "login" &&
+      has(obs.labels.geo) &&
+      !(obs.labels.geo in vars.known_login_geos)
+
+  # --- SaaS login: MFA absent -----------------------------------------------
+  - id: saas-login-mfa-absent
+    name: SaaS login completed without MFA
+    severity: high
+    # A completed login whose MFA state is absent. Only login actions carry an mfa
+    # state, so the rule scopes to action == "login" as well as the mfa label.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.action) && obs.labels.action == "login" &&
+      has(obs.labels.mfa) && obs.labels.mfa == "absent"
+
+  # --- SaaS: admin role granted by an unsanctioned principal ----------------
+  - id: saas-admin-role-grant
+    name: SaaS admin role granted by a principal outside the sanctioned set
+    severity: critical
+    # An admin-role grant is a privilege escalation; the signal is the grant being
+    # performed by a principal not sanctioned to do so. Identity is obs.actor
+    # against the pseudonymised grantor allowlist.
+    expression: |-
+      obs.source.endsWith(".audit") &&
+      obs.layer == "identity_authorization" &&
+      has(obs.labels.action) && obs.labels.action == "admin_role_grant" &&
+      !(obs.actor in vars.saas_privileged_grantors)
+
+windows:
+  # Stage 2 is declared here, never in CEL. A decision fires on the EDGE — when an
+  # arriving finding takes the counter from below the threshold to at or above it.
+
+  # Repeated MFA-absent logins by one principal in a short window is the shape of
+  # credential replay / stuffing rather than a single mis-prompted login.
+  - id: mfa-absent-login-burst
+    over_rule: saas-login-mfa-absent
+    key: [tenant_id, actor]
+    window: 10m
+    threshold: 3
+    severity: high

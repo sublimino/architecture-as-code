@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-01-02T03:04:01Z",
+    "spiffe_id": "spiffe://kusari.dev/ns/tenant-demo/sa/agent-runner",
+    "trust_domain": "kusari.dev",
+    "svid_type": "X509",
+    "ttl_seconds": 3600,
+    "pod_namespace": "tenant-demo",
+    "service_account": "agent-runner"
+  },
+  {
+    "timestamp": "2026-01-02T03:04:02Z",
+    "spiffe_id": "spiffe://kusari.dev/ns/signalloom/sa/fleet-manager",
+    "trust_domain": "kusari.dev",
+    "svid_type": "X509",
+    "ttl_seconds": 3600,
+    "pod_namespace": "signalloom",
+    "service_account": "fleet-manager"
+  },
+  {
+    "timestamp": "2026-01-02T03:04:03Z",
+    "spiffe_id": "spiffe://kusari.dev/ns/tenant-demo/sa/rogue-exfil",
+    "trust_domain": "kusari.dev",
+    "svid_type": "X509",
+    "ttl_seconds": 3600,
+    "pod_namespace": "tenant-demo",
+    "service_account": "rogue-exfil"
+  },
+  {
+    "timestamp": "2026-01-02T03:04:04Z",
+    "spiffe_id": "spiffe://evil.example/ns/x/sa/attacker",
+    "trust_domain": "evil.example",
+    "svid_type": "JWT",
+    "ttl_seconds": 7200,
+    "pod_namespace": "x",
+    "service_account": "attacker"
+  }
+]

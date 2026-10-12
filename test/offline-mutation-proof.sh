@@ -287,6 +287,14 @@ jq_edit test/offline-baseline-contract.json '(.residualReds[0].failingTests) = "
 expect_red "C9  a residual red carried without a numeric count" "${COUNTS}" "carried with a count and an attribution"
 restore_all
 
+jq_edit test/offline-baseline-contract.json '(.residualReds[]|select(.suite|test("bootstrap drift"))|.failingTests) = 1'
+expect_red "C15 a residual red's measured count altered" "${COUNTS}" "carried with a count and an attribution"
+restore_all
+
+jq_edit test/offline-baseline-contract.json '.residualReds[0] |= del(.legLine)'
+expect_red "C16 a residual red stops naming the leg line it reddens" "${COUNTS}" "carried with a count and an attribution"
+restore_all
+
 jq_edit test/offline-baseline-contract.json '.coverageCaveat = "The offline leg is comprehensively covered by CI."'
 expect_red "C10 the CI coverage caveat removed" "${COUNTS}" "coverage caveat states that no pipeline runs the offline leg"
 restore_all

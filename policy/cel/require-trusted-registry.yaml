@@ -39,8 +39,20 @@ spec:
         All container images must come from the trusted registry
         (zot.registry.svc.cluster.local:5000/acme/) or an approved upstream.
         Unsigned images from untrusted registries are blocked.
+    # `spec.?initContainers` -- the `?` is load-bearing and was missing.
+    # `object.spec.initContainers.orValue([])` COMPILES and then fails at
+    # eval with `no such key: initContainers` on any pod that declares
+    # none, because .orValue() is a method on an *optional*, and plain
+    # field selection of an absent key errors before it is ever reached.
+    # Optional field selection (`?initContainers`) is what produces the
+    # optional. With failurePolicy: Fail above, the broken form rejected
+    # every ordinary pod in any namespace carrying the enforcement label
+    # -- an outage, not a guardrail, which is the likeliest reason this
+    # policy was never wired into a Kustomization. Measured with cel-go
+    # under cel.OptionalTypes() (the API server's environment) and pinned
+    # by TestImageTrustVAP_AdmitsAPodWithNoInitContainers.
     - expression: >-
-        object.spec.initContainers.orValue([]).all(c,
+        object.spec.?initContainers.orValue([]).all(c,
           c.image.startsWith('zot.registry.svc.cluster.local:5000/acme/') ||
           c.image.startsWith('ghcr.io/controlplaneio/') ||
           c.image.startsWith('ghcr.io/dexidp/') ||

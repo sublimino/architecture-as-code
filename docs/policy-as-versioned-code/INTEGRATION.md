@@ -114,8 +114,8 @@ Nothing currently enforcing changes behaviour. The existing surface is absorbed 
 | Existing artefact | Current action | Role after integration |
 | --- | --- | --- |
 | `policy/cel/require-image-digest.yaml` | `Warn` | A lane-keeping control in the *workload* pack; its residual becomes priceable |
-| `policy/cel/require-trusted-registry.yaml` | `Warn` | Same |
-| `policy/kyverno-verify-images.yaml` | Deny on missing cosign signature | A gate control; feeds `SCN-SUPPLY-TAMPER` |
+| `policy/cel/require-trusted-registry.yaml` | `Deny` | A gate control; feeds `SCN-SUPPLY-TAMPER`. This row read `Warn` until OSD-7; the committed binding has always been `Deny` |
+| `policy/cel/admission-demo-bindings.yaml` | `Deny`, scoped to `admission-demo` | Demo-only bindings that raise both policies to Deny in that one namespace, so the demo cannot reprice the platform-wide `Warn` above |
 | `policy/out/promotion-policy.signed.json` | Witness promotion gate | Evidence for `AGT-006` |
 | `agent/` guardrails | Harness-enforced | The evidence base for `AGT-001..006, 011, 012` |
 | `olly-replica/apps/{llm-guard,authz,security-sandbox,eval-harness}` | Runtime components | Evidence for `AGT-007..010` |

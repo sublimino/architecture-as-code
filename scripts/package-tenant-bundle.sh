@@ -248,6 +248,19 @@ check_pin_entry() {
 # -buildid= drops the one remaining nondeterministic field, so two builds of
 # the same source with the same toolchain are byte-identical (verified on both
 # arches). CGO_ENABLED=0 keeps it static, as the five downloads are.
+#
+# -buildvcs=false is load-bearing, not tidiness. Go stamps vcs.revision and
+# vcs.modified into the binary by default, so without it the digest changes on
+# EVERY commit -- measured: the same source produced bade2fc7... at one commit
+# and 469883883... with the stamps suppressed. Two consequences, both bad. The
+# digest recorded in checksums.txt would be stale the moment anything in the
+# repo changed, helper or not. And --check-pins compares the staged artefact
+# against a rebuild, so a merely DIRTY tree (vcs.modified=true) would flip the
+# stamp and report a digest mismatch -- a failure that looks like tampering and
+# is nothing of the kind. With the stamps off, the digest is a function of the
+# helper's source and the toolchain, which is what a staged-binary digest
+# should mean. The toolchain dependency is real and remains: a different Go
+# minor version produces different bytes.
 build_ed25519_keygen() {
   local arch="$1" dest="$2"
   local module="${REPO_ROOT}/${ED25519_KEYGEN_MODULE_REL}"
@@ -261,7 +274,7 @@ build_ed25519_keygen() {
 
   mkdir -p "$(dirname "${dest}")"
   if ! GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 \
-      go -C "${module}" build -trimpath -ldflags=-buildid= -o "${dest}" "${ED25519_KEYGEN_PKG}"; then
+      go -C "${module}" build -trimpath -buildvcs=false -ldflags=-buildid= -o "${dest}" "${ED25519_KEYGEN_PKG}"; then
     fail "go build of ed25519-keygen for ${arch} failed"
   fi
   chmod 0755 "${dest}"
@@ -1920,9 +1933,18 @@ stage_p1_3_manifest() {
     if [[ "${TARGET_ARCH:-amd64}" == "arm64" ]]; then
       selected_arch="arm64"
     fi
-    grep -E "[[:space:]]${selected_arch}/(cosign|flux|jq|kind|kubectl)$" "${bin_csum}" > "${stage_dir}/bin/checksums.txt" || true
-    if [[ $(wc -l < "${stage_dir}/bin/checksums.txt") -ne 5 ]]; then
-      grep -E '[[:space:]](amd64/|arm64/)?(cosign|flux|jq|kind|kubectl)$' "${bin_csum}" | \
+    # The tool set is declared once, here, because it was previously inlined
+    # into two greps and an arity literal. ed25519-keygen had to be added to
+    # all three or the archive would carry bin/<arch>/ed25519-keygen while its
+    # own bin/checksums.txt did not list it -- an unlisted executable inside
+    # the bundle, which is the exact hole that was just closed on the
+    # bundle/bin side in verify_offline_manifest.
+    local staged_tool_re='cosign|ed25519-keygen|flux|jq|kind|kubectl'
+    local staged_tool_count=6
+
+    grep -E "[[:space:]]${selected_arch}/(${staged_tool_re})\$" "${bin_csum}" > "${stage_dir}/bin/checksums.txt" || true
+    if [[ $(wc -l < "${stage_dir}/bin/checksums.txt") -ne "${staged_tool_count}" ]]; then
+      grep -E "[[:space:]](amd64/|arm64/)?(${staged_tool_re})\$" "${bin_csum}" | \
         awk '{split($NF, a, "/"); name=a[length(a)]; if (!seen[name]++) print}' > "${stage_dir}/bin/checksums.txt"
     fi
   fi

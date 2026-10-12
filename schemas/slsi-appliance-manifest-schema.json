@@ -276,35 +276,54 @@
       "type": "integer",
       "minimum": 1
     },
-    "containerisedUtilities": {
+    "hostUtilities": {
       "type": "object",
       "required": [
-        "imageRef",
-        "imageDigest",
-        "utilities",
-        "runtimeRequired",
-        "onAbsentRemedy"
+        "decision",
+        "notShipped",
+        "rationale",
+        "replacedBy"
       ],
       "additionalProperties": false,
       "properties": {
-        "imageRef": {
+        "decision": {
           "type": "string"
         },
-        "imageDigest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "utilities": {
+        "notShipped": {
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "runtimeRequired": {
+          "type": "null"
+        },
+        "rationale": {
           "type": "string"
         },
-        "onAbsentRemedy": {
-          "type": "string"
+        "replacedBy": {
+          "type": "object",
+          "required": [
+            "binary",
+            "source",
+            "digestKind",
+            "interop"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "binary": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "digestKind": {
+              "type": "string"
+            },
+            "interop": {
+              "type": "string"
+            }
+          }
         }
       }
     },

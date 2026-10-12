@@ -16,6 +16,60 @@ setup() {
   DIST_DIR="$REPO_ROOT/dist"
   MANIFEST_JSON="$DIST_DIR/MANIFEST.json"
   ARCHIVE="$(ls "$DIST_DIR"/slsi-appliance-*.tar.gz 2>/dev/null | head -n 1 || true)"
+  TMP="$(mktemp -d)"
+
+  # Decision 10 is reversed. The image it named, controlplane/slsi-util:v0.1.0
+  # at this digest, was never published, has no Dockerfile in this tree, and
+  # resolves in no registry. Nothing may reference it.
+  FORBIDDEN_UTIL_DIGEST="sha256:2235e37c43f3223d26ab7f35e8dfe1a662db1fa196648ab66b0d50f55e5ef51b"
+  STAGED_TOOLS=$'cosign\ned25519-keygen\nflux\njq\nkind\nkubectl'
+}
+
+teardown() {
+  rm -rf "$TMP"
+}
+
+# ── shared predicates for the three inverted Decision 10 assertions ──────────
+#
+# Each of these asserts an ABSENCE, and an absence check that cannot run looks
+# exactly like one that passed. So each predicate is a function, applied twice:
+# once to the real artefacts, which must pass, and once to a synthetic fixture
+# carrying the forbidden thing, which must fail. The fixture half runs whether
+# or not dist/ was built, so the controls can never silently stop firing.
+
+# utility_image_refs MANIFEST — prints every reference to a containerised
+# utility image. Empty output is the post-reversal state.
+utility_image_refs() {
+  jq -r '
+    [ .images[]? | select((.role? == "utility") or ((.ref? // "") | test("slsi-util"))) ]
+    | .[] | (.ref // .digest // "unnamed")
+  ' "$1"
+}
+
+# index_has_forbidden_digest INDEX — prints matching manifest digests.
+index_has_forbidden_digest() {
+  jq -r --arg d "$FORBIDDEN_UTIL_DIGEST" \
+    '[.manifests[]? | select(.digest == $d)] | .[] | .digest' "$1"
+}
+
+# write_poisoned_manifest PATH — a minimal MANIFEST-shaped fixture that DOES
+# carry the utility image, for use as a positive control.
+write_poisoned_manifest() {
+  jq -n --arg d "$FORBIDDEN_UTIL_DIGEST" '{
+    images: [
+      { ref: "ghcr.io/fluxcd/source-controller@sha256:aa", reference: "ghcr.io/fluxcd/source-controller", digest: "sha256:aa" },
+      { ref: ("controlplane/slsi-util:v0.1.0@" + $d), reference: "controlplane/slsi-util",
+        digest: $d, role: "utility", provides: ["envsubst", "openssl"] }
+    ]
+  }' > "$1"
+}
+
+# write_poisoned_index PATH — an index fixture that DOES carry the digest.
+write_poisoned_index() {
+  jq -n --arg d "$FORBIDDEN_UTIL_DIGEST" '{
+    schemaVersion: 2,
+    manifests: [ { digest: "sha256:bb" }, { digest: $d } ]
+  }' > "$1"
 }
 
 @test "MANIFEST.json exists and conforms to slsi-bundle/v1 schema" {
@@ -95,30 +149,93 @@ setup() {
        <(jq -r '.manifests[].digest' "$REPO_ROOT/bundle/images/index.json" | LC_ALL=C sort -u)
 }
 
-@test "Decision 10 utility image is present, digest-pinned, and provides openssl and envsubst" {
+# Inverted from "Decision 10 utility image is present, digest-pinned, and
+# provides openssl and envsubst". The image that assertion required was never
+# published, so requiring it meant requiring the manifest to describe something
+# that does not exist. Absence is now the invariant, and the gate for it is
+# Gate 7 in scripts/package-tenant-bundle.sh.
+@test "Decision 10 reversed: no containerised utility image in MANIFEST.json or the images index" {
   [ -f "$MANIFEST_JSON" ]
   [ -f "$REPO_ROOT/bundle/images/index.json" ]
 
-  run jq -e '
-    [.images[] | select(.role == "utility")] | length == 1 and
-    (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
-    (.[0].provides | sort == ["envsubst", "openssl"])
-  ' "$MANIFEST_JSON"
-  [ "$status" -eq 0 ]
+  found="$(utility_image_refs "$MANIFEST_JSON")"
+  if [ -n "$found" ]; then
+    echo "MANIFEST.json still references a containerised utility image:" >&2
+    printf '%s\n' "$found" >&2
+    false
+  fi
 
-  util_d="$(jq -r '.images[] | select(.role == "utility") | .digest' "$MANIFEST_JSON")"
-  run jq -e --arg d "$util_d" '[.manifests[] | select(.digest == $d)] | length == 1' "$REPO_ROOT/bundle/images/index.json"
+  found="$(index_has_forbidden_digest "$REPO_ROOT/bundle/images/index.json")"
+  if [ -n "$found" ]; then
+    echo "bundle/images/index.json still claims the unpublishable slsi-util digest:" >&2
+    printf '%s\n' "$found" >&2
+    false
+  fi
+
+  # The manifest must also say so positively, rather than merely omitting the
+  # field: an absent block is indistinguishable from an older schema.
+  run jq -e '
+    (.containerisedUtilities == null) and
+    (.hostUtilities.notShipped | sort == ["envsubst", "openssl"]) and
+    (.hostUtilities.replacedBy.binary == "bin/<arch>/ed25519-keygen")
+  ' "$MANIFEST_JSON"
   [ "$status" -eq 0 ]
 }
 
-@test "bundle/bin/checksums.txt covers exactly the five staged binaries without openssl or envsubst" {
+@test "positive control: the utility-image predicates fire when the image is reintroduced" {
+  # Proves the two absence checks above can fail. Without this, a predicate
+  # broken into always printing nothing would make that test vacuous.
+  write_poisoned_manifest "$TMP/poisoned-manifest.json"
+  found="$(utility_image_refs "$TMP/poisoned-manifest.json")"
+  [ -n "$found" ]
+  [[ "$found" == *"slsi-util"* ]]
+
+  write_poisoned_index "$TMP/poisoned-index.json"
+  found="$(index_has_forbidden_digest "$TMP/poisoned-index.json")"
+  [ "$found" = "$FORBIDDEN_UTIL_DIGEST" ]
+
+  # And they stay quiet on a clean fixture, so they are not simply always-true.
+  jq -n '{images: [{ref: "ghcr.io/fluxcd/source-controller@sha256:aa", digest: "sha256:aa"}]}' > "$TMP/clean-manifest.json"
+  [ -z "$(utility_image_refs "$TMP/clean-manifest.json")" ]
+  jq -n '{schemaVersion: 2, manifests: [{digest: "sha256:bb"}]}' > "$TMP/clean-index.json"
+  [ -z "$(index_has_forbidden_digest "$TMP/clean-index.json")" ]
+}
+
+# Was "covers exactly the five staged binaries": ten entries, five tools across
+# two arches. ed25519-keygen makes it twelve entries and six tools. It is built
+# from this repository's source rather than downloaded, so unlike the other
+# five its digest is computed at stage time rather than pinned as a literal --
+# which is why this test checks the NAME set and leaves digest verification to
+# `--check-pins`, where the helper is verified by rebuilding it.
+@test "bundle/bin/checksums.txt covers exactly the six staged binaries without openssl or envsubst" {
   [ -f "$REPO_ROOT/bundle/bin/checksums.txt" ]
 
   staged="$(grep -E '(amd64|arm64)/' "$REPO_ROOT/bundle/bin/checksums.txt" | cut -d' ' -f3- | xargs -n1 basename | LC_ALL=C sort -u)"
-  diff <(printf '%s\n' "$staged") <(printf '%s\n' cosign flux jq kind kubectl)
+  diff <(printf '%s\n' "$staged") <(printf '%s\n' "$STAGED_TOOLS")
 
-  run bash -c "test \"\$(printf '%s\n' \"\$staged\" | grep -cE '^(openssl|envsubst)\$')\" -eq 0"
-  [ "$status" -eq 0 ]
+  # Both arches carry all six, and nothing else: 12 entries exactly.
+  entries="$(grep -cE '^[0-9a-f]{64}  (amd64|arm64)/' "$REPO_ROOT/bundle/bin/checksums.txt")"
+  [ "$entries" -eq 12 ]
+
+  # Neither tool Decision 10 containerised may reappear, under any arch.
+  banned="$(printf '%s\n' "$staged" | grep -E '^(openssl|envsubst)$' || true)"
+  if [ -n "$banned" ]; then
+    echo "checksums.txt lists a tool that is not shipped:" >&2
+    printf '%s\n' "$banned" >&2
+    false
+  fi
+}
+
+@test "positive control: the checksums.txt banned-tool check fires on a planted entry" {
+  # The check above is an absence assertion over a file this suite does not
+  # write, so prove the grep actually discriminates.
+  cp "$REPO_ROOT/bundle/bin/checksums.txt" "$TMP/checksums.txt" 2>/dev/null || \
+    printf '%s  amd64/kind\n' "$(printf '0%.0s' $(seq 64))" > "$TMP/checksums.txt"
+  printf '%s  amd64/openssl\n' "$(printf 'a%.0s' $(seq 64))" >> "$TMP/checksums.txt"
+
+  staged="$(grep -E '(amd64|arm64)/' "$TMP/checksums.txt" | cut -d' ' -f3- | xargs -n1 basename | LC_ALL=C sort -u)"
+  banned="$(printf '%s\n' "$staged" | grep -E '^(openssl|envsubst)$' || true)"
+  [ "$banned" = "openssl" ]
 }
 
 @test "No unresolved-digest sentinel reaches MANIFEST.json" {
@@ -211,12 +328,52 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "Gate G-COVERAGE: utility image and flux controllers are digest-pinned in MANIFEST.json" {
+# Inverted. This used to require exactly one slsi-util image in the coverage
+# domain, and the bundler appended the ref to the domain itself -- so the
+# coverage gate counted a non-existent image as covered. The flux-controller
+# half is unchanged and is what keeps this test from being pure absence: a
+# manifest with no images at all would satisfy the slsi-util clause but fail
+# the controllers clause.
+@test "Gate G-COVERAGE: no slsi-util image, and flux controllers are digest-pinned in MANIFEST.json" {
   [ -f "$MANIFEST_JSON" ]
   run jq -e '
-    ([.images[] | select(.ref | test("slsi-util"))] | length == 1) and
-    ([.images[] | select(.ref | test("slsi-util"))][0].digest | test("^sha256:[0-9a-f]{64}$")) and
-    ([.images[] | select(.ref | test("ghcr.io/fluxcd"))] | length >= 4)
+    ([.images[] | select((.ref // "") | test("slsi-util"))] | length == 0) and
+    ([.images[] | select((.ref // "") | test("ghcr.io/fluxcd"))] | length >= 4) and
+    ([.images[] | select((.ref // "") | test("ghcr.io/fluxcd"))]
+      | all(.digest | test("^sha256:[0-9a-f]{64}$")))
   ' "$MANIFEST_JSON"
+  [ "$status" -eq 0 ]
+}
+
+@test "positive control: G-COVERAGE rejects a manifest in which slsi-util reappears" {
+  # Same filter, a fixture that carries four digest-pinned flux controllers AND
+  # the slsi-util ref. Only the slsi-util clause can decide it, so a pass here
+  # would prove that clause does nothing.
+  jq -n --arg d "$FORBIDDEN_UTIL_DIGEST" '{
+    images: (
+      ["source", "kustomize", "helm", "notification"]
+      | map({ ref: ("ghcr.io/fluxcd/" + . + "-controller@sha256:" + ("a" * 64)),
+              digest: ("sha256:" + ("a" * 64)) })
+      + [{ ref: ("controlplane/slsi-util:v0.1.0@" + $d), digest: $d, role: "utility" }]
+    )
+  }' > "$TMP/gcov-poisoned.json"
+
+  run jq -e '
+    ([.images[] | select((.ref // "") | test("slsi-util"))] | length == 0) and
+    ([.images[] | select((.ref // "") | test("ghcr.io/fluxcd"))] | length >= 4) and
+    ([.images[] | select((.ref // "") | test("ghcr.io/fluxcd"))]
+      | all(.digest | test("^sha256:[0-9a-f]{64}$")))
+  ' "$TMP/gcov-poisoned.json"
+  [ "$status" -ne 0 ]
+
+  # And the same fixture WITHOUT the slsi-util entry must pass, so the failure
+  # above is attributable to that entry and not to the fixture being malformed.
+  jq 'del(.images[] | select((.ref // "") | test("slsi-util")))' "$TMP/gcov-poisoned.json" > "$TMP/gcov-clean.json"
+  run jq -e '
+    ([.images[] | select((.ref // "") | test("slsi-util"))] | length == 0) and
+    ([.images[] | select((.ref // "") | test("ghcr.io/fluxcd"))] | length >= 4) and
+    ([.images[] | select((.ref // "") | test("ghcr.io/fluxcd"))]
+      | all(.digest | test("^sha256:[0-9a-f]{64}$")))
+  ' "$TMP/gcov-clean.json"
   [ "$status" -eq 0 ]
 }

@@ -616,3 +616,54 @@ async def test_federation_proxy_spiffe_spoofing_replaced_with_server_minted_iden
             assert EAP_TENANT_A in spiffe_header or "signalloom" in spiffe_header
 
 
+# ---------------------------------------------------------------------------
+# W9 perturbation probes: is every field a function of the request input and
+# the system's real state?
+# ---------------------------------------------------------------------------
+
+_FEDERATION_READ_SUBPATHS = (
+    "summary",
+    "zones",
+    "federations",
+    "services",
+    "policies",
+    "identities",
+    "events",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("subpath", _FEDERATION_READ_SUBPATHS)
+async def test_w9_federation_unserved_route_does_not_fabricate(subpath):
+    """signal-ingest serves no /api/v1/federation route in production.
+
+    Perturbation: hold the request constant and vary the authenticated tenant
+    (alice/tenant-a vs bob/tenant-b). A field that is a function of real state
+    must either move with the tenant or be absent. A byte-identical 200 body
+    across two different tenants, served from an upstream that answers "I do
+    not serve this route", is a literal.
+    """
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+    bodies = []
+    statuses = []
+    for actor in (EAP_ALICE, EAP_BOB):
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.get(f"{signal_ingest_url}/api/v1/federation/{subpath}").mock(
+                return_value=httpx.Response(403, json={"error": "unregistered_route"})
+            )
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get(
+                    f"/api/v1/federation/{subpath}", headers=eap_bearer(actor)
+                )
+                statuses.append(resp.status_code)
+                bodies.append(resp.text)
+
+    assert statuses[0] == statuses[1], f"status moved with tenant for {subpath}: {statuses}"
+    assert statuses[0] != 200, (
+        f"/{subpath}: upstream does not serve this route, yet the proxy answered 200 "
+        f"with a body identical across two tenants - that is a literal, not state. "
+        f"body={bodies[0][:200]}"
+    )
+
+

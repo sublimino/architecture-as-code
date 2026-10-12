@@ -11,11 +11,12 @@ from a fleet overlay, so a rebuild replays it. It says **nothing** about whether
 a workload is secure, hardened, or compliant. An unmanaged workload is not an
 insecure one, and a Flux-managed one is not a hardened one.
 
-This page and the gate said "covered" and "uncovered" until 2026-10-11. In a
-repository that also carries a compliance engine, a risk pack and a policy-scan
-API, "coverage" is read as *security* coverage, and the two questions have
-different owners and different remediations — a GitOps gap is fixed by wiring a
-Kustomization, a hardening gap by changing a pod spec. The words are now
+This page and the gate said "covered" and "uncovered" until 2026-10-11. That
+word was wrong here. This repository also carries a compliance engine, a risk
+pack and a policy-scan API. Beside those, "coverage" reads as *security*
+coverage. The two questions have different owners and different remediations.
+A GitOps gap is fixed by wiring a Kustomization. A hardening gap is fixed by
+changing a pod spec. The words are now
 "managed" and "unmanaged" throughout, including the JSON keys
 (`managed_docs`, `unmanaged_docs`, `undeclared_unmanaged`) and the gate's
 `UNDECLARED UNMANAGED WORKLOAD` line. The metric, the exception semantics and
@@ -100,7 +101,7 @@ reference. Nothing in GitOps would recreate these after a rebuild.
 | `fe-signalloom-agents/netassert-*-fixture` | test fixture left resident | drift |
 | `knative-serving/*`, `knative-eventing/*`, `kourier-system/*` | `make swarm-knative-up` | bootstrap, undeclared |
 | `registry/zot` | `make registry` | bootstrap |
-| `default/probe` | `scripts/cluster.sh` | bootstrap |
+| `default/probe` | `scripts/dual-cluster-up.sh` | bootstrap |
 | `flux-system` controllers | `FluxInstance` | correct |
 | `kube-system` and `local-path-storage` core | kind | correct |
 

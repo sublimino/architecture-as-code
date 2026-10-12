@@ -1,9 +1,11 @@
 package api
 
 import (
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/tenancy"
+	"context"
 	"net/http"
 	"regexp"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/tenancy"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
@@ -92,58 +94,135 @@ func scopeObservations(obs []model.Observation, tenant string, all bool, limit i
 // observations it was correlated from: a scoped principal sees it only when its evidence chain is
 // non-empty and every evidence observation is labelled with the principal's tenant. An actor with
 // mixed, unknown or no evidence is cross-tenant only.
+// The tenant of each evidence observation is resolved on demand, by ID, and memoised for the life
+// of the scope. It used to be built by reading the WHOLE store into a map of every observation ID
+// to its tenant, on every request that touched an actor — so answering "may this principal see
+// these 3 actors?" materialised millions of rows to consult a few dozen of them. That is the same
+// defect as api.Handlers.observationByID and it shared the same consequence: GET
+// /api/v1/store/stats issued two full-store scans per request (this one and its own), and
+// signal-ingest was OOM-killed 13 times at a 2 GiB limit on kind-osramp.
+//
+// Resolution is batched: filter() asks for every evidence ID of every actor in one query, so the
+// cost is one store read per request rather than one per actor. Memoising the MISS as well as the
+// hit matters — an unknown evidence ID means "not my tenant", and without a negative cache a
+// missing row would be re-queried on every visibility check.
 type actorScope struct {
-	all       bool
-	tenant    string
-	obsTenant map[string]string
+	all      bool
+	tenant   string
+	resolver *obsTenantResolver
+}
+
+// obsTenantResolver answers "which tenant owns this observation ID?" for a bounded set of IDs.
+type obsTenantResolver struct {
+	ctx    context.Context
+	store  store.SignalStore
+	tenant map[string]string // observation ID -> tenant label; "" records a resolved absence
+}
+
+// resolve loads the tenant label for every id not already known. A nil error with an id still
+// absent from the map cannot happen: every requested id is recorded, as a hit or as a "".
+func (res *obsTenantResolver) resolve(ids []string) error {
+	want := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, known := res.tenant[id]; !known {
+			want = append(want, id)
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	rows, err := res.store.QueryRange(res.ctx, store.LookupIDs(want...))
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		res.tenant[rows[i].ID] = rows[i].Labels[ObservationTenantLabel]
+	}
+	// Record the misses, so an ID the store does not hold is answered from the map next time
+	// instead of re-querying. An absent observation is not owned by the caller's tenant, which
+	// the "" sentinel says, because a real tenant label is never empty.
+	for _, id := range want {
+		if _, known := res.tenant[id]; !known {
+			res.tenant[id] = ""
+		}
+	}
+	return nil
 }
 
 func (h *Handlers) actorScopeFor(r *http.Request) (actorScope, error) {
 	tenant, all := observationReadScope(r)
 	s := actorScope{all: all, tenant: tenant}
 	if all {
+		// A cross-tenant reader sees every actor, so no evidence tenancy is ever consulted and
+		// the store is not read at all.
 		return s, nil
 	}
-	obs, err := h.Store.QueryRange(r.Context(), store.Query{})
-	if err != nil {
-		return s, err
-	}
-	s.obsTenant = make(map[string]string, len(obs))
-	for _, o := range obs {
-		s.obsTenant[o.ID] = o.Labels[ObservationTenantLabel]
+	s.resolver = &obsTenantResolver{
+		ctx:    r.Context(),
+		store:  h.Store,
+		tenant: make(map[string]string),
 	}
 	return s, nil
 }
 
-func (s actorScope) visible(a *model.ProvisionalActor) bool {
-	if a == nil {
-		return false
-	}
-	if s.all {
-		return true
-	}
-	if s.tenant == "" || len(a.EvidenceChain) == 0 {
-		return false
-	}
-	for _, ev := range a.EvidenceChain {
-		if s.obsTenant[ev.ObservationID] != s.tenant {
-			return false
+// evidenceIDs returns every observation ID the given actors cite.
+func evidenceIDs(actors []*model.ProvisionalActor) []string {
+	var ids []string
+	for _, a := range actors {
+		if a == nil {
+			continue
+		}
+		for _, ev := range a.EvidenceChain {
+			ids = append(ids, ev.ObservationID)
 		}
 	}
-	return true
+	return ids
 }
 
-func (s actorScope) filter(actors []*model.ProvisionalActor) []*model.ProvisionalActor {
+func (s actorScope) visible(a *model.ProvisionalActor) (bool, error) {
+	if a == nil {
+		return false, nil
+	}
 	if s.all {
-		return actors
+		return true, nil
+	}
+	if s.tenant == "" || len(a.EvidenceChain) == 0 {
+		return false, nil
+	}
+	if err := s.resolver.resolve(evidenceIDs([]*model.ProvisionalActor{a})); err != nil {
+		return false, err
+	}
+	for _, ev := range a.EvidenceChain {
+		if s.resolver.tenant[ev.ObservationID] != s.tenant {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (s actorScope) filter(actors []*model.ProvisionalActor) ([]*model.ProvisionalActor, error) {
+	if s.all {
+		return actors, nil
+	}
+	if s.tenant == "" {
+		// Nothing is visible, so there is no evidence worth resolving.
+		return []*model.ProvisionalActor{}, nil
+	}
+	// One store read for the whole page, not one per actor.
+	if err := s.resolver.resolve(evidenceIDs(actors)); err != nil {
+		return nil, err
 	}
 	out := make([]*model.ProvisionalActor, 0, len(actors))
 	for _, a := range actors {
-		if s.visible(a) {
+		ok, err := s.visible(a)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			out = append(out, a)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // scopedActors is Engine.GetActors as the request's principal may see it.
@@ -152,7 +231,7 @@ func (h *Handlers) scopedActors(r *http.Request) ([]*model.ProvisionalActor, err
 	if err != nil {
 		return nil, err
 	}
-	return s.filter(h.Engine.GetActors()), nil
+	return s.filter(h.Engine.GetActors())
 }
 
 // scopedActor is Engine.GetActor as the request's principal may see it: an actor of another
@@ -162,7 +241,12 @@ func (h *Handlers) scopedActor(r *http.Request, id string) (*model.ProvisionalAc
 	if err != nil {
 		return nil, err
 	}
-	if a := h.Engine.GetActor(id); s.visible(a) {
+	a := h.Engine.GetActor(id)
+	ok, err := s.visible(a)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return a, nil
 	}
 	return nil, nil

@@ -493,6 +493,14 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
+	// A present-but-empty ID set matches nothing, and must do so BEFORE the plan is built:
+	// buildFilter emits no `id` predicate for a zero-length list, so without this the query would
+	// degrade into the unfiltered whole-table scan it was written to avoid. That is the expensive
+	// direction to fail, and it fails silently — the caller still gets rows, just all of them.
+	if q.IDs != nil && len(q.IDs) == 0 {
+		return nil, nil
+	}
+
 	// Fold the retention floor into q.After so engine-level filtering prunes dropped partitions.
 	if !f.droppedBefore.IsZero() {
 		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
@@ -547,6 +555,9 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 // disagree with the engine on exactly half the corpus and the equivalence tests would read as an
 // engine defect.
 func matchesQuery(o model.Observation, q Query, p *SegmentPseudonymiser) bool {
+	if !q.matchesIDs(o.ID) {
+		return false
+	}
 	if !q.After.IsZero() && o.Timestamp.Before(q.After) {
 		return false
 	}
@@ -834,6 +845,11 @@ const (
 	// pseudonymises rather than encrypts: an encrypted column would have forced a decrypt-and-scan,
 	// measured at 19.43 ms p95 against a 2.75 ms budget.
 	colActorHint = ColHMACActorHint
+	// colID is the pushdown column for Query.IDs. It is cleartext and stays so: an observation ID
+	// is a derived content address, not an identifier of a person, and a by-ID read has to be
+	// expressible without a key or the key's absence would turn every lookup into a full scan —
+	// which is the defect this column was added to the filter set to remove.
+	colID = "id"
 )
 
 // validateFilterColumns ensures that the column names targeted by query pushdown
@@ -842,7 +858,7 @@ func validateFilterColumns(schema *schemapb.Schema) error {
 	// Ordered, not map-ranged. Ranging a map made the reported column depend on Go's randomised
 	// iteration order, so with two columns missing the message named an arbitrary one — and a test
 	// asserting on the message was flaky in a way that only showed up once a second column moved.
-	required := []string{colTimestamp, colLayer, colActorHint}
+	required := []string{colTimestamp, colLayer, colActorHint, colID}
 	present := make(map[string]struct{}, len(schema.Columns))
 	for _, col := range schema.Columns {
 		present[col.Name] = struct{}{}
@@ -860,6 +876,7 @@ func validateFilterColumns(schema *schemapb.Schema) error {
 //   - q.After  -> timestamp >= q.After.UnixNano() (int64)
 //   - q.Before -> timestamp < q.Before.UnixNano() (int64)
 //   - q.Layers -> layer == layer[0] OR layer == layer[1] ...
+//   - q.IDs    -> id == ids[0] OR id == ids[1] ...
 //   - q.ActorID -> hmac_actor_hint == pseudonym(q.ActorID)
 //
 // Multiple predicates are combined with logicalplan.And.
@@ -880,6 +897,19 @@ func buildFilter(q Query, p *SegmentPseudonymiser) (logicalplan.Expr, error) {
 	}
 	if !q.Before.IsZero() {
 		exprs = append(exprs, colRef(colTimestamp).Lt(logicalplan.Literal(q.Before.UnixNano())))
+	}
+
+	// An ID list is pushed down the same way a layer list is. The engine prunes on `id`, so a
+	// by-ID read costs the rows it names rather than the whole table; the caller no longer has to
+	// decode every observation in the store to find one.
+	if len(q.IDs) == 1 {
+		exprs = append(exprs, colRef(colID).Eq(logicalplan.Literal(q.IDs[0])))
+	} else if len(q.IDs) > 1 {
+		idExprs := make([]logicalplan.Expr, len(q.IDs))
+		for i, id := range q.IDs {
+			idExprs[i] = colRef(colID).Eq(logicalplan.Literal(id))
+		}
+		exprs = append(exprs, logicalplan.Or(idExprs...))
 	}
 
 	if len(q.Layers) == 1 {

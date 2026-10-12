@@ -39,6 +39,9 @@ func (m *MemoryStore) QueryRange(_ context.Context, q Query) ([]model.Observatio
 
 	var matched []model.Observation
 	for _, o := range m.data {
+		if !q.matchesIDs(o.ID) {
+			continue
+		}
 		if !q.After.IsZero() && o.Timestamp.Before(q.After) {
 			continue
 		}

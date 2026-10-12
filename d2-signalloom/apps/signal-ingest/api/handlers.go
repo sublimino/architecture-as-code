@@ -912,7 +912,11 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	actors = scope.filter(actors)
+	actors, err = scope.filter(actors)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	returnedActors := actors
 	if limit := requestLimit(r, len(actors)); limit < len(returnedActors) {
 		returnedActors = returnedActors[:limit]

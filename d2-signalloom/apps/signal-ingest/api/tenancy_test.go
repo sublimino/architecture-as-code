@@ -306,15 +306,38 @@ func TestScopeHelpersFailClosedOnMissingTenancy(t *testing.T) {
 	if got := scopeObservations(obs, "", false, 0); len(got) != 0 {
 		t.Fatalf("a principal with no tenant read %d observations, want 0", len(got))
 	}
-	s := actorScope{tenant: "tenant-a", obsTenant: map[string]string{"a": "tenant-a"}}
-	if s.visible(&model.ProvisionalActor{ID: "no-evidence"}) {
+	// The scope resolves evidence tenancy from the store by ID rather than from a prebuilt map of
+	// the whole store, so the fixture is a real store holding exactly those two rows.
+	ms := store.NewMemoryStore()
+	if err := ms.Append(context.Background(), obs); err != nil {
+		t.Fatal(err)
+	}
+	s := actorScope{
+		tenant:   "tenant-a",
+		resolver: &obsTenantResolver{ctx: context.Background(), store: ms, tenant: make(map[string]string)},
+	}
+	mustVisible := func(a *model.ProvisionalActor) bool {
+		t.Helper()
+		ok, err := s.visible(a)
+		if err != nil {
+			t.Fatalf("visible(%s): %v", a.ID, err)
+		}
+		return ok
+	}
+	if mustVisible(&model.ProvisionalActor{ID: "no-evidence"}) {
 		t.Fatal("an actor with no evidence chain is visible to a tenant-scoped principal")
 	}
-	if !s.visible(&model.ProvisionalActor{ID: "own", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}}}) {
+	if !mustVisible(&model.ProvisionalActor{ID: "own", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}}}) {
 		t.Fatal("an actor built only from the principal's own observations is not visible")
 	}
-	if s.visible(&model.ProvisionalActor{ID: "mixed", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}, {ObservationID: "untagged"}}}) {
+	if mustVisible(&model.ProvisionalActor{ID: "mixed", EvidenceChain: []model.EvidenceLink{{ObservationID: "a"}, {ObservationID: "untagged"}}}) {
 		t.Fatal("an actor with mixed-tenant evidence is visible to a tenant-scoped principal")
+	}
+	// An evidence ID the store does not hold is not the principal's tenant. It is resolved to the
+	// "" sentinel and cached as a miss, so a dangling evidence link cannot become visible and
+	// cannot be re-queried on every check.
+	if mustVisible(&model.ProvisionalActor{ID: "dangling", EvidenceChain: []model.EvidenceLink{{ObservationID: "no-such-row"}}}) {
+		t.Fatal("an actor citing an observation the store does not hold is visible")
 	}
 }
 

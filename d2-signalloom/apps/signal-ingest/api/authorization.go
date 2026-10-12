@@ -362,7 +362,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	actors := scope.filter(h.Engine.GetActors())
+	actors, err := scope.filter(h.Engine.GetActors())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	seenActorIDs := make(map[string]bool)
 	for _, a := range actors {
 		seenActorIDs[a.ID] = true

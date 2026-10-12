@@ -670,9 +670,19 @@ func (h *Handlers) visibleDecision(r *http.Request, id string) (*model.Observati
 }
 
 // observationByID finds one observation the request's principal may read.
+//
+// The read is pushed down to the store by ID. It used to issue an unfiltered QueryRange and scan
+// the result in Go, which materialised every row in the store — then copied them again through
+// DedupeByID — to return at most one. With ~2.5 days of warden ingest on the PVC that is over
+// 2 GiB of live Observation structs per request, and it OOM-killed signal-ingest on kind-osramp
+// 13 times (exit 137) at a 2 GiB limit. Raising the limit was rejected: the scan is O(store), so
+// any limit is a deadline rather than a fix.
+//
+// The ID is passed as a filter and never as a trust decision: tenancy is still applied to whatever
+// comes back, so naming another tenant's ID returns nil exactly as an absent ID does.
 func (h *Handlers) observationByID(r *http.Request, id string) (*model.Observation, error) {
 	tenant, all := observationReadScope(r)
-	rows, err := h.Store.QueryRange(r.Context(), store.Query{})
+	rows, err := h.Store.QueryRange(r.Context(), store.LookupIDs(id))
 	if err != nil {
 		return nil, err
 	}

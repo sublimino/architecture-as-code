@@ -56,11 +56,15 @@ setup() {
 # THE MUTATION TARGET. Reverting helpers.ts to `opts?.demoMode ?? true` must
 # turn a named test red, or the next person flips it back and nothing notices.
 @test "login() defaults to live mode, so fixture use is always opted into by name" {
-	run grep -c 'opts?\.demoMode ?? false' "$helpers"
+	# Matched as a statement, not as prose: the docblocks above both helpers
+	# quote the expression, and a count over the whole file would move with
+	# the comments.
+	run grep -c '^\s*const demoMode = opts?\.demoMode ?? false;$' "$helpers"
 	[ "$status" -eq 0 ]
-	[ "$output" = "1" ]
+	# login() and loginExpectingDex(), both defaulting live.
+	[ "$output" = "2" ]
 
-	run grep -n 'opts?\.demoMode ?? true' "$helpers"
+	run grep -n 'const demoMode = opts?\.demoMode ?? true;' "$helpers"
 	[ "$status" -ne 0 ]
 }
 
@@ -120,9 +124,34 @@ setup() {
 		TITLE = re.compile(
 		    r'''(?m)^\s*(?:test|describe)(?:\.describe)?(?:\.\w+)*\(\s*(?P<q>["'`])(?P<t>.*?)(?P=q)''')
 
-		def header(src: str) -> str:
-		    m = re.match(r'\s*/\*(.*?)\*/', src, re.S)
-		    return m.group(1) if m else ''
+		def suite_name(src: str) -> str:
+		    """The header docblock's FIRST line - the suite's own name.
+
+		    Deliberately not the whole docblock: a header that explains why a
+		    suite is fixture-backed has to be able to use the word "live", and
+		    a mixed file's header documents both halves. What may not claim
+		    live behaviour is the name.
+		    """
+		    m = re.match(r'\s*/\*\*?\s*\n\s*\*\s*(?P<first>.*)', src)
+		    return m.group('first') if m else ''
+
+		def blocks(src: str):
+		    """(label, text) per top-level test.describe, plus the file preamble.
+
+		    Scope matters: once a mixed file is the honest end state - a live
+		    describe beside a fixture describe, each with its own login() - a
+		    file-scoped check reports every one of them. The unit of the claim
+		    is the describe block that governs the login() call.
+		    """
+		    starts = [m.start() for m in re.finditer(r'(?m)^test\.describe\(', src)]
+		    bounds = [0] + starts + [len(src)]
+		    out = []
+		    for i in range(len(bounds) - 1):
+		        seg = src[bounds[i]:bounds[i + 1]]
+		        label = 'file preamble' if i == 0 else (TITLE.search(seg).group('t')
+		                                                if TITLE.search(seg) else f'block {i}')
+		        out.append((label, seg))
+		    return out
 
 		exceptions = {}
 		if exc_path.exists():
@@ -135,16 +164,23 @@ setup() {
 		violations, justified = [], set()
 		for p in sorted(accept.glob('*.spec.ts')):
 		    src = p.read_text()
-		    claims = [m.group('t') for m in TITLE.finditer(src) if LIVE.search(m.group('t'))]
-		    if LIVE.search(header(src)):
-		        claims.append('<file header docblock>')
-		    demo = 'demoMode: true' in src
-		    if claims and demo:
+		    claims = []
+		    if LIVE.search(suite_name(src)):
+		        claims.append(('<suite name>', suite_name(src).strip(), 'demoMode: true' in src))
+		    for label, seg in blocks(src):
+		        demo = 'demoMode: true' in seg and 'demoMode: false' not in seg
+		        for m in TITLE.finditer(seg):
+		            t = m.group('t')
+		            if LIVE.search(t):
+		                claims.append((label, t, demo))
+		    offending = [c for c in claims if c[2]]
+		    if offending:
 		        if p.name in exceptions:
 		            justified.add(p.name)
 		        else:
-		            violations.append(f"{p.name}: demoMode: true alongside live claims -> " +
-		                              "; ".join(repr(c) for c in claims[:4]))
+		            for label, t, _ in offending[:4]:
+		                violations.append(f"{p.name} [{label}]: live claim on a demoMode: true "
+		                                  f"block -> {t!r}")
 
 		stale = sorted(set(exceptions) - justified)
 		if violations or stale:

@@ -1,8 +1,15 @@
 /**
- * Signal Loom dashboard — eBPF Live Network Telemetry Acceptance Suite.
+ * Signal Loom dashboard — eBPF network-telemetry UI acceptance suite (DEMO FIXTURES).
+ *
+ * This suite opts into `{ demoMode: true }`, so it observes NO eBPF, no
+ * sentinel, no cluster and no network: it asserts that the Weave page renders
+ * the telemetry panels from fixture data. It called itself a LIVE suite until
+ * the demo-mode inversion, and what it actually failed on was the fixture
+ * strings "eBPF Socket Sentinel" and "Network/Egress" being absent from the
+ * DOM. The live-side assertions belong to the sentinel BATS suites, not here.
  *
  * Asserts that navigating to the Weave page (/weave) displays:
- * 1. Live eBPF socket tracing status panel.
+ * 1. The eBPF socket-tracing status panel (rendered from fixtures).
  * 2. Model provider badges (OpenAI, Anthropic, etc.).
  * 3. Telemetry gap fail-closed security banner when gaps exist.
  */
@@ -11,12 +18,12 @@ import { login, config } from "./helpers";
 
 const BASE = config.base;
 
-test.describe("Weave Live eBPF Network Telemetry", () => {
+test.describe("Weave eBPF network telemetry UI (demo fixtures)", () => {
   test.beforeEach(async ({ page }) => {
     await login(page, { demoMode: true });
   });
 
-  test("renders Weave page with live eBPF Sentinel status bar", async ({ page }) => {
+  test("renders Weave page with the eBPF Sentinel status bar from fixtures", async ({ page }) => {
     await page.goto(`${BASE}/weave`);
     await expect(page.locator("h1").filter({ hasText: "The Weave" }).first()).toBeVisible();
 

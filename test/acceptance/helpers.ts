@@ -69,8 +69,11 @@ export const guards = {
    *
    * ─── Why this guard exists ──────────────────────────────────────────────
    *
-   * `login()` below defaults to `demoMode: true` (see its `opts?.demoMode ??
-   * true`). In demo mode `dashboard-signalloom/src/api/client.ts:227`
+   * `login()` below defaults to `demoMode: false` since the inversion (see its
+   * `opts?.demoMode ?? false`), so a live spec no longer has to remember the
+   * opt-out — but a spec that explicitly passes `{ demoMode: true }` still
+   * cannot observe a live response, and that is what this paragraph is about.
+   * In demo mode `dashboard-signalloom/src/api/client.ts:309`
    * short-circuits `req()` into `resolveFake()` BEFORE any network call is
    * attempted, so no assertion downstream of that call can ever observe a real
    * HTTP response. Worse, a 403 is not merely unlikely under demo mode — it is
@@ -92,11 +95,11 @@ export const guards = {
    *     'AgentMaxxing backend not deployed — run: make demo-signalloom-up');
    *   await login(page, { demoMode: false });
    *
-   * Copy both lines. `guards.agentmaxxingLive()` without `{ demoMode: false }`
-   * still short-circuits into fixtures at `client.ts:227` and the guard will
-   * have bought you nothing. Note that `loginExpectingDex()` below hardcodes
-   * `sl_demo_mode = "true"` with no opt-out — it is not a substitute for
-   * `login(page, { demoMode: false })` in a live spec.
+   * The guard is still the half that matters: `{ demoMode: false }` is now the
+   * default, but a spec that passes `{ demoMode: true }` explicitly still
+   * short-circuits into fixtures at `client.ts:309` and the guard will have
+   * bought it nothing. `loginExpectingDex()` below now takes the same
+   * `{ demoMode }` opt-out and defaults the same way.
    *
    * ─── Two more prerequisites the guard does NOT cover ────────────────────
    *
@@ -220,20 +223,37 @@ export const config = {
  * Authenticate through the local Dex login and wait for the dashboard sidebar.
  *
  * Handles both fresh sessions (Dex login form) and already-authenticated
- * sessions (AutoSignIn skip). By default sets `sl_demo_mode=true` in
- * localStorage so the dashboard renders demo fixtures when the live API is
- * unavailable — pass `{ demoMode: false }` for specs that assert on real
- * cluster data (e.g. rbac-explorer.spec.ts expects the actual "local"
- * cluster and real namespaces, which only exist behind the live API; demo
- * mode serves a single fake "Demo Cluster" fixture instead). Toggling this
- * via the DemoToggle UI control after login doesn't work here — its
- * click-then-reload flow re-triggers this same addInitScript, which always
- * re-forces demo mode back on before the app boots.
+ * sessions (AutoSignIn skip).
+ *
+ * ─── Why the default is `demoMode: false` ───────────────────────────────────
+ *
+ * It used to be `true`, which made fixtures the thing you got by saying
+ * nothing. 30 of 47 specs ran entirely on fixtures and 10 of them never said
+ * so — they wrote `login(page)`. Because demo mode short-circuits `req()`
+ * before any network call (`client.ts:309`), those specs could not observe a
+ * real response at all, while their names and headers went on claiming they
+ * did. `signal-loom-netebpf.spec.ts` called itself a LIVE eBPF suite and
+ * passed with no eBPF, no sentinel, no cluster and no network.
+ *
+ * So the default is now live, and fixture use is opted into BY NAME:
+ * `login(page, { demoMode: true })`. An honest failure beats a fabricated
+ * pass, and a spec whose dependency is not deployed should SKIP with a reason
+ * that names the dependency (see `guards` above) rather than quietly assert
+ * against a fixture.
+ *
+ * Pass `{ demoMode: true }` for specs that are genuinely about the UI shell —
+ * navigation structure, role gating, responsive layout, keyboard shortcuts —
+ * where fixture data is a backdrop and not the subject. Enforced by
+ * `test/acceptance-demo-mode-honesty.bats`.
+ *
+ * Toggling this via the DemoToggle UI control after login doesn't work here —
+ * its click-then-reload flow re-triggers this same addInitScript, which
+ * re-forces whatever the spec asked for before the app boots.
  *
  * Waits for the sidebar "Agents" link as proof of successful auth + SPA render.
  */
 export async function login(page: Page, opts?: { demoMode?: boolean; skipOnboarding?: boolean }): Promise<void> {
-  const demoMode = opts?.demoMode ?? true;
+  const demoMode = opts?.demoMode ?? false;
   const skipOnboarding = opts?.skipOnboarding ?? true;
   // Pre-seed demo mode so every screen renders from fixtures (unless the
   // spec opted out via { demoMode: false })
@@ -327,13 +347,18 @@ export async function getAuthToken(page: Page): Promise<string | null> {
  * Login variant that always expects the Dex form (for login-specific tests
  * that need to verify the login flow itself, not skip it).
  */
-export async function loginExpectingDex(page: Page): Promise<void> {
-  // Same pre-seeding as login() — superadmin-only sidebar links (RBAC Analysis,
-  // RBAC Explorer, etc.) are invisible without this, and demo mode ensures
-  // fixture-backed rendering when the live API is unavailable.
-  await page.addInitScript(() => {
+export async function loginExpectingDex(
+  page: Page,
+  opts?: { demoMode?: boolean },
+): Promise<void> {
+  // Same pre-seeding and same default as login(): live unless the spec asks
+  // for fixtures by name. It used to hardcode sl_demo_mode = "true" with no
+  // opt-out, so a login-flow spec could not be made live even deliberately,
+  // and helpers.ts had to carry a note saying so.
+  const demoMode = opts?.demoMode ?? false;
+  await page.addInitScript((demo: boolean) => {
     try {
-      window.localStorage.setItem("sl_demo_mode", "true");
+      window.localStorage.setItem("sl_demo_mode", demo ? "true" : "false");
       window.localStorage.setItem("signalloom.superadmin", "true");
       window.localStorage.setItem(
         "sl_onboarding_skipped",
@@ -342,7 +367,7 @@ export async function loginExpectingDex(page: Page): Promise<void> {
     } catch {
       /* storage unavailable */
     }
-  });
+  }, demoMode);
 
   await page.goto(config.base, { waitUntil: "domcontentloaded" });
   const loginInput = page.locator('input[name="login"]');

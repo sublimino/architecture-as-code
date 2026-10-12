@@ -2,12 +2,13 @@
 // Copyright 2026 ControlPlane Security Authors
 
 /**
- * Signal Loom dashboard — SFAS Live Dossier Authorization Acceptance Suite.
+ * Signal Loom dashboard — SFAS dossier authorization UI acceptance suite (DEMO FIXTURES).
  *
- * Asserts full-estate live authorization resolution and UI interactions:
+ * Opts into `{ demoMode: true }`, so every figure below is fixture-served.
+ * Asserts the authorization-resolution UI and its interactions:
  * 1. Agent Dossier Tab 2 (Identity & SPIFFE) embeds 7-hop attested authorization chain,
  *    completeness badge, GitOID attestation, and stepped delegator hierarchy.
- * 2. Agent Dossier Tab 5 (Activity) renders live timeline audit events with interactive
+ * 2. Agent Dossier Tab 5 (Activity) renders timeline audit events with interactive
  *    'View Proof' action buttons.
  * 3. Clicking 'View Proof' opens AuthorizationProofDrawer with hardware-accelerated transitions (<100ms)
  *    and dismisses cleanly via Escape key.
@@ -19,7 +20,7 @@ import { login, config } from './helpers';
 
 const BASE = config.base;
 
-test.describe('SFAS Live Dossier Authorization & Proof Drawer', () => {
+test.describe('SFAS Dossier Authorization & Proof Drawer (demo fixtures)', () => {
   test.beforeEach(async ({ page }) => {
     await login(page, { demoMode: true });
   });

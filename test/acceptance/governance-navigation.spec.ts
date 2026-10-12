@@ -52,7 +52,7 @@ test.describe("Surface 1: Governance Navigation & Role Gating (Desktop 1280x800)
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("renders 3 core tier headings (View, Control, Design) and ordered primary items", async ({ page }) => {
@@ -163,7 +163,7 @@ test.describe("Surface 1: Governance Navigation (Mobile Viewport 375x667)", () =
   test.use({ viewport: { width: 375, height: 667 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
   });
 
   test("renders responsive navigation and drawer on mobile screen", async ({ page }) => {

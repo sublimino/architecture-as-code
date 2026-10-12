@@ -58,7 +58,7 @@ func TestResolve_SingleObservation(t *testing.T) {
 			Source:      "gcp-cloud-audit",
 			PrincipalID: "agent-runner@project.iam.gserviceaccount.com",
 			ActorHint:   "agent-runner@project.iam.gserviceaccount.com",
-			Labels:      map[string]string{"principal_email": "agent-runner@project.iam.gserviceaccount.com", "project_id": "project"},
+			Labels:      map[string]string{"project_id": "project"},
 			Confidence:  1.0,
 		}
 		actor, err := Resolve(obs)

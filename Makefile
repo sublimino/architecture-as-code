@@ -498,13 +498,77 @@ test: ## Run the end-to-end bats suite against the running cluster.
 	./scripts/assert-bats-ran-something.sh $(MAKE) -C d2-osramp-apps test
 
 .PHONY: test-all test-all-estate test-all-offline test-all-cluster test-all-browser test-eap-offline
+.PHONY: offline-deps offline-count-contract test-offline-install-boundary
 
 test-all-estate: test-all-offline test-all-cluster test-all-browser ## Run every single test across the entire estate (offline, cluster, and browser).
 	@echo "=== COMPLETE: All estate test suites (offline, cluster, browser) passed successfully! ==="
 
 test-all: test-all-estate ## Alias for test-all-estate.
 
-test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI, static BATS/config/registry).
+# SLSI-OSD-5. THE NETWORK SIDE OF THE OFFLINE BOUNDARY.
+#
+# Everything that may resolve or download a dependency happens HERE, before the
+# offline leg runs. Everything after this target is assertion. The separation is
+# load-bearing, not cosmetic: a leg that performs a network install in the
+# middle of itself asserts nothing whatsoever about offline behaviour, and the
+# arrangement that destroys that property looks TIDIER than the correct one
+# (one target instead of two, green either way). So the boundary is enforced by
+# test/offline-install-boundary.bats, which fails if an install line reappears
+# inside the test-all-offline or test-dashboard-weave recipes, and which proves
+# `make -n` cannot build through this target.
+#
+# Why the leg needs this at all: a LINKED GIT WORKTREE DOES NOT INHERIT THE MAIN
+# CHECKOUT'S node_modules. It is untracked, so `git worktree add` yields
+# package.json and bun.lock with no dependency tree. The SLSI P0 baseline
+# attributed the resulting red to EACCES on node_modules and therefore to
+# permissions; re-measured in a cold linked worktree on 2026-10-12 the directory
+# is simply ABSENT (ENOENT), `mkdir` of that exact path succeeds, and
+# `bun install --frozen-lockfile` then completes in 233ms. Populating an absent
+# dependency tree is a different action from relaxing permissions, which is why
+# the correction changed the fix. bun 1.4.0 prints an EACCES string for the
+# absent case and P0 copied it verbatim.
+#
+# The install is idempotent with no stamp file: `bun install --frozen-lockfile`
+# IS the gate, a no-op in ~0.1s against a tree that already satisfies bun.lock.
+# See scripts/offline-deps.sh for why a cheaper hand-rolled gate is the defect
+# this repo already paid for once (the `[ -d node_modules/@playwright ]` guard).
+#
+# FLAT recipe, no $(MAKE): a recursive make line is executed even under
+# `make -n`, which this repo has already been bitten by.
+offline-deps: ## NETWORK-SIDE prerequisite of the offline leg: populate the bun dependency trees it reads. Idempotent.
+	./scripts/offline-deps.sh
+
+# SLSI-OSD-5. The comparison contract P1-GOV needs. `make test-all-offline`
+# answers "is everything green now"; it cannot answer "is this better, the same,
+# or worse than P0", because P0's recorded baseline for this leg is NOT zero
+# failures -- it is 1417 passes and 1 failure. Comparing against zero conflates
+# a real regression, the 21 RED_INHERITED docs-lint findings from cb0a6d0e, and
+# a cold-worktree environment fault into one undifferentiated red bar.
+offline-count-contract: ## Verify the offline leg's P0-count comparison contract (test/offline-baseline-contract.json) against docs/slsi-p0-baseline/baseline.json.
+	./scripts/assert-bats-ran-something.sh bats test/offline-count-contract.bats
+
+test-offline-install-boundary: ## Prove the dependency install stays on the network side of the offline boundary and never moves into the offline leg.
+	./scripts/assert-bats-ran-something.sh bats test/offline-install-boundary.bats
+
+# Proves the two suites above can FAIL. It mutates the real Makefile, scripts
+# and contract in place and requires each suite to go RED at a NAMED test for
+# every breakage. Run it ALONE -- a concurrent edit in this checkout lands
+# inside a mutation window and reads exactly like a real finding. Deliberately
+# NOT part of test-all-offline for that reason, same as the node-doctor proof.
+.PHONY: test-offline-mutation-proof
+test-offline-mutation-proof: ## Mutation-prove test/offline-install-boundary.bats and test/offline-count-contract.bats. Run alone.
+	./test/offline-mutation-proof.sh
+
+.PHONY: attached-mode-preflight
+attached-mode-preflight: ## Assert the two centrally issued Secrets exist before APPLIANCE_MODE=attached renders the remote-tenant overlay. No cluster mutation.
+	APPLIANCE_MODE=attached scripts/attached-mode-preflight.sh
+
+# ORDERED PREREQUISITE, not a recipe line. Make guarantees offline-deps has
+# completed before the first line below executes, which is precisely the
+# network/offline boundary. Moving the install into the recipe would still make
+# the leg green on a cold tree, and would silently empty the word "offline" of
+# meaning.
+test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, Python, KPAI, static BATS/config/registry).
 	@echo "=== [Offline 1/5] All Go Unit Tests (29 modules via dynamic discovery loop) ==="
 	@modules=$$(find . -type d \( -name ".cache" -o -name "node_modules" \) -prune -o -type f -name "go.mod" -exec dirname {} \; | sort -u); \
 	printf '%s\n' $$modules | xargs -I {} -P $${GO_TEST_JOBS:-8} sh -c 'echo "--- Running go test in $$1 ---" && (cd "$$1" && env GOPATH=$${GOPATH:-/tmp/gopath} GONOSUMDB=* GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)' _ {} || exit 1
@@ -564,6 +628,12 @@ test-all-offline: ## Run all offline test suites (Go unit, Vitest, Python, KPAI,
 	./scripts/signalloom-api-test.sh contract
 	./scripts/signalloom-api-test.sh integration
 	bats test/test-count-floor.bats
+	@# SLSI-OSD-5. Invoked FLAT rather than through $(MAKE) so these two lines do
+	@# not add further recursion to a leg that `make -n` already cannot dry-run.
+	@# The named targets offline-count-contract and test-offline-install-boundary
+	@# run the same two suites for anyone who wants them individually.
+	./scripts/assert-bats-ran-something.sh bats test/offline-count-contract.bats
+	./scripts/assert-bats-ran-something.sh bats test/offline-install-boundary.bats
 	@echo "=== [Offline] All offline test suites passed successfully! ==="
 
 
@@ -697,8 +767,12 @@ verify-signal-segments: ## Verify a supplied corpus; requires SIGNAL_VERIFY_{EVI
 	@test -n "$${SIGNAL_VERIFY_EVIDENCE}" && test -n "$${SIGNAL_VERIFY_ROOT}" && test -n "$${SIGNAL_VERIFY_HIGHWATER}" && test -n "$${SIGNAL_VERIFY_PUBLIC_KEY}" || { echo 'Set all four SIGNAL_VERIFY_* paths; no empty-corpus or audit-only bypass.' >&2; exit 1; }
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go run ./cmd/segment-verify -evidence-dir "$${SIGNAL_VERIFY_EVIDENCE}" -segment-root "$${SIGNAL_VERIFY_ROOT}" -highwater "$${SIGNAL_VERIFY_HIGHWATER}" -public-key "$${SIGNAL_VERIFY_PUBLIC_KEY}"
 
-test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
-	cd d2-signalloom/apps/dashboard-signalloom && bun install --frozen-lockfile
+# SLSI-OSD-5: the install that used to be the first recipe line here now lives in
+# offline-deps, an ordered prerequisite. It is a prerequisite of THIS target as
+# well as of test-all-offline, because the offline leg reaches this target via a
+# sub-make -- which re-evaluates prerequisites in a fresh make process -- and
+# because this target is also run standalone on a cold tree.
+test-dashboard-weave: offline-deps ## Run Weave, Signal Fusion, and weaveApi vitest suites.
 	node d2-signalloom/apps/dashboard-signalloom/node_modules/vitest/vitest.mjs run \
 		--root d2-signalloom/apps/dashboard-signalloom \
 		src/pages/WeavePage.test.tsx \
@@ -1164,6 +1238,46 @@ test-ci-build-parity: ## Verify the CI build-parity guard against fixture recipe
 .PHONY: test-slsi-airgap
 test-slsi-airgap: ## SLSI-P1-4: extract and verify the appliance bundle under docker --pull=never --net none, and prove zero egress attempts under strace.
 	scripts/assert-bats-ran-something.sh bats test/slsi-airgap-bundle.bats
+
+# SLSI-P1-1 bundle suites, relayed by the lead from agent A.
+#
+# Only test-slsi-bundle-osd is in test-all-offline, and the split is load-bearing
+# rather than tidiness: of A's three suites only test/slsi-bundle-osd.bats is
+# self-contained. The other two read dist/MANIFEST.json, which P1-3 builds, so
+# putting them in the offline leg would make the leg's greenness depend on a
+# build artefact that a cold checkout does not have -- the same class of defect
+# as the absent node_modules this card exists to fix, one layer up.
+#
+# test/slsi-bundle-build-driver.sh and test/slsi-bundle-fake-crane.sh are
+# helpers for these suites and deliberately get no targets of their own. A
+# target per helper would make them look independently runnable, and the bats
+# registry guard's proof-script check is satisfied by the suite that drives them.
+# NOT wired into test-all-offline from this branch, and the reason is specific:
+# test/slsi-bundle-osd.bats is ABSENT on this base (bdd36723) -- checked, it is
+# on agent A's branch and not yet merged. Naming it in the offline leg here
+# would make the leg red on this branch for a file that does not exist, which is
+# precisely the "green bar that depends on something the checkout does not have"
+# failure this card exists to remove. Once A's suite has landed, the lead appends
+# exactly one line to the offline leg's static section, next to the other two
+# flat bats invocations:
+#
+#     ./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-osd.bats
+#
+# The target below is correct and ready now; it is the leg membership that waits.
+.PHONY: test-slsi-bundle-osd
+test-slsi-bundle-osd: ## SLSI OSD-1/OSD-2/OSD-3 acceptance (hermetic, offline)
+	@test -f test/slsi-bundle-osd.bats || { echo 'test/slsi-bundle-osd.bats is absent; it lands with SLSI-P1-1 (agent A).' >&2; exit 1; }
+	./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-osd.bats
+
+.PHONY: test-slsi-bundle-manifest
+test-slsi-bundle-manifest: ## SLSI-P1-1 appliance manifest schema and content suite. Requires dist/MANIFEST.json (built by P1-3); not part of test-all-offline.
+	@test -f dist/MANIFEST.json || { echo 'dist/MANIFEST.json is absent. Build the bundle first (SLSI-P1-3); this suite reads a real manifest and will not fabricate one.' >&2; exit 1; }
+	./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-manifest.bats
+
+.PHONY: test-slsi-bundle-seal
+test-slsi-bundle-seal: ## SLSI-P1-1 bundle seal falsification proof. Requires dist/MANIFEST.json (built by P1-3); not part of test-all-offline.
+	@test -f dist/MANIFEST.json || { echo 'dist/MANIFEST.json is absent. Build the bundle first (SLSI-P1-3); this proof mutates a real sealed manifest and will not fabricate one.' >&2; exit 1; }
+	./test/slsi-bundle-seal-falsification.sh
 
 .PHONY: test-kind-load-verified
 test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).

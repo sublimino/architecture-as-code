@@ -789,7 +789,7 @@ export default function AgentOverviewTab({
                           fontFamily: 'monospace',
                           fontSize: 11,
                           overflowX: 'auto',
-                          color: '#e2e8f0',
+                          color: 'var(--text)',
                         }}
                       >
                         <code>{policy.celExpression}</code>

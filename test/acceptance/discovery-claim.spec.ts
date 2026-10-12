@@ -19,7 +19,7 @@ test.describe("Surface 2: Multi-Source Discovery & Auto-Claim (Desktop 1280x800)
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
     await page.goto(`${BASE}/discovery`, { waitUntil: "domcontentloaded" });
   });
 
@@ -109,7 +109,7 @@ test.describe("Surface 2: Multi-Source Discovery (Mobile Viewport 375x667)", () 
   test.use({ viewport: { width: 375, height: 667 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
     await page.goto(`${BASE}/discovery`, { waitUntil: "domcontentloaded" });
   });
 
@@ -141,7 +141,7 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
 
   test("rejects empty agent ID with 400 or 422 and structured error envelope", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
@@ -156,7 +156,7 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
 
   test("rejects missing namespace with 400 or 422 and structured error envelope", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
@@ -171,7 +171,7 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
 
   test("rejects non-existent namespace with 400 or 422 and structured error envelope", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {
@@ -186,7 +186,7 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
 
   test("rejects malformed raw JSON with 400 or 422 and never unhandled 500", async ({ page, request }) => {
     if (!authToken) {
-      await login(page);
+      await login(page, { demoMode: true });
       authToken = (await getAuthToken(page)) || "";
     }
     const res = await request.post(`${BASE}/api/v1/discovery/claim`, {

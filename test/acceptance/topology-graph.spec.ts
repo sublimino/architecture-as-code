@@ -18,7 +18,7 @@ test.describe("Surface 4: Topology Graph & Node Detail Drawer (Desktop 1280x800)
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
     await page.goto(`${BASE}/topology`, { waitUntil: "domcontentloaded" });
   });
 
@@ -75,7 +75,7 @@ test.describe("Surface 4: Topology Graph (Mobile Viewport 375x667)", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, { demoMode: true });
     await page.goto(`${BASE}/topology`, { waitUntil: "domcontentloaded" });
   });
 

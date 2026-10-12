@@ -191,13 +191,19 @@ async def claim_discovered_workload(
                         last_transition_at, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4, 'Discovered workload claimed via discovery portal', 'active', 'active',
-                        'Custom', 83, NULL, $5,
+                        -- NULL, not 83: claiming a discovered workload through
+                        -- the portal measures nothing about its compliance, and
+                        -- the column is nullable for exactly this case. The
+                        -- real score comes from agent_compliance_results.
+                        'Custom', NULL, NULL, $5,
                         NOW(), NOW(), NOW()
                     )
                     ON CONFLICT (tenant_id, name) DO UPDATE SET
                         lifecycle_state = 'active',
                         status = 'active',
-                        compliance_posture = 83,
+                        -- compliance_posture deliberately omitted: a re-claim
+                        -- measured nothing, so it must not overwrite a real
+                        -- score computed since the first claim.
                         model_name = EXCLUDED.model_name,
                         last_transition_at = NOW(),
                         updated_at = NOW()""",

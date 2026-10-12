@@ -665,12 +665,17 @@ async def claim_external_agent_handler(
                     last_transition_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, 'active', 'active',
-                    'Custom', 83, NULL, $6,
+                    -- NULL, not 83: registering an external agent measures
+                    -- nothing about its compliance. The column is nullable for
+                    -- this case; the real score is derived from
+                    -- agent_compliance_results once controls are assessed.
+                    'Custom', NULL, NULL, $6,
                     NOW(), NOW(), NOW()
                 ) ON CONFLICT (tenant_id, name) DO UPDATE SET
                     lifecycle_state = 'active',
                     status = 'active',
-                    compliance_posture = 83,
+                    -- compliance_posture deliberately omitted: a re-registration
+                    -- measured nothing, so it must not reset a real score.
                     last_transition_at = NOW(),
                     updated_at = NOW()""",
                 agent_uuid,

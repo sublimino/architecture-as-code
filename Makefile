@@ -1156,6 +1156,15 @@ check-ci-build-parity: ## Fail if CI omits a build or activation step demo-signa
 test-ci-build-parity: ## Verify the CI build-parity guard against fixture recipes, including that it cannot pass vacuously (no cluster required).
 	bats test/ci-build-parity.bats
 
+# SLSI-P1-4 air-gap proof. Needs a BUILT dist/slsi-appliance-<version>.tar.gz
+# (or SLSI_BUNDLE_TARBALL), docker with the sandbox image already local, and
+# strace; it fails, never skips, without them. Not yet named by any CI
+# pipeline: registering it there (or in bats-registry-coverage.bats
+# root_excluded with a reason) is P1-GOV's decision, recorded in P1-4's errata.
+.PHONY: test-slsi-airgap
+test-slsi-airgap: ## SLSI-P1-4: extract and verify the appliance bundle under docker --pull=never --net none, and prove zero egress attempts under strace.
+	scripts/assert-bats-ran-something.sh bats test/slsi-airgap-bundle.bats
+
 .PHONY: test-kind-load-verified
 test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).
 	bats test/kind-load-verified.bats

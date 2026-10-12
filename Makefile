@@ -1239,6 +1239,46 @@ test-ci-build-parity: ## Verify the CI build-parity guard against fixture recipe
 test-slsi-airgap: ## SLSI-P1-4: extract and verify the appliance bundle under docker --pull=never --net none, and prove zero egress attempts under strace.
 	scripts/assert-bats-ran-something.sh bats test/slsi-airgap-bundle.bats
 
+# SLSI-P1-1 bundle suites, relayed by the lead from agent A.
+#
+# Only test-slsi-bundle-osd is in test-all-offline, and the split is load-bearing
+# rather than tidiness: of A's three suites only test/slsi-bundle-osd.bats is
+# self-contained. The other two read dist/MANIFEST.json, which P1-3 builds, so
+# putting them in the offline leg would make the leg's greenness depend on a
+# build artefact that a cold checkout does not have -- the same class of defect
+# as the absent node_modules this card exists to fix, one layer up.
+#
+# test/slsi-bundle-build-driver.sh and test/slsi-bundle-fake-crane.sh are
+# helpers for these suites and deliberately get no targets of their own. A
+# target per helper would make them look independently runnable, and the bats
+# registry guard's proof-script check is satisfied by the suite that drives them.
+# NOT wired into test-all-offline from this branch, and the reason is specific:
+# test/slsi-bundle-osd.bats is ABSENT on this base (bdd36723) -- checked, it is
+# on agent A's branch and not yet merged. Naming it in the offline leg here
+# would make the leg red on this branch for a file that does not exist, which is
+# precisely the "green bar that depends on something the checkout does not have"
+# failure this card exists to remove. Once A's suite has landed, the lead appends
+# exactly one line to the offline leg's static section, next to the other two
+# flat bats invocations:
+#
+#     ./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-osd.bats
+#
+# The target below is correct and ready now; it is the leg membership that waits.
+.PHONY: test-slsi-bundle-osd
+test-slsi-bundle-osd: ## SLSI OSD-1/OSD-2/OSD-3 acceptance (hermetic, offline)
+	@test -f test/slsi-bundle-osd.bats || { echo 'test/slsi-bundle-osd.bats is absent; it lands with SLSI-P1-1 (agent A).' >&2; exit 1; }
+	./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-osd.bats
+
+.PHONY: test-slsi-bundle-manifest
+test-slsi-bundle-manifest: ## SLSI-P1-1 appliance manifest schema and content suite. Requires dist/MANIFEST.json (built by P1-3); not part of test-all-offline.
+	@test -f dist/MANIFEST.json || { echo 'dist/MANIFEST.json is absent. Build the bundle first (SLSI-P1-3); this suite reads a real manifest and will not fabricate one.' >&2; exit 1; }
+	./scripts/assert-bats-ran-something.sh bats test/slsi-bundle-manifest.bats
+
+.PHONY: test-slsi-bundle-seal
+test-slsi-bundle-seal: ## SLSI-P1-1 bundle seal falsification proof. Requires dist/MANIFEST.json (built by P1-3); not part of test-all-offline.
+	@test -f dist/MANIFEST.json || { echo 'dist/MANIFEST.json is absent. Build the bundle first (SLSI-P1-3); this proof mutates a real sealed manifest and will not fabricate one.' >&2; exit 1; }
+	./test/slsi-bundle-seal-falsification.sh
+
 .PHONY: test-kind-load-verified
 test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).
 	bats test/kind-load-verified.bats

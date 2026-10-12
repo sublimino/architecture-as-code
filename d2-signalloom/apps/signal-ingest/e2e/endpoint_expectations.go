@@ -3,15 +3,15 @@
 
 package e2e
 
-// The per-rule and per-window expectation table for the Tetragon endpoint_host
-// fixture corpus (collectors/ebpf/endpoint_testdata), asserted exactly by
-// TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable.
+// The per-rule and per-window expectation table for the sentinel eBPF
+// endpoint_host fixture corpus (collectors/ebpf/endpoint_testdata), asserted
+// exactly by TestEndpointE2E_FixtureCorpusMatchesTheExpectationTable.
 //
 // Exact, not "at least": an over-triggering endpoint rule is noise an operator
-// stops reading. Counts are over the Tetragon corpus ONLY; every rule here
-// source-gates on "tetragon", so nothing from the agent-nono Landlock stream
-// (which shares the endpoint_host layer) can join, and nothing here fires on a
-// Landlock record.
+// stops reading. Counts are over the sentinel eBPF corpus ONLY; every rule here
+// source-gates on "sentinel.ebpf.syscall_trace", so nothing from the agent-nono
+// Landlock stream (which shares the endpoint_host layer) can join, and nothing
+// here fires on a Landlock record.
 
 const bundleEndpoint = "kusari-endpoint-runtime"
 
@@ -43,7 +43,7 @@ var endpointWindowExpectations = []windowExpectation{
 	},
 }
 
-// Totals over the Tetragon corpus, cross-checked against the two tables above.
+// Totals over the sentinel eBPF corpus, cross-checked against the two tables above.
 const (
 	wantEndpointObservations = 10
 	wantEndpointFindings     = 7

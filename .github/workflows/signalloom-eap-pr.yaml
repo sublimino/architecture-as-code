@@ -132,6 +132,26 @@ jobs:
         # gcp-tf-validate owns the terraform-*.bats suites. Offline, ~1s.
         run: bats test/eap-pr-workflow.bats
 
+      - name: Generated-artefact drift (bootstrap SQL)
+        # Root cause of a real escape, traced 2026-10-12. Migration
+        # 061_policy_check_mapping.sql landed in 24f1d1b7 (2026-10-10) without
+        # the two generated discovery-portal-bootstrap.sql copies being
+        # regenerated, so both sat at 4733 lines against a generated 4785 and
+        # the estate's offline leg was red for two days.
+        #
+        # The guard itself was never the problem: d2-signalloom/Makefile's
+        # `test` target runs validate-dependencies.sh, and `make -C d2-signalloom
+        # test` is named twice in scripts/ci/vm-pipeline.sh and three times in
+        # scripts/gcp-tf/demo-pipeline.sh. It was absent from THIS file -- the
+        # pull-request gate -- so nothing could catch the drift at the moment it
+        # was introduced. A correct guard that runs only after merge is a
+        # post-mortem tool, not a gate.
+        #
+        # Offline, no network, no cluster, sub-second. The migrations are the
+        # source of truth; both SQL files are build artefacts and must never be
+        # hand-edited.
+        run: bash d2-signalloom/test/validate-dependencies.sh
+
       - name: Offline suites that no runner previously invoked
         # Registered by LITERAL BASENAME, not by make target. The coverage guard
         # at d2-signalloom/test/bats-registry-coverage.bats:718 greps the three

@@ -178,11 +178,31 @@ What is left, ordered by risk:
      `fe-signalloom/src/api_compat.py`. Decide retain-as-history vs rename to the
      own-eBPF framing.
 
-2. **Source-name reconciliation.** The observation `Source` is
-   `sentinel.ebpf.syscall_trace` (netebpf-parallel dotted form); the provider
-   label is `sentinel-ebpf`. The P1-8 card text and any dashboard/P1-10 filter
-   keyed on a literal `sentinel-ebpf` *source* must be reconciled to the dotted
-   source (or to the provider label, explicitly).
+2. **Two-endpoint_host-stream contract reconciliation (confirmed 2026-10-12, live-path audit).**
+   The store path is sound: the live stun-sentinel emits `endpoint_host`
+   observations to `POST /api/v1/observations` with `Source: "stun-sentinel"`
+   (`stun-sentinel/pkg/correlator/ingest.go`); all 9 of its label keys are
+   allow-listed and `store/sentinel_contract_test.go` proves acceptance; Tier-0
+   in-kernel freeze is verified live. **But no CEL rule fires on that live
+   stream.** `endpoint-runtime.yaml` is written against the *collector
+   projection* contract — it gates on `obs.source == "sentinel.ebpf.syscall_trace"`
+   AND `obs.labels.classification in {file_access, process_exec}`. The live
+   stun-sentinel stream carries neither: its source is `stun-sentinel` and it has
+   no `classification` label (it carries `syscall`/`target`/`severity`/
+   `direct_reaction`/`cgroup_path`). So 2 of the 3 rules (sensitive-file-open,
+   unexpected-execve) could never fire on live data even after a source rename;
+   only `capability-or-ptrace` (gates on `syscall`) would. Net: live endpoint
+   detections exist as stored evidence + Tier-0 containment, but drive no central
+   Finding/Decision via CEL. The collector-projection source
+   (`sentinel.ebpf.syscall_trace`) has no live producer (that is the deliberate
+   seam from item 3), so `endpoint-runtime.yaml` currently fires only on fixtures/e2e.
+   **Decision needed:** either (a) align the two label contracts and add
+   `stun-sentinel` as an accepted source so the live stream drives central
+   findings, (b) author a live endpoint bundle matching the stun-sentinel
+   contract, or (c) accept Tier-0-only for the live stream and keep
+   endpoint-runtime as the server-side-projection path. The provider label is
+   `sentinel-ebpf`; any dashboard/P1-10 filter keyed on a literal `sentinel-ebpf`
+   source must also be reconciled to the dotted form.
 
 3. **Live-wire the own-eBPF endpoint stream.** `collectors/ebpf` endpoint
    projection is built and e2e-covered against fixtures, but the `Start` loop is

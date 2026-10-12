@@ -204,6 +204,21 @@ What is left, ordered by risk:
    `sentinel-ebpf`; any dashboard/P1-10 filter keyed on a literal `sentinel-ebpf`
    source must also be reconciled to the dotted form.
 
+   **RESOLVED 2026-10-12 (option a — contract alignment).** The sentinel now emits
+   a `classification` label (`sys_enter_openat`→`file_access`,
+   `sys_enter_execve`/`evasive_syscall_burst`→`process_exec`) and an `ActorHint`
+   (json `actor_hint`) carrying the workload actor; the three endpoint-runtime
+   rules union the source gate to `{sentinel.ebpf.syscall_trace, stun-sentinel}`.
+   `sensitive-file-open`, `unexpected-execve` and `capability-or-ptrace` all fire
+   on the live stream, pseudonym-scoped and mutation-proven (producer + consumer).
+   TWO residuals remain by design: (i) the kernel probe cannot see a service
+   account, so live exec-scoping is by the workload ACTOR/POD pseudonym — a trusted
+   live workload is exempted by its actor identity in `allowed_exec_actors`, not an
+   SA name (the collector projection still scopes by SA); (ii) the sentinel probes
+   no ptrace/capability syscall, so `capability-or-ptrace` fires only on the
+   collector projection until those probes exist. Source/provider-name
+   reconciliation with the dashboard/P1-10 is still open.
+
 3. **Live-wire the own-eBPF endpoint stream.** `collectors/ebpf` endpoint
    projection is built and e2e-covered against fixtures, but the `Start` loop is
    an `ErrLiveDeferred` seam — it does not yet consume the stun-sentinel's

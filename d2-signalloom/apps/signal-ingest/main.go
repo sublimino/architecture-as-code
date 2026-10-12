@@ -837,7 +837,9 @@ func main() {
 	// LSM enforcement. Containment belongs to stun-sentinel (Tier 0) and Flux
 	// (Tier 1). Sentinel syscall observations reach signal-ingest over
 	// /api/v1/observations; this collector's fixture mode replays the embedded
-	// endpoint corpus and its live mode is deferred (ErrLiveDeferred).
+	// endpoint corpus, and its live mode consumes that stream through an
+	// injectable EndpointEventStream seam (unwired here, so live mode would return
+	// ErrLiveSourceNotWired until a stream is set).
 	ebpfEndpointCollector := ebpf.NewCollectorFromEnv(policySink)
 	collectorRegistry.Register(ebpfEndpointCollector)
 

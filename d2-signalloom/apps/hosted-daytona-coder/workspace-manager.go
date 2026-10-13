@@ -226,15 +226,6 @@ func main() {
 func newServer(mgr *WorkspaceManager) http.Handler {
 	mux := http.NewServeMux()
 
-	healthOptionsHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	}
-	mux.HandleFunc("OPTIONS /health", healthOptionsHandler)
-	mux.HandleFunc("OPTIONS /healthz", healthOptionsHandler)
-	mux.HandleFunc("OPTIONS /readyz", healthOptionsHandler)
-	mux.HandleFunc("OPTIONS /livez", healthOptionsHandler)
-
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
@@ -243,19 +234,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	}
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("HEAD /health", healthHandler)
-	mux.HandleFunc("GET /healthz", healthHandler)
-	mux.HandleFunc("HEAD /healthz", healthHandler)
-	mux.HandleFunc("GET /readyz", healthHandler)
-	mux.HandleFunc("HEAD /readyz", healthHandler)
-	mux.HandleFunc("GET /livez", healthHandler)
-	mux.HandleFunc("HEAD /livez", healthHandler)
+	for _, p := range []string{"/health", "/healthz", "/readyz", "/livez"} {
+		registerReadRoute(mux, p, healthHandler)
+	}
 
-	mux.HandleFunc("OPTIONS /workspaces", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, HEAD, POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	})
+	mux.HandleFunc("OPTIONS /workspaces", optionsHandler("GET, HEAD, POST, OPTIONS"))
 
 	mux.HandleFunc("POST /workspaces", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
@@ -310,8 +293,8 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("OPTIONS /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		if id == "prune" {
+		drainAndCloseBody(r)
+		if r.PathValue("id") == "prune" {
 			w.Header().Set("Allow", "POST, OPTIONS")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -373,12 +356,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("OPTIONS /workspaces/{id}/teardown", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	mux.HandleFunc("POST /workspaces/{id}/teardown", func(w http.ResponseWriter, r *http.Request) {
+	registerPostRoute(mux, "/workspaces/{id}/teardown", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -404,12 +382,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		json.NewEncoder(w).Encode(ws)
 	})
 
-	mux.HandleFunc("OPTIONS /workspaces/prune", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	mux.HandleFunc("POST /workspaces/prune", func(w http.ResponseWriter, r *http.Request) {
+	registerPostRoute(mux, "/workspaces/prune", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -445,51 +418,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	mux.HandleFunc("HEAD /workspaces", listWorkspacesHandler)
 
 	return headBodySuppressingMiddleware(bodyDrainingMiddleware(mux))
-}
-
-func bodyDrainingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
-
-type headResponseWriter struct {
-	http.ResponseWriter
-	wroteHeader bool
-}
-
-func (w *headResponseWriter) WriteHeader(status int) {
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *headResponseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
-	// a message body, regardless of status code.
-	return len(b), nil
-}
-
-func (w *headResponseWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // maxWorkspaces bounds total concurrent workspace allocations in memory.

@@ -111,18 +111,8 @@ func main() {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		if r.Method != http.MethodHead {
-			fmt.Fprintln(w, "method not allowed")
-		}
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -130,27 +120,6 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodHead {
 		fmt.Fprintln(w, "ok")
 	}
-}
-
-// headResponseWriter suppresses response bodies for HTTP HEAD requests (RFC 9110 Section 6.4.1).
-type headResponseWriter struct {
-	http.ResponseWriter
-}
-
-func (w *headResponseWriter) Write(p []byte) (int, error) {
-	return len(p), nil
-}
-
-// headBodySuppressingMiddleware wraps an http.Handler and suppresses the response body
-// when the request method is HEAD, in compliance with RFC 9110 Section 6.4.1.
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func newRouter(llmEndpoint, model string) http.Handler {
@@ -166,6 +135,7 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer drainAndCloseBody(r)
 		if r.URL.Path != "/" {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusNotFound)
@@ -174,23 +144,8 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 			}
 			return
 		}
-		if r.Method == http.MethodOptions {
-			w.Header().Set("Allow", "POST, OPTIONS")
-			w.WriteHeader(http.StatusNoContent)
+		if !requirePostMethod(w, r) {
 			return
-		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST, OPTIONS")
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			if r.Method != http.MethodHead {
-				fmt.Fprintln(w, "method not allowed")
-			}
-			return
-		}
-
-		if r.Body != nil {
-			defer r.Body.Close()
 		}
 
 

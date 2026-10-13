@@ -1,6 +1,6 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-COPY go.mod main.go token.go webhook.go ./
+COPY go.mod *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o /out/prod-deploy-gate .
 
 FROM gcr.io/distroless/static-debian12:nonroot

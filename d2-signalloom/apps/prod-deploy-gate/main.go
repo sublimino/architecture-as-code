@@ -93,27 +93,6 @@ func writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 }
 
 
-// headResponseWriter suppresses response bodies for HTTP HEAD requests (RFC 9110 Section 6.4.1).
-type headResponseWriter struct {
-	http.ResponseWriter
-}
-
-func (w *headResponseWriter) Write(p []byte) (int, error) {
-	return len(p), nil
-}
-
-// headBodySuppressingMiddleware wraps an http.Handler and suppresses the response body
-// when the request method is HEAD, in compliance with RFC 9110 Section 6.4.1.
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/gate/request", s.handleGateRequest)
 	mux.HandleFunc("/gate/approve", s.handleGateApprove)
@@ -156,19 +135,9 @@ func (s *Server) startJanitor(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	if r.Body != nil {
-		defer r.Body.Close()
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req GateRequest
@@ -250,14 +219,8 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 
@@ -296,19 +259,9 @@ func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	if r.Body != nil {
-		defer r.Body.Close()
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req ApproveRequest
@@ -368,28 +321,16 @@ func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})

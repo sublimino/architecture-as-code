@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -141,20 +140,8 @@ func (b *AuditRingBuffer) Unsubscribe(ch chan AuditEvent) {
 
 // handleAuditEvents returns paginated audit events matching query parameters.
 func (s *server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 
@@ -188,20 +175,8 @@ func (s *server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 
 // handleAuditStream handles real-time SSE event streaming for operators.
 func (s *server) handleAuditStream(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 

@@ -181,20 +181,8 @@ type degradedReporter interface {
 // body into a map[string]string, and a numeric field would abort that decode
 // part-way through and silently blank the keys after it.
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 
@@ -249,20 +237,8 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 
@@ -324,25 +300,8 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 
@@ -464,25 +423,8 @@ func writeCascadeResult(w http.ResponseWriter, result *CascadeResult) {
 }
 
 func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 
@@ -571,25 +513,8 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 
@@ -668,20 +593,8 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -695,20 +608,8 @@ func (s *server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -757,25 +658,8 @@ type DeployResponse struct {
 }
 
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 
@@ -848,25 +732,8 @@ func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 
@@ -882,25 +749,8 @@ func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 
@@ -921,20 +771,8 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 // open. The two workload patterns are exact: neither ends in a slash, so the
 // list route cannot become a prefix handler that shadows the report route.
 func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	if s.policyEngine == nil {
@@ -952,25 +790,8 @@ func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 	callerCtx := ExtractCallerContext(r)
@@ -1003,41 +824,6 @@ func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(res)
-}
-
-type headResponseWriter struct {
-	http.ResponseWriter
-	wroteHeader bool
-}
-
-func (w *headResponseWriter) WriteHeader(status int) {
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *headResponseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
-	// a message body, regardless of status code.
-	return len(b), nil
-}
-
-func (w *headResponseWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func (s *server) routes() http.Handler {

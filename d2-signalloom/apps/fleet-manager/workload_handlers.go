@@ -72,25 +72,8 @@ func fleetReportIntervalFrom(raw string) (time.Duration, error) {
 // just as a nil enforcement selection is possible there; returning 503 keeps
 // that missing dependency observable instead of turning it into a panic.
 func (s *server) handleWorkloadReport(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST, OPTIONS")
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requirePostMethod(w, r) {
 		return
 	}
 	if s.workloads == nil {
@@ -187,20 +170,8 @@ func writeWorkloadDecodeError(w http.ResponseWriter, err error) {
 // optional because the portal merges workloads across clusters, while wardens
 // only report snapshots and never call this read endpoint.
 func (s *server) handleWorkloads(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	if s.workloads == nil {

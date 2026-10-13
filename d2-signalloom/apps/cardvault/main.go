@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -86,10 +85,7 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 			return
 		}
 		if username == "" || password == "" {
-			if r != nil && r.Body != nil {
-				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-				_ = r.Body.Close()
-			}
+			drainAndCloseBody(r)
 			writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": "authentication credentials unconfigured"})
 			return
 		}
@@ -97,10 +93,7 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 		uMatch := subtle.ConstantTimeCompare([]byte(u), []byte(username))
 		pMatch := subtle.ConstantTimeCompare([]byte(p), []byte(password))
 		if !ok || (uMatch&pMatch) != 1 {
-			if r != nil && r.Body != nil {
-				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-				_ = r.Body.Close()
-			}
+			drainAndCloseBody(r)
 			w.Header().Set("WWW-Authenticate", `Basic realm="cardvault"`)
 			writeJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
@@ -110,80 +103,32 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if r != nil && r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if r != nil && r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func handleListCards(w http.ResponseWriter, r *http.Request) {
-	if r != nil && r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, cards)
 }
 
 func handleGetCard(w http.ResponseWriter, r *http.Request) {
-	if r != nil && r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	defer drainAndCloseBody(r)
+	if !requireReadMethod(w, r) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/cards/")
@@ -204,36 +149,11 @@ func handleGetCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "card not found"})
 }
 
-
-// headResponseWriter suppresses response bodies for HTTP HEAD requests (RFC 9110 Section 6.4.1).
-type headResponseWriter struct {
-	http.ResponseWriter
-}
-
-func (w *headResponseWriter) Write(p []byte) (int, error) {
-	return len(p), nil
-}
-
-// headBodySuppressingMiddleware wraps an http.Handler and suppresses the response body
-// when the request method is HEAD, in compliance with RFC 9110 Section 6.4.1.
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // pathTraversalGuardMiddleware rejects path traversal attempts with 404 Not Found.
 func pathTraversalGuardMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.RequestURI, "..") || strings.Contains(r.URL.Path, "..") {
-			if r != nil && r.Body != nil {
-				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-				_ = r.Body.Close()
-			}
+			drainAndCloseBody(r)
 			writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}

@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -244,24 +243,8 @@ func consistencyIntervalFromEnv() time.Duration {
 }
 
 func (c *consistencyChecker) handleConsistency(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		if r.Method != http.MethodHead {
-			fmt.Fprintln(w, "method not allowed")
-		}
+	defer drainAndCloseBody(r)
+	if !requireReadMethodPlain(w, r) {
 		return
 	}
 	agentID := strings.TrimPrefix(r.URL.Path, consistencyRoutePrefix)
@@ -588,24 +571,8 @@ func (m *consistencyMetrics) record(rep ConsistencyReport) {
 }
 
 func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		if r.Method != http.MethodHead {
-			fmt.Fprintln(w, "method not allowed")
-		}
+	defer drainAndCloseBody(r)
+	if !requireReadMethodPlain(w, r) {
 		return
 	}
 	m.mu.Lock()

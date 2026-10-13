@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -153,14 +152,6 @@ func main() {
 func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux := http.NewServeMux()
 
-	healthOptionsHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	}
-	mux.HandleFunc("OPTIONS /health", healthOptionsHandler)
-	mux.HandleFunc("OPTIONS /healthz", healthOptionsHandler)
-	mux.HandleFunc("OPTIONS /readyz", healthOptionsHandler)
-
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
@@ -169,17 +160,11 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	}
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("HEAD /health", healthHandler)
-	mux.HandleFunc("GET /healthz", healthHandler)
-	mux.HandleFunc("HEAD /healthz", healthHandler)
-	mux.HandleFunc("GET /readyz", healthHandler)
-	mux.HandleFunc("HEAD /readyz", healthHandler)
+	for _, p := range []string{"/health", "/healthz", "/readyz"} {
+		registerReadRoute(mux, p, healthHandler)
+	}
 
-	mux.HandleFunc("OPTIONS /tasks", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, HEAD, POST, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	})
+	mux.HandleFunc("OPTIONS /tasks", optionsHandler("GET, HEAD, POST, OPTIONS"))
 
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -223,12 +208,7 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		json.NewEncoder(w).Encode(task)
 	})
 
-	mux.HandleFunc("OPTIONS /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
+	registerReadRoute(mux, "/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
 			writeError(w, http.StatusBadRequest, "task id required")
@@ -247,9 +227,7 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 			return
 		}
 		json.NewEncoder(w).Encode(task)
-	}
-	mux.HandleFunc("GET /tasks/{id}", getTaskHandler)
-	mux.HandleFunc("HEAD /tasks/{id}", getTaskHandler)
+	})
 
 	listTasksHandler := func(w http.ResponseWriter, r *http.Request) {
 		tasks, err := store.List(50)
@@ -267,64 +245,12 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux.HandleFunc("GET /tasks", listTasksHandler)
 	mux.HandleFunc("HEAD /tasks", listTasksHandler)
 
-	mux.HandleFunc("OPTIONS /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	agentCardHandler := func(w http.ResponseWriter, r *http.Request) {
+	registerReadRoute(mux, "/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		http.ServeFile(w, r, ".well-known/agent-card.json")
-	}
-	mux.HandleFunc("GET /.well-known/agent-card.json", agentCardHandler)
-	mux.HandleFunc("HEAD /.well-known/agent-card.json", agentCardHandler)
+	})
 
 	return withLogging(headBodySuppressingMiddleware(bodyDrainingMiddleware(mux)))
-}
-
-func bodyDrainingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
-
-type headResponseWriter struct {
-	http.ResponseWriter
-	wroteHeader bool
-}
-
-func (w *headResponseWriter) WriteHeader(status int) {
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *headResponseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
-	// a message body, regardless of status code.
-	return len(b), nil
-}
-
-func (w *headResponseWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

@@ -85,9 +85,15 @@ func TestExtractJWTWithSpacesInValue(t *testing.T) {
 // TestBaoTokenExchangeRejectsEmptyToken checks that an OpenBao response with an empty
 // client_token is rejected.
 func TestBaoTokenExchangeRejectsEmptyToken(t *testing.T) {
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"auth":{"client_token":"","policies":["test"]}}`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -103,9 +109,15 @@ func TestBaoTokenExchangeRejectsEmptyToken(t *testing.T) {
 
 // TestBaoTokenExchangeRejectsMalformedJSON checks that a non-JSON response is rejected.
 func TestBaoTokenExchangeRejectsMalformedJSON(t *testing.T) {
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte(`not json at all`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -121,9 +133,15 @@ func TestBaoTokenExchangeRejectsMalformedJSON(t *testing.T) {
 
 // TestKVReadRejectsEmptyUsername checks that a KV response with empty username is rejected.
 func TestKVReadRejectsEmptyUsername(t *testing.T) {
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"data":{"username":"","password":"s3cret"}}}`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -140,9 +158,15 @@ func TestKVReadRejectsEmptyUsername(t *testing.T) {
 // In some deployments, the password might legitimately be empty if other auth
 // mechanisms are in use.
 func TestKVReadAcceptsEmptyPassword(t *testing.T) {
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"data":{"username":"user","password":""}}}`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -165,9 +189,15 @@ func TestKVReadAcceptsEmptyPassword(t *testing.T) {
 // TestCardvaultAccessRejectsNonJSONResponse checks that a non-JSON cardvault response
 // is rejected.
 func TestCardvaultAccessRejectsNonJSONResponse(t *testing.T) {
-	cv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	cv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`<html>Server Error</html>`))
-	}))
+	})))
 	defer cv.Close()
 
 	app := &agent{
@@ -182,9 +212,15 @@ func TestCardvaultAccessRejectsNonJSONResponse(t *testing.T) {
 
 // TestCardvaultAccessHandlesEmptyArray checks that an empty card array is returned correctly.
 func TestCardvaultAccessHandlesEmptyArray(t *testing.T) {
-	cv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	cv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`[]`))
-	}))
+	})))
 	defer cv.Close()
 
 	app := &agent{
@@ -258,12 +294,18 @@ func TestStatusMode(t *testing.T) {
 // TestBaoResponseSizeLimit checks that the 1MB body limit is enforced.
 func TestBaoResponseSizeLimit(t *testing.T) {
 	// Return a response larger than 1MB.
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		// The agent reads with LimitReader at 1<<20 (1MB).
 		// A response bigger than that will be truncated, causing JSON decode to fail.
 		bigPayload := `{"auth":{"client_token":"` + strings.Repeat("A", 2<<20) + `"}}`
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(bigPayload))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{

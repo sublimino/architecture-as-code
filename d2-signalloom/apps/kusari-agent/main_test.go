@@ -21,10 +21,16 @@ func envFrom(m map[string]string) func(string) string {
 
 func upstream(t *testing.T, body string, status int) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
-	}))
+	})))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -212,10 +218,15 @@ func TestQuoteFallsBack(t *testing.T) {
 
 func TestCooldownSkipsUpstreamAfterFailure(t *testing.T) {
 	var dials atomic.Int32
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	up := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		dials.Add(1)
 		w.WriteHeader(http.StatusBadGateway)
-	}))
+	})))
 	t.Cleanup(up.Close)
 	a, logs := testAgent(t, up.URL, 0)
 	a.cfg.quoteCooldown = time.Minute
@@ -239,10 +250,15 @@ func TestCooldownSkipsUpstreamAfterFailure(t *testing.T) {
 
 func TestCooldownZeroDialsEveryTime(t *testing.T) {
 	var dials atomic.Int32
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	up := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		dials.Add(1)
 		w.WriteHeader(http.StatusBadGateway)
-	}))
+	})))
 	t.Cleanup(up.Close)
 	a, _ := testAgent(t, up.URL, 0)
 	h := a.routes()

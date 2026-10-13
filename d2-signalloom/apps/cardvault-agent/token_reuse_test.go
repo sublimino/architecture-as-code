@@ -29,30 +29,49 @@ type baoFake struct {
 func newBaoFake(t *testing.T, lease int) *baoFake {
 	t.Helper()
 	f := &baoFake{lease: lease, valid: map[string]bool{}}
-	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.srv = httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch r.URL.Path {
 		case "/v1/auth/jwt/login":
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			f.logins++
 			tok := fmt.Sprintf("s.token-%d", f.logins)
 			f.valid[tok] = true
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"auth": map[string]any{"client_token": tok, "lease_duration": f.lease}})
 		case "/v1/kv/data/signalloom/cardvault-agent":
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			if !f.valid[r.Header.Get("X-Vault-Token")] {
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
 				return
 			}
+			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":{"data":{"username":"u","password":"p"}}}`))
 		default:
 			t.Errorf("unexpected bao path %s", r.URL.Path)
 		}
-	}))
+	})))
 	t.Cleanup(f.srv.Close)
-	f.cv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.cv = httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]card{{Cardholder: "C", PANMasked: "****", Expiry: "01/30"}})
-	}))
+	})))
 	t.Cleanup(f.cv.Close)
 	return f
 }
@@ -144,16 +163,24 @@ func TestAFreshTokenRejectedFailsTheRunWithoutRetrying(t *testing.T) {
 	f := newBaoFake(t, 300)
 	clock := time.Date(2026, 10, 3, 5, 0, 0, 0, time.UTC)
 	a := f.agent(&clock)
-	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.srv.Config.Handler = headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if r.URL.Path == "/v1/auth/jwt/login" {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			f.logins++
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"auth": map[string]any{"client_token": "s.bad", "lease_duration": 300}})
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-	})
+		_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+	}))
 	var out, stderr strings.Builder
 	if code := a.runDemo(&out, &stderr); code == 0 {
 		t.Fatal("a run whose fresh token is refused succeeded")

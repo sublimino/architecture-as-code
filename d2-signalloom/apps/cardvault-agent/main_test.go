@@ -15,15 +15,22 @@ func TestBaoTokenExchange(t *testing.T) {
 		Role string `json:"role"`
 		JWT  string `json:"jwt"`
 	}
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/auth/jwt/login" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/v1/auth/jwt/login" {
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 			t.Fatal(err)
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"auth":{"client_token":"s.test-token-123","policies":["signalloom-cardvault-agent"]}}`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -49,10 +56,16 @@ func TestBaoTokenExchange(t *testing.T) {
 }
 
 func TestBaoTokenExchangeRejects403(t *testing.T) {
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"errors":["permission denied"]}`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -71,15 +84,23 @@ func TestBaoTokenExchangeRejects403(t *testing.T) {
 }
 
 func TestBaoKVRead(t *testing.T) {
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		if r.URL.Path != "/v1/kv/data/signalloom/cardvault-agent" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
 		if got := r.Header.Get("X-Vault-Token"); got != "s.test-token" {
-			t.Fatalf("unexpected token header: %q", got)
+			w.WriteHeader(http.StatusForbidden)
+			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"data":{"username":"cardvault-svc","password":"s3cret!"}}}`))
-	}))
+	})))
 	defer bao.Close()
 
 	app := &agent{
@@ -105,18 +126,26 @@ func TestCardvaultAccess(t *testing.T) {
 		{Cardholder: "Bob Jones", PANMasked: "****-****-****-1234", Expiry: "03/26"},
 	}
 
-	cv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		if r.URL.Path != "/api/v1/cards" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "cardvault-svc" || pass != "s3cret!" {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"unauthorized"}`))
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(cards)
-	}))
+	})))
 	defer cv.Close()
 
 	app := &agent{
@@ -137,10 +166,16 @@ func TestCardvaultAccess(t *testing.T) {
 }
 
 func TestCardvaultAccessFailsOnBadAuth(t *testing.T) {
-	cv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	cv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"error":"forbidden"}`))
-	}))
+	})))
 	defer cv.Close()
 
 	app := &agent{
@@ -211,33 +246,51 @@ func TestFullChain(t *testing.T) {
 	}
 
 	// Mock OpenBao: login + KV read
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/auth/jwt/login":
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"auth":{"client_token":"s.chain-token","policies":["signalloom-cardvault-agent"]}}`))
 		case "/v1/kv/data/signalloom/cardvault-agent":
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			if r.Header.Get("X-Vault-Token") != "s.chain-token" {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
+			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"data":{"data":{"username":"chain-user","password":"chain-pass"}}}`))
 		default:
 			t.Fatalf("unexpected bao path: %s", r.URL.Path)
 		}
-	}))
+	})))
 	defer bao.Close()
 
 	// Mock cardvault
-	cv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "chain-user" || pass != "chain-pass" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]card{
 			{Cardholder: "Chain Test", PANMasked: "****-****-****-9999", Expiry: "06/28"},
 		})
-	}))
+	})))
 	defer cv.Close()
 
 	var stdout, stderr strings.Builder

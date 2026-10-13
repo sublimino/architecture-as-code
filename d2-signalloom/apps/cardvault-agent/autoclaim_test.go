@@ -15,12 +15,15 @@ import (
 
 func TestAutoClaimSuccess(t *testing.T) {
 	var captured claimRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
 		}
 		if r.URL.Path != "/api/v1/agents/claim" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
 		ct := r.Header.Get("Content-Type")
 		if ct != "application/json" {
@@ -29,9 +32,10 @@ func TestAutoClaimSuccess(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{"status":"claimed","agent_id":"agent-001"}`))
-	}))
+	})))
 	defer srv.Close()
 
 	app := &agent{
@@ -56,10 +60,16 @@ func TestAutoClaimSuccess(t *testing.T) {
 }
 
 func TestAutoClaimRejects500(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error":"internal error"}`))
-	}))
+	})))
 	defer srv.Close()
 
 	app := &agent{
@@ -77,10 +87,16 @@ func TestAutoClaimRejects500(t *testing.T) {
 }
 
 func TestAutoClaimRejects409(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		w.Write([]byte(`{"error":"already claimed"}`))
-	}))
+	})))
 	defer srv.Close()
 
 	app := &agent{
@@ -99,11 +115,17 @@ func TestAutoClaimRejects409(t *testing.T) {
 
 func TestAutoClaimSendsCorrectPayload(t *testing.T) {
 	var body map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{"status":"claimed"}`))
-	}))
+	})))
 	defer srv.Close()
 
 	app := &agent{
@@ -135,11 +157,17 @@ func TestAutoClaimNetworkError(t *testing.T) {
 
 func TestAutoClaimUsesMockClock(t *testing.T) {
 	var body map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{"status":"claimed"}`))
-	}))
+	})))
 	defer srv.Close()
 
 	fixedTime := time.Date(2026, time.October, 13, 12, 0, 0, 0, time.UTC)

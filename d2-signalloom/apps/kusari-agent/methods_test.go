@@ -88,3 +88,62 @@ func TestActRoutesRejectHEADWithoutBody(t *testing.T) {
 	}
 }
 
+func TestNotFoundRouteSuppressesHEADBody(t *testing.T) {
+	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
+	for _, path := range []string{"/not-found", "/act/unknown", "/api/v1/missing"} {
+		rec := httptest.NewRecorder()
+		a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodHead, path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("HEAD %s = %d, want 404", path, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s wrote %d body bytes, want 0", path, rec.Body.Len())
+		}
+	}
+}
+
+func TestUpstreamMockMethodGatesAndHEADBodySuppression(t *testing.T) {
+	srv := upstream(t, goodBody, http.StatusOK)
+
+	// 1. GET returns 200 with quote JSON
+	getReq, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	getResp, err := srv.Client().Do(getReq)
+	if err != nil {
+		t.Fatalf("GET upstream: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Errorf("GET upstream status = %d, want 200", getResp.StatusCode)
+	}
+
+	// 2. HEAD returns 200 with 0 body bytes
+	headReq, _ := http.NewRequest(http.MethodHead, srv.URL, nil)
+	headResp, err := srv.Client().Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD upstream: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD upstream status = %d, want 200", headResp.StatusCode)
+	}
+	var buf [512]byte
+	n, _ := headResp.Body.Read(buf[:])
+	if n != 0 {
+		t.Errorf("HEAD upstream wrote %d body bytes, want 0", n)
+	}
+
+	// 3. POST returns 405 with Allow: GET, HEAD
+	postReq, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
+	postResp, err := srv.Client().Do(postReq)
+	if err != nil {
+		t.Fatalf("POST upstream: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST upstream status = %d, want 405", postResp.StatusCode)
+	}
+	if got := postResp.Header.Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("POST upstream Allow = %q, want %q", got, "GET, HEAD")
+	}
+}
+

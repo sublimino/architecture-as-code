@@ -513,7 +513,9 @@ func HandleScanFleet(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		}
 		return
 	}
 
@@ -522,7 +524,9 @@ func HandleScanFleet(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()})
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()})
+			}
 			return
 		}
 	}
@@ -531,5 +535,8 @@ func HandleScanFleet(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }

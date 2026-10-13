@@ -495,3 +495,20 @@ func TestComplianceSummary_MethodsAndHEAD(t *testing.T) {
 	}
 }
 
+func TestComplianceScan_HEADMethodNotAllowed(t *testing.T) {
+	h := &complianceHandler{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/api/v1/compliance/scan", nil)
+	h.handleScan(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("scan HEAD code=%d, want 405", rec.Code)
+	}
+	if allow := rec.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("scan HEAD Allow=%q, want 'POST'", allow)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("scan HEAD body len=%d, want 0", rec.Body.Len())
+	}
+}
+

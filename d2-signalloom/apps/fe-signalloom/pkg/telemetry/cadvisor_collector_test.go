@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -593,5 +594,52 @@ func TestHandler_SSENamespaceFilterDropsOtherTenantsFrames(t *testing.T) {
 		}
 		cancel()
 		resp.Body.Close()
+	}
+}
+
+type nonFlusherResponseWriter struct {
+	header http.Header
+	code   int
+	body   bytes.Buffer
+}
+
+func (w *nonFlusherResponseWriter) Header() http.Header         { return w.header }
+func (w *nonFlusherResponseWriter) Write(b []byte) (int, error) { return w.body.Write(b) }
+func (w *nonFlusherResponseWriter) WriteHeader(statusCode int)  { w.code = statusCode }
+
+func TestHandler_SSENonFlusherReturnsStructuredJSONAndHEADSuppression(t *testing.T) {
+	c, _ := newTestCollector()
+	collect(t, c, scrape("1", t0ms))
+	h := NewTelemetryHandler(c)
+
+	// GET request on non-flusher
+	getRec := &nonFlusherResponseWriter{header: make(http.Header)}
+	getReq := httptest.NewRequest(http.MethodGet, "/api/telemetry/agents/kusari-agent?stream=true", nil)
+	h.handleSSE(getRec, getReq, "kusari-agent")
+
+	if getRec.code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for non-flusher GET, got %d", getRec.code)
+	}
+	if ct := getRec.header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected application/json, got %q", ct)
+	}
+	var errResp map[string]map[string]string
+	if err := json.Unmarshal(getRec.body.Bytes(), &errResp); err != nil {
+		t.Fatalf("failed to parse JSON error: %v", err)
+	}
+	if errResp["error"]["code"] != "streaming_unsupported" {
+		t.Fatalf("expected code streaming_unsupported, got %v", errResp)
+	}
+
+	// HEAD request on non-flusher
+	headRec := &nonFlusherResponseWriter{header: make(http.Header)}
+	headReq := httptest.NewRequest(http.MethodHead, "/api/telemetry/agents/kusari-agent?stream=true", nil)
+	h.handleSSE(headRec, headReq, "kusari-agent")
+
+	if headRec.code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for non-flusher HEAD, got %d", headRec.code)
+	}
+	if headRec.body.Len() != 0 {
+		t.Fatalf("expected 0 bytes body on HEAD, got %d: %q", headRec.body.Len(), headRec.body.String())
 	}
 }

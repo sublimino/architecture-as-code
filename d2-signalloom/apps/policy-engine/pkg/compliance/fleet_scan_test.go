@@ -582,4 +582,18 @@ func TestHandleScanFleet_HTTP(t *testing.T) {
 	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request for malformed JSON, got %d", badRec.Code)
 	}
+
+	// Test HEAD method not allowed and response body suppression
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/compliance/scan-fleet", nil)
+	headRec := httptest.NewRecorder()
+	HandleScanFleet(headRec, headReq)
+	if headRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for HEAD, got %d", headRec.Code)
+	}
+	if allow := headRec.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST for HEAD, got %q", allow)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Fatalf("expected 0 bytes body on HEAD, got %d bytes: %q", headRec.Body.Len(), headRec.Body.String())
+	}
 }

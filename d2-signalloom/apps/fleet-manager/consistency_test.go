@@ -611,6 +611,16 @@ func TestConsistency_HTTPMethodsAndHEAD(t *testing.T) {
 	if recHead.Body.Len() != 0 {
 		t.Fatalf("HEAD body len=%d, want 0", recHead.Body.Len())
 	}
+
+	// HEAD on unknown agent should return 404 with empty body
+	recHead404 := httptest.NewRecorder()
+	mux.ServeHTTP(recHead404, httptest.NewRequest(http.MethodHead, "/api/v1/fleet/consistency/unknown-agent", nil))
+	if recHead404.Code != http.StatusNotFound {
+		t.Fatalf("HEAD unknown agent code=%d, want 404", recHead404.Code)
+	}
+	if recHead404.Body.Len() != 0 {
+		t.Fatalf("HEAD unknown agent body len=%d, want 0", recHead404.Body.Len())
+	}
 }
 
 func TestConsistencyMetrics_HTTPMethodsAndHEAD(t *testing.T) {

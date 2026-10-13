@@ -131,7 +131,7 @@ func (h *TelemetryHandler) handleList(w http.ResponseWriter, r *http.Request) {
 func (h *TelemetryHandler) handleSSE(w http.ResponseWriter, r *http.Request, pod string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "streaming_unsupported", "Streaming unsupported")
 		return
 	}
 

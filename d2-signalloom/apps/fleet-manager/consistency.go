@@ -245,12 +245,20 @@ func consistencyIntervalFromEnv() time.Duration {
 func (c *consistencyChecker) handleConsistency(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method != http.MethodHead {
+			fmt.Fprintln(w, "method not allowed")
+		}
 		return
 	}
 	agentID := strings.TrimPrefix(r.URL.Path, consistencyRoutePrefix)
 	if agentID == "" || strings.Contains(agentID, "/") || c.dag == nil || c.dag.GetAgent(agentID) == nil {
-		http.Error(w, fmt.Sprintf("unknown agent %q", agentID), http.StatusNotFound)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodHead {
+			fmt.Fprintf(w, "unknown agent %q\n", agentID)
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), consistencyCheckTimeout)
@@ -570,7 +578,11 @@ func (m *consistencyMetrics) record(rep ConsistencyReport) {
 func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method != http.MethodHead {
+			fmt.Fprintln(w, "method not allowed")
+		}
 		return
 	}
 	m.mu.Lock()
@@ -582,6 +594,7 @@ func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	writeLabelledCounter(&b, "fleet_split_brain_total", "Split-brain findings: a plane disagreeing with the pod's containment state.", m.splitBrain)
 	writeLabelledCounter(&b, "fleet_consistency_unqueried_total", "Checks where at least one plane could not be queried (never counted as consistent).", m.unqueried)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodHead {
 		return
 	}

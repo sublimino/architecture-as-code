@@ -1,8 +1,8 @@
 # Diagram focus notes
 
-These notes govern every architecture diagram published by the documentation
-portal: the Draw.io platform diagrams in `public/diagrams/` and the SeeCode
-component diagrams on the Internal Architecture page. Read them before you
+These notes govern every architecture diagram in the documentation portal.
+That covers the Draw.io platform diagrams in `public/diagrams/` and the
+SeeCode component diagrams on the Internal Architecture page. Read them before you
 change a diagram. `test/diagram-focus.bats` enforces the exclusion and
 inclusion lists below, so a diagram that drifts fails the suite.
 
@@ -29,7 +29,7 @@ Name the collectors by the system they read, not by package name:
 - Kubernetes audit (`k8saudit`).
 - OpenBao audit (`baoaudit`).
 - SPIRE SVID issuance (`spirea`).
-- Workspace SaaS, Google Workspace and Microsoft 365 (`workspacesaas`; live mode is deferred, so label it planned).
+- Workspace SaaS, Google Workspace and Microsoft 365 (`workspacesaas`). Live mode is deferred, so label it planned.
 
 On a cloud diagram, draw the provider-native audit source as an input to the
 collectors, for example Azure Event Hubs or Activity Log on Azure. The Azure
@@ -37,9 +37,9 @@ collector is a roadmap item: no Azure collector exists in code yet, and the
 cloud diagrams are design records, so that is consistent. Do not claim it
 runs today.
 
-The core platform stays on every diagram: Envoy Gateway, the Signal Loom API
-(`fe-signalloom`), the dashboard, fleet-manager, policy-engine, signal-ingest
-with FrostDB, Flux, and the Zot registry.
+The core platform stays on every diagram. That is Envoy Gateway, the Signal
+Loom API (`fe-signalloom`), the dashboard, fleet-manager and policy-engine.
+It also includes signal-ingest with FrostDB, Flux, and the Zot registry.
 
 ## Leave these out
 

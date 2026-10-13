@@ -53,8 +53,8 @@ func TestHealth(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("expected status 405 for %s %s, got %d", m, endpoint, rec.Code)
 			}
-			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-				t.Fatalf("expected Allow GET, HEAD for %s %s, got %s", m, endpoint, allow)
+			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Fatalf("expected Allow GET, HEAD, OPTIONS for %s %s, got %s", m, endpoint, allow)
 			}
 			if rec.Body.Len() == 0 {
 				t.Fatalf("expected non-empty error body for %s %s", m, endpoint)
@@ -74,8 +74,8 @@ func TestSummarizeHandlerMethodGatesAndHead(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected 405 for %s /, got %d", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Fatalf("expected Allow: POST for %s /, got %q", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Fatalf("expected Allow: POST, OPTIONS for %s /, got %q", method, allow)
 		}
 		if method == "HEAD" && rec.Body.Len() != 0 {
 			t.Fatalf("expected empty body for HEAD /, got %d bytes: %q", rec.Body.Len(), rec.Body.String())
@@ -155,8 +155,8 @@ func TestMethodNotAllowed(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405 Method Not Allowed, got %d", rec.Code)
 	}
-	if allow := rec.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow POST for GET /, got %s", allow)
+	if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow POST, OPTIONS for GET /, got %s", allow)
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatalf("expected non-empty error body for GET /")
@@ -171,8 +171,8 @@ func TestMethodNotAllowed(t *testing.T) {
 	if recHead.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405 Method Not Allowed for HEAD /, got %d", recHead.Code)
 	}
-	if allow := recHead.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow POST for HEAD /, got %s", allow)
+	if allow := recHead.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow POST, OPTIONS for HEAD /, got %s", allow)
 	}
 	if recHead.Body.Len() != 0 {
 		t.Fatalf("expected empty body for direct HEAD /, got %d bytes: %q", recHead.Body.Len(), recHead.Body.String())
@@ -371,8 +371,8 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 	if recRoot.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405 for HEAD /, got %d", recRoot.Code)
 	}
-	if recRoot.Header().Get("Allow") != "POST" {
-		t.Fatalf("expected Allow: POST for HEAD /, got %q", recRoot.Header().Get("Allow"))
+	if recRoot.Header().Get("Allow") != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS for HEAD /, got %q", recRoot.Header().Get("Allow"))
 	}
 	if recRoot.Body.Len() != 0 {
 		t.Fatalf("expected 0 body bytes on HEAD /, got %d bytes: %q", recRoot.Body.Len(), recRoot.Body.String())
@@ -455,8 +455,8 @@ func TestHealthHandlerDirectMethodGatingAndHEAD(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected status 405 for direct %s /health, got %d", m, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Fatalf("expected Allow GET, HEAD for direct %s /health, got %s", m, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Fatalf("expected Allow GET, HEAD, OPTIONS for direct %s /health, got %s", m, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Fatalf("expected non-empty body for direct %s /health", m)
@@ -532,6 +532,48 @@ func TestSummarizeOptionsAndEndpointValidation(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "invalid LLM endpoint") {
 			t.Fatalf("expected invalid LLM endpoint error for %q, got: %v", invalidEndpoint, err)
 		}
+	}
+}
+
+type trackingReadCloser struct {
+	io.Reader
+	closed bool
+}
+
+func (t *trackingReadCloser) Close() error {
+	t.closed = true
+	return nil
+}
+
+func TestSummarizeHandlerRequestBodyClosed(t *testing.T) {
+	mux := newRouter("http://mock-llm", "test-model")
+
+	// 1. Invalid JSON
+	rc1 := &trackingReadCloser{Reader: bytes.NewReader([]byte(`invalid-json`))}
+	req1 := httptest.NewRequest(http.MethodPost, "/", rc1)
+	rec1 := httptest.NewRecorder()
+	mux.ServeHTTP(rec1, req1)
+	if !rc1.closed {
+		t.Errorf("expected body to be closed on invalid JSON")
+	}
+
+	// 2. Empty diff
+	rc2 := &trackingReadCloser{Reader: bytes.NewReader([]byte(`{"diff":""}`))}
+	req2 := httptest.NewRequest(http.MethodPost, "/", rc2)
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	if !rc2.closed {
+		t.Errorf("expected body to be closed on empty diff")
+	}
+
+	// 3. Ignored CloudEvent type
+	rc3 := &trackingReadCloser{Reader: bytes.NewReader([]byte(`{"diff":"abc"}`))}
+	req3 := httptest.NewRequest(http.MethodPost, "/", rc3)
+	req3.Header.Set("Ce-Type", "unrelated.event")
+	rec3 := httptest.NewRecorder()
+	mux.ServeHTTP(rec3, req3)
+	if !rc3.closed {
+		t.Errorf("expected body to be closed on ignored CloudEvent")
 	}
 }
 

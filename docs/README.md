@@ -279,6 +279,8 @@ status without a linked record is "No completion record".
 | [Stun Sentinel and TC Controller Request Lifecycle and OPTIONS Method Parity](Proposal%20—%20Stun%20Sentinel%20and%20TC%20Controller%20Request%20Lifecycle%20and%20OPTIONS%20Method%20Parity%20%282026-Q4%29.md) | STUNSENTINELTCCTLOPTIONSPARITY | Proposed: Stun sentinel and TC controller request body lifecycle management, preflight OPTIONS bearer bypass, and RFC 9110 OPTIONS dispatch parity |
 | [Workspace Connector and Triage CI Worker Request Lifecycle and OPTIONS Parity](Proposal%20—%20Workspace%20Connector%20and%20Triage%20CI%20Worker%20Request%20Lifecycle%20and%20OPTIONS%20Parity%20%282026-Q4%29.md) | WORKSPACECONNECTORTRIAGEOPTIONSPARITY | Proposed: Workspace connector and triage CI worker request body lifecycle management and RFC 9110 OPTIONS Allow header parity |
 | [Fleet Manager Request Lifecycle and OSRAMP Processor Type Sanitization Hardening](Proposal%20—%20Fleet%20Manager%20Request%20Lifecycle%20and%20OSRAMP%20Processor%20Type%20Sanitization%20Hardening%20%282026-Q4%29.md) | FLEETMANAGERPROCESSORHARDENING | Proposed: Fleet manager request body lifecycle management, RFC 9110 OPTIONS dispatch parity, and OSRAMP processor task type sanitization |
+| [Prompt Commit Summarizer and Olly Tenant App Request Lifecycle and OPTIONS Parity](Proposal%20—%20Prompt%20Commit%20Summarizer%20and%20Olly%20Tenant%20App%20Request%20Lifecycle%20and%20OPTIONS%20Parity%20%282026-Q4%29.md) | PROMPTTENANTAPPOPTIONSPARITY | Proposed: Prompt commit summarizer request body lifecycle management, Allow header parity, and Olly tenant app RFC 9110 OPTIONS dispatch and body draining |
+
 
 
 

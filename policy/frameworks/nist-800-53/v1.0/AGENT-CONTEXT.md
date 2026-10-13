@@ -12,11 +12,11 @@ an absent or empty `spec.containers` fails every per-container check rather
 than reporting not-applicable.
 
 `no-automount-sa-token` requires `spec.automountServiceAccountToken: false`
-explicitly; a pod inheriting the protection from its ServiceAccount is still
+explicitly. A pod inheriting the protection from its ServiceAccount is still
 failed, because the pack never sees the ServiceAccount object.
 
 An explicit `runAsNonRoot: false` or `runAsUser: 0` at **pod** level is fatal
-regardless of container overrides: Pod Security Standards reject the pod at
+regardless of container overrides. Pod Security Standards reject the pod at
 either level, so the effective runtime value is not the test.
 `capabilities.drop` must contain `ALL` compared case-sensitively (lowercase
 `all` fails, matching Pod Security Admission) and `capabilities.add` must stay
@@ -28,6 +28,6 @@ within `{NET_BIND_SERVICE}`. `no-privilege-escalation` is skipped when
 `container-run-as-non-root`, `no-privilege-escalation`, `no-privileged-mode`,
 `read-only-rootfs`, `drop-all-capabilities` and `image-digest-required`
 evaluate `containers` + `initContainers` + `ephemeralContainers`.
-`resource-limits-set` evaluates `containers` + `initContainers` only — the
+`resource-limits-set` evaluates `containers` + `initContainers` only. The
 Kubernetes API forbids `resources` on ephemeral containers, so requiring it
 there could never pass for any admissible pod.

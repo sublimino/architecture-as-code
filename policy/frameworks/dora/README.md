@@ -9,9 +9,9 @@
 
 A scan of `dora` returns one row with verdict `not_evaluated`, contributes
 nothing to the failed, errored or exposure totals, and prices at £0.00. Zero is
-the correct figure here, not a missing one: the check carries an explicit
-all-zero `riskTriple` and `freqTriple` precisely so that nobody has to guess
-whether the zero means "no risk" or "no data". `compliance_money_test.go`
+the correct figure here, not a missing one. The check carries an explicit
+all-zero `riskTriple` and `freqTriple`. Nobody has to guess whether the zero
+means "no risk" or "no data". `compliance_money_test.go`
 pins `dora/v1.0` in the all-placeholder group for that reason, separately from
 the four packs whose zeros are a genuine finding.
 
@@ -21,10 +21,10 @@ correct citation and no assessment behind it.
 ## Ground truth
 
 **Regulation (EU) 2022/2554** of the European Parliament and of the Council of
-14 December 2022 on digital operational resilience for the financial sector and
-amending Regulations (EC) No 1060/2009, (EU) No 648/2012, (EU) No 600/2014,
-(EU) No 909/2014 and (EU) 2016/1011 (DORA). OJ L 333/1, 27.12.2022. ELI:
-`http://data.europa.eu/eli/reg/2022/2554/oj`.
+14 December 2022 addresses digital operational resilience for the financial
+sector. It amends Regulations (EC) No 1060/2009, (EU) No 648/2012, (EU)
+No 600/2014, (EU) No 909/2014 and (EU) 2016/1011 (DORA). OJ L 333/1,
+27.12.2022. ELI: `http://data.europa.eu/eli/reg/2022/2554/oj`.
 
 Anchored against the publisher's own XHTML by
 `../cra/catalogue/anchor-test.sh`, using the 64-article extract at
@@ -39,8 +39,8 @@ Anchored against the publisher's own XHTML by
 | `dora-resilience`, `DORA-1.0` | `Article 6` | ICT risk management framework | correct |
 
 `DORA-1.0` is named "ICT Risk Management Framework" and Article 6's published
-heading is "ICT risk management framework" — the same scope, so the mapping is
-correct and not a near-miss of the kind found in the `nist-800-53` pack. Both
+heading is "ICT risk management framework". Because they share the same scope,
+the mapping is correct and not a near-miss like the one in `nist-800-53`. Both
 articles sit in Chapter II, "ICT risk management". Article 6(1) requires a
 financial entity to have "a sound, comprehensive and well-documented ICT risk
 management framework".
@@ -71,7 +71,7 @@ over the dashboard source returns nothing, and `FrameworkSummary` in
 `src/types/compliance.ts` has nowhere to put it.
 
 **Not fixed here. All of it is outside `policy/frameworks/**`.** The three
-highest-leverage fixes, for whoever owns those files:
+highest-impact fixes, for whoever owns those files:
 
 1. Add `status` to `FrameworkResponse` and `notEvaluated` to
    `PolicyFrameworkSummaryResponse`, and render an "not assessed" state rather
@@ -81,8 +81,8 @@ highest-leverage fixes, for whoever owns those files:
 3. Delete the fabricated `dora` row in `ui/windows/policy-posture.js`, or label
    the window as demo data in the UI rather than only in a source comment.
 
-A precedent for the honest version already exists two files away:
-`fe-signalloom/src/routers/compliance.py` annotates `soc-2` with "No policy
+A precedent for the honest version already exists two files away. Specifically,
+`fe-signalloom/src/routers/compliance.py` annotates `soc-2`: "No policy
 pack exists for soc-2 … listed for the catalogue only, a scan of it returns
 nothing." `dora` and `nis2` are not in `KNOWN_FRAMEWORKS` at all, so they get
 neither the annotation nor the catalogue test. Note that
@@ -93,17 +93,18 @@ unpinned in both directions.
 ## Why there is nothing to check yet
 
 Nothing in DORA Chapter II is observable from a Kubernetes workload or an
-agent manifest. Article 6 requires a documented framework, Article 5 an
-internal governance and control arrangement; both are organisational facts
-about a **financial entity**, evidenced by documents and board minutes, not by
-container fields. A check reading `agent.dora_compliant == true` would be a
-self-asserted boolean dressed as a regulatory finding — the pattern this
-pack's sibling `cra` is criticised for in its own README.
+agent manifest. Article 6 requires a documented framework, and Article 5
+requires an internal governance and control arrangement. Both are organisational
+facts about a **financial entity**, evidenced by documents and board minutes,
+not by container fields. A check reading `agent.dora_compliant == true` would be a
+self-asserted boolean dressed as a regulatory finding. Its sibling `cra` pack is
+criticised for that pattern in its own README.
 
 The candidates that could be evidenced honestly, if this pack is ever built
-out, are the ones with a technical surface: Article 9(4)(c) and 9(4)(d)
-(cryptographic and access controls), Article 10 (anomaly detection), Article 12
-(backup and restoration), and Article 17 (ICT incident management process).
+out, are the ones with a technical surface. These are Article 9(4)(c) and
+9(4)(d) (cryptographic and access controls), plus Article 10 (anomaly
+detection). They also include Article 12 (backup and restoration) and Article 17
+(ICT incident management process).
 None of them is implemented, and none should be added without calibrated risk
 and frequency triples — a principal decision, never a pack author's.
 
@@ -133,8 +134,8 @@ figure rather than a gap, and the reason is statutory.
 
 **DORA sets no European-level monetary ceiling for a financial entity.**
 Art. 50 leaves administrative penalties to Member States. Critical ICT
-third-party providers are a separate case, facing up to 1 per cent of average
-daily worldwide turnover charged daily for up to six months. The citations are
+third-party providers are a separate case. They face up to 1 per cent of average
+daily worldwide turnover, charged daily for up to six months. The citations are
 in [PENALTIES.md](../PENALTIES.md#dora).
 
 So a DORA fine figure for a deployer is an invention unless the author read a

@@ -15,8 +15,8 @@ the `nist-800-53` pack's control references are anchored to.
 | Controls extracted | 1196 (base controls and enhancements) |
 
 The catalog UUID is the stable identity of this release of the catalogue. If a
-future NIST release renumbers or withdraws a control, the UUID changes, the
-extract is regenerated with `./extract.sh`, and `anchor-test.sh` reports the
+future NIST release renumbers or withdraws a control, the UUID changes. The
+extract is then regenerated with `./extract.sh`, and `anchor-test.sh` reports the
 pack references that no longer resolve. That is the intended workflow: the
 catalogue moving is a signal, not a nuisance.
 
@@ -29,7 +29,7 @@ the parenthesised form before lookup, so the pack may continue to write
 
 Enhancements are distinct controls with distinct statements. `AC-6(1)`
 ("Authorize Access to Security Functions") and `AC-6(9)` ("Log Use of
-Privileged Functions") are not interchangeable, and neither is a synonym for
+Privileged Functions") are not interchangeable. Neither is a synonym for
 their parent `AC-6` ("Least Privilege"). The test treats them as separate keys
 for exactly that reason.
 

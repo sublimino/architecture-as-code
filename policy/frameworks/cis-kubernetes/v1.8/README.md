@@ -15,14 +15,13 @@ from kube-bench, which carries them for the `cis-1.8` benchmark (Kubernetes
 
 ## The frame: admissibility, not runtime effect
 
-CIS §5.2 is worded "Minimize the **admission** of …". So where a manifest's
+CIS §5.2 is worded "Minimize the **admission** of …". Where a manifest's
 runtime effect and its admissibility under the
 [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
-disagree, **these checks follow admissibility**: a pod that a `restricted`
+disagree, **these checks follow admissibility**. A pod that a `restricted`
 namespace rejects fails, even if the container runtime would have produced a
-safe process had the pod ever been admitted. A pod that is rejected never runs,
-so reporting it compliant is a false negative, and a false negative is the
-dangerous direction for a compliance product.
+safe process. A pod that is rejected never runs. Reporting it compliant is a
+false negative, which is the dangerous direction for a compliance product.
 
 Three places where this bites, each pinned by a fixture:
 
@@ -35,14 +34,14 @@ Three places where this bites, each pinned by a fixture:
 **Stricter than PSS where CIS is stricter.** The frame resolves disagreements
 about what a manifest *means*, not about where the bar sits. `no-added-capabilities`
 fails any non-empty `capabilities.add`, including `NET_BIND_SERVICE`, which PSS
-`restricted` explicitly permits — CIS 5.2.9 permits no added capability, and
+`restricted` explicitly permits. CIS 5.2.9 permits no added capability, and
 this pack implements CIS (fixture `added-capability-net-bind-service`).
 
 ## Input
 
 `object` is a Pod-shaped object `{metadata, spec}`. No check reads `agent` or
 `request`. "All containers" means `spec.containers`, `spec.initContainers` and
-`spec.ephemeralContainers` together; every per-container check covers all three.
+`spec.ephemeralContainers` together. Every per-container check covers all three.
 
 ## Checks
 
@@ -69,27 +68,27 @@ this pack implements CIS (fixture `added-capability-net-bind-service`).
 **Windows exemption.** `spec.os.name: windows` exempts `no-privilege-escalation`,
 `no-net-raw`, `capabilities-dropped-all` and `seccomp-runtime-default`, mirroring
 Pod Security Standards: those fields are Linux-only and the API rejects them on
-Windows pods. The exemption keys on `spec.os.name` only; a Windows pod that
+Windows pods. The exemption keys on `spec.os.name` only. A Windows pod that
 relies on a `kubernetes.io/os` nodeSelector is evaluated as Linux
 (fixture `windows-without-os-field`).
 
 **Empty `containers`.** Schema-invalid (the API requires one container).
-Per-container checks pass vacuously because nothing runs; pod-level checks
+Per-container checks pass vacuously because nothing runs, while pod-level checks
 still evaluate (fixture `empty-containers-vacuous`).
 
 **Missing `spec`.** Not a pod. Every spec-reading check fails closed
 (`has(object.spec)` guard), never `error` (fixture `malformed-no-spec`).
 
-This was re-examined in this pass, because `fail` is not obviously the honest
-verdict: the pack reports 16 specific violations — "no privileged containers",
-"all capabilities dropped" — for an object that has no containers to judge, and
+This was re-examined in this pass, because `fail` is not clearly the honest
+verdict. The pack reports 16 specific violations — "no privileged containers",
+"all capabilities dropped" — for an object with no containers to judge. Thus,
 `error` would describe the epistemic state better. It stays `fail` for one
 decisive reason: the identical shape is a **production** input, not just a
 malformed fixture. Per [`../../CONFORMANCE.md`](../../CONFORMANCE.md) an empty
-`object` (`{}`) is bound when the scan supplies no manifest, so removing the
+`object` (`{}`) is bound when the scan supplies no manifest. Removing the
 guards to make a missing `spec` error would make *every* check error on *every*
-scan that carries no manifest (fixture `object-empty`). Failing closed on an
-unevidenced pod is the behaviour we want there, and a verdict rule that depends
+scan with no manifest (fixture `object-empty`). Failing closed on an
+unevidenced pod is the behaviour we want there. A verdict rule that depends
 on how the absence arrived would be worse than either. The cost is recorded
 here rather than hidden: a no-`spec` object contributes 16 failures to exposure
 that no CEL expression actually examined.
@@ -115,18 +114,18 @@ These CIS v1.8.0 section 5 recommendations are not evaluable from one pod spec:
 
 The engine caps CEL cost at 10000 (`cel_eval.go`). Fixture `ten-container-cost`
 (4 init + 5 main + 1 ephemeral container, each with 25 env vars, 4 envFrom,
-5 ports) evaluates every check; the highest measured cost is
+5 ports) evaluates every check. The highest measured cost is
 `no-secrets-in-env` at 2178, which scales with containers × env entries
 (unchanged: this pass did not touch that check).
 The longest expression is now `seccomp-runtime-default` at 1320 bytes against
-the 4096-byte limit; `ten-container-cost` evaluates it, and every other check,
-without hitting the cost cap.
+the 4096-byte limit. Fixture `ten-container-cost` evaluates it, and every other
+check, without hitting the cost cap.
 
 ## Fixtures
 
 - `fixtures/unit/`: each fixture is the Linux or Windows baseline with one fact
-  changed, and lists the full verdict vector, so a fail is attributable to that
-  fact and the baseline itself is shown compliant (`baseline-*-compliant`).
+  changed, and lists the full verdict vector. A fail is attributable to that
+  fact, and the baseline itself is shown compliant (`baseline-*-compliant`).
 - `fixtures/integration/`: hardened distroless API, Helm nginx with defaults,
   privileged node-agent DaemonSet pod, Windows HostProcess agent, 10-container
   cost pod.

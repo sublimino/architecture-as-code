@@ -16,7 +16,7 @@ the check (or passes, where stated) instead of erroring.
 | `agent.model_type` | string | `synthetic-content-marking` | pass: marking applies only when `model_type == 'generative'` |
 | `agent.transparency.synthetic_content_watermarking` | bool | `synthetic-content-marking` | fail, when the model is generative |
 
-Only the boolean `true` passes a bool path; the string `"true"` fails.
+Only the boolean `true` passes a bool path. The string `"true"` fails.
 
 ## `request`
 

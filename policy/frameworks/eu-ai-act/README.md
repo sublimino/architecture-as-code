@@ -9,8 +9,8 @@ authenticated Official Journal text before this file was written.
 CELEX `32024R1689`, i.e. the OJ text itself (OJ L, 2024/1689, 12.7.2024). The
 EUR-Lex HTML endpoints (`/legal-content/EN/TXT/HTML/?uri=OJ:L_202401689`,
 `/eli/reg/2024/1689/oj/eng`) answer `202` with an empty body to a non-browser
-client and cannot be used as a verification channel; CELLAR serves the same
-document and can. Articles 9, 10, 11, 12, 13, 14, 15, 17, 26 and 50 and
+client. They cannot be used as a verification channel, whereas CELLAR serves
+the same document and can. Articles 9, 10, 11, 12, 13, 14, 15, 17, 26 and 50 and
 Annex IV were read in full from that document.
 
 **Result in one line.** No citation in this pack is fabricated: every article,
@@ -18,7 +18,7 @@ paragraph and annex it names exists and concerns the subject claimed. Four
 paragraph-level citations in v2.1 were **wrong** and are corrected below. Three
 article-level attributions in v1.0/v2.0 are **mis-attributed** and are now
 labelled as such in the pack rather than renumbered. Most checks are
-**declarations or proxies**, not evidence; which is which is stated per check.
+**declarations or proxies**, not evidence. Which is which is stated per check.
 
 ## Citation table
 
@@ -45,7 +45,7 @@ at all. **fabricated** — the citation does not exist. There are no fabrication
 **Scope caveat on ART-50.** Articles 9–15 and 26 are Chapter III high-risk
 obligations. Article 50 is in **Chapter IV** and binds providers and deployers of
 *certain* AI systems regardless of high-risk classification. The v2.1 framework
-is named "EU AI Act: High-Risk AI System Requirements", so an ART-50 control set
+is named "EU AI Act: High-Risk AI System Requirements". An ART-50 control set
 inside it is in scope by subject, not by the high-risk trigger. Stated in the
 framework description so a reader does not infer that a failing
 `synthetic-content-marking` is a high-risk finding.
@@ -70,7 +70,7 @@ the paragraph actually engaged.
 
 An **evidence** check reads a fact about the workload that the obligation is
 about. A **proxy** check reads something adjacent. A **declaration** check reads
-a boolean or an annotation in which the operator asserts compliance; it proves
+a boolean or an annotation in which the operator asserts compliance. It proves
 that the assertion was made, nothing more.
 
 | Check | Obligation | Kind |
@@ -91,17 +91,17 @@ Four checks read `containers` (+ `initContainers`) but **not**
 `ephemeralContainers`: `resource-limits-set`, `resource-requests-set`,
 `liveness-probe-present`, `readiness-probe-present`. This is required, not
 missing. The Kubernetes `EphemeralContainer` schema **forbids** `resources`,
-`livenessProbe`, `readinessProbe`, `lifecycle` and `ports` — "Resources are not
+`livenessProbe`, `readinessProbe`, `lifecycle` and `ports`. "Resources are not
 allowed for ephemeral containers. Ephemeral containers use spare resources
 already allocated to the pod"
 ([Pod v1 API reference](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/)).
-A check demanding them would fail every pod carrying a debug container. The five
-checks whose obligation *is* per-container and schema-legal on an ephemeral
-container (`container-run-as-non-root`, `no-privilege-escalation`,
+A check demanding them would fail every pod carrying a debug container. Seven
+checks have a per-container obligation that is schema-legal on an ephemeral
+container: `container-run-as-non-root`, `no-privilege-escalation`,
 `no-privileged-mode`, `read-only-rootfs`, `drop-all-capabilities`,
-`image-digest-required`, `trusted-registry`) all read all three lists, in all
-three versions. Both halves are pinned by fixtures
-(`*--ephemeral-container-violates`, `*--ephemeral-container-carries-no-resources`,
+`image-digest-required`, and `trusted-registry`. All five security checks and both
+image checks read all three lists in all three versions. Both halves are pinned
+by fixtures (`*--ephemeral-container-violates`, `*--ephemeral-container-carries-no-resources`,
 `probes-present--ephemeral-container-carries-no-probes`).
 
 ## Version tiers are not a chain
@@ -117,7 +117,7 @@ v2.1 as "workload checks plus agent and request governance". That is true of the
 | `agent`/`request` checks | 0 | 0 | 6 |
 
 v2.0 **is** a strict superset of v1.0: all 7 of v1.0's checks are present, plus
-12 more. v2.1 **is not** a superset of v2.0 — it drops 14 workload checks that
+12 more. v2.1 **is not** a superset of v2.0. It drops 14 workload checks that
 v2.0 enforces: `no-privileged-mode`, `read-only-rootfs`, `liveness-probe-present`,
 `readiness-probe-present`, `resource-requests-set`, `min-replicas`,
 `image-digest-required`, `trusted-registry`, `policy-version-label`,
@@ -136,8 +136,8 @@ principal.
 
 Every check in **v1.0 (7 of 7)** and **v2.0 (19 of 19)** carries a `riskTriple`
 and a frequency triple of `{min: 0, mode: 0, max: 0}`. `fair.Simulate`
-short-circuits an all-zero frequency to a zero result, so **every failing check
-in these two versions prices at £0.00** and a scan of them reports zero total
+short-circuits an all-zero frequency to a zero result. As a result, **every failing
+check in these two versions prices at £0.00**. A scan of them reports zero total
 exposure however many controls fail. v2.1 carries real frequency triples and
 prices correctly.
 
@@ -154,13 +154,13 @@ three places, and the third one is enforced:
    figure from this version."
 3. **In `catalogue/unpriced.tsv`**, checked by `catalogue/pricing-test.sh`
    (`cd policy/frameworks/eu-ai-act/catalogue && ./pricing-test.sh`). That is
-   the same test `nist-800-53/catalogue/pricing-test.sh` runs, kept byte-wise
-   identical apart from its header so the two packs cannot drift into two
-   patterns; it derives the pack from its own location, so the only
-   pack-specific state is the `.tsv` beside it. It fails three ways: a check
-   that is **neither priced nor declared** (the silence this exists to stop), a
+   the same test `nist-800-53/catalogue/pricing-test.sh` runs. It is kept
+   byte-wise identical apart from its header so the two packs cannot drift into
+   two patterns. It derives the pack from its own location, so the only
+   pack-specific state is the `.tsv` beside it. It fails three ways. First, a check
+   that is **neither priced nor declared** (the silence this exists to stop). Second, a
    **declaration whose check has since been calibrated** (so the list cannot
-   rot into a blanket exemption), and a **declaration naming a check that does
+   rot into a blanket exemption). Third, a **declaration naming a check that does
    not exist**. All three proved by mutation. Current state:
    `PASS -- 37 check(s): 11 priced, 26 declared unpriced`.
 
@@ -174,17 +174,18 @@ declared zero because it would look like evidence. The remedy for a long
 `unpriced.tsv` is calibration, not fabrication.
 
 `min-replicas` (v2.0) is declared with a different reason code,
-`placeholder-not-evaluated`: it is `status: placeholder`, never evaluated, and
-excluded from exposure by the engine, so its zero is correct rather than
+`placeholder-not-evaluated`. It is `status: placeholder`, never evaluated, and
+excluded from exposure by the engine. Its zero is therefore correct rather than
 missing. It is still declared, so the test needs no special case and a future
 decision to evaluate it must also price it.
 
 `TestConformance_MoneyPacksWithoutFreqTriplePriceAtZero`
 (`d2-signalloom/apps/policy-engine/compliance_money_test.go`) pins the exact set
-of packs that price every check at zero and separates "zero because the single
-check is a placeholder" (`dora/v1.0`, `nis2/v1.0`, where zero is correct) from
-"zero because real evaluated checks have no frequency" (`eu-ai-act/v1.0`,
-`eu-ai-act/v2.0`, `nist-800-53/v1.0`, `nist-800-53/v2.0` — the finding). A pack
+of packs that price every check at zero. It separates "zero because the single
+check is a placeholder" (`dora/v1.0`, `nis2/v1.0`, where zero is correct). It
+distinguishes that from "zero because real evaluated checks have no frequency"
+(`eu-ai-act/v1.0`, `eu-ai-act/v2.0`, `nist-800-53/v1.0`, `nist-800-53/v2.0` —
+the finding). A pack
 leaving that set must have its golden regenerated and its new figures proved, and
 a pack joining it has lost its frequency data. That is the enforcement the
 declaration needs: the data declares, the test makes the declaration impossible
@@ -206,7 +207,7 @@ closed, and the eleven exception entries that recorded them are stale:
 
 One consequence worth recording, because it reversed a decision made earlier in
 the same branch. A pod that sets `runAsNonRoot: false` at pod level while every
-container overrides it to `true` **would run non-root**, but PSA restricted
+container overrides it to `true` **would run non-root**. However, PSA restricted
 rejects it on the pod-level value. On the admissibility frame the pack must
 therefore **fail** it, and an earlier fixture asserting `pass` was wrong. See
 `container-run-as-non-root--pod-false-container-true-still-fails`, and
@@ -224,8 +225,8 @@ fails closed where PSA admits it. Recorded as the oracle's class A.
 `… : true`. When the precondition is absent — no `request.tool_call.action`, or
 no `agent.model_type` — they return `pass`. Measured through the engine: a
 maximally hostile privileged pod submitted with empty `agent` and `request`
-passes both and is counted into posture as compliant with zero exposure. These
-are the only 2 of 127 checks in the estate with that shape; the `finos-aigf`
+passes both. It is counted into posture as compliant with zero exposure. These
+are the only 2 of 127 checks in the estate with that shape. The `finos-aigf`
 pack fails closed on 16 of 16, so the estate is internally inconsistent.
 
 A guard that cannot be evaluated is not a pass. Three ways out, in preference
@@ -234,35 +235,36 @@ order:
 1. **`not_evaluated`.** The verdict vocabulary already has it, the conformance
    suite enforces it bidirectionally, and the money tier already excludes it
    from exposure. The obstacle is that `not_evaluated` is today reached only via
-   `status: placeholder`, which is a *static* property of a check, and this needs
+   `status: placeholder`, which is a *static* property of a check. This needs
    to be decided per input. That is an engine change.
 2. **A new `not_applicable` verdict.** Semantically the most honest — Article
-   50(2) genuinely does not bind a non-generative model, and a tool call that is
+   50(2) genuinely does not bind a non-generative model. A tool call that is
    not `exec`/`write_file`/`modify_iam` is genuinely outside the gate. Also an
    engine change, and it widens the verdict vocabulary that four test suites
    pin.
 3. **Fail closed**, i.e. require the precondition to be *declared*: an absent
    `agent.model_type` becomes a fail, and so does a `request` with no
    `tool_call`. Pack-local, no Go change — but it would fail every object-only
-   scan of v2.1, which is a real workflow, so it is not a free change either.
+   scan of v2.1, which is a real workflow. It is therefore not a free change
+   either.
 
 Not implemented. Option 1 or 2 touches Go that this pack does not own, and
 option 3 changes what a scan means. Recorded for the principal. Until then, a
-`pass` on either of these two checks must not be read as evidence; the
+`pass` on either of these two checks must not be read as evidence. The
 AGENT-CONTEXT table marks both as passing when their trigger is absent.
 
 ## Checks that error
 
 Per `../CONFORMANCE.md`, `error` on an ordinary valid input is a defect. The
-pack was probed with 16 synthetic inputs per version (48 runs) covering an absent
-`spec`, an empty `containers` list, absent `metadata`, agent sub-objects replaced
-by scalars, `request.context.claims` as a map / scalar / empty list / list of
-empty objects, a non-string `tool_call.action`, empty and partial `resources`
-maps, and empty probe objects. **No check errors on any schema-valid input.**
+pack was probed with 16 synthetic inputs per version (48 runs). These covered an
+absent `spec`, an empty `containers` list, absent `metadata`, and scalar agent
+sub-objects. It also covered `request.context.claims` as a map / scalar / empty
+list / list of empty objects, and a non-string `tool_call.action`. Empty and
+partial `resources` maps and empty probe objects were tested too. **No check errors on any schema-valid input.**
 The battery was re-run unchanged after the PSA-oracle fixes added `runAsUser`,
 `capabilities.add` and `spec.os` reads, with the same result: no new error
-class, so the probes are left out of the permanent fixture set and only the
-three cases below are pinned as fixtures.
+class. The probes are therefore left out of the permanent fixture set and only
+the three cases below are pinned as fixtures.
 
 Three inputs do produce `error`, all of them schema violations:
 

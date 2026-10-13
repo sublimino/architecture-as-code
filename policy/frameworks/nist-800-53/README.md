@@ -37,8 +37,8 @@ reads depend on them.
 
 All 11 checks in v1.0 and all 27 in v2.0 declare a loss-magnitude
 `riskTriple` but **no `freqTriple`**. `fair.Simulate` multiplies magnitude by
-a frequency drawn from that triple, so every one of those 38 checks prices at
-exactly £0.00 and a scan of either version reports zero total exposure with
+a frequency drawn from that triple. Every one of those 38 checks therefore prices at
+exactly £0.00. A scan of either version reports zero total exposure with
 every control failing. That is 38 of the 66 silently-zero checks across the
 whole estate — the largest single contribution, because this is the largest
 pack.
@@ -47,13 +47,13 @@ v2.1 is unaffected: its 14 checks carry frequency triples and price at
 £1,317,319.03 in the committed golden.
 
 No frequency triples have been invented to close this. Calibrating how often a
-NIST 800-53 control fails per year is a principal decision, and a number made
+NIST 800-53 control fails per year is a principal decision. A number made
 up to turn a zero into a non-zero would be worse than the zero because it
 would look like evidence. What has changed is that the silence is no longer
-possible: the 38 checks are now explicitly declared unpriced in
-`catalogue/unpriced.tsv`, and `catalogue/pricing-test.sh` fails any check that
-is neither priced nor declared, fails a declaration whose check has since been
-calibrated, and fails a declaration naming a check that no longer exists.
+possible. The 38 checks are now explicitly declared unpriced in
+`catalogue/unpriced.tsv`. Furthermore, `catalogue/pricing-test.sh` fails any check that
+is neither priced nor declared. It also fails a declaration whose check has since been
+calibrated, or a declaration naming a check that no longer exists.
 
 **Decision needed:** calibrate frequency triples for v1.0 and v2.0, or accept
 that those tiers are compliance-only and carry no monetary figure.
@@ -80,20 +80,20 @@ agent and request governance", which reads as v2.1 ⊇ v2.0. It is not.
   `image-digest-required` to `image-digest`.
 
 The losses are not cosmetic. `seccomp-profile`, `no-host-network` and
-`no-host-pid` are the pod-isolation checks; a workload that moves from the
+`no-host-pid` are the pod-isolation checks. A workload that moves from the
 v2.0 tier to the "Strict" v2.1 tier stops being checked for host namespace
 sharing and seccomp entirely. The rename also means a consumer tracking
 `image-digest-required` across versions silently loses the check at v2.1
 rather than seeing it fail.
 
 **Decision needed:** either v2.1 absorbs v2.0's workload checks (making the
-tier doctrine true), or the tier table stops describing v2.1 as additive and
-names it a differently-scoped agent-governance pack. This pack cannot fix the
+tier doctrine true), or the tier table stops describing v2.1 as additive. Instead,
+the table should name it a differently-scoped agent-governance pack. This pack cannot fix the
 doctrine line itself — `policy/frameworks/README.md` is outside it.
 
 ### 3. Identifiers that resolve but are the wrong control
 
-Anchoring proves an identifier exists; it cannot prove it is the right one.
+Anchoring proves an identifier exists, but it cannot prove it is the right one.
 These mappings misdescribe what the check measures. None has been renumbered —
 changing a control identifier changes what the pack claims to an auditor.
 
@@ -108,8 +108,8 @@ changing a control identifier changes what the pack claims to an auditor.
 | `log-volume-mount` | AU-3 | Content of Audit Records | AU-4 |
 | `mfa-spiffe-svid-required` | IA-2 | Identification and Authentication (Organizational Users) | IA-9 |
 
-`AC-6(1)` and `AC-6(9)` are distinct controls with distinct statements and
-neither is a synonym for `AC-6`; the anchor test keys them separately for that
+`AC-6(1)` and `AC-6(9)` are distinct controls with distinct statements, and
+neither is a synonym for `AC-6`. The anchor test keys them separately for that
 reason.
 
 Two naming defects, where the mapping is right and the check's own identity
@@ -129,9 +129,9 @@ Four of v2.1's new checks reduce to reading a boolean the assessed subject
 supplies: `immutable-audit-sink`, `anomaly-detection-telemetry`,
 `mfa-spiffe-svid-required`, `network-boundary-enforcement`. They cannot
 distinguish a monitored workload from one that sets `monitoring_active: true`.
-SI-4 requires detecting attacks; a flag saying monitoring is on is not that.
+SI-4 requires detecting attacks, and a flag saying monitoring is on is not that.
 These become evidence only when the envelope is populated by an attesting
-control plane rather than by the workload, and the pack does not record which
+control plane rather than by the workload. The pack does not record which
 it is. `cross-namespace-egress-authorization` and `spiffe-peer-authorization`
 compute over structured input instead and are materially stronger — the former
 is the soundest check in v2.1.
@@ -140,14 +140,14 @@ is the soundest check in v2.1.
 
 Stated so the gap is explicit: AU-9 (protection of audit information), AU-10
 (non-repudiation), AU-4 (audit log storage capacity), IA-9 (service
-identification), IA-2(1) (multifactor), and `spec.hostIPC` — v2.0 checks
+identification), and IA-2(1) (multifactor). Also `spec.hostIPC` — v2.0 checks
 `hostNetwork` and `hostPID` but not `hostIPC`, and v2.1 checks none of the
 three.
 
 ### 6. Not fixed: `hostIPC` is unchecked in every version
 
 PSS treats `hostNetwork`, `hostPID` and `hostIPC` as one Host Namespaces
-control. v2.0 checks two of the three; **`hostIPC: true` alone passes every
+control. v2.0 checks two of the three. **`hostIPC: true` alone passes every
 version of this pack**, and v2.1 checks none of the three. Sharing the host IPC
 namespace exposes host shared memory and semaphores, and PSS baseline forbids
 it.
@@ -158,7 +158,7 @@ mirroring `no-host-pid`, plus `--set-true` / `--set-false` / `--field-absent`
 fixtures and an `unpriced.tsv` line. It was built and mutation-proved, then
 **reverted**, because it cannot land from inside this pack alone:
 
-- `frameworks/loader_test.go:705` asserts v2.0 has exactly 27 checks; a 28th
+- `frameworks/loader_test.go:705` asserts v2.0 has exactly 27 checks. A 28th
   fails it, and Go code is outside this pack.
 - the PSA oracle's `hostNamespaces` group maps `no-host-network + no-host-pid`
   by name, so it would not consult a new check and the

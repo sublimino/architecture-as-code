@@ -2,9 +2,9 @@
 
 This page compares the two shapes the signal-ingest `collectors/ebpf` endpoint
 collector has taken, and records what the live-wiring in this card changed. The
-OLD shape is reconstructed from git history — the de-Tetragon work landed on
-`feat/fu-de-tetragon`, merged at `ccd6e1c2`, with the collector refactor in
-`3698c23f` and the dependency/agent removal in `4a0a767b`; the deleted files
+OLD shape is reconstructed from git history. The de-Tetragon work landed on
+`feat/fu-de-tetragon`, merged at `ccd6e1c2`. It included the collector refactor
+in `3698c23f` and the dependency/agent removal in `4a0a767b`. The deleted files
 (`client.go`, `normalize.go`, `jsonstream.go`, `ringbuffer.go`, `metrics.go`,
 `testserver.go`, `tetragon_test.go`) are read out of parent `3b13af74`.
 
@@ -25,12 +25,12 @@ OLD shape is reconstructed from git history — the de-Tetragon work landed on
 |---|---|---|
 | Third-party Go modules | `github.com/cilium/tetragon/api/v1/tetragon`, `google.golang.org/grpc`, `google.golang.org/grpc/credentials/insecure` | none — stdlib only (`context`, `errors`, `fmt`, `io`, `log/slog`, `sync`, `sync/atomic`) |
 | `go.mod` / `go.sum` | carried `cilium/tetragon` + the gRPC stack | both **absent** at the current base — confirmed by `rg -c "cilium/tetragon\|google.golang.org/grpc" go.mod` returning no matches |
-| Cluster components | a Tetragon DaemonSet (`deploy/tetragon-agent-telemetry.yaml`) + Helm values (`deploy/tetragon-helm-values.yaml`) | the existing stun-sentinel DaemonSet (`deploy/stun-sentinel-daemonset.yaml`) — no new component |
+| Cluster components | a Tetragon DaemonSet (`tetragon-agent-telemetry.yaml` in `d2-signalloom/deploy/`) + Helm values (`tetragon-helm-values.yaml`) | the existing stun-sentinel DaemonSet (`d2-signalloom/deploy/stun-sentinel-daemonset.yaml`) — no new component |
 | Generated/pinned API types | the Tetragon protobuf `GetEventsResponse`, `GetProcessExec`, `GetProcessKprobe`, … | the first-party `netebpf.InboundFlowEvent` struct, shared with the socket-trace collector |
 
 The two manifests above are **removed by this card** (task 1). No kustomization
 or overlay referenced them (there is no `kustomization.yaml` in `deploy/`), so
-no resource list needed editing; the only remaining mentions of the filenames
+no resource list needed editing. The only remaining mentions of the filenames
 are in test-harness bats/scripts and docs, which belong to a separate card.
 
 ## Trust boundary
@@ -42,12 +42,12 @@ are in test-harness bats/scripts and docs, which belong to a separate card.
   unencrypted** local gRPC channel. Correctness of the telemetry depended on the
   agent's version, its `TracingPolicy` configuration, and a namespace allow-list
   that the client re-checked as defence-in-depth. A third party owned the kernel
-  probes; signal-ingest trusted whatever it streamed.
+  probes. Therefore, signal-ingest trusted whatever it streamed.
 - **NEW:** the kernel probes are owned by the **stun-sentinel we build and
-  deploy**. The sentinel is a telemetry *producer* only (no LSM enforcement;
-  containment stays on the sentinel Tier-0 cgroup-freeze / TC-drop path and the
-  Flux Tier-1 path). signal-ingest consumes the sentinel's normalised events and
-  projects them; the boundary is first-party on both sides, and the socket-trace
+  deploy**. The sentinel is a telemetry *producer* only, with no LSM enforcement.
+  Containment stays on the sentinel Tier-0 cgroup-freeze / TC-drop path and the
+  Flux Tier-1 path. Next, signal-ingest consumes the sentinel's normalised events
+  and projects them. The boundary is first-party on both sides. The socket-trace
   and syscall-trace streams share the same wire type and the same segment
   label allow-list discipline.
 
@@ -65,8 +65,8 @@ are in test-harness bats/scripts and docs, which belong to a separate card.
   ```
 
   Characteristics: a long-lived **out-of-process network stream** the client had
-  to dial, keep alive, and reconnect to; a bounded ring buffer between reader and
-  consumer; a namespace allow-list enforced client-side.
+  to dial, keep alive, and reconnect to. It also used a bounded ring buffer
+  between reader and consumer, and a client-side namespace allow-list.
 
 - **NEW** (in-process projection):
 
@@ -81,7 +81,7 @@ are in test-harness bats/scripts and docs, which belong to a separate card.
   Characteristics: **no socket to dial, no gRPC stream to keep alive, no
   reconnect state machine**. The projection is a pure function
   (`ProjectEndpoint`) that both the fixture replay and the live consume loop
-  share, so the e2e asserts the production projection rather than a test-only
+  share. Thus, the e2e asserts the production projection rather than a test-only
   corpus.
 
 ## Failure modes
@@ -97,15 +97,15 @@ are in test-harness bats/scripts and docs, which belong to a separate card.
 ## What the live-wiring in this card (task 2) changed
 
 Before this card, `collectors/ebpf/collector.go` had a `Start` loop whose
-`ModeLive` returned a deferred sentinel error — the projection contract
+`ModeLive` returned a deferred sentinel error. The projection contract
 (`ProjectEndpoint`) and the fixture replay existed, but nothing consumed the
 live `sentinel.ebpf.syscall_trace` stream. This card made the live consume path
 real, mirroring exactly how `collectors/netebpf` consumes `socket_trace`:
 
 - An **injectable seam** `EndpointEventStream` (`Recv(ctx) (*netebpf.InboundFlowEvent, error)`)
-  supplies live events; `Collector.SetStream` wires it. The real subscriber
+  supplies live events, and `Collector.SetStream` wires it. The real subscriber
   (the sentinel posting to `/api/v1/observations`) is not reachable from a unit
-  test or an offline sandbox, so the external I/O is injected — but the
+  test or an offline sandbox. Therefore, the external I/O is injected, while the
   **consume-and-project loop itself is real and tested**.
 - `ProcessSyscallEvent` projects each event through the existing
   `ProjectEndpoint` and ingests the `endpoint_host` result. A `network_connect`
@@ -119,13 +119,13 @@ real, mirroring exactly how `collectors/netebpf` consumes `socket_trace`:
 - `Stats()` exposes received / projected / skipped counters.
 
 `ProjectEndpoint`, the `InboundFlowEvent` wire type, and the embedded fixture
-corpus were **not** modified — the live path consumes them as-is, which is why
+corpus were **not** modified. The live path consumes them as-is. Consequently,
 breaking `ProjectEndpoint` turns the new live-consume test red (verified by
 mutation).
 
-The one boundary deliberately left injected: the **real transport from the
-sentinel's `/api/v1/observations` ingress into an `EndpointEventStream`** is not
-wired in `main.go` (the collector is still registered unwired, so a live
-deployment returns `ErrLiveSourceNotWired` until a stream is set). Binding that
-HTTP ingress to the seam is the remaining follow-up; the in-process
+The one boundary deliberately left injected is the **real transport from the
+sentinel's `/api/v1/observations` ingress into an `EndpointEventStream`**. It is
+not wired in `main.go`. The collector is still registered unwired, so a live
+deployment returns `ErrLiveSourceNotWired` until a stream is set. Binding that
+HTTP ingress to the seam is the remaining follow-up. The in-process
 consume-and-project loop is complete and under test.

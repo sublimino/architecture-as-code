@@ -31,9 +31,9 @@ cd d2-signalloom/apps/policy-engine && go test -run 'TestConformance_(Verdicts|C
 |---|---|
 | Repository | <https://github.com/finos/ai-governance-framework> |
 | Commit | `a149dd1eb763c0be4ff8107b698c41230ecfbfc8`, committed 2026-10-07 |
-| Catalogue version | `v2` (`docs/_config.yml`) |
+| Catalogue version | `v2` (`ai-governance-framework/docs/_config.yml`) |
 | Mitigations | `docs/_mitigations/mi-N_*.md`, published at <https://air-governance-framework.finos.org/> |
-| ID rule | `AIR-{type}-{sequence, zero-padded to 3}` (`docs/_includes/mitigation-id.html`, `risk-id.html`) |
+| ID rule | `AIR-{type}-{sequence, zero-padded to 3}` (`ai-governance-framework/docs/_includes/mitigation-id.html`, `risk-id.html`) |
 
 Every mitigation used here is at `doc-status: Approved-Specification`, except
 `AIR-PREV-024`. At the pinned commit that mitigation is `Draft`, and its
@@ -67,11 +67,11 @@ The three original checks keep their IDs and field paths.
 - `registered-model-registry-entry` sits under AIR-PREV-010. That
   mitigation's guidance includes "Keep an up-to-date inventory of all deployed
   AI models, their specific pinned versions, and their business owners". The
-  catalogue has no separate model-registry mitigation. Re-checked against all
-  25 mitigations at a149dd1e after the cross-vendor audit questioned the fit
-  (pinning is not registration): AIR-PREV-010 is the only one whose text
-  covers a model inventory (its "Maintain an Inventory and Conduct Regular
-  Audits" action, and its NIST `cm-8` System Component Inventory reference).
+  catalogue has no separate model-registry mitigation. It was re-checked against
+  all 25 mitigations at a149dd1e after the cross-vendor audit questioned the fit
+  (pinning is not registration). AIR-PREV-010 is the only one whose text
+  covers a model inventory. This appears in its "Maintain an Inventory and Conduct
+  Regular Audits" action and its NIST `cm-8` System Component Inventory reference.
   AIR-PREV-012's "Data Asset Inventory" covers data assets, not deployed
   models. The check stays under AIR-PREV-010.
 - `prompt-injection-guardrail-active` sits under AIR-PREV-003. Its "User Input
@@ -79,13 +79,13 @@ The three original checks keep their IDs and field paths.
 - `decision-explainability-metadata` sits under AIR-DET-021.
 
 Each of the three now also guards its leaf with `has()`. The meaning is
-unchanged. When the key is absent the check now fails; before, it raised an
-error.
+unchanged. When the key is absent the check now fails, whereas before it raised
+an error.
 
 ## Mitigations not mapped
 
 Agent configuration and registry facts cannot evidence these mitigations.
-They are left out on purpose; this pack does not approximate them.
+They are left out on purpose, and this pack does not approximate them.
 
 | Mitigation | Why it is not a configuration fact |
 |---|---|

@@ -22,7 +22,7 @@ elsewhere is not enough, because the pack sees only this one object:
 | `capabilities.drop` contains `ALL` | `drop-all-capabilities` | Compared case-sensitively, as Pod Security Admission compares it; lowercase `all` fails. `capabilities.add` must also stay within `{NET_BIND_SERVICE}`. |
 
 An explicit `false`/`Unconfined` at **pod** level is fatal regardless of
-container overrides, for `runAsNonRoot` and `seccompProfile`: Pod Security
+container overrides, for `runAsNonRoot` and `seccompProfile`. Pod Security
 Standards reject the pod at either level, so the effective runtime value is not
 the test. `runAsUser: 0` is likewise fatal at either level.
 

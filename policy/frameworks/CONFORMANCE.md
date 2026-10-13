@@ -1,8 +1,8 @@
 # Framework Pack Conformance Contract
 
 Every CEL check in a framework pack is proven by fixtures. A check is
-"correct" when a fixture that should fail it fails, a fixture that should
-pass it passes, and the test that says so is shown to bite by mutation.
+"correct" when a failing fixture fails and a passing fixture passes. The test
+that says so must also bite under mutation.
 
 The harness is `d2-signalloom/apps/policy-engine/frameworks_conformance_test.go`.
 Run it with:
@@ -40,8 +40,8 @@ The engine therefore guards the shape of `object` at the scan boundary
 
 1. An **absent or empty** object stays absent. A scan with no object at all
    (an agent-only AIGF scan) is unaffected.
-2. A supported **workload controller kind** is unwrapped by the engine to its
-   pod template: `Deployment`, `StatefulSet`, `DaemonSet`, `ReplicaSet`,
+2. A supported **workload controller kind** is unwrapped to its pod template:
+   `Deployment`, `StatefulSet`, `DaemonSet`, `ReplicaSet`,
    `ReplicationController`, `Job` (at `spec.template`) and `CronJob` (at
    `spec.jobTemplate.spec.template`). `apiVersion`/`kind` are synthesised as
    `v1`/`Pod` and the workload's `metadata.namespace` is copied into the pod's
@@ -51,10 +51,10 @@ The engine therefore guards the shape of `object` at the scan boundary
    caller is judged the same way.
 3. Any **other `kind`** that is not `Pod` is refused. The engine has no
    normalisation for it and must not pretend to judge it.
-4. `kind` absent or `Pod` is pod-shaped, **except** that a `spec` which is
-   PRESENT must be an object carrying a `containers` list — `spec.containers`
-   is required by the Pod schema, and a present spec without it is the shape
-   that makes every per-container check vacuously true. A **wholly absent**
+4. `kind` absent or `Pod` is pod-shaped, **except** when `spec` is PRESENT. When
+   present, it must be an object carrying a `containers` list. The Pod schema
+   requires `spec.containers`. A present spec without it makes every
+   per-container check vacuously true. A **wholly absent**
    `spec` is allowed: it evidences nothing, packs fail closed on it, and
    `cis-kubernetes/fixtures/unit/malformed-no-spec.json` pins that (16 `fail`,
    not 16 `error`). An empty `containers` list is a caller asserting there are
@@ -67,13 +67,13 @@ aliases the same value. Agent-only and request-only checks are unaffected.
 
 **Controller-wrapping invariance is a tested property.** Every CIS fixture with
 a pod-shaped `input.object` is scanned bare and wrapped in each of the seven
-kinds, and the verdict vectors must be identical
-(`workload_shape_invariance_test.go`; 77 fixtures × 7 kinds). A pack author
+kinds. The verdict vectors must be identical (`workload_shape_invariance_test.go`,
+77 fixtures × 7 kinds). A pack author
 adding a fixture gets the property for free.
 
 Numbers arrive as JSON numbers decoded by Go's `encoding/json` (float64). Write
 numeric comparisons that hold for both int and double (`c.securityContext.runAsUser > 0`
-is fine; test it with a fixture).
+is fine, so test it with a fixture).
 
 ## Verdicts
 
@@ -85,9 +85,9 @@ is fine; test it with a fixture).
 | `not_evaluated` | The check (or its framework) has `status: placeholder`. The expression is never run; `passed` is `false` and there is no `error`. The summary counts it in `totalControls` and `notEvaluated` only, never in `failed`, `errored` or exposure. |
 
 **`error` is never a `fail`.** A check that errors on an ordinary, valid input
-is a defect in the check: guard optional fields with `has()` and decide the
-absent-field semantics explicitly (e.g. absent `automountServiceAccountToken`
-means the Kubernetes default `true`, so the CIS check fails, not errors).
+is a defect in the check. Guard optional fields with `has()` and decide the
+absent-field semantics explicitly. For example, absent `automountServiceAccountToken`
+means the Kubernetes default `true`, so the CIS check fails, not errors.
 
 ## Fixtures
 
@@ -241,10 +241,10 @@ that control.
 
 `MONEY_GOLDEN=update` used to rewrite **every** row from whatever the engine
 currently produced, with no control but a comment saying "review the diff". An
-adversarial audit changed one character in `fair.go` —
-`percentile(annualLosses, 0.95)` to `0.94`, a plausible off-by-one — and the
-path was: the money test fails correctly, update mode absorbs it, **the full
-suite goes green**, and **64 priced figures across 5 packs have moved 4–5 %**.
+adversarial audit changed one character in `fair.go`:
+`percentile(annualLosses, 0.95)` to `0.94`, a plausible off-by-one. Then the
+money test failed correctly, and update mode absorbed it. **The full
+suite went green**, while **64 priced figures across 5 packs moved 4–5 %**.
 The goldens were regenerated three times in one session, which is exactly the
 condition under which a reviewer stops reading 64 numbers.
 
@@ -265,23 +265,24 @@ MONEY_GOLDEN_MOVE_REASON="<why these prices moved>"
 MONEY_GOLDEN_MOVE_CHECKS=<exact number of checks expected to move>
 ```
 
-The **count** is what defeats the attack: laundering that one-character change
-requires typing `64` beside a written reason, and both are recorded into each
-affected golden's `lastMovement` block, so the claim lands in the commit as a
-sentence rather than as drift buried in digits. A stale acknowledgement with
+The **count** is what defeats the attack. Laundering that one-character change
+requires typing `64` beside a written reason. Both land in each affected
+golden's `lastMovement` block. The claim thus enters the commit as a sentence,
+not drift buried in digits. A stale acknowledgement with
 nothing moving is also refused, so it cannot sit pre-authorising the next run.
 
 The run additionally separates movements whose **triples and seed are
-identical** — meaning the *engine* moved, with no pack edit in the diff to
-explain the new numbers — from movements that follow an input change.
+identical** from movements that follow an input change. Identical triples and
+seed mean the *engine* moved, with no pack edit in the diff to explain the new
+numbers.
 
 #### Delta tables
 
 Any movement, in update mode **or** on an assert failure, prints per figure:
 check, figure, old, new, percentage, closing with a median-and-range summary.
 The summary is the load-bearing part. A uniform drift across dozens of checks
-has a *tight* percentage range — the signature of an engine change — and that is
-exactly what a diff of 64 JSON rows hides. The audit's mutation prints as
+has a *tight* percentage range, which is the signature of an engine change. That
+is what a diff of 64 JSON rows hides. The audit's mutation prints as
 `64 numeric figure(s) moved; median -4.27%, range -5.24% .. -3.06%`.
 
 Comparison is **exact**. `fair.Simulate` is a seeded Monte Carlo over a PCG
@@ -326,31 +327,31 @@ make verify-cel-money-independent   # needs NumPy; statistical, not part of veri
 ```
 
 It no longer uses a hand-picked relative tolerance. For `var95` the engine's
-figure is the order statistic at rank `ceil(0.95·10000) = 9500`; the probability
-level such an order statistic attains is `Beta(k, n−k+1)`-distributed — a
-distribution-free fact about sampling, true of **any** correct implementation —
-with standard deviation `sqrt(p(1−p)/n) = 0.00218`. A 4.5 σ window therefore
-spans levels **0.9402 – 0.9598**, and the admissible value window is that
-window mapped through the script's own independently-estimated quantile
-function. For `tvar` the figure is the mean of the 500 draws above that order
-statistic, so its standard error is the independently-estimated tail deviation
-over `sqrt(500)`, unioned with the tail means at both level bounds.
+figure is the order statistic at rank `ceil(0.95·10000) = 9500`. Its probability
+level is `Beta(k, n−k+1)`-distributed with standard deviation
+`sqrt(p(1−p)/n) = 0.00218`. That is a distribution-free fact about sampling,
+true of **any** correct implementation. A 4.5 σ window therefore spans levels
+**0.9402 – 0.9598**. The admissible value window maps that range through the
+script's own independently-estimated quantile function. For `tvar` the figure
+is the mean of the 500 draws above that order statistic. Its standard error is
+the independently-estimated tail deviation over `sqrt(500)`, unioned with the
+tail means at both level bounds.
 
-Measured on this estate: the Go oracle's algebra agrees with a 1 000 000-sample
-estimate to **0.19 %**; `var95` sits within **2.58 %** of the independent point
-estimate and `tvar` within **2.89 %**; and the derived admissible window is up
-to **±5.42 %** for `var95` and **±4.09 %** for `tvar`.
+Measured on this estate, the Go oracle's algebra agrees with a 1 000 000-sample
+estimate to **0.19 %**. Meanwhile, `var95` sits within **2.58 %** of the
+independent point estimate and `tvar` within **2.89 %**. The derived admissible
+window is up to **±5.42 %** for `var95` and **±4.09 %** for `tvar`.
 
 **That window is the honest limit, and it is wider than the defect.** The
-audit's one-rank percentile shift moves these figures by 3.06–5.24 %, which is
+audit's one-rank percentile shift moves these figures by 3.06–5.24 %. That is
 the same order as the sampling noise any correct 10 000-iteration implementation
-must be allowed. It lands inside the statistical envelope, so **no point-estimate
-comparison at the engine's sample size can separate the two** — whether an
+must allow. It lands inside the statistical envelope, so **no point-estimate
+comparison at the engine's sample size can separate the two**. Whether an
 individual check happens to trip is luck, not detection. Raising the sample
 count does not help, because the noise being absorbed is the *engine's*, not the
-oracle's. This tier catches an order-of-magnitude error, a lost scale factor, a
-changed PERT λ, a figure read from the wrong triple, or a quantile taken at the
-wrong end. It does **not** catch a one-rank percentile shift, and nothing
+oracle's. This tier catches an order-of-magnitude error, a lost scale factor, or
+a changed PERT λ. It also catches a figure read from the wrong triple or a
+quantile at the wrong end. It does **not** catch a one-rank percentile shift, and nothing
 statistical can. The deterministic goldens plus `TestWriteMoneyGolden`'s refusal
 are the only instruments that do.
 
@@ -421,7 +422,7 @@ incomplete fails `TestConformance_MoneyGoldenMatchesEngine` by name.
 For every new check or fixture, record in the commit body or the worker report:
 
 - **mutation**: the change made to the CEL (or fixture) and the failing harness
-  line it produced;
+  line it produced.
 - **fix**: the restoration and the passing run.
 
 Restore mutated files from an explicit backup copy (`cp f /tmp/f.bak` ...

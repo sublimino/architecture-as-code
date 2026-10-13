@@ -16,8 +16,8 @@ The contract is in [`../../CONFORMANCE.md`](../../CONFORMANCE.md).
   for an absent key. A missing container object fails too.
 - **Container objects** (`registry`, `guardrails`, `data`, and the rest) must
   be JSON objects. A container of the wrong type, such as a string or a list, makes its
-  checks fail (every container read is guarded with `type(x) == map`; list
-  elements of `persistent_stores`, `tools` and `mcp_servers` likewise).
+  checks fail. Every container read is guarded with `type(x) == map`. List
+  elements of `persistent_stores`, `tools` and `mcp_servers` are guarded likewise.
 - **Lists** must be JSON arrays.
   - An empty array `[]` declares "none", so every-element checks pass on it
     (vacuous truth).
@@ -61,12 +61,12 @@ Also rejected: a dateless family ID with no version marker at all — `gpt-4o`,
 
 **Known limitation, stated deliberately.** Anthropic now documents that "every
 Claude model ID is a pinned snapshot, including the dateless IDs used from the
-4.6 generation on", while "for models before the 4.6 generation, the alias is a
+4.6 generation on". However, "for models before the 4.6 generation, the alias is a
 convenience pointer that resolves to the dated ID"
 (<https://platform.claude.com/docs/en/about-claude/models/overview>). So a
-dateless ID is an alias on one generation and a pin on the next, and no rule
+dateless ID is an alias on one generation and a pin on the next. No rule
 over the string alone can tell them apart. This check fails both. That is a
-false positive on the newer IDs and it is the direction we want: AIR-PREV-010
+false positive on the newer IDs and it is the direction we want. AIR-PREV-010
 asks for a *recorded* specific fixed version, and a bare family ID does not
 evidence one on its face. Resolving it needs a vendor model table, not a
 sharper pattern.
@@ -101,7 +101,7 @@ sharper pattern.
 
 The three frozen paths are `registry.model_registered`,
 `guardrails.prompt_injection_filter` and `governance.decision_explainability`.
-These paths and their meaning ship unchanged. Extend this document; never
+These paths and their meaning ship unchanged. Extend this document, and never
 rename a field in it.
 
 ## Minimal compliant document

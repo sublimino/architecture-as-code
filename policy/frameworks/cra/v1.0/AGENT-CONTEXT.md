@@ -6,7 +6,7 @@ Shipped paths are frozen: extend, never rename.
 
 Every path is `has()`-guarded **and** every container read is
 `type(x) == map`-guarded. An absent path fails the check instead of erroring,
-and so does a wrongly-typed one — see "Container types" below for why that
+and so does a wrongly-typed one. See "Container types" below for why that
 second guard is not decoration.
 
 | Path | Type | Check | Required value |
@@ -22,8 +22,8 @@ second guard is not decoration.
 ## Absent-field semantics
 
 An absent `agent` entirely, an absent container, or an absent leaf all produce
-`fail`, never `error`: `celBindings` binds a missing input to an empty map, and
-each expression leads with `has()`. Fixtures pin all three positions
+`fail`, never `error`. Here `celBindings` binds a missing input to an empty map,
+and each expression leads with `has()`. Fixtures pin all three positions
 (`--no-agent-context`, `--flag-absent` / `--format-absent` / `--verified-absent`
 / `--level-absent`).
 
@@ -40,11 +40,11 @@ CEL evaluation error: unsupported index type 'string' in list
 ```
 
 which the engine reports as `error`. An errored check is neither passed nor
-failed and carries no exposure, so `agent.sbom: [{"format": "CycloneDX",
+failed and carries no exposure. Thus `agent.sbom: [{"format": "CycloneDX",
 "verified": true}]` made a critical-severity control vanish from the result
-rather than fail it. The asymmetry was what hid it: a string, a number and
-`null` in the same slot all failed gracefully, so three of the four wrong
-shapes behaved correctly and only the list did not.
+rather than fail it. The asymmetry hid it. A string, a number and `null` in the
+same slot all failed gracefully. Three of the four wrong shapes behaved
+correctly, and only the list did not.
 
 All four shapes are now pinned for all three containers
 (`--<container>-is-a-list`, `--is-a-string`, `--is-a-number`, `--is-null`), so
@@ -77,7 +77,7 @@ what the pack claims to an auditor, so neither was "fixed".
 ## What these values are
 
 All seven paths are assertions the assessed subject makes about itself. No
-check parses an SBOM, verifies a signature, or inspects provenance material;
-`sbom.verified` and `provenance.slsa_level` are self-asserted labels. The
+check parses an SBOM, verifies a signature, or inspects provenance material.
+Instead, `sbom.verified` and `provenance.slsa_level` are self-asserted labels. The
 difference between that and evidence, per check and against the cited CRA
 obligation, is set out in `../README.md` under "Evidence or proxy".

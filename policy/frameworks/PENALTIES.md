@@ -47,15 +47,16 @@ figure overstates the exposure of every small customer.
 excepted** and falls to the general 2 August 2026 date. Article 113 third
 paragraph point (b) reads "...shall apply from 2 August 2025, with the exception of
 Article 101". An earlier revision of this page said "penalties apply from
-2 August 2025" without that carve-out, which over-stated the GPAI provider
-exposure by a year; corrected 2026-10-11 from the primary text.
+2 August 2025" without that carve-out. That over-stated GPAI provider exposure
+by a year, and was corrected on 2026-10-11 from the primary text.
 
 The high-risk obligations were then deferred by Regulation (EU) 2026/1744
-(OJ 24.7.2026, in force 27 July 2026), whose Article 1 point (40)(b) replaces
-Article 113 third paragraph point (c) with **two** dates: **2 December 2027 for
-Annex III high-risk systems and 2 August 2028 for Annex I**. The pack gates on the
-earlier of the two, because a pack cannot tell an Annex III workload from an
-Annex I one, and over-reporting exposure for eight months is cheaper and more
+(OJ 24.7.2026, in force 27 July 2026). Its Article 1 point (40)(b) replaces
+Article 113 third paragraph point (c) with **two** dates. They are
+**2 December 2027 for Annex III high-risk systems and 2 August 2028 for
+Annex I**. The pack gates on the
+earlier of the two because a pack cannot tell an Annex III workload from an
+Annex I one. Over-reporting exposure for eight months is cheaper and more
 visible than erasing exposure that exists.
 
 ## NIS2 Directive
@@ -122,9 +123,9 @@ evaluates do not apply until 11 December 2027.
 
 The three `cra` checks currently price to £256,514.43 of annual expected loss
 (ALE) between them, read from the pinned money golden. The figure that reaches
-reported **exposure** is the carried sum, £781,506.09 — carried is TVaR plus the
-risk load, and it is carried that the summary adds up, so a reader comparing this
-page against a scan response must know which of the two they are looking at.
+reported **exposure** is the carried sum, £781,506.09. Carried is TVaR plus the
+risk load, and the summary adds up carried. A reader comparing this page against
+a scan response must know which of the two they are looking at.
 **That is wrong by statute, not by calibration.** No penalty
 attaches to those obligations today. The figure is recorded here rather than
 changed, because moving it is a priced-figure decision and belongs to the
@@ -135,8 +136,8 @@ secondary-loss term described in section 4 of
 **This page does not implement that gate.** The dates above are the statutory
 facts and nothing more. The enforcement mechanism is the date-gated
 applicability metadata being added to the pack schema by a separate card. With
-it in place, a regime whose obligations have not commenced prices at zero
-because the data says so rather than because a document says so. These two
+it in place, an uncommenced regime prices at zero because the data says so, not
+because a document says so. These two
 changes are one story. Read them together.
 
 ## UK regimes

@@ -1,15 +1,16 @@
 # Sandbox risks in the data Nono outputs
 
 This page is the security register for the *output* of the nono (Landlock)
-sandbox as the platform consumes it — the `HostAssertionEnvelope` / `NonoAuditEvent`
-stream that the `agentnono` collector turns into observations. It was produced
-while standing up a second Kusari agent (`agent-nono-kusari`) under nono
-enforcement; deploying a *second* emitter is what surfaced several of these.
+sandbox as the platform consumes it. That output is the `HostAssertionEnvelope`
+/ `NonoAuditEvent` stream that the `agentnono` collector turns into observations.
+It was produced while standing up a second Kusari agent (`agent-nono-kusari`)
+under nono enforcement. Deploying a *second* emitter surfaced several of these.
 
 The governing idea: **the output of a security control is itself attack
 surface.** Nono's evidence names denied paths, is uploaded over a wire, is
-verified, and drives detection — so every one of those steps can mislead, leak,
-or be forged. This register NAMES the risks with evidence; fixes are a follow-up.
+verified, and drives detection. Every one of those steps can mislead, leak,
+or be forged. This register NAMES the risks with evidence, while fixes are a
+follow-up.
 
 ## The headline: emitted "enforcement" is not the same as enforcement
 
@@ -27,14 +28,14 @@ The repo's nono integration is a demo abstraction. Two concrete places where the
 
 A consumer reading only the assertion stream cannot tell enforced from
 unenforced. **`agent-nono-kusari` no longer inherits this: it runs the real
-nono binary (nono.sh v0.79.0) via `Dockerfile.nono`, verified end-to-end** —
-`/act/read-shadow` returns a real `open /etc/shadow: permission denied` both
-in a local container and live on kind-osramp (agent log), under
-`seccompProfile: RuntimeDefault` with all capabilities dropped, and the
-`d2-signalloom/test/kusari-nono-enforcement.bats` suite asserts the kernel deny/allow
-directly. R3 below therefore now scopes to the `nono-containment-probe` shim
-Dockerfile and the `agent-nono-evidenced` SP-5 fallback, which remain demo
-abstractions — this agent is the real reference.
+nono binary (nono.sh v0.79.0) via `Dockerfile.nono`, verified end-to-end.**
+Calling `/act/read-shadow` returns a real `open /etc/shadow: permission denied`
+both in a local container and live on kind-osramp (agent log). It runs under
+`seccompProfile: RuntimeDefault` with all capabilities dropped. Furthermore, the
+`d2-signalloom/test/kusari-nono-enforcement.bats` suite asserts the kernel
+deny/allow directly. R3 below therefore now scopes to the `nono-containment-probe`
+shim Dockerfile and the `agent-nono-evidenced` SP-5 fallback. Those two remain
+demo abstractions, while this agent is the real reference.
 
 ## Risk register
 
@@ -54,13 +55,13 @@ abstractions — this agent is the real reference.
 - **Blocked**: signature tamper, hash-chain break, replay of a tampered chain,
   unknown/aliased/duplicate evidence keys (strict decode), ack overclaim (R4).
 - **Open / partial**: cleartext path leakage (R1), ABI downgrade (R2),
-  unconfined-but-healthy (R3), sequence *gaps* i.e. suppressed denials (R5),
-  signature-only when no trust pool (R6), deny-oracle enumeration (R7), and
+  unconfined-but-healthy (R3), and sequence *gaps* (suppressed denials, R5).
+  Also signature-only when no trust pool (R6), deny-oracle enumeration (R7), and
   source misattribution across multiple agents (R8).
 
 ## Follow-up (not built here)
 
-Post-enforcement *response* — what the platform should DO when a nono denial is
-observed (alert, quarantine, correlate with the sentinel's eBPF view of the same
-agent) — is deferred, mirroring the first task. R1/R3/R8 are the cheapest, highest
--value fixes and are the recommended first follow-up.
+Post-enforcement *response* is deferred, mirroring the first task. It decides
+what the platform should DO on a nono denial: alert, quarantine, or correlate
+with the sentinel's eBPF view. R1/R3/R8 are the cheapest, highest-value fixes
+and are the recommended first follow-up.

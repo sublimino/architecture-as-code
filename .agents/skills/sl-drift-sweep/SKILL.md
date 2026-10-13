@@ -1,16 +1,20 @@
 ---
-name: cp-sl-drift-sweep
-description: "Two-axis codebase drift and code-smell remediation sweeper for #partner-signal-loom. Runs Standards and Spec review across branch history. Pauses by default or runs end-to-end with --auto. USE WHEN drift sweep, clean up drift, review jobs, cp-sl-drift-sweep, /cp-sl-drift-sweep, or on schedule '0 4 * * *'."
+name: sl-drift-sweep
+description: "Two-axis codebase drift and code-smell remediation sweeper for #partner-signal-loom. Runs Standards and Spec review across branch history. Pauses by default or runs end-to-end with --auto. USE WHEN drift sweep, codebase drift, code smell sweep, two-axis drift, clean up drift, sl-drift-sweep, or on schedule '0 4 * * *'."
 ---
 
-# cp-sl-drift-sweep
+# sl-drift-sweep
 
 Two-axis codebase drift auditor and parallel worktree remediation orchestrator for the **Signal Loom** (`#partner-signal-loom`) platform.
 
-## Loop Lens & Execution Contract
+### Separation from Sibling Skills
+- **`sl-drift-sweep` (this skill)**: Audits static codebase health, Fowler code smells, multi-agent file churn, and micro-proposal sprawl across git commit history.
+- **`sl-drift-reconcile`**: Audits live in-cluster Kubernetes state and Flux reconciliation against committed git artifacts (`git rev-parse HEAD`).
+
+## Loop Lens & Schedule Contract
 
 - **Cadence**: `0 4 * * *` (Daily post-sprint sweep, or on demand after a multi-agent commit wave).
-- **Trigger**: `/cp-sl-drift-sweep`, `/cp-sl-drift-sweep --auto`, `/goal`, or manual prompt "sweep repo drift and mess".
+- **Trigger**: `/sl-drift-sweep`, `/sl-drift-sweep --auto`, `/goal`, or manual prompt "sweep repo drift and mess".
 - **Default Mode (`PAUSE_FOR_APPROVAL`)**:
   - Executes **Phase 1 (Two-Axis Drift & Churn Triage)** via `Tools/drift-sweep.sh`. Presents the **Standards** and **Spec** findings plus the **Cleanup Job Manifest**, then **STOPS** for user sign-off.
 - **Autonomous Flag (`--auto` or `/goal` active)**:
@@ -53,7 +57,7 @@ Two-axis codebase drift auditor and parallel worktree remediation orchestrator f
 ## Execution Sequence
 
 1. **Phase 1 — Two-Axis Drift & Churn Triage**:
-   - Run `bash .agents/skills/cp-sl-drift-sweep/Tools/drift-sweep.sh [--base <ref>] [--auto]`.
+   - Run `bash .agents/skills/sl-drift-sweep/Tools/drift-sweep.sh [--base <ref>] [--auto]`.
    - Inspect Axis A (docs-lint, multi-pass file churn, duplicated boilerplate, worktree hygiene) and Axis B (proposal sprawl, unindexed records, uncommitted drift).
    - If `EXECUTION_MODE=PAUSE_FOR_APPROVAL` (no `--auto` and no `/goal`), present the **Cleanup Job Manifest** and wait for approval.
 2. **Phase 2 — Shared Pattern Extraction & Worktree Creation**:
@@ -62,3 +66,10 @@ Two-axis codebase drift auditor and parallel worktree remediation orchestrator f
    - Spawn one subagent per worktree (`invoke_subagent`) enforcing strict file boundaries and fail→fix mutation verification.
 4. **Phase 4 — Sequential Rebase, Merge & End-to-End Verification**:
    - Rebase and test each branch one by one, fast-forward merge onto the active branch, run `make docs-lint` and `bats test/http-guard-dedup-contracts.bats`, and prune temporary worktrees.
+
+---
+
+## Completion Criteria
+
+- **Clarity**: Two-axis verdict (`CLEAN` or `DRIFT_DETECTED` with explicit counts for Axis A Standards and Axis B Spec).
+- **Demand**: In interactive mode (`PAUSE_FOR_APPROVAL`), pause after emitting the Cleanup Job Manifest for approval. In `--auto` mode, subagents execute with empirical mutation falsifiability proofs (Red → Green → Mutate-Red → Restore-Green), sequential rebase, fast-forward merge, and clean worktree teardown.

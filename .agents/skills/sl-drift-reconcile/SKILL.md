@@ -1,16 +1,20 @@
 ---
-name: cp-sl-drift-reconcile
-description: "Scheduled-run GitOps and cluster drift reconciler for #partner-signal-loom. Reconciles Flux ResourceSets and Kustomizations against git HEAD, audits JSON6902 patch indexes, and checks Zot artifacts. USE WHEN gitops drift, reconcile signal loom, flux drift, flux reconcile, patch index drift, cp-sl-drift-reconcile, or on schedule '*/30 * * * *'."
+name: sl-drift-reconcile
+description: "Scheduled-run GitOps and cluster drift reconciler for #partner-signal-loom. Reconciles Flux ResourceSets and Kustomizations against git HEAD, audits JSON6902 patch indexes, and checks Zot artifacts. USE WHEN gitops drift, reconcile signal loom, flux drift, flux reconcile, patch index drift, cluster drift, sl-drift-reconcile, or on schedule '*/30 * * * *'."
 ---
 
-# cp-sl-drift-reconcile
+# sl-drift-reconcile
 
 Scheduled GitOps and cluster drift reconciliation for the **Signal Loom** (`#partner-signal-loom`) platform on Kind and cloud environments.
+
+### Separation from Sibling Skills
+- **`sl-drift-reconcile` (this skill)**: Audits live in-cluster Kubernetes state and Flux reconciliation against committed git artifacts (`git rev-parse HEAD`).
+- **`sl-drift-sweep`**: Audits static codebase health, Fowler code smells, multi-agent file churn, and micro-proposal sprawl across git commit history.
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `*/30 * * * *` (Every 30 minutes, or pre-flight before testing/demo).
-- **Trigger**: Cron notification, `/cp-sl-drift-reconcile`, or manual trigger "reconcile signal loom".
+- **Trigger**: Cron notification, `/sl-drift-reconcile`, or manual trigger "reconcile signal loom".
 - **Checkpoint**: Push right. Perform full read-only inspection autonomously. Only halt with a brief if destructive reconciliation or git merge intervention is required.
 - **Brief**: Emit a 4-bullet executive status: (1) Flux revision vs git HEAD, (2) Patch index integrity, (3) Variable substitution completeness, (4) Recommended heal command.
 

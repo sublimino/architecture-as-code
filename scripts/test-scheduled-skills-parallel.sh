@@ -66,13 +66,13 @@ parse_args() {
 # The canonical Signal Loom scheduled-run skills specification
 # Format: "skill_name|tool_rel_path|description"
 SKILL_SPECS=(
-  "cp-sl-drift-reconcile|Tools/drift-audit.sh|GitOps & Cluster Drift Audit"
-  "cp-sl-portforward-supervisor|Tools/portforward-check.sh|Ingress & Port-Forward Supervisor"
-  "cp-sl-silent-failure-audit|Tools/audit-invariants.sh|Silent Failure & Invariant Sentinel"
-  "cp-sl-containment-guard|Tools/check-containment.sh|Agent Containment & GitOps Suspension"
-  "cp-sl-pyramid-verify|Tools/pyramid-runner.sh|Offline Test Pyramid Battery"
-  "cp-sl-worktree-governor|Tools/worktree-audit.sh|Multi-Agent Worktree Governor"
-  "cp-sl-eap-evidence-sweep|Tools/evidence-sweep.sh|EAP Compliance Evidence Sweeper"
+  "sl-drift-reconcile|Tools/drift-audit.sh|GitOps & Cluster Drift Audit"
+  "sl-portforward-supervisor|Tools/portforward-check.sh|Ingress & Port-Forward Supervisor"
+  "sl-silent-failure-audit|Tools/audit-invariants.sh|Silent Failure & Invariant Sentinel"
+  "sl-containment-guard|Tools/check-containment.sh|Agent Containment & GitOps Suspension"
+  "sl-pyramid-verify|Tools/pyramid-runner.sh|Offline Test Pyramid Battery"
+  "sl-worktree-governor|Tools/worktree-audit.sh|Multi-Agent Worktree Governor"
+  "sl-eap-evidence-sweep|Tools/evidence-sweep.sh|EAP Compliance Evidence Sweeper"
 )
 
 LOG_DIR=""
@@ -122,13 +122,13 @@ extract_summary() {
   local log_file="$2"
 
   case "$skill_name" in
-    cp-sl-drift-reconcile)
+    sl-drift-reconcile)
       local patch_stat clus_stat
       patch_stat=$(grep -oE "PATCH_INDEX_INTEGRITY=[A-Z]+" "$log_file" | head -n1 || echo "")
       clus_stat=$(grep -oE "CLUSTER_STATUS=[A-Z]+" "$log_file" | head -n1 || echo "")
       echo "${patch_stat:-drift-audit}, ${clus_stat:-unknown}"
       ;;
-    cp-sl-portforward-supervisor)
+    sl-portforward-supervisor)
       local pf_stat clus_stat
       pf_stat=$(grep -oE "PORT_5173_ALERT=[^ ]+" "$log_file" | head -n1 || echo "")
       clus_stat=$(grep -oE "CLUSTER_STATUS=[A-Z]+" "$log_file" | head -n1 || echo "")
@@ -138,10 +138,10 @@ extract_summary() {
         echo "${pf_stat:-port-forward}"
       fi
       ;;
-    cp-sl-silent-failure-audit)
+    sl-silent-failure-audit)
       grep -oE "RESULT: .*" "$log_file" | head -n1 || echo "Invariants checked"
       ;;
-    cp-sl-containment-guard)
+    sl-containment-guard)
       local clus_stat
       clus_stat=$(grep -oE "CLUSTER_STATUS=[A-Z]+" "$log_file" | head -n1 || echo "")
       if [ -n "$clus_stat" ]; then
@@ -150,20 +150,20 @@ extract_summary() {
         grep -oE "RESULT: .*" "$log_file" | head -n1 || echo "Containment verified"
       fi
       ;;
-    cp-sl-pyramid-verify)
+    sl-pyramid-verify)
       grep -oE "Status: .*" "$log_file" | head -n1 || echo "Pyramid verified"
       ;;
-    cp-sl-worktree-governor)
+    sl-worktree-governor)
       local total dirty clean
       total=$(grep -oE "Total Worktrees: [0-9]+" "$log_file" | head -n1 || echo "")
       dirty=$(grep -oE "Dirty / Uncommitted Worktrees: [0-9]+" "$log_file" | sed 's/Dirty \/ Uncommitted Worktrees: /dirty:/' || echo "")
       clean=$(grep -oE "Clean Worktrees: [0-9]+" "$log_file" | sed 's/Clean Worktrees: /clean:/' || echo "")
       echo "${total:-worktrees}, ${dirty:-0}, ${clean:-0}"
       ;;
-    cp-sl-eap-evidence-sweep)
+    sl-eap-evidence-sweep)
       grep -oE "STATUS: [A-Z_]+" "$log_file" | head -n1 || echo "Evidence swept"
       ;;
-    cp-sl-drift-sweep)
+    sl-drift-sweep)
       grep -oE "STATUS: [A-Z_]+.*" "$log_file" | head -n1 || echo "Drift swept"
       ;;
     *)
@@ -176,7 +176,7 @@ main() {
   parse_args "$@"
 
   if [ "$INCLUDE_ALL" -eq 1 ]; then
-    SKILL_SPECS+=("cp-sl-drift-sweep|Tools/drift-sweep.sh|Two-Axis Codebase Drift & Smell Sweeper")
+    SKILL_SPECS+=("sl-drift-sweep|Tools/drift-sweep.sh|Two-Axis Codebase Drift & Smell Sweeper")
   fi
 
   LOG_DIR=$(mktemp -d /tmp/scheduled-skills-XXXXXX)

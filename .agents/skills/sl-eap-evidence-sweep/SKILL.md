@@ -1,16 +1,16 @@
 ---
-name: cp-sl-eap-evidence-sweep
-description: "Scheduled-run EAP pilot compliance evidence sweeper for #partner-signal-loom. Validates Cosign signatures, SLSA provenance, SPDX SBOMs, PostgreSQL audit_events row growth, and NetAssert policy proofs. USE WHEN sweep evidence, audit compliance evidence, verify eap evidence, verify cosign signatures, cp-sl-eap-evidence-sweep, or on schedule '0 6 * * *'."
+name: sl-eap-evidence-sweep
+description: "Scheduled-run EAP pilot compliance evidence sweeper for #partner-signal-loom. Validates Cosign signatures, SLSA provenance, SPDX SBOMs, PostgreSQL audit_events row growth, and NetAssert policy proofs. USE WHEN sweep evidence, audit compliance evidence, verify eap evidence, verify cosign signatures, sl-eap-evidence-sweep, or on schedule '0 6 * * *'."
 ---
 
-# cp-sl-eap-evidence-sweep
+# sl-eap-evidence-sweep
 
 Scheduled compliance evidence auditor and packager for **Signal Loom** (`#partner-signal-loom`) EAP design partners and enterprise reviews (Kusari EAP, Microsoft Architecture Review).
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `0 6 * * *` (Daily at 06:00 UTC, or before external partner delivery).
-- **Trigger**: Cron notification, `/cp-sl-eap-evidence-sweep`, or manual prompt "sweep compliance evidence".
+- **Trigger**: Cron notification, `/sl-eap-evidence-sweep`, or manual prompt "sweep compliance evidence".
 - **Checkpoint**: Push right. Automatically verify all cryptographic digests, signatures, and database audit logs. Compile a verified evidence ledger and deliver a concise executive brief.
 - **Brief**: Emit a 4-bullet status: (1) Evidence artifacts verified, (2) Cosign and SLSA validity, (3) PostgreSQL audit row count, and (4) Diligence readiness score.
 

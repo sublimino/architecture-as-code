@@ -1,26 +1,26 @@
 #!/usr/bin/env bats
-# test/cp-sl-drift-sweep.bats
-# Contract tests for the cp-sl-drift-sweep skill and Tools/drift-sweep.sh.
+# test/sl-drift-sweep.bats
+# Contract tests for the sl-drift-sweep skill and Tools/drift-sweep.sh.
 
 setup() {
   ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-  SKILL_DIR="$ROOT/.agents/skills/cp-sl-drift-sweep"
+  SKILL_DIR="$ROOT/.agents/skills/sl-drift-sweep"
   TOOL="$SKILL_DIR/Tools/drift-sweep.sh"
 }
 
-@test "cp-sl-drift-sweep skill files and executable tool exist" {
+@test "sl-drift-sweep skill files and executable tool exist" {
   [ -f "$SKILL_DIR/SKILL.md" ]
   [ -f "$SKILL_DIR/Workflows/Sweep.md" ]
   [ -f "$SKILL_DIR/References/DriftAndSmellBaseline.md" ]
   [ -x "$TOOL" ]
-  grep -q "^name: cp-sl-drift-sweep$" "$SKILL_DIR/SKILL.md"
+  grep -q "^name: sl-drift-sweep$" "$SKILL_DIR/SKILL.md"
 }
 
 @test "drift-sweep.sh defaults to PAUSE_FOR_APPROVAL and reports CLEAN on remediated repo" {
   run "$TOOL" --skip-docs-lint --ignore-dirty
   [ "$status" -eq 0 ]
   [[ "$output" == *"Execution Mode : PAUSE_FOR_APPROVAL"* ]]
-  [[ "$output" == *"STATUS: CLEAN (standards=0, spec=0, jobs=0, mode=PAUSE_FOR_APPROVAL)"* ]]
+  [[ "$output" == *"STATUS: CLEAN (standards=0, spec=0, jobs=0,"*"mode=PAUSE_FOR_APPROVAL)"* ]]
 }
 
 @test "drift-sweep.sh emits PAUSE action when drift is detected in default mode" {
@@ -38,7 +38,7 @@ EOF
   rm -rf "$tmp_repo"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"STATUS: DRIFT_DETECTED (standards=1, spec=1, jobs=2, mode=PAUSE_FOR_APPROVAL)"* ]]
+  [[ "$output" == *"STATUS: DRIFT_DETECTED (standards=1, spec=1, jobs=2,"*"mode=PAUSE_FOR_APPROVAL)"* ]]
   [[ "$output" == *"ACTION: PAUSE — Present the Two-Axis Report"* ]]
 }
 
@@ -57,7 +57,7 @@ EOF
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Execution Mode : AUTO"* ]]
-  [[ "$output" == *"STATUS: DRIFT_DETECTED (standards=1, spec=1, jobs=2, mode=AUTO)"* ]]
-  [[ "$output" == *"ACTION: AUTO_EXECUTE — Proceed to Phase 2"* ]]
+  [[ "$output" == *"STATUS: DRIFT_DETECTED (standards=1, spec=1, jobs=2,"*"mode=AUTO)"* ]]
+  [[ "$output" == *"ACTION: AUTO_EXECUTE — Proceed to Phase 4"* ]]
 }
 

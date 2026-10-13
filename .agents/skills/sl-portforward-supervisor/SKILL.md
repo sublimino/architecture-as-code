@@ -1,16 +1,16 @@
 ---
-name: cp-sl-portforward-supervisor
-description: "Scheduled-run durable ingress and port-forward supervisor for #partner-signal-loom. Supervises signalloom-portforward.service, detects severed SPDY streams, verifies ports 5173 and 18443, and runs in-pod proxy checks. USE WHEN port forward down, signalloom dashboard down, dex login refused, port 5173 broken, restart portforward, cp-sl-portforward-supervisor, or on schedule '*/15 * * * *'."
+name: sl-portforward-supervisor
+description: "Scheduled-run durable ingress and port-forward supervisor for #partner-signal-loom. Supervises signalloom-portforward.service, detects severed SPDY streams, verifies ports 5173 and 18443, and runs in-pod proxy checks. USE WHEN port forward down, signalloom dashboard down, dex login refused, port 5173 broken, restart portforward, sl-portforward-supervisor, or on schedule '*/15 * * * *'."
 ---
 
-# cp-sl-portforward-supervisor
+# sl-portforward-supervisor
 
 Scheduled ingress, port-forward, and API proxy supervisor for the **Signal Loom** (`#partner-signal-loom`) platform.
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `*/15 * * * *` (Every 15 minutes, or immediately after `rollout restart` / image rebuild).
-- **Trigger**: Cron notification, `/cp-sl-portforward-supervisor`, or manual prompt "fix port forward".
+- **Trigger**: Cron notification, `/sl-portforward-supervisor`, or manual prompt "fix port forward".
 - **Checkpoint**: Push right. Automatically probe ports, restart broken systemd user services, and clear zombie forwarders. Only notify human if host ports cannot bind or cluster is unreachable.
 - **Brief**: Emit a 4-bullet status: (1) Service status (`signalloom-portforward.service`), (2) Local HTTP codes (5173, 18443), (3) In-pod proxy health, and (4) Auto-healing action.
 

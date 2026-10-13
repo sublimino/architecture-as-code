@@ -1,6 +1,6 @@
 # Workflow: Signal Loom Two-Axis Drift Sweep & Parallel Remediation
 
-Execute after a multi-agent build wave, on scheduled cadence (`0 4 * * *`), or via `/cp-sl-drift-sweep [--auto]`.
+Execute after a multi-agent build wave, on scheduled cadence (`0 4 * * *`), or via `/sl-drift-sweep [--auto]`.
 
 ---
 
@@ -12,7 +12,7 @@ REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo "$PW
 cd "${REPO_ROOT}"
 
 # Pass --auto if invoked with --auto or under /goal
-bash .agents/skills/cp-sl-drift-sweep/Tools/drift-sweep.sh "$@"
+bash .agents/skills/sl-drift-sweep/Tools/drift-sweep.sh "$@"
 ```
 
 ### Step 1.2: Synthesize Two-Axis Report & Cleanup Job Manifest

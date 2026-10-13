@@ -1,16 +1,16 @@
 ---
-name: cp-sl-containment-guard
-description: "Scheduled-run agent stun, containment, and GitOps suspension guard for #partner-signal-loom. Enforces Flux reconcile suspension on stunned workloads, verifies H1 forensic preservation, and audits DAG state. USE WHEN agent stun check, containment integrity, verify stunned agent, flux reconcile disabled, cp-sl-containment-guard, or on schedule '*/15 * * * *'."
+name: sl-containment-guard
+description: "Scheduled-run agent stun, containment, and GitOps suspension guard for #partner-signal-loom. Enforces Flux reconcile suspension on stunned workloads, verifies H1 forensic preservation, and audits DAG state. USE WHEN agent stun check, containment integrity, verify stunned agent, flux reconcile disabled, sl-containment-guard, or on schedule '*/15 * * * *'."
 ---
 
-# cp-sl-containment-guard
+# sl-containment-guard
 
 Scheduled containment invariant and forensic state verification for the **Signal Loom** (`#partner-signal-loom`) platform.
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `*/15 * * * *` (Every 15 minutes, or immediately following an agent containment or stun drill).
-- **Trigger**: Cron notification, `/cp-sl-containment-guard`, or manual prompt "check agent containment".
+- **Trigger**: Cron notification, `/sl-containment-guard`, or manual prompt "check agent containment".
 - **Checkpoint**: Push right. Audit all agent workloads across namespaces (`fe-signalloom-agents`, `inf-signalloom`). Automatically patch missing GitOps suspension annotations. Emit brief to human if uncontained network egress or DAG desynchronization is detected.
 - **Brief**: Emit a 4-bullet status: (1) Total agents inspected, (2) Active vs Stunned count, (3) GitOps suspension compliance, and (4) Fleet Manager DAG alignment.
 

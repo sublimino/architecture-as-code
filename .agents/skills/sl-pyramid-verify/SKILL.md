@@ -1,16 +1,16 @@
 ---
-name: cp-sl-pyramid-verify
+name: sl-pyramid-verify
 description: "Scheduled-run offline test pyramid guard. Executes docs-lint across documents. Runs offline tests for Go, Vitest, and Python. Verifies zero schema drift. USE WHEN verify pyramid, test all offline, docs lint test, or on schedule '0 3 * * *'."
 ---
 
-# cp-sl-pyramid-verify
+# sl-pyramid-verify
 
 Scheduled offline test pyramid verification and schema drift guard for the **Signal Loom** (`#partner-signal-loom`) platform.
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `0 3 * * *` (Daily at 03:00 UTC, or before branch integration).
-- **Trigger**: Cron notification, `/cp-sl-pyramid-verify`, or manual prompt "run test pyramid".
+- **Trigger**: Cron notification, `/sl-pyramid-verify`, or manual prompt "run test pyramid".
 - **Checkpoint**: Push right. Executes the entire offline verification pyramid without requiring a running Kind cluster or cloud connectivity. Emits a clean decision brief.
 - **Brief**: Emit a 4-bullet status: (1) Docs lint status, (2) Offline test suite passes, (3) Bootstrap SQL alignment status, (4) Regression count.
 

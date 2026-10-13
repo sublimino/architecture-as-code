@@ -1,16 +1,16 @@
 ---
-name: cp-sl-silent-failure-audit
-description: "Scheduled-run silent failure and invariant sentinel for #partner-signal-loom. Audits the 17 cataloged silent failure patterns across runtime and contracts. USE WHEN silent failures, audit invariants, verify signal loom invariants, check silent bugs, cp-sl-silent-failure-audit, or on schedule '0 */4 * * *'."
+name: sl-silent-failure-audit
+description: "Scheduled-run silent failure and invariant sentinel for #partner-signal-loom. Audits the 17 cataloged silent failure patterns across runtime and contracts. USE WHEN silent failures, audit invariants, verify signal loom invariants, check silent bugs, sl-silent-failure-audit, or on schedule '0 */4 * * *'."
 ---
 
-# cp-sl-silent-failure-audit
+# sl-silent-failure-audit
 
 Scheduled invariant audit and silent failure detector for the **Signal Loom** (`#partner-signal-loom`) platform.
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `0 */4 * * *` (Every 4 hours, or during preflight / post-merge verification).
-- **Trigger**: Cron notification, `/cp-sl-silent-failure-audit`, or manual prompt "audit silent failures".
+- **Trigger**: Cron notification, `/sl-silent-failure-audit`, or manual prompt "audit silent failures".
 - **Checkpoint**: Push right. Perform exhaustive static and cluster invariant verification. Report concise findings table with actionable patch targets.
 - **Brief**: Emit a 4-bullet executive status: (1) Total invariants checked, (2) Invariants passed, (3) Silent regressions discovered, (4) Direct remediation file/line targets.
 

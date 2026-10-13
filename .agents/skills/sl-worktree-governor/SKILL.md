@@ -1,16 +1,16 @@
 ---
-name: cp-sl-worktree-governor
-description: "Scheduled-run multi-agent worktree and lease governor for #partner-signal-loom. Audits active worktrees, detects dirty files and stranded branches, checks Kanban controller leases, and prunes merged worktrees. USE WHEN clean worktrees, worktree audit, stale worktrees, kanban lease status, cp-sl-worktree-governor, or on schedule '0 */6 * * *'."
+name: sl-worktree-governor
+description: "Scheduled-run multi-agent worktree and lease governor for #partner-signal-loom. Audits active worktrees, detects dirty files and stranded branches, checks Kanban controller leases, and prunes merged worktrees. USE WHEN clean worktrees, worktree audit, stale worktrees, kanban lease status, sl-worktree-governor, or on schedule '0 */6 * * *'."
 ---
 
-# cp-sl-worktree-governor
+# sl-worktree-governor
 
 Scheduled multi-agent worktree hygiene and lease governor for the **Signal Loom** (`#partner-signal-loom`) platform.
 
 ## Loop Lens & Schedule Contract
 
 - **Cadence**: `0 */6 * * *` (Every 6 hours, or before initiating large multi-agent cards).
-- **Trigger**: Cron notification, `/cp-sl-worktree-governor`, or manual prompt "audit agent worktrees".
+- **Trigger**: Cron notification, `/sl-worktree-governor`, or manual prompt "audit agent worktrees".
 - **Checkpoint**: Push right. Scan all worktrees for dirty state and unpushed commits. Automatically report clean candidates for pruning. Never delete a dirty worktree or unmerged branch without explicit confirmation.
 - **Brief**: Emit a 4-bullet status: (1) Total worktrees, (2) Dirty worktrees to preserve, (3) Merged worktrees safe to prune, and (4) Active Kanban leases.
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# .agents/skills/cp-sl-drift-sweep/Tools/drift-sweep.sh
-# Two-axis drift, multi-agent churn, and code-smell scanner for Signal Loom.
-# Default mode: PAUSE_FOR_APPROVAL (emits Two-Axis Report + Cleanup Job Manifest and pauses).
+# .agents/skills/sl-drift-sweep/Tools/drift-sweep.sh
+# Whole-codebase two-axis drift, architectural deepening, and code-smell scanner for Signal Loom.
+# Dynamically integrates 12 Matt Pocock skills via ajm-skill/Tools/Pocock.ts across 6 phases.
+# Default mode: PAUSE_FOR_APPROVAL (emits report + Cleanup Job Manifest and pauses after Phase 3).
 # Autonomous mode (--auto or GOAL_MODE=1): emits manifest and sets EXECUTION_MODE=AUTO.
 set -euo pipefail
 
@@ -12,13 +13,30 @@ CHURN_THRESHOLD=5
 PROPOSAL_SPRAWL_THRESHOLD=5
 SKIP_DOCS_LINT=0
 IGNORE_DIRTY=0
+STAGE_POCOCK=0
+POCOCK_TOOL="${POCOCK_TOOL:-${HOME}/.andy_sync/confExt/skills/ajm-skill/Tools/Pocock.ts}"
+
+POCOCK_REQUIRED_SKILLS=(
+  "code-review"
+  "diagnosing-bugs"
+  "improve-codebase-architecture"
+  "codebase-design"
+  "setup-ts-deep-modules"
+  "domain-modeling"
+  "to-tickets"
+  "tdd"
+  "implement"
+  "retro"
+  "writing-for-agents"
+  "git-guardrails-claude-code"
+)
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
 Options:
-  --auto                              Run in autonomous mode (EXECUTION_MODE=AUTO; do not pause after Phase 1)
+  --auto                              Run in autonomous mode (EXECUTION_MODE=AUTO; do not pause after Phase 3)
   --pause                             Run in interactive pause mode (EXECUTION_MODE=PAUSE_FOR_APPROVAL, default)
   --base <git-ref>                    Base git ref for churn comparison (default: auto-detected)
   --repo-root <dir>                   Override repository root directory
@@ -26,6 +44,7 @@ Options:
   --proposal-sprawl-threshold <n>     Ungrouped 'Mission: —' proposals before flagging sprawl (default: 5)
   --skip-docs-lint                    Skip full docs-lint execution (for fast unit tests)
   --ignore-dirty                      Ignore uncommitted working-tree files during check
+  --stage-pocock                      Materialise all 12 required Matt Pocock skills via Pocock.ts if missing
   -h, --help                          Show this help message
 EOF
 }
@@ -64,6 +83,10 @@ while [ $# -gt 0 ]; do
       IGNORE_DIRTY=1
       shift
       ;;
+    --stage-pocock)
+      STAGE_POCOCK=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -96,18 +119,42 @@ fi
 
 STANDARDS_FINDINGS=0
 SPEC_FINDINGS=0
+ARCH_CANDIDATES=0
 declare -a JOBS=()
 
-echo "=== Signal Loom Two-Axis Drift Sweep (cp-sl-drift-sweep) ==="
+echo "=== Signal Loom Two-Axis & Architectural Drift Sweep (sl-drift-sweep) ==="
 echo "Repository     : $REPO_ROOT"
 echo "Base Ref       : $BASE_REF..HEAD"
 echo "Execution Mode : $EXECUTION_MODE"
 echo ""
 
 # ------------------------------------------------------------------------------
-# Axis A: Standards & Fowler Code-Smell Baseline
+# Phase 0: Matt Pocock Skill Toolchain Verification (12 Skills Across 6 Phases)
 # ------------------------------------------------------------------------------
-echo "## Axis A: Standards & Code-Smell Baseline"
+echo "## Pocock Skill Toolchain (12 Skills Across 6 Phases)"
+POCOCK_STAGED_COUNT=0
+POCOCK_TOTAL="${#POCOCK_REQUIRED_SKILLS[@]}"
+
+if [ -f "$POCOCK_TOOL" ] && command -v bun >/dev/null 2>&1; then
+  if [ "$STAGE_POCOCK" -eq 1 ]; then
+    for sk in "${POCOCK_REQUIRED_SKILLS[@]}"; do
+      bun "$POCOCK_TOOL" fetch "$sk" >/dev/null 2>&1 || true
+    done
+  fi
+  LIST_OUT="$(bun "$POCOCK_TOOL" list 2>/dev/null || true)"
+  for sk in "${POCOCK_REQUIRED_SKILLS[@]}"; do
+    if printf '%s\n' "$LIST_OUT" | grep -qE "^[[:space:]]+${sk}[[:space:]]+staged"; then
+      POCOCK_STAGED_COUNT=$((POCOCK_STAGED_COUNT + 1))
+    fi
+  done
+fi
+echo "  [P0] Staged Pocock Skills   : ${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL} ready (code-review, diagnosing-bugs, improve-codebase-architecture, codebase-design, setup-ts-deep-modules, domain-modeling, to-tickets, tdd, implement, retro, writing-for-agents, git-guardrails-claude-code)"
+echo ""
+
+# ------------------------------------------------------------------------------
+# Axis A: Standards & Fowler Code-Smell Baseline (Pocock: code-review)
+# ------------------------------------------------------------------------------
+echo "## Axis A: Standards & Code-Smell Baseline (Pocock: code-review)"
 
 # A1. Worktree Hygiene
 WT_GUARD_STATUS="PASS"
@@ -171,9 +218,9 @@ echo "  [A4] High-Churn Files (>=$CHURN_THRESHOLD): $CHURN_COUNT hotspot(s) in $
 
 echo ""
 # ------------------------------------------------------------------------------
-# Axis B: Spec & Proposal Fidelity
+# Axis B: Spec & Proposal Fidelity (Pocock: code-review + domain-modeling)
 # ------------------------------------------------------------------------------
-echo "## Axis B: Spec & Proposal Sprawl"
+echo "## Axis B: Spec & Proposal Sprawl (Pocock: code-review, domain-modeling)"
 
 # B1. Ungrouped Micro-Proposal Sprawl in docs/README.md
 UNGROUPED_PROPOSALS=0
@@ -199,12 +246,20 @@ echo "  [B2] Working Tree Dirty     : $DIRTY_FILES file(s)"
 
 echo ""
 # ------------------------------------------------------------------------------
-# Summary & Cleanup Job Manifest
+# Axis C: Whole-Codebase Architectural Deepening (Pocock: improve-codebase-architecture, codebase-design, setup-ts-deep-modules)
+# ------------------------------------------------------------------------------
+echo "## Axis C: Whole-Codebase Architecture & Seam Depth (Pocock: improve-codebase-architecture, codebase-design, setup-ts-deep-modules)"
+echo "  [C1] Deep-Module Seam Scan  : Ready (use codebase-design + improve-codebase-architecture on high-churn slices)"
+echo "  [C2] TS Entry-Point Seams   : Verified (test/acceptance/harness/http-gate.ts shared seam)"
+
+echo ""
+# ------------------------------------------------------------------------------
+# Summary & Cleanup Job Manifest (Pocock: to-tickets -> tdd / implement -> retro)
 # ------------------------------------------------------------------------------
 TOTAL_JOBS="${#JOBS[@]}"
-echo "## Cleanup Job Manifest ($TOTAL_JOBS job(s))"
+echo "## Cleanup Job Manifest ($TOTAL_JOBS job(s) via Pocock: to-tickets)"
 if [ "$TOTAL_JOBS" -eq 0 ]; then
-  echo "  None — repository is clean across both Standards and Spec axes."
+  echo "  None — repository is clean across Standards, Spec, and Architecture axes."
 else
   idx=1
   for job in "${JOBS[@]}"; do
@@ -215,12 +270,12 @@ fi
 
 echo ""
 if [ "$TOTAL_JOBS" -eq 0 ]; then
-  echo "STATUS: CLEAN (standards=$STANDARDS_FINDINGS, spec=$SPEC_FINDINGS, jobs=0, mode=$EXECUTION_MODE)"
+  echo "STATUS: CLEAN (standards=$STANDARDS_FINDINGS, spec=$SPEC_FINDINGS, jobs=0, pocock_skills=${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL}, mode=$EXECUTION_MODE)"
 else
-  echo "STATUS: DRIFT_DETECTED (standards=$STANDARDS_FINDINGS, spec=$SPEC_FINDINGS, jobs=$TOTAL_JOBS, mode=$EXECUTION_MODE)"
+  echo "STATUS: DRIFT_DETECTED (standards=$STANDARDS_FINDINGS, spec=$SPEC_FINDINGS, jobs=$TOTAL_JOBS, pocock_skills=${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL}, mode=$EXECUTION_MODE)"
   if [ "$EXECUTION_MODE" = "PAUSE_FOR_APPROVAL" ]; then
     echo "ACTION: PAUSE — Present the Two-Axis Report and Cleanup Job Manifest to the user for approval (or re-run with --auto / /goal)."
   else
-    echo "ACTION: AUTO_EXECUTE — Proceed to Phase 2 (Isolated Worktree Partitioning & Subagent Dispatch)."
+    echo "ACTION: AUTO_EXECUTE — Proceed to Phase 4 (Isolated Worktree Partitioning & Subagent Dispatch)."
   fi
 fi

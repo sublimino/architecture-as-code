@@ -61,7 +61,11 @@ class A2A(unittest.TestCase):
     self.assertEqual(resp.headers.get("Content-Length"), str(len(wanted)))
     self.assertEqual(resp.headers.get("Content-Type"), "application/json")
     self.assertEqual(wanted, resp.read())
-   self.assertEqual(self.instance,json.loads(urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}/challenge').read())['instanceNonce'])
+   for probe in ('/health','/healthz','/readyz'):
+    resp=urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}{probe}')
+    self.assertEqual(200, resp.status)
+    self.assertEqual({'status':'ok'}, json.loads(resp.read()))
+   self.assertEqual(self.instance,json.loads(urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}/challenge?extra=1').read())['instanceNonce'])
   finally: s.shutdown(); th.join(); s.server_close()
  def test_http_uses_validator_not_claimed_identity_header(self):
   def validator(token):

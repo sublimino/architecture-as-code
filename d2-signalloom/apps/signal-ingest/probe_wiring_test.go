@@ -16,6 +16,9 @@ func TestProbeServerAnswersTheKubeletOnTheConfiguredPort(t *testing.T) {
 	if srv.Addr != ":9443" {
 		t.Fatalf("probe server Addr = %q, want :9443 from %s", srv.Addr, ProbePortEnvVar)
 	}
+	if srv.ReadHeaderTimeout <= 0 {
+		t.Fatalf("probe server ReadHeaderTimeout = %v, want > 0", srv.ReadHeaderTimeout)
+	}
 	w := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if w.Code != http.StatusOK {

@@ -460,3 +460,21 @@ class TestTOCTOUConcurrencyAndRaces:
             else:
                 assert r.sha256 is None
                 assert r.integrity_state == "unverified"
+
+
+def test_ratelimit_negative_size_rejected():
+    limiter = RateLimiter(max_files_per_window=10, max_bytes_per_window=1024)
+    # 1. check_candidate rejects negative sizes
+    allowed, reason = limiter.check_candidate(-100)
+    assert not allowed
+    assert reason == "invalid_negative_file_size"
+
+    # 2. record_consumption rejects negative sizes and prevents budget underflow
+    allowed, reason = limiter.record_consumption(-500)
+    assert not allowed
+    assert reason == "invalid_negative_file_size"
+
+    # Confirm history is clean and hasn't underflowed
+    metrics = limiter.get_metrics()
+    assert metrics["current_files"] == 0
+    assert metrics["current_bytes"] == 0

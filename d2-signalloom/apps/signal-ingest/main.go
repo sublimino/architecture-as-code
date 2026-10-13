@@ -454,11 +454,12 @@ func probePort() string {
 // newProbeServer serves liveness and readiness, and nothing else, on probePort.
 func newProbeServer(h *api.Handlers) *http.Server {
 	return &http.Server{
-		Addr:         ":" + probePort(),
-		Handler:      api.NewProbeHandler(h),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		Addr:              ":" + probePort(),
+		Handler:           api.NewProbeHandler(h),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      5 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 }
 
@@ -1096,11 +1097,12 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      apiHandler(gateway, protectedRouter),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		Addr:              ":" + port,
+		Handler:           apiHandler(gateway, protectedRouter),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 
 	go func() {

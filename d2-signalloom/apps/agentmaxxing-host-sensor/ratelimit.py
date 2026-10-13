@@ -80,11 +80,14 @@ class RateLimiter:
         if now is None:
             now = time.monotonic()
 
+        if size_bytes > self.max_file_size_bytes:
+            return False, "max_file_size_exceeded"
+
+        if size_bytes < 0:
+            return False, "invalid_negative_file_size"
+
         with self._lock:
             self._prune(now)
-
-            if size_bytes > self.max_file_size_bytes:
-                return False, "max_file_size_exceeded"
 
             current_files = len(self._history)
             current_bytes = sum(entry[1] for entry in self._history)

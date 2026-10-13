@@ -114,3 +114,40 @@ func TestServer_PruneExpired(t *testing.T) {
 		t.Errorf("PruneExpired: want 1, got %d", pruned)
 	}
 }
+
+func TestServer_HealthEndpoints(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("probe %s: want 200, got %d", path, w.Code)
+		}
+	}
+}
+
+func TestServer_RequesterValidation(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	for _, invalidRequester := range []string{"", "   ", "\t\n"} {
+		reqBody, _ := json.Marshal(GateRequest{
+			Description: "Deploy payment service v2.4",
+			Requester:   invalidRequester,
+			Environment: "production",
+		})
+		req := httptest.NewRequest(http.MethodPost, "/gate/request", bytes.NewReader(reqBody))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("empty requester %q: want 400, got %d", invalidRequester, w.Code)
+		}
+	}
+}

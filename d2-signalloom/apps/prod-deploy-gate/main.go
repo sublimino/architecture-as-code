@@ -93,6 +93,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/gate/request", s.handleGateRequest)
 	mux.HandleFunc("/gate/approve", s.handleGateApprove)
 	mux.HandleFunc("/gate/", s.handleGetGate)
+	mux.HandleFunc("/health", handleHealthz)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", handleReadyz)
 }
@@ -133,6 +134,12 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	var req GateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	req.Requester = strings.TrimSpace(req.Requester)
+	if req.Requester == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "requester required for audit trail"})
 		return
 	}
 
@@ -322,11 +329,12 @@ func main() {
 	srv.registerRoutes(mux)
 
 	httpSrv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

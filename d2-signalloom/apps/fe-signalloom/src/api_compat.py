@@ -4289,7 +4289,7 @@ def _check_response_status(res: Any, url: str) -> None:
 @router.get("/capabilities", response_model=CapabilitiesResponse, responses=ERROR_RESPONSES)
 async def get_capabilities(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-    response: Response = Response(),
+    response: Response = None,
     agent_id: Annotated[str | None, Query(description="Target agent / workload ID")] = None,
     workload: Annotated[str | None, Query(description="Target workload name / alias")] = None,
     namespace: Annotated[str | None, Query(description="Target workload namespace")] = None,
@@ -4299,6 +4299,8 @@ async def get_capabilities(
     RFC 9110 Invariant: strictly side-effect free and idempotent (zero SQL writes).
     Separation of Identity Planes: Decoupled human principal authorization from workload identity.
     """
+    if response is None:
+        response = Response()
     from superadmin import is_superadmin
 
     is_admin = is_superadmin(principal)
@@ -4530,6 +4532,7 @@ async def get_capabilities(
         )
 
     response.headers["X-Source-Health"] = "healthy"
+    response.headers["source_health"] = "healthy"
     return CapabilitiesResponse(
         tenant=tenant,
         principal_id=principal.subject,
@@ -4586,7 +4589,7 @@ def _visible_to_tenant(item: dict[str, Any], tenant_id: str, is_admin: bool) -> 
 @router.get("/agents", response_model=AgentListResponse, responses=ERROR_RESPONSES)
 async def agents(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-    response: Response = Response(),
+    response: Response = None,
     search: str | None = None,
     namespace: str | None = None,
     framework: str | None = None,
@@ -4600,6 +4603,8 @@ async def agents(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1)] = 50,
 ) -> AgentListResponse:
+    if response is None:
+        response = Response()
     # Imported here, not at module scope: ``superadmin`` imports this module for
     # ``Principal``/``authenticated_principal``, so a top-level import would be
     # a cycle.
@@ -4959,22 +4964,28 @@ async def agents(
 @compat_root_router.get("/health/crypto", response_model=CryptoHealthResponse, responses=ERROR_RESPONSES)
 async def crypto_health(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
-    response: Response = Response(),
+    response: Response = None,
 ) -> CryptoHealthResponse:
+    if response is None:
+        response = Response()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             res = await client.get(CRYPTO_HEALTH_URL)
             _check_response_status(res, CRYPTO_HEALTH_URL)
-            payload = res.json()
+            resp_content = getattr(res, "content", None)
+            status_code = getattr(res, "status_code", 200)
+            if status_code in (204, 205, 304) or resp_content == b"":
+                payload = {"proofs": []}
+            else:
+                payload = res.json()
         if not isinstance(payload, dict):
             raise TypeError("crypto health payload must be an object")
         proxy_proofs = payload.get("proofs", [])
         if not isinstance(proxy_proofs, list):
             raise TypeError("crypto health proofs must be a list")
         proofs = [_crypto_proof_from_payload(proxy_proof) for proxy_proof in proxy_proofs]
-        if response is not None:
-            response.headers["source_health"] = "healthy"
-            response.headers["X-Source-Health"] = "healthy"
+        response.headers["source_health"] = "healthy"
+        response.headers["X-Source-Health"] = "healthy"
         return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs, source_health="healthy")
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         logger.warning("crypto health prover unavailable: %s", exc)

@@ -234,3 +234,60 @@ class TestAgentAttentionRequired:
         assert "agent-warning" in ids
         # agent-healthy should not be flagged as needing attention
         assert "agent-healthy" not in ids
+
+
+# ---------------------------------------------------------------------------
+# Response Default Isolation Tests
+# ---------------------------------------------------------------------------
+
+class TestResponseDefaultIsolation:
+    def test_agents_response_headers_present(self, client: TestClient):
+        """HTTP GET /api/agents must receive X-Source-Health and source_health headers."""
+        res = client.get("/api/agents", headers=_bearer(ALICE_SUB))
+        assert res.status_code == 200
+        assert res.headers.get("source_health") in ("healthy", "degraded", "unavailable")
+        assert res.headers.get("X-Source-Health") in ("healthy", "degraded", "unavailable")
+
+    def test_capabilities_response_headers_present(self, client: TestClient):
+        """HTTP GET /api/capabilities must receive X-Source-Health and source_health headers."""
+        res = client.get("/api/capabilities", headers=_bearer(ALICE_SUB))
+        assert res.status_code == 200
+        assert res.headers.get("source_health") == "healthy"
+        assert res.headers.get("X-Source-Health") == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_get_capabilities_fresh_response_isolation(self):
+        """Direct get_capabilities invocations without response argument must be isolated."""
+        principal_a = api_compat.Principal(tenant="tenant-a", subject="sub-a", email="a@test.com")
+        principal_b = api_compat.Principal(tenant="tenant-b", subject="sub-b", email="b@test.com")
+
+        custom_resp = api_compat.Response()
+        await api_compat.get_capabilities(principal=principal_a, response=custom_resp)
+        custom_resp.headers["X-Leaked-Header"] = "tenant-a-secret"
+
+        custom_resp_b = api_compat.Response()
+        await api_compat.get_capabilities(principal=principal_b, response=custom_resp_b)
+        assert "X-Leaked-Header" not in custom_resp_b.headers
+
+        # Default argument invocation
+        res_default = await api_compat.get_capabilities(principal=principal_a)
+        assert res_default.source_health == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_agents_fresh_response_isolation(self):
+        """Direct agents invocations without response argument must be isolated."""
+        principal_a = api_compat.Principal(tenant="tenant-a", subject="sub-a", email="a@test.com")
+        principal_b = api_compat.Principal(tenant="tenant-b", subject="sub-b", email="b@test.com")
+
+        custom_resp = api_compat.Response()
+        await api_compat.agents(principal=principal_a, response=custom_resp)
+        custom_resp.headers["X-Leaked-Header"] = "tenant-a-secret"
+
+        custom_resp_b = api_compat.Response()
+        await api_compat.agents(principal=principal_b, response=custom_resp_b)
+        assert "X-Leaked-Header" not in custom_resp_b.headers
+
+        # Default argument invocation
+        res_default = await api_compat.agents(principal=principal_a)
+        assert res_default.source_health in ("healthy", "degraded", "unavailable")
+

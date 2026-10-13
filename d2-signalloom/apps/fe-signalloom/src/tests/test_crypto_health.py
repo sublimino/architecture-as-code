@@ -84,13 +84,17 @@ def client_for(monkeypatch: pytest.MonkeyPatch, async_client_cls):
 
 
 class FakeCryptoHealthResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code: int = 200, content: bytes | None = None):
         self._payload = payload
+        self.status_code = status_code
+        self.content = content if content is not None else b"{}"
 
     def raise_for_status(self) -> None:
         return None
 
     def json(self):
+        if self._payload is None:
+            raise ValueError("No JSON")
         return self._payload
 
 
@@ -174,3 +178,86 @@ def test_crypto_health_fails_closed_when_proxy_fails(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "upstream_unavailable"
+
+
+def test_crypto_health_handles_204_no_content_gracefully(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str) -> FakeCryptoHealthResponse:
+            return FakeCryptoHealthResponse(None, status_code=204, content=b"")
+
+    with client_for(monkeypatch, FakeAsyncClient) as client:
+        response = client.get("/api/health/crypto", headers=bearer(token_for()))
+
+    assert response.status_code == 200
+    assert response.headers["source_health"] == "healthy"
+    assert response.headers["X-Source-Health"] == "healthy"
+    body = response.json()
+    assert body["tenant_id"] == "tenant-a"
+    assert body["proofs"] == []
+    assert body["source_health"] == "healthy"
+
+
+def test_crypto_health_handles_empty_body_gracefully(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str) -> FakeCryptoHealthResponse:
+            return FakeCryptoHealthResponse(None, status_code=200, content=b"")
+
+    with client_for(monkeypatch, FakeAsyncClient) as client:
+        response = client.get("/api/health/crypto", headers=bearer(token_for()))
+
+    assert response.status_code == 200
+    assert response.headers["source_health"] == "healthy"
+    assert response.headers["X-Source-Health"] == "healthy"
+    body = response.json()
+    assert body["tenant_id"] == "tenant-a"
+    assert body["proofs"] == []
+
+
+@pytest.mark.asyncio
+async def test_crypto_health_fresh_response_default_isolation(monkeypatch):
+    """Calling crypto_health directly without response argument must create isolated instances."""
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str) -> FakeCryptoHealthResponse:
+            return FakeCryptoHealthResponse({"proofs": []})
+
+    monkeypatch.setattr(api_compat.httpx, "AsyncClient", FakeAsyncClient)
+
+    custom_resp1 = api_compat.Response()
+    await api_compat.crypto_health(tenant_id="tenant-a", response=custom_resp1)
+    custom_resp1.headers["X-Injected-Header"] = "leaked-state"
+
+    custom_resp2 = api_compat.Response()
+    await api_compat.crypto_health(tenant_id="tenant-b", response=custom_resp2)
+    assert "X-Injected-Header" not in custom_resp2.headers
+
+    # When response is omitted entirely (default None), ensure no shared state persists
+    res3 = await api_compat.crypto_health(tenant_id="tenant-a")
+    assert res3.source_health == "healthy"
+

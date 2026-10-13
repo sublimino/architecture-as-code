@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -315,5 +316,84 @@ func TestPolicyRoutes_Endpoints(t *testing.T) {
 	respDenied.Body.Close()
 	if respDenied.StatusCode != http.StatusForbidden {
 		t.Errorf("expected status 403 for team-lead role, got %d", respDenied.StatusCode)
+	}
+
+	// 4. HEAD /api/v1/fleet/policies (RFC 9110 Section 6.4.1 body suppression)
+	headReq, err := http.NewRequest(http.MethodHead, ts.URL+"/api/v1/fleet/policies", nil)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/fleet/policies failed to create: %v", err)
+	}
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/fleet/policies failed: %v", err)
+	}
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200 on HEAD, got %d", headResp.StatusCode)
+	}
+	if ct := headResp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json Content-Type on HEAD, got %s", ct)
+	}
+	headBody, err := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read HEAD body: %v", err)
+	}
+	if len(headBody) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/fleet/policies, got %d", len(headBody))
+	}
+
+	// 5. POST /api/v1/fleet/policies -> 405 Method Not Allowed (Allow: GET, HEAD)
+	postReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/fleet/policies", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("POST /api/v1/fleet/policies request create failed: %v", err)
+	}
+	postResp, err := http.DefaultClient.Do(postReq)
+	if err != nil {
+		t.Fatalf("POST /api/v1/fleet/policies failed: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405 on POST /api/v1/fleet/policies, got %d", postResp.StatusCode)
+	}
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("expected Allow: GET, HEAD on POST /api/v1/fleet/policies, got %q", allow)
+	}
+
+	// 6. HEAD /api/v1/fleet/policies/evaluate -> 405 Method Not Allowed (Allow: POST, 0 body bytes)
+	headEvalReq, err := http.NewRequest(http.MethodHead, ts.URL+"/api/v1/fleet/policies/evaluate", nil)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/fleet/policies/evaluate request create failed: %v", err)
+	}
+	headEvalResp, err := http.DefaultClient.Do(headEvalReq)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/fleet/policies/evaluate failed: %v", err)
+	}
+	if headEvalResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405 on HEAD /api/v1/fleet/policies/evaluate, got %d", headEvalResp.StatusCode)
+	}
+	if allow := headEvalResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on HEAD /api/v1/fleet/policies/evaluate, got %q", allow)
+	}
+	headEvalBody, _ := io.ReadAll(headEvalResp.Body)
+	headEvalResp.Body.Close()
+	if len(headEvalBody) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/fleet/policies/evaluate, got %d", len(headEvalBody))
+	}
+
+	// 7. GET /api/v1/fleet/policies/evaluate -> 405 Method Not Allowed (Allow: POST)
+	getEvalReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/fleet/policies/evaluate", nil)
+	if err != nil {
+		t.Fatalf("GET /api/v1/fleet/policies/evaluate request create failed: %v", err)
+	}
+	getEvalResp, err := http.DefaultClient.Do(getEvalReq)
+	if err != nil {
+		t.Fatalf("GET /api/v1/fleet/policies/evaluate failed: %v", err)
+	}
+	getEvalResp.Body.Close()
+	if getEvalResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405 on GET /api/v1/fleet/policies/evaluate, got %d", getEvalResp.StatusCode)
+	}
+	if allow := getEvalResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on GET /api/v1/fleet/policies/evaluate, got %q", allow)
 	}
 }

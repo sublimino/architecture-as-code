@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -382,7 +383,7 @@ func TestHTTPEndpoints(t *testing.T) {
 	mux.HandleFunc("/api/v1/policies/bundles", handlers.HandleRegisterBundle)
 	mux.HandleFunc("/api/v1/policies/rollback", handlers.HandleRollback)
 
-	server := httptest.NewServer(mux)
+	server := httptest.NewServer(headBodySuppressingMiddleware(mux))
 	defer server.Close()
 
 	client := server.Client()
@@ -541,6 +542,107 @@ func TestHTTPEndpoints(t *testing.T) {
 	okResp, err := client.Do(okReq)
 	if err != nil || okResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK on valid query tenant_id, got code=%d err=%v", okResp.StatusCode, err)
+	}
+	okResp.Body.Close()
+
+	// 10. HEAD /api/v1/policies returns 200 OK with zero body bytes (RFC 9110 Section 6.4.1)
+	headListReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies?tenant_id=tenant-test", nil)
+	headListResp, err := client.Do(headListReq)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/policies failed: %v", err)
+	}
+	if headListResp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK on HEAD /api/v1/policies, got %d", headListResp.StatusCode)
+	}
+	if ct := headListResp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json Content-Type, got %s", ct)
+	}
+	headListBytes, _ := io.ReadAll(headListResp.Body)
+	headListResp.Body.Close()
+	if len(headListBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/policies, got %d", len(headListBytes))
+	}
+
+	// 11. DELETE /api/v1/policies returns 405 Method Not Allowed with Allow: GET, HEAD
+	delReq, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/policies?tenant_id=tenant-test", nil)
+	delResp, err := client.Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE /api/v1/policies failed: %v", err)
+	}
+	delResp.Body.Close()
+	if delResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on DELETE /api/v1/policies, got %d", delResp.StatusCode)
+	}
+	if allow := delResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("expected Allow: GET, HEAD on DELETE /api/v1/policies, got %q", allow)
+	}
+
+	// 12. HEAD /api/v1/policies/evaluate returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headEvalReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies/evaluate", nil)
+	headEvalResp, err := client.Do(headEvalReq)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/policies/evaluate failed: %v", err)
+	}
+	if headEvalResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD /api/v1/policies/evaluate, got %d", headEvalResp.StatusCode)
+	}
+	if allow := headEvalResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on HEAD /api/v1/policies/evaluate, got %q", allow)
+	}
+	headEvalBytes, _ := io.ReadAll(headEvalResp.Body)
+	headEvalResp.Body.Close()
+	if len(headEvalBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/policies/evaluate, got %d", len(headEvalBytes))
+	}
+
+	// 13. GET /api/v1/policies/evaluate returns 405 Method Not Allowed with Allow: POST
+	getEvalReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/policies/evaluate", nil)
+	getEvalResp, err := client.Do(getEvalReq)
+	if err != nil {
+		t.Fatalf("GET /api/v1/policies/evaluate failed: %v", err)
+	}
+	getEvalResp.Body.Close()
+	if getEvalResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on GET /api/v1/policies/evaluate, got %d", getEvalResp.StatusCode)
+	}
+	if allow := getEvalResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on GET /api/v1/policies/evaluate, got %q", allow)
+	}
+
+	// 14. HEAD /api/v1/policies/bundles returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headBundleReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies/bundles", nil)
+	headBundleResp, err := client.Do(headBundleReq)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/policies/bundles failed: %v", err)
+	}
+	if headBundleResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD /api/v1/policies/bundles, got %d", headBundleResp.StatusCode)
+	}
+	if allow := headBundleResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on HEAD /api/v1/policies/bundles, got %q", allow)
+	}
+	headBundleBytes, _ := io.ReadAll(headBundleResp.Body)
+	headBundleResp.Body.Close()
+	if len(headBundleBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/policies/bundles, got %d", len(headBundleBytes))
+	}
+
+	// 15. HEAD /api/v1/policies/rollback returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headRbReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies/rollback", nil)
+	headRbResp, err := client.Do(headRbReq)
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/policies/rollback failed: %v", err)
+	}
+	if headRbResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD /api/v1/policies/rollback, got %d", headRbResp.StatusCode)
+	}
+	if allow := headRbResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on HEAD /api/v1/policies/rollback, got %q", allow)
+	}
+	headRbBytes, _ := io.ReadAll(headRbResp.Body)
+	headRbResp.Body.Close()
+	if len(headRbBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/policies/rollback, got %d", len(headRbBytes))
 	}
 }
 

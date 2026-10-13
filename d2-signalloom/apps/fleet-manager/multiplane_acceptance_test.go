@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -976,7 +977,12 @@ func TestAcceptance_PartialContainment_NamesTheFailingPlane(t *testing.T) {
 	defer server.Close()
 
 	// Inject the failure on exactly one plane: OpenBao unreachable.
-	failingBao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	failingBao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer failingBao.Close()
@@ -1486,7 +1492,12 @@ func TestAcceptance_PartialContainment_EveryPlaneInTurn(t *testing.T) {
 		breaks func(t *testing.T, c *k8sFleetClient)
 	}{
 		{PlaneBao, func(t *testing.T, c *k8sFleetClient) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.Header().Set("Allow", "POST")
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
 				w.WriteHeader(http.StatusInternalServerError)
 			}))
 			t.Cleanup(srv.Close)
@@ -1776,4 +1787,56 @@ func tamperEnvelopePayload(t *testing.T, envelope []byte) []byte {
 		t.Fatalf("re-marshal tampered envelope: %v", err)
 	}
 	return out
+}
+
+func TestAcceptance_FailingMockBao_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	// 1. HEAD request -> 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headResp, err := http.Head(srv.URL + "/v1/auth/token/revoke-accessor")
+	if err != nil {
+		t.Fatalf("HEAD failed: %v", err)
+	}
+	headBody, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST, got %q", allow)
+	}
+	if len(headBody) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD, got %d", len(headBody))
+	}
+
+	// 2. GET request -> 405 Method Not Allowed with Allow: POST
+	getResp, err := http.Get(srv.URL + "/v1/auth/token/revoke-accessor")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on GET, got %d", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST, got %q", allow)
+	}
+
+	// 3. POST request -> 500 Internal Server Error
+	postResp, err := http.Post(srv.URL+"/v1/auth/token/revoke-accessor", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 on POST, got %d", postResp.StatusCode)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -909,5 +910,51 @@ func TestEvaluateObservationReproducesTheKusariGolden(t *testing.T) {
 
 	if gotText != wantGolden {
 		t.Fatalf("dry-run evaluation does not match kusari golden findings:\n got:\n%s\nwant:\n%s", gotText, wantGolden)
+	}
+}
+
+func TestObservationRoutes_MethodGatingAndHEAD(t *testing.T) {
+	h := newObservationHandler(t, shippedBundlesDir)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/observations/evaluate", h)
+	srv := httptest.NewServer(headBodySuppressingMiddleware(mux))
+	defer srv.Close()
+
+	// 1. HEAD /api/v1/observations/evaluate -> 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headReq, err := http.NewRequest(http.MethodHead, srv.URL+"/api/v1/observations/evaluate", nil)
+	if err != nil {
+		t.Fatalf("HEAD request create failed: %v", err)
+	}
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD failed: %v", err)
+	}
+	headBody, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on HEAD, got %q", allow)
+	}
+	if len(headBody) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD, got %d", len(headBody))
+	}
+
+	// 2. GET /api/v1/observations/evaluate -> 405 Method Not Allowed with Allow: POST
+	getReq, err := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/observations/evaluate", nil)
+	if err != nil {
+		t.Fatalf("GET request create failed: %v", err)
+	}
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on GET, got %d", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST on GET, got %q", allow)
 	}
 }

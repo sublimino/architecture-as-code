@@ -559,3 +559,53 @@ func TestEnumerationLimitCapsActualResponses(t *testing.T) {
 		}
 	}
 }
+
+func TestProtectedRouter_HEADAndMethodGating(t *testing.T) {
+	h, _ := newTestHandlers(t)
+	authn := &staticAuthenticator{principal: Principal{
+		Subject:   "spiffe://cluster.local/ns/prod/sa/alice-agent",
+		TenantID:  "tenant-finance",
+		ExpiresAt: time.Now().Add(time.Hour),
+		Permissions: map[Permission]bool{
+			PermissionHealth: true,
+		},
+	}}
+	router, err := NewProtectedRouter(h, authn, h.Audit, http.NotFoundHandler(), RouterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. HEAD /healthz -> 200 OK, empty body (RFC 9110 Section 6.4.1)
+	headReq := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	headRec := httptest.NewRecorder()
+	router.ServeHTTP(headRec, headReq)
+	if headRec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK on HEAD /healthz, got %d", headRec.Code)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /healthz, got %d", headRec.Body.Len())
+	}
+
+	// 2. POST /healthz -> 403 Forbidden (unregistered method for route in ProtectedRouter)
+	postReq := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	postRec := httptest.NewRecorder()
+	router.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden on POST /healthz, got %d", postRec.Code)
+	}
+
+	// 3. HEAD on unauthenticated request -> 401 Unauthorized with 0 body bytes
+	unauthRouter, err := NewProtectedRouter(h, staticAuthenticator{err: ErrMissingCredential}, h.Audit, http.NotFoundHandler(), RouterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthHeadReq := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	unauthHeadRec := httptest.NewRecorder()
+	unauthRouter.ServeHTTP(unauthHeadRec, unauthHeadReq)
+	if unauthHeadRec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized on unauthenticated HEAD, got %d", unauthHeadRec.Code)
+	}
+	if unauthHeadRec.Body.Len() != 0 {
+		t.Errorf("expected 0 body bytes on 401 HEAD, got %d", unauthHeadRec.Body.Len())
+	}
+}

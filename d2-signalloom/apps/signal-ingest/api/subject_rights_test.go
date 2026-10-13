@@ -1,11 +1,14 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,7 +45,7 @@ func setupSubjectRightsTestHarness(t testing.TB, principal api.Principal) (*http
 	authn := &staticAuthenticator{principal: principal}
 	auditWriter := audit.NewFakeWriter()
 
-	router, err := api.NewProtectedRouter(handlers, authn, auditWriter, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), api.RouterOptions{
+	router, err := api.NewProtectedRouter(handlers, authn, auditWriter, http.NotFoundHandler(), api.RouterOptions{
 		DefaultPageSize: 50,
 		MaxPageSize:     100,
 		PrincipalBudget: 10000,
@@ -760,4 +763,108 @@ func TestSubjectRights_RequesterVerification_FailsClosed(t *testing.T) {
 			t.Errorf("expected 200 OK for DPO SA, got %d", resp.StatusCode)
 		}
 	})
+}
+
+func TestSubjectRights_HEADBodySuppressionAndMethodGating(t *testing.T) {
+	now := time.Now().UTC()
+	principal := api.Principal{
+		Subject:   "spiffe://cluster.local/ns/prod/sa/alice-agent",
+		TenantID:  "tenant-finance",
+		ExpiresAt: now.Add(time.Hour),
+		Permissions: map[api.Permission]bool{
+			api.PermissionPrivacyExport:  true,
+			api.PermissionErasureRequest: true,
+		},
+		ActorIDs: map[string]bool{
+			"alice": true,
+			"*":     true,
+		},
+	}
+	server, repo, _ := setupSubjectRightsTestHarness(t, principal)
+	ctx := context.Background()
+	_ = repo.CreateActor(ctx, identity.ActorRecord{
+		ActorID:   "alice",
+		Status:    model.ActorPromoted,
+		CreatedAt: now.Add(-30 * 24 * time.Hour),
+		UpdatedAt: now,
+	})
+	aliasValidTo := now.Add(365 * 24 * time.Hour)
+	_ = repo.AddAlias(ctx, identity.AliasRecord{
+		ActorID:    "alice",
+		AliasType:  "email",
+		AliasValue: "alice@example.com",
+		ValidFrom:  now.Add(-30 * 24 * time.Hour),
+		ValidTo:    &aliasValidTo,
+	})
+
+	// 1. HEAD /api/v1/privacy/export/alice -> 200 OK, Content-Type: application/json, 0 body bytes (RFC 9110 Section 6.4.1)
+	headReq, err := http.NewRequest(http.MethodHead, server.URL+"/api/v1/privacy/export/alice", nil)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	headReq.Header.Set("Authorization", "Bearer token")
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD Do failed: %v", err)
+	}
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK on HEAD export, got %d", headResp.StatusCode)
+	}
+	if ct := headResp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("expected application/json Content-Type, got %s", ct)
+	}
+	headBody, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if len(headBody) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD export, got %d", len(headBody))
+	}
+
+	// 2. POST /api/v1/privacy/export/alice -> 403 Forbidden (unregistered method for route)
+	postReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/privacy/export/alice", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+	postReq.Header.Set("Authorization", "Bearer token")
+	postResp, err := http.DefaultClient.Do(postReq)
+	if err != nil {
+		t.Fatalf("POST Do failed: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 on POST export, got %d", postResp.StatusCode)
+	}
+
+	// 3. HEAD /api/v1/privacy/erasure/alice -> 403 Forbidden (unregistered method for route, with RFC 9110 Section 6.4.1 body suppression)
+	headErasureReq, err := http.NewRequest(http.MethodHead, server.URL+"/api/v1/privacy/erasure/alice", nil)
+	if err != nil {
+		t.Fatalf("HEAD erasure request failed: %v", err)
+	}
+	headErasureReq.Header.Set("Authorization", "Bearer token")
+	headErasureResp, err := http.DefaultClient.Do(headErasureReq)
+	if err != nil {
+		t.Fatalf("HEAD erasure Do failed: %v", err)
+	}
+	if headErasureResp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 on HEAD erasure, got %d", headErasureResp.StatusCode)
+	}
+	headErasureBody, _ := io.ReadAll(headErasureResp.Body)
+	headErasureResp.Body.Close()
+	if len(headErasureBody) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD erasure, got %d", len(headErasureBody))
+	}
+
+	// 4. GET /api/v1/privacy/erasure/alice -> 403 Forbidden (unregistered method for route)
+	getErasureReq, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/privacy/erasure/alice", nil)
+	if err != nil {
+		t.Fatalf("GET erasure request failed: %v", err)
+	}
+	getErasureReq.Header.Set("Authorization", "Bearer token")
+	getErasureResp, err := http.DefaultClient.Do(getErasureReq)
+	if err != nil {
+		t.Fatalf("GET erasure Do failed: %v", err)
+	}
+	getErasureResp.Body.Close()
+	if getErasureResp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 on GET erasure, got %d", getErasureResp.StatusCode)
+	}
 }

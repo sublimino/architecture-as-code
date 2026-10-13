@@ -79,7 +79,7 @@ class ProxyTest(ProxyServerTestCase):
             connection.close()
 
             # Test method not allowed for non-GET/HEAD verbs
-            for verb in ("POST", "PUT", "DELETE"):
+            for verb in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS"):
                 conn = http.client.HTTPConnection("127.0.0.1", self.port)
                 conn.request(verb, path)
                 bad_resp = conn.getresponse()
@@ -102,7 +102,7 @@ class ProxyTest(ProxyServerTestCase):
             connection.close()
 
             # Non-GET/HEAD verbs return 405 with Allow: GET, HEAD
-            for verb in ("POST", "PUT", "DELETE"):
+            for verb in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS"):
                 conn = http.client.HTTPConnection("127.0.0.1", self.port)
                 conn.request(verb, path)
                 bad_resp = conn.getresponse()
@@ -111,7 +111,7 @@ class ProxyTest(ProxyServerTestCase):
                 conn.close()
 
         # 2. Non-POST on /network-tests/scan returns 405 with Allow: POST
-        for verb in ("GET", "HEAD", "PUT", "DELETE"):
+        for verb in ("GET", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"):
             conn = http.client.HTTPConnection("127.0.0.1", self.port)
             conn.request(verb, "/network-tests/scan")
             bad_resp = conn.getresponse()

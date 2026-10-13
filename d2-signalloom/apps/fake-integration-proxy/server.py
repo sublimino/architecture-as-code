@@ -1931,6 +1931,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     do_PUT = _dispatch
     do_PATCH = _dispatch
     do_DELETE = _dispatch
+    do_OPTIONS = _dispatch
 
 
 ThreadingHTTPServer.allow_reuse_address = True

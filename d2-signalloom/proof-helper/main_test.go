@@ -421,4 +421,18 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 	if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
 		t.Errorf("POST /challenge Allow = %q, want GET, HEAD", allow)
 	}
+
+	// /a2a HEAD rejected with Allow: POST and empty body
+	reqA2AHead := httptest.NewRequest(http.MethodHead, "/a2a", nil)
+	recA2AHead := httptest.NewRecorder()
+	handler.ServeHTTP(recA2AHead, reqA2AHead)
+	if recA2AHead.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD /a2a returned %d, want 405", recA2AHead.Code)
+	}
+	if allow := recA2AHead.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD /a2a Allow = %q, want POST", allow)
+	}
+	if recA2AHead.Body.Len() != 0 {
+		t.Errorf("HEAD /a2a body length = %d, want 0", recA2AHead.Body.Len())
+	}
 }

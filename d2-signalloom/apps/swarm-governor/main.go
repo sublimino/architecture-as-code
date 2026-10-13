@@ -47,10 +47,13 @@ func NewGovernor(namespace string, maxTokenBudget int) *Governor {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // SubmitRequest is the payload for POST /tasks/submit.
@@ -65,20 +68,20 @@ type SubmitRequest struct {
 func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 	var req SubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	req.Description = strings.TrimSpace(req.Description)
 	if req.Description == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "description required"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "description required"})
 		return
 	}
 
@@ -95,7 +98,7 @@ func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(agents) == 0 {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "no agents discovered"})
+		writeJSON(w, r, http.StatusBadGateway, map[string]string{"error": "no agents discovered"})
 		return
 	}
 
@@ -110,7 +113,7 @@ func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	plan, err := Dispatch(task, agents, g.maxTokenBudget)
 	if err != nil {
 		slog.Error("dispatch failed", "error", err)
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		writeJSON(w, r, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -124,19 +127,19 @@ func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		"assignments", len(plan.Assignments),
 	)
 
-	writeJSON(w, http.StatusAccepted, plan)
+	writeJSON(w, r, http.StatusAccepted, plan)
 }
 
 func (g *Governor) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
 	taskID := strings.TrimPrefix(r.URL.Path, "/tasks/")
 	if taskID == "" || taskID == r.URL.Path {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task ID required"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "task ID required"})
 		return
 	}
 
@@ -145,27 +148,17 @@ func (g *Governor) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	g.mu.RUnlock()
 
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+		writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "task not found"})
 		return
 	}
 
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, plan)
+	writeJSON(w, r, http.StatusOK, plan)
 }
 
 func (g *Governor) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 	card := a2a.AgentCard{
@@ -179,33 +172,25 @@ func (g *Governor) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 			{Name: "coordinate", Description: "Coordinate multi-agent task execution"},
 		},
 	}
-	writeJSON(w, http.StatusOK, card)
+	writeJSON(w, r, http.StatusOK, card)
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func newMux(gov *Governor) *http.ServeMux {

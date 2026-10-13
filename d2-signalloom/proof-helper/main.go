@@ -347,10 +347,17 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubject string, publicKey ed25519.PublicKey, instanceNonce string) http.Handler {
 	mux := http.NewServeMux()
 	replay := newReplayCache(10000)
+	methodNotAllowed := func(response http.ResponseWriter, r *http.Request, allow string) {
+		response.Header().Set("Allow", allow)
+		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		if r != nil && r.Method != http.MethodHead {
+			_, _ = response.Write([]byte("method not allowed\n"))
+		}
+	}
 	healthHandler := func(response http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			response.Header().Set("Allow", "GET, HEAD")
-			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			methodNotAllowed(response, r, "GET, HEAD")
 			return
 		}
 		response.Header().Set("Content-Type", "application/json")
@@ -361,20 +368,19 @@ func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubje
 	mux.HandleFunc("/readyz", healthHandler)
 	mux.HandleFunc("/challenge", func(response http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			response.Header().Set("Allow", "GET, HEAD")
-			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			methodNotAllowed(response, r, "GET, HEAD")
 			return
 		}
 		response.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
+			response.WriteHeader(http.StatusOK)
 			return
 		}
 		_ = json.NewEncoder(response).Encode(map[string]string{"instanceNonce": instanceNonce})
 	})
 	mux.HandleFunc("/a2a", func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
-			response.Header().Set("Allow", "POST")
-			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			methodNotAllowed(response, request, "POST")
 			return
 		}
 		jwt := request.Header.Get("X-SPIFFE-JWT-SVID")
